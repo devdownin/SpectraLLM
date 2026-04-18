@@ -10,12 +10,18 @@ RUN mvn package -DskipTests -B
 FROM eclipse-temurin:25-jre
 WORKDIR /app
 
+# Create a non-root user
+RUN groupadd -r spectra && useradd -r -g spectra spectra
+
 # Install llmfit
 RUN apt-get update && apt-get install -y --no-install-recommends curl wget && \
     curl -fsSL https://llmfit.axjns.dev/install.sh | sh && \
     apt-get purge -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 
-COPY --from=build /app/target/*.jar app.jar
+COPY --from=build --chown=spectra:spectra /app/target/*.jar app.jar
+
+# Use the non-root user
+USER spectra
 
 ENV JAVA_OPTS="-Xms256m -Xmx1024m -XX:+UseZGC"
 
