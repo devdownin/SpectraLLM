@@ -128,6 +128,7 @@
                         <suppressionFile>dependency-suppression.xml</suppressionFile>
                     </suppressionFiles>
                     <nvdApiKey>${env.NVD_API_KEY}</nvdApiKey>
+                    <ossindexAnalyzerEnabled>false</ossindexAnalyzerEnabled>
                 </configuration>
                 <executions>
                     <execution>
