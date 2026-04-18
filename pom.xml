@@ -119,6 +119,31 @@
                     <argLine>-Xmx2g -XX:+EnableDynamicAgentLoading</argLine>
                 </configuration>
             </plugin>
+            <plugin>
+                <groupId>org.owasp</groupId>
+                <artifactId>dependency-check-maven</artifactId>
+                <version>12.1.0</version>
+                <configuration>
+                    <suppressionFiles>
+                        <suppressionFile>dependency-suppression.xml</suppressionFile>
+                    </suppressionFiles>
+                    <nvdApiKey>${env.NVD_API_KEY}</nvdApiKey>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>nvd-update</id>
+                        <goals>
+                            <goal>update-only</goal>
+                        </goals>
+                        <phase>validate</phase>
+                    </execution>
+                    <execution>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
 </project>
