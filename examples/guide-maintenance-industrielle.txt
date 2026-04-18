@@ -1,0 +1,228 @@
+GUIDE DE MAINTENANCE INDUSTRIELLE
+Manuel de référence — Révision 3.2
+
+=============================================================================
+1. INTRODUCTION ET OBJECTIFS
+=============================================================================
+
+Ce guide établit les procédures de maintenance préventive et corrective
+applicables aux équipements industriels de production. Il s'adresse aux
+techniciens de maintenance, chefs d'équipe et responsables de production.
+
+Objectifs :
+- Assurer la disponibilité maximale des équipements (objectif : TRS > 85 %)
+- Prévenir les pannes par une maintenance planifiée rigoureuse
+- Standardiser les interventions pour garantir la sécurité du personnel
+- Réduire les coûts de maintenance corrective non planifiée
+
+=============================================================================
+2. PLAN DE MAINTENANCE PRÉVENTIVE
+=============================================================================
+
+2.1 Maintenance journalière (opérateur de production)
+
+Chaque opérateur est responsable des vérifications quotidiennes suivantes
+avant la prise de poste :
+- Niveau d'huile des boîtes de vitesse (seuil min visible sur indicateur)
+- État visuel des courroies et chaînes de transmission (usure, tension)
+- Température de fonctionnement des paliers (max 80 °C à la main, sinon pyrométrie)
+- Propreté du poste : absence de copeaux, projections d'huile, corps étrangers
+- Fonctionnement des arrêts d'urgence (test fonctionnel hebdomadaire)
+
+Si une anomalie est détectée, l'opérateur doit :
+1. Consigner l'anomalie dans le cahier de bord machine
+2. Alerter le technicien de maintenance de permanence
+3. Ne pas démarrer la machine si la sécurité est compromise
+
+2.2 Maintenance hebdomadaire (technicien maintenance)
+
+Effectuée chaque lundi matin avant le démarrage de la production :
+- Lubrification des glissières et points de graissage (voir plan de lubrification)
+- Vérification du serrage des fixations critiques (couples de serrage au plan)
+- Contrôle du niveau des fluides hydrauliques (tolérance ± 5 % du nominal)
+- Inspection visuelle des joints d'étanchéité (trace d'huile = remplacement)
+- Test des sécurités électriques : protection thermique, relais, fusibles
+- Nettoyage des filtres à air des armoires électriques
+
+Durée estimée : 2 heures par ligne de production.
+
+2.3 Maintenance mensuelle
+
+- Remplacement des filtres à huile hydraulique (réf. FIL-HYD-003)
+- Analyse vibratoire des groupes motoréducteurs (seuil alerte : 4,5 mm/s RMS)
+- Vérification des alignements d'accouplement (tolérance : 0,05 mm)
+- Contrôle de l'isolement électrique des moteurs (min 1 MΩ à 500 V)
+- Mise à jour du plan de lubrification si modification équipement
+
+2.4 Maintenance annuelle (arrêt programmé)
+
+L'arrêt annuel de maintenance dure 5 jours ouvrés. Il comprend :
+- Remplacement complet des huiles et lubrifiants
+- Révision générale des réducteurs (démontage, contrôle dentures, roulements)
+- Remplacement préventif des roulements selon durée de vie fabricant
+- Contrôle et étalonnage de tous les capteurs de pression et température
+- Vérification et serrage de tous les raccords pneumatiques et hydrauliques
+- Inspection par ultrason des soudures sur les châssis et structures portantes
+
+=============================================================================
+3. LUBRIFICATION
+=============================================================================
+
+3.1 Tableau des lubrifiants
+
+L'utilisation de lubrifiants non homologués est formellement interdite.
+Le remplacement d'un lubrifiant nécessite une validation du service méthodes.
+
+| Équipement          | Lubrifiant        | Viscosité | Fréquence    | Volume  |
+|---------------------|-------------------|-----------|--------------|---------|
+| Réducteur principal | Mobil Glygoyle 30 | ISO 220   | 2000 h       | 4,5 L   |
+| Paliers à rouleaux  | Mobilux EP 2      | NLGI 2    | 500 h        | Pistolet|
+| Glissières linéaires| Mobil Vactra 4    | ISO 220   | Hebdomadaire | 5 mL    |
+| Transmission à vis  | Kluber Isoflex    | —         | 1000 h       | Seringue|
+| Compresseur d'air   | Huile VDL 46      | ISO 46    | Selon mano.  | 1 L     |
+
+3.2 Procédure de lubrification des roulements
+
+1. Arrêter la machine et consigner (procédure LOTO — voir section 7)
+2. Nettoyer l'orifice de graissage avec un chiffon propre
+3. Injecter le lubrifiant lentement à la pompe à graisse (max 3 coups)
+4. Faire tourner la machine à vide 5 minutes pour répartir le lubrifiant
+5. Contrôler la température de fonctionnement après 30 minutes
+6. Consigner l'intervention dans la GMAO (code opération LUB-001)
+
+Attention : une surgraissage est aussi néfaste qu'un sous-graissage.
+La surpression interne peut détruire les joints et contaminer le produit.
+
+=============================================================================
+4. MAINTENANCE CORRECTIVE
+=============================================================================
+
+4.1 Procédure d'intervention d'urgence
+
+En cas de panne imprévu durant la production :
+1. L'opérateur actionne l'arrêt d'urgence et informe le chef de poste
+2. Le chef de poste évalue la criticité (A = production arrêtée / B = dégradé / C = préventif)
+3. Pour criticité A : intervention immédiate, technicien de permanence contacté sous 15 min
+4. Pour criticité B : intervention dans l'heure, production en mode dégradé
+5. Pour criticité C : planification lors du prochain arrêt hebdomadaire
+
+4.2 Diagnostic de panne — Réducteur à engrenages
+
+Symptôme : bruit anormal (claquement, sifflement, grondement)
+
+Claquement rhythmé avec la rotation :
+→ Vérifier dentures pour écaillage ou dent cassée
+→ Contrôler le jeu d'engrènement (tolérance 0,1 à 0,3 mm selon module)
+→ Inspecter les clavettes et leur logement
+
+Sifflement haute fréquence :
+→ Analyser vibration (capteur accéléromètre)
+→ Vérifier roulements : usure des bagues, manque de lubrifiant, contamination
+→ Contrôler alignement des arbres
+
+Grondement sourd continu :
+→ Niveau huile insuffisant → appoint immédiat
+→ Huile dégradée (émulsion, particules) → vidange et nettoyage
+→ Roulement en fin de vie → remplacement préventif
+
+4.3 Remplacement d'un roulement (SKF 6208-2Z)
+
+Matériel requis : extracteur à 3 griffes, presse hydraulique 10 T, four à induction,
+calibre intérieur, comparateur.
+
+Procédure :
+1. Consigner la machine (LOTO complet)
+2. Démonter le carter et l'arbre selon plan (couple de dévissage au plan)
+3. Extraire le roulement usagé à l'extracteur — ne jamais forcer au marteau
+4. Inspecter l'alésage : dimensions, état de surface (rugosité max Ra 0,8 µm)
+5. Chauffer le roulement neuf à 100 °C au four à induction (jamais au chalumeau)
+6. Monter le roulement chaud à la presse, effort sur la bague intérieure uniquement
+7. Laisser refroidir à l'air libre — ne jamais refroidir à l'eau
+8. Remonter le carter, appoint de lubrifiant, test de rotation à vide
+9. Tracer l'intervention en GMAO avec numéro de lot du roulement
+
+=============================================================================
+5. INDICATEURS DE PERFORMANCE (KPIs)
+=============================================================================
+
+5.1 Taux de Rendement Synthétique (TRS)
+
+TRS = Disponibilité × Performance × Qualité
+
+Disponibilité = (Temps d'ouverture − Temps d'arrêts) / Temps d'ouverture
+Performance   = (Cadence réelle × Nb pièces) / (Cadence nominale × Temps net)
+Qualité       = Nb pièces conformes / Nb pièces total
+
+Objectif usine : TRS ≥ 85 % sur équipements critiques.
+Calcul réalisé quotidiennement et transmis au responsable de production.
+
+5.2 MTBF et MTTR
+
+MTBF (Mean Time Between Failures) :
+= Temps total de fonctionnement / Nombre de pannes
+Objectif : MTBF ≥ 720 h (30 jours) pour équipements de classe A
+
+MTTR (Mean Time To Repair) :
+= Temps total de réparation / Nombre de pannes
+Objectif : MTTR ≤ 4 h pour pannes critiques
+
+5.3 Suivi GMAO
+
+Toute intervention (préventive ou corrective) doit être tracée dans la GMAO
+(Gestion de Maintenance Assistée par Ordinateur) avec :
+- Équipement concerné (tag asset)
+- Type d'intervention et code opération
+- Durée réelle de l'intervention
+- Pièces remplacées (référence et numéro de lot)
+- Technicien intervenant
+- Observations et préconisations
+
+=============================================================================
+6. GESTION DES PIÈCES DE RECHANGE
+=============================================================================
+
+6.1 Stock critique (disponibilité 24h/24)
+
+Les pièces suivantes doivent être disponibles en permanence au magasin :
+
+| Référence        | Désignation                    | Qté min | Fournisseur |
+|------------------|-------------------------------|---------|-------------|
+| RLT-6208-2Z      | Roulement SKF 6208-2Z          | 4       | SKF / Rexnord |
+| CUR-V-60         | Courroie trapézoïdale V-60     | 2       | Gates       |
+| FIL-HYD-003      | Filtre hydraulique 10 µm       | 4       | Parker      |
+| JNT-HUB-012      | Joint torique Ø 50×3 NBR       | 10      | Freudenberg |
+| FUS-10A-GL       | Fusible 10A gG 14×51           | 20      | Schneider   |
+
+6.2 Délai d'approvisionnement
+
+Pour les pièces hors stock critique, les délais indicatifs sont :
+- Fournisseurs référencés contrat cadre : 48h à 5 jours ouvrés
+- Pièces spécifiques fabricant : 2 à 6 semaines (commande anticipée obligatoire)
+- Pièces obsolètes : contacter le service méthodes pour alternative
+
+=============================================================================
+7. PROCÉDURES DE SÉCURITÉ
+=============================================================================
+
+Toute intervention sur un équipement nécessite l'application de la procédure
+LOTO (Lock Out / Tag Out — Consignation / Déconsignation).
+
+Se référer au document "Procédures Sécurité Atelier" pour le détail complet.
+
+Rappel des principes fondamentaux :
+- Aucune intervention sans consignation préalable
+- Chaque intervenant pose son propre cadenas personnel
+- La déconsignation n'est possible que si tous les cadenas sont retirés
+- En cas de perte de clé : contacter immédiatement le chef d'équipe
+
+=============================================================================
+8. CONTACTS ET ESCALADE
+=============================================================================
+
+Technicien de permanence : poste 2001 (24h/24)
+Responsable maintenance : poste 2010 (7h–17h)
+Fournisseur SKF (urgences) : 0800 xxx xxx
+Hotline GMAO : support@gmao-interne.local
+
+Pour toute question sur ce document, contacter le service méthodes.
+Document soumis à révision annuelle. Prochaine révision : janvier 2027.

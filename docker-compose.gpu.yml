@@ -1,0 +1,37 @@
+# Override pour activer l'accélération GPU NVIDIA (CUDA).
+# Usage : docker compose -f docker-compose.yml -f docker-compose.gpu.yml up
+services:
+  llm-chat:
+    image: ghcr.io/ggerganov/llama.cpp:server-cuda
+    command: >
+      --host 0.0.0.0
+      --port 8081
+      --model /models/${LLM_CHAT_MODEL_FILE:-Phi-4-mini-reasoning-UD-IQ1_S.gguf}
+      --ctx-size 4096
+      --parallel ${LLM_PARALLEL:-2}
+      --n-gpu-layers 99
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  llm-embed:
+    image: ghcr.io/ggerganov/llama.cpp:server-cuda
+    command: >
+      --host 0.0.0.0
+      --port 8082
+      --model /models/${LLM_EMBED_MODEL_FILE:-embed.gguf}
+      --embedding
+      --ctx-size 512
+      --parallel ${LLM_EMBED_PARALLEL:-4}
+      --n-gpu-layers 99
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

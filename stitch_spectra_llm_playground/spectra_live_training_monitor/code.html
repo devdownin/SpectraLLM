@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Spectra | Live Process Monitor</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Inter:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary-dim": "#00deec",
+                        "on-primary": "#005d63",
+                        "on-primary-fixed-variant": "#005e64",
+                        "tertiary-fixed-dim": "#c1d0e6",
+                        "secondary-fixed": "#f1c1ff",
+                        "on-secondary-fixed": "#580079",
+                        "surface-variant": "#192540",
+                        "error-container": "#9f0519",
+                        "on-secondary-container": "#fff5fc",
+                        "secondary-dim": "#bb00fc",
+                        "primary-container": "#00eefc",
+                        "error-dim": "#d7383b",
+                        "on-tertiary-container": "#414f62",
+                        "surface-container-high": "#141f38",
+                        "on-primary-container": "#005359",
+                        "tertiary-container": "#cfdef5",
+                        "surface-bright": "#1f2b49",
+                        "surface-dim": "#060e20",
+                        "primary-fixed": "#00eefc",
+                        "on-secondary-fixed-variant": "#8400b3",
+                        "on-surface-variant": "#a3aac4",
+                        "on-tertiary": "#49586b",
+                        "on-error": "#490006",
+                        "surface": "#060e20",
+                        "tertiary-fixed": "#cfdef5",
+                        "surface-container": "#0f1930",
+                        "secondary-container": "#9900cf",
+                        "on-tertiary-fixed": "#2e3d4e",
+                        "surface-container-lowest": "#000000",
+                        "on-primary-fixed": "#003f43",
+                        "surface-container-low": "#091328",
+                        "on-background": "#dee5ff",
+                        "tertiary-dim": "#c1d0e6",
+                        "outline-variant": "#40485d",
+                        "secondary-fixed-dim": "#eaaeff",
+                        "tertiary": "#e0ecff",
+                        "on-error-container": "#ffa8a3",
+                        "background": "#060e20",
+                        "surface-container-highest": "#192540",
+                        "inverse-surface": "#faf8ff",
+                        "inverse-primary": "#006a71",
+                        "error": "#ff716c",
+                        "primary-fixed-dim": "#00deec",
+                        "on-tertiary-fixed-variant": "#4a596c",
+                        "outline": "#6d758c",
+                        "secondary": "#d674ff",
+                        "on-surface": "#dee5ff",
+                        "inverse-on-surface": "#4d556b",
+                        "surface-tint": "#8ff5ff",
+                        "on-secondary": "#390050",
+                        "primary": "#8ff5ff"
+                    },
+                    fontFamily: {
+                        "headline": ["Space Grotesk"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    },
+                    borderRadius: { "DEFAULT": "0px", "lg": "0px", "xl": "0px", "full": "9999px" },
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: #060e20; }
+        ::-webkit-scrollbar-thumb { background: #192540; }
+        ::-webkit-scrollbar-thumb:hover { background: #8ff5ff; }
+    </style>
+</head>
+<body class="bg-surface text-on-surface font-body selection:bg-primary-container selection:text-on-primary-container">
+<!-- SideNavBar Shell -->
+<aside class="fixed left-0 top-0 h-full flex flex-col p-4 z-40 bg-[#091328] w-64 border-none font-['Space_Grotesk'] uppercase tracking-[0.1em] text-[11px]">
+<div class="text-lg font-black text-[#8ff5ff] mb-8">Spectra</div>
+<div class="mb-2 text-[#a3aac4] opacity-50">AI ARCHITECT v1.0</div>
+<nav class="flex flex-col gap-1 mt-8">
+<div class="flex items-center gap-3 px-4 py-3 cursor-pointer text-[#8ff5ff] border-l-2 border-[#d674ff] bg-[#192540] transition-all">
+<span class="material-symbols-outlined text-sm">dashboard</span>
+<span>Dashboard</span>
+</div>
+<div class="flex items-center gap-3 px-4 py-3 cursor-pointer text-[#6d758c] hover:text-[#8ff5ff] hover:bg-[#141f38] transition-all">
+<span class="material-symbols-outlined text-sm">database</span>
+<span>Datasets</span>
+</div>
+<div class="flex items-center gap-3 px-4 py-3 cursor-pointer text-[#6d758c] hover:text-[#8ff5ff] hover:bg-[#141f38] transition-all">
+<span class="material-symbols-outlined text-sm">analytics</span>
+<span>Pipelines</span>
+</div>
+<div class="flex items-center gap-3 px-4 py-3 cursor-pointer text-[#6d758c] hover:text-[#8ff5ff] hover:bg-[#141f38] transition-all">
+<span class="material-symbols-outlined text-sm">chat_bubble</span>
+<span>Playground</span>
+</div>
+</nav>
+<div class="mt-auto flex flex-col gap-1">
+<button class="bg-[#8ff5ff] text-[#003f43] font-bold py-3 mb-6 flex items-center justify-center gap-2 hover:brightness-110 transition-all">
+<span class="material-symbols-outlined text-sm">add</span>
+                NEW MODEL
+            </button>
+<div class="flex items-center gap-3 px-4 py-2 cursor-pointer text-[#6d758c] hover:text-[#8ff5ff] transition-all">
+<span class="material-symbols-outlined text-sm">menu_book</span>
+<span>Documentation</span>
+</div>
+<div class="flex items-center gap-3 px-4 py-2 cursor-pointer text-[#6d758c] hover:text-[#8ff5ff] transition-all">
+<span class="material-symbols-outlined text-sm">support_agent</span>
+<span>Support</span>
+</div>
+</div>
+</aside>
+<!-- Main Content Canvas -->
+<main class="ml-64 min-h-screen flex flex-col">
+<!-- TopAppBar Shell -->
+<header class="flex justify-between items-center px-6 py-3 sticky top-0 z-50 bg-[#0f1930] shadow-[0_0_15px_rgba(143,245,255,0.04)] font-['Space_Grotesk'] tracking-tighter">
+<div class="text-xl font-bold tracking-[-0.04em] text-[#8ff5ff]">PROCESS MONITOR</div>
+<div class="flex items-center gap-6">
+<div class="relative group">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm">search</span>
+<input class="bg-surface-container-high border-none text-[10px] tracking-widest pl-10 pr-4 py-2 w-64 focus:ring-1 focus:ring-primary" placeholder="SEARCH PIPELINES..." type="text"/>
+</div>
+<div class="flex items-center gap-4 text-[#a3aac4]">
+<span class="material-symbols-outlined cursor-pointer hover:text-[#8ff5ff] transition-colors">settings</span>
+<span class="material-symbols-outlined cursor-pointer hover:text-[#8ff5ff] transition-colors">notifications</span>
+<span class="material-symbols-outlined cursor-pointer hover:text-[#8ff5ff] transition-colors">account_circle</span>
+</div>
+</div>
+</header>
+<div class="p-8 flex-grow flex flex-col gap-8">
+<!-- Hero Status / Asymmetric Grid -->
+<section class="grid grid-cols-12 gap-6">
+<!-- Primary Progress: Fine-Tuning LoRA -->
+<div class="col-span-12 lg:col-span-8 bg-surface-container p-8 relative overflow-hidden">
+<div class="flex justify-between items-start mb-12">
+<div>
+<span class="font-label text-[10px] uppercase tracking-[0.2em] text-secondary">Phase 03 // Optimization</span>
+<h2 class="font-headline text-4xl font-bold tracking-tighter mt-2 text-primary">FINE-TUNING [LoRA/Unsloth]</h2>
+</div>
+<div class="text-right">
+<div class="font-headline text-5xl font-black text-on-surface tracking-tight">64.8<span class="text-lg text-primary-dim ml-1">%</span></div>
+<span class="font-label text-[10px] text-on-surface-variant uppercase tracking-widest">Global Progress</span>
+</div>
+</div>
+<div class="space-y-8">
+<div>
+<div class="flex justify-between mb-2">
+<span class="font-label text-[11px] text-on-surface uppercase tracking-widest">Training Loss: 0.241</span>
+<span class="font-label text-[11px] text-primary uppercase tracking-widest">Iter: 4,200 / 6,500</span>
+</div>
+<div class="h-1 w-full bg-outline-variant">
+<div class="h-full bg-primary shadow-[0_0_15px_rgba(143,245,255,0.4)] w-[64.8%]"></div>
+</div>
+</div>
+<div class="grid grid-cols-3 gap-8 pt-4">
+<div>
+<span class="block font-label text-[9px] text-on-surface-variant uppercase tracking-widest mb-1">Learning Rate</span>
+<span class="font-headline text-xl text-on-surface">2.5e-5</span>
+</div>
+<div>
+<span class="block font-label text-[9px] text-on-surface-variant uppercase tracking-widest mb-1">VRAM Usage</span>
+<span class="font-headline text-xl text-on-surface">22.4 GB</span>
+</div>
+<div>
+<span class="block font-label text-[9px] text-on-surface-variant uppercase tracking-widest mb-1">Time Elapsed</span>
+<span class="font-headline text-xl text-on-surface">02:44:12</span>
+</div>
+</div>
+</div>
+<!-- Decorative Background Text -->
+<div class="absolute -bottom-4 -right-4 font-black text-9xl text-white/[0.02] pointer-events-none select-none">LORA</div>
+</div>
+<!-- Secondary Trackers -->
+<div class="col-span-12 lg:col-span-4 flex flex-col gap-6">
+<!-- Embeddings -->
+<div class="bg-surface-container-high p-6 flex flex-col justify-between h-full">
+<div>
+<div class="flex items-center gap-2 mb-4">
+<span class="w-2 h-2 bg-secondary animate-pulse"></span>
+<span class="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">nomic-embed-text</span>
+</div>
+<h3 class="font-headline text-lg font-bold mb-4">EMBEDDINGS GENERATION</h3>
+</div>
+<div>
+<div class="flex justify-between text-[10px] font-label mb-2">
+<span>COMPLETE</span>
+<span>100%</span>
+</div>
+<div class="h-1 w-full bg-outline-variant">
+<div class="h-full bg-secondary w-full"></div>
+</div>
+</div>
+</div>
+<!-- Vector Storage -->
+<div class="bg-surface-container-high p-6 flex flex-col justify-between h-full">
+<div>
+<div class="flex items-center gap-2 mb-4">
+<span class="w-2 h-2 bg-secondary"></span>
+<span class="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">ChromaDB Vector Store</span>
+</div>
+<h3 class="font-headline text-lg font-bold mb-4">VECTOR INDEXING</h3>
+</div>
+<div>
+<div class="flex justify-between text-[10px] font-label mb-2">
+<span>FINALIZING</span>
+<span>92%</span>
+</div>
+<div class="h-1 w-full bg-outline-variant">
+<div class="h-full bg-secondary w-[92%]"></div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Bottom Section: Terminal & Export -->
+<section class="grid grid-cols-12 gap-6 flex-grow">
+<!-- Terminal Window -->
+<div class="col-span-12 lg:col-span-9 bg-surface-container-lowest flex flex-col">
+<div class="bg-surface-container-high px-6 py-2 flex items-center justify-between">
+<div class="flex gap-2">
+<div class="w-2 h-2 rounded-full bg-error-dim/40"></div>
+<div class="w-2 h-2 rounded-full bg-primary-dim/40"></div>
+<div class="w-2 h-2 rounded-full bg-secondary-dim/40"></div>
+</div>
+<span class="font-label text-[9px] uppercase tracking-[0.2em] text-on-surface-variant">System_Output // spectra_training.log</span>
+<span class="material-symbols-outlined text-sm text-on-surface-variant">terminal</span>
+</div>
+<div class="p-6 font-mono text-[12px] overflow-y-auto leading-relaxed h-80">
+<p class="text-on-surface-variant"><span class="text-primary">[14:22:01]</span> Initializing Unsloth optimization engine...</p>
+<p class="text-on-surface-variant"><span class="text-primary">[14:22:05]</span> Loading base model: Mistral-7B-v0.3</p>
+<p class="text-on-surface-variant"><span class="text-primary">[14:22:12]</span> Mapping LoRA adapters to 16 attention heads</p>
+<p class="text-on-surface-variant"><span class="text-primary">[14:23:45]</span> Iteration 1000: loss=0.842 | acc=0.72</p>
+<p class="text-on-surface-variant"><span class="text-primary">[14:28:10]</span> Iteration 2000: loss=0.511 | acc=0.84</p>
+<p class="text-on-surface-variant"><span class="text-primary">[14:35:55]</span> Iteration 3000: loss=0.324 | acc=0.89</p>
+<p class="text-on-surface-variant"><span class="text-primary">[14:42:12]</span> Checkpoint saved to ./outputs/spectra-v1-epoch2</p>
+<p class="text-secondary"><span class="text-primary">[14:48:30]</span> INFO: Scaling learning rate for next 500 steps...</p>
+<p class="text-on-surface-variant"><span class="text-primary">[14:55:01]</span> Iteration 4000: loss=0.258 | acc=0.92</p>
+<p class="text-primary animate-pulse mt-2">&gt; _ system monitoring active</p>
+</div>
+</div>
+<!-- Export Status -->
+<div class="col-span-12 lg:col-span-3 flex flex-col gap-4">
+<div class="bg-surface-container p-6 flex flex-col justify-between flex-grow border-l border-primary/10">
+<div>
+<h4 class="font-headline font-bold text-sm tracking-widest uppercase mb-6">Pipeline Export</h4>
+<div class="space-y-6">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-primary">package_2</span>
+<span class="font-label text-xs">GGUF Quantization</span>
+</div>
+<span class="font-label text-[10px] text-on-surface-variant italic">PENDING</span>
+</div>
+<div class="flex items-center justify-between opacity-50">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined">cloud_upload</span>
+<span class="font-label text-xs">Ollama Registry</span>
+</div>
+<span class="font-label text-[10px] text-on-surface-variant italic">QUEUED</span>
+</div>
+<div class="flex items-center justify-between opacity-50">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined">description</span>
+<span class="font-label text-xs">Model Card</span>
+</div>
+<span class="font-label text-[10px] text-on-surface-variant italic">QUEUED</span>
+</div>
+</div>
+</div>
+<button class="mt-8 py-4 border border-primary/30 text-primary font-label text-[10px] tracking-[0.2em] uppercase hover:bg-primary hover:text-on-primary transition-all">
+                            CONFIGURE EXPORT
+                        </button>
+</div>
+<!-- Visual Accent Card -->
+<div class="relative h-24 overflow-hidden">
+<img class="w-full h-full object-cover grayscale brightness-50 opacity-40" data-alt="Abstract digital visualization of flowing data streams and neural network nodes in deep cyan and purple light" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBxr6hN1HG0SMoE7aHB5ftNUqJ-oRfqVGhVr5YqBC-5tCXBAK6_ulHrFObLn5dxPRpJGYbn2hizVPAoyS46qatI0JvSSfYQF4TewyjWX0MG-M3qRYIrLeItCjUbsoO7OvjKb9rjtTbTKDyPsjkpJMOlhq-AMigGt6enfjeL-1vZtkYOZGnraEQyJ3aNCjZp8npLCBAtIRTzDDZ6ADXhfx6Vn_3_uhkJXvwVMEqH3tEUupKfQqKTWZoTqxAi9UCfKLvJsdknVC5i3awW"/>
+<div class="absolute inset-0 bg-gradient-to-t from-surface-container to-transparent"></div>
+</div>
+</div>
+</section>
+</div>
+</main>
+<!-- Contextual FAB (Only on Dashboard/Home) -->
+<button class="fixed bottom-8 right-8 w-16 h-16 bg-primary text-on-primary flex items-center justify-center shadow-[0_0_20px_rgba(143,245,255,0.3)] hover:scale-105 active:scale-95 duration-100 transition-all z-50">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">bolt</span>
+</button>
+</body></html>

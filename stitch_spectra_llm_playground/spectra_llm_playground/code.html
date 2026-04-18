@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Spectra | AI Playground</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700;900&amp;family=Inter:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary-dim": "#00deec",
+                        "on-primary": "#005d63",
+                        "on-primary-fixed-variant": "#005e64",
+                        "tertiary-fixed-dim": "#c1d0e6",
+                        "secondary-fixed": "#f1c1ff",
+                        "on-secondary-fixed": "#580079",
+                        "surface-variant": "#192540",
+                        "error-container": "#9f0519",
+                        "on-secondary-container": "#fff5fc",
+                        "secondary-dim": "#bb00fc",
+                        "primary-container": "#00eefc",
+                        "error-dim": "#d7383b",
+                        "on-tertiary-container": "#414f62",
+                        "surface-container-high": "#141f38",
+                        "on-primary-container": "#005359",
+                        "tertiary-container": "#cfdef5",
+                        "surface-bright": "#1f2b49",
+                        "surface-dim": "#060e20",
+                        "primary-fixed": "#00eefc",
+                        "on-secondary-fixed-variant": "#8400b3",
+                        "on-surface-variant": "#a3aac4",
+                        "on-tertiary": "#49586b",
+                        "on-error": "#490006",
+                        "surface": "#060e20",
+                        "tertiary-fixed": "#cfdef5",
+                        "surface-container": "#0f1930",
+                        "secondary-container": "#9900cf",
+                        "on-tertiary-fixed": "#2e3d4e",
+                        "surface-container-lowest": "#000000",
+                        "on-primary-fixed": "#003f43",
+                        "surface-container-low": "#091328",
+                        "on-background": "#dee5ff",
+                        "tertiary-dim": "#c1d0e6",
+                        "outline-variant": "#40485d",
+                        "secondary-fixed-dim": "#eaaeff",
+                        "tertiary": "#e0ecff",
+                        "on-error-container": "#ffa8a3",
+                        "background": "#060e20",
+                        "surface-container-highest": "#192540",
+                        "inverse-surface": "#faf8ff",
+                        "inverse-primary": "#006a71",
+                        "error": "#ff716c",
+                        "primary-fixed-dim": "#00deec",
+                        "on-tertiary-fixed-variant": "#4a596c",
+                        "outline": "#6d758c",
+                        "secondary": "#d674ff",
+                        "on-surface": "#dee5ff",
+                        "inverse-on-surface": "#4d556b",
+                        "surface-tint": "#8ff5ff",
+                        "on-secondary": "#390050",
+                        "primary": "#8ff5ff"
+                    },
+                    fontFamily: {
+                        "headline": ["Space Grotesk"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    },
+                    borderRadius: {"DEFAULT": "0px", "lg": "0px", "xl": "0px", "full": "9999px"},
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        body {
+            background-color: #060e20;
+            color: #dee5ff;
+            font-family: 'Inter', sans-serif;
+            overflow-x: hidden;
+        }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: #060e20; }
+        ::-webkit-scrollbar-thumb { background: #192540; }
+        ::-webkit-scrollbar-thumb:hover { background: #8ff5ff; }
+    </style>
+</head>
+<body class="flex min-h-screen">
+<!-- SideNavBar (Shared Component) -->
+<aside class="fixed left-0 top-0 h-full flex flex-col p-4 z-40 bg-[#091328] w-64 border-none font-['Space_Grotesk'] uppercase tracking-[0.1em] text-[11px]">
+<div class="mb-8">
+<h1 class="text-lg font-black text-[#8ff5ff] leading-none">Spectra</h1>
+<p class="text-[9px] text-outline tracking-[0.2em] mt-1 opacity-60">AI ARCHITECT v1.0</p>
+</div>
+<button class="mb-8 w-full py-3 bg-primary text-on-primary-fixed font-bold flex items-center justify-center gap-2 hover:opacity-90 transition-all active:scale-95 duration-100 cursor-pointer">
+<span class="material-symbols-outlined text-[18px]">add</span>
+            NEW MODEL
+        </button>
+<nav class="flex-1 flex flex-col gap-1">
+<a class="flex items-center gap-3 px-4 py-3 text-[#6d758c] hover:text-[#8ff5ff] hover:bg-[#141f38] transition-all cursor-pointer" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span>Dashboard</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-[#6d758c] hover:text-[#8ff5ff] hover:bg-[#141f38] transition-all cursor-pointer" href="#">
+<span class="material-symbols-outlined">database</span>
+<span>Datasets</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-[#6d758c] hover:text-[#8ff5ff] hover:bg-[#141f38] transition-all cursor-pointer" href="#">
+<span class="material-symbols-outlined">analytics</span>
+<span>Pipelines</span>
+</a>
+<!-- Active State: Playground -->
+<a class="flex items-center gap-3 px-4 py-3 text-[#8ff5ff] border-l-2 border-[#d674ff] bg-[#192540] cursor-pointer" href="#">
+<span class="material-symbols-outlined">chat_bubble</span>
+<span>Playground</span>
+</a>
+</nav>
+<div class="mt-auto flex flex-col gap-1 pt-4">
+<a class="flex items-center gap-3 px-4 py-2 text-[#6d758c] hover:text-[#8ff5ff] transition-all cursor-pointer" href="#">
+<span class="material-symbols-outlined">menu_book</span>
+<span>Documentation</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2 text-[#6d758c] hover:text-[#8ff5ff] transition-all cursor-pointer" href="#">
+<span class="material-symbols-outlined">support_agent</span>
+<span>Support</span>
+</a>
+</div>
+</aside>
+<!-- Main Canvas -->
+<main class="flex-1 ml-64 flex flex-col h-screen relative">
+<!-- TopAppBar (Shared Component) -->
+<header class="flex justify-between items-center px-6 py-3 sticky top-0 z-50 bg-[#060e20] w-full border-none shadow-[0_0_15px_rgba(143,245,255,0.04)] font-['Space_Grotesk'] tracking-tighter">
+<div class="flex items-center gap-4">
+<span class="text-xl font-bold tracking-[-0.04em] text-[#8ff5ff]">Spectra</span>
+<span class="text-[10px] px-2 py-0.5 bg-surface-container-high text-secondary border border-secondary/20 uppercase tracking-widest font-label">Playground Mode</span>
+</div>
+<div class="flex items-center gap-6">
+<div class="hidden md:flex items-center bg-[#0f1930] px-3 py-1.5 border-none">
+<span class="material-symbols-outlined text-on-surface-variant text-[18px] mr-2">search</span>
+<input class="bg-transparent border-none outline-none text-xs text-on-surface w-48 focus:ring-0 placeholder:text-outline/50" placeholder="Search architecture..." type="text"/>
+</div>
+<div class="flex items-center gap-4 text-[#a3aac4]">
+<span class="material-symbols-outlined hover:bg-[#192540] transition-colors duration-200 p-2 cursor-pointer active:scale-95 duration-100">settings</span>
+<span class="material-symbols-outlined hover:bg-[#192540] transition-colors duration-200 p-2 cursor-pointer active:scale-95 duration-100">notifications</span>
+<span class="material-symbols-outlined hover:bg-[#192540] transition-colors duration-200 p-2 cursor-pointer active:scale-95 duration-100">account_circle</span>
+</div>
+</div>
+</header>
+<!-- Main Workspace: Asymmetric Layout -->
+<div class="flex-1 flex overflow-hidden">
+<!-- Conversation History / Left Column -->
+<div class="w-72 bg-surface-container-low flex flex-col border-none">
+<div class="p-6">
+<h3 class="font-headline font-bold text-xs uppercase tracking-[0.15em] text-on-surface-variant mb-4">Chat History</h3>
+<div class="space-y-1">
+<div class="p-3 bg-surface-container-highest border-l-2 border-primary cursor-pointer">
+<p class="text-[13px] font-medium text-primary truncate">RAG Optimization Strategy</p>
+<p class="text-[10px] text-outline/60 mt-1">2 hours ago</p>
+</div>
+<div class="p-3 hover:bg-surface-container-high transition-colors cursor-pointer border-l-2 border-transparent">
+<p class="text-[13px] font-medium text-on-surface truncate">Neural Weight Analysis</p>
+<p class="text-[10px] text-outline/60 mt-1">Yesterday</p>
+</div>
+<div class="p-3 hover:bg-surface-container-high transition-colors cursor-pointer border-l-2 border-transparent">
+<p class="text-[13px] font-medium text-on-surface truncate">Baseline Performance Test</p>
+<p class="text-[10px] text-outline/60 mt-1">Oct 24, 2023</p>
+</div>
+</div>
+</div>
+</div>
+<!-- Chat Interface / Center Column -->
+<div class="flex-1 flex flex-col bg-surface relative">
+<!-- Chat Messages Scroll Area -->
+<div class="flex-1 overflow-y-auto p-8 space-y-8">
+<!-- AI Message -->
+<div class="flex flex-col gap-3 max-w-3xl">
+<div class="flex items-center gap-2">
+<span class="w-6 h-6 bg-primary text-on-primary-fixed text-[10px] flex items-center justify-center font-black">AI</span>
+<span class="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Spectra-v1.0</span>
+</div>
+<div class="bg-surface-container-lowest p-6 border-l border-secondary-dim/30 shadow-[inset_0_0_15px_rgba(187,0,252,0.05)]">
+<p class="text-[14px] leading-relaxed font-body">Hello Architect. I have initialized the retrieval engine. How shall we refine the synthetic intelligence parameters today?</p>
+</div>
+</div>
+<!-- User Message -->
+<div class="flex flex-col gap-3 max-w-3xl ml-auto items-end">
+<div class="flex items-center gap-2">
+<span class="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">User_041</span>
+<span class="w-6 h-6 bg-surface-container-high text-on-surface text-[10px] flex items-center justify-center font-black">OP</span>
+</div>
+<div class="bg-surface-container-high p-6 text-right">
+<p class="text-[14px] leading-relaxed font-body">Analyze the provided documentation for vector embedding collisions in the latent space.</p>
+</div>
+</div>
+<!-- AI Message with RAG Source -->
+<div class="flex flex-col gap-3 max-w-3xl">
+<div class="flex items-center gap-2">
+<span class="w-6 h-6 bg-primary text-on-primary-fixed text-[10px] flex items-center justify-center font-black">AI</span>
+<span class="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Spectra-v1.0</span>
+</div>
+<div class="bg-surface-container-lowest p-6 border-l border-secondary-dim/30 shadow-[inset_0_0_15px_rgba(187,0,252,0.05)]">
+<p class="text-[14px] leading-relaxed font-body mb-4">I've retrieved 3 relevant snippets regarding latent space collisions. Based on these sources, the collision probability increases with dimensionality reduction above 15%.</p>
+<!-- RAG Snippets -->
+<div class="mt-6 border-t border-outline-variant/30 pt-4 space-y-3">
+<div class="flex items-center gap-2 mb-2">
+<span class="material-symbols-outlined text-[14px] text-secondary">description</span>
+<span class="font-label text-[9px] uppercase tracking-widest text-secondary">Source Documents</span>
+</div>
+<div class="bg-surface-container p-3 flex gap-4 hover:bg-surface-container-high transition-all">
+<div class="w-1 bg-secondary shadow-[0_0_8px_rgba(214,116,255,0.4)]"></div>
+<div>
+<p class="text-[11px] font-bold text-on-surface">Arch_Spec_v2.pdf</p>
+<p class="text-[10px] text-on-surface-variant mt-1 italic">"...latent vector overlaps occur when the normalization phase is bypassed..."</p>
+</div>
+</div>
+<div class="bg-surface-container p-3 flex gap-4 hover:bg-surface-container-high transition-all">
+<div class="w-1 bg-secondary shadow-[0_0_8px_rgba(214,116,255,0.4)]"></div>
+<div>
+<p class="text-[11px] font-bold text-on-surface">Vector_Math_Logs.log</p>
+<p class="text-[10px] text-on-surface-variant mt-1 italic">"Error 404: High collision density detected in quadrant 4B of the embedding layer..."</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Input Field Container -->
+<div class="p-8 bg-surface border-t border-outline-variant/10">
+<div class="max-w-4xl mx-auto relative">
+<textarea class="w-full bg-transparent border-b border-primary py-4 px-0 outline-none focus:ring-0 text-[15px] placeholder:text-outline/40 resize-none font-body" placeholder="Type a command or query..." rows="1"></textarea>
+<div class="absolute right-0 bottom-4 flex gap-4">
+<button class="material-symbols-outlined text-primary hover:text-white transition-colors">attach_file</button>
+<button class="material-symbols-outlined text-primary hover:text-white transition-colors">send</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Controls Panel / Right Column -->
+<div class="w-80 bg-surface-container-high flex flex-col border-none">
+<div class="p-6 flex-1 flex flex-col gap-10">
+<!-- RAG Toggle -->
+<div>
+<div class="flex justify-between items-center mb-6">
+<h3 class="font-headline font-bold text-xs uppercase tracking-[0.15em] text-on-surface-variant">RAG Mode</h3>
+<label class="relative inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-11 h-5 bg-outline-variant peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-secondary"></div>
+</label>
+</div>
+<p class="text-[10px] text-on-surface-variant leading-relaxed">Retrieval Augmented Generation is active. Sources will be cited in real-time.</p>
+</div>
+<!-- Model Configuration -->
+<div class="space-y-8">
+<h3 class="font-headline font-bold text-xs uppercase tracking-[0.15em] text-on-surface-variant">Hyperparameters</h3>
+<!-- Temperature Slider -->
+<div class="space-y-4">
+<div class="flex justify-between items-end">
+<label class="font-label text-[10px] uppercase tracking-widest text-on-surface">Temperature</label>
+<span class="font-headline text-lg font-bold text-primary leading-none">0.72</span>
+</div>
+<div class="relative h-1 bg-outline-variant w-full">
+<div class="absolute top-0 left-0 h-full bg-primary shadow-[0_0_10px_rgba(143,245,255,0.4)]" style="width: 72%;"></div>
+<div class="absolute top-[-4px] left-[72%] w-3 h-3 bg-white"></div>
+</div>
+<p class="text-[9px] text-outline/60 uppercase tracking-tighter">Controls randomness: Lower is focused, higher is creative.</p>
+</div>
+<!-- Top P Slider -->
+<div class="space-y-4">
+<div class="flex justify-between items-end">
+<label class="font-label text-[10px] uppercase tracking-widest text-on-surface">Top P</label>
+<span class="font-headline text-lg font-bold text-primary leading-none">0.90</span>
+</div>
+<div class="relative h-1 bg-outline-variant w-full">
+<div class="absolute top-0 left-0 h-full bg-primary shadow-[0_0_10px_rgba(143,245,255,0.4)]" style="width: 90%;"></div>
+<div class="absolute top-[-4px] left-[90%] w-3 h-3 bg-white"></div>
+</div>
+<p class="text-[9px] text-outline/60 uppercase tracking-tighter">Nucleus sampling threshold for probability mass.</p>
+</div>
+<!-- Max Tokens -->
+<div class="space-y-4">
+<div class="flex justify-between items-end">
+<label class="font-label text-[10px] uppercase tracking-widest text-on-surface">Max Tokens</label>
+<span class="font-headline text-lg font-bold text-primary leading-none">2048</span>
+</div>
+<div class="relative h-1 bg-outline-variant w-full">
+<div class="absolute top-0 left-0 h-full bg-primary shadow-[0_0_10px_rgba(143,245,255,0.4)]" style="width: 50%;"></div>
+<div class="absolute top-[-4px] left-[50%] w-3 h-3 bg-white"></div>
+</div>
+</div>
+</div>
+<!-- System Status Card -->
+<div class="mt-auto bg-surface-container-lowest p-6 border-l-2 border-primary/20">
+<div class="flex items-center gap-2 mb-4">
+<span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
+<span class="font-label text-[9px] uppercase tracking-[0.2em] text-primary">System Health</span>
+</div>
+<div class="space-y-2">
+<div class="flex justify-between text-[10px]">
+<span class="text-on-surface-variant">Latency</span>
+<span class="text-on-surface">24ms</span>
+</div>
+<div class="flex justify-between text-[10px]">
+<span class="text-on-surface-variant">Throughput</span>
+<span class="text-on-surface">1.2k t/s</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Floating Abstract Geometry (Decoration) -->
+<div class="absolute top-1/4 right-96 pointer-events-none opacity-10">
+<svg fill="none" height="400" viewbox="0 0 400 400" width="400" xmlns="http://www.w3.org/2000/svg">
+<path d="M200 0L373.205 100V300L200 400L26.7949 300V100L200 0Z" stroke="#8ff5ff" stroke-width="0.5"></path>
+<path d="M200 50L329.904 125V275L200 350L70.0962 275V125L200 50Z" stroke="#d674ff" stroke-width="0.5"></path>
+</svg>
+</div>
+</main>
+</body></html>

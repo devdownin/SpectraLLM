@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: spectra
+  labels:
+    app.kubernetes.io/name: spectra
+    app.kubernetes.io/managed-by: kubectl

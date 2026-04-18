@@ -1,0 +1,271 @@
+PROCÉDURES DE SÉCURITÉ ATELIER
+Document de référence — Version 4.0
+Service HSE (Hygiène, Sécurité, Environnement)
+
+=============================================================================
+AVERTISSEMENT
+Ce document est opposable à tout le personnel de l'atelier.
+Le non-respect des procédures de sécurité est passible de sanctions
+disciplinaires et peut engager la responsabilité pénale du contrevenant.
+=============================================================================
+
+=============================================================================
+1. ÉQUIPEMENTS DE PROTECTION INDIVIDUELLE (EPI)
+=============================================================================
+
+1.1 EPI obligatoires en atelier (zone de production)
+
+Le port des EPI suivants est obligatoire dès l'entrée en zone de production,
+sans exception :
+- Chaussures de sécurité (norme EN ISO 20345, embout acier, résistance huile)
+- Vêtements de travail (combinaison ou veste/pantalon coton ignifugé)
+- Lunettes de protection (norme EN 166, traitement anti-rayure)
+
+1.2 EPI supplémentaires selon les travaux
+
+Travaux de soudage :
+- Masque de soudeur avec filtre adapté (EN 169 ou EN 379 auto-obscurcissant)
+- Gants de soudeur (EN 12477 type A ou B)
+- Tablier en cuir ou veste de soudeur
+- Guêtres de protection des chaussures contre les projections
+
+Travaux sur fluides hydrauliques / lubrifiants :
+- Gants nitrile résistant aux hydrocarbures (EN 374)
+- Lunettes anti-projections (EN 166 — code 3 : projections de liquides)
+- Tablier imperméable si manipulation de grandes quantités
+
+Meulage, perçage, usinage :
+- Écran facial (EN 166) en complément des lunettes — obligatoire au-dessus de Ø 150 mm
+- Gants anti-coupures (EN 388, niveau C minimum) pour manutention pièces
+
+Travaux en hauteur (> 2 m) :
+- Harnais de sécurité complet (EN 361)
+- Longe à absorbeur d'énergie (EN 355)
+- Casque de protection (EN 397)
+
+Bruit > 85 dB(A) :
+- Protections auditives (bouchons EN 352-2 ou serre-tête EN 352-1)
+- Zones bruit > 85 dB signalisées par pictogrammes jaunes
+
+1.3 Entretien et vérification des EPI
+
+Avant chaque utilisation :
+- Inspecter visuellement l'EPI (fissures, usure, déformation)
+- Vérifier la date de péremption (harnais, lunettes, casque)
+- Signaler tout EPI défaillant au chef d'équipe pour remplacement immédiat
+
+Les harnais de sécurité doivent être retirés du service et remplacés :
+- Après une chute (même sans dommage apparent)
+- Tous les 10 ans (marquage date de fabrication obligatoire)
+- Si stockage défectueux (UV, produits chimiques, chaleur > 50 °C)
+
+=============================================================================
+2. PROCÉDURE LOTO — CONSIGNATION / DÉCONSIGNATION
+=============================================================================
+
+La procédure LOTO (Lock Out / Tag Out) est OBLIGATOIRE avant toute
+intervention sur un équipement pouvant présenter un risque énergétique.
+
+Risques couverts : électricité, hydraulique, pneumatique, thermique,
+gravitation (masses en suspension), ressorts comprimés, produits chimiques.
+
+2.1 Étapes de consignation
+
+ÉTAPE 1 — Informer
+Prévenir l'opérateur de production et le chef de poste de l'intervention
+à venir. S'assurer que la machine n'est pas en cycle automatique.
+
+ÉTAPE 2 — Arrêter
+Arrêter la machine selon la procédure normale d'arrêt (pas uniquement
+l'arrêt d'urgence). Mettre le sélecteur sur "0" ou "MAINTENANCE".
+
+ÉTAPE 3 — Isoler
+Ouvrir et condamner tous les sectionneurs d'énergie :
+- Sectionneur électrique principal (armoire électrique)
+- Robinet d'isolement hydraulique (retour au réservoir)
+- Vanne d'isolement pneumatique + purge de la ligne
+
+ÉTAPE 4 — Condamner
+Chaque intervenant pose son propre cadenas de consignation sur chaque
+point d'isolement. Si plusieurs intervenants, utiliser un organe
+d'accrochage multiple (hasp / bobine multi-cadenas).
+
+ÉTAPE 5 — Étiqueter
+Placer une étiquette DANGER / NE PAS MANŒUVRER sur chaque point condamné.
+L'étiquette indique : nom de l'intervenant, date, heure, motif.
+
+ÉTAPE 6 — Vérifier l'absence d'énergie résiduelle
+Électrique : tester au voltmètre sur les 3 phases + neutre (U < 25 V)
+Hydraulique : actionner les distributeurs pour purger la pression (relire 0 bar)
+Pneumatique : actionner les boutons de purge, contrôler au manomètre (0 bar)
+Thermique : attendre le refroidissement à moins de 50 °C si surfaces chaudes
+Gravitation : bloquer mécaniquement les masses en position basse (béquilles, étais)
+
+2.2 Étapes de déconsignation
+
+ÉTAPE 1 — Vérifier que la zone est libre
+S'assurer que toutes les personnes ont quitté la zone d'intervention.
+Retirer les outils, pièces détachées et matériaux de la machine.
+
+ÉTAPE 2 — Retirer les condamnations dans l'ordre inverse
+Chaque intervenant retire son propre cadenas et son étiquette.
+JAMAIS retirer le cadenas d'un autre intervenant (règle absolue).
+
+ÉTAPE 3 — Remettre en service
+Réarmer les sectionneurs dans l'ordre inverse de la consignation.
+Prévenir l'opérateur avant toute remise en marche.
+
+ÉTAPE 4 — Test fonctionnel
+Effectuer un test à vide avant reprise de la production.
+Valider le bon fonctionnement avec l'opérateur.
+
+2.3 Cas d'urgence — Perte de clé de cadenas
+
+En cas de perte de clé de cadenas de consignation :
+1. Contacter immédiatement le chef d'équipe
+2. NE PAS casser ou forcer le cadenas sans autorisation
+3. Le chef d'équipe localise l'intervenant pour récupérer la clé
+4. Si l'intervenant est injoignable : décision du responsable de production
+   uniquement, après vérification que la zone est libre
+5. La destruction d'un cadenas est consignée dans le registre HSE
+
+=============================================================================
+3. SÉCURITÉ ÉLECTRIQUE
+=============================================================================
+
+3.1 Habilitation électrique
+
+Toute intervention sur une installation électrique nécessite une habilitation
+selon le référentiel NF C 18-510 :
+- B0 / H0 : travaux non électriques dans les zones électriques (balisage)
+- B1 / H1 : travaux sous tension basse, hors tension
+- BR : interventions de dépannage et de connexion
+- BC / HC : consignation électrique
+
+Vérifier la validité de l'habilitation avant toute intervention électrique.
+Les habilitations sont renouvelées tous les 3 ans.
+
+3.2 Règles fondamentales
+
+- Ne jamais travailler seul sur une installation électrique > 50 V AC
+- Utiliser exclusivement des outils isolés pour interventions électriques
+- Vérifier l'isolation des outils (marquage VDE / EN 60900 : 1000 V)
+- Signaler immédiatement tout câble endommagé ou connexion défectueuse
+- Ne jamais rétablir un fusible ou disjoncteur qui a déclenché sans diagnostic
+
+=============================================================================
+4. MANUTENTION ET RISQUES MÉCANIQUES
+=============================================================================
+
+4.1 Manutention manuelle
+
+Charge maximale sans aide mécanique :
+- Homme adulte : 25 kg (poids cumulé journée limitée à 7,5 T)
+- Femme adulte : 15 kg
+- Au-delà : utiliser un chariot, transpalette, pont roulant ou convoyeur
+
+Technique de manutention :
+- Dos droit, genoux fléchis, charge proche du corps
+- Éviter les rotations du tronc en charge — se déplacer avec les pieds
+- Pour poses à hauteur intermédiaire : utiliser un plan de travail adapté
+
+4.2 Utilisation du pont roulant
+
+Le pont roulant (capacity 5 T) est réservé aux personnels formés et autorisés.
+Liste des personnes autorisées affichée en salle de commande.
+
+Avant utilisation :
+- Inspecter visuellement élingues, crochets et câbles (fissures, déformation)
+- Vérifier que la charge est correctement équilibrée et sanglée
+- Dégager la zone de déplacement et avertir le personnel alentour
+
+Interdictions strictes :
+- Ne jamais passer ou stationner sous une charge suspendue
+- Ne jamais dépasser la charge nominale du pont ou des élingues
+- Ne jamais utiliser une élingue dont le marquage est illisible
+
+=============================================================================
+5. RISQUES CHIMIQUES ET INCENDIE
+=============================================================================
+
+5.1 Stockage des produits chimiques
+
+Tous les produits chimiques (lubrifiants, solvants, dégraissants, peintures)
+doivent être stockés :
+- Dans l'armoire de stockage ventilée dédiée (signalisée)
+- Dans leurs contenants d'origine avec FDS (Fiche de Données de Sécurité)
+- Séparés selon incompatibilités : comburants ≠ inflammables ≠ acides/bases
+
+Les FDS de tous les produits sont disponibles au poste HSE et en ligne
+sur l'intranet : http://intranet/hse/fds
+
+5.2 Conduite à tenir en cas de déversement
+
+Petit déversement (< 5 L) :
+1. Alerter le personnel environnant
+2. Mettre les EPI appropriés (gants, lunettes)
+3. Absorber avec le kit de dépollution (armoire orange atelier)
+4. Éliminer les déchets en sac hermétique, filière déchets dangereux
+5. Consigner l'incident dans le registre HSE
+
+Déversement important (> 5 L) :
+1. Déclencher l'alarme et évacuer la zone
+2. Appeler le responsable HSE (poste 2020) et les secours si nécessaire
+3. Ne pas tenter d'intervenir sans équipement adapté
+
+5.3 Prévention incendie
+
+Points de vigilance :
+- Chiffons souillés d'huile ou solvant : stockage en poubelle métal hermétique
+- Travaux de soudage ou meulage : vérifier absence de matériaux inflammables
+  dans un rayon de 5 m, prévoir extincteur CO2 à proximité
+- Ne jamais obstruer les accès aux extincteurs et aux robinets incendie armés
+
+En cas d'incendie :
+1. Déclencher l'alarme incendie (bouton rouge)
+2. Appeler le 18 (pompiers) en parallèle
+3. Évacuer selon le plan d'évacuation affiché
+4. Se rendre au point de rassemblement (parking extérieur bâtiment B)
+5. N'intervenez sur un feu qu'avec un extincteur adapté et uniquement si
+   votre sortie est garantie
+
+=============================================================================
+6. ACCIDENTS DU TRAVAIL — PROCÉDURE D'URGENCE
+=============================================================================
+
+Numéros d'urgence :
+- SAMU : 15
+- Pompiers : 18
+- Police/Gendarmerie : 17
+- Urgences toutes situations : 112
+- Infirmerie usine : poste 2030 (7h–17h) — urgences : poste 2001
+
+En cas d'accident sur le lieu de travail :
+1. Protéger la victime et les tiers (couper l'énergie si nécessaire)
+2. Alerter les secours (112 ou infirmerie)
+3. Ne pas déplacer la victime sauf danger immédiat
+4. Appliquer les gestes de premiers secours si vous y êtes formé (SST)
+5. Accueillir les secours à l'entrée du bâtiment
+6. Remplir le registre des accidents (même sans arrêt de travail)
+
+Tout accident, même bénin (coupure, contusion), doit être déclaré
+au responsable HSE dans les 24 heures.
+
+=============================================================================
+7. REGISTRES ET TRAÇABILITÉ
+=============================================================================
+
+Les registres suivants sont tenus à jour par le service HSE :
+- Registre des accidents du travail (obligation légale)
+- Registre des incidents/presqu'accidents
+- Registre des vérifications périodiques (ponts roulants, échafaudages, EPI)
+- Registre des formations sécurité (habilitations, CACES, SST)
+- Registre des déversements et incidents environnementaux
+
+Toute anomalie de sécurité peut être signalée de façon anonyme via
+la boîte aux lettres HSE (couloir B) ou par email : hse@usine-interne.local
+
+=============================================================================
+Document validé par : Responsable HSE et Directeur de site
+Prochaine révision : mars 2027
+=============================================================================

@@ -1,0 +1,100 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spectra-api
+  namespace: spectra
+  labels:
+    app: spectra-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spectra-api
+  strategy:
+    type: Recreate   # RWO — accès exclusif aux PVCs d'écriture
+  template:
+    metadata:
+      labels:
+        app: spectra-api
+    spec:
+      # ── Init containers : attendre que les dépendances soient prêtes ───
+      initContainers:
+        - name: wait-for-chromadb
+          image: busybox:1.36
+          command: ['sh', '-c', 'until wget -qO- http://chromadb:8000/api/v2/heartbeat 2>/dev/null | grep -q heartbeat; do echo "Attente ChromaDB..."; sleep 5; done']
+        - name: wait-for-llama-embed
+          image: busybox:1.36
+          command: ['sh', '-c', 'until wget -qO- http://llama-cpp-embed:8080/health 2>/dev/null | grep -q ok; do echo "Attente llama-embed..."; sleep 5; done']
+        - name: wait-for-llama-chat
+          image: busybox:1.36
+          command: ['sh', '-c', 'until wget -qO- http://llama-cpp-chat:8080/health 2>/dev/null | grep -q ok; do echo "Attente llama-chat..."; sleep 5; done']
+
+      containers:
+        - name: spectra-api
+          image: spectra-api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: spectra-api-config
+            - secretRef:
+                name: spectra-secrets
+          volumeMounts:
+            - name: documents
+              mountPath: /app/data/documents
+            - name: dataset
+              mountPath: /app/data/dataset
+            - name: fine-tuning
+              mountPath: /app/data/fine-tuning
+            - name: models
+              mountPath: /app/data/models
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "2Gi"
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 40
+            periodSeconds: 20
+            failureThreshold: 3
+
+      volumes:
+        - name: documents
+          persistentVolumeClaim:
+            claimName: spectra-documents-pvc
+        - name: dataset
+          persistentVolumeClaim:
+            claimName: spectra-dataset-pvc
+        - name: fine-tuning
+          persistentVolumeClaim:
+            claimName: spectra-fine-tuning-pvc
+        - name: models
+          persistentVolumeClaim:
+            claimName: spectra-models-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spectra-api
+  namespace: spectra
+spec:
+  selector:
+    app: spectra-api
+  ports:
+    - port: 8080
+      targetPort: 8080
+  type: ClusterIP

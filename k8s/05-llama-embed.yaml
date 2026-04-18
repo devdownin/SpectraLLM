@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llama-cpp-embed
+  namespace: spectra
+  labels:
+    app: llama-cpp-embed
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: llama-cpp-embed
+  strategy:
+    type: Recreate   # RWO — un seul pod à la fois
+  template:
+    metadata:
+      labels:
+        app: llama-cpp-embed
+    spec:
+      # ── Affinité nœud (optionnel) ──────────────────────────────────────
+      # Décommenter pour épingler sur un nœud dédié aux inférences
+      # affinity:
+      #   nodeAffinity:
+      #     requiredDuringSchedulingIgnoredDuringExecution:
+      #       nodeSelectorTerms:
+      #         - matchExpressions:
+      #             - key: role
+      #               operator: In
+      #               values: [inference]
+
+      containers:
+        - name: llama-cpp-embed
+          # Image construite depuis Dockerfile target llama_cpp_runtime
+          # (le script llama-autostart.sh est intégré à l'image)
+          image: spectra-llama-cpp:latest
+          imagePullPolicy: IfNotPresent
+          entrypoint: ["/bin/bash", "/scripts/llama-autostart.sh"]
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: llama-embed-config
+          volumeMounts:
+            - name: models
+              mountPath: /models
+              readOnly: true
+          resources:
+            requests:
+              cpu: "1000m"
+              memory: "2Gi"
+            limits:
+              cpu: "2000m"
+              memory: "4Gi"
+            # ── GPU NVIDIA (optionnel) ────────────────────────────────────
+            # Nécessite le device plugin NVIDIA : https://github.com/NVIDIA/k8s-device-plugin
+            # limits:
+            #   nvidia.com/gpu: "1"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 18   # 3 min pour charger le modèle
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            failureThreshold: 3
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: spectra-models-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llama-cpp-embed
+  namespace: spectra
+spec:
+  selector:
+    app: llama-cpp-embed
+  ports:
+    - port: 8080
+      targetPort: 8080
+  type: ClusterIP

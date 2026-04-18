@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Spectra AI Architect - Model Comparison</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Inter:wght@300;400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "surface": "#060e20",
+              "surface-container": "#0f1930",
+              "on-secondary-fixed": "#580079",
+              "surface-bright": "#1f2b49",
+              "on-tertiary-fixed-variant": "#4a596c",
+              "error-container": "#9f0519",
+              "surface-variant": "#192540",
+              "on-tertiary-container": "#414f62",
+              "primary-fixed": "#00eefc",
+              "on-primary-container": "#005359",
+              "surface-container-high": "#141f38",
+              "error-dim": "#d7383b",
+              "primary-fixed-dim": "#00deec",
+              "secondary-dim": "#bb00fc",
+              "surface-container-lowest": "#000000",
+              "surface-tint": "#8ff5ff",
+              "on-error": "#490006",
+              "on-surface": "#dee5ff",
+              "tertiary-fixed-dim": "#c1d0e6",
+              "on-surface-variant": "#a3aac4",
+              "outline": "#6d758c",
+              "error": "#ff716c",
+              "tertiary-container": "#cfdef5",
+              "outline-variant": "#40485d",
+              "on-secondary": "#390050",
+              "background": "#060e20",
+              "on-primary-fixed": "#003f43",
+              "inverse-primary": "#006a71",
+              "on-background": "#dee5ff",
+              "tertiary-fixed": "#cfdef5",
+              "secondary-fixed-dim": "#eaaeff",
+              "primary-container": "#00eefc",
+              "on-error-container": "#ffa8a3",
+              "on-tertiary": "#49586b",
+              "on-secondary-container": "#fff5fc",
+              "secondary-container": "#9900cf",
+              "inverse-on-surface": "#4d556b",
+              "surface-container-highest": "#192540",
+              "tertiary-dim": "#c1d0e6",
+              "secondary": "#d674ff",
+              "on-primary": "#005d63",
+              "on-primary-fixed-variant": "#005e64",
+              "secondary-fixed": "#f1c1ff",
+              "primary": "#8ff5ff",
+              "on-secondary-fixed-variant": "#8400b3",
+              "on-tertiary-fixed": "#2e3d4e",
+              "tertiary": "#e0ecff",
+              "surface-dim": "#060e20",
+              "primary-dim": "#00deec",
+              "inverse-surface": "#faf8ff",
+              "surface-container-low": "#091328"
+            },
+            fontFamily: {
+              "headline": ["Space Grotesk"],
+              "body": ["Inter"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0rem", "lg": "0rem", "xl": "0rem", "full": "9999px"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        body {
+            background-color: #060e20;
+            color: #dee5ff;
+            font-family: 'Inter', sans-serif;
+        }
+        .space-grotesk {
+            font-family: 'Space Grotesk', sans-serif;
+        }
+        /* Custom scrollbar for terminal look */
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: #000000; }
+        ::-webkit-scrollbar-thumb { background: #192540; }
+        ::-webkit-scrollbar-thumb:hover { background: #8ff5ff; }
+    </style>
+</head>
+<body class="overflow-hidden">
+<!-- TopNavBar (JSON Anchor) -->
+<header class="fixed top-0 w-full z-50 flex justify-between items-center px-6 h-16 bg-[#060e20] shadow-[0_0_15px_rgba(143,245,255,0.04)]">
+<div class="flex items-center gap-8">
+<span class="text-xl font-bold tracking-tighter text-[#8ff5ff] space-grotesk">Spectra AI Architect</span>
+<nav class="hidden md:flex gap-6 items-center">
+<a class="font-['Space_Grotesk'] tracking-[-0.04em] uppercase text-xs text-[#6d758c] hover:text-[#8ff5ff] transition-colors" href="#">Models</a>
+<a class="font-['Space_Grotesk'] tracking-[-0.04em] uppercase text-xs text-[#6d758c] hover:text-[#8ff5ff] transition-colors" href="#">Datasets</a>
+<a class="font-['Space_Grotesk'] tracking-[-0.04em] uppercase text-xs text-[#8ff5ff] border-b-2 border-[#8ff5ff] pb-1" href="#">Evaluation</a>
+<a class="font-['Space_Grotesk'] tracking-[-0.04em] uppercase text-xs text-[#6d758c] hover:text-[#8ff5ff] transition-colors" href="#">Deployment</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="material-symbols-outlined text-[#6d758c] hover:text-[#8ff5ff] transition-all duration-200">settings</button>
+<button class="material-symbols-outlined text-[#6d758c] hover:text-[#8ff5ff] transition-all duration-200">notifications</button>
+<div class="w-8 h-8 bg-surface-container-highest border border-outline-variant/30 flex items-center justify-center">
+<span class="material-symbols-outlined text-xs">person</span>
+</div>
+</div>
+</header>
+<!-- SideNavBar (JSON Anchor) -->
+<aside class="fixed left-0 top-16 bottom-0 flex flex-col border-r border-[#40485d]/15 bg-[#091328] w-64 z-40 hidden md:flex">
+<div class="p-6 border-b border-outline-variant/10">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 bg-surface-container-lowest flex items-center justify-center border-l-2 border-secondary shadow-[0_0_10px_rgba(214,116,255,0.2)]">
+<span class="material-symbols-outlined text-secondary">terminal</span>
+</div>
+<div>
+<div class="text-sm font-bold text-on-surface">Core Engine</div>
+<div class="text-[10px] text-on-surface-variant font-mono">v4.2.0-stable</div>
+</div>
+</div>
+</div>
+<nav class="flex-1 py-4 overflow-y-auto">
+<div class="px-3 mb-2 label-sm text-[10px] uppercase tracking-[0.1em] text-outline font-bold">Main Analysis</div>
+<a class="flex items-center gap-3 px-6 py-3 text-sm font-['Inter'] leading-6 bg-[#141f38] text-[#8ff5ff] border-l-2 border-[#d674ff]" href="#">
+<span class="material-symbols-outlined">compare_arrows</span>
+                A/B Testing
+            </a>
+<a class="flex items-center gap-3 px-6 py-3 text-sm font-['Inter'] leading-6 text-[#a3aac4] hover:bg-[#0f1930] transition-all duration-150 ease-in-out" href="#">
+<span class="material-symbols-outlined">timer</span>
+                Latency Logs
+            </a>
+<a class="flex items-center gap-3 px-6 py-3 text-sm font-['Inter'] leading-6 text-[#a3aac4] hover:bg-[#0f1930] transition-all duration-150 ease-in-out" href="#">
+<span class="material-symbols-outlined">speed</span>
+                Throughput
+            </a>
+<a class="flex items-center gap-3 px-6 py-3 text-sm font-['Inter'] leading-6 text-[#a3aac4] hover:bg-[#0f1930] transition-all duration-150 ease-in-out" href="#">
+<span class="material-symbols-outlined">inventory_2</span>
+                Model Registry
+            </a>
+<a class="flex items-center gap-3 px-6 py-3 text-sm font-['Inter'] leading-6 text-[#a3aac4] hover:bg-[#0f1930] transition-all duration-150 ease-in-out" href="#">
+<span class="material-symbols-outlined">terminal</span>
+                System Health
+            </a>
+<div class="mt-8 px-6">
+<button class="w-full py-2 bg-primary text-on-primary-fixed text-xs font-bold uppercase tracking-widest hover:brightness-110 active:opacity-80 transition-all">
+                    New Experiment
+                </button>
+</div>
+</nav>
+<div class="p-4 border-t border-outline-variant/10">
+<a class="flex items-center gap-3 px-4 py-2 text-xs text-[#a3aac4] hover:text-[#8ff5ff] transition-colors" href="#">
+<span class="material-symbols-outlined text-sm">help</span>
+                Documentation
+            </a>
+<a class="flex items-center gap-3 px-4 py-2 text-xs text-[#a3aac4] hover:text-[#8ff5ff] transition-colors" href="#">
+<span class="material-symbols-outlined text-sm">contact_support</span>
+                Support
+            </a>
+</div>
+</aside>
+<!-- Main Content Canvas -->
+<main class="ml-0 md:ml-64 pt-16 h-screen flex flex-col bg-surface overflow-hidden">
+<!-- Comparison Header Area -->
+<section class="p-6 grid grid-cols-2 gap-px bg-outline-variant/10 border-b border-outline-variant/10">
+<!-- Left Model Selector -->
+<div class="bg-surface p-4 flex flex-col gap-4">
+<div class="flex justify-between items-center">
+<span class="label-sm text-[10px] uppercase tracking-[0.1em] text-primary font-bold">Model Alpha</span>
+<span class="flex items-center gap-1 text-[10px] text-on-surface-variant font-mono"><span class="w-1.5 h-1.5 bg-primary rounded-full animate-pulse"></span> ONLINE</span>
+</div>
+<div class="relative group">
+<select class="w-full bg-surface-container-high border-none text-on-surface py-3 px-4 appearance-none focus:ring-1 focus:ring-primary text-sm font-medium cursor-pointer">
+<option>GPT-4o (Base Model)</option>
+<option>Llama-3-70b-Instruct</option>
+<option>Claude-3.5-Sonnet</option>
+</select>
+<span class="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-outline">expand_more</span>
+</div>
+</div>
+<!-- Right Model Selector -->
+<div class="bg-surface p-4 flex flex-col gap-4">
+<div class="flex justify-between items-center">
+<span class="label-sm text-[10px] uppercase tracking-[0.1em] text-secondary font-bold">Model Beta</span>
+<span class="flex items-center gap-1 text-[10px] text-on-surface-variant font-mono"><span class="w-1.5 h-1.5 bg-secondary rounded-full animate-pulse"></span> TUNED</span>
+</div>
+<div class="relative group">
+<select class="w-full bg-surface-container-high border-none text-on-surface py-3 px-4 appearance-none focus:ring-1 focus:ring-secondary text-sm font-medium cursor-pointer">
+<option>Spectra Fine-tuned (v4.2.0)</option>
+<option>Spectra-Experimental-1</option>
+<option>Baseline Fine-tuned</option>
+</select>
+<span class="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-outline">expand_more</span>
+</div>
+</div>
+</section>
+<!-- Prompt Input Area (Central Focus) -->
+<section class="bg-surface px-6 py-4 border-b border-outline-variant/10 relative z-10">
+<div class="max-w-4xl mx-auto flex flex-col gap-2">
+<label class="label-sm text-[10px] uppercase tracking-[0.1em] text-outline-variant font-bold">Multimodal Prompt Input</label>
+<div class="flex items-end gap-3 bg-surface-container-lowest border-b border-primary p-4 shadow-[inset_0_0_15px_rgba(0,0,0,0.5)]">
+<textarea class="flex-1 bg-transparent border-none text-on-surface focus:ring-0 text-sm resize-none min-h-[60px]" placeholder="Enter system query or analytical prompt..."></textarea>
+<button class="bg-primary text-on-primary-fixed px-6 py-2 flex items-center gap-2 hover:brightness-110 active:scale-95 transition-all">
+<span class="text-xs font-bold uppercase tracking-tighter space-grotesk">Execute Compare</span>
+<span class="material-symbols-outlined text-lg">bolt</span>
+</button>
+</div>
+</div>
+</section>
+<!-- Main Chat Comparison Grid -->
+<section class="flex-1 overflow-hidden grid grid-cols-2">
+<!-- Left Chat Stream -->
+<div class="flex flex-col bg-surface-container-low border-r border-outline-variant/10 h-full overflow-y-auto p-6 gap-8">
+<!-- User Message -->
+<div class="flex justify-end ml-12">
+<div class="bg-surface-container-high p-4 text-sm text-on-surface max-w-full">
+                        Evaluate the efficiency of our current spectral density mapping algorithm and suggest optimizations for real-time throughput.
+                    </div>
+</div>
+<!-- AI Response -->
+<div class="flex flex-col gap-4">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-sm">robot_2</span>
+<span class="label-sm text-[10px] uppercase tracking-widest text-primary font-bold">Base Model Output</span>
+</div>
+<div class="bg-surface-container-lowest p-5 text-sm leading-relaxed border-l border-primary/30 font-mono text-on-surface-variant">
+                        Based on the provided spectral density mapping parameters, the bottleneck appears to be in the Fourier transform pre-processing stage. 
+                        <br/><br/>
+                        1. Implement vectorized FFT operations.<br/>
+                        2. Reduce precision to float16 where possible.<br/>
+                        3. Utilize GPU-accelerated convolutions.
+                        <br/><br/>
+<span class="inline-block w-2 h-4 bg-primary/40 animate-pulse align-middle"></span>
+</div>
+</div>
+</div>
+<!-- Right Chat Stream -->
+<div class="flex flex-col bg-surface-container h-full overflow-y-auto p-6 gap-8">
+<!-- User Message -->
+<div class="flex justify-end ml-12">
+<div class="bg-surface-container-high p-4 text-sm text-on-surface max-w-full opacity-60">
+                        Evaluate the efficiency of our current spectral density mapping algorithm and suggest optimizations for real-time throughput.
+                    </div>
+</div>
+<!-- AI Response -->
+<div class="flex flex-col gap-4">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-secondary text-sm">psychology</span>
+<span class="label-sm text-[10px] uppercase tracking-widest text-secondary font-bold">Spectra Fine-tuned Output</span>
+</div>
+<div class="bg-surface-container-lowest p-5 text-sm leading-relaxed border-l border-secondary/30 font-mono text-on-surface shadow-[inset_4px_0_10px_-4px_rgba(214,116,255,0.1)]">
+                        Analyzing Spectra Engine v4.2 architecture context: The current mapping logic uses a legacy O(N²) approach.
+                        <br/><br/>
+                        Recommended Spectral Optimization Path:<br/>
+                        • Deploy <span class="text-secondary">Quantized Kernels</span> (Q8_0) for the primary mapping layer.<br/>
+                        • Parallelize the density estimation using the <span class="text-secondary">Spectra-Grid</span> dispatcher.<br/>
+                        • Expected latency reduction: ~42ms per cycle.
+                        <br/><br/>
+<span class="inline-block w-2 h-4 bg-secondary/40 animate-pulse align-middle"></span>
+</div>
+</div>
+</div>
+</section>
+<!-- Bottom Performance Dashboard -->
+<section class="h-48 border-t border-outline-variant/20 bg-surface-container-lowest grid grid-cols-2">
+<!-- Performance Stats Left -->
+<div class="grid grid-cols-3 p-6 gap-4 border-r border-outline-variant/10">
+<div class="bg-surface-container-low p-4 flex flex-col justify-between border-t border-outline-variant/10">
+<div class="text-[10px] uppercase tracking-widest text-outline font-bold">Latency</div>
+<div class="flex items-baseline gap-1">
+<span class="text-2xl font-bold space-grotesk text-primary">248</span>
+<span class="text-[10px] text-outline">MS</span>
+</div>
+</div>
+<div class="bg-surface-container-low p-4 flex flex-col justify-between border-t border-outline-variant/10">
+<div class="text-[10px] uppercase tracking-widest text-outline font-bold">Throughput</div>
+<div class="flex items-baseline gap-1">
+<span class="text-2xl font-bold space-grotesk text-on-surface">62</span>
+<span class="text-[10px] text-outline">T/S</span>
+</div>
+</div>
+<div class="bg-surface-container-low p-4 flex flex-col justify-between border-t border-outline-variant/10">
+<div class="text-[10px] uppercase tracking-widest text-outline font-bold">RAG Relevance</div>
+<div class="flex items-baseline gap-1">
+<span class="text-2xl font-bold space-grotesk text-on-surface">84.2</span>
+<span class="text-[10px] text-outline">%</span>
+</div>
+</div>
+</div>
+<!-- Performance Stats Right -->
+<div class="grid grid-cols-3 p-6 gap-4">
+<div class="bg-surface-container-low p-4 flex flex-col justify-between border-t border-secondary/40 shadow-[0_-10px_20px_-10px_rgba(214,116,255,0.05)]">
+<div class="text-[10px] uppercase tracking-widest text-outline font-bold">Latency</div>
+<div class="flex items-baseline gap-1">
+<span class="text-2xl font-bold space-grotesk text-secondary">192</span>
+<span class="text-[10px] text-outline">MS</span>
+</div>
+<div class="h-1 bg-outline-variant w-full mt-2">
+<div class="h-full bg-secondary shadow-[0_0_8px_rgba(214,116,255,0.6)]" style="width: 78%"></div>
+</div>
+</div>
+<div class="bg-surface-container-low p-4 flex flex-col justify-between border-t border-outline-variant/10">
+<div class="text-[10px] uppercase tracking-widest text-outline font-bold">Throughput</div>
+<div class="flex items-baseline gap-1">
+<span class="text-2xl font-bold space-grotesk text-secondary">114</span>
+<span class="text-[10px] text-outline">T/S</span>
+</div>
+<div class="h-1 bg-outline-variant w-full mt-2">
+<div class="h-full bg-secondary" style="width: 92%"></div>
+</div>
+</div>
+<div class="bg-surface-container-low p-4 flex flex-col justify-between border-t border-outline-variant/10">
+<div class="text-[10px] uppercase tracking-widest text-outline font-bold">RAG Relevance</div>
+<div class="flex items-baseline gap-1">
+<span class="text-2xl font-bold space-grotesk text-secondary">96.8</span>
+<span class="text-[10px] text-outline">%</span>
+</div>
+<div class="h-1 bg-outline-variant w-full mt-2">
+<div class="h-full bg-secondary" style="width: 96%"></div>
+</div>
+</div>
+</div>
+</section>
+</main>
+<!-- Floating Decoration Element -->
+<div class="fixed bottom-4 right-4 pointer-events-none opacity-20 hidden lg:block">
+<div class="w-48 h-48 border border-primary/20 rotate-45 flex items-center justify-center">
+<div class="w-32 h-32 border border-secondary/20 -rotate-12"></div>
+</div>
+</div>
+</body></html>

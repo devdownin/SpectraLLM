@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Spectra | AI Architect Dashboard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Inter:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "primary-dim": "#00deec",
+              "on-primary": "#005d63",
+              "on-primary-fixed-variant": "#005e64",
+              "tertiary-fixed-dim": "#c1d0e6",
+              "secondary-fixed": "#f1c1ff",
+              "on-secondary-fixed": "#580079",
+              "surface-variant": "#192540",
+              "error-container": "#9f0519",
+              "on-secondary-container": "#fff5fc",
+              "secondary-dim": "#bb00fc",
+              "primary-container": "#00eefc",
+              "error-dim": "#d7383b",
+              "on-tertiary-container": "#414f62",
+              "surface-container-high": "#141f38",
+              "on-primary-container": "#005359",
+              "tertiary-container": "#cfdef5",
+              "surface-bright": "#1f2b49",
+              "surface-dim": "#060e20",
+              "primary-fixed": "#00eefc",
+              "on-secondary-fixed-variant": "#8400b3",
+              "on-surface-variant": "#a3aac4",
+              "on-tertiary": "#49586b",
+              "on-error": "#490006",
+              "surface": "#060e20",
+              "tertiary-fixed": "#cfdef5",
+              "surface-container": "#0f1930",
+              "secondary-container": "#9900cf",
+              "on-tertiary-fixed": "#2e3d4e",
+              "surface-container-lowest": "#000000",
+              "on-primary-fixed": "#003f43",
+              "surface-container-low": "#091328",
+              "on-background": "#dee5ff",
+              "tertiary-dim": "#c1d0e6",
+              "outline-variant": "#40485d",
+              "secondary-fixed-dim": "#eaaeff",
+              "tertiary": "#e0ecff",
+              "on-error-container": "#ffa8a3",
+              "background": "#060e20",
+              "surface-container-highest": "#192540",
+              "inverse-surface": "#faf8ff",
+              "inverse-primary": "#006a71",
+              "error": "#ff716c",
+              "primary-fixed-dim": "#00deec",
+              "on-tertiary-fixed-variant": "#4a596c",
+              "outline": "#6d758c",
+              "secondary": "#d674ff",
+              "on-surface": "#dee5ff",
+              "inverse-on-surface": "#4d556b",
+              "surface-tint": "#8ff5ff",
+              "on-secondary": "#390050",
+              "primary": "#8ff5ff"
+            },
+            fontFamily: {
+              "headline": ["Space Grotesk"],
+              "body": ["Inter"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0px", "lg": "0px", "xl": "0px", "full": "9999px"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        body {
+            background-color: #060e20;
+            color: #dee5ff;
+            font-family: 'Inter', sans-serif;
+        }
+        .spectra-grid-header {
+            background-color: #141f38;
+        }
+        .glass-overlay {
+            background: rgba(25, 37, 64, 0.6);
+            backdrop-filter: blur(12px);
+        }
+    </style>
+</head>
+<body class="overflow-x-hidden">
+<!-- SideNavBar Component -->
+<aside class="fixed left-0 top-0 h-full flex flex-col p-4 z-40 bg-[#091328] w-64 shadow-none">
+<div class="text-lg font-black text-[#8ff5ff] mb-1 font-['Space_Grotesk'] tracking-[-0.04em]">Spectra</div>
+<div class="font-['Space_Grotesk'] uppercase tracking-[0.1em] text-[11px] text-[#6d758c] mb-8">AI ARCHITECT v1.0</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center px-4 py-3 text-[#8ff5ff] border-l-2 border-[#d674ff] bg-[#192540] transition-all cursor-pointer" href="#">
+<span class="material-symbols-outlined mr-3" data-icon="dashboard">dashboard</span>
+<span class="font-['Space_Grotesk'] uppercase tracking-[0.1em] text-[11px]">Dashboard</span>
+</a>
+<a class="flex items-center px-4 py-3 text-[#6d758c] hover:text-[#8ff5ff] hover:bg-[#141f38] transition-all cursor-pointer" href="#">
+<span class="material-symbols-outlined mr-3" data-icon="database">database</span>
+<span class="font-['Space_Grotesk'] uppercase tracking-[0.1em] text-[11px]">Datasets</span>
+</a>
+<a class="flex items-center px-4 py-3 text-[#6d758c] hover:text-[#8ff5ff] hover:bg-[#141f38] transition-all cursor-pointer" href="#">
+<span class="material-symbols-outlined mr-3" data-icon="analytics">analytics</span>
+<span class="font-['Space_Grotesk'] uppercase tracking-[0.1em] text-[11px]">Pipelines</span>
+</a>
+<a class="flex items-center px-4 py-3 text-[#6d758c] hover:text-[#8ff5ff] hover:bg-[#141f38] transition-all cursor-pointer" href="#">
+<span class="material-symbols-outlined mr-3" data-icon="chat_bubble">chat_bubble</span>
+<span class="font-['Space_Grotesk'] uppercase tracking-[0.1em] text-[11px]">Playground</span>
+</a>
+</nav>
+<button class="mt-4 mb-8 bg-[#8ff5ff] text-[#003f43] font-bold py-3 px-4 flex items-center justify-center gap-2 hover:opacity-90 transition-opacity">
+<span class="material-symbols-outlined" data-icon="add">add</span>
+<span class="font-['Space_Grotesk'] uppercase tracking-[0.1em] text-[11px]">NEW MODEL</span>
+</button>
+<div class="space-y-1 mt-auto pt-4 border-t border-outline-variant/10">
+<a class="flex items-center px-4 py-2 text-[#6d758c] hover:text-[#8ff5ff] hover:bg-[#141f38] transition-all cursor-pointer" href="#">
+<span class="material-symbols-outlined mr-3" data-icon="menu_book">menu_book</span>
+<span class="font-['Space_Grotesk'] uppercase tracking-[0.1em] text-[11px]">Documentation</span>
+</a>
+<a class="flex items-center px-4 py-2 text-[#6d758c] hover:text-[#8ff5ff] hover:bg-[#141f38] transition-all cursor-pointer" href="#">
+<span class="material-symbols-outlined mr-3" data-icon="support_agent">support_agent</span>
+<span class="font-['Space_Grotesk'] uppercase tracking-[0.1em] text-[11px]">Support</span>
+</a>
+</div>
+</aside>
+<!-- Main Content Area -->
+<main class="ml-64 min-h-screen bg-[#060e20]">
+<!-- TopAppBar Component -->
+<header class="flex justify-between items-center px-6 py-3 sticky top-0 z-50 bg-[#0f1930] shadow-[0_0_15px_rgba(143,245,255,0.04)]">
+<div class="flex items-center gap-4">
+<h1 class="text-xl font-bold tracking-[-0.04em] text-[#8ff5ff] font-['Space_Grotesk']">Spectra</h1>
+</div>
+<div class="flex items-center gap-6">
+<div class="relative hidden lg:block">
+<input class="bg-[#192540] border-none text-[#dee5ff] text-sm px-4 py-1.5 focus:ring-1 focus:ring-[#8ff5ff] w-64 font-body" placeholder="Search parameters..." type="text"/>
+<span class="material-symbols-outlined absolute right-3 top-1.5 text-[#a3aac4] text-sm" data-icon="search">search</span>
+</div>
+<div class="flex items-center gap-4 text-[#a3aac4]">
+<button class="hover:bg-[#192540] p-1.5 transition-colors duration-200" title="Settings">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+</button>
+<button class="hover:bg-[#192540] p-1.5 transition-colors duration-200 relative" title="Notifications">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+<span class="absolute top-1 right-1 w-2 h-2 bg-[#d674ff] rounded-full"></span>
+</button>
+<button class="hover:bg-[#192540] p-1.5 transition-colors duration-200" title="Account">
+<span class="material-symbols-outlined" data-icon="account_circle">account_circle</span>
+</button>
+</div>
+</div>
+</header>
+<!-- Dashboard Canvas -->
+<div class="p-8 max-w-[1600px] mx-auto space-y-12">
+<!-- Hero Stats Row (Bento Style) -->
+<section class="grid grid-cols-1 md:grid-cols-4 gap-6">
+<!-- GPU Usage -->
+<div class="md:col-span-2 bg-surface-container p-6 relative overflow-hidden">
+<div class="flex justify-between items-start mb-4">
+<div>
+<p class="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant">System Load</p>
+<h2 class="font-headline text-3xl font-bold tracking-tighter mt-1">GPU UTILIZATION</h2>
+</div>
+<span class="material-symbols-outlined text-primary text-3xl" data-icon="memory">memory</span>
+</div>
+<div class="flex items-baseline gap-2 mb-6">
+<span class="text-5xl font-headline font-extrabold text-primary">84.2</span>
+<span class="text-on-surface-variant font-label text-sm uppercase tracking-widest">Percent</span>
+</div>
+<div class="w-full bg-outline-variant h-1 relative">
+<div class="absolute top-0 left-0 h-full bg-primary shadow-[0_0_15px_rgba(143,245,255,0.4)]" style="width: 84.2%;"></div>
+</div>
+<div class="mt-4 flex justify-between text-[10px] font-label text-outline uppercase tracking-widest">
+<span>A100-SXM4-80GB-NODE_01</span>
+<span class="text-primary">Active</span>
+</div>
+</div>
+<!-- Training Status -->
+<div class="bg-surface-container p-6">
+<p class="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant">Active Jobs</p>
+<div class="mt-4 space-y-4">
+<div class="flex items-center justify-between">
+<span class="font-headline font-bold text-2xl">04</span>
+<span class="bg-primary/10 text-primary text-[10px] px-2 py-0.5 font-bold uppercase tracking-widest">In Progress</span>
+</div>
+<div class="flex items-center justify-between border-t border-outline-variant/10 pt-4">
+<span class="font-headline font-bold text-2xl">12</span>
+<span class="bg-secondary/10 text-secondary text-[10px] px-2 py-0.5 font-bold uppercase tracking-widest">Queued</span>
+</div>
+</div>
+</div>
+<!-- Model Count -->
+<div class="bg-surface-container p-6 flex flex-col justify-between">
+<div>
+<p class="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant">Deployment</p>
+<h2 class="font-headline text-4xl font-black text-secondary mt-2">142</h2>
+<p class="text-on-surface-variant text-xs mt-1 font-body">Production Models</p>
+</div>
+<div class="flex gap-2 mt-4">
+<div class="h-8 w-1 bg-secondary"></div>
+<div class="h-8 w-1 bg-secondary/60"></div>
+<div class="h-8 w-1 bg-secondary/30"></div>
+<div class="h-8 w-1 bg-secondary/10"></div>
+</div>
+</div>
+</section>
+<!-- Quick Actions & Visual Summary -->
+<section class="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+<!-- Documents Processed Visualization -->
+<div class="lg:col-span-2 space-y-6">
+<div class="flex justify-between items-end">
+<h3 class="font-headline text-xl font-bold uppercase tracking-tighter">Throughput Velocity</h3>
+<div class="flex gap-4 font-label text-[10px] uppercase tracking-widest text-on-surface-variant">
+<span class="flex items-center gap-1"><span class="w-2 h-2 bg-primary"></span> Extraction</span>
+<span class="flex items-center gap-1"><span class="w-2 h-2 bg-secondary"></span> Validation</span>
+</div>
+</div>
+<div class="bg-surface-container-low p-8 aspect-[21/9] flex items-end gap-1 relative">
+<!-- Simulated technical graph -->
+<div class="h-[20%] w-full bg-primary/20 hover:bg-primary transition-colors"></div>
+<div class="h-[45%] w-full bg-primary/20 hover:bg-primary transition-colors"></div>
+<div class="h-[30%] w-full bg-primary/20 hover:bg-primary transition-colors"></div>
+<div class="h-[60%] w-full bg-primary/20 hover:bg-primary transition-colors"></div>
+<div class="h-[85%] w-full bg-primary/20 hover:bg-primary transition-colors"></div>
+<div class="h-[55%] w-full bg-primary/20 hover:bg-primary transition-colors"></div>
+<div class="h-[75%] w-full bg-primary/20 hover:bg-primary transition-colors"></div>
+<div class="h-[90%] w-full bg-primary/20 hover:bg-primary transition-colors relative">
+<div class="absolute -top-12 left-1/2 -translate-x-1/2 glass-overlay p-2 text-[10px] whitespace-nowrap border-l border-primary">
+                                CURR: 1.2M DOCS/H
+                             </div>
+</div>
+<div class="h-[65%] w-full bg-primary/20 hover:bg-primary transition-colors"></div>
+<div class="h-[40%] w-full bg-primary/20 hover:bg-primary transition-colors"></div>
+<div class="h-[55%] w-full bg-primary/20 hover:bg-primary transition-colors"></div>
+<div class="h-[35%] w-full bg-primary/20 hover:bg-primary transition-colors"></div>
+</div>
+</div>
+<!-- Quick Launch Terminal -->
+<div class="bg-surface-container-lowest p-6 border-l border-primary/20">
+<h3 class="font-headline text-lg font-bold mb-6 text-primary">COMMAND_CENTRAL</h3>
+<div class="space-y-4">
+<button class="w-full group flex items-center justify-between p-4 bg-surface-container hover:bg-surface-container-highest transition-all border-l-2 border-transparent hover:border-primary">
+<div class="text-left">
+<p class="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Action 01</p>
+<p class="font-headline text-sm font-bold uppercase">INIT_EXTRACTION</p>
+</div>
+<span class="material-symbols-outlined text-primary group-hover:translate-x-1 transition-transform" data-icon="rocket_launch">rocket_launch</span>
+</button>
+<button class="w-full group flex items-center justify-between p-4 bg-surface-container hover:bg-surface-container-highest transition-all border-l-2 border-transparent hover:border-secondary">
+<div class="text-left">
+<p class="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Action 02</p>
+<p class="font-headline text-sm font-bold uppercase">START_TRAINING_RUN</p>
+</div>
+<span class="material-symbols-outlined text-secondary group-hover:translate-x-1 transition-transform" data-icon="model_training">model_training</span>
+</button>
+<button class="w-full group flex items-center justify-between p-4 bg-surface-container hover:bg-surface-container-highest transition-all border-l-2 border-transparent hover:border-on-surface">
+<div class="text-left">
+<p class="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Action 03</p>
+<p class="font-headline text-sm font-bold uppercase">DEPLOY_STAGING</p>
+</div>
+<span class="material-symbols-outlined text-on-surface group-hover:translate-x-1 transition-transform" data-icon="cloud_upload">cloud_upload</span>
+</button>
+</div>
+</div>
+</section>
+<!-- Recently Trained Models Table -->
+<section class="space-y-6">
+<div class="flex justify-between items-center">
+<h3 class="font-headline text-xl font-bold uppercase tracking-tighter">Model Inventory</h3>
+<button class="text-secondary font-label text-[11px] font-bold uppercase tracking-widest flex items-center gap-2">
+                        View Archive <span class="material-symbols-outlined text-sm" data-icon="arrow_forward">arrow_forward</span>
+</button>
+</div>
+<div class="overflow-hidden">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="spectra-grid-header">
+<th class="p-4 font-label text-[10px] uppercase tracking-[0.15em] text-on-surface-variant">Model Identity</th>
+<th class="p-4 font-label text-[10px] uppercase tracking-[0.15em] text-on-surface-variant">Version</th>
+<th class="p-4 font-label text-[10px] uppercase tracking-[0.15em] text-on-surface-variant">Last Success</th>
+<th class="p-4 font-label text-[10px] uppercase tracking-[0.15em] text-on-surface-variant">Status</th>
+<th class="p-4 font-label text-[10px] uppercase tracking-[0.15em] text-on-surface-variant text-right">Actions</th>
+</tr>
+</thead>
+<tbody class="font-body text-sm">
+<!-- Row 1 -->
+<tr class="bg-surface hover:bg-surface-container-highest transition-all border-l-2 border-transparent hover:border-secondary group cursor-pointer">
+<td class="p-4">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 bg-surface-container-high flex items-center justify-center">
+<span class="material-symbols-outlined text-primary text-lg" data-icon="neurology">neurology</span>
+</div>
+<div>
+<p class="font-bold uppercase tracking-tight">NEURAL_FLUX_CORE</p>
+<p class="text-[10px] text-on-surface-variant">LLM-Architecture-7B</p>
+</div>
+</div>
+</td>
+<td class="p-4 text-on-surface-variant">v2.4.1-alpha</td>
+<td class="p-4 text-on-surface-variant">12 MIN AGO</td>
+<td class="p-4">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 bg-primary/10 text-primary text-[10px] font-bold uppercase tracking-widest">
+<span class="w-1 h-1 bg-primary rounded-full"></span> Ready
+                                    </span>
+</td>
+<td class="p-4 text-right">
+<button class="text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined" data-icon="more_vert">more_vert</span>
+</button>
+</td>
+</tr>
+<!-- Row 2 -->
+<tr class="bg-surface-container-low hover:bg-surface-container-highest transition-all border-l-2 border-transparent hover:border-secondary group cursor-pointer">
+<td class="p-4">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 bg-surface-container-high flex items-center justify-center">
+<span class="material-symbols-outlined text-secondary text-lg" data-icon="data_object">data_object</span>
+</div>
+<div>
+<p class="font-bold uppercase tracking-tight">KINETIC_PARSER</p>
+<p class="text-[10px] text-on-surface-variant">JSON-Extraction-v4</p>
+</div>
+</div>
+</td>
+<td class="p-4 text-on-surface-variant">v1.0.8</td>
+<td class="p-4 text-on-surface-variant">IN PROGRESS</td>
+<td class="p-4">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 bg-secondary/10 text-secondary text-[10px] font-bold uppercase tracking-widest">
+<span class="w-1 h-1 bg-secondary rounded-full animate-pulse"></span> Training
+                                    </span>
+</td>
+<td class="p-4 text-right">
+<button class="text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined" data-icon="more_vert">more_vert</span>
+</button>
+</td>
+</tr>
+<!-- Row 3 -->
+<tr class="bg-surface hover:bg-surface-container-highest transition-all border-l-2 border-transparent hover:border-secondary group cursor-pointer">
+<td class="p-4">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 bg-surface-container-high flex items-center justify-center">
+<span class="material-symbols-outlined text-error text-lg" data-icon="warning">warning</span>
+</div>
+<div>
+<p class="font-bold uppercase tracking-tight">GHOST_OPTIMIZER</p>
+<p class="text-[10px] text-on-surface-variant">Backprop-Refinement</p>
+</div>
+</div>
+</td>
+<td class="p-4 text-on-surface-variant">v0.9.1-beta</td>
+<td class="p-4 text-on-surface-variant">2H AGO</td>
+<td class="p-4">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 bg-error/10 text-error text-[10px] font-bold uppercase tracking-widest">
+<span class="w-1 h-1 bg-error rounded-full"></span> Failed
+                                    </span>
+</td>
+<td class="p-4 text-right">
+<button class="text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined" data-icon="more_vert">more_vert</span>
+</button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+</div>
+<!-- System Logs Footer (Terminal-like) -->
+<footer class="mt-12 bg-surface-container-lowest p-8 border-t border-outline-variant/10">
+<div class="flex items-center gap-4 mb-4">
+<span class="material-symbols-outlined text-primary text-sm" data-icon="terminal">terminal</span>
+<span class="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">System Runtime Logs</span>
+</div>
+<div class="space-y-2 font-mono text-[11px]">
+<div class="flex gap-4">
+<span class="text-outline">14:22:01.442</span>
+<span class="text-primary">[INFO]</span>
+<span class="text-on-surface-variant">NEURAL_FLUX_CORE deployment successful on cluster-east-04</span>
+</div>
+<div class="flex gap-4">
+<span class="text-outline">14:21:58.210</span>
+<span class="text-secondary">[WARN]</span>
+<span class="text-on-surface-variant">High latency detected in validation-node-09. Re-routing throughput.</span>
+</div>
+<div class="flex gap-4">
+<span class="text-outline">14:21:44.901</span>
+<span class="text-primary">[INFO]</span>
+<span class="text-on-surface-variant">Syncing metadata to persistent volume: spectra-db-main</span>
+</div>
+</div>
+</footer>
+</main>
+<!-- FAB (Suppressed on Dashboard as per logic, but adding a specialized help button for lab environment) -->
+<div class="fixed bottom-8 right-8 z-50">
+<button class="bg-surface-container-highest text-primary p-4 shadow-[0_0_15px_rgba(143,245,255,0.2)] hover:scale-105 transition-transform flex items-center justify-center">
+<span class="material-symbols-outlined" data-icon="contact_support">contact_support</span>
+</button>
+</div>
+</body></html>

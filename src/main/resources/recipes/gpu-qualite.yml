@@ -1,0 +1,12 @@
+name: gpu-qualite
+displayName: "GPU Qualité"
+description: "Entraînement QLoRA haute qualité sur GPU avec Unsloth (Phi-3 / Mistral, 3 époques). Recommandé pour la production."
+
+baseModel: phi3
+loraRank: 64
+loraAlpha: 128
+epochs: 3
+learningRate: 0.0002
+minConfidence: 0.85
+packingEnabled: true
+dpoEnabled: false

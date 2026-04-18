@@ -1,0 +1,12 @@
+name: dpo-alignement
+displayName: "DPO Alignement"
+description: "Fine-tuning DPO pour réduire les hallucinations. Requiert une génération DPO préalable via POST /api/dataset/dpo/generate."
+
+baseModel: phi3
+loraRank: 32
+loraAlpha: 64
+epochs: 2
+learningRate: 0.00005
+minConfidence: 0.9
+packingEnabled: false
+dpoEnabled: true

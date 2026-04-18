@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spectra — C4 Level 2 · Containers</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0a0a0f;
+      color: #e2e8f0;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      padding: 2rem 3rem 1.5rem;
+      border-bottom: 1px solid #1e293b;
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+    }
+
+    .brand {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .brand-label {
+      font-size: 0.65rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #64748b;
+      font-family: 'Courier New', monospace;
+    }
+
+    .brand-title {
+      font-size: 1.6rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: #f1f5f9;
+    }
+
+    .brand-title span { color: #818cf8; }
+
+    .badge {
+      font-size: 0.65rem;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: #818cf8;
+      border: 1px solid #312e81;
+      background: #1e1b4b;
+      padding: 0.35rem 0.85rem;
+      font-family: 'Courier New', monospace;
+    }
+
+    .diagram-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 3rem 2rem;
+      gap: 2rem;
+    }
+
+    .diagram-meta {
+      text-align: center;
+      max-width: 640px;
+    }
+
+    .diagram-meta h2 {
+      font-size: 0.7rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: #64748b;
+      margin-bottom: 0.5rem;
+      font-family: 'Courier New', monospace;
+    }
+
+    .diagram-meta p {
+      font-size: 0.85rem;
+      color: #94a3b8;
+      line-height: 1.6;
+    }
+
+    .mermaid-wrapper {
+      background: #0f172a;
+      border: 1px solid #1e293b;
+      padding: 2.5rem;
+      width: 100%;
+      max-width: 1100px;
+      display: flex;
+      justify-content: center;
+    }
+
+    .mermaid {
+      width: 100%;
+    }
+
+    .legend {
+      display: flex;
+      gap: 2rem;
+      flex-wrap: wrap;
+      justify-content: center;
+      padding: 1.5rem 2rem;
+      border-top: 1px solid #1e293b;
+      width: 100%;
+      max-width: 1100px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      font-size: 0.7rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #64748b;
+      font-family: 'Courier New', monospace;
+    }
+
+    .legend-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 1px;
+      flex-shrink: 0;
+    }
+
+    footer {
+      padding: 1.25rem 3rem;
+      border-top: 1px solid #1e293b;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    footer span {
+      font-size: 0.65rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #334155;
+      font-family: 'Courier New', monospace;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand">
+      <span class="brand-label">Architecture Documentation</span>
+      <h1 class="brand-title">SPECTRA <span>//</span> C4 Model</h1>
+    </div>
+    <div class="badge">Level 2 — Container Diagram</div>
+  </header>
+
+  <main class="diagram-area">
+    <div class="diagram-meta">
+      <h2>Scope</h2>
+      <p>
+        Vue des <strong>conteneurs applicatifs</strong> composant Spectra : leurs technologies,
+        responsabilités et interactions réseau. Chaque conteneur correspond à un service Docker Compose.
+      </p>
+    </div>
+
+    <div class="mermaid-wrapper">
+      <div class="mermaid">
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "primaryColor": "#1e1b4b",
+    "primaryTextColor": "#e2e8f0",
+    "primaryBorderColor": "#4f46e5",
+    "lineColor": "#6366f1",
+    "secondaryColor": "#0f172a",
+    "tertiaryColor": "#1e293b",
+    "background": "#0a0a0f",
+    "mainBkg": "#1e1b4b",
+    "nodeBorder": "#4f46e5",
+    "clusterBkg": "#0f172a",
+    "titleColor": "#a5b4fc",
+    "edgeLabelBackground": "#0f172a",
+    "fontFamily": "Courier New, monospace"
+  }
+}}%%
+C4Container
+    title Spectra — Diagramme de Conteneurs (Level 2)
+
+    Person(user, "Utilisateur", "Accède à l'interface\nvia un navigateur web")
+
+    System_Boundary(compose, "Spectra — Docker Compose Network") {
+
+        Container(frontend, "spectra-frontend", "nginx 1.27 + React 19 / Vite", "Sert l'application SPA.\nProxy /api/* vers spectra-api.\nSSE sans buffering sur /api/sse/*.")
+
+        Container(api, "spectra-api", "Spring Boot 3.4 / Java 21\nVirtual Threads (Loom)", "Orchestre le pipeline complet :\ningestion → dataset → fine-tuning → RAG.\nExpose l'API REST et les flux SSE.")
+
+        Container(ollama, "spectra-ollama", "Ollama 0.18+", "Inférence LLM (chat, génération).\nCalcul d'embeddings.\nCréation de modèles via /api/create.")
+
+        ContainerDb(chroma, "spectra-chromadb", "ChromaDB — API v2", "Base de données vectorielle.\nStocke les chunks et leurs embeddings.\nCollection : spectra_documents.")
+    }
+
+    System_Ext(scripts, "Scripts d'entraînement", "train.sh / train_host.py\nVolume monté : ./scripts\n(GPU · CPU · Simulation)")
+
+    SystemDb_Ext(fs, "Système de fichiers hôte", "Volumes Docker montés\ndata/documents · data/dataset\ndata/fine-tuning")
+
+    Rel(user, frontend, "HTTP :80", "Navigateur")
+    Rel(frontend, api, "REST /api/*\nSSE /api/sse/*", "HTTP :8080")
+    Rel(api, ollama, "POST /api/embeddings\nPOST /api/chat\nPOST /api/create", "HTTP :11434")
+    Rel(api, chroma, "REST API v2\n/api/v2/collections/*", "HTTP :8000")
+    Rel(api, scripts, "ProcessBuilder\nstdin → stdout", "Sous-processus")
+    Rel(api, fs, "Lecture / Écriture\nPDF · JSONL · adapters · rapports", "I/O fichiers")
+      </div>
+    </div>
+
+    <div class="legend">
+      <div class="legend-item">
+        <div class="legend-dot" style="background:#4f46e5;"></div>
+        Conteneur interne (Docker)
+      </div>
+      <div class="legend-item">
+        <div class="legend-dot" style="background:#0891b2;"></div>
+        Base de données vectorielle
+      </div>
+      <div class="legend-item">
+        <div class="legend-dot" style="background:#64748b;"></div>
+        Système externe
+      </div>
+      <div class="legend-item">
+        <div class="legend-dot" style="background:#7c3aed; border-radius: 50%;"></div>
+        Personne / Utilisateur
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <span>Spectra — Domain LLM Builder</span>
+    <span>C4 Model · Level 2 · Containers</span>
+    <span>spectra-api :8080 · spectra-frontend :80</span>
+  </footer>
+
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'base',
+      securityLevel: 'loose',
+      c4: { diagramMarginX: 30, diagramMarginY: 20 }
+    });
+  </script>
+</body>
+</html>

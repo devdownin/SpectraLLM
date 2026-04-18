@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/app/GitHub/Spectra/**)",
+      "Bash(mvn compile:*)",
+      "Bash(mvn --version)",
+      "Read(//c/app/apache-maven-3.9.6/lib/**)",
+      "Read(//c/app/apache-maven-3.9.6/boot//**)"
+    ]
+  }
+}

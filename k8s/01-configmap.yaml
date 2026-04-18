@@ -1,0 +1,71 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spectra-api-config
+  namespace: spectra
+data:
+  # Provider LLM
+  SPECTRA_LLM_PROVIDER: "llama-cpp"
+  SPECTRA_LLM_RUNTIME_ENABLED: "false"
+  SPECTRA_LLM_REGISTRY_PATH: "/app/data/models/registry.json"
+
+  # Endpoints internes (noms de services K8s dans le même namespace)
+  SPECTRA_LLM_CHAT_BASE_URL: "http://llama-cpp-chat:8080"
+  SPECTRA_LLM_CHAT_MODEL: "spectra-domain"
+  SPECTRA_LLM_EMBEDDING_BASE_URL: "http://llama-cpp-embed:8080"
+  SPECTRA_LLM_EMBEDDING_MODEL: "nomic-embed-text"
+  SPECTRA_CHROMADB_BASE_URL: "http://chromadb:8000"
+  SPECTRA_INGESTION_BROWSERLESS_URL: "http://browserless:3000"
+
+  # Performances
+  SPECTRA_GENERATE_TIMEOUT_MINUTES: "10"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: llama-chat-config
+  namespace: spectra
+data:
+  MODEL_PATH: "/fine-tuning/merged/model.gguf"
+  MODEL_ALIAS: "spectra-domain"
+  LLAMA_MODE: "chat"
+  LLAMA_CONTEXT: ""       # vide = auto-détection par llama-autostart.sh
+  LLAMA_THREADS: ""       # vide = auto-détection
+  LLAMA_BATCH: ""         # vide = auto-détection
+  LLAMA_NGL: "0"          # 0 = CPU uniquement — mettre -1 pour tout sur GPU
+  LLAMA_FLASH_ATTN: "1"
+  LLAMA_CACHE_TYPE_K: ""
+  LLAMA_CACHE_TYPE_V: ""
+  LLAMA_PARALLELISM: "1"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: llama-embed-config
+  namespace: spectra
+data:
+  MODEL_PATH: "/models/embed.gguf"
+  MODEL_ALIAS: "nomic-embed-text"
+  LLAMA_MODE: "embed"
+  LLAMA_CONTEXT: "1024"
+  LLAMA_THREADS: ""
+  LLAMA_BATCH: "2048"
+  LLAMA_NGL: "0"
+  LLAMA_FLASH_ATTN: "0"
+  LLAMA_CACHE_TYPE_K: "f16"
+  LLAMA_CACHE_TYPE_V: "f16"
+
+---
+# Secret pour les valeurs sensibles
+# Encoder en base64 : echo -n "ma-cle-api" | base64
+apiVersion: v1
+kind: Secret
+metadata:
+  name: spectra-secrets
+  namespace: spectra
+type: Opaque
+stringData:
+  # Laisser vide pour désactiver l'authentification API
+  SPECTRA_API_KEY: ""

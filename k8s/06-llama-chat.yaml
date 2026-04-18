@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llama-cpp-chat
+  namespace: spectra
+  labels:
+    app: llama-cpp-chat
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: llama-cpp-chat
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: llama-cpp-chat
+    spec:
+      containers:
+        - name: llama-cpp-chat
+          image: spectra-llama-cpp:latest
+          imagePullPolicy: IfNotPresent
+          entrypoint: ["/bin/bash", "/scripts/llama-autostart.sh"]
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: llama-chat-config
+          volumeMounts:
+            - name: fine-tuning
+              mountPath: /fine-tuning
+              readOnly: true
+          resources:
+            requests:
+              cpu: "2000m"
+              memory: "5Gi"
+            limits:
+              cpu: "4000m"
+              memory: "8Gi"
+            # ── GPU NVIDIA (optionnel) ────────────────────────────────────
+            # Décommenter et ajuster LLAMA_NGL dans le ConfigMap (ex: -1 pour tout sur GPU)
+            # limits:
+            #   nvidia.com/gpu: "1"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 24   # 4 min pour charger le modèle
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            failureThreshold: 3
+      volumes:
+        - name: fine-tuning
+          persistentVolumeClaim:
+            claimName: spectra-fine-tuning-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llama-cpp-chat
+  namespace: spectra
+spec:
+  selector:
+    app: llama-cpp-chat
+  ports:
+    - port: 8080
+      targetPort: 8080
+  type: ClusterIP

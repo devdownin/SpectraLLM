@@ -1,0 +1,236 @@
+LEXIQUE DE TERMINOLOGIE TECHNIQUE
+Domaine : Maintenance industrielle et exploitation
+Révision 2.1 — Service Méthodes
+
+=============================================================================
+
+Ce lexique définit les termes techniques utilisés dans les procédures de
+maintenance, les ordres de travail et les rapports d'intervention. Il est
+destiné à l'ensemble du personnel technique de l'usine.
+
+=============================================================================
+A
+=============================================================================
+
+ACCOUPLMENT (mécanique)
+Dispositif permettant de relier deux arbres pour transmettre un couple.
+Types courants : accouplement rigide, élastique (manchon en caoutchouc),
+à denture (Oldham), hydraulique (convertisseur). L'alignement est critique :
+un désalignement angulaire ou parallèle provoque des vibrations et usure prématurée.
+
+ANALYSE VIBRATOIRE
+Technique de surveillance de l'état des machines par mesure des niveaux
+de vibration. Un capteur (accéléromètre) mesure les déplacements, vitesses
+ou accélérations. Les seuils ISO 10816 : < 2,8 mm/s (bon état), 2,8–7,1
+(acceptable), 7,1–18 (alerte), > 18 (danger). Permet de détecter un roulement
+défaillant 3 à 6 semaines avant la panne.
+
+ARRÊT D'URGENCE (AU)
+Dispositif de sécurité permettant d'arrêter immédiatement une machine en cas
+de danger. Normalement fermé (contact NF) : une coupure du fil déclenche l'arrêt.
+Test hebdomadaire obligatoire. Ne jamais contourner un arrêt d'urgence.
+
+=============================================================================
+B
+=============================================================================
+
+BAGUE (roulement)
+Composant annulaire d'un roulement à billes ou rouleaux. Bague intérieure
+(fixée sur l'arbre) et bague extérieure (fixée dans l'alésage). L'état des
+pistes de roulement détermine la durée de vie du roulement.
+
+BILAN THERMIQUE
+Calcul ou mesure de la chaleur générée par un équipement. Utile pour
+dimensionner la ventilation des armoires électriques et détecter les points
+chauds révélateurs d'un défaut.
+
+=============================================================================
+C
+=============================================================================
+
+CADENAS DE CONSIGNATION
+Cadenas individuel utilisé lors de la procédure LOTO. Chaque technicien
+intervenant doit poser son propre cadenas. La clé est unique et conservée
+par le technicien. Couleur normalisée : rouge pour consignation électrique.
+
+CLAVETTE
+Pièce prismatique ou demi-ronde assurant la transmission du couple entre
+un arbre et un moyeu. Les clavettes parallèles (DIN 6885) sont les plus
+courantes. Vérifier l'ajustement et l'absence de jeu excessif à chaque
+démontage.
+
+CONSIGNATION (LOTO)
+Procédure de mise en sécurité d'un équipement avant toute intervention.
+Étapes : isoler l'énergie, condamner (cadenas), vérifier l'absence d'énergie
+résiduelle (test au voltmètre, purge hydraulique), baliser la zone.
+Voir procédure complète : Procédures Sécurité Atelier.
+
+COUPLE DE SERRAGE
+Force de rotation appliquée à un organe de fixation (vis, écrou) lors du
+montage. Exprimé en N·m. Le respect du couple garantit la tenue mécanique
+et évite la rupture ou le desserrage. Utiliser une clé dynamométrique.
+
+COURROIE TRAPÉZOÏDALE
+Organe de transmission de puissance par friction. Section trapézoïdale
+(profils A, B, C, SPZ, SPA, SPB). La tension est critique : trop lâche =
+glissement et échauffement ; trop tendue = surcharge roulements.
+Contrôler la flèche selon abaques fabricant.
+
+=============================================================================
+D
+=============================================================================
+
+DÉFAILLANCE
+Cessation de l'aptitude d'un bien à accomplir sa fonction requise.
+À distinguer : panne (défaillance soudaine) et dégradation (défaillance
+progressive). La maintenance préventive vise à éviter les deux.
+
+DÉSALIGNEMENT
+Défaut de positionnement entre deux arbres reliés. Angulaire (axes formant
+un angle), parallèle (axes parallèles mais décalés) ou combiné. Cause
+principale de vibration, usure d'accouplements et fatigue d'arbres.
+
+=============================================================================
+E
+=============================================================================
+
+ÉTALONNAGE
+Opération consistant à vérifier et ajuster un instrument de mesure par
+rapport à un étalon de référence traçable. Périodicité selon plan d'étalonnage
+COFRAC. Sans étalonnage valide, les mesures (pression, température, couple)
+sont non conformes.
+
+=============================================================================
+F
+=============================================================================
+
+FMEA / AMDEC
+Analyse des Modes de Défaillance, de leurs Effets et de leur Criticité.
+Méthode préventive pour identifier les points faibles d'un équipement.
+Score de criticité = Gravité × Occurrence × Détectabilité.
+Les items C ≥ 100 font l'objet d'un plan d'action prioritaire.
+
+FLUIDE HYDRAULIQUE
+Liquide incompressible transmettant la puissance dans un système hydraulique.
+Mineral oil HM (ISO VG 46 courant), biodégradable HE, ou à base d'eau HF.
+La contamination particulaire (classe ISO 4406) est le principal facteur
+de défaillance des composants hydrauliques.
+
+=============================================================================
+G
+=============================================================================
+
+GMAO
+Gestion de Maintenance Assistée par Ordinateur. Logiciel centralisant les
+ordres de travail, historiques d'intervention, stocks de pièces et indicateurs.
+Toute intervention doit être tracée en GMAO sous peine de perte de traçabilité
+et d'invalidation des garanties fournisseur.
+
+GRAISSAGE
+Application d'un lubrifiant sur des surfaces en contact pour réduire le
+frottement, dissiper la chaleur et protéger contre la corrosion. Voir tableau
+des lubrifiants (Guide Maintenance, section 3.1) pour les spécifications.
+
+=============================================================================
+J
+=============================================================================
+
+JOINT TORIQUE (O-ring)
+Bague de section circulaire assurant l'étanchéité entre deux pièces.
+Matériaux courants : NBR (nitrile, polyvalent), FKM/Viton (haute température,
+huiles synthétiques), EPDM (eau, vapeur). Remplacer systématiquement à chaque
+démontage. Ne jamais réutiliser un joint torique démonté.
+
+=============================================================================
+L
+=============================================================================
+
+LOTO
+Lock Out / Tag Out. Système de consignation utilisant des cadenas (Lock Out)
+et des étiquettes d'avertissement (Tag Out) pour empêcher le réenclenchement
+d'un équipement en cours d'intervention. Exigence légale (Code du travail R.4412).
+
+=============================================================================
+M
+=============================================================================
+
+MTBF
+Mean Time Between Failures — Temps Moyen Entre Défaillances. Indicateur de
+fiabilité d'un équipement. MTBF = durée totale de fonctionnement / nombre
+de pannes. Un MTBF croissant indique une amélioration de la fiabilité.
+
+MTTR
+Mean Time To Repair — Temps Moyen de Réparation. Indicateur de maintenabilité.
+MTTR = durée totale de réparation / nombre de pannes. Un MTTR décroissant
+indique une amélioration de l'organisation de la maintenance.
+
+=============================================================================
+N
+=============================================================================
+
+NLGI (grade de graisse)
+Classification de la consistance des graisses lubrifiantes selon le National
+Lubricating Grease Institute. Grade 0 : très fluide. Grade 2 : usage général
+(roulements courants). Grade 3-4 : haute température. Utiliser le grade
+spécifié au plan de lubrification — un grade incorrect peut bloquer le roulement.
+
+=============================================================================
+O
+=============================================================================
+
+ORDRE DE TRAVAIL (OT)
+Document formalisant une demande d'intervention de maintenance. Il comporte :
+l'équipement, la description de la demande, la priorité, les ressources
+nécessaires, le temps estimé et les pièces requises. Les OT sont créés et
+clôturés dans la GMAO.
+
+=============================================================================
+P
+=============================================================================
+
+PALIER
+Support mécanique permettant la rotation d'un arbre tout en reprenant les
+efforts. Palier lisse (coussinet, bague) ou palier à roulement (billes,
+rouleaux, aiguilles). La température de fonctionnement ne doit pas dépasser
+80 °C — au-delà, risque de dégradation du lubrifiant.
+
+PRESSE HYDRAULIQUE
+Machine développant un effort de compression par vérin hydraulique.
+Utilisée pour le montage et démontage de pièces emmanchées (roulements,
+engrenages). Force à appliquer calculée selon les ajustements (jeu/serrage).
+
+=============================================================================
+R
+=============================================================================
+
+ROULEMENT À BILLES
+Organe permettant une rotation avec peu de frottement grâce à des billes
+en acier entre deux bagues. Types : à gorge profonde (6000/6200 série),
+à contact oblique (7000 série), auto-aligneur (1000 série). Durée de vie
+calculée en heures selon charge radiale, charge axiale et vitesse (formule L10).
+
+=============================================================================
+T
+=============================================================================
+
+TRS
+Taux de Rendement Synthétique. Indicateur global de la performance d'un moyen
+de production. TRS = Disponibilité × Performance × Qualité. Un TRS de 85 %
+est considéré comme niveau "Classe Mondiale". En dessous de 65 % : action
+corrective urgente requise.
+
+=============================================================================
+V
+=============================================================================
+
+VISCOSITÉ
+Résistance d'un fluide à l'écoulement. Exprimée en cSt (centistokes) ou
+mm²/s à 40 °C (norme ISO). ISO VG 46 = viscosité de 46 cSt à 40 °C.
+Une viscosité trop faible = film lubrifiant insuffisant → usure ;
+trop élevée = résistance à l'écoulement → échauffement.
+
+VIBRATION (seuil d'alerte)
+Selon ISO 10816-3 pour machines industrielles > 15 kW :
+Zone A (neuf) : < 2,3 mm/s RMS — Zone B (acceptable) : 2,3–4,5 mm/s
+Zone C (surveillance) : 4,5–11,2 mm/s — Zone D (danger) : > 11,2 mm/s
+Arrêter l'équipement si vibration > 7 mm/s sans diagnostic préalable.

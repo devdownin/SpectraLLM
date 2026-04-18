@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Spectra | AI Architect - Datasets</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Inter:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "primary-dim": "#00deec",
+              "on-primary": "#005d63",
+              "on-primary-fixed-variant": "#005e64",
+              "tertiary-fixed-dim": "#c1d0e6",
+              "secondary-fixed": "#f1c1ff",
+              "on-secondary-fixed": "#580079",
+              "surface-variant": "#192540",
+              "error-container": "#9f0519",
+              "on-secondary-container": "#fff5fc",
+              "secondary-dim": "#bb00fc",
+              "primary-container": "#00eefc",
+              "error-dim": "#d7383b",
+              "on-tertiary-container": "#414f62",
+              "surface-container-high": "#141f38",
+              "on-primary-container": "#005359",
+              "tertiary-container": "#cfdef5",
+              "surface-bright": "#1f2b49",
+              "surface-dim": "#060e20",
+              "primary-fixed": "#00eefc",
+              "on-secondary-fixed-variant": "#8400b3",
+              "on-surface-variant": "#a3aac4",
+              "on-tertiary": "#49586b",
+              "on-error": "#490006",
+              "surface": "#060e20",
+              "tertiary-fixed": "#cfdef5",
+              "surface-container": "#0f1930",
+              "secondary-container": "#9900cf",
+              "on-tertiary-fixed": "#2e3d4e",
+              "surface-container-lowest": "#000000",
+              "on-primary-fixed": "#003f43",
+              "surface-container-low": "#091328",
+              "on-background": "#dee5ff",
+              "tertiary-dim": "#c1d0e6",
+              "outline-variant": "#40485d",
+              "secondary-fixed-dim": "#eaaeff",
+              "tertiary": "#e0ecff",
+              "on-error-container": "#ffa8a3",
+              "background": "#060e20",
+              "surface-container-highest": "#192540",
+              "inverse-surface": "#faf8ff",
+              "inverse-primary": "#006a71",
+              "error": "#ff716c",
+              "primary-fixed-dim": "#00deec",
+              "on-tertiary-fixed-variant": "#4a596c",
+              "outline": "#6d758c",
+              "secondary": "#d674ff",
+              "on-surface": "#dee5ff",
+              "inverse-on-surface": "#4d556b",
+              "surface-tint": "#8ff5ff",
+              "on-secondary": "#390050",
+              "primary": "#8ff5ff"
+            },
+            fontFamily: {
+              "headline": ["Space Grotesk"],
+              "body": ["Inter"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0px", "lg": "0px", "xl": "0px", "full": "9999px"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        body {
+            background-color: #060e20;
+            color: #dee5ff;
+            font-family: 'Inter', sans-serif;
+        }
+        .glass-panel {
+            background: rgba(25, 37, 64, 0.6);
+            backdrop-filter: blur(12px);
+        }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: #060e20; }
+        ::-webkit-scrollbar-thumb { background: #192540; }
+        ::-webkit-scrollbar-thumb:hover { background: #8ff5ff; }
+    </style>
+</head>
+<body class="flex min-h-screen">
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-0 h-full flex flex-col p-4 z-40 bg-[#091328] h-screen w-64 border-none">
+<div class="text-lg font-black text-[#8ff5ff] mb-8 font-['Space_Grotesk'] uppercase tracking-[0.1em]">Spectra</div>
+<div class="text-[10px] text-[#6d758c] font-bold tracking-[0.2em] mb-8 px-2">AI ARCHITECT v1.0</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center px-4 py-3 text-[#6d758c] font-['Space_Grotesk'] uppercase tracking-[0.1em] text-[11px] hover:text-[#8ff5ff] hover:bg-[#141f38] transition-all cursor-pointer" href="#">
+<span class="material-symbols-outlined mr-3 text-lg">dashboard</span>
+                Dashboard
+            </a>
+<a class="flex items-center px-4 py-3 text-[#8ff5ff] border-l-2 border-[#d674ff] bg-[#192540] font-['Space_Grotesk'] uppercase tracking-[0.1em] text-[11px] cursor-pointer" href="#">
+<span class="material-symbols-outlined mr-3 text-lg">database</span>
+                Datasets
+            </a>
+<a class="flex items-center px-4 py-3 text-[#6d758c] font-['Space_Grotesk'] uppercase tracking-[0.1em] text-[11px] hover:text-[#8ff5ff] hover:bg-[#141f38] transition-all cursor-pointer" href="#">
+<span class="material-symbols-outlined mr-3 text-lg">analytics</span>
+                Pipelines
+            </a>
+<a class="flex items-center px-4 py-3 text-[#6d758c] font-['Space_Grotesk'] uppercase tracking-[0.1em] text-[11px] hover:text-[#8ff5ff] hover:bg-[#141f38] transition-all cursor-pointer" href="#">
+<span class="material-symbols-outlined mr-3 text-lg">chat_bubble</span>
+                Playground
+            </a>
+</nav>
+<div class="mt-auto space-y-1 pt-4 border-t border-outline-variant/10">
+<button class="w-full bg-primary text-on-primary-fixed font-bold py-3 mb-6 tracking-widest text-[10px] active:scale-95 duration-100 uppercase">NEW MODEL</button>
+<a class="flex items-center px-4 py-2 text-[#6d758c] font-['Space_Grotesk'] uppercase tracking-[0.1em] text-[11px] hover:text-[#8ff5ff] transition-all" href="#">
+<span class="material-symbols-outlined mr-3 text-lg">menu_book</span>
+                Documentation
+            </a>
+<a class="flex items-center px-4 py-2 text-[#6d758c] font-['Space_Grotesk'] uppercase tracking-[0.1em] text-[11px] hover:text-[#8ff5ff] transition-all" href="#">
+<span class="material-symbols-outlined mr-3 text-lg">support_agent</span>
+                Support
+            </a>
+</div>
+</aside>
+<!-- Main Content Canvas -->
+<main class="flex-1 ml-64 min-h-screen flex flex-col">
+<!-- TopAppBar -->
+<header class="flex justify-between items-center px-6 py-3 sticky top-0 z-50 bg-[#0f1930] shadow-[0_0_15px_rgba(143,245,255,0.04)] border-none">
+<div class="flex items-center space-x-4">
+<h1 class="font-['Space_Grotesk'] tracking-tighter text-xl font-bold text-[#8ff5ff]">Datasets</h1>
+<span class="text-[10px] bg-surface-variant px-2 py-0.5 text-secondary tracking-widest font-bold">NODE_ALPHA_01</span>
+</div>
+<div class="flex items-center space-x-6">
+<div class="relative">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm">search</span>
+<input class="bg-surface-container-lowest border-none text-[10px] tracking-widest pl-10 pr-4 py-2 w-64 focus:ring-1 focus:ring-primary text-on-surface uppercase" placeholder="QUERY DATABASE..." type="text"/>
+</div>
+<div class="flex space-x-4">
+<button class="text-[#a3aac4] hover:bg-[#192540] p-2 transition-colors duration-200 active:scale-95">
+<span class="material-symbols-outlined">settings</span>
+</button>
+<button class="text-[#a3aac4] hover:bg-[#192540] p-2 transition-colors duration-200 active:scale-95 relative">
+<span class="material-symbols-outlined">notifications</span>
+<span class="absolute top-2 right-2 w-1.5 h-1.5 bg-secondary"></span>
+</button>
+<button class="text-[#a3aac4] hover:bg-[#192540] p-2 transition-colors duration-200 active:scale-95">
+<span class="material-symbols-outlined">account_circle</span>
+</button>
+</div>
+</div>
+</header>
+<!-- Canvas -->
+<div class="p-8 space-y-12 max-w-7xl mx-auto w-full">
+<!-- Step Progress -->
+<section class="grid grid-cols-4 gap-4">
+<div class="border-l-4 border-primary bg-surface-container p-4">
+<p class="text-[10px] font-bold tracking-[0.2em] text-primary mb-1">STEP 01</p>
+<h3 class="font-headline text-sm font-bold uppercase tracking-tight">Ingest Source</h3>
+</div>
+<div class="border-l-4 border-outline-variant bg-surface-container-low p-4 opacity-50">
+<p class="text-[10px] font-bold tracking-[0.2em] text-on-surface-variant mb-1">STEP 02</p>
+<h3 class="font-headline text-sm font-bold uppercase tracking-tight">Extraction Logic</h3>
+</div>
+<div class="border-l-4 border-outline-variant bg-surface-container-low p-4 opacity-50">
+<p class="text-[10px] font-bold tracking-[0.2em] text-on-surface-variant mb-1">STEP 03</p>
+<h3 class="font-headline text-sm font-bold uppercase tracking-tight">Cleaning Sync</h3>
+</div>
+<div class="border-l-4 border-outline-variant bg-surface-container-low p-4 opacity-50">
+<p class="text-[10px] font-bold tracking-[0.2em] text-on-surface-variant mb-1">STEP 04</p>
+<h3 class="font-headline text-sm font-bold uppercase tracking-tight">Vector Chunking</h3>
+</div>
+</section>
+<!-- Bento Grid Layout -->
+<div class="grid grid-cols-12 gap-8">
+<!-- File Upload Area (Large Left) -->
+<div class="col-span-12 lg:col-span-8 space-y-8">
+<div class="bg-surface-container p-12 border-none relative overflow-hidden group">
+<div class="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+<div class="relative z-10 flex flex-col items-center justify-center text-center space-y-6">
+<div class="w-20 h-20 bg-surface-container-highest flex items-center justify-center">
+<span class="material-symbols-outlined text-4xl text-primary">upload_file</span>
+</div>
+<div>
+<h2 class="font-headline text-2xl font-bold tracking-tighter mb-2">INITIALIZE DATA UPLOAD</h2>
+<p class="text-on-surface-variant font-body text-sm max-w-md mx-auto leading-relaxed">
+                                    Support for PDF, DOCX, JSON, and XML. Maximum single file size: 512MB.
+                                </p>
+</div>
+<div class="flex space-x-4">
+<button class="bg-primary text-on-primary-fixed px-8 py-3 font-bold text-[11px] tracking-widest uppercase active:scale-95 transition-transform">SELECT FILES</button>
+<button class="border border-outline-variant/30 text-on-surface px-8 py-3 font-bold text-[11px] tracking-widest uppercase hover:bg-surface-container-high transition-colors">S3 CONNECTOR</button>
+</div>
+</div>
+</div>
+<!-- Uploaded Documents List -->
+<div class="space-y-4">
+<div class="flex justify-between items-end px-2">
+<h3 class="font-headline text-lg font-bold uppercase tracking-tight">Active Queue</h3>
+<span class="text-[10px] font-bold text-primary tracking-widest">3 FILES DETECTED</span>
+</div>
+<div class="space-y-1">
+<!-- Row 1 -->
+<div class="grid grid-cols-12 items-center bg-surface-container-low hover:bg-surface-container-highest px-6 py-4 transition-colors group">
+<div class="col-span-1 flex items-center">
+<span class="material-symbols-outlined text-on-surface-variant group-hover:text-primary transition-colors">description</span>
+</div>
+<div class="col-span-5">
+<p class="text-sm font-bold font-headline tracking-tight">FINANCIAL_REPORT_Q3.PDF</p>
+<p class="text-[10px] text-on-surface-variant tracking-wider uppercase">14.2 MB • DOCUMENT/PDF</p>
+</div>
+<div class="col-span-3">
+<div class="flex items-center space-x-2">
+<div class="h-1 flex-1 bg-outline-variant overflow-hidden">
+<div class="h-full bg-secondary shadow-[0_0_8px_#d674ff]" style="width: 100%"></div>
+</div>
+<span class="text-[10px] font-bold text-secondary">READY</span>
+</div>
+</div>
+<div class="col-span-3 flex justify-end space-x-2">
+<button class="p-2 hover:bg-surface-container transition-colors text-on-surface-variant"><span class="material-symbols-outlined text-sm">visibility</span></button>
+<button class="p-2 hover:bg-error-container/20 transition-colors text-error"><span class="material-symbols-outlined text-sm">delete</span></button>
+</div>
+</div>
+<!-- Row 2 -->
+<div class="grid grid-cols-12 items-center bg-surface-container-low hover:bg-surface-container-highest px-6 py-4 transition-colors group">
+<div class="col-span-1 flex items-center">
+<span class="material-symbols-outlined text-on-surface-variant group-hover:text-primary transition-colors">code</span>
+</div>
+<div class="col-span-5">
+<p class="text-sm font-bold font-headline tracking-tight">USER_METRICS_DUMP.JSON</p>
+<p class="text-[10px] text-on-surface-variant tracking-wider uppercase">2.4 MB • DATA/JSON</p>
+</div>
+<div class="col-span-3">
+<div class="flex items-center space-x-2">
+<div class="h-1 flex-1 bg-outline-variant overflow-hidden">
+<div class="h-full bg-primary animate-pulse" style="width: 45%"></div>
+</div>
+<span class="text-[10px] font-bold text-primary">INGESTING</span>
+</div>
+</div>
+<div class="col-span-3 flex justify-end space-x-2">
+<button class="p-2 hover:bg-surface-container transition-colors text-on-surface-variant"><span class="material-symbols-outlined text-sm">pause</span></button>
+<button class="p-2 hover:bg-error-container/20 transition-colors text-error"><span class="material-symbols-outlined text-sm">delete</span></button>
+</div>
+</div>
+<!-- Row 3 -->
+<div class="grid grid-cols-12 items-center bg-surface-container-low hover:bg-surface-container-highest px-6 py-4 transition-colors group">
+<div class="col-span-1 flex items-center">
+<span class="material-symbols-outlined text-on-surface-variant group-hover:text-primary transition-colors">article</span>
+</div>
+<div class="col-span-5">
+<p class="text-sm font-bold font-headline tracking-tight">KNOWLEDGE_BASE_v1.DOCX</p>
+<p class="text-[10px] text-on-surface-variant tracking-wider uppercase">0.8 MB • DOCUMENT/DOCX</p>
+</div>
+<div class="col-span-3">
+<div class="flex items-center space-x-2">
+<div class="h-1 flex-1 bg-outline-variant"></div>
+<span class="text-[10px] font-bold text-on-surface-variant">QUEUED</span>
+</div>
+</div>
+<div class="col-span-3 flex justify-end space-x-2">
+<button class="p-2 hover:bg-surface-container transition-colors text-on-surface-variant"><span class="material-symbols-outlined text-sm">play_arrow</span></button>
+<button class="p-2 hover:bg-error-container/20 transition-colors text-error"><span class="material-symbols-outlined text-sm">delete</span></button>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Pipeline Configuration (Right Sidebar) -->
+<div class="col-span-12 lg:col-span-4 space-y-6">
+<div class="bg-surface-container-high p-6 space-y-8">
+<div>
+<h3 class="font-headline text-lg font-bold uppercase tracking-tighter mb-6 flex items-center">
+<span class="w-1 h-6 bg-secondary mr-3"></span>
+                                Pipeline Config
+                            </h3>
+<!-- Card: Extraction -->
+<div class="space-y-4 mb-8">
+<label class="text-[10px] font-bold tracking-[0.2em] text-on-surface-variant block uppercase">Extraction Mode</label>
+<div class="grid grid-cols-2 gap-2">
+<button class="bg-surface-container-highest border border-primary/50 text-primary py-3 text-[10px] font-bold tracking-widest uppercase">OCR High-Res</button>
+<button class="bg-surface-container-low text-on-surface-variant py-3 text-[10px] font-bold tracking-widest uppercase hover:bg-surface-container-highest transition-colors">Fast Text</button>
+</div>
+</div>
+<!-- Card: Cleaning -->
+<div class="space-y-4 mb-8">
+<label class="text-[10px] font-bold tracking-[0.2em] text-on-surface-variant block uppercase">Cleaning Protocol</label>
+<div class="space-y-2">
+<label class="flex items-center space-x-3 cursor-pointer group">
+<input checked="" class="form-checkbox bg-surface-container-lowest border-outline-variant text-primary focus:ring-primary rounded-none" type="checkbox"/>
+<span class="text-[11px] font-medium text-on-surface group-hover:text-primary transition-colors">Strip HTML/Markdown Tags</span>
+</label>
+<label class="flex items-center space-x-3 cursor-pointer group">
+<input checked="" class="form-checkbox bg-surface-container-lowest border-outline-variant text-primary focus:ring-primary rounded-none" type="checkbox"/>
+<span class="text-[11px] font-medium text-on-surface group-hover:text-primary transition-colors">Normalize Unicode Symbols</span>
+</label>
+<label class="flex items-center space-x-3 cursor-pointer group">
+<input class="form-checkbox bg-surface-container-lowest border-outline-variant text-primary focus:ring-primary rounded-none" type="checkbox"/>
+<span class="text-[11px] font-medium text-on-surface group-hover:text-primary transition-colors">Detect PII &amp; Redact</span>
+</label>
+</div>
+</div>
+<!-- Card: Chunking -->
+<div class="space-y-4">
+<label class="text-[10px] font-bold tracking-[0.2em] text-on-surface-variant block uppercase">Chunking Parameters</label>
+<div class="bg-surface-container-lowest p-4 space-y-4">
+<div>
+<div class="flex justify-between mb-2">
+<span class="text-[10px] text-on-surface-variant font-bold uppercase tracking-widest">Token Limit</span>
+<span class="text-[10px] text-primary font-bold">512</span>
+</div>
+<input class="w-full h-1 bg-outline-variant appearance-none cursor-pointer accent-primary" max="2048" min="128" type="range" value="512"/>
+</div>
+<div>
+<div class="flex justify-between mb-2">
+<span class="text-[10px] text-on-surface-variant font-bold uppercase tracking-widest">Overlap Offset</span>
+<span class="text-[10px] text-primary font-bold">64</span>
+</div>
+<input class="w-full h-1 bg-outline-variant appearance-none cursor-pointer accent-primary" max="256" min="0" type="range" value="64"/>
+</div>
+</div>
+</div>
+</div>
+<div class="pt-6 border-t border-outline-variant/10">
+<button class="w-full bg-primary text-on-primary-fixed py-4 font-bold tracking-[0.2em] text-[11px] uppercase shadow-[0_0_20px_rgba(143,245,255,0.2)] active:scale-95 transition-all">START EXTRACTION PIPELINE</button>
+<p class="text-center text-[9px] text-on-surface-variant mt-4 tracking-widest leading-relaxed uppercase">
+                                Estimates: 3 Files • ~145,000 Tokens • ~12m Process Time
+                            </p>
+</div>
+</div>
+<!-- Logs Terminal Area -->
+<div class="bg-surface-container-lowest p-6 border-t-2 border-secondary/20">
+<div class="flex justify-between items-center mb-4">
+<span class="text-[10px] font-bold text-secondary tracking-widest uppercase">System Logs</span>
+<span class="w-2 h-2 rounded-full bg-secondary animate-pulse"></span>
+</div>
+<div class="space-y-2 font-mono text-[10px] text-on-surface-variant max-h-48 overflow-y-auto">
+<p><span class="text-secondary">[14:02:11]</span> INITIALIZING WORKER_THREAD_4...</p>
+<p><span class="text-secondary">[14:02:12]</span> MOUNTING FINANCIAL_REPORT_Q3.PDF</p>
+<p><span class="text-primary">[14:02:15]</span> PARSING PAGE 1/45 - SUCCESS</p>
+<p><span class="text-primary">[14:02:18]</span> PARSING PAGE 2/45 - SUCCESS</p>
+<p><span class="text-on-surface-variant/40">[14:02:20]</span> WAITING FOR USER_METRICS_DUMP.JSON...</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Footer Visual (Asymmetric Decoration) -->
+<footer class="mt-auto p-8 border-t border-outline-variant/10 flex justify-between items-center">
+<div class="flex items-center space-x-4">
+<div class="text-[10px] tracking-widest text-on-surface-variant flex items-center">
+<span class="w-2 h-2 bg-primary-dim mr-2"></span> SYSTEM_HEALTH: OPTIMAL
+                </div>
+<div class="text-[10px] tracking-widest text-on-surface-variant flex items-center">
+<span class="w-2 h-2 bg-secondary mr-2"></span> LATENCY: 24ms
+                </div>
+</div>
+<div class="text-[10px] font-bold tracking-widest text-on-surface-variant uppercase">
+                © SPECTRA ARCHITECTURAL INTELLIGENCE 2024
+            </div>
+</footer>
+</main>
+</body></html>

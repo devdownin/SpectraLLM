@@ -1,0 +1,31 @@
+# Force LF sur les fichiers source / scripts Unix
+*.sh         text eol=lf
+*.py         text eol=lf
+*.java       text eol=lf
+*.yml        text eol=lf
+*.yaml       text eol=lf
+*.json       text eol=lf
+*.xml        text eol=lf
+*.md         text eol=lf
+*.txt        text eol=lf
+*.properties text eol=lf
+*.sql        text eol=lf
+Dockerfile   text eol=lf
+
+# Force CRLF sur les fichiers Windows
+*.bat        text eol=crlf
+*.cmd        text eol=crlf
+
+# Binaires — pas de conversion de fin de ligne
+*.pdf        binary
+*.docx       binary
+*.doc        binary
+*.avro       binary
+*.jar        binary
+*.war        binary
+*.class      binary
+*.gguf       binary
+*.safetensors binary
+*.png        binary
+*.jpg        binary
+*.jpeg       binary

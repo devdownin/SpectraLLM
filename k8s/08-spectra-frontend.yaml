@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spectra-frontend
+  namespace: spectra
+  labels:
+    app: spectra-frontend
+spec:
+  replicas: 2   # Stateless — scalable horizontalement
+  selector:
+    matchLabels:
+      app: spectra-frontend
+  template:
+    metadata:
+      labels:
+        app: spectra-frontend
+    spec:
+      containers:
+        - name: spectra-frontend
+          image: spectra-frontend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          # La configuration nginx (nginx.conf) est intégrée à l'image via le Dockerfile.
+          # Elle proxifie /api/ vers http://spectra-api:8080 — le nom de service K8s
+          # dans le même namespace résout automatiquement.
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spectra-frontend
+  namespace: spectra
+spec:
+  selector:
+    app: spectra-frontend
+  ports:
+    - port: 80
+      targetPort: 80
+  # LoadBalancer : expose le service via l'IP externe du cloud provider
+  # Remplacer par NodePort pour minikube / kind :
+  #   type: NodePort
+  #   ports:
+  #     - port: 80
+  #       targetPort: 80
+  #       nodePort: 30080
+  type: LoadBalancer

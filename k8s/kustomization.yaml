@@ -1,0 +1,33 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: spectra
+
+resources:
+  - 00-namespace.yaml
+  - 01-configmap.yaml
+  - 02-pvc.yaml
+  - 03-chromadb.yaml
+  - 04-browserless.yaml
+  - 05-llama-embed.yaml
+  - 06-llama-chat.yaml
+  - 07-spectra-api.yaml
+  - 08-spectra-frontend.yaml
+  # Décommenter pour activer l'Ingress nginx (désactiver LoadBalancer dans 08-spectra-frontend.yaml)
+  # - 09-ingress.yaml
+
+# ── Images — remplacer par vos registres si vous poussez les images ──────────
+images:
+  - name: spectra-llama-cpp
+    newName: spectra-llama-cpp
+    newTag: latest
+  - name: spectra-api
+    newName: spectra-api
+    newTag: latest
+  - name: spectra-frontend
+    newName: spectra-frontend
+    newTag: latest
+  # Exemple avec un registre privé :
+  # - name: spectra-api
+  #   newName: registry.example.com/spectra/api
+  #   newTag: "1.2.0"

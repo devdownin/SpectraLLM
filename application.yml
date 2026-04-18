@@ -1,0 +1,116 @@
+spring:
+  application:
+    name: spectra-api
+  threads:
+    virtual:
+      enabled: true
+  servlet:
+    multipart:
+      max-file-size: 100MB
+      max-request-size: 500MB
+
+server:
+  port: 8080
+
+# Services externes
+spectra:
+  llm:
+    # Provider actif pour l'inference.
+    provider: llama-cpp
+    registry-path: ./data/models/registry.json
+    runtime:
+      # Si activé avec `provider=llama-cpp`, Spectra démarre/redémarre `llama-server`
+      # quand le modèle de chat actif change.
+      # Docker override : SPECTRA_LLM_RUNTIME_ENABLED=false (llama-server géré par docker-compose)
+      enabled: true
+      executable: C:/Users/COMPAGNON/.docker/bin/inference/llama-server.exe
+      working-dir: .
+      host: 127.0.0.1
+      port: 8012
+      startup-timeout-seconds: 120
+      # CPU-optimisé pour Phi-3.5-mini (4096 tokens = suffisant pour RAG, ~3.5 GB RAM)
+      context-size: 4096
+      # 0 = auto-détection du nombre de cœurs physiques
+      threads: 0
+      # 1 slot = usage local, pas de requêtes concurrentes nécessaires
+      parallelism: 1
+      extra-args: []
+    chat:
+      # Docker override : SPECTRA_LLM_CHAT_BASE_URL=http://llama-cpp-chat:8080
+      base-url: http://localhost:8012
+      model: phi-3.5-mini
+      timeout-seconds: 300
+    embedding:
+      base-url: http://llama-cpp-embed:8080
+      model: nomic-embed-text
+      timeout-seconds: 30
+  chromadb:
+    base-url: http://chromadb:8000
+    collection: spectra_documents
+  dataset:
+    dir: ./data/dataset
+    # Catégories de classification — adapter au domaine des documents ingérés.
+    # Laisser vide pour utiliser les catégories par défaut.
+    categories:
+      - procedures
+      - evenements
+      - nomenclatures
+      - reglementation
+  rag:
+    # Seuil de distance cosine ChromaDB : chunks au-delà sont écartés du contexte RAG.
+    # 0 = identique, 1 = orthogonal, 2 = opposé. Valeur recommandée : 0.8.
+    max-distance-threshold: 0.8
+  ingestion:
+    # URL du service browserless/chrome pour rendre les pages HTML dynamiques (JS).
+    browserless-url: http://browserless:3000
+  fine-tuning:
+    work-dir: ./data/fine-tuning
+    script: ./scripts/train.sh
+  batch:
+    enabled: false
+    source-dir: ./data/documents
+    model-name: spectra-highway-auto
+
+# Résilience (circuit breaker LLM)
+resilience4j:
+  circuitbreaker:
+    instances:
+      llm-chat:
+        # Fenêtre glissante sur les 5 derniers appels
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 5
+        # Ouvre le circuit si 60% des appels échouent
+        failure-rate-threshold: 60
+        # Reste ouvert 30s avant de passer en HALF_OPEN
+        wait-duration-in-open-state: 30s
+        # 2 appels de test en HALF_OPEN avant de décider
+        permitted-number-of-calls-in-half-open-state: 2
+        # Un appel > 120s est considéré "lent" (contribue au taux d'échec)
+        slow-call-duration-threshold: 120s
+        slow-call-rate-threshold: 80
+        # Exceptions réseau déclenchent le circuit
+        record-exceptions:
+          - java.io.IOException
+          - org.springframework.web.reactive.function.client.WebClientRequestException
+          - java.util.concurrent.TimeoutException
+        # Les erreurs métier ne doivent pas ouvrir le circuit
+        ignore-exceptions:
+          - java.lang.IllegalStateException
+          - fr.spectra.service.LlmUnavailableException
+
+# Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: always
+
+# OpenAPI
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html

@@ -1,0 +1,106 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary-dim: #00deec;
+  --color-on-primary: #005d63;
+  --color-on-primary-fixed-variant: #005e64;
+  --color-tertiary-fixed-dim: #c1d0e6;
+  --color-secondary-fixed: #f1c1ff;
+  --color-on-secondary-fixed: #580079;
+  --color-surface-variant: #192540;
+  --color-error-container: #9f0519;
+  --color-on-secondary-container: #fff5fc;
+  --color-secondary-dim: #bb00fc;
+  --color-primary-container: #00eefc;
+  --color-error-dim: #d7383b;
+  --color-on-tertiary-container: #414f62;
+  --color-surface-container-high: #141f38;
+  --color-on-primary-container: #005359;
+  --color-tertiary-container: #cfdef5;
+  --color-surface-bright: #1f2b49;
+  --color-surface-dim: #060e20;
+  --color-primary-fixed: #00eefc;
+  --color-on-secondary-fixed-variant: #8400b3;
+  --color-on-surface-variant: #a3aac4;
+  --color-on-tertiary: #49586b;
+  --color-on-error: #490006;
+  --color-surface: #060e20;
+  --color-tertiary-fixed: #cfdef5;
+  --color-surface-container: #0f1930;
+  --color-secondary-container: #9900cf;
+  --color-on-tertiary-fixed: #2e3d4e;
+  --color-surface-container-lowest: #000000;
+  --color-on-primary-fixed: #003f43;
+  --color-surface-container-low: #091328;
+  --color-on-background: #dee5ff;
+  --color-tertiary-dim: #c1d0e6;
+  --color-outline-variant: #40485d;
+  --color-secondary-fixed-dim: #eaaeff;
+  --color-tertiary: #e0ecff;
+  --color-on-error-container: #ffa8a3;
+  --color-background: #060e20;
+  --color-surface-container-highest: #192540;
+  --color-inverse-surface: #faf8ff;
+  --color-inverse-primary: #006a71;
+  --color-error: #ff716c;
+  --color-primary-fixed-dim: #00deec;
+  --color-on-tertiary-fixed-variant: #4a596c;
+  --color-outline: #6d758c;
+  --color-secondary: #d674ff;
+  --color-on-surface: #dee5ff;
+  --color-inverse-on-surface: #4d556b;
+  --color-surface-tint: #8ff5ff;
+  --color-on-secondary: #390050;
+  --color-primary: #8ff5ff;
+
+  --font-headline: "Space Grotesk";
+  --font-body: "Inter";
+  --font-label: "Inter";
+
+  --radius-default: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+
+  @keyframes progress-fast {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
+}
+
+.animate-progress-fast {
+  animation: progress-fast 1s linear infinite;
+}
+
+@layer base {
+  body {
+    @apply bg-surface text-on-surface font-body;
+  }
+}
+
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  vertical-align: middle;
+}
+
+.glass-overlay {
+  background: rgba(25, 37, 64, 0.6);
+  backdrop-filter: blur(12px);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-surface;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-outline-variant/30;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-primary/30;
+}

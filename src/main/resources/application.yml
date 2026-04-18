@@ -1,0 +1,96 @@
+spring:
+  application:
+    name: spectra-api
+  threads:
+    virtual:
+      enabled: true
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 100MB
+  datasource:
+    url: jdbc:h2:file:./data/spectra-db;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    open-in-view: false
+  h2:
+    console:
+      enabled: false
+
+server:
+  port: 8080
+
+# Services externes
+spectra:
+  llm:
+    base-url: ${SPECTRA_LLM_BASE_URL:http://llm-chat:8081}
+    model: ${SPECTRA_LLM_MODEL:phi-4-mini}
+    embedding-model: ${SPECTRA_LLM_EMBEDDING_MODEL:nomic-embed-text}
+    provider: ${SPECTRA_LLM_PROVIDER:llama-cpp}
+    chat:
+      base-url: ${SPECTRA_LLM_CHAT_BASE_URL:http://llm-chat:8081}
+    embedding:
+      base-url: ${SPECTRA_LLM_EMBEDDING_BASE_URL:http://llm-embed:8082}
+  chromadb:
+    base-url: ${CHROMADB_URL:http://chromadb:8000}
+  pipeline:
+    chunk-max-tokens: ${SPECTRA_CHUNK_MAX_TOKENS:512}
+    chunk-overlap-tokens: ${SPECTRA_CHUNK_OVERLAP_TOKENS:64}
+    embedding-batch-size: ${SPECTRA_EMBEDDING_BATCH_SIZE:10}
+    embedding-timeout-seconds: ${SPECTRA_EMBEDDING_TIMEOUT:30}
+    generation-timeout-seconds: ${SPECTRA_GENERATION_TIMEOUT:120}
+    concurrent-ingestions: ${SPECTRA_CONCURRENT_INGESTIONS:4}
+  layout-parser:
+    enabled: ${SPECTRA_LAYOUT_PARSER_ENABLED:false}
+    base-url: ${SPECTRA_LAYOUT_PARSER_URL:http://docparser:8001}
+    timeout-seconds: ${SPECTRA_LAYOUT_PARSER_TIMEOUT:120}
+    buffer-size-mb: ${SPECTRA_LAYOUT_PARSER_BUFFER_MB:100}
+  hybrid-search:
+    enabled: ${SPECTRA_HYBRID_SEARCH_ENABLED:false}
+    top-bm25: ${SPECTRA_HYBRID_BM25_TOP:20}
+    bm25-weight: ${SPECTRA_HYBRID_BM25_WEIGHT:1.0}
+  reranker:
+    enabled: ${SPECTRA_RERANKER_ENABLED:false}
+    base-url: ${SPECTRA_RERANKER_URL:http://reranker:8000}
+    model: ${SPECTRA_RERANKER_MODEL:cross-encoder/mmarco-mMiniLMv2-L12-H384-v1}
+    timeout-seconds: ${SPECTRA_RERANKER_TIMEOUT:30}
+    top-candidates: ${SPECTRA_RERANKER_TOP_CANDIDATES:20}
+  agentic-rag:
+    enabled: ${SPECTRA_AGENTIC_RAG_ENABLED:false}
+    max-iterations: ${SPECTRA_AGENTIC_MAX_ITERATIONS:3}
+    initial-top-k: ${SPECTRA_AGENTIC_INITIAL_TOP_K:5}
+    response-language: ${SPECTRA_AGENTIC_LANGUAGE:fr}
+    max-context-tokens: ${SPECTRA_AGENTIC_MAX_CONTEXT_TOKENS:3000}
+  dataset:
+    dir: ./data/dataset
+  fine-tuning:
+    work-dir: ./data/fine-tuning
+    script: ./scripts/train.sh
+  ged:
+    archive-dir: ${SPECTRA_GED_ARCHIVE_DIR:./data/archive}
+    auto-qualify-threshold: ${SPECTRA_GED_AUTO_QUALIFY_THRESHOLD:0.0}
+    retention:
+      archive-after-days: ${SPECTRA_GED_ARCHIVE_AFTER_DAYS:0}
+      purge-after-days: ${SPECTRA_GED_PURGE_AFTER_DAYS:0}
+
+# Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+# OpenAPI
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html

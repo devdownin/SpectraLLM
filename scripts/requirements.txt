@@ -1,0 +1,24 @@
+# Spectra — Dépendances Python pour le fine-tuning QLoRA
+# Installation : pip install -r scripts/requirements.txt
+#
+# Prérequis : Python 3.10+
+# Note      : unsloth nécessite CUDA pour les GPU NVIDIA.
+#             Sur CPU uniquement, remplacer unsloth par transformers + peft.
+
+# Fine-tuning QLoRA (Unsloth = version optimisée de HuggingFace PEFT)
+unsloth>=2024.11.0
+
+# Trainer supervisé
+trl>=0.12.0
+
+# Modèles et tokenizers HuggingFace
+transformers>=4.46.0
+
+# Gestion des datasets
+datasets>=3.1.0
+
+# Quantification 4-bit (requis par unsloth)
+bitsandbytes>=0.44.0
+
+# Accélération HuggingFace (gestion multi-GPU / CPU)
+accelerate>=1.1.0

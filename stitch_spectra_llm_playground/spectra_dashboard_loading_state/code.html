@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>SPECTRA CORE | System Loading</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;family=Inter:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              colors: {
+                "on-surface": "#dee5ff",
+                "on-tertiary-container": "#414f62",
+                "surface-variant": "#192540",
+                "secondary-fixed-dim": "#eaaeff",
+                "secondary-container": "#9900cf",
+                "secondary": "#d674ff",
+                "secondary-dim": "#bb00fc",
+                "secondary-fixed": "#f1c1ff",
+                "on-background": "#dee5ff",
+                "on-tertiary-fixed": "#2e3d4e",
+                "surface-container": "#0f1930",
+                "surface-tint": "#8ff5ff",
+                "error-dim": "#d7383b",
+                "surface-bright": "#1f2b49",
+                "on-secondary-container": "#fff5fc",
+                "on-error": "#490006",
+                "surface-container-high": "#141f38",
+                "surface-container-low": "#091328",
+                "surface": "#060e20",
+                "on-primary-fixed-variant": "#005e64",
+                "on-error-container": "#ffa8a3",
+                "tertiary": "#e0ecff",
+                "on-tertiary": "#49586b",
+                "surface-dim": "#060e20",
+                "tertiary-dim": "#c1d0e6",
+                "outline-variant": "#40485d",
+                "on-tertiary-fixed-variant": "#4a596c",
+                "surface-container-highest": "#192540",
+                "on-primary-container": "#005359",
+                "primary-fixed": "#00eefc",
+                "outline": "#6d758c",
+                "on-surface-variant": "#a3aac4",
+                "on-secondary": "#390050",
+                "primary": "#8ff5ff",
+                "surface-container-lowest": "#000000",
+                "error-container": "#9f0519",
+                "primary-dim": "#00deec",
+                "background": "#060e20",
+                "inverse-primary": "#006a71",
+                "tertiary-fixed-dim": "#c1d0e6",
+                "inverse-surface": "#faf8ff",
+                "error": "#ff716c",
+                "primary-container": "#00eefc",
+                "primary-fixed-dim": "#00deec",
+                "on-primary": "#005d63",
+                "on-primary-fixed": "#003f43",
+                "on-secondary-fixed-variant": "#8400b3",
+                "inverse-on-surface": "#4d556b",
+                "on-secondary-fixed": "#580079",
+                "tertiary-container": "#cfdef5",
+                "tertiary-fixed": "#cfdef5"
+              },
+              fontFamily: {
+                "headline": ["Space Grotesk"],
+                "body": ["Inter"],
+                "label": ["Inter"]
+              },
+              borderRadius: {"DEFAULT": "0px", "lg": "0px", "xl": "0px", "full": "9999px"},
+            },
+          },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        body {
+            background-color: #060e20;
+            color: #dee5ff;
+            font-family: 'Inter', sans-serif;
+            overflow: hidden;
+        }
+        .skeleton-pulse {
+            background-color: #192540;
+            position: relative;
+            overflow: hidden;
+        }
+        .skeleton-pulse::after {
+            content: "";
+            position: absolute;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            left: 0;
+            transform: translateX(-100%);
+            background-image: linear-gradient(90deg, transparent, rgba(143, 245, 255, 0.05), transparent);
+            animation: shimmer 2s infinite;
+        }
+        @keyframes shimmer {
+            100% { transform: translateX(100%); }
+        }
+    </style>
+</head>
+<body class="flex min-h-screen">
+<!-- SideNavBar Skeleton -->
+<aside class="fixed left-0 top-0 h-full w-64 z-40 bg-[#091328] flex flex-col py-8 px-4 gap-2 border-r border-[#40485d]/10">
+<div class="mb-10 px-4">
+<div class="h-8 w-32 skeleton-pulse mb-2"></div>
+<div class="h-3 w-20 skeleton-pulse opacity-50"></div>
+</div>
+<nav class="space-y-4">
+<!-- Active Tab Placeholder -->
+<div class="flex items-center gap-3 px-4 py-3 bg-[#192540] border-l-4 border-[#d674ff] animate-pulse">
+<div class="w-5 h-5 skeleton-pulse rounded-sm"></div>
+<div class="h-4 w-24 skeleton-pulse"></div>
+</div>
+<!-- Inactive Tabs -->
+<div class="flex items-center gap-3 px-4 py-3 opacity-60">
+<div class="w-5 h-5 skeleton-pulse rounded-sm"></div>
+<div class="h-4 w-20 skeleton-pulse"></div>
+</div>
+<div class="flex items-center gap-3 px-4 py-3 opacity-60">
+<div class="w-5 h-5 skeleton-pulse rounded-sm"></div>
+<div class="h-4 w-28 skeleton-pulse"></div>
+</div>
+<div class="flex items-center gap-3 px-4 py-3 opacity-60">
+<div class="w-5 h-5 skeleton-pulse rounded-sm"></div>
+<div class="h-4 w-24 skeleton-pulse"></div>
+</div>
+<div class="flex items-center gap-3 px-4 py-3 opacity-60">
+<div class="w-5 h-5 skeleton-pulse rounded-sm"></div>
+<div class="h-4 w-16 skeleton-pulse"></div>
+</div>
+</nav>
+<div class="mt-auto space-y-4 px-4 pb-4">
+<div class="h-10 w-full skeleton-pulse border border-[#8ff5ff]/20"></div>
+<div class="flex items-center gap-2 opacity-40">
+<div class="w-4 h-4 skeleton-pulse"></div>
+<div class="h-3 w-12 skeleton-pulse"></div>
+</div>
+</div>
+</aside>
+<!-- Main Canvas -->
+<main class="flex-1 ml-64 min-h-screen bg-[#060e20]">
+<!-- TopAppBar Skeleton -->
+<header class="fixed top-0 left-64 right-0 h-16 bg-[#060e20] z-50 flex justify-between items-center px-8 shadow-[0_0_15px_rgba(143,245,255,0.04)]">
+<div class="flex items-center gap-8">
+<div class="text-xl font-headline font-bold tracking-tighter text-[#8ff5ff]">SPECTRA CORE</div>
+<div class="flex items-center gap-6">
+<div class="h-4 w-16 skeleton-pulse"></div>
+<div class="h-4 w-16 skeleton-pulse"></div>
+<div class="h-4 w-16 skeleton-pulse"></div>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<div class="w-8 h-8 skeleton-pulse rounded-full"></div>
+<div class="w-8 h-8 skeleton-pulse rounded-full"></div>
+<div class="w-10 h-10 skeleton-pulse rounded-sm bg-[#192540]"></div>
+</div>
+</header>
+<!-- Content Area -->
+<div class="pt-24 px-8 pb-12 space-y-8">
+<!-- Page Header Placeholder -->
+<div class="space-y-2">
+<div class="h-10 w-64 skeleton-pulse font-headline"></div>
+<div class="h-4 w-96 skeleton-pulse opacity-40"></div>
+</div>
+<!-- Bento Grid Layout -->
+<div class="grid grid-cols-12 gap-6">
+<!-- GPU Utilization Card (Large skeleton circle) -->
+<section class="col-span-12 lg:col-span-4 bg-[#0f1930] p-8 min-h-[400px] flex flex-col items-center justify-center relative border-l border-[#8ff5ff]/10">
+<div class="absolute top-6 left-6 h-4 w-32 skeleton-pulse"></div>
+<!-- Circular Gauge Skeleton -->
+<div class="relative w-64 h-64 flex items-center justify-center">
+<div class="w-full h-full rounded-full border-[12px] border-[#192540] animate-pulse"></div>
+<div class="absolute flex flex-col items-center">
+<div class="h-12 w-20 skeleton-pulse mb-2"></div>
+<div class="h-3 w-16 skeleton-pulse opacity-40"></div>
+</div>
+</div>
+<div class="mt-8 w-full space-y-3">
+<div class="h-2 w-full skeleton-pulse rounded-full opacity-30"></div>
+<div class="h-2 w-3/4 skeleton-pulse rounded-full opacity-30"></div>
+</div>
+</section>
+<!-- Throughput Velocity Chart (Pulse-animated vertical bars) -->
+<section class="col-span-12 lg:col-span-8 bg-[#0f1930] p-8 flex flex-col justify-between border-l border-[#d674ff]/10">
+<div class="flex justify-between items-start mb-10">
+<div class="h-4 w-40 skeleton-pulse"></div>
+<div class="h-8 w-24 skeleton-pulse"></div>
+</div>
+<!-- Chart Bars -->
+<div class="flex items-end justify-between gap-2 h-48 w-full px-4">
+<div class="w-full skeleton-pulse h-[20%] opacity-20"></div>
+<div class="w-full skeleton-pulse h-[45%] opacity-30"></div>
+<div class="w-full skeleton-pulse h-[30%] opacity-20"></div>
+<div class="w-full skeleton-pulse h-[60%] opacity-40"></div>
+<div class="w-full skeleton-pulse h-[85%] opacity-60"></div>
+<div class="w-full skeleton-pulse h-[40%] opacity-30"></div>
+<div class="w-full skeleton-pulse h-[55%] opacity-40"></div>
+<div class="w-full skeleton-pulse h-[95%] bg-[#8ff5ff]/20"></div>
+<div class="w-full skeleton-pulse h-[70%] opacity-40"></div>
+<div class="w-full skeleton-pulse h-[40%] opacity-20"></div>
+<div class="w-full skeleton-pulse h-[25%] opacity-10"></div>
+<div class="w-full skeleton-pulse h-[60%] opacity-40"></div>
+</div>
+<div class="flex justify-between mt-6 opacity-20">
+<div class="h-3 w-10 skeleton-pulse"></div>
+<div class="h-3 w-10 skeleton-pulse"></div>
+<div class="h-3 w-10 skeleton-pulse"></div>
+<div class="h-3 w-10 skeleton-pulse"></div>
+<div class="h-3 w-10 skeleton-pulse"></div>
+</div>
+</section>
+<!-- Model Inventory Table Skeleton -->
+<section class="col-span-12 lg:col-span-9 bg-[#0f1930] overflow-hidden">
+<div class="px-8 py-6 border-b border-[#40485d]/10 flex justify-between items-center">
+<div class="h-5 w-48 skeleton-pulse"></div>
+<div class="h-8 w-32 skeleton-pulse"></div>
+</div>
+<div class="w-full">
+<!-- Table Header -->
+<div class="grid grid-cols-5 gap-4 px-8 py-4 bg-[#141f38]">
+<div class="h-3 w-20 skeleton-pulse opacity-40"></div>
+<div class="h-3 w-24 skeleton-pulse opacity-40"></div>
+<div class="h-3 w-16 skeleton-pulse opacity-40"></div>
+<div class="h-3 w-20 skeleton-pulse opacity-40"></div>
+<div class="h-3 w-12 skeleton-pulse opacity-40 text-right"></div>
+</div>
+<!-- Table Rows -->
+<div class="divide-y divide-[#40485d]/10">
+<div class="grid grid-cols-5 gap-4 px-8 py-6 animate-pulse">
+<div class="h-4 w-32 skeleton-pulse"></div>
+<div class="h-4 w-24 skeleton-pulse opacity-60"></div>
+<div class="h-4 w-16 skeleton-pulse rounded-full opacity-40"></div>
+<div class="h-4 w-20 skeleton-pulse opacity-60"></div>
+<div class="h-4 w-8 skeleton-pulse justify-self-end"></div>
+</div>
+<div class="grid grid-cols-5 gap-4 px-8 py-6 animate-pulse" style="animation-delay: 0.1s;">
+<div class="h-4 w-40 skeleton-pulse"></div>
+<div class="h-4 w-20 skeleton-pulse opacity-60"></div>
+<div class="h-4 w-16 skeleton-pulse rounded-full opacity-40"></div>
+<div class="h-4 w-24 skeleton-pulse opacity-60"></div>
+<div class="h-4 w-8 skeleton-pulse justify-self-end"></div>
+</div>
+<div class="grid grid-cols-5 gap-4 px-8 py-6 animate-pulse" style="animation-delay: 0.2s;">
+<div class="h-4 w-28 skeleton-pulse"></div>
+<div class="h-4 w-32 skeleton-pulse opacity-60"></div>
+<div class="h-4 w-16 skeleton-pulse rounded-full opacity-40"></div>
+<div class="h-4 w-12 skeleton-pulse opacity-60"></div>
+<div class="h-4 w-8 skeleton-pulse justify-self-end"></div>
+</div>
+<div class="grid grid-cols-5 gap-4 px-8 py-6 animate-pulse" style="animation-delay: 0.3s;">
+<div class="h-4 w-36 skeleton-pulse"></div>
+<div class="h-4 w-20 skeleton-pulse opacity-60"></div>
+<div class="h-4 w-16 skeleton-pulse rounded-full opacity-40"></div>
+<div class="h-4 w-24 skeleton-pulse opacity-60"></div>
+<div class="h-4 w-8 skeleton-pulse justify-self-end"></div>
+</div>
+</div>
+</div>
+</section>
+<!-- Command Central Actions (Rounded pulse boxes) -->
+<section class="col-span-12 lg:col-span-3 space-y-6">
+<div class="h-5 w-32 skeleton-pulse mb-4"></div>
+<div class="bg-[#141f38] p-6 space-y-4 border-l-2 border-[#8ff5ff]/40">
+<div class="h-10 w-10 skeleton-pulse rounded-full"></div>
+<div class="h-4 w-3/4 skeleton-pulse"></div>
+<div class="h-3 w-full skeleton-pulse opacity-40"></div>
+<div class="h-10 w-full skeleton-pulse bg-[#8ff5ff]/10"></div>
+</div>
+<div class="bg-[#141f38] p-6 space-y-4">
+<div class="h-10 w-10 skeleton-pulse rounded-full"></div>
+<div class="h-4 w-2/3 skeleton-pulse"></div>
+<div class="h-3 w-full skeleton-pulse opacity-40"></div>
+<div class="h-10 w-full skeleton-pulse bg-[#d674ff]/10"></div>
+</div>
+<div class="p-6 border border-[#40485d]/30 space-y-2">
+<div class="flex justify-between">
+<div class="h-3 w-20 skeleton-pulse opacity-40"></div>
+<div class="h-3 w-8 skeleton-pulse opacity-40"></div>
+</div>
+<div class="h-1.5 w-full skeleton-pulse rounded-full opacity-20"></div>
+</div>
+</section>
+</div>
+</div>
+<!-- Footer Terminal Strip Placeholder -->
+<footer class="fixed bottom-0 left-64 right-0 h-10 bg-[#000000] border-t border-[#40485d]/20 flex items-center px-8 justify-between">
+<div class="flex items-center gap-4">
+<div class="h-3 w-4 skeleton-pulse bg-[#8ff5ff]/40"></div>
+<div class="h-3 w-48 skeleton-pulse opacity-30"></div>
+</div>
+<div class="flex items-center gap-6">
+<div class="h-3 w-24 skeleton-pulse opacity-20"></div>
+<div class="h-3 w-16 skeleton-pulse opacity-20"></div>
+</div>
+</footer>
+</main>
+<!-- Background Pattern Decorative Element -->
+<div class="fixed inset-0 pointer-events-none opacity-[0.02] z-0" data-alt="Technical architectural grid pattern of small cyan dots on a deep navy background subtle and engineered" style="background-image: radial-gradient(#8ff5ff 1px, transparent 1px); background-size: 40px 40px;">
+</div>
+</body></html>

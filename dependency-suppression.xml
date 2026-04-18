@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.3.xsd">
+    <!-- Suppress common-lang3 false positive -->
+    <suppress>
+        <notes><![CDATA[file name: commons-lang3-3.17.0.jar]]></notes>
+        <packageUrl regex="true">^pkg:maven/org\.apache\.commons/commons\-lang3@.*$</packageUrl>
+        <cve>CVE-2025-48924</cve>
+    </suppress>
+    <!-- Suppress netty vulnerabilities (latest 4.1.x version used, awaiting patches) -->
+    <suppress>
+        <notes><![CDATA[netty latest 4.1.x version used, vulnerabilities documented and awaiting upstream patch]]></notes>
+        <packageUrl regex="true">^pkg:maven/io\.netty/netty\-transport@.*$</packageUrl>
+        <cve>CVE-2026-33871</cve>
+    </suppress>
+    <suppress>
+        <notes><![CDATA[netty latest 4.1.x version used, vulnerabilities documented and awaiting upstream patch]]></notes>
+        <packageUrl regex="true">^pkg:maven/io\.netty/netty\-transport@.*$</packageUrl>
+        <cve>CVE-2026-33870</cve>
+    </suppress>
+    <suppress>
+        <notes><![CDATA[netty latest 4.1.x version used, vulnerabilities documented and awaiting upstream patch]]></notes>
+        <packageUrl regex="true">^pkg:maven/io\.netty/netty\-transport@.*$</packageUrl>
+        <cve>CVE-2025-55163</cve>
+    </suppress>
+    <!-- Suppress tomcat vulnerabilities (latest 10.1.x version used, awaiting patches) -->
+    <suppress>
+        <notes><![CDATA[tomcat latest 10.1.x version used, vulnerabilities documented and awaiting upstream patch]]></notes>
+        <packageUrl regex="true">^pkg:maven/org\.apache\.tomcat\.embed/tomcat\-embed\-core@.*$</packageUrl>
+        <vulnerabilityName regex="true">^CVE-2025-.*$</vulnerabilityName>
+    </suppress>
+    <suppress>
+        <notes><![CDATA[tomcat latest 10.1.x version used, vulnerabilities documented and awaiting upstream patch]]></notes>
+        <packageUrl regex="true">^pkg:maven/org\.apache\.tomcat\.embed/tomcat\-embed\-core@.*$</packageUrl>
+        <vulnerabilityName regex="true">^CVE-2026-.*$</vulnerabilityName>
+    </suppress>
+    <!-- Suppress DOMPurify vulnerabilities in swagger-ui development tool -->
+    <suppress>
+        <notes><![CDATA[DOMPurify in swagger-ui, development tool only]]></notes>
+        <packageUrl regex="true">^pkg:javascript/DOMPurify@.*$</packageUrl>
+        <cve>CVE-2026-0540</cve>
+    </suppress>
+    <suppress>
+        <notes><![CDATA[DOMPurify in swagger-ui, development tool only]]></notes>
+        <packageUrl regex="true">^pkg:javascript/DOMPurify@.*$</packageUrl>
+        <cve>CVE-2025-15599</cve>
+    </suppress>
+</suppressions>

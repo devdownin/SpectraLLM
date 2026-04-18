@@ -1,0 +1,45 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Ingress (optionnel — alternative au LoadBalancer sur spectra-frontend)
+#
+# Prérequis : nginx Ingress Controller installé dans le cluster
+#   kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.10.0/deploy/static/provider/cloud/deploy.yaml
+#
+# Si vous utilisez cet Ingress, passez le Service spectra-frontend en ClusterIP
+# (commenter le type LoadBalancer dans 08-spectra-frontend.yaml).
+#
+# Remplacer spectra.example.com par votre domaine réel.
+# Pour TLS, décommenter les sections tls et cert-manager.
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: spectra-ingress
+  namespace: spectra
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    # SSE — désactiver le buffering pour les streams temps réel
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    # ── cert-manager TLS automatique (optionnel) ──────────────────────────
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  ingressClassName: nginx
+  # ── TLS (optionnel) ───────────────────────────────────────────────────────
+  # tls:
+  #   - hosts:
+  #       - spectra.example.com
+  #     secretName: spectra-tls
+  rules:
+    - host: spectra.example.com   # ← Remplacer par votre domaine
+      http:
+        paths:
+          # Tout le trafic passe par le frontend nginx
+          # qui proxifie /api/ vers spectra-api en interne
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: spectra-frontend
+                port:
+                  number: 80

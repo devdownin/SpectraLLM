@@ -1,0 +1,82 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Persistent Volume Claims
+#
+# IMPORTANT — mode d'accès :
+#   ReadWriteOnce (RWO) convient pour un cluster mono-nœud ou si tous les pods
+#   qui partagent un volume sont schedulés sur le même nœud.
+#
+#   Pour un cluster multi-nœuds, les PVCs partagés entre plusieurs pods
+#   (fine-tuning, models) nécessitent ReadWriteMany (RWX) via une StorageClass
+#   NFS, CephFS, AWS EFS, Azure Files, etc.
+#
+#   Remplacer storageClassName par le nom de votre StorageClass :
+#     - standard      (minikube / kind)
+#     - gp2 / gp3     (AWS EKS)
+#     - managed-csi   (Azure AKS)
+#     - standard-rwo  (GKE)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Documents uploadés (écriture par spectra-api uniquement)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: spectra-documents-pvc
+  namespace: spectra
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+# Paires d'entraînement générées
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: spectra-dataset-pvc
+  namespace: spectra
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 5Gi
+
+---
+# Adaptateurs LoRA, modèles fine-tunés, jobs — partagé avec llama-cpp-chat (lecture seule)
+# Passer en ReadWriteMany si llama-cpp-chat et spectra-api sont sur des nœuds différents
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: spectra-fine-tuning-pvc
+  namespace: spectra
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 20Gi
+
+---
+# Modèles GGUF (embed.gguf, registry.json) — partagé avec llama-cpp-embed
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: spectra-models-pvc
+  namespace: spectra
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+# Base vectorielle ChromaDB
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: chromadb-pvc
+  namespace: spectra
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 10Gi

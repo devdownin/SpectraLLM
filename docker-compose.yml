@@ -1,0 +1,209 @@
+services:
+
+  # ── Vérification des modèles GGUF ─────────────────────────────────────────
+  # Echoue au démarrage si un fichier modèle est absent ou trop petit (<1 Mo).
+  # Affiche les instructions de téléchargement correspondantes.
+  model-init:
+    image: alpine:3.20
+    container_name: spectra-model-init
+    volumes:
+      - ./data/models:/models:ro
+      - ./scripts/check-models.sh:/check-models.sh:ro
+    environment:
+      - LLM_CHAT_MODEL_FILE=${LLM_CHAT_MODEL_FILE:-Phi-4-mini-reasoning-UD-IQ1_S.gguf}
+      - LLM_EMBED_MODEL_FILE=${LLM_EMBED_MODEL_FILE:-embed.gguf}
+    command: ["sh", "/check-models.sh"]
+
+  # ── Serveur LLM — Chat ────────────────────────────────────────────────────
+  llm-chat:
+    image: ghcr.io/ggml-org/llama.cpp:server
+    container_name: spectra-llm-chat
+    depends_on:
+      model-init:
+        condition: service_completed_successfully
+    ports:
+      - "8081:8081"
+    volumes:
+      - ./data/models:/models
+    command: >
+      --host 0.0.0.0
+      --port 8081
+      --model /models/${LLM_CHAT_MODEL_FILE:-Phi-4-mini-reasoning-UD-IQ1_S.gguf}
+      --ctx-size 4096
+      --parallel ${LLM_PARALLEL:-2}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8081/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    restart: unless-stopped
+
+  # ── Serveur LLM — Embedding ───────────────────────────────────────────────
+  llm-embed:
+    image: ghcr.io/ggml-org/llama.cpp:server
+    container_name: spectra-llm-embed
+    depends_on:
+      model-init:
+        condition: service_completed_successfully
+    ports:
+      - "8082:8082"
+    volumes:
+      - ./data/models:/models
+    command: >
+      --host 0.0.0.0
+      --port 8082
+      --model /models/${LLM_EMBED_MODEL_FILE:-embed.gguf}
+      --embedding
+      -c 8192
+      -b 2048
+      -ub 2048
+      --parallel ${LLM_EMBED_PARALLEL:-4}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8082/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    restart: unless-stopped
+
+  # ── ChromaDB ──────────────────────────────────────────────────────────────
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: spectra-chromadb
+    ports:
+      - "8000:8000"
+    volumes:
+      - chromadb-data:/chroma/chroma
+    environment:
+      - ANONYMIZED_TELEMETRY=FALSE
+      - CHROMA_OTEL_EXPORTER_OTLP_ENDPOINT=
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8000 && echo -e 'GET /api/v2/heartbeat HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  # ── Parser de documents (optionnel, profil layout-parser) ─────────────────
+  docparser:
+    profiles: [layout-parser]
+    build:
+      context: ./docparser
+      dockerfile: Dockerfile
+      args:
+        USE_DOCLING: ${USE_DOCLING:-false}
+    container_name: spectra-docparser
+    ports:
+      - "8003:8001"
+    environment:
+      - USE_DOCLING=${USE_DOCLING:-false}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ── Reranker (optionnel, profil reranker) ─────────────────────────────────
+  reranker:
+    profiles: [reranker]
+    build:
+      context: ./reranker
+      dockerfile: Dockerfile
+      args:
+        RERANKER_MODEL: ${RERANKER_MODEL:-cross-encoder/mmarco-mMiniLMv2-L12-H384-v1}
+    container_name: spectra-reranker
+    ports:
+      - "8002:8000"
+    volumes:
+      - reranker-model-cache:/root/.cache/huggingface
+    environment:
+      - RERANKER_MODEL=${RERANKER_MODEL:-cross-encoder/mmarco-mMiniLMv2-L12-H384-v1}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ── API Backend ───────────────────────────────────────────────────────────
+  spectra-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: spectra-api
+    ports:
+      - "8080:8080"
+    environment:
+      - JAVA_OPTS=${JAVA_OPTS:--Xms256m -Xmx1024m -XX:+UseZGC}
+      # Provider LLM : llama-cpp (deux serveurs dédiés chat + embed)
+      - SPECTRA_LLM_PROVIDER=llama-cpp
+      - SPECTRA_LLM_CHAT_BASE_URL=http://llm-chat:8081
+      - SPECTRA_LLM_EMBEDDING_BASE_URL=http://llm-embed:8082
+      - SPECTRA_LLM_MODEL=${LLM_CHAT_MODEL_NAME:-phi-4-mini}
+      - SPECTRA_LLM_EMBEDDING_MODEL=${LLM_EMBED_MODEL_NAME:-nomic-embed-text}
+      - SPECTRA_CHROMADB_BASE_URL=http://chromadb:8000
+      - SPECTRA_PIPELINE_CHUNK_MAX_TOKENS=${SPECTRA_CHUNK_MAX_TOKENS:-256}
+      - SPECTRA_PIPELINE_CHUNK_OVERLAP_TOKENS=${SPECTRA_CHUNK_OVERLAP_TOKENS:-64}
+      - SPECTRA_PIPELINE_EMBEDDING_BATCH_SIZE=${SPECTRA_EMBEDDING_BATCH_SIZE:-10}
+      - SPECTRA_PIPELINE_EMBEDDING_TIMEOUT_SECONDS=${SPECTRA_EMBEDDING_TIMEOUT:-30}
+      - SPECTRA_PIPELINE_GENERATION_TIMEOUT_SECONDS=${SPECTRA_GENERATION_TIMEOUT:-120}
+      - SPECTRA_PIPELINE_CONCURRENT_INGESTIONS=${SPECTRA_CONCURRENT_INGESTIONS:-4}
+      - SPECTRA_RERANKER_ENABLED=${SPECTRA_RERANKER_ENABLED:-false}
+      - SPECTRA_RERANKER_URL=http://reranker:8000
+      - SPECTRA_RERANKER_MODEL=${RERANKER_MODEL:-cross-encoder/mmarco-mMiniLMv2-L12-H384-v1}
+      - SPECTRA_RERANKER_TOP_CANDIDATES=${SPECTRA_RERANKER_TOP_CANDIDATES:-20}
+      - SPECTRA_LAYOUT_PARSER_ENABLED=${SPECTRA_LAYOUT_PARSER_ENABLED:-false}
+      - SPECTRA_LAYOUT_PARSER_URL=http://docparser:8001
+      - SPECTRA_LAYOUT_PARSER_TIMEOUT=${SPECTRA_LAYOUT_PARSER_TIMEOUT:-120}
+      - SPECTRA_AGENTIC_RAG_ENABLED=${SPECTRA_AGENTIC_RAG_ENABLED:-false}
+      - SPECTRA_AGENTIC_MAX_ITERATIONS=${SPECTRA_AGENTIC_MAX_ITERATIONS:-3}
+      - SPECTRA_AGENTIC_INITIAL_TOP_K=${SPECTRA_AGENTIC_INITIAL_TOP_K:-5}
+      - SPECTRA_AGENTIC_LANGUAGE=${SPECTRA_AGENTIC_LANGUAGE:-fr}
+      - SPECTRA_AGENTIC_MAX_CONTEXT_TOKENS=${SPECTRA_AGENTIC_MAX_CONTEXT_TOKENS:-3000}
+      - SPECTRA_HYBRID_SEARCH_ENABLED=${SPECTRA_HYBRID_SEARCH_ENABLED:-false}
+      - SPECTRA_HYBRID_BM25_TOP=${SPECTRA_HYBRID_BM25_TOP:-20}
+      - SPECTRA_HYBRID_BM25_WEIGHT=${SPECTRA_HYBRID_BM25_WEIGHT:-1.0}
+    volumes:
+      - ./data/documents:/app/data/documents
+      - ./data/dataset:/app/data/dataset
+      - ./data/models:/app/data/models
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    depends_on:
+      llm-chat:
+        condition: service_healthy
+      llm-embed:
+        condition: service_healthy
+      chromadb:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Frontend (Nginx + React) ──────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: spectra-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      spectra-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:80/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  chromadb-data:
+  reranker-model-cache:

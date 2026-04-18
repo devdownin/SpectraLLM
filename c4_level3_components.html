@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spectra — C4 Level 3 · Components</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0a0a0f;
+      color: #e2e8f0;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      padding: 2rem 3rem 1.5rem;
+      border-bottom: 1px solid #1e293b;
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+    }
+
+    .brand { display: flex; flex-direction: column; gap: 0.25rem; }
+
+    .brand-label {
+      font-size: 0.65rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #64748b;
+      font-family: 'Courier New', monospace;
+    }
+
+    .brand-title {
+      font-size: 1.6rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: #f1f5f9;
+    }
+
+    .brand-title span { color: #818cf8; }
+
+    .badge {
+      font-size: 0.65rem;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: #6ee7b7;
+      border: 1px solid #064e3b;
+      background: #022c22;
+      padding: 0.35rem 0.85rem;
+      font-family: 'Courier New', monospace;
+    }
+
+    /* Tabs */
+    .tabs {
+      display: flex;
+      gap: 0;
+      border-bottom: 1px solid #1e293b;
+      padding: 0 3rem;
+    }
+
+    .tab {
+      font-size: 0.65rem;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      font-family: 'Courier New', monospace;
+      padding: 0.85rem 1.5rem;
+      cursor: pointer;
+      color: #475569;
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+      user-select: none;
+    }
+
+    .tab:hover { color: #94a3b8; }
+    .tab.active { color: #6ee7b7; border-bottom-color: #6ee7b7; }
+
+    .panel { display: none; }
+    .panel.active { display: flex; }
+
+    /* Diagram area */
+    .diagram-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 3rem 2rem;
+      gap: 2rem;
+    }
+
+    .diagram-meta {
+      text-align: center;
+      max-width: 720px;
+    }
+
+    .diagram-meta h2 {
+      font-size: 0.7rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: #64748b;
+      margin-bottom: 0.5rem;
+      font-family: 'Courier New', monospace;
+    }
+
+    .diagram-meta p {
+      font-size: 0.85rem;
+      color: #94a3b8;
+      line-height: 1.6;
+    }
+
+    .mermaid-wrapper {
+      background: #0f172a;
+      border: 1px solid #1e293b;
+      padding: 2rem;
+      width: 100%;
+      max-width: 1280px;
+      display: flex;
+      justify-content: center;
+      overflow-x: auto;
+    }
+
+    .mermaid { min-width: 900px; }
+
+    /* Layer cards */
+    .layers {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1rem;
+      width: 100%;
+      max-width: 1280px;
+    }
+
+    .layer-card {
+      background: #0f172a;
+      border: 1px solid #1e293b;
+      padding: 1.25rem 1.5rem;
+    }
+
+    .layer-card h3 {
+      font-size: 0.6rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: #64748b;
+      font-family: 'Courier New', monospace;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid #1e293b;
+    }
+
+    .layer-card h3 span {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 1px;
+      margin-right: 0.5rem;
+      vertical-align: middle;
+      position: relative;
+      top: -1px;
+    }
+
+    .component-list { list-style: none; display: flex; flex-direction: column; gap: 0.35rem; }
+
+    .component-list li {
+      font-size: 0.7rem;
+      color: #94a3b8;
+      font-family: 'Courier New', monospace;
+      display: flex;
+      align-items: baseline;
+      gap: 0.5rem;
+    }
+
+    .component-list li::before {
+      content: '›';
+      color: #334155;
+      flex-shrink: 0;
+    }
+
+    .component-list li strong { color: #cbd5e1; }
+
+    footer {
+      padding: 1.25rem 3rem;
+      border-top: 1px solid #1e293b;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    footer span {
+      font-size: 0.65rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #334155;
+      font-family: 'Courier New', monospace;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand">
+      <span class="brand-label">Architecture Documentation</span>
+      <h1 class="brand-title">SPECTRA <span>//</span> C4 Model</h1>
+    </div>
+    <div class="badge">Level 3 — Component Diagram</div>
+  </header>
+
+  <nav class="tabs">
+    <div class="tab active" onclick="switchTab('api')">spectra-api</div>
+    <div class="tab" onclick="switchTab('frontend')">spectra-frontend</div>
+  </nav>
+
+  <!-- Panel: spectra-api -->
+  <div id="panel-api" class="panel active">
+    <main class="diagram-area">
+      <div class="diagram-meta">
+        <h2>Périmètre — spectra-api (Spring Boot)</h2>
+        <p>
+          Composants internes du backend : couche <strong>Controllers</strong> (REST/SSE),
+          couche <strong>Services</strong> (pipeline métier), et couche <strong>Clients</strong>
+          (WebClient vers Ollama et ChromaDB). Les flèches indiquent les dépendances d'injection.
+        </p>
+      </div>
+
+      <div class="mermaid-wrapper">
+        <div class="mermaid" id="diagram-api">
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "primaryColor": "#1e1b4b",
+    "primaryTextColor": "#e2e8f0",
+    "primaryBorderColor": "#4f46e5",
+    "lineColor": "#6366f1",
+    "secondaryColor": "#0f172a",
+    "tertiaryColor": "#1e293b",
+    "background": "#0a0a0f",
+    "mainBkg": "#1e1b4b",
+    "nodeBorder": "#4f46e5",
+    "clusterBkg": "#0f172a",
+    "titleColor": "#a5b4fc",
+    "edgeLabelBackground": "#0f172a",
+    "fontFamily": "Courier New, monospace"
+  }
+}}%%
+C4Component
+    title spectra-api — Diagramme de Composants (Level 3)
+
+    Container_Boundary(api, "spectra-api  ·  Spring Boot 3 / Java 21") {
+
+        Component(ingestCtrl, "IngestController", "REST @RestController", "POST /api/ingest\nGET /api/ingest/{taskId}")
+        Component(datasetCtrl, "DatasetController", "REST @RestController", "POST /api/dataset/generate\nGET /api/dataset/stats\nPOST /api/dataset/export")
+        Component(ftCtrl, "FineTuningController", "REST @RestController", "POST /api/fine-tuning\nGET /api/fine-tuning/{jobId}\nGET /api/fine-tuning/models")
+        Component(queryCtrl, "QueryController", "REST @RestController", "POST /api/query")
+        Component(sseCtrl, "SseController", "SSE @RestController", "GET /api/sse/training-logs\nGET /api/sse/system-load")
+        Component(configCtrl, "ConfigController", "REST @RestController", "GET/POST /api/config/model")
+        Component(statusCtrl, "StatusController", "REST @RestController", "GET /api/status")
+
+        Component(ingestSvc, "IngestionService", "@Service + @Async", "Orchestre : extraction → nettoyage\n→ chunking → embedding → ChromaDB")
+        Component(textCleaner, "TextCleanerService", "@Service", "Normalisation Unicode (8 étapes)\nOCR, en-têtes, tableaux")
+        Component(chunking, "ChunkingService", "@Service", "512 tokens max\nOverlap 64 tokens")
+        Component(embedding, "EmbeddingService", "@Service", "Batch 10, retry exponentiel\nVia nomic-embed-text")
+        Component(datasetGen, "DatasetGeneratorService", "@Service @Async", "Génère Q&A, résumés, classifications\nExemples négatifs (30%)\nmaxChunks configurable")
+        Component(ftSvc, "FineTuningService", "@Service @Async", "EXPORT → TRAINING → IMPORT\nSelf-injection @Lazy pour @Async")
+        Component(broadcaster, "TrainingLogBroadcaster", "@Service Reactor", "Sinks.Many multicast (buffer 500)\nPublie logs train.sh en SSE")
+        Component(ragSvc, "RagService", "@Service", "Embedding question → ChromaDB search\n→ Ollama chat avec contexte")
+        Component(batchSvc, "BatchService", "@Service @Async", "Mode batch : ingest → dataset\n→ fine-tuning en séquence")
+
+        Component(ollamaClient, "OllamaClient", "WebClient @Service", "POST /api/embeddings\nPOST /api/generate\nPOST /api/create (v0.6+ API)")
+        Component(chromaClient, "ChromaDbClient", "WebClient @Service", "REST API v2\nBuffer 16 Mo (ExchangeStrategies)\nCollection spectra_documents")
+    }
+
+    System_Ext(ollama, "spectra-ollama", "Ollama :11434")
+    SystemDb_Ext(chroma, "spectra-chromadb", "ChromaDB :8000")
+    System_Ext(scripts, "Scripts", "train.sh · train_host.py")
+
+    Rel(ingestCtrl, ingestSvc, "délègue")
+    Rel(datasetCtrl, datasetGen, "soumet tâche")
+    Rel(ftCtrl, ftSvc, "soumet job")
+    Rel(queryCtrl, ragSvc, "query()")
+    Rel(sseCtrl, broadcaster, "stream() Flux")
+    Rel(configCtrl, ollamaClient, "getModels()")
+    Rel(statusCtrl, ollamaClient, "isAvailable()")
+    Rel(statusCtrl, chromaClient, "isAvailable()")
+
+    Rel(ingestSvc, textCleaner, "clean()")
+    Rel(ingestSvc, chunking, "chunk()")
+    Rel(ingestSvc, embedding, "embed()")
+    Rel(ingestSvc, chromaClient, "add()")
+
+    Rel(datasetGen, ollamaClient, "chat() × 3–4 / chunk")
+    Rel(datasetGen, chromaClient, "getAllDocuments()")
+
+    Rel(ftSvc, datasetGen, "getAllPairs()")
+    Rel(ftSvc, ollamaClient, "createModel()")
+    Rel(ftSvc, broadcaster, "publish(level, msg)")
+    Rel(ftSvc, scripts, "ProcessBuilder")
+
+    Rel(ragSvc, embedding, "embed(question)")
+    Rel(ragSvc, chromaClient, "query(vector, k)")
+    Rel(ragSvc, ollamaClient, "chat(system, question)")
+
+    Rel(embedding, ollamaClient, "embed(batch)")
+
+    Rel(ollamaClient, ollama, "HTTP REST")
+    Rel(chromaClient, chroma, "HTTP REST v2")
+        </div>
+      </div>
+
+      <div class="layers">
+        <div class="layer-card">
+          <h3><span style="background:#4f46e5;"></span>Couche Controllers (7)</h3>
+          <ul class="component-list">
+            <li><strong>IngestController</strong> — upload multipart</li>
+            <li><strong>DatasetController</strong> — génération + stats</li>
+            <li><strong>FineTuningController</strong> — jobs + modèles</li>
+            <li><strong>QueryController</strong> — RAG</li>
+            <li><strong>SseController</strong> — flux temps réel</li>
+            <li><strong>ConfigController</strong> — modèle actif</li>
+            <li><strong>StatusController</strong> — santé services</li>
+          </ul>
+        </div>
+        <div class="layer-card">
+          <h3><span style="background:#0891b2;"></span>Couche Services (9)</h3>
+          <ul class="component-list">
+            <li><strong>IngestionService</strong> — pipeline ingestion</li>
+            <li><strong>TextCleanerService</strong> — nettoyage texte</li>
+            <li><strong>ChunkingService</strong> — découpage sémantique</li>
+            <li><strong>EmbeddingService</strong> — vecteurs nomic</li>
+            <li><strong>DatasetGeneratorService</strong> — @Async Q&A</li>
+            <li><strong>FineTuningService</strong> — @Async pipeline</li>
+            <li><strong>TrainingLogBroadcaster</strong> — Reactor SSE</li>
+            <li><strong>RagService</strong> — recherche + génération</li>
+            <li><strong>BatchService</strong> — mode batch complet</li>
+          </ul>
+        </div>
+        <div class="layer-card">
+          <h3><span style="background:#059669;"></span>Couche Clients (2) + Patterns</h3>
+          <ul class="component-list">
+            <li><strong>OllamaClient</strong> — WebClient Reactor</li>
+            <li><strong>ChromaDbClient</strong> — WebClient 16 Mo</li>
+            <li>@Async via self-injection @Lazy</li>
+            <li>Retry exponentiel 1s/2s/4s</li>
+            <li>Sink multicast buffer 500 msg</li>
+            <li>ProcessBuilder pour scripts</li>
+          </ul>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Panel: spectra-frontend -->
+  <div id="panel-frontend" class="panel">
+    <main class="diagram-area">
+      <div class="diagram-meta">
+        <h2>Périmètre — spectra-frontend (React 19 / nginx)</h2>
+        <p>
+          Composants internes du frontend : pages React, services API, hooks réactifs et
+          configuration nginx. Les données circulent de l'API vers les pages via les hooks et le client Axios.
+        </p>
+      </div>
+
+      <div class="mermaid-wrapper">
+        <div class="mermaid" id="diagram-frontend">
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "primaryColor": "#1e1b4b",
+    "primaryTextColor": "#e2e8f0",
+    "primaryBorderColor": "#4f46e5",
+    "lineColor": "#6366f1",
+    "secondaryColor": "#0f172a",
+    "tertiaryColor": "#1e293b",
+    "background": "#0a0a0f",
+    "mainBkg": "#1e1b4b",
+    "nodeBorder": "#4f46e5",
+    "clusterBkg": "#0f172a",
+    "titleColor": "#a5b4fc",
+    "edgeLabelBackground": "#0f172a",
+    "fontFamily": "Courier New, monospace"
+  }
+}}%%
+C4Component
+    title spectra-frontend — Diagramme de Composants (Level 3)
+
+    Person(user, "Utilisateur", "Navigateur web")
+
+    Container_Boundary(fe, "spectra-frontend  ·  React 19 + Vite + nginx") {
+
+        Component(nginx, "nginx", "Reverse Proxy", "Sert les assets statiques.\nProxy /api/* → spectra-api:8080.\nSSE : proxy_buffering off.")
+
+        Component(router, "React Router", "Client-side routing", "Routes : / /datasets\n/fine-tuning /playground /comparison")
+
+        Component(dashboard, "Dashboard", "React Page", "Santé services (Ollama, ChromaDB)\nMétriques via SSE")
+        Component(datasets, "Datasets", "React Page", "Upload fichiers (drag & drop)\nPolling ingestion 3s\nPolling stats 10s")
+        Component(finetuning, "FineTuning", "React Page", "Formulaire job\nStep bar pipeline\nTelemetry SSE temps réel\nHistorique jobs")
+        Component(playground, "Playground", "React Page", "Chat RAG\nSliders température / top-p\nToggle Knowledge Base")
+        Component(comparison, "Comparison", "React Page", "Tableau comparatif modèles")
+
+        Component(apiService, "api.ts", "Axios Client", "ingestApi · datasetApi\nfineTuningApi · queryApi\nBase URL : /api/")
+        Component(useSse, "useSse", "React Hook", "EventSource → /api/sse/*\nRe-render sur chaque event")
+        Component(useStatus, "useStatus", "React Hook", "Polling /api/status\nRésilience avec retry")
+        Component(tooltip, "Tooltip", "React Component", "Info-bulles contextuelles\nsur les paramètres")
+    }
+
+    System_Ext(backend, "spectra-api", "REST :8080\nSSE :8080/api/sse/*")
+
+    Rel(user, nginx, "HTTP :80", "Navigateur")
+    Rel(nginx, router, "assets statiques", "SPA fallback index.html")
+    Rel(nginx, backend, "Proxy /api/*", "HTTP interne :8080")
+
+    Rel(router, dashboard, "route /")
+    Rel(router, datasets, "route /datasets")
+    Rel(router, finetuning, "route /fine-tuning")
+    Rel(router, playground, "route /playground")
+    Rel(router, comparison, "route /comparison")
+
+    Rel(dashboard, useStatus, "useStatus()")
+    Rel(dashboard, useSse, "useSse('/api/sse/system-load')")
+    Rel(datasets, apiService, "ingestApi · datasetApi")
+    Rel(finetuning, apiService, "fineTuningApi")
+    Rel(finetuning, useSse, "useSse('/api/sse/training-logs')")
+    Rel(playground, apiService, "queryApi")
+
+    Rel(apiService, backend, "Axios HTTP")
+    Rel(useSse, backend, "EventSource SSE")
+        </div>
+      </div>
+
+      <div class="layers">
+        <div class="layer-card">
+          <h3><span style="background:#7c3aed;"></span>Pages React (5)</h3>
+          <ul class="component-list">
+            <li><strong>Dashboard</strong> — santé + métriques</li>
+            <li><strong>Datasets</strong> — ingestion + génération</li>
+            <li><strong>FineTuning</strong> — jobs + telemetry</li>
+            <li><strong>Playground</strong> — chat RAG</li>
+            <li><strong>Comparison</strong> — tableau modèles</li>
+          </ul>
+        </div>
+        <div class="layer-card">
+          <h3><span style="background:#0891b2;"></span>Hooks &amp; Services</h3>
+          <ul class="component-list">
+            <li><strong>api.ts</strong> — client Axios /api/*</li>
+            <li><strong>useSse</strong> — EventSource réactif</li>
+            <li><strong>useStatus</strong> — polling /api/status</li>
+            <li>Polling ingest : setInterval 3s</li>
+            <li>Polling génération : setInterval 5s</li>
+            <li>Polling fine-tuning : setInterval 4s</li>
+            <li>Polling stats : setInterval 10s</li>
+          </ul>
+        </div>
+        <div class="layer-card">
+          <h3><span style="background:#059669;"></span>Infrastructure nginx</h3>
+          <ul class="component-list">
+            <li>client_max_body_size 100m</li>
+            <li>proxy_read_timeout 300s</li>
+            <li>SSE : proxy_buffering off</li>
+            <li>SSE : proxy_cache off</li>
+            <li>SSE : proxy_read_timeout 3600s</li>
+            <li>SPA : try_files $uri /index.html</li>
+          </ul>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <footer>
+    <span>Spectra — Domain LLM Builder</span>
+    <span>C4 Model · Level 3 · Components</span>
+    <span>spectra-api · spectra-frontend</span>
+  </footer>
+
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'base',
+      securityLevel: 'loose',
+    });
+
+    function switchTab(name) {
+      document.querySelectorAll('.tab').forEach((t, i) => {
+        const names = ['api', 'frontend'];
+        t.classList.toggle('active', names[i] === name);
+      });
+      document.querySelectorAll('.panel').forEach(p => {
+        p.classList.toggle('active', p.id === 'panel-' + name);
+      });
+    }
+  </script>
+</body>
+</html>
