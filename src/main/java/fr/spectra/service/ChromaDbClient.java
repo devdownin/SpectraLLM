@@ -12,6 +12,8 @@ import org.springframework.web.reactive.function.client.WebClient;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 
 /**
  * Client ChromaDB — API v2.
@@ -25,17 +27,28 @@ import java.util.Map;
 public class ChromaDbClient {
 
     private static final Logger log = LoggerFactory.getLogger(ChromaDbClient.class);
-    private static final Duration TIMEOUT = Duration.ofSeconds(10);
+
+    // Timeouts adaptés à chaque opération
+    private static final Duration TIMEOUT_DEFAULT  = Duration.ofSeconds(10);
+    private static final Duration TIMEOUT_ADD      = Duration.ofSeconds(60);
+    private static final Duration TIMEOUT_QUERY    = Duration.ofSeconds(15);
+    private static final Duration TIMEOUT_BULK_GET = Duration.ofSeconds(30);
+
+    // ChromaDB : 3-63 chars, alphanumeric + . _ -, sans double tiret, sans . en début/fin
+    private static final Pattern COLLECTION_NAME_PATTERN =
+            Pattern.compile("^[a-zA-Z0-9][a-zA-Z0-9._-]{1,61}[a-zA-Z0-9]$");
 
     private static final String TENANT   = "default_tenant";
     private static final String DATABASE = "default_database";
 
-    /** Préfixe commun à toutes les opérations sur les collections. */
     private static final String COLLECTIONS_BASE =
             "/api/v2/tenants/" + TENANT + "/databases/" + DATABASE + "/collections";
 
     private final WebClient webClient;
     private final SpectraProperties.ChromaDbProperties props;
+
+    // P1 — Cache name → collectionId pour éviter un POST ChromaDB à chaque appel
+    private final ConcurrentHashMap<String, String> collectionIdCache = new ConcurrentHashMap<>();
 
     public ChromaDbClient(@Qualifier("chromaDbWebClient") WebClient webClient,
                           SpectraProperties properties) {
@@ -50,7 +63,7 @@ public class ChromaDbClient {
                     .uri("/api/v2/heartbeat")
                     .retrieve()
                     .bodyToMono(Map.class)
-                    .block(TIMEOUT);
+                    .block(TIMEOUT_DEFAULT);
             long elapsed = System.currentTimeMillis() - start;
             return new ServiceStatus("chromadb", props.baseUrl(), true, "ok", elapsed, Map.of());
         } catch (Exception e) {
@@ -61,10 +74,18 @@ public class ChromaDbClient {
     }
 
     /**
-     * Crée une collection si elle n'existe pas, et retourne son ID.
+     * Crée une collection si elle n'existe pas et retourne son ID.
+     * L'ID est mis en cache pour éviter un aller-retour réseau à chaque appel.
      */
     @SuppressWarnings("unchecked")
     public String getOrCreateCollection(String name) {
+        // S1 — Validation du nom avant tout appel ChromaDB
+        validateCollectionName(name);
+
+        // P1 — Cache hit
+        String cached = collectionIdCache.get(name);
+        if (cached != null) return cached;
+
         Map<String, Object> body = Map.of("name", name, "get_or_create", true);
 
         Map<String, Object> response = webClient.post()
@@ -72,13 +93,25 @@ public class ChromaDbClient {
                 .bodyValue(body)
                 .retrieve()
                 .bodyToMono(Map.class)
-                .block(TIMEOUT);
+                .block(TIMEOUT_DEFAULT);
 
-        return (String) response.get("id");
+        // B1 — Null-guard explicite
+        if (response == null) {
+            throw new IllegalStateException("ChromaDB: réponse vide lors de getOrCreateCollection('" + name + "')");
+        }
+
+        String id = (String) response.get("id");
+        if (id == null) {
+            throw new IllegalStateException("ChromaDB: champ 'id' absent de la réponse pour la collection '" + name + "'");
+        }
+
+        collectionIdCache.put(name, id);
+        return id;
     }
 
     /**
      * Ajoute des chunks avec leurs embeddings dans une collection.
+     * Utilise un timeout étendu (60s) pour absorber les grands batches.
      */
     public void addDocuments(String collectionId, List<TextChunk> chunks, List<List<Float>> embeddings) {
         List<String> ids        = chunks.stream().map(TextChunk::id).toList();
@@ -97,7 +130,7 @@ public class ChromaDbClient {
                 .bodyValue(body)
                 .retrieve()
                 .bodyToMono(Void.class)
-                .block(TIMEOUT);
+                .block(TIMEOUT_ADD);  // P3 — timeout étendu pour grands batches
 
         log.info("Ajouté {} chunks dans la collection {}", chunks.size(), collectionId);
     }
@@ -118,7 +151,7 @@ public class ChromaDbClient {
                 .bodyValue(body)
                 .retrieve()
                 .bodyToMono(Map.class)
-                .block(TIMEOUT);
+                .block(TIMEOUT_QUERY);  // P3 — timeout étendu pour grandes collections
     }
 
     /**
@@ -133,7 +166,7 @@ public class ChromaDbClient {
                 .bodyValue(body)
                 .retrieve()
                 .bodyToMono(Map.class)
-                .block(Duration.ofSeconds(30));
+                .block(TIMEOUT_BULK_GET);
     }
 
     /**
@@ -152,7 +185,7 @@ public class ChromaDbClient {
                 .bodyValue(body)
                 .retrieve()
                 .bodyToMono(Map.class)
-                .block(Duration.ofSeconds(30));
+                .block(TIMEOUT_BULK_GET);
     }
 
     /**
@@ -175,32 +208,36 @@ public class ChromaDbClient {
 
     /**
      * Supprime tous les chunks correspondant à un fichier source.
-     * Retourne le nombre de chunks supprimés.
+     * Utilise le filtre {@code where} ChromaDB pour ne récupérer que les IDs concernés
+     * au lieu de charger toute la collection en mémoire.
      */
     @SuppressWarnings("unchecked")
     public int deleteBySource(String collectionId, String sourceFile) {
-        Map<String, Object> all = getAllDocuments(collectionId);
-        List<String> ids = (List<String>) all.get("ids");
-        List<Map<String, String>> metadatas = (List<Map<String, String>>) all.get("metadatas");
+        // P2 — filtre where : seuls les IDs du fichier source sont récupérés
+        Map<String, Object> body = Map.of(
+                "where",   Map.of("sourceFile", Map.of("$eq", sourceFile)),
+                "include", List.of()  // IDs uniquement, pas de documents ni métadonnées
+        );
 
-        if (ids == null || metadatas == null) return 0;
+        Map<String, Object> result = webClient.post()
+                .uri(COLLECTIONS_BASE + "/{id}/get", collectionId)
+                .bodyValue(body)
+                .retrieve()
+                .bodyToMono(Map.class)
+                .block(TIMEOUT_BULK_GET);
 
-        List<String> toDelete = new java.util.ArrayList<>();
-        for (int i = 0; i < ids.size(); i++) {
-            if (sourceFile.equals(metadatas.get(i).get("sourceFile"))) {
-                toDelete.add(ids.get(i));
-            }
-        }
+        if (result == null) return 0;
+        List<String> ids = (List<String>) result.get("ids");
+        if (ids == null || ids.isEmpty()) return 0;
 
-        if (!toDelete.isEmpty()) {
-            webClient.post()
-                    .uri(COLLECTIONS_BASE + "/{id}/delete", collectionId)
-                    .bodyValue(Map.of("ids", toDelete))
-                    .retrieve()
-                    .bodyToMono(Void.class)
-                    .block(TIMEOUT);
-        }
-        return toDelete.size();
+        webClient.post()
+                .uri(COLLECTIONS_BASE + "/{id}/delete", collectionId)
+                .bodyValue(Map.of("ids", ids))
+                .retrieve()
+                .bodyToMono(Void.class)
+                .block(TIMEOUT_DEFAULT);
+
+        return ids.size();
     }
 
     /**
@@ -211,7 +248,24 @@ public class ChromaDbClient {
                 .uri(COLLECTIONS_BASE + "/{id}/count", collectionId)
                 .retrieve()
                 .bodyToMono(Integer.class)
-                .block(TIMEOUT);
+                .block(TIMEOUT_DEFAULT);
         return count != null ? count : 0;
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private void validateCollectionName(String name) {
+        if (name == null || name.isBlank()) {
+            throw new IllegalArgumentException("Le nom de collection ChromaDB ne peut pas être vide");
+        }
+        if (name.length() < 3 || name.length() > 63) {
+            throw new IllegalArgumentException(
+                    "Le nom de collection ChromaDB doit faire entre 3 et 63 caractères : '" + name + "'");
+        }
+        if (!COLLECTION_NAME_PATTERN.matcher(name).matches()) {
+            throw new IllegalArgumentException(
+                    "Le nom de collection ChromaDB contient des caractères invalides : '" + name + "'. "
+                    + "Seuls les caractères alphanumériques, '.', '_' et '-' sont autorisés.");
+        }
     }
 }

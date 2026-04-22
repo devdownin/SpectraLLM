@@ -4,8 +4,9 @@ import fr.spectra.dto.ServiceStatus;
 import fr.spectra.dto.SystemStatusResponse;
 import fr.spectra.service.ChromaDbClient;
 import fr.spectra.service.CrossEncoderRerankerClient;
+import fr.spectra.service.EmbeddingClient;
 import fr.spectra.service.FtsService;
-import fr.spectra.service.LlmClient;
+import fr.spectra.service.LlmChatClient;
 import fr.spectra.service.extraction.LayoutParserClient;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -24,18 +25,21 @@ import java.util.Optional;
 @Tag(name = "Status", description = "État de santé du système")
 public class StatusController {
 
-    private final LlmClient llmClient;
+    private final LlmChatClient llmChatClient;
+    private final EmbeddingClient embeddingClient;
     private final ChromaDbClient chromaDbClient;
     private final Optional<FtsService> ftsService;
     private final Optional<LayoutParserClient> layoutParserClient;
     private final Optional<CrossEncoderRerankerClient> rerankerClient;
 
-    public StatusController(LlmClient llmClient,
+    public StatusController(LlmChatClient llmChatClient,
+                            EmbeddingClient embeddingClient,
                             ChromaDbClient chromaDbClient,
                             Optional<FtsService> ftsService,
                             Optional<LayoutParserClient> layoutParserClient,
                             Optional<CrossEncoderRerankerClient> rerankerClient) {
-        this.llmClient = llmClient;
+        this.llmChatClient = llmChatClient;
+        this.embeddingClient = embeddingClient;
         this.chromaDbClient = chromaDbClient;
         this.ftsService = ftsService;
         this.layoutParserClient = layoutParserClient;
@@ -46,7 +50,8 @@ public class StatusController {
     @Operation(summary = "État de santé de tous les services")
     public SystemStatusResponse getStatus() {
         List<ServiceStatus> services = new ArrayList<>();
-        services.add(llmClient.checkHealth());
+        services.add(llmChatClient.checkHealth());
+        services.add(embeddingClient.checkHealth());
         services.add(chromaDbClient.checkHealth());
         layoutParserClient.ifPresent(c -> services.add(c.checkHealth()));
         rerankerClient.ifPresent(c -> services.add(c.checkHealth()));

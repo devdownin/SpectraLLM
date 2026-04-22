@@ -106,7 +106,7 @@ public class EvaluationService {
                 : chatClient.getActiveModel();
         reports.put(evalId, EvaluationReport.pending(evalId, modelName, request.jobId()));
         persistReports();
-        self.runAsync(evalId, request, modelName);
+        (self != null ? self : this).runAsync(evalId, request, modelName);
         return evalId;
     }
 

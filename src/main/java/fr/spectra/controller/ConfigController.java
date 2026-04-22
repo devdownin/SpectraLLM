@@ -41,7 +41,11 @@ public class ConfigController {
             return ResponseEntity.badRequest()
                     .body(Map.of("error", "Le champ 'model' est requis"));
         }
-        chatClient.setActiveModel(model);
+        try {
+            chatClient.setActiveModel(model);
+        } catch (IllegalStateException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
         return ResponseEntity.ok(Map.of(
                 "model", model,
                 "status", "updated"

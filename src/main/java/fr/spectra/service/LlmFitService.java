@@ -117,7 +117,13 @@ public class LlmFitService {
                 }
 
                 boolean finished = process.waitFor(60, TimeUnit.MINUTES);
-                if (finished && process.exitValue() == 0) {
+                if (!finished) {
+                    process.destroyForcibly();
+                    log.error("Timeout installation du modèle {} — process tué", modelName);
+                    sink.tryEmitError(new RuntimeException("Timeout after 60 minutes"));
+                    return false;
+                }
+                if (process.exitValue() == 0) {
                     log.info("Modèle {} installé avec succès", modelName);
                     sink.tryEmitNext(100);
                     sink.tryEmitComplete();

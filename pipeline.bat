@@ -128,7 +128,7 @@ if not exist "%SOURCE_DIR%\" (
 
 set FILE_COUNT=0
 set FILE_LIST=
-for %%E in (pdf docx doc json xml txt) do (
+for %%E in (pdf docx doc json xml txt zip) do (
     for %%F in ("%SOURCE_DIR%\*.%%E") do (
         if exist "%%F" (
             set /a FILE_COUNT+=1
@@ -200,7 +200,8 @@ echo.
 echo ^> [2/5] Generation du dataset d'entrainement (modele: %BASE_MODEL%)...
 
 :: S'assurer que le modele de generation est bien le bon
-powershell -Command "Invoke-WebRequest -Uri '%API_URL%/api/config/model' -Method POST -Body '{\"model\":\"%BASE_MODEL%\"}' -ContentType 'application/json' -UseBasicParsing -TimeoutSec 5 | Out-Null" >nul 2>&1
+powershell -Command "try { Invoke-WebRequest -Uri '%API_URL%/api/config/model' -Method POST -Body '{\"model\":\"%BASE_MODEL%\"}' -ContentType 'application/json' -UseBasicParsing -TimeoutSec 5 | Out-Null } catch { exit 1 }" >nul 2>&1
+if !errorlevel! neq 0 echo   [AVERT] Basculement vers %BASE_MODEL% echoue — modele actif inchange
 
 for /f "delims=" %%T in ('powershell -Command "try { $r=Invoke-WebRequest -Uri '%API_URL%/api/dataset/generate' -Method POST -UseBasicParsing -TimeoutSec 30; ($r.Content|ConvertFrom-Json).taskId } catch { Write-Host 'ERROR' }"') do set DATASET_TASK=%%T
 
@@ -243,7 +244,7 @@ if not exist "%DATASET_FILE%" (
     echo   [ERREUR] Export du dataset echoue.
     exit /b 1
 )
-for /f %%L in ('find /c /v "" "%DATASET_FILE%"') do set DS_LINES=%%L
+for /f %%L in ('powershell -Command "(Get-Content \"%DATASET_FILE%\" | Measure-Object -Line).Lines"') do set DS_LINES=%%L
 echo   [OK] Dataset exporte : %DATASET_FILE% (!DS_LINES! lignes)
 
 :: ══════════════════════════════════════════════════════════════
@@ -313,8 +314,12 @@ if errorlevel 1 (
 echo   [OK] Modele %MODEL_NAME% importe dans Ollama
 
 :: Basculer le modele actif de l'API vers le modele enrichi
-powershell -Command "Invoke-WebRequest -Uri '%API_URL%/api/config/model' -Method POST -Body '{\"model\":\"%MODEL_NAME%\"}' -ContentType 'application/json' -UseBasicParsing -TimeoutSec 5 | Out-Null" >nul 2>&1
-echo   [OK] Modele actif de l'API bascule vers %MODEL_NAME%
+powershell -Command "try { Invoke-WebRequest -Uri '%API_URL%/api/config/model' -Method POST -Body '{\"model\":\"%MODEL_NAME%\"}' -ContentType 'application/json' -UseBasicParsing -TimeoutSec 5 | Out-Null } catch { exit 1 }" >nul 2>&1
+if !errorlevel! neq 0 (
+    echo   [AVERT] Basculement du modele echoue — modele actif inchange
+) else (
+    echo   [OK] Modele actif de l'API bascule vers %MODEL_NAME%
+)
 
 :: ══════════════════════════════════════════════════════════════
 :: RÉSUMÉ

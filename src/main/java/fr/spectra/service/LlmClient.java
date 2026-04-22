@@ -91,7 +91,9 @@ public class LlmClient {
                 .bodyToMono(Map.class)
                 .block(HEALTH_TIMEOUT);
 
-        return (List<Map<String, Object>>) response.get("data");
+        Object data = response != null ? response.get("data") : null;
+        if (data == null) return List.of();
+        return (List<Map<String, Object>>) data;
     }
 
     public String getDefaultModel() {

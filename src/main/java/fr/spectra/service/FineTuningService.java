@@ -36,14 +36,14 @@ public class FineTuningService {
     private static final ObjectMapper mapper = new ObjectMapper();
 
     private final DatasetGeneratorService datasetGenerator;
-    private final LlmClient llmClient;
+    private final LlmChatClient llmClient;
     private final Path workDir;
     private final String trainingScript;
 
     private final Map<String, FineTuningJob> jobs = new ConcurrentHashMap<>();
 
     public FineTuningService(DatasetGeneratorService datasetGenerator,
-                             LlmClient llmClient,
+                             LlmChatClient llmClient,
                              @Value("${spectra.fine-tuning.work-dir:./data/fine-tuning}") String workDir,
                              @Value("${spectra.fine-tuning.script:./scripts/train.sh}") String trainingScript) {
         this.datasetGenerator = datasetGenerator;
@@ -173,6 +173,7 @@ public class FineTuningService {
         log.info("Job {}: commande = {}", jobId, String.join(" ", command));
 
         ProcessBuilder pb = new ProcessBuilder(command)
+                .directory(workDir.toFile())
                 .redirectErrorStream(true);
 
         Process process = pb.start();

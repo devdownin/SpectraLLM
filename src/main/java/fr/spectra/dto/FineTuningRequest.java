@@ -3,6 +3,7 @@ package fr.spectra.dto;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 
 public record FineTuningRequest(
 
@@ -11,6 +12,7 @@ public record FineTuningRequest(
         String modelName,
 
         /** Modèle de base à fine-tuner (défaut: depuis la config). */
+        @Pattern(regexp = "[\\w./@:-]*", message = "baseModel contient des caractères non autorisés")
         String baseModel,
 
         /** LoRA rank. */

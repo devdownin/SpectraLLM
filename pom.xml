@@ -116,7 +116,7 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <argLine>-Xmx2g -XX:+EnableDynamicAgentLoading</argLine>
+                    <argLine>-Xmx2g -XX:+EnableDynamicAgentLoading -Dnet.bytebuddy.experimental=true</argLine>
                 </configuration>
             </plugin>
         </plugins>

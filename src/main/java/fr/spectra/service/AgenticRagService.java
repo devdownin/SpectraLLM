@@ -85,7 +85,7 @@ public class AgenticRagService {
 
     private final ChromaDbClient chromaDbClient;
     private final EmbeddingService embeddingService;
-    private final LlmClient llmClient;
+    private final LlmChatClient llmClient;
     private final Optional<RerankerClient> rerankerClient;
     private final Optional<HybridSearchService> hybridSearchService;
     private final SpectraProperties props;
@@ -97,7 +97,7 @@ public class AgenticRagService {
 
     public AgenticRagService(ChromaDbClient chromaDbClient,
                               EmbeddingService embeddingService,
-                              LlmClient llmClient,
+                              LlmChatClient llmClient,
                               Optional<RerankerClient> rerankerClient,
                               Optional<HybridSearchService> hybridSearchService,
                               SpectraProperties props,

@@ -64,7 +64,7 @@ echo ^> Recherche de documents dans %SOURCE_DIR%...
 set FILE_COUNT=0
 set FILE_LIST=
 
-for %%E in (pdf docx doc json xml txt) do (
+for %%E in (pdf docx doc json xml txt zip) do (
     for %%F in ("%SOURCE_DIR%\*.%%E") do (
         if exist "%%F" (
             set /a FILE_COUNT+=1
@@ -152,7 +152,7 @@ if !POLL! geq %MAX_POLL% goto poll_timeout
 timeout /t %POLL_INTERVAL% /nobreak >nul
 set /a POLL+=1
 
-for /f "delims=" %%S in ('powershell -Command "try { $r = Invoke-WebRequest -Uri '%INGEST_ENDPOINT%/!TASK_ID!' -UseBasicParsing -TimeoutSec 5; $j = $r.Content | ConvertFrom-Json; Write-Host $j.status '|' $j.totalChunks } catch { Write-Host 'ERROR' }"') do set POLL_RESULT=%%S
+for /f "delims=" %%S in ('powershell -Command "try { $r = Invoke-WebRequest -Uri '%INGEST_ENDPOINT%/!TASK_ID!' -UseBasicParsing -TimeoutSec 5; $j = $r.Content | ConvertFrom-Json; Write-Host $j.status '|' $j.chunksCreated } catch { Write-Host 'ERROR' }"') do set POLL_RESULT=%%S
 
 for /f "tokens=1 delims=|" %%A in ("!POLL_RESULT!") do set CURRENT_STATUS=%%A
 for /f "tokens=2 delims=|" %%B in ("!POLL_RESULT!") do set CHUNKS=%%B
@@ -169,7 +169,7 @@ if "!CURRENT_STATUS!"=="FAILED" (
     goto poll_done
 )
 
-echo   [%%i/!MAX_POLL!] Statut : !CURRENT_STATUS! — chunks : !CHUNKS!
+echo   [!POLL!/!MAX_POLL!] Statut : !CURRENT_STATUS! — chunks : !CHUNKS!
 goto poll_loop
 
 :poll_timeout

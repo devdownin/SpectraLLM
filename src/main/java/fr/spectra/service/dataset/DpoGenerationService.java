@@ -81,7 +81,7 @@ public class DpoGenerationService {
     public String submit(int maxPairs) {
         String taskId = UUID.randomUUID().toString();
         tasks.put(taskId, new DpoTask(taskId, "PENDING", 0, 0, null, Instant.now(), null));
-        self.runAsync(taskId, maxPairs);
+        (self != null ? self : this).runAsync(taskId, maxPairs);
         return taskId;
     }
 

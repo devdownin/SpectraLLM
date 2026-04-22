@@ -3,7 +3,7 @@ package fr.spectra.controller;
 import fr.spectra.dto.FineTuningJob;
 import fr.spectra.dto.FineTuningRequest;
 import fr.spectra.service.FineTuningService;
-import fr.spectra.service.LlmClient;
+import fr.spectra.service.LlmChatClient;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -25,9 +25,9 @@ import java.util.Map;
 public class FineTuningController {
 
     private final FineTuningService fineTuningService;
-    private final LlmClient llmClient;
+    private final LlmChatClient llmClient;
 
-    public FineTuningController(FineTuningService fineTuningService, LlmClient llmClient) {
+    public FineTuningController(FineTuningService fineTuningService, LlmChatClient llmClient) {
         this.fineTuningService = fineTuningService;
         this.llmClient = llmClient;
     }
