@@ -6,6 +6,69 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ---
 
+## [1.9.0] — 2026-04-22
+
+### Correctifs — Bugs, sécurité, fiabilisation
+
+#### Pipeline chat / RAG
+
+- **`POST /api/query/stream`** : nouvel endpoint SSE manquant — le Playground était entièrement cassé (404 à chaque message)
+  - `RagService.retrieveContext()` extrait la phase retrieval (embed → ChromaDB → re-rank → build sources) ; `query()` et `queryStream()` s'appuient dessus
+  - `queryStream()` émet les events SSE `sources → token* → done | error` via `LlmChatClient.chatStream()`
+  - Timeout de garde `Flux.timeout(generateTimeout)` côté backend + `AbortController(120s)` côté frontend
+- **Temperature & Top-P câblés** : les sliders du Playground étaient sauvegardés mais jamais transmis au LLM
+  - `QueryRequest` : nouveaux champs optionnels `temperature` (0.0–2.0, défaut 0.7) et `topP` (0.0–1.0, défaut 0.9)
+  - `LlmChatClient.chatStream(String, String, float, float)` : nouvelle surcharge (default fallback dans l'interface)
+  - `LlamaCppChatClient` transmet `temperature` et `top_p` à llama-server
+
+#### Ingestion
+
+- **URL encoding** : `UrlFetcherService` — URL de browserless encodée via `UriComponentsBuilder` (fix injection via query param)
+- **Validation de schéma URL** : rejet des schémas non-http/https avant tout appel réseau
+- **Markdown tables** : `TextCleanerService` préserve les séparateurs de tableaux Markdown lors du nettoyage
+- **ZIP depth** : `IngestionService` — limite à 3 niveaux d'imbrication pour prévenir les ZIP bombs
+
+#### GlobalExceptionHandler
+
+- `LlmUnavailableException` → HTTP **503** (était 500 via handler générique)
+- `MethodArgumentNotValidException` → HTTP **400** avec détail champ par champ (était 500)
+
+#### ChromaDB
+
+- Cache `ConcurrentHashMap` nom → collectionId : élimine un aller-retour réseau par requête RAG
+- `deleteBySource()` : filtre `where` ChromaDB pour ne charger que les IDs concernés (était fullscan)
+- Timeouts différenciés : `TIMEOUT_ADD=60s`, `TIMEOUT_QUERY=15s`, `TIMEOUT_BULK_GET=30s`, `TIMEOUT_DEFAULT=10s`
+- Null-guard sur `getOrCreateCollection()` + validation du nom (3-63 chars, pattern ChromaDB)
+
+#### Fine-tuning & Dataset
+
+- `DatasetGeneratorService.generatedPairs` : reset complet + réécriture du fichier JSONL à chaque `submit()` (évite l'accumulation de doublons entre runs)
+- `POST /api/dataset/generate?maxChunks=N` : paramètre `maxChunks` désormais fonctionnel (était ignoré)
+- Protection contre la génération concurrente : `AtomicBoolean generationRunning` → HTTP 409 si déjà en cours
+- `DatasetGeneratorService` : persistance JSONL au démarrage + confiance dynamique des paires
+
+#### Asynchrone
+
+- `AsyncConfig` : `ThreadPoolTaskExecutor` → `SimpleAsyncTaskExecutor` avec `setVirtualThreads(true)` — les tâches `@Async` utilisent désormais les virtual threads Project Loom cohérents avec `spring.threads.virtual.enabled: true`
+
+#### Frontend — robustesse
+
+- **Playground** : historique localStorage limité à 50 messages + catch `QuotaExceededError`
+- **Datasets** : tous les `setInterval` de polling trackés dans un `useRef` + cleanup complet au unmount du composant
+- **Datasets / Comparison** : arrêt automatique du polling après 5 échecs réseau consécutifs
+
+#### Autres correctifs
+
+- `LlamaCppChatClient.checkHealth()` : `activeModelLoaded=false` → HTTP 200 avec status `model-not-loaded` (était HTTP 500)
+- `StatusController` : utilise `LlmChatClient` (interface) + `EmbeddingClient` au lieu de `LlmClient` (legacy)
+- `ConfigController.setModel()` : catch `IllegalStateException` → HTTP 400 (était 500)
+- `LlmFitService.installModel()` : vérification `process.exitValue()` après timeout forcibly destroy (était NPE)
+- `FineTuningService` : `ProcessBuilder.directory(workDir)` pour les scripts d'entraînement
+- `DpoGenerationService` / `EvaluationService` : null-guard sur self-injection `@Lazy` (`self != null ? self : this`)
+- `FineTuningRequest.baseModel` : annotation `@Pattern` pour bloquer les injections de commande
+
+---
+
 ## [1.8.0] — 2026-04-15
 
 ### Infra — Séparation chat/embed, ChromaDB v2, healthchecks

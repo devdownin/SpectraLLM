@@ -69,6 +69,7 @@ class UrlIngestionServiceTest {
         ingestionService = new IngestionService(
                 factory, textCleaner, chunkingService,
                 embeddingService, chromaDbClient,
+                mock(FtsService.class),
                 mock(IngestionTaskExecutor.class),
                 mock(IngestedFileRepository.class),
                 mock(GedService.class),

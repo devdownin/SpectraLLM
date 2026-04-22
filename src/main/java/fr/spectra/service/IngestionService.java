@@ -34,6 +34,7 @@ public class IngestionService {
 
     private static final Logger log = LoggerFactory.getLogger(IngestionService.class);
     private static final String DEFAULT_COLLECTION = "spectra_documents";
+    private static final int MAX_ZIP_DEPTH = 3;
 
     // Direct-pipeline deps (used by ingest() and ingestLocalFiles())
     private final DocumentExtractorFactory extractorFactory;
@@ -41,6 +42,7 @@ public class IngestionService {
     private final ChunkingService chunkingService;
     private final EmbeddingService embeddingService;
     private final ChromaDbClient chromaDbClient;
+    private final FtsService ftsService;
     private final int embeddingBatchSize;
 
     // Async + dedup deps (used by submit())
@@ -57,6 +59,7 @@ public class IngestionService {
                             ChunkingService chunkingService,
                             EmbeddingService embeddingService,
                             ChromaDbClient chromaDbClient,
+                            FtsService ftsService,
                             IngestionTaskExecutor executor,
                             IngestedFileRepository repository,
                             GedService gedService,
@@ -66,6 +69,7 @@ public class IngestionService {
         this.chunkingService = chunkingService;
         this.embeddingService = embeddingService;
         this.chromaDbClient = chromaDbClient;
+        this.ftsService = ftsService;
         this.executor = executor;
         this.repository = repository;
         this.gedService = gedService;
@@ -201,7 +205,17 @@ public class IngestionService {
      * Ingère un seul fichier depuis un InputStream (utilisé par UrlIngestionService).
      */
     public int ingest(String fileName, InputStream inputStream, String collectionId) throws Exception {
-        return processSingleFile(fileName, inputStream, collectionId);
+        byte[] bytes = inputStream.readAllBytes();
+        String hash = sha256(new java.io.ByteArrayInputStream(bytes));
+        if (repository.existsById(hash)) {
+            log.info("Fichier ignoré (déjà ingéré, sha256={}): {}", hash, fileName);
+            return 0;
+        }
+        int chunks = processSingleFile(fileName, new java.io.ByteArrayInputStream(bytes), collectionId, defaultCollection);
+        if (chunks > 0) {
+            recordIngestion(hash, fileName, chunks, defaultCollection);
+        }
+        return chunks;
     }
 
     /**
@@ -212,8 +226,15 @@ public class IngestionService {
             String collectionId = chromaDbClient.getOrCreateCollection(defaultCollection);
             int total = 0;
             for (Path path : paths) {
-                try (InputStream in = Files.newInputStream(path)) {
-                    total += processSingleFile(path.getFileName().toString(), in, collectionId);
+                try {
+                    byte[] bytes = Files.readAllBytes(path);
+                    String hash = sha256(new java.io.ByteArrayInputStream(bytes));
+                    int chunks = processSingleFile(path.getFileName().toString(),
+                            new java.io.ByteArrayInputStream(bytes), collectionId, defaultCollection);
+                    if (chunks > 0) {
+                        recordIngestion(hash, path.getFileName().toString(), chunks, defaultCollection);
+                    }
+                    total += chunks;
                 } catch (Exception e) {
                     log.warn("Erreur ingestion fichier {}: {}", path, e.getMessage());
                 }
@@ -227,7 +248,7 @@ public class IngestionService {
 
     // ── Pipeline direct ───────────────────────────────────────────────────────
 
-    private int processSingleFile(String fileName, InputStream inputStream, String collectionId) throws Exception {
+    private int processSingleFile(String fileName, InputStream inputStream, String collectionId, String collectionName) throws Exception {
         log.info("Ingestion de: {}", fileName);
 
         String shortName = fileName.contains("/")
@@ -254,12 +275,21 @@ public class IngestionService {
         }
 
         chromaDbClient.addDocuments(collectionId, chunks, allEmbeddings);
+        ftsService.indexChunks(chunks, collectionName);
         log.info("Fichier {} traité: {} chunks", fileName, chunks.size());
         return chunks.size();
     }
 
     /** Package-visible for testing. */
     int processZip(InputStream zipStream, String archiveName, String collectionId) throws Exception {
+        return processZip(zipStream, archiveName, collectionId, 0);
+    }
+
+    private int processZip(InputStream zipStream, String archiveName, String collectionId, int depth) throws Exception {
+        if (depth > MAX_ZIP_DEPTH) {
+            log.warn("ZIP imbriqué ignoré (profondeur {} > {}): {}", depth, MAX_ZIP_DEPTH, archiveName);
+            return 0;
+        }
         int totalChunks = 0;
         try (ZipInputStream zis = new ZipInputStream(zipStream)) {
             ZipEntry entry;
@@ -276,7 +306,7 @@ public class IngestionService {
                     InputStream nonClosing = new java.io.FilterInputStream(zis) {
                         @Override public void close() {}
                     };
-                    totalChunks += processZip(nonClosing, archiveName + "/" + entryName, collectionId);
+                    totalChunks += processZip(nonClosing, archiveName + "/" + entryName, collectionId, depth + 1);
                     continue;
                 }
                 if (!isSupportedFile(fileName)) continue;
@@ -289,7 +319,7 @@ public class IngestionService {
                     InputStream entryStream = new java.io.FilterInputStream(zis) {
                         @Override public void close() { /* ne pas fermer le ZipInputStream parent */ }
                     };
-                    totalChunks += processSingleFile(qualifiedName, entryStream, collectionId);
+                    totalChunks += processSingleFile(qualifiedName, entryStream, collectionId, defaultCollection);
                 } catch (ExtractionException e) {
                     log.warn("Erreur sur {}: {}", qualifiedName, e.getMessage());
                 }
@@ -308,6 +338,17 @@ public class IngestionService {
         try (DigestInputStream dis = new DigestInputStream(in, digest);
              OutputStream out = Files.newOutputStream(dest)) {
             dis.transferTo(out);
+        }
+        byte[] hash = digest.digest();
+        StringBuilder sb = new StringBuilder(64);
+        for (byte b : hash) sb.append(String.format("%02x", b));
+        return sb.toString();
+    }
+
+    private String sha256(InputStream in) throws Exception {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        try (DigestInputStream dis = new DigestInputStream(in, digest)) {
+            dis.transferTo(OutputStream.nullOutputStream());
         }
         byte[] hash = digest.digest();
         StringBuilder sb = new StringBuilder(64);

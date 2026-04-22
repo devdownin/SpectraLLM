@@ -25,17 +25,18 @@ public interface LlmChatClient {
 
     /**
      * Génère une réponse en streaming, token par token.
-     *
-     * <p>Retourne un {@code Flux<String>} qui émet chaque token dès qu'il est
-     * disponible. L'implémentation par défaut délègue à {@link #chat} et émet
-     * la réponse complète en un seul élément — les providers sans streaming natif
-     * (Ollama) utilisent ce fallback.
-     *
-     * <p>L'implémentation llama-cpp utilise {@code "stream": true} sur
-     * {@code /v1/chat/completions} et émet chaque delta SSE individuellement.
+     * L'implémentation par défaut délègue à {@link #chat} et émet la réponse complète en un seul élément.
      */
     default Flux<String> chatStream(String systemPrompt, String userMessage) {
         return Flux.just(chat(systemPrompt, userMessage));
+    }
+
+    /**
+     * Streaming avec paramètres de génération explicites (temperature, top_p).
+     * L'implémentation par défaut ignore les paramètres et délègue à {@link #chatStream(String, String)}.
+     */
+    default Flux<String> chatStream(String systemPrompt, String userMessage, float temperature, float topP) {
+        return chatStream(systemPrompt, userMessage);
     }
 
     List<Map<String, Object>> listModels();

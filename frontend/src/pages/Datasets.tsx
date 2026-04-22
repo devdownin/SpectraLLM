@@ -117,7 +117,11 @@ const Datasets: FC = () => {
   const [history, setHistory] = useState<IngestedFile[]>([]);
   const [showHistory, setShowHistory] = useState(false);
 
-  const pollingTasks = useRef<Set<string>>(new Set());
+  const pollingTasks   = useRef<Set<string>>(new Set());
+  const activeIntervals = useRef<Set<ReturnType<typeof setInterval>>>(new Set());
+
+  // Cleanup all intervals on unmount (Fix 7)
+  useEffect(() => () => { activeIntervals.current.forEach(clearInterval); }, []);
 
   // ── Stats loader — polling every 10 s ─────────────────────────────────────
   const loadStats = useCallback(async () => {
@@ -145,19 +149,19 @@ const Datasets: FC = () => {
     if (pollingTasks.current.has(taskId) && entryId !== taskId) return;
     pollingTasks.current.add(taskId);
 
+    let failures = 0;
     const interval = setInterval(async () => {
       try {
         const res = await ingestApi.getTaskStatus(taskId);
+        failures = 0;
         const t = res.data;
         setIngestEntries(prev => {
-          // If it's a restored entry where multiple files share one taskId
           if (entryId === taskId) {
             return prev.map(e => e.taskId === taskId
               ? { ...e, status: t.status, chunksCreated: t.chunksCreated, error: t.error ?? undefined }
               : e
             );
           }
-          // Normal single file entry
           return prev.map(e => e.id === entryId
             ? { ...e, status: t.status, chunksCreated: t.chunksCreated, error: t.error ?? undefined }
             : e
@@ -165,17 +169,19 @@ const Datasets: FC = () => {
         });
         if (t.status === 'COMPLETED' || t.status === 'FAILED') {
           clearInterval(interval);
+          activeIntervals.current.delete(interval);
           pollingTasks.current.delete(taskId);
-          if (t.status === 'COMPLETED') {
-            loadStats();
-            loadHistory();
-          }
+          if (t.status === 'COMPLETED') { loadStats(); loadHistory(); }
         }
       } catch {
-        clearInterval(interval);
-        pollingTasks.current.delete(taskId);
+        if (++failures >= 5) {
+          clearInterval(interval);
+          activeIntervals.current.delete(interval);
+          pollingTasks.current.delete(taskId);
+        }
       }
     }, 3000);
+    activeIntervals.current.add(interval);
   }, [loadStats, loadHistory]);
 
   // ── Upload file ───────────────────────────────────────────────────────────
@@ -241,20 +247,27 @@ const Datasets: FC = () => {
     if (pollingTasks.current.has(taskId)) return;
     pollingTasks.current.add(taskId);
 
+    let failures = 0;
     const interval = setInterval(async () => {
       try {
         const res = await datasetApi.getGenerationStatus(taskId);
+        failures = 0;
         setGenTask(res.data);
         if (res.data.status === 'COMPLETED' || res.data.status === 'FAILED') {
           clearInterval(interval);
+          activeIntervals.current.delete(interval);
           pollingTasks.current.delete(taskId);
           loadStats();
         }
       } catch {
-        clearInterval(interval);
-        pollingTasks.current.delete(taskId);
+        if (++failures >= 5) {
+          clearInterval(interval);
+          activeIntervals.current.delete(interval);
+          pollingTasks.current.delete(taskId);
+        }
       }
     }, 5000);
+    activeIntervals.current.add(interval);
   }, [loadStats]);
 
   // ── Restore tasks on mount ────────────────────────────────────────────────

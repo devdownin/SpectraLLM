@@ -28,7 +28,7 @@ class DatasetGeneratorServiceTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        service = new DatasetGeneratorService(mock(LlmChatClient.class), mock(ChromaDbClient.class));
+        service = new DatasetGeneratorService(mock(LlmChatClient.class), mock(ChromaDbClient.class), "./data/dataset");
 
         extractJsonMethod = DatasetGeneratorService.class.getDeclaredMethod("extractJson", String.class);
         extractJsonMethod.setAccessible(true);
@@ -104,7 +104,7 @@ class DatasetGeneratorServiceTest {
 
     @Test
     void submit_createsTaskWithPendingStatus() {
-        String taskId = service.submit();
+        String taskId = service.submit(0);
         assertThat(taskId).isNotBlank();
         DatasetGeneratorService.GenerationTask task = service.getTask(taskId);
         assertThat(task).isNotNull();

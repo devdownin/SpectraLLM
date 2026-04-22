@@ -89,7 +89,7 @@ public class BenchmarkService {
             long t0 = System.currentTimeMillis();
             try {
                 QueryResponse response = ragService.query(
-                        new QueryRequest(question, maxChunks, null, null));
+                        new QueryRequest(question, maxChunks, null, null, null, null));
                 long elapsed = System.currentTimeMillis() - t0;
                 latenciesMs.add(elapsed);
                 answerLengths.add((long) response.answer().length());

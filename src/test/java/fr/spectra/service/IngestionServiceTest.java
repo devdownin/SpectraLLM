@@ -40,6 +40,7 @@ class IngestionServiceTest {
                 mock(ChunkingService.class),
                 mock(EmbeddingService.class),
                 chromaDb,
+                mock(FtsService.class),
                 mock(IngestionTaskExecutor.class),
                 mock(IngestedFileRepository.class),
                 mock(GedService.class),

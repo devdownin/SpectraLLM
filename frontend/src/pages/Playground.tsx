@@ -42,8 +42,17 @@ const Playground: FC = () => {
 
   const abortRef = useRef<AbortController | null>(null);
 
+  const MAX_HISTORY = 50;
   useEffect(() => {
-    localStorage.setItem('spectra_chat_history', JSON.stringify(messages));
+    const trimmed = messages.slice(-MAX_HISTORY);
+    try {
+      localStorage.setItem('spectra_chat_history', JSON.stringify(trimmed));
+    } catch {
+      // QuotaExceededError — discard oldest half and retry
+      try {
+        localStorage.setItem('spectra_chat_history', JSON.stringify(trimmed.slice(-Math.floor(MAX_HISTORY / 2))));
+      } catch { /* ignore */ }
+    }
   }, [messages]);
 
   useEffect(() => {
@@ -87,6 +96,7 @@ const Playground: FC = () => {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
+    const guardTimer = setTimeout(() => controller.abort(new Error('timeout')), 120_000);
 
     const currentInput = input;
     setMessages(prev => [...prev, { role: 'user', content: currentInput, status: 'PENDING' }]);
@@ -144,6 +154,7 @@ const Playground: FC = () => {
         return [...updated];
       });
     } finally {
+      clearTimeout(guardTimer);
       setIsTyping(false);
     }
   };

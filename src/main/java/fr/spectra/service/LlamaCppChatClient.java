@@ -117,7 +117,8 @@ public class LlamaCppChatClient implements LlmChatClient {
             details.put("registeredModels", modelRegistry.listModels("chat"));
             details.put("runtime", runtimeOrchestrator.runtimeStatus());
 
-            return new ServiceStatus("llama-cpp", baseUrl, true, "ok", elapsed, details);
+            String healthStatus = activeModelLoaded ? "ok" : "model-not-loaded";
+            return new ServiceStatus("llama-cpp", baseUrl, activeModelLoaded, healthStatus, elapsed, details);
         } catch (Exception e) {
             long elapsed = System.currentTimeMillis() - start;
             log.warn("llama.cpp indisponible: {}", e.getMessage());
@@ -190,12 +191,19 @@ public class LlamaCppChatClient implements LlmChatClient {
      * Les erreurs réseau sont propagées dans le Flux pour gestion amont.
      */
     @Override
-    @SuppressWarnings("unchecked")
     public Flux<String> chatStream(String systemPrompt, String userMessage) {
+        return chatStream(systemPrompt, userMessage, 0.7f, 0.9f);
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public Flux<String> chatStream(String systemPrompt, String userMessage, float temperature, float topP) {
         Map<String, Object> request = Map.of(
-                "model", activeModel.get(),
-                "stream", true,
-                "messages", List.of(
+                "model",       activeModel.get(),
+                "stream",      true,
+                "temperature", temperature,
+                "top_p",       topP,
+                "messages",    List.of(
                         Map.of("role", "system", "content", systemPrompt),
                         Map.of("role", "user", "content", userMessage)
                 )

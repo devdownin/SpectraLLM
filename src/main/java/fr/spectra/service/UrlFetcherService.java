@@ -5,11 +5,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.net.URI;
 import java.time.Duration;
+import java.util.Set;
 
 /**
  * Récupère le contenu d'une URL distante.
@@ -20,6 +22,7 @@ import java.time.Duration;
 public class UrlFetcherService {
 
     private static final Logger log = LoggerFactory.getLogger(UrlFetcherService.class);
+    private static final Set<String> ALLOWED_SCHEMES = Set.of("http", "https");
     private static final Duration HEAD_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration FETCH_TIMEOUT = Duration.ofSeconds(30);
     private static final Duration BROWSERLESS_TIMEOUT = Duration.ofSeconds(60);
@@ -41,6 +44,7 @@ public class UrlFetcherService {
      * Retourne le contenu brut et un nom de fichier dérivé de l'URL.
      */
     public FetchedContent fetch(String url) {
+        validateScheme(url);
         String contentType = detectContentType(url);
         if ("text/html".equals(contentType)) {
             return fetchHtmlViaBrowserless(url);
@@ -84,7 +88,10 @@ public class UrlFetcherService {
         log.info("Fetching HTML via browserless: {}", url);
         try {
             byte[] bytes = webClient.get()
-                    .uri(browserlessUrl + "/content?url=" + URI.create(url).toASCIIString())
+                    .uri(UriComponentsBuilder.fromHttpUrl(browserlessUrl + "/content")
+                            .queryParam("url", url)
+                            .build()
+                            .toUri())
                     .retrieve()
                     .bodyToMono(byte[].class)
                     .block(BROWSERLESS_TIMEOUT);
@@ -129,12 +136,26 @@ public class UrlFetcherService {
             case "application/pdf" -> ".pdf";
             case "text/plain" -> ".txt";
             case "text/html" -> ".html";
+            case "application/msword" -> ".doc";
+            case "application/vnd.openxmlformats-officedocument.wordprocessingml.document" -> ".docx";
             default -> ".bin";
         };
     }
 
     private InputStream toStream(byte[] bytes) {
         return new ByteArrayInputStream(bytes != null ? bytes : new byte[0]);
+    }
+
+    private void validateScheme(String url) {
+        String scheme;
+        try {
+            scheme = URI.create(url).getScheme();
+        } catch (Exception e) {
+            throw new IllegalArgumentException("URL invalide : " + url);
+        }
+        if (scheme == null || !ALLOWED_SCHEMES.contains(scheme.toLowerCase())) {
+            throw new IllegalArgumentException("Schéma URL non autorisé : " + scheme + ". Seuls http et https sont acceptés.");
+        }
     }
 
     public record FetchedContent(String filename, InputStream inputStream) {}

@@ -44,11 +44,9 @@ public class GedController {
             @RequestParam(required = false) String to,
             @RequestParam(defaultValue = "0")  int page,
             @RequestParam(defaultValue = "20") int size) {
-
-        IngestedFileEntity.Lifecycle lc = lifecycle != null
-                ? IngestedFileEntity.Lifecycle.valueOf(lifecycle.toUpperCase()) : null;
-        Instant fromInst = from != null ? Instant.parse(from) : null;
-        Instant toInst   = to   != null ? Instant.parse(to)   : null;
+        IngestedFileEntity.Lifecycle lc = parseLifecycle(lifecycle);
+        Instant fromInst = parseInstant(from, "from");
+        Instant toInst   = parseInstant(to, "to");
 
         GedDocumentFilter filter = new GedDocumentFilter(
                 lc, tag, collection, minQuality, fromInst, toInst, page, size);
@@ -113,16 +111,13 @@ public class GedController {
             @RequestParam String lifecycle,
             @RequestParam(defaultValue = "api") String actor) {
         try {
-            IngestedFileEntity.Lifecycle target =
-                    IngestedFileEntity.Lifecycle.valueOf(lifecycle.toUpperCase());
+            IngestedFileEntity.Lifecycle target = parseLifecycle(lifecycle);
             IngestedFileEntity doc = gedService.transitionLifecycle(sha256, target, actor);
             return ResponseEntity.ok(Map.of(
                     "sha256",    sha256,
                     "lifecycle", doc.getLifecycle().name()));
         } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(Map.of("error",
-                    "Valeur invalide : " + lifecycle +
-                    ". Valeurs possibles : INGESTED, QUALIFIED, TRAINED, ARCHIVED"));
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         } catch (IllegalStateException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         } catch (NoSuchElementException e) {
@@ -224,8 +219,7 @@ public class GedController {
             @RequestBody List<String> sha256List,
             @RequestParam String lifecycle,
             @RequestParam(defaultValue = "api") String actor) {
-        IngestedFileEntity.Lifecycle target =
-                IngestedFileEntity.Lifecycle.valueOf(lifecycle.toUpperCase());
+        IngestedFileEntity.Lifecycle target = parseLifecycle(lifecycle);
         int success = 0;
         List<String> errors = new java.util.ArrayList<>();
         for (String sha256 : sha256List) {
@@ -279,4 +273,29 @@ public class GedController {
     }
 
     record BulkTagRequest(List<String> sha256List, List<String> tags) {}
+
+    private IngestedFileEntity.Lifecycle parseLifecycle(String lifecycle) {
+        if (lifecycle == null || lifecycle.isBlank()) {
+            return null;
+        }
+        try {
+            return IngestedFileEntity.Lifecycle.valueOf(lifecycle.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException(
+                    "Valeur invalide pour lifecycle: " + lifecycle +
+                    ". Valeurs possibles : INGESTED, QUALIFIED, TRAINED, ARCHIVED");
+        }
+    }
+
+    private Instant parseInstant(String value, String fieldName) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return Instant.parse(value);
+        } catch (Exception e) {
+            throw new IllegalArgumentException(
+                    "Valeur invalide pour " + fieldName + ": " + value + ". Format attendu : ISO-8601 instant");
+        }
+    }
 }

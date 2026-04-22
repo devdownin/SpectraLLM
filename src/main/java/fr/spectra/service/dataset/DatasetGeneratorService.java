@@ -5,18 +5,26 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import fr.spectra.model.TrainingPair;
 import fr.spectra.service.ChromaDbClient;
 import fr.spectra.service.LlmChatClient;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
+import java.io.BufferedWriter;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.UUID;
 
 @Service
@@ -26,22 +34,41 @@ public class DatasetGeneratorService {
     private static final String COLLECTION_NAME = "spectra_documents";
     private static final ObjectMapper mapper = new ObjectMapper();
 
+    private static final Set<String> VALID_CATEGORIES =
+            Set.of("procedures", "evenements", "nomenclatures", "reglementation");
+
     private final LlmChatClient llmChatClient;
     private final ChromaDbClient chromaDbClient;
+    private final Path pairsFile;
 
     /** Self-reference for @Async proxy — injected lazily to avoid circular dependency. */
     @Lazy @Autowired(required = false)
     private DatasetGeneratorService self;
 
-    /** Toutes les paires générées, accessibles par le service d'export. */
     private final List<TrainingPair> generatedPairs = new CopyOnWriteArrayList<>();
-
-    /** Suivi des tâches de génération. */
     private final Map<String, GenerationTask> tasks = new ConcurrentHashMap<>();
+    private final AtomicBoolean generationRunning = new AtomicBoolean(false);
 
-    public DatasetGeneratorService(LlmChatClient llmChatClient, ChromaDbClient chromaDbClient) {
+    public DatasetGeneratorService(LlmChatClient llmChatClient,
+                                   ChromaDbClient chromaDbClient,
+                                   @Value("${spectra.dataset.dir:./data/dataset}") String datasetDir) {
         this.llmChatClient = llmChatClient;
         this.chromaDbClient = chromaDbClient;
+        this.pairsFile = Path.of(datasetDir).resolve("sft_pairs.jsonl");
+    }
+
+    @PostConstruct
+    private void loadPersistedPairs() {
+        if (!Files.exists(pairsFile)) return;
+        try {
+            Files.lines(pairsFile).forEach(line -> {
+                try { generatedPairs.add(mapper.readValue(line, TrainingPair.class)); }
+                catch (Exception ignored) {}
+            });
+            log.info("Paires SFT restaurées depuis {}: {}", pairsFile.getFileName(), generatedPairs.size());
+        } catch (Exception e) {
+            log.warn("Impossible de charger {}: {}", pairsFile, e.getMessage());
+        }
     }
 
     public record GenerationTask(String taskId, Status status, int pairsGenerated, int chunksProcessed,
@@ -50,14 +77,17 @@ public class DatasetGeneratorService {
     }
 
     /**
-     * Lance la génération asynchrone de paires d'entraînement à partir de tous les chunks ChromaDB.
+     * Lance la génération asynchrone. {@code maxChunks=0} signifie "tous les chunks".
+     * Retourne {@code null} si une génération est déjà en cours (appelant doit retourner 409).
      */
-    public String submit() {
+    public String submit(int maxChunks) {
+        if (!generationRunning.compareAndSet(false, true)) {
+            return null;
+        }
         String taskId = UUID.randomUUID().toString();
         tasks.put(taskId, new GenerationTask(taskId, GenerationTask.Status.PENDING, 0, 0, 0, null));
-        // Route through the Spring proxy so @Async is actually applied.
         DatasetGeneratorService proxy = (self != null) ? self : this;
-        proxy.generateAsync(taskId);
+        proxy.generateAsync(taskId, maxChunks);
         return taskId;
     }
 
@@ -69,30 +99,31 @@ public class DatasetGeneratorService {
         return List.copyOf(generatedPairs);
     }
 
-    /**
-     * Génère des paires d'entraînement de façon synchrone et retourne le nombre de paires créées.
-     * @param taskId identifiant de la tâche
-     * @param minPairs non utilisé (conservé pour compatibilité)
-     */
     public int generate(String taskId, int minPairs) {
         tasks.put(taskId, new GenerationTask(taskId, GenerationTask.Status.PENDING, 0, 0, 0, null));
         DatasetGeneratorService proxy = (self != null) ? self : this;
-        proxy.generateAsync(taskId);
+        proxy.generateAsync(taskId, 0);
         return generatedPairs.size();
     }
 
     @Async
     @SuppressWarnings("unchecked")
-    protected void generateAsync(String taskId) {
+    protected void generateAsync(String taskId, int maxChunks) {
         try {
-            // Récupérer tous les chunks depuis ChromaDB via une requête large
+            generatedPairs.clear();
             String collectionId = chromaDbClient.getOrCreateCollection(COLLECTION_NAME);
 
-            // On récupère tous les documents de la collection
             Map<String, Object> allDocs = chromaDbClient.getAllDocuments(collectionId);
             List<String> documents = allDocs != null ? (List<String>) allDocs.get("documents") : null;
             List<Map<String, String>> metadatas = allDocs != null ? (List<Map<String, String>>) allDocs.get("metadatas") : null;
             List<String> ids = allDocs != null ? (List<String>) allDocs.get("ids") : null;
+
+            if (documents != null && maxChunks > 0 && documents.size() > maxChunks) {
+                documents = documents.subList(0, maxChunks);
+                metadatas = metadatas != null ? metadatas.subList(0, maxChunks) : null;
+                ids       = ids       != null ? ids.subList(0, maxChunks)       : null;
+                log.info("Limitation à {} chunks (sur {} disponibles)", maxChunks, allDocs != null && allDocs.get("documents") instanceof List<?> l ? l.size() : "?");
+            }
 
             if (documents == null || documents.isEmpty()) {
                 log.info("Aucun chunk disponible dans ChromaDB pour la génération (taskId={})", taskId);
@@ -138,11 +169,14 @@ public class DatasetGeneratorService {
             tasks.put(taskId, new GenerationTask(
                     taskId, GenerationTask.Status.COMPLETED, pairsCount, total, total, null));
             log.info("Génération terminée: {} paires depuis {} chunks", pairsCount, total);
+            persistPairs();
 
         } catch (Exception e) {
             log.error("Erreur génération dataset {}: {}", taskId, e.getMessage(), e);
             tasks.put(taskId, new GenerationTask(
                     taskId, GenerationTask.Status.FAILED, 0, 0, 0, e.getMessage()));
+        } finally {
+            generationRunning.set(false);
         }
     }
 
@@ -205,7 +239,8 @@ public class DatasetGeneratorService {
             JsonNode node = mapper.readTree(extractJson(json));
             String question = node.get("question").asText();
             String answer = node.get("answer").asText();
-            return TrainingPair.of(question, answer, source, "qa", "question_answer", 0.9);
+            double confidence = (question.length() >= 10 && answer.length() >= 20) ? 0.9 : 0.4;
+            return TrainingPair.of(question, answer, source, "qa", "question_answer", confidence);
         } catch (Exception e) {
             log.debug("Parsing QA échoué: {}", e.getMessage());
             return null;
@@ -217,7 +252,8 @@ public class DatasetGeneratorService {
             JsonNode node = mapper.readTree(extractJson(json));
             String instruction = node.get("instruction").asText();
             String summary = node.get("summary").asText();
-            return TrainingPair.of(instruction, summary, source, "summary", "summarization", 0.85);
+            double confidence = (instruction.length() >= 10 && summary.length() >= 30) ? 0.85 : 0.4;
+            return TrainingPair.of(instruction, summary, source, "summary", "summarization", confidence);
         } catch (Exception e) {
             log.debug("Parsing résumé échoué: {}", e.getMessage());
             return null;
@@ -227,13 +263,30 @@ public class DatasetGeneratorService {
     private TrainingPair parseClassificationPair(String json, String chunkText, String source) {
         try {
             JsonNode node = mapper.readTree(extractJson(json));
-            String category = node.get("category").asText();
+            String category = node.get("category").asText().toLowerCase().trim();
+            double confidence = VALID_CATEGORIES.contains(category) ? 0.8 : 0.4;
             String instruction = "Classe le texte suivant dans la bonne catégorie : " + chunkText;
             String response = "Catégorie : " + category;
-            return TrainingPair.of(instruction, response, source, category, "classification", 0.8);
+            return TrainingPair.of(instruction, response, source, category, "classification", confidence);
         } catch (Exception e) {
             log.debug("Parsing classification échoué: {}", e.getMessage());
             return null;
+        }
+    }
+
+    private void persistPairs() {
+        try {
+            Files.createDirectories(pairsFile.getParent());
+            try (BufferedWriter writer = Files.newBufferedWriter(pairsFile,
+                    StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
+                for (TrainingPair pair : generatedPairs) {
+                    writer.write(mapper.writeValueAsString(pair));
+                    writer.newLine();
+                }
+            }
+            log.info("Paires SFT persistées: {} → {}", generatedPairs.size(), pairsFile);
+        } catch (Exception e) {
+            log.warn("Impossible de persister les paires SFT: {}", e.getMessage());
         }
     }
 

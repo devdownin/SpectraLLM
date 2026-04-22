@@ -73,6 +73,18 @@ class GedControllerTest {
     }
 
     @Test
+    void listAll_invalidLifecycle_throwsIllegalArgumentException() {
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> controller.listAll("BROKEN", null, null, null, null, null, 0, 20));
+    }
+
+    @Test
+    void listAll_invalidFromDate_throwsIllegalArgumentException() {
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> controller.listAll(null, null, null, null, "22-04-2026", null, 0, 20));
+    }
+
+    @Test
     void listAll_sheetContainsExpectedKeys() {
         Page<IngestedFileEntity> page = new PageImpl<>(List.of(entity("sha1")));
         when(gedService.findFiltered(any())).thenReturn(page);
@@ -335,6 +347,12 @@ class GedControllerTest {
 
         assertThat(result).containsEntry("updated", 0);
         assertThat((List<?>) result.get("errors")).hasSize(1);
+    }
+
+    @Test
+    void bulkLifecycle_invalidLifecycle_throwsIllegalArgumentException() {
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> controller.bulkLifecycle(List.of("sha1"), "BROKEN", "api"));
     }
 
     @Test

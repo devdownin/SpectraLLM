@@ -468,6 +468,23 @@ self.generateAsync(taskId, maxChunks);
 
 Même pattern dans `FineTuningService` pour `self.runAsync()`.
 
+### Exécuteur de tâches asynchrones — Virtual Threads
+
+`AsyncConfig` configure un `SimpleAsyncTaskExecutor` avec `setVirtualThreads(true)` pour que les méthodes `@Async` s'exécutent sur des Virtual Threads (Project Loom) plutôt que sur un pool de threads classique :
+
+```java
+@Bean
+public Executor taskExecutor() {
+    SimpleAsyncTaskExecutor executor = new SimpleAsyncTaskExecutor("spectra-async-");
+    executor.setVirtualThreads(true);
+    return executor;
+}
+```
+
+### Garde de concurrence (`AtomicBoolean`)
+
+`DatasetGeneratorService` utilise un `AtomicBoolean generationRunning` pour rejeter toute tentative de génération concurrente. `submit()` retourne `null` si une génération est déjà en cours (le contrôleur retourne alors 409 Conflict). La liste `generatedPairs` est vidée (`clear()`) en début de chaque exécution pour éviter les doublons entre runs.
+
 ---
 
 ## 5. Fine-Tuning (`FineTuningService` + `scripts/train.sh`)
@@ -503,6 +520,20 @@ PENDING → EXPORTING_DATASET → TRAINING → IMPORTING_MODEL → COMPLETED
 ---
 
 ## 6. RAG (`RagService`)
+
+### `RagContext` — record interne
+
+La phase de retrieval (embed → ChromaDB → rerank → sources) est encapsulée dans un record `RagContext` retourné par `retrieveContext(QueryRequest)`. Ce record est consommé par `query()` (réponse synchrone) et `queryStream()` (streaming SSE), évitant toute duplication de la logique de retrieval.
+
+### Streaming SSE (`queryStream`)
+
+`RagService.queryStream()` retourne un `Flux<ServerSentEvent<String>>` avec la séquence d'événements :
+1. `sources` — JSON de la liste des chunks sources (avant génération)
+2. `token` × N — chaque token généré par le LLM
+3. `done` — fin normale du flux
+4. `error` — en cas d'erreur (circuit breaker, timeout, etc.)
+
+Un timeout de flux est appliqué côté serveur (configurable via `spectra.pipeline.stream-timeout-seconds`). Côté frontend, un `AbortController` avec `guardTimer` de 120 s annule le stream si aucun événement ne parvient.
 
 ### Flux d'une requête
 
@@ -803,6 +834,16 @@ frontend/
 - Clic sur un modèle → `POST /api/config/model` + toast : *"Effectif au prochain redémarrage de llm-chat"*
 - N'affiche la section que si au moins un modèle de chat est présent dans le registre
 
+**Playground — fiabilité :**
+- Historique localStorage plafonné à 50 messages. `QuotaExceededError` → tentative à 25 messages, puis abandon silencieux.
+- Streaming via `POST /api/query/stream` (SSE) avec `AbortController` + `guardTimer` de 120 s.
+- Sliders temperature [0.0–2.0] et top-p [0.0–1.0] transmis dans le corps de la requête.
+
+**Datasets / Comparison — fiabilité des polling :**
+- Compteur de failures par intervalle : arrêt automatique après 5 erreurs consécutives.
+- Cleanup systématique des intervalles au démontage du composant (`useRef<Set>` + `useEffect` cleanup).
+- Interval réduit à 5 s pour Comparison (était 3 s).
+
 ### Nginx et Server-Sent Events
 
 ```nginx
@@ -929,7 +970,9 @@ POST /api/query
     "question": "...",
     "maxContextChunks": 2,      ← chunks finaux passés au LLM (défaut 5, max 20)
     "topCandidates": 20,        ← candidats récupérés avant re-ranking (défaut 20, max 100)
-    "collection": "optional"    ← collection ChromaDB cible (défaut : collection configurée)
+    "collection": "optional",   ← collection ChromaDB cible (défaut : collection configurée)
+    "temperature": 0.7,         ← température de génération [0.0–2.0] (défaut 0.7)
+    "topP": 0.9                 ← nucleus sampling [0.0–1.0] (défaut 0.9)
   }
   Réponse : {
     "answer": "...",
@@ -940,6 +983,14 @@ POST /api/query
     "agenticApplied": true,           ← false si agentic-rag désactivé
     "agenticIterations": 2            ← nombre de tours SEARCH effectués (0 si non agentique)
   }
+
+POST /api/query/stream
+  Corps : même structure que POST /api/query (temperature + topP supportés)
+  Réponse : text/event-stream (SSE)
+    data: {"type":"sources","sources":[...]}
+    data: {"type":"token","token":"..."}   ← répété N fois
+    data: {"type":"done"}
+    data: {"type":"error","message":"..."}  ← en cas d'erreur
 
 GET  /api/config/model → {"model": "spectra-domain"}
 POST /api/config/model ← {"model": "autre-modele"}
@@ -1146,6 +1197,18 @@ Avec `--embeddings`, une même instance peut faire du chat ET des embeddings si 
 `@Async` ne fonctionne que via le proxy CGLIB. Appeler `this.generateAsync()` depuis la même instance contourne le proxy → exécution synchrone. Correction : auto-injection `@Autowired @Lazy`.
 
 Symptôme avant correction : `curl` sur `POST /api/dataset/generate` bloquait sur le thread HTTP et tombait en timeout (exit code 52 = réponse vide).
+
+### Gestion d'erreurs structurée (`GlobalExceptionHandler`)
+
+`GlobalExceptionHandler` produit des `ProblemDetail` (RFC 7807) pour toutes les exceptions métier :
+
+| Exception | Code HTTP | Usage |
+|-----------|----------|-------|
+| `LlmUnavailableException` | 503 Service Unavailable | Circuit breaker Resilience4j déclenché (llm-chat injoignable) |
+| `MethodArgumentNotValidException` | 400 Bad Request | Validation Bean Validation échouée (`@Valid @RequestBody`) |
+| `ResponseStatusException` | statut de l'exception | Erreurs métier explicites (404, 409, etc.) |
+
+Le circuit breaker `llm-chat` est configuré via `@CircuitBreaker(name="llm-chat")` dans `LlamaCppChatClient`. Le fallback lève `LlmUnavailableException` capturée par `GlobalExceptionHandler`.
 
 ### Multipart et fichiers temporaires
 

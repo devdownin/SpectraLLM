@@ -39,9 +39,14 @@ public class DatasetController {
 
     @PostMapping("/generate")
     @Operation(summary = "Lancer la génération de paires d'entraînement depuis les chunks ingérés")
-    public Map<String, String> generate() {
-        String taskId = generatorService.submit();
-        return Map.of("taskId", taskId, "status", "PENDING");
+    public ResponseEntity<Map<String, String>> generate(
+            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "0") int maxChunks) {
+        String taskId = generatorService.submit(maxChunks);
+        if (taskId == null) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of("error", "Une génération est déjà en cours"));
+        }
+        return ResponseEntity.ok(Map.of("taskId", taskId, "status", "PENDING"));
     }
 
     @GetMapping("/generate/{taskId}")

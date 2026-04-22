@@ -139,6 +139,16 @@ class UrlFetcherServiceTest {
     }
 
     @Test
+    void fetch_docxContentType_withoutFilename_usesDocxExtension() {
+        stubHeadWithContentType("application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+        stubGetBytes("docx-bytes".getBytes());
+
+        UrlFetcherService.FetchedContent result = fetcher.fetch("https://example.com/download");
+
+        assertThat(result.filename()).isEqualTo("example_com.docx");
+    }
+
+    @Test
     void fetch_htmlContentType_callsBrowserless() throws IOException {
         stubHeadWithContentType("text/html");
         byte[] htmlBytes = "<html><body>Hello</body></html>".getBytes();

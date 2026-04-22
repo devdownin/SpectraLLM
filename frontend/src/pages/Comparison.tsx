@@ -120,11 +120,15 @@ const Comparison: FC = () => {
     fetchReports();
   }, []);
 
-  // Poll while any evaluation is running
+  // Poll while any evaluation is running — stops after 5 consecutive failures
   useEffect(() => {
     const running = reports.some(r => r.status === 'RUNNING' || r.status === 'PENDING');
     if (!running) return;
-    const id = setInterval(fetchReports, 3000);
+    let failures = 0;
+    const id = setInterval(async () => {
+      try { await fetchReports(); failures = 0; }
+      catch { if (++failures >= 5) clearInterval(id); }
+    }, 5000);
     return () => clearInterval(id);
   }, [reports, fetchReports]);
 

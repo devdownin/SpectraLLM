@@ -98,6 +98,7 @@ class ZipIngestionTest {
         ingestionService = new IngestionService(
                 factory, textCleaner, chunkingService,
                 embeddingService, chromaDb,
+                mock(FtsService.class),
                 mock(IngestionTaskExecutor.class),
                 mock(IngestedFileRepository.class),
                 mock(GedService.class),
