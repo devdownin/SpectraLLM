@@ -122,7 +122,7 @@
             <plugin>
                 <groupId>org.owasp</groupId>
                 <artifactId>dependency-check-maven</artifactId>
-                <version>12.1.0</version>
+                <version>12.2.1</version>
                 <configuration>
                     <suppressionFiles>
                         <suppressionFile>dependency-suppression.xml</suppressionFile>
