@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="fr" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SpectraLLM — Transformez vos documents en expertise IA</title>
+    <meta name="description" content="SpectraLLM : La plateforme souveraine pour construire des LLM spécialisés à partir de vos propres données métiers.">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Lexend:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        display: ['Lexend', 'sans-serif'],
+                    },
+                    colors: {
+                        primary: '#3b82f6',
+                        secondary: '#1e293b',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        .gradient-text {
+            background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .bg-grid {
+            background-image: radial-gradient(circle at 2px 2px, rgba(0,0,0,0.05) 1px, transparent 0);
+            background-size: 24px 24px;
+        }
+        .reveal {
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.8s ease-out;
+        }
+        .reveal.active {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    </style>
+</head>
+<body class="bg-slate-50 font-sans text-slate-900 overflow-x-hidden">
+
+    <!-- Header -->
+    <header class="fixed w-full z-50 bg-white/80 backdrop-blur-md border-b border-slate-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16 items-center">
+                <div class="flex items-center space-x-2">
+                    <div class="bg-primary p-1.5 rounded-lg">
+                        <i data-lucide="layers" class="text-white w-6 h-6"></i>
+                    </div>
+                    <span class="font-display font-bold text-xl tracking-tight text-slate-900">Spectra<span class="text-primary">LLM</span></span>
+                </div>
+                <nav class="hidden md:flex space-x-8 text-sm font-medium">
+                    <a href="#demarche" class="hover:text-primary transition">Démarche</a>
+                    <a href="#usages" class="hover:text-primary transition">Usages</a>
+                    <a href="#forces" class="hover:text-primary transition">Forces</a>
+                    <a href="#technologie" class="hover:text-primary transition">Technologie</a>
+                </nav>
+                <div>
+                    <a href="https://github.com/devdownin/SpectraLLM" class="inline-flex items-center space-x-2 bg-slate-900 text-white px-4 py-2 rounded-full text-sm font-semibold hover:bg-slate-800 transition">
+                        <i data-lucide="github" class="w-4 h-4"></i>
+                        <span>Explorer sur GitHub</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Hero Section -->
+    <section class="relative pt-32 pb-20 lg:pt-48 lg:pb-32 overflow-hidden bg-grid">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+            <div class="inline-flex items-center space-x-2 bg-primary/10 text-primary px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider mb-8">
+                <span>100% Local • Souverain • Open-Source</span>
+            </div>
+            <h1 class="font-display text-4xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight text-slate-900 mb-6">
+                Transformez vos documents bruts en <span class="gradient-text">Expertise IA Spécialisée</span>
+            </h1>
+            <p class="max-w-2xl mx-auto text-lg text-slate-600 mb-10 leading-relaxed text-balance">
+                SpectraLLM est l'usine tout-en-un qui construit vos propres modèles de langage. Passez de vos PDF complexes à un assistant IA performant, privé et adapté à votre métier en quelques clics.
+            </p>
+            <div class="flex flex-col sm:flex-row justify-center space-y-4 sm:space-y-0 sm:space-x-4">
+                <a href="#demarche" class="px-8 py-4 bg-primary text-white rounded-xl font-bold hover:shadow-lg hover:shadow-primary/30 transition transform hover:-translate-y-0.5">
+                    Découvrir la démarche
+                </a>
+                <a href="#technologie" class="px-8 py-4 bg-white text-slate-900 border border-slate-200 rounded-xl font-bold hover:bg-slate-50 transition transform hover:-translate-y-0.5">
+                    Stack Technique
+                </a>
+            </div>
+        </div>
+
+        <!-- Dashboard Preview Decorative -->
+        <div class="mt-20 max-w-5xl mx-auto px-4 opacity-50 grayscale hover:opacity-100 hover:grayscale-0 transition duration-700">
+            <div class="bg-slate-900 rounded-2xl p-2 shadow-2xl border border-slate-700">
+                <div class="bg-slate-800 rounded-xl overflow-hidden h-64 sm:h-96 flex items-center justify-center">
+                     <i data-lucide="terminal" class="w-24 h-24 text-slate-700"></i>
+                     <p class="absolute text-slate-500 font-mono text-sm tracking-widest mt-32 uppercase">Visualisation Dashboard Spectra</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- La Démarche -->
+    <section id="demarche" class="py-24 bg-white">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center mb-16 reveal">
+                <h2 class="font-display text-3xl sm:text-4xl font-bold text-slate-900 mb-4">Une Démarche Pédagogique et Unifiée</h2>
+                <p class="text-slate-600 max-w-2xl mx-auto">
+                    Ne choisissez plus entre RAG et Fine-Tuning. Spectra orchestre l'intégralité du cycle de spécialisation.
+                </p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 relative">
+                <!-- Step 1 -->
+                <div class="relative p-8 rounded-2xl bg-slate-50 border border-slate-100 hover:border-primary/20 transition group reveal">
+                    <div class="bg-primary/10 w-12 h-12 rounded-lg flex items-center justify-center mb-6 text-primary group-hover:scale-110 transition duration-300">
+                        <i data-lucide="file-text"></i>
+                    </div>
+                    <h3 class="font-display text-xl font-bold mb-3">1. Ingestion Intelligente</h3>
+                    <p class="text-slate-600 text-sm leading-relaxed">
+                        Plus qu'un simple texte brut. Spectra comprend la structure de vos PDF (tables, titres, listes) pour préserver le sens profond de vos données.
+                    </p>
+                </div>
+                <!-- Step 2 -->
+                <div class="relative p-8 rounded-2xl bg-slate-50 border border-slate-100 hover:border-primary/20 transition group reveal">
+                    <div class="bg-primary/10 w-12 h-12 rounded-lg flex items-center justify-center mb-6 text-primary group-hover:scale-110 transition duration-300">
+                        <i data-lucide="search"></i>
+                    </div>
+                    <h3 class="font-display text-xl font-bold mb-3">2. Recherche Avancée</h3>
+                    <p class="text-slate-600 text-sm leading-relaxed">
+                        Le système combine recherche sémantique (vecteurs) et recherche textuelle (BM25) pour une précision chirurgicale sur les termes métiers.
+                    </p>
+                </div>
+                <!-- Step 3 -->
+                <div class="relative p-8 rounded-2xl bg-slate-50 border border-slate-100 hover:border-primary/20 transition group reveal">
+                    <div class="bg-primary/10 w-12 h-12 rounded-lg flex items-center justify-center mb-6 text-primary group-hover:scale-110 transition duration-300">
+                        <i data-lucide="cpu"></i>
+                    </div>
+                    <h3 class="font-display text-xl font-bold mb-3">3. Raisonnement Agentique</h3>
+                    <p class="text-slate-600 text-sm leading-relaxed">
+                        L'IA "réfléchit" avant de répondre. Si l'information manque, elle reformule ses recherches pour explorer vos documents en profondeur.
+                    </p>
+                </div>
+                <!-- Step 4 -->
+                <div class="relative p-8 rounded-2xl bg-slate-50 border border-slate-100 hover:border-primary/20 transition group reveal">
+                    <div class="bg-primary/10 w-12 h-12 rounded-lg flex items-center justify-center mb-6 text-primary group-hover:scale-110 transition duration-300">
+                        <i data-lucide="database"></i>
+                    </div>
+                    <h3 class="font-display text-xl font-bold mb-3">4. Synthèse de Dataset</h3>
+                    <p class="text-slate-600 text-sm leading-relaxed">
+                        Générez automatiquement des milliers de paires de Questions/Réponses à partir de vos documents pour entraîner votre futur modèle.
+                    </p>
+                </div>
+                <!-- Step 5 -->
+                <div class="relative p-8 rounded-2xl bg-slate-50 border border-slate-100 hover:border-primary/20 transition group reveal">
+                    <div class="bg-primary/10 w-12 h-12 rounded-lg flex items-center justify-center mb-6 text-primary group-hover:scale-110 transition duration-300">
+                        <i data-lucide="zap"></i>
+                    </div>
+                    <h3 class="font-display text-xl font-bold mb-3">5. Fine-Tuning QLoRA</h3>
+                    <p class="text-slate-600 text-sm leading-relaxed">
+                        Injectez définitivement vos connaissances métier dans un petit modèle ultra-performant (Phi, Mistral) via des techniques d'entraînement de pointe.
+                    </p>
+                </div>
+                <!-- Step 6 -->
+                <div class="relative p-8 rounded-2xl bg-slate-50 border border-slate-100 hover:border-primary/20 transition group reveal">
+                    <div class="bg-primary/10 w-12 h-12 rounded-lg flex items-center justify-center mb-6 text-primary group-hover:scale-110 transition duration-300">
+                        <i data-lucide="package"></i>
+                    </div>
+                    <h3 class="font-display text-xl font-bold mb-3">6. Déploiement GGUF</h3>
+                    <p class="text-slate-600 text-sm leading-relaxed">
+                        Exportez votre modèle final au format GGUF. Léger, optimisé, il tourne sur un simple processeur tout en garantissant une confidentialité totale.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Cas d'usage -->
+    <section id="usages" class="py-24 bg-slate-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center mb-16 reveal">
+                <h2 class="font-display text-3xl sm:text-4xl font-bold text-slate-900 mb-4">Des applications concrètes</h2>
+                <p class="text-slate-600 max-w-2xl mx-auto">
+                    SpectraLLM s'adapte à tous les secteurs exigeants où la donnée est complexe et confidentielle.
+                </p>
+            </div>
+
+            <div class="grid md:grid-cols-3 gap-8">
+                <div class="bg-white rounded-3xl overflow-hidden shadow-sm hover:shadow-xl transition duration-500 reveal">
+                    <div class="h-48 bg-blue-600 flex items-center justify-center">
+                        <i data-lucide="wrench" class="text-white w-16 h-16 opacity-20"></i>
+                        <span class="absolute text-white font-bold text-xl">Industrie & Maintenance</span>
+                    </div>
+                    <div class="p-8">
+                        <p class="text-slate-600 text-sm mb-4 italic">"Comment diagnostiquer une panne de pression sur le compresseur modèle X-200 ?"</p>
+                        <p class="text-slate-800 text-sm font-medium">Spectra ingère 50 ans de manuels techniques et schémas pour guider vos techniciens sur le terrain, sans connexion internet.</p>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-3xl overflow-hidden shadow-sm hover:shadow-xl transition duration-500 reveal">
+                    <div class="h-48 bg-indigo-600 flex items-center justify-center">
+                        <i data-lucide="scale" class="text-white w-16 h-16 opacity-20"></i>
+                        <span class="absolute text-white font-bold text-xl">Juridique & Conformité</span>
+                    </div>
+                    <div class="p-8">
+                        <p class="text-slate-600 text-sm mb-4 italic">"Quelles clauses de non-responsabilité s'appliquent aux contrats d'exportation en zone C ?"</p>
+                        <p class="text-slate-800 text-sm font-medium">L'IA analyse des milliers de contrats et textes de loi pour extraire des synthèses fiables et sourcées (citation de page).</p>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-3xl overflow-hidden shadow-sm hover:shadow-xl transition duration-500 reveal">
+                    <div class="h-48 bg-purple-600 flex items-center justify-center">
+                        <i data-lucide="headset" class="text-white w-16 h-16 opacity-20"></i>
+                        <span class="absolute text-white font-bold text-xl">Support Client Expert</span>
+                    </div>
+                    <div class="p-8">
+                        <p class="text-slate-600 text-sm mb-4 italic">"Mon client a un cas particulier d'usage du logiciel en mode hybride, que lui répondre ?"</p>
+                        <p class="text-slate-800 text-sm font-medium">Transformez votre base de connaissance et vos tickets historiques en un assistant qui connaît votre produit sur le bout des doigts.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Les Forces Marketing -->
+    <section id="forces" class="py-24 bg-slate-900 text-white overflow-hidden relative reveal">
+        <!-- Abstract Shapes -->
+        <div class="absolute top-0 right-0 -mt-24 -mr-24 w-96 h-96 bg-primary/20 rounded-full blur-3xl"></div>
+        <div class="absolute bottom-0 left-0 -mb-24 -ml-24 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl"></div>
+
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+            <div class="grid lg:grid-cols-2 gap-16 items-center">
+                <div>
+                    <h2 class="font-display text-3xl sm:text-4xl font-bold mb-8">Pourquoi Spectra fait la différence ?</h2>
+
+                    <div class="space-y-8">
+                        <div class="flex space-x-4">
+                            <div class="flex-shrink-0 mt-1">
+                                <i data-lucide="shield-check" class="text-primary w-6 h-6"></i>
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-lg mb-1">Confidentialité & Souveraineté Totale</h4>
+                                <p class="text-slate-400 text-sm">Vos données ne quittent jamais votre infrastructure. Ni API cloud, ni abonnement, ni risque de fuite.</p>
+                            </div>
+                        </div>
+                        <div class="flex space-x-4">
+                            <div class="flex-shrink-0 mt-1">
+                                <i data-lucide="brain-circuit" class="text-primary w-6 h-6"></i>
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-lg mb-1">RAG Hybride & Agentique</h4>
+                                <p class="text-slate-400 text-sm">Combinaison BM25 et Vecteurs avec boucle de raisonnement ReAct pour une fiabilité inégalée.</p>
+                            </div>
+                        </div>
+                        <div class="flex space-x-4">
+                            <div class="flex-shrink-0 mt-1">
+                                <i data-lucide="layout" class="text-primary w-6 h-6"></i>
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-lg mb-1">Parsing "Layout-Aware"</h4>
+                                <p class="text-slate-400 text-sm">Comprend les tableaux complexes et la hiérarchie des documents là où les solutions standards échouent.</p>
+                            </div>
+                        </div>
+                        <div class="flex space-x-4">
+                            <div class="flex-shrink-0 mt-1">
+                                <i data-lucide="box" class="text-primary w-6 h-6"></i>
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-lg mb-1">Stack Unifiée "Zero-Ops"</h4>
+                                <p class="text-slate-400 text-sm">Une seule stack logicielle remplace 10 outils disparates. Tout est dans un seul Docker Compose.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white/5 border border-white/10 rounded-3xl p-8 backdrop-blur-sm">
+                    <div class="text-center mb-8">
+                        <span class="text-primary font-bold text-sm uppercase tracking-widest">Le cercle vertueux</span>
+                    </div>
+                    <div class="flex flex-col items-center space-y-4">
+                        <div class="w-full bg-white/10 p-4 rounded-xl text-center border border-white/5">Documents Bruts</div>
+                        <i data-lucide="arrow-down" class="text-slate-500"></i>
+                        <div class="w-full bg-primary/20 p-4 rounded-xl text-center border border-primary/30 text-primary font-bold">RAG Agentique</div>
+                        <i data-lucide="arrow-down" class="text-slate-500"></i>
+                        <div class="w-full bg-white/10 p-4 rounded-xl text-center border border-white/5">Dataset Synthétique</div>
+                        <i data-lucide="arrow-down" class="text-slate-500"></i>
+                        <div class="w-full bg-indigo-500/20 p-4 rounded-xl text-center border border-indigo-500/30 text-indigo-400 font-bold">Fine-Tuning Local</div>
+                        <i data-lucide="arrow-down" class="text-slate-500"></i>
+                        <div class="w-full bg-emerald-500/20 p-4 rounded-xl text-center border border-emerald-500/30 text-emerald-400 font-bold">LLM Expert Métier</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Stack Technique -->
+    <section id="technologie" class="py-24 bg-slate-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center mb-16 reveal">
+                <h2 class="font-display text-3xl sm:text-4xl font-bold text-slate-900 mb-4">Une Stack Robuste & Moderne</h2>
+                <p class="text-slate-600">SpectraLLM repose sur les meilleures technologies open-source actuelles.</p>
+            </div>
+
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 reveal">
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center text-center">
+                    <div class="font-bold text-slate-900 mb-2">Backend</div>
+                    <div class="text-slate-500 text-sm">Java 21 / Spring Boot 3.4<br>(Virtual Threads)</div>
+                </div>
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center text-center">
+                    <div class="font-bold text-slate-900 mb-2">Frontend</div>
+                    <div class="text-slate-500 text-sm">React 19 / Vite<br>Tailwind CSS v4</div>
+                </div>
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center text-center">
+                    <div class="font-bold text-slate-900 mb-2">Inférence</div>
+                    <div class="text-slate-500 text-sm">llama.cpp / GGUF<br>Turboquant</div>
+                </div>
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center text-center">
+                    <div class="font-bold text-slate-900 mb-2">Entraînement</div>
+                    <div class="text-slate-500 text-sm">Unsloth / PEFT<br>QLoRA</div>
+                </div>
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center text-center">
+                    <div class="font-bold text-slate-900 mb-2">Vecteurs</div>
+                    <div class="text-slate-500 text-sm">ChromaDB API v2<br>FTS BM25 (Java)</div>
+                </div>
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center text-center">
+                    <div class="font-bold text-slate-900 mb-2">Parsing</div>
+                    <div class="text-slate-500 text-sm">PyMuPDF4LLM<br>IBM Docling</div>
+                </div>
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center text-center">
+                    <div class="font-bold text-slate-900 mb-2">Web Scrapping</div>
+                    <div class="text-slate-500 text-sm">Browserless / Chrome<br>Jsoup</div>
+                </div>
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center text-center">
+                    <div class="font-bold text-slate-900 mb-2">Architecture</div>
+                    <div class="text-slate-500 text-sm">Docker Compose<br>Profiles GPU/CPU</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Comparatif & FAQ -->
+    <section class="py-24 bg-white border-t border-slate-100">
+        <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="mb-20 reveal">
+                <h2 class="font-display text-3xl font-bold text-slate-900 mb-8 text-center">SpectraLLM vs Cloud (OpenAI/Claude)</h2>
+                <div class="overflow-hidden rounded-2xl border border-slate-200">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="bg-slate-50">
+                                <th class="p-4 font-bold border-b border-slate-200">Critère</th>
+                                <th class="p-4 font-bold border-b border-slate-200 text-primary">SpectraLLM (On-Premise)</th>
+                                <th class="p-4 font-bold border-b border-slate-200 text-slate-400">Solutions Cloud</th>
+                            </tr>
+                        </thead>
+                        <tbody class="text-sm">
+                            <tr>
+                                <td class="p-4 border-b border-slate-100 font-medium">Confidentialité</td>
+                                <td class="p-4 border-b border-slate-100 text-emerald-600 font-bold">Totale (Air-gapped possible)</td>
+                                <td class="p-4 border-b border-slate-100">Données partagées via API</td>
+                            </tr>
+                            <tr>
+                                <td class="p-4 border-b border-slate-100 font-medium">Coût à l'usage</td>
+                                <td class="p-4 border-b border-slate-100 text-emerald-600 font-bold">0€ (Auto-hébergé)</td>
+                                <td class="p-4 border-b border-slate-100">Facturation au Token</td>
+                            </tr>
+                            <tr>
+                                <td class="p-4 border-b border-slate-100 font-medium">Précision Métier</td>
+                                <td class="p-4 border-b border-slate-100 text-emerald-600 font-bold">Fine-Tuning sur-mesure</td>
+                                <td class="p-4 border-b border-slate-100">Généraliste (RAG uniquement)</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="reveal">
+                <h2 class="font-display text-3xl font-bold text-slate-900 mb-8 text-center">Foire aux questions</h2>
+                <div class="space-y-6">
+                    <div class="p-6 rounded-xl bg-slate-50">
+                        <h4 class="font-bold mb-2">Faut-il un GPU coûteux pour faire tourner Spectra ?</h4>
+                        <p class="text-slate-600 text-sm">Non. Grâce à l'optimisation GGUF et llama.cpp, Spectra peut tourner sur un simple CPU moderne avec assez de RAM (16Go+). Pour l'entraînement, une carte grand public (RTX 3060+) suffit.</p>
+                    </div>
+                    <div class="p-6 rounded-xl bg-slate-50">
+                        <h4 class="font-bold mb-2">Peut-on ingérer des documents volumineux ?</h4>
+                        <p class="text-slate-600 text-sm">Oui. Notre parser segmente intelligemment les documents de centaines de pages en préservant le contexte et les relations hiérarchiques.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Call to Action Finale -->
+    <section class="py-20 bg-primary text-white">
+        <div class="max-w-7xl mx-auto px-4 text-center reveal">
+            <h2 class="font-display text-3xl sm:text-4xl font-bold mb-6">Prêt à souverainiser votre intelligence métier ?</h2>
+            <p class="text-primary-100 mb-10 max-w-xl mx-auto">Rejoignez le mouvement de l'IA locale et reprenez le contrôle de vos connaissances.</p>
+            <div class="flex flex-col sm:flex-row justify-center space-y-4 sm:space-y-0 sm:space-x-4">
+                <a href="https://github.com/devdownin/SpectraLLM" class="px-8 py-4 bg-white text-primary rounded-xl font-bold hover:bg-slate-100 transition">
+                    Démarrer l'installation
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-white border-t border-slate-200 py-12">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex flex-col md:flex-row justify-between items-center">
+                <div class="flex items-center space-x-2 mb-4 md:mb-0">
+                    <div class="bg-primary p-1.5 rounded-lg">
+                        <i data-lucide="layers" class="text-white w-5 h-5"></i>
+                    </div>
+                    <span class="font-display font-bold text-lg tracking-tight text-slate-900">Spectra<span class="text-primary">LLM</span></span>
+                </div>
+                <div class="text-slate-500 text-sm">
+                    © 2026 SpectraLLM. Sous licence MIT.
+                </div>
+                <div class="flex space-x-6 mt-4 md:mt-0">
+                    <a href="https://github.com/devdownin/SpectraLLM" class="text-slate-400 hover:text-primary transition">
+                        <i data-lucide="github" class="w-5 h-5"></i>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        lucide.createIcons();
+
+        // Reveal Animations
+        const observerOptions = {
+            threshold: 0.1
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('active');
+                }
+            });
+        }, observerOptions);
+
+        document.querySelectorAll('.reveal').forEach(el => {
+            observer.observe(el);
+        });
+    </script>
+</body>
+</html>
