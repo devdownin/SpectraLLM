@@ -222,7 +222,7 @@ public class GedService {
     // ── Amélioration 2 — Filtrage combiné + pagination ───────────────────────
 
     public Page<IngestedFileEntity> findFiltered(GedDocumentFilter f) {
-        Specification<IngestedFileEntity> spec = Specification.where(null);
+        Specification<IngestedFileEntity> spec = Specification.where((Specification<IngestedFileEntity>) null);
 
         if (f.lifecycle() != null) {
             spec = spec.and((root, q, cb) ->
