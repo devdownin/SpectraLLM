@@ -1,4 +1,0 @@
-Vite: 8.0.13
-Tailwind: 4.3.0
-React: 19.2.6
-Typescript: 6.0.3
