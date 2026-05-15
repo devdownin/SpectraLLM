@@ -2,13 +2,16 @@ package fr.spectra.controller;
 
 import fr.spectra.service.IngestionService;
 import fr.spectra.service.UrlIngestionService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.io.ByteArrayOutputStream;
 import java.util.zip.ZipEntry;
@@ -19,23 +22,24 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-/**
- * Tests d'intégration HTTP de l'ingestion de fichiers ZIP via IngestController.
- * L'IngestionService est mocké — aucune extraction réelle n'est effectuée.
- */
-@WebMvcTest(IngestController.class)
+@ExtendWith(MockitoExtension.class)
 class IngestControllerZipTest {
 
-    @Autowired
     private MockMvc mockMvc;
 
-    @MockBean
+    @Mock
     private IngestionService ingestionService;
 
-    @MockBean
+    @Mock
     private UrlIngestionService urlIngestionService;
 
-    // ── Upload ZIP ────────────────────────────────────────────────────────────
+    @InjectMocks
+    private IngestController ingestController;
+
+    @BeforeEach
+    void setUp() {
+        mockMvc = MockMvcBuilders.standaloneSetup(ingestController).build();
+    }
 
     @Test
     void postIngest_zipFile_returns200WithTaskId() throws Exception {
@@ -91,8 +95,6 @@ class IngestControllerZipTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.taskId").value("task-multi-001"));
     }
-
-    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private MockMultipartFile mockZip(String zipName, String entryName, String content) throws Exception {
         return new MockMultipartFile("files", zipName, "application/zip", buildZip(entryName, content));
