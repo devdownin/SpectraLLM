@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────────────────────────────────────
+# Spectra — CLI Unifiée
+# Usage : ./spectra [commande] [arguments]
+# ─────────────────────────────────────────────────────────────────────────────
+
+set -euo pipefail
+cd "$(dirname "$0")"
+
+green()  { echo -e "\033[32m$*\033[0m"; }
+yellow() { echo -e "\033[33m$*\033[0m"; }
+red()    { echo -e "\033[31m$*\033[0m"; }
+
+show_help() {
+    echo "Spectra CLI — Maîtrisez votre IA locale"
+    echo
+    echo "Usage: ./spectra <commande>"
+    echo
+    echo "Commandes:"
+    echo "  up            Démarre tous les services (alias de start.sh)"
+    echo "  down          Arrête tous les services (alias de stop.sh)"
+    echo "  setup         Configure l'environnement et télécharge les modèles"
+    echo "  ingest [dir]  Ingère des documents depuis un dossier (défaut: data/source)"
+    echo "  status        Affiche l'état de santé du système"
+    echo "  train         Lance le pipeline complet (Ingest -> Dataset -> Train)"
+    echo "  bench         Lance les benchmarks de performance"
+    echo "  clean         Supprime les fichiers temporaires et builds"
+    echo "  logs [svc]    Affiche les logs (facultatif: nom du service)"
+    echo "  watch         Surveille data/source et ingère automatiquement"
+    echo "  help          Affiche cette aide"
+    echo
+}
+
+case "${1:-help}" in
+    up|start)
+        shift
+        bash start.sh "$@"
+        ;;
+    down|stop)
+        bash stop.sh
+        ;;
+    setup)
+        shift
+        bash setup.sh "$@"
+        ;;
+    ingest)
+        bash adddoc.sh "${2:-data/source}"
+        ;;
+    status)
+        curl -s http://localhost:8080/api/status | python3 -c "
+import sys,json
+try:
+    d=json.load(sys.stdin)
+    print('\n--- État des Services Spectra ---')
+    for s in d.get('services', []):
+        status = '✅ OK' if s.get('available') else '❌ DOWN'
+        print(f'{status} | {s.get(\"name\", \"?\"):<12} | {s.get(\"url\", \"\")}')
+except:
+    print('❌ API Spectra injoignable (http://localhost:8080)')
+"
+        ;;
+    train|pipeline)
+        shift
+        bash pipeline.sh "$@"
+        ;;
+    bench)
+        shift
+        bash scripts/benchmark.sh "$@"
+        ;;
+    clean)
+        yellow "Nettoyage des artefacts..."
+        mvn clean || true
+        rm -rf frontend/dist
+        find . -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+        find . -name "*.pyc" -delete 2>/dev/null || true
+        green "Nettoyage terminé."
+        ;;
+    logs)
+        docker compose logs -f "${2:-}"
+        ;;
+    watch)
+        yellow "Spectra Watch — Surveillance de data/source lancée..."
+        mkdir -p data/source
+        if ! command -v inotifywait &>/dev/null; then
+            red "[ERREUR] inotify-tools est requis pour cette commande."
+            exit 1
+        fi
+        while inotifywait -e create -e modify data/source; do
+            green "Modification détectée, lancement de l'ingestion..."
+            bash adddoc.sh data/source
+        done
+        ;;
+    help|--help|-h)
+        show_help
+        ;;
+    *)
+        red "Commande inconnue : $1"
+        show_help
+        exit 1
+        ;;
+esac

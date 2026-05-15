@@ -101,13 +101,13 @@ Pointez simplement vos données, activez `spectra.batch.enabled=true`, et révei
 git clone https://github.com/YourOrg/Spectra.git && cd Spectra
 
 # Exécuter la configuration (vérifie les ressources et crée les dossiers)
-./setup.sh
+./spectra setup
 
 # Démarrer la stack (mode CPU)
-./start.sh --detach
+./spectra up
 ```
 
-Pour l'accélération GPU : `./start.sh --detach --gpu`
+Pour l'accélération GPU : `./spectra up --gpu`
 
 ### Accès
 *   **Interface Web** : `http://localhost:80`

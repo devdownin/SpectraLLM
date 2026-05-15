@@ -4,16 +4,16 @@
 #
 # Usage  : ./pipeline.sh [repertoire] [modele-base] [nom-modele] [--reset] [--packing] [--dpo]
 # Exemples :
-#   ./pipeline.sh data/documents phi3
-#   ./pipeline.sh data/documents phi3 spectra-autoroute
+#   ./pipeline.sh data/documents phi-4-mini
+#   ./pipeline.sh data/documents phi-4-mini spectra-autoroute
 #   ./pipeline.sh data/documents mistral spectra-mistral-autoroute
-#   ./pipeline.sh data/documents phi3 phi3-autoroute --reset      (repart de zero)
-#   ./pipeline.sh data/documents phi3 phi3-dpo --dpo              (alignement DPO)
-#   ./pipeline.sh data/documents phi3 phi3-fast --packing         (multipacking)
+#   ./pipeline.sh data/documents phi-4-mini phi-4-mini-autoroute --reset      (repart de zero)
+#   ./pipeline.sh data/documents phi-4-mini phi-4-mini-dpo --dpo              (alignement DPO)
+#   ./pipeline.sh data/documents phi-4-mini phi-4-mini-fast --packing         (multipacking)
 #
 # Arguments :
 #   [repertoire]   Dossier source des documents (defaut: data/documents)
-#   [modele-base]  Modele a enrichir : phi3 | mistral | llama3 (defaut: phi3)
+#   [modele-base]  Modele a enrichir : phi-4-mini | mistral | llama3 (defaut: phi-4-mini)
 #   [nom-modele]   Nom du modele enrichi (defaut: {modele-base}-autoroute)
 #   --reset        Supprime l'adaptateur existant et repart d'un entrainement initial
 #   --packing      Active le multipacking (concatenation des sequences courtes)
@@ -36,7 +36,7 @@ MAX_POLL_INGEST=120
 MAX_POLL_DATASET=240
 
 SOURCE_DIR="${1:-data/documents}"
-BASE_MODEL="${2:-phi3}"
+BASE_MODEL="${2:-phi-4-mini}"
 MODEL_NAME="${3:-${BASE_MODEL}-autoroute}"
 
 RESET_ADAPTER=0

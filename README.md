@@ -170,44 +170,32 @@ GPU is optional but strongly recommended for inference speed. NVIDIA, AMD (ROCm)
 ```bash
 git clone https://github.com/your-org/Spectra.git
 cd Spectra
-./start.sh --detach
+./spectra setup   # Optional: interactive setup
+./spectra up      # Start all services
 ```
 
-The `start.sh` script will automatically:
-- Detect your hardware (CPU, RAM, GPU)
-- Configure the environment (`.env`)
-- Download the required embedding model
-- Start the full stack via Docker Compose
+The `spectra` CLI simplifies all operations:
+- **setup**: Detects hardware and downloads required models.
+- **up**: Starts the full stack via Docker Compose.
+- **status**: Checks if all services are healthy.
 
 ### 2. Add your documents
 
-Two GGUF files are required — one for chat, one for embeddings:
-
+To quickly populate your knowledge base, drop files in `data/source` and run:
 ```bash
-# Chat model (~1.1 GB) — Phi-4-mini by default
-huggingface-cli download unsloth/Phi-4-mini-reasoning-GGUF \
-  Phi-4-mini-reasoning-UD-IQ1_S.gguf --local-dir data/models/
-
-To quickly populate your knowledge base:
-```bash
-./adddoc.sh examples   # or any directory with your documents
+./spectra ingest
 ```
-It supports PDF, Word, HTML, and more.
-
-### 3. Start the stack
-
+Or start the auto-ingest watcher:
 ```bash
-# Base stack (inference + vector DB)
-docker compose up -d
+./spectra watch
+```
+It supports PDF (layout-aware), Word, HTML, JSON, and more.
 
-# With layout-aware PDF parsing
-docker compose --profile layout-parser up -d
+### 3. Manage the pipeline
 
-# With cross-encoder reranking
-docker compose --profile reranker up -d
-
-# With both optional services
-docker compose --profile layout-parser --profile reranker up -d
+Launch the full automated pipeline (Ingest -> Dataset -> Fine-tune):
+```bash
+./spectra train
 ```
 
 ### 4. Access
