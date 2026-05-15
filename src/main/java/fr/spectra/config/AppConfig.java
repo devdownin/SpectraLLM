@@ -5,6 +5,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.web.reactive.function.client.WebClient;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 @Configuration
 @EnableConfigurationProperties(SpectraProperties.class)
@@ -67,5 +68,10 @@ public class AppConfig {
                 .baseUrl(baseUrl)
                 .codecs(c -> c.defaultCodecs().maxInMemorySize(bufferBytes))
                 .build();
+    }
+
+    @Bean
+    public ObjectMapper objectMapper() {
+        return new ObjectMapper().findAndRegisterModules();
     }
 }
