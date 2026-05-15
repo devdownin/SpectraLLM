@@ -5,7 +5,7 @@
 # Usage : ./setup.sh [--download-embed] [--download-chat]
 #
 #   --download-embed   Télécharge nomic-embed-text (~81 Mo) si absent
-#   --download-chat    Télécharge Phi-3.5-mini Q4_K_M (~2.4 Go) si absent
+#   --download-chat    Télécharge Phi-4-mini Reasoning Q4 (~1.1 Go) si absent
 # ─────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail
@@ -95,22 +95,22 @@ fi
 
 # ── 5. Modèle de chat ─────────────────────────────────────────────────────
 echo
-echo "> [5/5] Modèle de chat (data/fine-tuning/merged/model.gguf)..."
-if [ -f "data/fine-tuning/merged/model.gguf" ]; then
-  SIZE=$(du -sh data/fine-tuning/merged/model.gguf | cut -f1)
-  green "  [OK] model.gguf présent — $SIZE"
+echo "> [5/5] Modèle de chat (data/models/Phi-4-mini-reasoning-UD-IQ1_S.gguf)..."
+if [ -f "data/models/Phi-4-mini-reasoning-UD-IQ1_S.gguf" ]; then
+  SIZE=$(du -sh data/models/Phi-4-mini-reasoning-UD-IQ1_S.gguf | cut -f1)
+  green "  [OK] Phi-4-mini-reasoning-UD-IQ1_S.gguf présent — $SIZE"
 else
   if [ "$DOWNLOAD_CHAT" -eq 1 ]; then
-    echo "  Téléchargement de Phi-3.5-mini-instruct-Q4_K_M.gguf (~2.4 Go)..."
+    echo "  Téléchargement de Phi-4-mini-reasoning-UD-IQ1_S.gguf (~1.1 Go)..."
     echo "  (cela peut prendre plusieurs minutes selon votre connexion)"
     curl -L --progress-bar \
-      "https://huggingface.co/bartowski/Phi-3.5-mini-instruct-GGUF/resolve/main/Phi-3.5-mini-instruct-Q4_K_M.gguf" \
-      -o data/fine-tuning/merged/model.gguf
-    green "  [OK] model.gguf téléchargé"
+      "https://huggingface.co/unsloth/Phi-4-mini-reasoning-GGUF/resolve/main/Phi-4-mini-reasoning-UD-IQ1_S.gguf" \
+      -o data/models/Phi-4-mini-reasoning-UD-IQ1_S.gguf
+    green "  [OK] Phi-4-mini-reasoning-UD-IQ1_S.gguf téléchargé"
   else
-    yellow "  [MANQUANT] data/fine-tuning/merged/model.gguf absent"
+    yellow "  [MANQUANT] data/models/Phi-4-mini-reasoning-UD-IQ1_S.gguf absent"
     echo
-    echo "  Option 1 — Téléchargement automatique (Phi-3.5-mini ~2.4 Go) :"
+    echo "  Option 1 — Téléchargement automatique (Phi-4-mini ~1.1 Go) :"
     echo "    ./setup.sh --download-chat"
     echo
     echo "  Option 2 — Tout modèle GGUF instruction-tuned fonctionne :"

@@ -3,15 +3,13 @@ package fr.spectra.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import fr.spectra.dto.LlmFitRecommendation;
 import fr.spectra.service.LlmFitService;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.util.List;
 import java.util.Map;
@@ -27,23 +25,18 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@ExtendWith(MockitoExtension.class)
+@WebMvcTest(ModelHubController.class)
+@ActiveProfiles("test")
 class ModelHubIntegrationTest {
 
+    @Autowired
     private MockMvc mockMvc;
 
-    @Mock
+    @MockBean
     private LlmFitService llmFitService;
 
-    @InjectMocks
-    private ModelHubController modelHubController;
-
-    private ObjectMapper objectMapper = new ObjectMapper();
-
-    @BeforeEach
-    void setUp() {
-        mockMvc = MockMvcBuilders.standaloneSetup(modelHubController).build();
-    }
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @Test
     void getRecommendations_defaultLimit_returns200WithJsonBody() throws Exception {

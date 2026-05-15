@@ -145,8 +145,8 @@ Spectra detects your hardware at startup (CPU cores, RAM, VRAM, GPU vendor) and 
 | Service | Role | Always on |
 |---|---|:---:|
 | `model-init` | Checks GGUF model files exist before startup | ✅ |
-| `spectra-api` | Spring Boot backend, all business logic | ✅ |
-| `llm-chat` | llama.cpp — chat inference (port 8081) | ✅ |
+| `spectra-api` | Spring Boot backend (v4.0), all business logic | ✅ |
+| `llm-chat` | llama.cpp — chat inference (Phi-4-mini) | ✅ |
 | `llm-embed` | llama.cpp — embedding only (port 8082) | ✅ |
 | `chromadb` | Vector database — API v2 | ✅ |
 | `docparser` | Layout-aware PDF → Markdown | optional |
@@ -165,16 +165,21 @@ Spectra detects your hardware at startup (CPU cores, RAM, VRAM, GPU vendor) and 
 
 GPU is optional but strongly recommended for inference speed. NVIDIA, AMD (ROCm), and Vulkan are all supported.
 
-### 1. Clone and prepare
+### 1. Clone and start
 
 ```bash
 git clone https://github.com/your-org/Spectra.git
 cd Spectra
-./detect-env.sh               # auto-detects hardware and writes .env
-mkdir -p data/models data/documents data/dataset
+./start.sh --detach
 ```
 
-### 2. Download the models
+The `start.sh` script will automatically:
+- Detect your hardware (CPU, RAM, GPU)
+- Configure the environment (`.env`)
+- Download the required embedding model
+- Start the full stack via Docker Compose
+
+### 2. Add your documents
 
 Two GGUF files are required — one for chat, one for embeddings:
 
@@ -183,13 +188,11 @@ Two GGUF files are required — one for chat, one for embeddings:
 huggingface-cli download unsloth/Phi-4-mini-reasoning-GGUF \
   Phi-4-mini-reasoning-UD-IQ1_S.gguf --local-dir data/models/
 
-# Embedding model (~81 MB) — nomic-embed-text by default
-huggingface-cli download nomic-ai/nomic-embed-text-v1.5-GGUF \
-  nomic-embed-text-v1.5.Q4_0.gguf \
-  --local-dir data/models/ --filename embed.gguf
+To quickly populate your knowledge base:
+```bash
+./adddoc.sh examples   # or any directory with your documents
 ```
-
-If the models are missing at startup, `model-init` will print exact download instructions and abort before the LLM servers start.
+It supports PDF, Word, HTML, and more.
 
 ### 3. Start the stack
 
@@ -223,7 +226,7 @@ docker compose --profile layout-parser --profile reranker up -d
 
 ### `spectra-api` — The Backend
 
-The core of Spectra. A Spring Boot 4.0 application running on Java 21 with **virtual threads** (Project Loom) enabled. Every blocking I/O operation (embedding calls, ChromaDB queries, LLM generation, file reads) runs on a virtual thread, giving you thousands of concurrent operations without the overhead of a traditional thread pool.
+The core of Spectra. A Spring Boot 3.4 application running on Java 21 with **virtual threads** (Project Loom) enabled. Every blocking I/O operation (embedding calls, ChromaDB queries, LLM generation, file reads) runs on a virtual thread, giving you thousands of concurrent operations without the overhead of a traditional thread pool.
 
 **Key responsibilities:**
 - Document ingestion pipeline (extraction → cleaning → chunking → embedding → indexing)
@@ -707,8 +710,8 @@ All settings have environment variable overrides. The table below shows the most
 
 | Layer | Technology | Why |
 |---|---|---|
-| **Backend** | Java 21 + Spring Boot 4.0 | Virtual threads, mature ecosystem, strong typing |
-| **Frontend** | React 19 + Vite 8 + Tailwind CSS v4 | Fast builds, component model, utility CSS |
+| **Backend** | Java 21 + Spring Boot 3.4 | Virtual threads, mature ecosystem, strong typing |
+| **Frontend** | React 19 + Vite 6 + Tailwind CSS v4 | Fast builds, component model, utility CSS |
 | **Inference** | llama.cpp (GGUF) | CPU+GPU, quantization support, OpenAI-compatible |
 | **Vector DB** | ChromaDB | Embedded or standalone, simple HTTP API |
 | **Full-text** | BM25Okapi (custom Java) | No external dependency, same JVM, thread-safe |
