@@ -78,8 +78,8 @@ Pointez simplement vos données, activez `spectra.batch.enabled=true`, et révei
 
 | Composant | Technologie |
 | :--- | :--- |
-| **Backend** | Java 21 / Spring Boot 3.4 (Virtual Threads / Loom) |
-| **Frontend** | React 19 / Vite / Tailwind CSS v4 |
+| **Backend** | Java 21 / Spring Boot 4.0 (Virtual Threads / Loom) |
+| **Frontend** | React 19 / Vite 8 / Tailwind CSS v4 |
 | **Inférence** | llama.cpp (GGUF, API compatible OpenAI) |
 | **Base Vectorielle** | ChromaDB (API v2) |
 | **Fine-Tuning** | Unsloth / PEFT (QLoRA) |

@@ -3,41 +3,47 @@ package fr.spectra.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import fr.spectra.dto.LlmFitRecommendation;
 import fr.spectra.service.LlmFitService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hamcrest.Matchers.*;
+import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.is;
 import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-/**
- * Tests d'intégration HTTP de ModelHubController via MockMvc.
- * LlmFitService est substitué par un @MockBean — aucun processus llmfit n'est lancé.
- */
-@WebMvcTest(ModelHubController.class)
+@ExtendWith(MockitoExtension.class)
 class ModelHubIntegrationTest {
 
-    @Autowired
     private MockMvc mockMvc;
 
-    @MockBean
+    @Mock
     private LlmFitService llmFitService;
 
-    @Autowired
-    private ObjectMapper objectMapper;
+    @InjectMocks
+    private ModelHubController modelHubController;
 
-    // ── GET /api/models/hub/recommendations ───────────────────────────────────
+    private ObjectMapper objectMapper = new ObjectMapper();
+
+    @BeforeEach
+    void setUp() {
+        mockMvc = MockMvcBuilders.standaloneSetup(modelHubController).build();
+    }
 
     @Test
     void getRecommendations_defaultLimit_returns200WithJsonBody() throws Exception {
@@ -126,8 +132,6 @@ class ModelHubIntegrationTest {
                 .andExpect(jsonPath("$.models[1].name", is("model-b")));
     }
 
-    // ── POST /api/models/hub/install ──────────────────────────────────────────
-
     @Test
     void installModel_validModelName_returns200WithInProgress() throws Exception {
         when(llmFitService.installModel("llama3.2:3b", null, false))
@@ -172,16 +176,6 @@ class ModelHubIntegrationTest {
         verify(llmFitService).installModel("mistral:7b", null, false);
     }
 
-    // ── flux recommandation → installation ────────────────────────────────────
-
-    /**
-     * Teste le flux complet côté HTTP :
-     * 1. GET /recommendations pour découvrir les modèles disponibles
-     * 2. Le client sélectionne le premier modèle (meilleur score)
-     * 3. POST /install avec le nom et le quant issus de la recommandation
-     *
-     * Vérifie que les deux endpoints coopèrent correctement sans régression.
-     */
     @Test
     void recommendThenInstall_fullHttpFlow_succeeds() throws Exception {
         LlmFitRecommendation.ModelRecommendation topModel = new LlmFitRecommendation.ModelRecommendation(
@@ -192,7 +186,6 @@ class ModelHubIntegrationTest {
         when(llmFitService.installModel("mistral:7b-q4km", "Q4_K_M", false))
                 .thenReturn(CompletableFuture.completedFuture(true));
 
-        // Étape 1 : récupérer les recommandations
         String body = mockMvc.perform(get("/api/models/hub/recommendations").param("limit", "1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.models[0].name", is("mistral:7b-q4km")))
@@ -205,7 +198,6 @@ class ModelHubIntegrationTest {
         assertThat(chosenModel).isEqualTo("mistral:7b-q4km");
         assertThat(chosenQuant).isEqualTo("Q4_K_M");
 
-        // Étape 2 : installer le modèle sélectionné
         mockMvc.perform(post("/api/models/hub/install")
                         .param("modelName", chosenModel)
                         .param("quant", chosenQuant))
@@ -216,10 +208,6 @@ class ModelHubIntegrationTest {
         verify(llmFitService).installModel("mistral:7b-q4km", "Q4_K_M", false);
     }
 
-    /**
-     * Simule un matériel faible : aucun modèle ne rentre en mémoire.
-     * Vérifie que le serveur renvoie une liste vide plutôt qu'une erreur.
-     */
     @Test
     void recommendThenInstall_noFittingModels_clientReceivesEmptyListNot5xx() throws Exception {
         when(llmFitService.getRecommendations(anyInt(), eq("2048"), any(), any()))

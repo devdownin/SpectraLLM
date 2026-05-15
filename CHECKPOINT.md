@@ -45,9 +45,9 @@ curl -s -X POST http://localhost:8080/api/query \
 
 ## Travail effectué dans cette session
 
-### Modèle Phi-3.5-mini installé
-- **Fichier :** `data/fine-tuning/merged/phi-3.5-mini-Q4_K_M.gguf` (2.3 GB, GGUF valide)
-- **Source :** `bartowski/Phi-3.5-mini-instruct-GGUF` (Q4_K_M — meilleur ratio CPU)
+### Modèle Phi-4-mini installé
+- **Fichier :** `data/fine-tuning/merged/phi-4-mini-Q4_K_M.gguf` (2.3 GB, GGUF valide)
+- **Source :** `unsloth/Phi-4-mini-reasoning-GGUF` (Q4_K_M — meilleur ratio CPU)
 - **Performances mesurées :** ~6 tokens/s sur 16 cœurs CPU, contexte 4096
 
 ### Changements non commités (20 fichiers)
@@ -63,7 +63,7 @@ curl -s -X POST http://localhost:8080/api/query \
 | `StatusController.java` | Health checks en parallèle (CompletableFuture) |
 | `GlobalExceptionHandler.java` | Handlers pour `LlmUnavailableException` (503) et `UnsupportedOperationException` (400) |
 | `FineTuningService.java` | Report : "Ollama" → "llama-server" |
-| `application.yml` | Runtime llama-server local, Phi-3.5-mini, KV cache q8_0 |
+| `application.yml` | Runtime llama-server local, Phi-4-mini, KV cache q8_0 |
 | `pom.xml` | Ajout resilience4j + spring-boot-starter-aop |
 
 #### Frontend
@@ -80,13 +80,13 @@ curl -s -X POST http://localhost:8080/api/query \
 | `export_gguf.py` | Step 3 : `ollama create` → `curl POST /api/fine-tuning/models/register` |
 | `llama-autostart.sh` | Guard existence fichier GGUF avant exec |
 | `Dockerfile` | `COPY lib*.so*` → `RUN --mount cp || true` (build statique) |
-| `docker-compose.yml` | `MODEL_PATH` et `MODEL_ALIAS` → `phi-3.5-mini-Q4_K_M.gguf` / `phi-3.5-mini` |
+| `docker-compose.yml` | `MODEL_PATH` et `MODEL_ALIAS` → `phi-4-mini-Q4_K_M.gguf` / `phi-4-mini` |
 
 #### Config runtime
 | Fichier | Contenu |
 |---|---|
 | `application.yml` (racine) | Override external Spring Boot — **temporaire, ne pas committer** |
-| `data/models/registry.json` | `activeChatModel: phi-3.5-mini`, nouvelle entrée GGUF |
+| `data/models/registry.json` | `activeChatModel: phi-4-mini`, nouvelle entrée GGUF |
 
 ---
 
@@ -117,14 +117,14 @@ if (recommended.flashAttn()) { command.add("--flash-attn"); command.add("on"); }
 4. **Audit restant** :
    - Fix `.doc` support (`DocxExtractor.java`) — 30 min
    - H2 persistence pour jobs/tasks en mémoire — effort plus important
-5. **Phase 8** : Benchmarks end-to-end avec Phi-3.5-mini
+5. **Phase 8** : Benchmarks end-to-end avec Phi-4-mini
 
 ---
 
 ## Fichiers de données créés (non versionnés)
 
 ```
-data/fine-tuning/merged/phi-3.5-mini-Q4_K_M.gguf   2.3 GB  ← modèle actif
+data/fine-tuning/merged/phi-4-mini-Q4_K_M.gguf   2.3 GB  ← modèle actif
 data/models/registry.json                                    ← mis à jour
 application.yml                                             ← override local (ne pas committer)
 ```

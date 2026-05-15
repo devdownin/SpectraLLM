@@ -1,5 +1,6 @@
 # Spectra — Domain LLM Builder
 
+[![Website](https://img.shields.io/badge/Website-Live-brightgreen)](https://devdownin.github.io/SpectraLLM/)
 [![Java CI with Maven](https://github.com/devdownin/SpectraLLM/actions/workflows/ci.yml/badge.svg)](https://github.com/devdownin/SpectraLLM/actions/workflows/ci.yml)
 [![Dependency Check](https://github.com/devdownin/SpectraLLM/actions/workflows/dependency-scan.yml/badge.svg)](https://github.com/devdownin/SpectraLLM/actions/workflows/dependency-scan.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -222,7 +223,7 @@ docker compose --profile layout-parser --profile reranker up -d
 
 ### `spectra-api` — The Backend
 
-The core of Spectra. A Spring Boot 3.4 application running on Java 21 with **virtual threads** (Project Loom) enabled. Every blocking I/O operation (embedding calls, ChromaDB queries, LLM generation, file reads) runs on a virtual thread, giving you thousands of concurrent operations without the overhead of a traditional thread pool.
+The core of Spectra. A Spring Boot 4.0 application running on Java 21 with **virtual threads** (Project Loom) enabled. Every blocking I/O operation (embedding calls, ChromaDB queries, LLM generation, file reads) runs on a virtual thread, giving you thousands of concurrent operations without the overhead of a traditional thread pool.
 
 **Key responsibilities:**
 - Document ingestion pipeline (extraction → cleaning → chunking → embedding → indexing)
@@ -706,8 +707,8 @@ All settings have environment variable overrides. The table below shows the most
 
 | Layer | Technology | Why |
 |---|---|---|
-| **Backend** | Java 21 + Spring Boot 3.4 | Virtual threads, mature ecosystem, strong typing |
-| **Frontend** | React 19 + Vite + Tailwind CSS v4 | Fast builds, component model, utility CSS |
+| **Backend** | Java 21 + Spring Boot 4.0 | Virtual threads, mature ecosystem, strong typing |
+| **Frontend** | React 19 + Vite 8 + Tailwind CSS v4 | Fast builds, component model, utility CSS |
 | **Inference** | llama.cpp (GGUF) | CPU+GPU, quantization support, OpenAI-compatible |
 | **Vector DB** | ChromaDB | Embedded or standalone, simple HTTP API |
 | **Full-text** | BM25Okapi (custom Java) | No external dependency, same JVM, thread-safe |

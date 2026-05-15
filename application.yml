@@ -38,7 +38,7 @@ spectra:
     chat:
       # Docker override : SPECTRA_LLM_CHAT_BASE_URL=http://llama-cpp-chat:8080
       base-url: http://localhost:8012
-      model: phi-3.5-mini
+      model: phi-4-mini
       timeout-seconds: 300
     embedding:
       base-url: http://llama-cpp-embed:8080

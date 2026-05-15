@@ -12,7 +12,7 @@ L'inférence repose sur [llama-cpp-turboquant](https://github.com/TheTom/llama-c
 
 | Couche | Technologie | Version | Notes |
 |--------|-------------|---------|-------|
-| Backend | Java 21 / Spring Boot | 3.4.3 | Virtual Threads (Project Loom) |
+| Backend | Java 21 / Spring Boot | 4.0.6 | Virtual Threads (Project Loom) |
 | Frontend | React 19 / Vite / Tailwind CSS | — | Servi par nginx dans Docker |
 | Inférence LLM (chat) | llama-cpp-turboquant (`llama-server`) | master | API OpenAI-compatible `/v1/chat/completions` |
 | Inférence LLM (embeddings) | llama-cpp-turboquant (`llama-server`) | master | API OpenAI-compatible `/v1/embeddings` |
@@ -20,7 +20,7 @@ L'inférence repose sur [llama-cpp-turboquant](https://github.com/TheTom/llama-c
 | Base vectorielle | ChromaDB | latest | API v2 uniquement |
 | Extraction PDF | `pdftotext` (poppler-utils) | — | Sous-processus, hors heap JVM |
 | Extraction DOCX | Apache POI (XWPF) | — | `.docx` uniquement |
-| Extraction HTML | jsoup 1.18.1 | — | Parsing DOM, suppression éléments non-contenu |
+| Extraction HTML | jsoup 1.22.2 | — | Parsing DOM, suppression éléments non-contenu |
 | Rendu JavaScript | browserless/chrome | latest | Chrome headless via API REST `GET /content?url=` |
 | Entraînement GPU | Python 3.10+ / Unsloth / QLoRA | — | Sur l'hôte, optionnel |
 | Conteneurisation | Docker & Docker Compose | — | 6 services |

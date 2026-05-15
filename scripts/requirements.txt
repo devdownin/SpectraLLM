@@ -6,19 +6,19 @@
 #             Sur CPU uniquement, remplacer unsloth par transformers + peft.
 
 # Fine-tuning QLoRA (Unsloth = version optimisée de HuggingFace PEFT)
-unsloth>=2024.11.0
+unsloth>=2026.5.2
 
 # Trainer supervisé
-trl>=0.12.0
+trl>=1.4.0
 
 # Modèles et tokenizers HuggingFace
-transformers>=4.46.0
+transformers>=5.8.1
 
 # Gestion des datasets
-datasets>=3.1.0
+datasets>=4.8.5
 
 # Quantification 4-bit (requis par unsloth)
-bitsandbytes>=0.44.0
+bitsandbytes>=0.49.2
 
 # Accélération HuggingFace (gestion multi-GPU / CPU)
-accelerate>=1.1.0
+accelerate>=1.13.0

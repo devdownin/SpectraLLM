@@ -88,7 +88,7 @@ public class UrlFetcherService {
         log.info("Fetching HTML via browserless: {}", url);
         try {
             byte[] bytes = webClient.get()
-                    .uri(UriComponentsBuilder.fromHttpUrl(browserlessUrl + "/content")
+                    .uri(UriComponentsBuilder.fromUriString(browserlessUrl + "/content")
                             .queryParam("url", url)
                             .build()
                             .toUri())

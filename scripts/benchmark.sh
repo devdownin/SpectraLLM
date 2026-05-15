@@ -21,7 +21,7 @@ set -euo pipefail
 API_BASE="${SPECTRA_API:-http://localhost:8080}"
 CHAT_CONTAINER="${CHAT_CONTAINER:-spectra-llama-chat}"
 EMBED_CONTAINER="${EMBED_CONTAINER:-spectra-llama-embed}"
-CHAT_MODEL_PATH="${CHAT_MODEL_PATH:-/fine-tuning/merged/phi-3.5-mini-Q4_K_M.gguf}"
+CHAT_MODEL_PATH="${CHAT_MODEL_PATH:-/fine-tuning/merged/phi-4-mini-Q4_K_M.gguf}"
 EMBED_MODEL_PATH="/models/embed.gguf"
 RAG_QUESTION="${RAG_QUESTION:-Quelle est la procédure principale décrite dans les documents ?}"
 OUTPUT_DIR="${OUTPUT_DIR:-./data/benchmark}"
