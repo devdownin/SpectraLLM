@@ -5,7 +5,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import java.util.List;
 
 @ConfigurationProperties(prefix = "spectra")
-public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, PipelineProperties pipeline, IngestionProperties ingestion, RerankerProperties reranker, HybridSearchProperties hybridSearch, LayoutParserProperties layoutParser, AgenticRagProperties agenticRag, GedProperties ged) {
+public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, PipelineProperties pipeline, IngestionProperties ingestion, RerankerProperties reranker, HybridSearchProperties hybridSearch, LayoutParserProperties layoutParser, AgenticRagProperties agenticRag, GedProperties ged, ConversationalRagProperties conversationalRag, CorrectiveRagProperties correctiveRag, AdaptiveRagProperties adaptiveRag, SelfRagProperties selfRag) {
 
     public SpectraProperties {
         if (pipeline == null) pipeline = new PipelineProperties(null, null, null, null, null, null);
@@ -165,6 +165,42 @@ public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, 
      * @param autoQualifyThreshold seuil de score qualité pour auto-qualification (0.0 = désactivé)
      * @param retentionProperties politiques de rétention
      */
+    /** Conversational RAG — reformulation de la question avec l'historique. */
+    public record ConversationalRagProperties(Boolean enabled) {
+        public boolean isEnabled() { return Boolean.TRUE.equals(enabled); }
+    }
+
+    /**
+     * Corrective RAG — évaluation de la pertinence des chunks récupérés.
+     *
+     * @param enabled          activer le filtrage correctif
+     * @param minRelevantChunks nombre minimum de chunks RELEVANT|AMBIGUOUS requis avant reformulation
+     */
+    public record CorrectiveRagProperties(Boolean enabled, Integer minRelevantChunks) {
+        public boolean isEnabled() { return Boolean.TRUE.equals(enabled); }
+        public int effectiveMinRelevantChunks() { return minRelevantChunks != null ? minRelevantChunks : 1; }
+    }
+
+    /**
+     * Adaptive RAG — routage de la requête vers la stratégie optimale.
+     *
+     * @param enabled activer le classificateur de complexité
+     */
+    public record AdaptiveRagProperties(Boolean enabled) {
+        public boolean isEnabled() { return Boolean.TRUE.equals(enabled); }
+    }
+
+    /**
+     * Self-RAG — auto-évaluation de la qualité de récupération et de génération.
+     *
+     * @param enabled             activer la boucle de réflexion
+     * @param maxReflectionIterations nombre max de tentatives de raffinement (défaut : 1)
+     */
+    public record SelfRagProperties(Boolean enabled, Integer maxReflectionIterations) {
+        public boolean isEnabled() { return Boolean.TRUE.equals(enabled); }
+        public int effectiveMaxReflectionIterations() { return maxReflectionIterations != null ? maxReflectionIterations : 1; }
+    }
+
     public record GedProperties(
             String archiveDir,
             Double autoQualifyThreshold,

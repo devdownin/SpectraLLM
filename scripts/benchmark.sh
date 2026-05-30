@@ -24,17 +24,21 @@ EMBED_CONTAINER="${EMBED_CONTAINER:-spectra-llama-embed}"
 CHAT_MODEL_PATH="${CHAT_MODEL_PATH:-/fine-tuning/merged/phi-4-mini-Q4_K_M.gguf}"
 EMBED_MODEL_PATH="/models/embed.gguf"
 RAG_QUESTION="${RAG_QUESTION:-Quelle est la procédure principale décrite dans les documents ?}"
+RAG_FOLLOWUP="${RAG_FOLLOWUP:-Peux-tu donner plus de détails sur ce point ?}"
 OUTPUT_DIR="${OUTPUT_DIR:-./data/benchmark}"
 RUN_LLAMA=true
 RUN_API=true
+RUN_STRATEGIES=true
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
 
 for arg in "$@"; do
   case $arg in
-    --api-only)   RUN_LLAMA=false ;;
-    --llama-only) RUN_API=false ;;
-    --question=*) RAG_QUESTION="${arg#*=}" ;;
+    --api-only)        RUN_LLAMA=false ;;
+    --llama-only)      RUN_API=false; RUN_STRATEGIES=false ;;
+    --no-strategies)   RUN_STRATEGIES=false ;;
+    --question=*)      RAG_QUESTION="${arg#*=}" ;;
+    --followup=*)      RAG_FOLLOWUP="${arg#*=}" ;;
     *) echo "Option inconnue : $arg" && exit 1 ;;
   esac
 done
@@ -224,10 +228,145 @@ if $RUN_API; then
   } >> "$REPORT"
 fi
 
+# ── 4. Benchmark des stratégies RAG avancées ─────────────────────────────────
+
+if $RUN_API && $RUN_STRATEGIES; then
+  log "=== Benchmark des stratégies RAG avancées ==="
+  {
+    header "4. Surcoût des stratégies RAG avancées"
+    echo "Mesure l'impact de latence de chaque module additionnel."
+    echo "Chaque stratégie doit être activée séparément via variable d'environnement."
+    echo ""
+  } >> "$REPORT"
+
+  ENCODED_Q=$(python3 -c "import urllib.parse; print(urllib.parse.quote('${RAG_QUESTION}'))")
+  ENCODED_FQ=$(python3 -c "import urllib.parse; print(urllib.parse.quote('${RAG_FOLLOWUP}'))")
+
+  # 4a. Conversational RAG — question de suivi avec historique
+  log "Benchmark Conversational RAG (question de suivi)..."
+  CONV_BODY=$(python3 -c "
+import json, sys
+body = {
+  'question': '${RAG_FOLLOWUP}',
+  'conversationHistory': [
+    {'role': 'user',      'content': '${RAG_QUESTION}'},
+    {'role': 'assistant', 'content': 'Réponse simulée pour le benchmark.'}
+  ]
+}
+print(json.dumps(body))
+")
+  CONV_START=$(date +%s%3N)
+  CONV_RESULT=$(curl -sf "${API_BASE}/api/query" \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d "$CONV_BODY" \
+    --max-time 300 2>/dev/null \
+    || echo '{"error": "timeout ou API indisponible"}')
+  CONV_END=$(date +%s%3N)
+  CONV_MS=$((CONV_END - CONV_START))
+
+  {
+    echo "### 4a. Conversational RAG — question de suivi (SPECTRA_CONVERSATIONAL_RAG_ENABLED=true)"
+    echo "> Question de suivi : \`${RAG_FOLLOWUP}\`"
+    echo "> Durée mesurée côté client : **${CONV_MS} ms**"
+    echo ""
+    echo "\`\`\`json"
+    echo "$CONV_RESULT" | python3 -m json.tool 2>/dev/null || echo "$CONV_RESULT"
+    echo "\`\`\`"
+    echo ""
+    echo "**Surcoût attendu :** +1 appel LLM (reformulation question) ≈ +2-5 s sur CPU"
+    echo ""
+  } >> "$REPORT"
+
+  # 4b. Corrective RAG — overhead de grading
+  log "Benchmark Corrective RAG (grading batch)..."
+  CORR_START=$(date +%s%3N)
+  CORR_RESULT=$(curl -sf "${API_BASE}/api/query" \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d "{\"question\": \"${RAG_QUESTION}\", \"maxContextChunks\": 5}" \
+    --max-time 300 2>/dev/null \
+    || echo '{"error": "timeout ou API indisponible"}')
+  CORR_END=$(date +%s%3N)
+  CORR_MS=$((CORR_END - CORR_START))
+
+  {
+    echo "### 4b. Corrective RAG — filtrage de pertinence (SPECTRA_CORRECTIVE_RAG_ENABLED=true)"
+    echo "> Durée mesurée côté client : **${CORR_MS} ms**"
+    echo ""
+    CORR_APPLIED=$(echo "$CORR_RESULT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('correctiveApplied', 'N/A'))" 2>/dev/null || echo "N/A")
+    echo "correctiveApplied : **${CORR_APPLIED}**"
+    echo ""
+    echo "**Surcoût attendu :** +1 appel LLM batch (N chunks en une fois) ≈ +3-8 s selon N"
+    echo ""
+  } >> "$REPORT"
+
+  # 4c. Adaptive RAG — overhead du classifier
+  log "Benchmark Adaptive RAG (classification)..."
+  ADAPT_START=$(date +%s%3N)
+  ADAPT_RESULT=$(curl -sf "${API_BASE}/api/query" \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d "{\"question\": \"${RAG_QUESTION}\"}" \
+    --max-time 300 2>/dev/null \
+    || echo '{"error": "timeout ou API indisponible"}')
+  ADAPT_END=$(date +%s%3N)
+  ADAPT_MS=$((ADAPT_END - ADAPT_START))
+
+  {
+    echo "### 4c. Adaptive RAG — routage par classifier (SPECTRA_ADAPTIVE_RAG_ENABLED=true)"
+    echo "> Durée mesurée côté client : **${ADAPT_MS} ms**"
+    echo ""
+    RAG_STRAT=$(echo "$ADAPT_RESULT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('ragStrategy', 'N/A'))" 2>/dev/null || echo "N/A")
+    echo "ragStrategy : **${RAG_STRAT}**"
+    echo ""
+    echo "**Surcoût attendu :** +1 appel LLM court (classification) ≈ +1-3 s"
+    echo "**Gain potentiel :** -50-80% de latence sur requêtes DIRECT (pas de retrieval)"
+    echo ""
+  } >> "$REPORT"
+
+  # 4d. Self-RAG — overhead de réflexion
+  log "Benchmark Self-RAG (réflexion)..."
+  SELF_START=$(date +%s%3N)
+  SELF_RESULT=$(curl -sf "${API_BASE}/api/query" \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d "{\"question\": \"${RAG_QUESTION}\"}" \
+    --max-time 300 2>/dev/null \
+    || echo '{"error": "timeout ou API indisponible"}')
+  SELF_END=$(date +%s%3N)
+  SELF_MS=$((SELF_END - SELF_START))
+
+  {
+    echo "### 4d. Self-RAG — auto-évaluation (SPECTRA_SELF_RAG_ENABLED=true)"
+    echo "> Durée mesurée côté client : **${SELF_MS} ms**"
+    echo ""
+    SELF_APPLIED=$(echo "$SELF_RESULT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('selfRagApplied', 'N/A'))" 2>/dev/null || echo "N/A")
+    echo "selfRagApplied : **${SELF_APPLIED}**"
+    echo ""
+    echo "**Surcoût attendu :** +1 appel LLM (évaluation) ≈ +2-5 s"
+    echo "**En cas de raffinement :** +1 appel LLM supplémentaire (génération corrigée)"
+    echo ""
+  } >> "$REPORT"
+
+  {
+    echo "### Tableau de comparaison des surcoûts"
+    echo ""
+    echo "| Stratégie | Variable d'activation | Surcoût LLM | Cas d'usage |"
+    echo "|-----------|----------------------|-------------|-------------|"
+    echo "| Conversational | SPECTRA_CONVERSATIONAL_RAG_ENABLED | +1 (reformulation) | Chat multi-tours |"
+    echo "| Corrective | SPECTRA_CORRECTIVE_RAG_ENABLED | +1 (grading batch) | Index bruité |"
+    echo "| Adaptive | SPECTRA_ADAPTIVE_RAG_ENABLED | +1 (classifier) | Workloads mixtes |"
+    echo "| Self-RAG | SPECTRA_SELF_RAG_ENABLED | +1 à +2 (réflexion) | Haute fiabilité |"
+    echo "| Agentic | SPECTRA_AGENTIC_RAG_ENABLED | +2 à +6 (boucle ReAct) | Questions complexes |"
+    echo ""
+  } >> "$REPORT"
+fi
+
 # ── Résumé ────────────────────────────────────────────────────────────────────
 
 {
-  header "4. Résumé et interprétation"
+  header "5. Résumé et interprétation"
   echo "| Métrique | Valeur | Seuil acceptable |"
   echo "|----------|--------|-----------------|"
   echo "| TG (tokens/s chat) | voir llama-bench | ≥ 5 t/s |"
@@ -235,6 +374,10 @@ fi
   echo "| Embedding latence P50 | voir 3a | ≤ 500 ms / chunk |"
   echo "| LLM latence P50 | voir 3b | — (baseline) |"
   echo "| RAG latence P50 | voir 3c | ≤ 60 000 ms |"
+  echo "| Conversational RAG | voir 4a | baseline + 2-5 s |"
+  echo "| Corrective RAG | voir 4b | baseline + 3-8 s |"
+  echo "| Adaptive RAG | voir 4c | baseline + 1-3 s (gain sur DIRECT) |"
+  echo "| Self-RAG | voir 4d | baseline + 2-10 s |"
   echo ""
   echo "**Interprétation turboquant :**"
   echo "- TG > standard llama.cpp sur la même machine = gain réel du fork"
