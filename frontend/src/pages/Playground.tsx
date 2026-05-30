@@ -20,6 +20,10 @@ interface RagMeta {
   ragStrategy: string;
   rerankApplied: boolean;
   hybridSearchApplied: boolean;
+  multiQueryApplied: boolean;
+  compressionApplied: boolean;
+  semanticDedupApplied: boolean;
+  longContextApplied: boolean;
 }
 
 interface Message {
@@ -38,11 +42,15 @@ const STRATEGY_COLORS: Record<string, string> = {
 
 const RagBadges: FC<{ meta: RagMeta }> = ({ meta }) => {
   const badges: { label: string; active: boolean; tooltip: string }[] = [
-    { label: 'CONV', active: meta.conversationalApplied, tooltip: 'Conversational RAG — question reformulée avec historique' },
-    { label: 'CORR', active: meta.correctiveApplied,     tooltip: 'Corrective RAG — chunks non pertinents filtrés' },
-    { label: 'SELF', active: meta.selfRagApplied,        tooltip: 'Self-RAG — réponse auto-évaluée et raffinée' },
-    { label: 'RRNK', active: meta.rerankApplied,         tooltip: 'Re-ranking Cross-Encoder appliqué' },
-    { label: 'HYB',  active: meta.hybridSearchApplied,   tooltip: 'Hybrid Search (Vector + BM25) utilisé' },
+    { label: 'CONV',  active: meta.conversationalApplied, tooltip: 'Conversational RAG — question reformulée avec historique' },
+    { label: 'CORR',  active: meta.correctiveApplied,     tooltip: 'Corrective RAG — chunks non pertinents filtrés' },
+    { label: 'SELF',  active: meta.selfRagApplied,        tooltip: 'Self-RAG — réponse auto-évaluée et raffinée' },
+    { label: 'RRNK',  active: meta.rerankApplied,         tooltip: 'Re-ranking Cross-Encoder appliqué' },
+    { label: 'HYB',   active: meta.hybridSearchApplied,   tooltip: 'Hybrid Search (Vector + BM25) utilisé' },
+    { label: 'MQ',    active: meta.multiQueryApplied,     tooltip: 'Multi-Query — N variantes de la question fusionnées' },
+    { label: 'CMPR',  active: meta.compressionApplied,    tooltip: 'Context Compression — passages pertinents extraits' },
+    { label: 'DEDUP', active: meta.semanticDedupApplied,  tooltip: 'Semantic Dedup — doublons quasi-identiques supprimés' },
+    { label: 'FULL',  active: meta.longContextApplied,    tooltip: 'Long-Context RAG — corpus chargé intégralement' },
   ];
 
   const activeBadges = badges.filter(b => b.active);
@@ -197,6 +205,10 @@ const Playground: FC = () => {
               ragStrategy:           parsed.ragStrategy            ?? 'STANDARD',
               rerankApplied:         parsed.rerankApplied          ?? false,
               hybridSearchApplied:   parsed.hybridSearchApplied    ?? false,
+              multiQueryApplied:     parsed.multiQueryApplied      ?? false,
+              compressionApplied:    parsed.compressionApplied     ?? false,
+              semanticDedupApplied:  parsed.semanticDedupApplied   ?? false,
+              longContextApplied:    parsed.longContextApplied     ?? false,
             };
           } catch { /* ignore */ }
 

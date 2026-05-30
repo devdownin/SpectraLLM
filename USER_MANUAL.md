@@ -419,13 +419,18 @@ Réponse :
 > **Paramètre `topCandidates`** : utilisé uniquement si le re-ranking est activé. Contrôle combien de candidats sont récupérés dans ChromaDB avant que le Cross-Encoder les re-classe pour ne garder que `maxContextChunks`. Valeur par défaut : 20. Plus cette valeur est haute, plus le filet est large, mais le service de re-ranking prend un peu plus de temps.
 
 **Ce que fait le RAG :**
-1. Votre question est convertie en vecteur par `nomic-embed-text` (llm-embed)
-2. Les `topCandidates` extraits les plus proches sémantiquement sont récupérés dans ChromaDB
-3. *(Si recherche hybride activée)* Une recherche BM25 parallèle récupère les extraits correspondant le mieux aux mots-clés exacts de la question ; les deux listes sont fusionnées via RRF
-4. *(Si re-ranking activé)* Un modèle Cross-Encoder évalue chaque paire `(question, extrait)` et re-classe les candidats par pertinence réelle — les N meilleurs sont conservés
-5. *(Si Agentic RAG activé)* Le LLM analyse le contexte disponible ; s'il juge l'information insuffisante, il formule une requête de recherche complémentaire (jusqu'à 3 tours par défaut) avant de répondre
-6. Les extraits pertinents sont injectés dans le prompt comme "contexte"
-7. Le modèle spécialisé formule une réponse précise et sourcée (llm-chat)
+1. *(Si Long-Context RAG activé)* Si le corpus est petit (≤ seuil configuré), tous les chunks sont chargés directement — les étapes 2 à 5 sont ignorées
+2. *(Si Multi-Query activé)* N variantes de la question sont générées, le retrieval est exécuté pour chacune, et les résultats sont fusionnés en éliminant les doublons exacts
+3. Votre question est convertie en vecteur par `nomic-embed-text` (llm-embed)
+4. Les `topCandidates` extraits les plus proches sémantiquement sont récupérés dans ChromaDB
+5. *(Si recherche hybride activée)* Une recherche BM25 parallèle récupère les extraits correspondant le mieux aux mots-clés exacts de la question ; les deux listes sont fusionnées via RRF
+6. *(Si re-ranking activé)* Un modèle Cross-Encoder évalue chaque paire `(question, extrait)` et re-classe les candidats par pertinence réelle — les N meilleurs sont conservés
+7. *(Si déduplication sémantique activée)* Les extraits quasi-identiques sont supprimés (similarité Jaccard sur les mots) — sans appel API supplémentaire
+8. *(Si Corrective RAG activé)* Un LLM évalue la pertinence de chaque chunk ; les chunks jugés IRRELEVANT sont éliminés
+9. *(Si Context Compression activé)* Pour chaque chunk conservé, seules les phrases directement utiles à la question sont extraites — le contexte est plus dense, moins bruité
+10. *(Si Agentic RAG activé)* Le LLM analyse le contexte disponible ; s'il juge l'information insuffisante, il formule une requête de recherche complémentaire (jusqu'à 3 tours par défaut) avant de répondre
+11. Les extraits pertinents sont injectés dans le prompt comme "contexte"
+12. Le modèle spécialisé formule une réponse précise et sourcée (llm-chat)
 
 **Activer la recherche hybride (BM25 + vecteurs) :**
 
@@ -474,7 +479,52 @@ SPECTRA_HYBRID_SEARCH_ENABLED=true SPECTRA_RERANKER_ENABLED=true SPECTRA_AGENTIC
 
 Pipeline complet : `BM25 + Vecteurs → RRF → Cross-Encoder → boucle ReAct → LLM`
 
-Une fois activés, les champs `hybridSearchApplied`, `rerankApplied`, `agenticApplied` et `agenticIterations` apparaissent dans les réponses API.
+**Activer le Multi-Query RAG (meilleur rappel) :**
+
+Génère N variantes de la question avant le retrieval pour couvrir les synonymes et formulations alternatives.
+
+```bash
+SPECTRA_MULTI_QUERY_ENABLED=true docker compose up -d
+
+# Augmenter le nombre de variantes pour un vocabulaire très hétérogène
+SPECTRA_MULTI_QUERY_ENABLED=true SPECTRA_MULTI_QUERY_COUNT=3 docker compose up -d
+```
+
+> **Latence :** ajoute 1 appel LLM + N appels d'embedding par requête. Avec `MULTI_QUERY_COUNT=2` et un modèle rapide, comptez +500–800 ms.
+
+**Activer la déduplication sémantique :**
+
+Supprime les chunks quasi-identiques après reranking. Aucun service supplémentaire — pur Java.
+
+```bash
+SPECTRA_SEMANTIC_DEDUP_ENABLED=true docker compose up -d
+
+# Seuil plus strict (0.70) pour corpus très redondants
+SPECTRA_SEMANTIC_DEDUP_ENABLED=true SPECTRA_SEMANTIC_DEDUP_THRESHOLD=0.70 docker compose up -d
+```
+
+**Activer la compression de contexte :**
+
+Extrait uniquement les phrases pertinentes dans chaque chunk avant la génération. Réduit le bruit, améliore la précision.
+
+```bash
+SPECTRA_CONTEXT_COMPRESSION_ENABLED=true docker compose up -d
+```
+
+> **Latence :** ajoute 1 appel LLM par chunk récupéré. Avec 5 chunks, comptez +2–5 s supplémentaires.
+
+**Activer le Long-Context RAG bypass (petits corpus) :**
+
+Si votre corpus tient entièrement dans la fenêtre du modèle, charge tous les documents directement sans recherche vectorielle.
+
+```bash
+SPECTRA_LONG_CONTEXT_RAG_ENABLED=true docker compose up -d
+
+# Ajuster le seuil (défaut : 100 chunks ≈ 25 documents de taille moyenne)
+SPECTRA_LONG_CONTEXT_RAG_ENABLED=true SPECTRA_LONG_CONTEXT_MAX_CHUNKS=50 docker compose up -d
+```
+
+Une fois activés, les champs `hybridSearchApplied`, `rerankApplied`, `agenticApplied`, `agenticIterations`, `multiQueryApplied`, `compressionApplied`, `semanticDedupApplied` et `longContextApplied` apparaissent dans les réponses API.
 
 > **Délai de réponse :** sur CPU, comptez 20–60 secondes selon la longueur de la réponse. Sur GPU, 2–5 secondes.
 

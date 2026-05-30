@@ -541,56 +541,88 @@ Un timeout de flux est appliqué côté serveur (configurable via `spectra.pipel
 POST /api/query {"question": "...", "maxContextChunks": N, "topCandidates": K}
         │
         ▼
-[1] EmbeddingService.embed(question)
+[0] Long-Context bypass (si spectra.long-context-rag.enabled=true)
+      ChromaDbClient.count(collectionId) ← taille de la collection
+      Si count ≤ maxCollectionChunks :
+        ChromaDbClient.getAllDocuments(collectionId) → tous les chunks
+        Sauter les étapes [1]–[4] → aller directement à [5]
+        │
+        ▼
+[1] Multi-Query (si spectra.multi-query.enabled=true)
+      MultiQueryService.generateQueries(question) ← 1 appel LLM
+      → [question originale, variante1, variante2, ...]
+      Pour chaque variante : embed + retrieval → fusion dédupliquée par texte
+      (si désactivé → retrieval simple pour la question originale)
+        │
+        ▼
+[2] EmbeddingService.embed(question)
       → POST llm-embed:8080/v1/embeddings
       ← vecteur Float[]
         │
         ▼
-[2a] Recherche VECTORIELLE (toujours active)
+[3a] Recherche VECTORIELLE (toujours active)
       ChromaDbClient.query(collectionId, vector, topCandidates)
       ← K documents + métadonnées + distances cosinus
       │
-      │  (si spectra.hybrid-search.enabled=true : en parallèle avec [2a])
-[2b] Recherche BM25 (si hybride activé)
+      │  (si spectra.hybrid-search.enabled=true : en parallèle avec [3a])
+[3b] Recherche BM25 (si hybride activé)
       FtsService.search(question, collection, topBm25)
       ← M documents triés par score BM25
         │
         ▼
-[3] Fusion RRF (si hybride activé)
+[4] Fusion RRF (si hybride activé)
       HybridSearchService : score(d) = w_v/(k+rank_v) + w_bm25/(k+rank_bm25)
       ← topCandidates docs triés par RRF desc
       (si hybride désactivé → on utilise directement les K résultats vectoriels)
         │
         ▼
-[4] Re-ranking Cross-Encoder (si spectra.reranker.enabled=true)
+[5] Re-ranking Cross-Encoder (si spectra.reranker.enabled=true)
       → POST reranker:8000/rerank {"query": "...", "documents": [...K...], "top_n": N}
       ← N indices triés par score Cross-Encoder décroissant
       (si reranker désactivé → on garde les N premiers résultats)
         │
         ▼
-[5] Délégation Agentic RAG (si spectra.agentic-rag.enabled=true)
+[6] Semantic Dedup (si spectra.semantic-dedup.enabled=true)
+      Pour chaque paire de chunks : Jaccard(mots_a ∩ mots_b) / Jaccard(mots_a ∪ mots_b)
+      Si similarité ≥ seuil → élimination du chunk de rang inférieur
+      Aucun appel API — calcul en mémoire JVM
+        │
+        ▼
+[7] Corrective RAG (si spectra.corrective-rag.enabled=true)
+      → LLM batch-grade chaque chunk : RELEVANT | AMBIGUOUS | IRRELEVANT
+      ← indices des chunks RELEVANT + AMBIGUOUS conservés
+        │
+        ▼
+[8] Context Compression (si spectra.context-compression.enabled=true)
+      Pour chaque chunk conservé : appel LLM pour extraire les phrases pertinentes
+      Si aucune phrase pertinente → chunk éliminé (IRRELEVANT)
+      Résultat : textes plus courts, contexte plus dense
+        │
+        ▼
+[9] Délégation Agentic RAG (si spectra.agentic-rag.enabled=true)
       → AgenticRagService.query(request, contextChunks, ...) — boucle ReAct
         THOUGHT/ACTION: SEARCH → nouveau retrieval → déduplique → enrichit le contexte
         THOUGHT/ACTION: ANSWER → extraction RESPONSE → sortie
       (si agentic désactivé → suite du pipeline standard)
         │
         ▼
-[6] Si sources vides → réponse sans LLM ("aucun document pertinent")
-    Si sources présentes →
+[10] Si sources vides → réponse sans LLM ("aucun document pertinent")
+     Si sources présentes →
         │
         ▼
-[7] Construction du systemPrompt :
+[11] Construction du systemPrompt :
       "=== CONTEXTE ===\n[Source: fichier.pdf]\n<texte chunk>\n..."
         │
         ▼
-[8] LlamaCppChatClient.chat(systemPrompt, question)
+[12] LlamaCppChatClient.chat(systemPrompt, question)
       → POST llm-chat:8080/v1/chat/completions
         {"model": "spectra-domain", "stream": false, "messages": [...]}
       ← answer (String)
         │
         ▼
-[9] QueryResponse {answer, sources, durationMs, rerankApplied, hybridSearchApplied,
-                   agenticApplied, agenticIterations}
+[13] QueryResponse {answer, sources, durationMs, rerankApplied, hybridSearchApplied,
+                    agenticApplied, agenticIterations, multiQueryApplied,
+                    compressionApplied, semanticDedupApplied, longContextApplied}
         sources[i] = {text, sourceFile, distance, rerankScore, bm25Score}
 ```
 
@@ -773,6 +805,150 @@ spectra:
 ```
 
 **Coût en tokens :** chaque itération consomme un appel LLM complet (contexte croissant + question). Avec `max-iterations=3` et 5 chunks par itération, la fenêtre de contexte peut atteindre ~4000 tokens. Assurez-vous que votre modèle a un contexte ≥ 4096 tokens avant d'activer ce mode.
+
+---
+
+### Multi-Query RAG (`MultiQueryService`)
+
+La recherche RAG standard encode une seule formulation de la question. Si l'utilisateur utilise un terme différent de celui présent dans les documents (synonyme, abréviation, reformulation), le vecteur produit peut s'éloigner des vecteurs des chunks pertinents.
+
+**Principe :** générer N reformulations de la question sous angles différents, exécuter le retrieval pour chacune, fusionner les résultats en dédupliquant sur le texte exact des chunks.
+
+```
+MultiQueryService.generateQueries("Procédure d'évacuation en cas d'incident ?")
+  ← LLM → [
+       "Procédure d'évacuation en cas d'incident ?",   ← question originale toujours en [0]
+       "Protocole de sécurité lors d'un sinistre",
+       "Que faire en situation d'urgence autoroutière"
+    ]
+
+Pour chaque query_i :
+  embed(query_i) → ChromaDbClient.query(…) → Liste<Chunk_i>
+
+Fusion :
+  Map<texte_chunk, distance_min> — premier trouvé = meilleure priorité
+  Tri par distance croissante → top retrieveCount chunks
+```
+
+**Déduplication :** les chunks dont le texte est identique ne sont conservés qu'une fois (avec la meilleure distance parmi les requêtes qui les ont retournés).
+
+**Configuration :**
+
+```yaml
+spectra:
+  multi-query:
+    enabled:     ${SPECTRA_MULTI_QUERY_ENABLED:false}
+    query-count: ${SPECTRA_MULTI_QUERY_COUNT:2}   # variantes générées (hors question originale)
+```
+
+**Coût :** 1 appel LLM (génération des variantes) + N appels embedding + N requêtes ChromaDB. Avec `query-count=2` et nomic-embed-text, latence additionnelle typique : 300–800 ms.
+
+**Fallback :** si le LLM retourne une réponse vide ou identique à la question originale, le pipeline revient au retrieval simple sur la question originale.
+
+---
+
+### Context Compression (`ContextCompressionService`)
+
+Les chunks récupérés par le retrieval contiennent souvent des passages hors-sujet. Avec des chunks de 512 tokens, un chunk peut ne contenir que 2–3 phrases pertinentes sur 30. Injecter le chunk entier consomme la fenêtre de contexte inutilement.
+
+**Principe :** pour chaque chunk conservé après reranking/corrective RAG, soumettre au LLM une extraction des phrases strictement pertinentes à la question. Les chunks dont aucune phrase n'est pertinente sont éliminés.
+
+```
+Pour chunk_i dans contextChunks :
+  LLM.chat(COMPRESS_SYSTEM,
+    "Extrais les passages pertinents pour : <question>\nTexte : <chunk_i>")
+  Si réponse == "IRRELEVANT" → supprimer chunk_i
+  Sinon → remplacer chunk_i par les passages extraits
+```
+
+**Avantages :**
+- Contexte plus dense : 5 chunks compressés peuvent faire la taille de 1–2 chunks bruts
+- Moins de bruit : le LLM n'est pas distrait par du texte hors-sujet
+- Permet d'inclure plus de sources distinctes dans la même fenêtre
+
+**Configuration :**
+
+```yaml
+spectra:
+  context-compression:
+    enabled: ${SPECTRA_CONTEXT_COMPRESSION_ENABLED:false}
+```
+
+**Coût :** N appels LLM séquentiels (un par chunk). Avec 5 chunks et phi-4-mini, latence additionnelle : 2–6 s. Recommandé uniquement avec un modèle de chat rapide.
+
+**Positionnement dans le pipeline :** s'applique après le Corrective RAG et avant la génération finale. Non appliqué sur le chemin de streaming SSE (pour éviter de bloquer le premier token).
+
+---
+
+### Déduplication sémantique (inline dans `RagService`)
+
+Après retrieval et reranking, plusieurs chunks peuvent être quasi-identiques — typique avec des documents versionés (révisions successives d'une procédure) ou avec le Multi-Query (deux variantes de la question peuvent retourner le même contenu légèrement reformulé).
+
+**Principe :** similarité de Jaccard sur les mots (bag-of-words) entre chaque paire de chunks. Si la similarité dépasse le seuil configuré, le chunk de rang inférieur (moins bien classé) est éliminé.
+
+```java
+// Pour chaque paire (chunk_i, chunk_j) avec j < i (j déjà conservé) :
+wordsA = Set(chunk_i.split(" "))
+wordsB = Set(chunk_j.split(" "))
+jaccard = |wordsA ∩ wordsB| / |wordsA ∪ wordsB|
+
+si jaccard ≥ threshold → chunk_i est un doublon → éliminer
+```
+
+**Propriétés :**
+- O(n²) sur le nombre de chunks (5–20 typiquement) — négligeable
+- Aucun appel API — calcul en mémoire JVM
+- Sensible à l'ordre : le chunk de meilleur rang (premier dans la liste post-rerank) est toujours conservé
+
+**Configuration :**
+
+```yaml
+spectra:
+  semantic-dedup:
+    enabled:              ${SPECTRA_SEMANTIC_DEDUP_ENABLED:false}
+    similarity-threshold: ${SPECTRA_SEMANTIC_DEDUP_THRESHOLD:0.85}
+```
+
+**Valeurs typiques du seuil :**
+- `0.95` : ne supprime que les copies quasi-exactes (overlap de copier-coller)
+- `0.85` : supprime les révisions légères et paraphrases proches (recommandé)
+- `0.70` : plus agressif — à utiliser uniquement si le corpus est très redondant
+
+---
+
+### Long-Context RAG bypass (inline dans `RagService`)
+
+Pour de petits corpus (< 100 chunks), la recherche vectorielle peut être contre-productive : elle risque de rater des informations pertinentes (faux négatifs) car le vecteur de la question ne s'aligne pas parfaitement avec tous les chunks utiles.
+
+**Principe :** si le nombre total de chunks dans la collection est inférieur ou égal à `maxCollectionChunks`, charger tous les documents directement via `ChromaDbClient.getAllDocuments()` et les injecter intégralement dans le contexte — la recherche vectorielle est contournée.
+
+```
+ChromaDbClient.count(collectionId) → N chunks
+Si N ≤ maxCollectionChunks :
+  ChromaDbClient.getAllDocuments(collectionId)
+  → tous les chunks avec distance=0.0 (pas de score vectoriel)
+  → buildRagContext(..., longContextApplied=true)
+  Sauter embedding + query + reranking + dedup
+
+Sinon :
+  Pipeline RAG standard
+```
+
+**Avantages :**
+- Rappel parfait : aucun document manqué
+- Pas d'artefact de similarité vectorielle
+- Mise à jour instantanée : pas de re-indexation nécessaire après ingestion
+
+**Limite :** la taille totale du contexte doit tenir dans la fenêtre du modèle. Avec `maxCollectionChunks=100` et des chunks de 512 tokens, cela représente ~50 000 tokens — nécessite un modèle à grand contexte (Gemma 3, Llama 4, Mistral Large…).
+
+**Configuration :**
+
+```yaml
+spectra:
+  long-context-rag:
+    enabled:              ${SPECTRA_LONG_CONTEXT_RAG_ENABLED:false}
+    max-collection-chunks: ${SPECTRA_LONG_CONTEXT_MAX_CHUNKS:100}
+```
 
 ### Contrainte de contexte
 

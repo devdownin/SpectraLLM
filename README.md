@@ -41,14 +41,17 @@ Raw documents
                      ▼
 ┌─────────────────────────────────────────────────────┐
 │  SEARCH & RETRIEVAL                                 │
+│  Long-Context bypass · Multi-Query fusion           │
 │  ChromaDB (Vector) + BM25 (Full-text)               │
 │  Reciprocal Rank Fusion → Cross-Encoder Reranking   │
+│  Semantic Dedup · Context Compression               │
 └────────────────────┬────────────────────────────────┘
                      │
                      ▼
 ┌─────────────────────────────────────────────────────┐
 │  GENERATION                                         │
 │  Standard RAG · Hybrid RAG · Agentic ReAct loop     │
+│  Corrective RAG · Self-RAG · Adaptive routing       │
 │  Streaming responses via SSE                        │
 └────────────────────┬────────────────────────────────┘
                      │
@@ -89,6 +92,15 @@ These are fused using **Reciprocal Rank Fusion (RRF)** — a statistically robus
 Standard RAG retrieves once and generates. That's fine for simple lookups. For multi-hop questions — _"What changed in the process described in section 4 of the Q3 report compared to the previous year?"_ — a single retrieval isn't enough.
 
 Spectra's **Agentic RAG** uses a ReAct (Reasoning + Acting) loop: the LLM decides whether it has enough information to answer, or whether it needs to search again with a refined query. It keeps iterating (up to a configurable limit) until it's confident. This dramatically improves accuracy on complex queries.
+
+### Production-grade retrieval pipeline
+
+Beyond the basics, Spectra ships four additional retrieval modules designed for real-world corpora:
+
+- **Multi-Query RAG**: generates N reformulations of each question (synonyms, alternative phrasings, different abstraction levels), runs retrieval for each, and merges the results. Catches relevant chunks that a single phrasing would miss.
+- **Context Compression**: after retrieval, extracts only the sentences directly relevant to the question from each chunk. Drastically reduces prompt noise and lets you fit more diverse sources in the same context window.
+- **Semantic Deduplication**: removes near-duplicate chunks after reranking using Jaccard word-overlap similarity. No extra API calls — pure Java, zero latency overhead. Prevents the LLM from reading the same passage twice in different words.
+- **Long-Context bypass**: when the entire corpus fits below a configurable chunk threshold, skips vector search entirely and loads all documents directly. Simpler, faster, and more accurate for small knowledge bases.
 
 ### Layout-aware PDF parsing
 
@@ -690,6 +702,17 @@ All settings have environment variable overrides. The table below shows the most
 | `SPECTRA_AGENTIC_RAG_ENABLED` | `false` | Enable ReAct loop |
 | `SPECTRA_AGENTIC_MAX_ITERATIONS` | `3` | Max search iterations |
 | `SPECTRA_AGENTIC_LANGUAGE` | `fr` | Response language (`fr`/`en`/`auto`) |
+| `SPECTRA_MULTI_QUERY_ENABLED` | `false` | Enable multi-query retrieval fusion |
+| `SPECTRA_MULTI_QUERY_COUNT` | `2` | Number of query variants to generate |
+| `SPECTRA_CONTEXT_COMPRESSION_ENABLED` | `false` | Enable LLM-based passage extraction |
+| `SPECTRA_SEMANTIC_DEDUP_ENABLED` | `false` | Enable Jaccard near-duplicate removal |
+| `SPECTRA_SEMANTIC_DEDUP_THRESHOLD` | `0.85` | Similarity threshold for dedup (0–1) |
+| `SPECTRA_LONG_CONTEXT_RAG_ENABLED` | `false` | Load full corpus when small enough |
+| `SPECTRA_LONG_CONTEXT_MAX_CHUNKS` | `100` | Max chunks before switching to vector search |
+| `SPECTRA_CONVERSATIONAL_RAG_ENABLED` | `false` | Enable history-aware query rewriting |
+| `SPECTRA_CORRECTIVE_RAG_ENABLED` | `false` | Enable LLM chunk relevance grading |
+| `SPECTRA_ADAPTIVE_RAG_ENABLED` | `false` | Enable automatic strategy selection |
+| `SPECTRA_SELF_RAG_ENABLED` | `false` | Enable self-reflection and refinement |
 
 ### GED
 

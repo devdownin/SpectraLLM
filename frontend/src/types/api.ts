@@ -98,6 +98,10 @@ export interface QueryResponse {
   correctiveApplied: boolean;
   selfRagApplied: boolean;
   ragStrategy: 'DIRECT' | 'STANDARD' | 'AGENTIC';
+  multiQueryApplied: boolean;
+  compressionApplied: boolean;
+  semanticDedupApplied: boolean;
+  longContextApplied: boolean;
 }
 
 export interface TrainingLog {

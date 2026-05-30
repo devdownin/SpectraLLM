@@ -5,7 +5,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import java.util.List;
 
 @ConfigurationProperties(prefix = "spectra")
-public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, PipelineProperties pipeline, IngestionProperties ingestion, RerankerProperties reranker, HybridSearchProperties hybridSearch, LayoutParserProperties layoutParser, AgenticRagProperties agenticRag, GedProperties ged, ConversationalRagProperties conversationalRag, CorrectiveRagProperties correctiveRag, AdaptiveRagProperties adaptiveRag, SelfRagProperties selfRag) {
+public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, PipelineProperties pipeline, IngestionProperties ingestion, RerankerProperties reranker, HybridSearchProperties hybridSearch, LayoutParserProperties layoutParser, AgenticRagProperties agenticRag, GedProperties ged, ConversationalRagProperties conversationalRag, CorrectiveRagProperties correctiveRag, AdaptiveRagProperties adaptiveRag, SelfRagProperties selfRag, ContextCompressionProperties contextCompression, MultiQueryProperties multiQuery, SemanticDedupProperties semanticDedup, LongContextRagProperties longContextRag) {
 
     public SpectraProperties {
         if (pipeline == null) pipeline = new PipelineProperties(null, null, null, null, null, null);
@@ -199,6 +199,49 @@ public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, 
     public record SelfRagProperties(Boolean enabled, Integer maxReflectionIterations) {
         public boolean isEnabled() { return Boolean.TRUE.equals(enabled); }
         public int effectiveMaxReflectionIterations() { return maxReflectionIterations != null ? maxReflectionIterations : 1; }
+    }
+
+    /** Context Compression RAG — extraction des passages pertinents dans chaque chunk. */
+    public record ContextCompressionProperties(Boolean enabled) {
+        public boolean isEnabled() { return Boolean.TRUE.equals(enabled); }
+    }
+
+    /**
+     * Multi-Query RAG — génération de variantes de la question pour améliorer le rappel.
+     *
+     * @param enabled    activer la génération de variantes
+     * @param queryCount nombre de variantes à générer en plus de la question originale (défaut : 2)
+     */
+    public record MultiQueryProperties(Boolean enabled, Integer queryCount) {
+        public boolean isEnabled() { return Boolean.TRUE.equals(enabled); }
+        public int effectiveQueryCount() { return queryCount != null ? queryCount : 2; }
+    }
+
+    /**
+     * Déduplication sémantique — suppression des chunks quasi-identiques après retrieval.
+     *
+     * @param enabled             activer la déduplication sémantique
+     * @param similarityThreshold seuil de similarité Jaccard au-delà duquel deux chunks sont considérés
+     *                            doublons (0.0–1.0, défaut : 0.85)
+     */
+    public record SemanticDedupProperties(Boolean enabled, Double similarityThreshold) {
+        public boolean isEnabled() { return Boolean.TRUE.equals(enabled); }
+        public double effectiveSimilarityThreshold() { return similarityThreshold != null ? similarityThreshold : 0.85; }
+    }
+
+    /**
+     * Long-Context RAG — bypass du retrieval vectoriel quand le corpus tient dans la fenêtre du modèle.
+     *
+     * <p>Si le nombre de chunks dans la collection est inférieur ou égal à {@code maxCollectionChunks},
+     * tous les chunks sont chargés directement sans recherche vectorielle. Plus économique et plus
+     * simple à maintenir pour de petits corpus (&lt; 100 chunks).</p>
+     *
+     * @param enabled             activer le bypass long-contexte
+     * @param maxCollectionChunks seuil de chunks au-delà duquel le RAG classique est utilisé (défaut : 100)
+     */
+    public record LongContextRagProperties(Boolean enabled, Integer maxCollectionChunks) {
+        public boolean isEnabled() { return Boolean.TRUE.equals(enabled); }
+        public int effectiveMaxCollectionChunks() { return maxCollectionChunks != null ? maxCollectionChunks : 100; }
     }
 
     public record GedProperties(
