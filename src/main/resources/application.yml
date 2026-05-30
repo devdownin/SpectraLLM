@@ -76,6 +76,17 @@ spectra:
   self-rag:
     enabled: ${SPECTRA_SELF_RAG_ENABLED:false}
     max-reflection-iterations: ${SPECTRA_SELF_RAG_MAX_REFLECTIONS:1}
+  context-compression:
+    enabled: ${SPECTRA_CONTEXT_COMPRESSION_ENABLED:false}
+  multi-query:
+    enabled: ${SPECTRA_MULTI_QUERY_ENABLED:false}
+    query-count: ${SPECTRA_MULTI_QUERY_COUNT:2}
+  semantic-dedup:
+    enabled: ${SPECTRA_SEMANTIC_DEDUP_ENABLED:false}
+    similarity-threshold: ${SPECTRA_SEMANTIC_DEDUP_THRESHOLD:0.85}
+  long-context-rag:
+    enabled: ${SPECTRA_LONG_CONTEXT_RAG_ENABLED:false}
+    max-collection-chunks: ${SPECTRA_LONG_CONTEXT_MAX_CHUNKS:100}
   dataset:
     dir: ./data/dataset
   fine-tuning:
