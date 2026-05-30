@@ -72,9 +72,32 @@ export interface FineTuningJob {
   startTime: string;
 }
 
+export interface ConversationMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface QuerySource {
+  text: string;
+  sourceFile: string;
+  distance: number;
+  rerankScore: number | null;
+  bm25Score: number | null;
+}
+
 export interface QueryResponse {
   answer: string;
-  sources: string[];
+  sources: QuerySource[];
+  durationMs: number;
+  rerankApplied: boolean;
+  hybridSearchApplied: boolean;
+  agenticApplied: boolean;
+  agenticIterations: number;
+  agenticStopReason: string | null;
+  conversationalApplied: boolean;
+  correctiveApplied: boolean;
+  selfRagApplied: boolean;
+  ragStrategy: 'DIRECT' | 'STANDARD' | 'AGENTIC';
 }
 
 export interface TrainingLog {

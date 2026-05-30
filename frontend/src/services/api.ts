@@ -100,6 +100,15 @@ export interface StreamEvent {
   data: string;
 }
 
+export interface StreamDoneMeta {
+  conversationalApplied: boolean;
+  correctiveApplied: boolean;
+  selfRagApplied: boolean;
+  ragStrategy: string;
+  rerankApplied: boolean;
+  hybridSearchApplied: boolean;
+}
+
 export const queryApi = {
   query: (question: string, model?: string, useRag = true) =>
     api.post('/query', { question, model, useRag }),
@@ -107,15 +116,20 @@ export const queryApi = {
   /**
    * Streaming RAG query via POST SSE (EventSource ne supporte pas POST).
    * Yields StreamEvent objects: sources → token* → done | error.
+   * The `done` event data is a JSON string containing StreamDoneMeta.
    */
   async *queryStream(
     question: string,
     useRag = true,
     signal?: AbortSignal,
     topCandidates?: number,
+    conversationHistory?: { role: string; content: string }[],
   ): AsyncGenerator<StreamEvent> {
     const body: Record<string, unknown> = { question, useRag };
     if (topCandidates !== undefined) body.topCandidates = topCandidates;
+    if (conversationHistory && conversationHistory.length > 0) {
+      body.conversationHistory = conversationHistory;
+    }
     const response = await fetch('/api/query/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

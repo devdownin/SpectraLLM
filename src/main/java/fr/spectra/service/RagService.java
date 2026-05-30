@@ -215,25 +215,35 @@ public class RagService {
                 conversationalApplied, correctiveApplied, selfRagApplied, ragStrategy);
     }
 
+    /** Tuple interne pour la phase de setup du streaming. */
+    private record StreamSetup(RagContext ctx, boolean conversationalApplied) {}
+
     /**
      * Streaming SSE token par token. Émet : sources → token* → done | error.
-     * Le mode agentic et l'adaptive classifier sont réservés au pipeline non-streaming.
+     * Le mode agentic, adaptive et self-RAG sont réservés au pipeline non-streaming.
      * Le Conversational RAG (contextualisation légère) est cependant appliqué.
+     * L'événement {@code done} contient un JSON avec les métadonnées du pipeline.
      */
     public Flux<ServerSentEvent<String>> queryStream(QueryRequest request) {
         return Mono.fromCallable(() -> {
-                    // Conversational contextualization for streaming
                     String retrievalQuestion = request.question();
+                    boolean conversationalApplied = false;
                     if (conversationalRagService.isPresent()
                             && request.conversationHistory() != null
                             && !request.conversationHistory().isEmpty()) {
-                        retrievalQuestion = conversationalRagService.get()
+                        String standalone = conversationalRagService.get()
                                 .contextualizeQuestion(request.question(), request.conversationHistory());
+                        if (!standalone.equals(request.question())) {
+                            retrievalQuestion = standalone;
+                            conversationalApplied = true;
+                        }
                     }
-                    return retrieveContext(request, retrievalQuestion);
+                    return new StreamSetup(retrieveContext(request, retrievalQuestion), conversationalApplied);
                 })
                 .subscribeOn(Schedulers.boundedElastic())
-                .flatMapMany(ctx -> {
+                .flatMapMany(setup -> {
+                    RagContext ctx = setup.ctx();
+
                     ServerSentEvent<String> sourcesEvent;
                     try {
                         sourcesEvent = ServerSentEvent.<String>builder()
@@ -251,10 +261,7 @@ public class RagService {
                         tokenFlux = Flux.just(ServerSentEvent.<String>builder()
                                 .event("token").data(msg).build());
                     } else {
-                        String userMessage = buildUserMessage(request,
-                                conversationalRagService.isPresent()
-                                        && request.conversationHistory() != null
-                                        && !request.conversationHistory().isEmpty());
+                        String userMessage = buildUserMessage(request, setup.conversationalApplied());
                         tokenFlux = llmClient.chatStream(
                                         ctx.systemPrompt(), userMessage,
                                         request.temperature(), request.topP())
@@ -263,8 +270,13 @@ public class RagService {
                                         .event("token").data(token).build());
                     }
 
+                    String doneMeta = String.format(
+                            "{\"conversationalApplied\":%b,\"correctiveApplied\":false,"
+                            + "\"selfRagApplied\":false,\"ragStrategy\":\"STANDARD\","
+                            + "\"rerankApplied\":%b,\"hybridSearchApplied\":%b}",
+                            setup.conversationalApplied(), ctx.rerankApplied(), ctx.hybridApplied());
                     ServerSentEvent<String> doneEvent = ServerSentEvent.<String>builder()
-                            .event("done").data("{}").build();
+                            .event("done").data(doneMeta).build();
 
                     return Flux.concat(Flux.just(sourcesEvent), tokenFlux, Flux.just(doneEvent));
                 })
