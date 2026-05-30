@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { queryApi, configApi, fineTuningApi } from '../services/api';
 import type { StreamDoneMeta } from '../services/api';
 import Tooltip from '../components/Tooltip';
+import RagAdvisor from '../components/RagAdvisor';
 
 interface Source {
   preview?: string;
@@ -86,6 +87,7 @@ const Playground: FC = () => {
   const [convEnabled, setConvEnabled] = useState(() =>
     localStorage.getItem('spectra_conv') !== 'false');
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [advisorOpen, setAdvisorOpen] = useState(false);
 
   const [activeModel, setActiveModel] = useState<string>('');
   const [availableModels, setAvailableModels] = useState<Array<{ name: string; provenance?: string }>>([]);
@@ -369,7 +371,14 @@ const Playground: FC = () => {
           </div>
         </div>
 
-        <div className="pt-8 border-t border-outline-variant/10">
+        <div className="pt-8 border-t border-outline-variant/10 space-y-3">
+          <button
+            onClick={() => setAdvisorOpen(true)}
+            className="w-full py-3 px-4 border border-primary/30 text-primary text-[10px] font-headline uppercase tracking-widest hover:bg-primary/5 transition-colors flex items-center justify-center gap-2"
+          >
+            <span className="material-symbols-outlined text-sm">psychology</span>
+            Conseiller RAG
+          </button>
           <button
             onClick={clearChat}
             className="w-full py-3 px-4 border border-error/30 text-error text-[10px] font-headline uppercase tracking-widest hover:bg-error/5 transition-colors flex items-center justify-center gap-2"
@@ -474,6 +483,7 @@ const Playground: FC = () => {
           </div>
         </div>
       </div>
+      <RagAdvisor open={advisorOpen} onClose={() => setAdvisorOpen(false)} />
     </div>
   );
 };
