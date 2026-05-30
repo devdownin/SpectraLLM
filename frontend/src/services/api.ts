@@ -107,6 +107,10 @@ export interface StreamDoneMeta {
   ragStrategy: string;
   rerankApplied: boolean;
   hybridSearchApplied: boolean;
+  multiQueryApplied: boolean;
+  compressionApplied: boolean;
+  semanticDedupApplied: boolean;
+  longContextApplied: boolean;
 }
 
 export const queryApi = {

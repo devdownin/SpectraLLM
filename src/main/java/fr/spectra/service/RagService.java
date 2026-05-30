@@ -74,6 +74,7 @@ public class RagService {
             boolean rerankApplied,
             boolean hybridApplied,
             boolean multiQueryApplied,
+            boolean semanticDedupApplied,
             boolean longContextApplied
     ) {}
 
@@ -160,7 +161,8 @@ public class RagService {
                 log.info("Adaptive RAG DIRECT en {}ms", duration);
                 return new QueryResponse(answer, List.of(), duration,
                         false, false, false, 0, null,
-                        false, false, false, ragStrategy);
+                        false, false, false, ragStrategy,
+                        false, false, false, false);
             }
             if (strategy == AdaptiveRagService.RagStrategy.AGENTIC) {
                 forceAgentic = true;
@@ -198,7 +200,7 @@ public class RagService {
                         ctx.contextChunks(), ctx.chunkMetadatas(), ctx.chunkDistances(),
                         ctx.rerankScores(), ctx.bm25Scores());
                 ctx = rebuildContext(filtered, ctx.rerankApplied(), ctx.hybridApplied(),
-                        ctx.multiQueryApplied(), ctx.longContextApplied());
+                        ctx.multiQueryApplied(), ctx.semanticDedupApplied(), ctx.longContextApplied());
                 correctiveApplied = true;
             }
         }
@@ -217,7 +219,7 @@ public class RagService {
                         ctx.rerankScores()  != null ? filterByIndices(ctx.rerankScores(), cr.keptIndices())  : null,
                         ctx.bm25Scores()    != null ? filterByIndices(ctx.bm25Scores(), cr.keptIndices())    : null,
                         ctx.rerankApplied(), ctx.hybridApplied(),
-                        ctx.multiQueryApplied(), ctx.longContextApplied());
+                        ctx.multiQueryApplied(), ctx.semanticDedupApplied(), ctx.longContextApplied());
                 compressionApplied = true;
             } else {
                 log.warn("Context compression : aucun passage conservé, contexte original maintenu");
@@ -237,7 +239,8 @@ public class RagService {
                         agenticResp.rerankApplied(), agenticResp.hybridSearchApplied(),
                         true, agenticResp.agenticIterations(), agenticResp.agenticStopReason(),
                         conversationalApplied, correctiveApplied, false,
-                        ragStrategy.equals("STANDARD") ? "AGENTIC" : ragStrategy);
+                        ragStrategy.equals("STANDARD") ? "AGENTIC" : ragStrategy,
+                        ctx.multiQueryApplied(), false, ctx.semanticDedupApplied(), ctx.longContextApplied());
             }
         }
 
@@ -271,7 +274,8 @@ public class RagService {
 
         return new QueryResponse(answer, ctx.sources(), duration,
                 ctx.rerankApplied(), ctx.hybridApplied(), false, 0, null,
-                conversationalApplied, correctiveApplied, selfRagApplied, ragStrategy);
+                conversationalApplied, correctiveApplied, selfRagApplied, ragStrategy,
+                ctx.multiQueryApplied(), compressionApplied, ctx.semanticDedupApplied(), ctx.longContextApplied());
     }
 
     /** Tuple interne pour la phase de setup du streaming. */
@@ -332,8 +336,11 @@ public class RagService {
                     String doneMeta = String.format(
                             "{\"conversationalApplied\":%b,\"correctiveApplied\":false,"
                             + "\"selfRagApplied\":false,\"ragStrategy\":\"STANDARD\","
-                            + "\"rerankApplied\":%b,\"hybridSearchApplied\":%b}",
-                            setup.conversationalApplied(), ctx.rerankApplied(), ctx.hybridApplied());
+                            + "\"rerankApplied\":%b,\"hybridSearchApplied\":%b,"
+                            + "\"multiQueryApplied\":%b,\"semanticDedupApplied\":%b,"
+                            + "\"longContextApplied\":%b,\"compressionApplied\":false}",
+                            setup.conversationalApplied(), ctx.rerankApplied(), ctx.hybridApplied(),
+                            ctx.multiQueryApplied(), ctx.semanticDedupApplied(), ctx.longContextApplied());
                     ServerSentEvent<String> doneEvent = ServerSentEvent.<String>builder()
                             .event("done").data(doneMeta).build();
 
@@ -461,6 +468,7 @@ public class RagService {
         }
 
         // ── 4. Semantic deduplication ──────────────────────────────────────
+        boolean semanticDedupApplied = false;
         if (props.semanticDedup() != null && props.semanticDedup().isEnabled() && contextChunks.size() > 1) {
             double threshold = props.semanticDedup().effectiveSimilarityThreshold();
             List<Integer> keptIndices = deduplicateSemantically(contextChunks, threshold);
@@ -471,12 +479,13 @@ public class RagService {
                 chunkDistances = filterByIndices(chunkDistances, keptIndices);
                 rerankScores   = rerankScores != null ? filterByIndices(rerankScores, keptIndices) : null;
                 bm25Scores     = bm25Scores   != null ? filterByIndices(bm25Scores, keptIndices)   : null;
+                semanticDedupApplied = true;
                 log.info("Semantic dedup : {} → {} chunks (seuil={})", before, contextChunks.size(), threshold);
             }
         }
 
         return buildRagContext(contextChunks, chunkMetadatas, chunkDistances,
-                rerankScores, bm25Scores, rerankApplied, hybridApplied, multiQueryApplied, false);
+                rerankScores, bm25Scores, rerankApplied, hybridApplied, multiQueryApplied, semanticDedupApplied, false);
     }
 
     // ── Helpers privés ─────────────────────────────────────────────────────────
@@ -486,17 +495,19 @@ public class RagService {
      */
     private RagContext rebuildContext(CorrectiveRagService.FilteredContext filtered,
                                       boolean rerankApplied, boolean hybridApplied,
-                                      boolean multiQueryApplied, boolean longContextApplied) {
+                                      boolean multiQueryApplied, boolean semanticDedupApplied,
+                                      boolean longContextApplied) {
         return buildRagContext(
                 filtered.chunks(), filtered.metadatas(), filtered.distances(),
                 filtered.rerankScores(), filtered.bm25Scores(),
-                rerankApplied, hybridApplied, multiQueryApplied, longContextApplied);
+                rerankApplied, hybridApplied, multiQueryApplied, semanticDedupApplied, longContextApplied);
     }
 
     private RagContext buildRagContext(List<String> chunks, List<Map<String, String>> metadatas,
                                        List<Double> distances, List<Float> rerankScores,
                                        List<Float> bm25Scores, boolean rerankApplied, boolean hybridApplied,
-                                       boolean multiQueryApplied, boolean longContextApplied) {
+                                       boolean multiQueryApplied, boolean semanticDedupApplied,
+                                       boolean longContextApplied) {
         List<QueryResponse.Source> sources = new ArrayList<>();
         StringBuilder context = new StringBuilder();
 
@@ -515,7 +526,7 @@ public class RagService {
         String systemPrompt = chunks.isEmpty() ? null : String.format(SYSTEM_PROMPT_TEMPLATE, context);
 
         return new RagContext(chunks, metadatas, distances, rerankScores, bm25Scores,
-                sources, systemPrompt, rerankApplied, hybridApplied, multiQueryApplied, longContextApplied);
+                sources, systemPrompt, rerankApplied, hybridApplied, multiQueryApplied, semanticDedupApplied, longContextApplied);
     }
 
     /**
@@ -642,13 +653,13 @@ public class RagService {
         if (documents == null || documents.isEmpty()) {
             log.warn("Long-context RAG : collection vide, aucun document chargé");
             return buildRagContext(List.of(), List.of(), List.of(), null, null,
-                    false, false, false, true);
+                    false, false, false, false, true);
         }
 
         // Distance 0.0 : tous les chunks sont directement pertinents (pas de filtrage vectoriel)
         List<Double> distances = new ArrayList<>(Collections.nCopies(documents.size(), 0.0));
         return buildRagContext(documents, metadatas != null ? metadatas : List.of(), distances,
-                null, null, false, false, false, true);
+                null, null, false, false, false, false, true);
     }
 
     // ── Helpers déduplication sémantique ──────────────────────────────────────
