@@ -20,11 +20,19 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Service RAG :
- * 1. Embedding de la question
- * 2. Recherche vectorielle ChromaDB (ou hybride vector+BM25 si activé)
- * 3. Re-ranking Cross-Encoder optionnel (si activé)
- * 4. Génération via le serveur LLM
+ * Service RAG principal — orchestre le pipeline de retrieval et de génération.
+ *
+ * <p>Pipeline complet (modules optionnels entre crochets) :</p>
+ * <ol>
+ *   <li>[Adaptive RAG] Classifie la requête → DIRECT | STANDARD | AGENTIC.</li>
+ *   <li>[Conversational RAG] Reformule la question avec l'historique pour le retrieval.</li>
+ *   <li>Retrieval : vectoriel pur ou [Hybrid Search] BM25+vecteur avec RRF.</li>
+ *   <li>[Re-ranking] Cross-Encoder sur les candidats.</li>
+ *   <li>[Corrective RAG] Filtre les chunks non pertinents via grading LLM.</li>
+ *   <li>[Agentic RAG] Boucle ReAct si la stratégie est AGENTIC.</li>
+ *   <li>[Self-RAG] Génère et auto-évalue ; raffine si qualité insuffisante.</li>
+ *   <li>Génération standard via le LLM.</li>
+ * </ol>
  */
 @Service
 public class RagService {
@@ -42,11 +50,16 @@ public class RagService {
             %s
             === FIN DU CONTEXTE ===""";
 
+    private static final String DIRECT_SYSTEM_PROMPT =
+            "Tu es un assistant utile. Réponds de manière concise et précise.";
+
     /** Résultat de la phase retrieval (avant génération LLM). */
     public record RagContext(
             List<String> contextChunks,
             List<Map<String, String>> chunkMetadatas,
             List<Double> chunkDistances,
+            List<Float> rerankScores,
+            List<Float> bm25Scores,
             List<QueryResponse.Source> sources,
             String systemPrompt,
             boolean rerankApplied,
@@ -59,6 +72,10 @@ public class RagService {
     private final Optional<RerankerClient> rerankerClient;
     private final Optional<HybridSearchService> hybridSearchService;
     private final Optional<AgenticRagService> agenticRagService;
+    private final Optional<ConversationalRagService> conversationalRagService;
+    private final Optional<CorrectiveRagService> correctiveRagService;
+    private final Optional<AdaptiveRagService> adaptiveRagService;
+    private final Optional<SelfRagService> selfRagService;
     private final SpectraProperties props;
     private final ObjectMapper objectMapper;
     private final Duration streamTimeout;
@@ -69,6 +86,10 @@ public class RagService {
                       Optional<RerankerClient> rerankerClient,
                       Optional<HybridSearchService> hybridSearchService,
                       Optional<AgenticRagService> agenticRagService,
+                      Optional<ConversationalRagService> conversationalRagService,
+                      Optional<CorrectiveRagService> correctiveRagService,
+                      Optional<AdaptiveRagService> adaptiveRagService,
+                      Optional<SelfRagService> selfRagService,
                       SpectraProperties props,
                       ObjectMapper objectMapper) {
         this.chromaDbClient = chromaDbClient;
@@ -77,6 +98,10 @@ public class RagService {
         this.rerankerClient = rerankerClient;
         this.hybridSearchService = hybridSearchService;
         this.agenticRagService = agenticRagService;
+        this.conversationalRagService = conversationalRagService;
+        this.correctiveRagService = correctiveRagService;
+        this.adaptiveRagService = adaptiveRagService;
+        this.selfRagService = selfRagService;
         this.props = props;
         this.objectMapper = objectMapper;
         int timeoutSecs = props.pipeline() != null ? props.pipeline().generationTimeoutSeconds() : 120;
@@ -85,36 +110,128 @@ public class RagService {
 
     public QueryResponse query(QueryRequest request) {
         long start = System.currentTimeMillis();
-        RagContext ctx = retrieveContext(request);
 
-        if (agenticRagService.isPresent()) {
-            return agenticRagService.get().query(
-                    request,
-                    ctx.contextChunks(), ctx.chunkMetadatas(), ctx.chunkDistances(),
-                    ctx.rerankApplied(), ctx.hybridApplied());
+        // ── 1. Adaptive RAG : routing ──────────────────────────────────────
+        String ragStrategy = "STANDARD";
+        boolean forceAgentic = false;
+
+        if (adaptiveRagService.isPresent()) {
+            AdaptiveRagService.RagStrategy strategy = adaptiveRagService.get().classifyQuery(request.question());
+            ragStrategy = strategy.name();
+
+            if (strategy == AdaptiveRagService.RagStrategy.DIRECT) {
+                String answer = llmClient.chat(DIRECT_SYSTEM_PROMPT, request.question());
+                long duration = System.currentTimeMillis() - start;
+                log.info("Adaptive RAG DIRECT en {}ms", duration);
+                return new QueryResponse(answer, List.of(), duration,
+                        false, false, false, 0, null,
+                        false, false, false, ragStrategy);
+            }
+            if (strategy == AdaptiveRagService.RagStrategy.AGENTIC) {
+                forceAgentic = true;
+            }
         }
 
+        // ── 2. Conversational RAG : contextualisation de la question ──────
+        String retrievalQuestion = request.question();
+        boolean conversationalApplied = false;
+
+        if (conversationalRagService.isPresent()
+                && request.conversationHistory() != null
+                && !request.conversationHistory().isEmpty()) {
+            String standalone = conversationalRagService.get()
+                    .contextualizeQuestion(request.question(), request.conversationHistory());
+            if (!standalone.equals(request.question())) {
+                retrievalQuestion = standalone;
+                conversationalApplied = true;
+            }
+        }
+
+        // ── 3. Retrieval ───────────────────────────────────────────────────
+        RagContext ctx = retrieveContext(request, retrievalQuestion);
+
+        // ── 4. Corrective RAG : filtrage des chunks non pertinents ─────────
+        boolean correctiveApplied = false;
+
+        if (correctiveRagService.isPresent() && !ctx.contextChunks().isEmpty()) {
+            List<Integer> keptIndices = correctiveRagService.get()
+                    .gradeChunks(request.question(), ctx.contextChunks());
+
+            if (keptIndices.size() < ctx.contextChunks().size()) {
+                CorrectiveRagService.FilteredContext filtered = correctiveRagService.get().filterByIndices(
+                        keptIndices,
+                        ctx.contextChunks(), ctx.chunkMetadatas(), ctx.chunkDistances(),
+                        ctx.rerankScores(), ctx.bm25Scores());
+                ctx = rebuildContext(filtered, ctx.rerankApplied(), ctx.hybridApplied());
+                correctiveApplied = true;
+            }
+        }
+
+        // ── 5. Agentic RAG ─────────────────────────────────────────────────
+        if (agenticRagService.isPresent() || forceAgentic) {
+            if (agenticRagService.isPresent()) {
+                QueryResponse agenticResp = agenticRagService.get().query(
+                        request,
+                        ctx.contextChunks(), ctx.chunkMetadatas(), ctx.chunkDistances(),
+                        ctx.rerankApplied(), ctx.hybridApplied());
+                long duration = System.currentTimeMillis() - start;
+                return new QueryResponse(
+                        agenticResp.answer(), agenticResp.sources(), duration,
+                        agenticResp.rerankApplied(), agenticResp.hybridSearchApplied(),
+                        true, agenticResp.agenticIterations(), agenticResp.agenticStopReason(),
+                        conversationalApplied, correctiveApplied, false,
+                        ragStrategy.equals("STANDARD") ? "AGENTIC" : ragStrategy);
+            }
+        }
+
+        // ── 6. Génération (standard ou Self-RAG) ───────────────────────────
         String answer;
+        boolean selfRagApplied = false;
+
         if (ctx.contextChunks().isEmpty()) {
             answer = "Aucun document pertinent trouvé dans la base de connaissances. "
                     + "Veuillez d'abord ingérer des documents via POST /api/ingest.";
         } else {
-            answer = llmClient.chat(ctx.systemPrompt(), request.question());
+            String systemPrompt = ctx.systemPrompt();
+            String userMessage  = buildUserMessage(request, conversationalApplied);
+
+            if (selfRagService.isPresent()) {
+                SelfRagService.SelfRagResult result = selfRagService.get()
+                        .reflect(request.question(), ctx.contextChunks(), systemPrompt, userMessage);
+                answer = result.answer();
+                selfRagApplied = result.reflectionApplied();
+            } else {
+                answer = llmClient.chat(systemPrompt, userMessage);
+            }
         }
 
         long duration = System.currentTimeMillis() - start;
-        log.info("Query RAG terminée en {}ms, {} sources, hybrid={}, rerank={}",
-                duration, ctx.sources().size(), ctx.hybridApplied(), ctx.rerankApplied());
+        log.info("Query RAG en {}ms, {} sources, hybrid={}, rerank={}, conversational={}, corrective={}, selfRag={}",
+                duration, ctx.sources().size(), ctx.hybridApplied(), ctx.rerankApplied(),
+                conversationalApplied, correctiveApplied, selfRagApplied);
 
-        return new QueryResponse(answer, ctx.sources(), duration, ctx.rerankApplied(), ctx.hybridApplied());
+        return new QueryResponse(answer, ctx.sources(), duration,
+                ctx.rerankApplied(), ctx.hybridApplied(), false, 0, null,
+                conversationalApplied, correctiveApplied, selfRagApplied, ragStrategy);
     }
 
     /**
      * Streaming SSE token par token. Émet : sources → token* → done | error.
-     * Contourne le mode agentic (réservé au pipeline non-streaming).
+     * Le mode agentic et l'adaptive classifier sont réservés au pipeline non-streaming.
+     * Le Conversational RAG (contextualisation légère) est cependant appliqué.
      */
     public Flux<ServerSentEvent<String>> queryStream(QueryRequest request) {
-        return Mono.fromCallable(() -> retrieveContext(request))
+        return Mono.fromCallable(() -> {
+                    // Conversational contextualization for streaming
+                    String retrievalQuestion = request.question();
+                    if (conversationalRagService.isPresent()
+                            && request.conversationHistory() != null
+                            && !request.conversationHistory().isEmpty()) {
+                        retrievalQuestion = conversationalRagService.get()
+                                .contextualizeQuestion(request.question(), request.conversationHistory());
+                    }
+                    return retrieveContext(request, retrievalQuestion);
+                })
                 .subscribeOn(Schedulers.boundedElastic())
                 .flatMapMany(ctx -> {
                     ServerSentEvent<String> sourcesEvent;
@@ -134,8 +251,12 @@ public class RagService {
                         tokenFlux = Flux.just(ServerSentEvent.<String>builder()
                                 .event("token").data(msg).build());
                     } else {
+                        String userMessage = buildUserMessage(request,
+                                conversationalRagService.isPresent()
+                                        && request.conversationHistory() != null
+                                        && !request.conversationHistory().isEmpty());
                         tokenFlux = llmClient.chatStream(
-                                        ctx.systemPrompt(), request.question(),
+                                        ctx.systemPrompt(), userMessage,
                                         request.temperature(), request.topP())
                                 .timeout(streamTimeout)
                                 .map(token -> ServerSentEvent.<String>builder()
@@ -157,14 +278,23 @@ public class RagService {
                 });
     }
 
-    // ── Retrieval ─────────────────────────────────────────────────────────────
+    // ── Retrieval ──────────────────────────────────────────────────────────────
 
-    @SuppressWarnings("unchecked")
+    /** Retrieval avec la question originale de la requête. */
     public RagContext retrieveContext(QueryRequest request) {
+        return retrieveContext(request, request.question());
+    }
+
+    /**
+     * Retrieval avec une question de recherche potentiellement reformulée
+     * (ex. par le Conversational RAG ou l'Agentic RAG).
+     */
+    @SuppressWarnings("unchecked")
+    public RagContext retrieveContext(QueryRequest request, String retrievalQuestion) {
         boolean useReranker = rerankerClient.isPresent();
         boolean useHybrid   = hybridSearchService.isPresent();
 
-        List<Float> queryEmbedding = embeddingService.embed(request.question());
+        List<Float> queryEmbedding = embeddingService.embed(retrievalQuestion);
 
         String collectionName = request.collection() != null ? request.collection()
                 : (props.chromadb() != null ? props.chromadb().effectiveCollection() : COLLECTION_NAME);
@@ -174,7 +304,6 @@ public class RagService {
                 ? Math.max(request.topCandidates(), request.maxContextChunks())
                 : request.maxContextChunks();
 
-        // Retrieval : hybride ou vectoriel pur
         List<String>              allChunks;
         List<Map<String, String>> allMetadatas;
         List<Double>              allDistances;
@@ -184,7 +313,7 @@ public class RagService {
         if (useHybrid) {
             List<HybridSearchService.HybridChunk> hybridResults =
                     hybridSearchService.get().search(
-                            request.question(), queryEmbedding,
+                            retrievalQuestion, queryEmbedding,
                             collectionId, collectionName, retrieveCount);
             allChunks     = new ArrayList<>(hybridResults.size());
             allMetadatas  = new ArrayList<>(hybridResults.size());
@@ -219,7 +348,7 @@ public class RagService {
         if (useReranker && !allChunks.isEmpty()) {
             try {
                 List<RerankerClient.RankedResult> ranked = rerankerClient.get()
-                        .rerank(request.question(), allChunks, request.maxContextChunks());
+                        .rerank(retrievalQuestion, allChunks, request.maxContextChunks());
                 contextChunks  = new ArrayList<>(ranked.size());
                 chunkMetadatas = new ArrayList<>(ranked.size());
                 chunkDistances = new ArrayList<>(ranked.size());
@@ -250,13 +379,33 @@ public class RagService {
             bm25Scores     = allBm25Scores != null ? limit(allBm25Scores, request.maxContextChunks()) : null;
         }
 
-        // Construction sources + system prompt
+        return buildRagContext(contextChunks, chunkMetadatas, chunkDistances,
+                rerankScores, bm25Scores, rerankApplied, hybridApplied);
+    }
+
+    // ── Helpers privés ─────────────────────────────────────────────────────────
+
+    /**
+     * Reconstruit un {@link RagContext} après filtrage par le Corrective RAG.
+     */
+    private RagContext rebuildContext(CorrectiveRagService.FilteredContext filtered,
+                                      boolean rerankApplied, boolean hybridApplied) {
+        return buildRagContext(
+                filtered.chunks(), filtered.metadatas(), filtered.distances(),
+                filtered.rerankScores(), filtered.bm25Scores(),
+                rerankApplied, hybridApplied);
+    }
+
+    private RagContext buildRagContext(List<String> chunks, List<Map<String, String>> metadatas,
+                                       List<Double> distances, List<Float> rerankScores,
+                                       List<Float> bm25Scores, boolean rerankApplied, boolean hybridApplied) {
         List<QueryResponse.Source> sources = new ArrayList<>();
         StringBuilder context = new StringBuilder();
-        for (int i = 0; i < contextChunks.size(); i++) {
-            String chunkText  = contextChunks.get(i);
-            String sourceFile = chunkMetadatas.get(i).getOrDefault("sourceFile", "inconnu");
-            double distance   = chunkDistances.get(i);
+
+        for (int i = 0; i < chunks.size(); i++) {
+            String chunkText  = chunks.get(i);
+            String sourceFile = metadatas.get(i).getOrDefault("sourceFile", "inconnu");
+            double distance   = distances.get(i);
             Float rerankScore = (rerankScores != null && i < rerankScores.size()) ? rerankScores.get(i) : null;
             Float bm25Score   = (bm25Scores   != null && i < bm25Scores.size())   ? bm25Scores.get(i)   : null;
             context.append("[Source: ").append(sourceFile).append("]\n").append(chunkText).append("\n\n");
@@ -265,11 +414,25 @@ public class RagService {
                     sourceFile, distance, rerankScore, bm25Score));
         }
 
-        String systemPrompt = contextChunks.isEmpty() ? null
-                : String.format(SYSTEM_PROMPT_TEMPLATE, context);
+        String systemPrompt = chunks.isEmpty() ? null : String.format(SYSTEM_PROMPT_TEMPLATE, context);
 
-        return new RagContext(contextChunks, chunkMetadatas, chunkDistances,
+        return new RagContext(chunks, metadatas, distances, rerankScores, bm25Scores,
                 sources, systemPrompt, rerankApplied, hybridApplied);
+    }
+
+    /**
+     * Construit le message utilisateur pour la génération.
+     * Si le Conversational RAG est actif et qu'il y a un historique, préfixe l'historique.
+     */
+    private String buildUserMessage(QueryRequest request, boolean conversationalApplied) {
+        if (conversationalApplied
+                && conversationalRagService.isPresent()
+                && request.conversationHistory() != null
+                && !request.conversationHistory().isEmpty()) {
+            return conversationalRagService.get()
+                    .buildUserMessageWithHistory(request.question(), request.conversationHistory());
+        }
+        return request.question();
     }
 
     private <T> List<T> limit(List<T> list, int max) {

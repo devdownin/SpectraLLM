@@ -6,6 +6,8 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 
+import java.util.List;
+
 public record QueryRequest(
         @NotBlank(message = "La question est obligatoire")
         String question,
@@ -25,7 +27,13 @@ public record QueryRequest(
 
         /** Top-P (nucleus sampling, 0.0–1.0). Defaults to 0.9. */
         @DecimalMin("0.0") @DecimalMax("1.0")
-        Float topP
+        Float topP,
+
+        /**
+         * Historique de conversation pour le Conversational RAG.
+         * {@code null} ou liste vide = pas de contexte conversationnel.
+         */
+        List<ConversationMessage> conversationHistory
 ) {
     public QueryRequest {
         if (maxContextChunks == null) maxContextChunks = 5;

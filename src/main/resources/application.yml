@@ -66,6 +66,16 @@ spectra:
     initial-top-k: ${SPECTRA_AGENTIC_INITIAL_TOP_K:5}
     response-language: ${SPECTRA_AGENTIC_LANGUAGE:fr}
     max-context-tokens: ${SPECTRA_AGENTIC_MAX_CONTEXT_TOKENS:3000}
+  conversational-rag:
+    enabled: ${SPECTRA_CONVERSATIONAL_RAG_ENABLED:false}
+  corrective-rag:
+    enabled: ${SPECTRA_CORRECTIVE_RAG_ENABLED:false}
+    min-relevant-chunks: ${SPECTRA_CORRECTIVE_MIN_RELEVANT_CHUNKS:1}
+  adaptive-rag:
+    enabled: ${SPECTRA_ADAPTIVE_RAG_ENABLED:false}
+  self-rag:
+    enabled: ${SPECTRA_SELF_RAG_ENABLED:false}
+    max-reflection-iterations: ${SPECTRA_SELF_RAG_MAX_REFLECTIONS:1}
   dataset:
     dir: ./data/dataset
   fine-tuning:
