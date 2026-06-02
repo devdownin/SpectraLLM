@@ -95,6 +95,21 @@ export const dpoApi = {
   getStats: () => api.get('/dataset/dpo/stats'),
 };
 
+export const commentApi = {
+  list: (sha256: string) =>
+    api.get(`/ged/documents/${sha256}/comments`),
+  addHuman: (sha256: string, content: string, actor = 'ui') =>
+    api.post(`/ged/documents/${sha256}/comments?actor=${actor}`, { content, generate: false }),
+  generate: (sha256: string, focus: string, actor = 'ui') =>
+    api.post(`/ged/documents/${sha256}/comments?actor=${actor}`, { content: focus, generate: true }),
+  rate: (sha256: string, id: number, rating: 'APPROVED' | 'REJECTED' | 'NONE', actor = 'ui') =>
+    api.patch(`/ged/documents/${sha256}/comments/${id}/rating?rating=${rating}&actor=${actor}`),
+  delete: (sha256: string, id: number) =>
+    api.delete(`/ged/documents/${sha256}/comments/${id}`),
+  exportDpo: () =>
+    api.post('/ged/documents/export/comments-dpo'),
+};
+
 export interface StreamEvent {
   type: 'sources' | 'token' | 'done' | 'error';
   data: string;

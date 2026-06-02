@@ -4,8 +4,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import Skeleton from '../components/Skeleton';
 import Tooltip from '../components/Tooltip';
-import { gedApi } from '../services/api';
-import type { IngestedFile, IngestedFileSheet, DocumentLifecycle } from '../types/api';
+import { gedApi, commentApi } from '../services/api';
+import type { IngestedFile, IngestedFileSheet, DocumentLifecycle, ArticleComment } from '../types/api';
 
 type DocumentTypeKey = 'pdf' | 'json' | 'xml' | 'docx' | 'doc' | 'txt' | 'avro' | 'other';
 type SortMode = 'recent' | 'name' | 'chunks' | 'quality';
@@ -97,6 +97,9 @@ const Pipelines: FC = () => {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(0);
   const [newTagInput, setNewTagInput] = useState('');
+  const [commentInput, setCommentInput] = useState('');
+  const [focusInput, setFocusInput] = useState('');
+  const [commentTab, setCommentTab] = useState<'list' | 'add' | 'generate'>('list');
   const deferredSearch = useDeferredValue(search);
 
   useEffect(() => { setPage(0); }, [deferredSearch, selectedLifecycle, selectedFormats, qualityMin, groupBy, sortMode]);
@@ -188,6 +191,60 @@ const Pipelines: FC = () => {
       queryClient.invalidateQueries({ queryKey: ['ged-documents'] });
       toast.success('Tag supprimé');
     },
+  });
+
+  // ── Comments ───────────────────────────────────────────────────────────────
+
+  const { data: comments, isLoading: isLoadingComments } = useQuery<ArticleComment[]>({
+    queryKey: ['comments', selectedSha],
+    queryFn: () => commentApi.list(selectedSha!).then(r => r.data),
+    enabled: !!selectedSha,
+  });
+
+  const addCommentMutation = useMutation({
+    mutationFn: ({ sha, content }: { sha: string; content: string }) =>
+      commentApi.addHuman(sha, content),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['comments', selectedSha] });
+      setCommentInput('');
+      setCommentTab('list');
+      toast.success('Commentaire ajouté');
+    },
+    onError: () => toast.error("Échec de l'ajout du commentaire"),
+  });
+
+  const generateCommentMutation = useMutation({
+    mutationFn: ({ sha, focus }: { sha: string; focus: string }) =>
+      commentApi.generate(sha, focus),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['comments', selectedSha] });
+      setFocusInput('');
+      setCommentTab('list');
+      toast.success('Commentaire IA généré');
+    },
+    onError: (err: any) => toast.error('Échec génération IA',
+      { description: err.response?.data?.error ?? 'LLM indisponible' }),
+  });
+
+  const rateCommentMutation = useMutation({
+    mutationFn: ({ sha, id, rating }: { sha: string; id: number; rating: 'APPROVED' | 'REJECTED' | 'NONE' }) =>
+      commentApi.rate(sha, id, rating),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['comments', selectedSha] }),
+    onError: () => toast.error("Échec de l'évaluation"),
+  });
+
+  const deleteCommentMutation = useMutation({
+    mutationFn: ({ sha, id }: { sha: string; id: number }) => commentApi.delete(sha, id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['comments', selectedSha] });
+      toast.success('Commentaire supprimé');
+    },
+  });
+
+  const exportDpoMutation = useMutation({
+    mutationFn: () => commentApi.exportDpo(),
+    onSuccess: (res) => toast.success(`Export DPO : ${res.data.pairs} paire(s) exportée(s)`),
+    onError: () => toast.error('Échec export DPO'),
   });
 
   // ── Filtering & Sorting ────────────────────────────────────────────────────
@@ -808,6 +865,170 @@ const Pipelines: FC = () => {
                         <span className="text-[9px] font-bold uppercase text-outline shrink-0">{l.type.replace('_', ' ')}</span>
                       </div>
                     ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Comments — RAG generation + DPO rating */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-[10px] font-bold uppercase tracking-widest text-outline">Commentaires</h4>
+                  <div className="flex gap-1">
+                    {(['list', 'add', 'generate'] as const).map(tab => (
+                      <button
+                        key={tab}
+                        onClick={() => setCommentTab(tab)}
+                        className={`px-2 py-1 text-[8px] font-bold uppercase tracking-widest border transition-all ${
+                          commentTab === tab
+                            ? 'border-primary/60 text-primary bg-primary/10'
+                            : 'border-outline-variant/20 text-outline hover:border-primary/30 hover:text-primary'
+                        }`}
+                      >
+                        {tab === 'list' ? 'Liste' : tab === 'add' ? '+ Manuel' : '✦ IA'}
+                      </button>
+                    ))}
+                    <Tooltip content="Exporter paires DPO">
+                      <button
+                        onClick={() => exportDpoMutation.mutate()}
+                        disabled={exportDpoMutation.isPending}
+                        className="px-2 py-1 text-[8px] font-bold uppercase border border-secondary/30 text-secondary hover:bg-secondary/10 transition-all disabled:opacity-40"
+                      >
+                        DPO↓
+                      </button>
+                    </Tooltip>
+                  </div>
+                </div>
+
+                {commentTab === 'list' && (
+                  <div className="space-y-2">
+                    {isLoadingComments ? (
+                      <Skeleton className="h-16" />
+                    ) : !comments?.length ? (
+                      <p className="text-xs italic text-outline">Aucun commentaire. Ajoutez-en un manuellement ou générez-en un via IA.</p>
+                    ) : (
+                      comments.map(c => (
+                        <div key={c.id} className={`p-3 border text-xs space-y-2 ${
+                          c.rating === 'APPROVED' ? 'border-primary/30 bg-primary/5' :
+                          c.rating === 'REJECTED' ? 'border-error/20 bg-error/5' :
+                          'border-outline-variant/15 bg-surface-container-lowest'
+                        }`}>
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className={`text-[8px] font-bold uppercase px-1.5 py-0.5 border ${
+                                c.type === 'AI_GENERATED'
+                                  ? 'border-secondary/40 text-secondary bg-secondary/10'
+                                  : 'border-outline-variant/30 text-outline'
+                              }`}>
+                                {c.type === 'AI_GENERATED' ? '✦ IA' : '👤'}
+                              </span>
+                              <span className="text-[9px] text-outline">{c.author}</span>
+                            </div>
+                            <span className="text-[8px] font-mono text-outline shrink-0">{formatDate(c.createdAt)}</span>
+                          </div>
+                          {c.focus && (
+                            <p className="text-[9px] italic text-on-surface-variant border-l-2 border-secondary/30 pl-2">
+                              Focus : {c.focus}
+                            </p>
+                          )}
+                          <p className="text-[11px] text-on-surface leading-relaxed whitespace-pre-line">{c.content}</p>
+                          {c.type === 'AI_GENERATED' && (
+                            <div className="flex items-center gap-2 pt-1">
+                              <span className="text-[8px] uppercase text-outline tracking-widest">Évaluation DPO :</span>
+                              {(['APPROVED', 'NONE', 'REJECTED'] as const).map(r => (
+                                <button
+                                  key={r}
+                                  onClick={() => rateCommentMutation.mutate({ sha: sheet!.sha256, id: c.id, rating: r })}
+                                  disabled={rateCommentMutation.isPending}
+                                  className={`px-2 py-0.5 text-[8px] font-bold uppercase border transition-all disabled:opacity-40 ${
+                                    c.rating === r
+                                      ? r === 'APPROVED' ? 'border-primary bg-primary/20 text-primary'
+                                        : r === 'REJECTED' ? 'border-error bg-error/20 text-error'
+                                        : 'border-outline bg-outline/10 text-outline'
+                                      : 'border-outline-variant/20 text-outline hover:border-outline'
+                                  }`}
+                                >
+                                  {r === 'APPROVED' ? '👍' : r === 'REJECTED' ? '👎' : '—'}
+                                </button>
+                              ))}
+                              <button
+                                onClick={() => deleteCommentMutation.mutate({ sha: sheet!.sha256, id: c.id })}
+                                disabled={deleteCommentMutation.isPending}
+                                className="ml-auto text-[8px] text-outline hover:text-error transition-colors"
+                              >
+                                <span className="material-symbols-outlined text-[12px]">delete</span>
+                              </button>
+                            </div>
+                          )}
+                          {c.type === 'HUMAN' && (
+                            <div className="flex justify-end">
+                              <button
+                                onClick={() => deleteCommentMutation.mutate({ sha: sheet!.sha256, id: c.id })}
+                                disabled={deleteCommentMutation.isPending}
+                                className="text-[8px] text-outline hover:text-error transition-colors"
+                              >
+                                <span className="material-symbols-outlined text-[12px]">delete</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+
+                {commentTab === 'add' && (
+                  <div className="space-y-2">
+                    <textarea
+                      value={commentInput}
+                      onChange={e => setCommentInput(e.target.value)}
+                      placeholder="Rédigez votre commentaire…"
+                      rows={4}
+                      className="w-full bg-surface-container-lowest border border-outline-variant/20 px-3 py-2 text-sm outline-none focus:border-primary/50 font-body placeholder:text-outline resize-none"
+                    />
+                    <button
+                      onClick={() => {
+                        if (commentInput.trim() && sheet) {
+                          addCommentMutation.mutate({ sha: sheet.sha256, content: commentInput.trim() });
+                        }
+                      }}
+                      disabled={!commentInput.trim() || addCommentMutation.isPending}
+                      className="w-full py-2 bg-primary/10 border border-primary/30 text-primary text-[9px] font-bold uppercase tracking-widest hover:bg-primary/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      {addCommentMutation.isPending ? 'Enregistrement…' : '+ Ajouter le commentaire'}
+                    </button>
+                  </div>
+                )}
+
+                {commentTab === 'generate' && (
+                  <div className="space-y-2">
+                    <p className="text-[9px] text-on-surface-variant">
+                      Décrivez l'angle d'analyse. Le LLM utilisera le RAG pour récupérer
+                      les passages pertinents et générer un commentaire ancré dans le document.
+                    </p>
+                    <input
+                      type="text"
+                      value={focusInput}
+                      onChange={e => setFocusInput(e.target.value)}
+                      placeholder="Ex : points de sécurité, procédures d'urgence…"
+                      className="w-full bg-surface-container-lowest border border-outline-variant/20 px-3 py-2 text-sm outline-none focus:border-secondary/50 font-body placeholder:text-outline"
+                    />
+                    <button
+                      onClick={() => {
+                        if (sheet) {
+                          generateCommentMutation.mutate({ sha: sheet.sha256, focus: focusInput.trim() });
+                        }
+                      }}
+                      disabled={generateCommentMutation.isPending}
+                      className="w-full py-2 bg-secondary/10 border border-secondary/30 text-secondary text-[9px] font-bold uppercase tracking-widest hover:bg-secondary/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      {generateCommentMutation.isPending
+                        ? '✦ Génération RAG en cours…'
+                        : '✦ Générer via RAG'}
+                    </button>
+                    <p className="text-[8px] text-outline">
+                      Les commentaires approuvés (👍) seront exportables comme paires DPO
+                      pour affiner le modèle avec vos préférences.
+                    </p>
                   </div>
                 )}
               </div>
