@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import type { FC } from 'react';
 import { evaluationApi } from '../services/api';
 import type { EvaluationReport, EvaluationScore } from '../types/api';
+import ScoreRadar from '../components/charts/ScoreRadar';
 
 const STATUS_LABEL: Record<string, string> = {
   PENDING:   'En attente',
@@ -254,19 +255,29 @@ const Comparison: FC = () => {
                     </div>
 
                     {categories.length > 0 && (
-                      <div>
-                        <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-3">Par catégorie</p>
-                        <div className="space-y-2">
-                          {categories.map(([cat, avg]) => (
-                            <div key={cat} className="grid grid-cols-[100px_1fr] gap-3 items-center">
-                              <span className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">
-                                {CATEGORY_LABEL[cat] ?? cat}
-                              </span>
-                              <ScoreBar score={avg}
-                                color={cat === 'negative' ? 'bg-secondary' : 'bg-primary'} />
-                            </div>
-                          ))}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+                        {/* Score bars */}
+                        <div>
+                          <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-3">Par catégorie</p>
+                          <div className="space-y-2">
+                            {categories.map(([cat, avg]) => (
+                              <div key={cat} className="grid grid-cols-[100px_1fr] gap-3 items-center">
+                                <span className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">
+                                  {CATEGORY_LABEL[cat] ?? cat}
+                                </span>
+                                <ScoreBar score={avg}
+                                  color={cat === 'negative' ? 'bg-secondary' : 'bg-primary'} />
+                              </div>
+                            ))}
+                          </div>
                         </div>
+                        {/* Radar chart */}
+                        {categories.length >= 3 && (
+                          <div className="h-48">
+                            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">Radar</p>
+                            <ScoreRadar scoresByCategory={selected.scoresByCategory} />
+                          </div>
+                        )}
                       </div>
                     )}
                   </>

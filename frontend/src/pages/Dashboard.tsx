@@ -6,6 +6,8 @@ import { useStatus } from '../hooks/useStatus';
 import { datasetApi, gedApi, commentApi } from '../services/api';
 import Skeleton from '../components/Skeleton';
 import Tooltip from '../components/Tooltip';
+import LifecycleDonut from '../components/charts/LifecycleDonut';
+import CategoryBar from '../components/charts/CategoryBar';
 
 interface DatasetStats {
   totalPairs: number;
@@ -422,6 +424,55 @@ const Dashboard: FC = () => {
           </div>
         )}
       </section>
+
+      {/* ── Data Visualizations ── */}
+      {!statsLoading && (gedStats?.byLifecycle || stats?.byCategory) && (
+        <section className="space-y-4">
+          <h3 className="font-headline text-sm font-bold uppercase tracking-tight text-on-surface-variant">Visualisations</h3>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+            {gedStats?.byLifecycle && Object.keys(gedStats.byLifecycle).length > 0 && (
+              <div className="bg-surface-container p-5">
+                <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-3">
+                  Documents par cycle de vie
+                </p>
+                <div className="flex items-center gap-4">
+                  <div className="h-36 w-36 shrink-0 relative">
+                    <LifecycleDonut byLifecycle={gedStats.byLifecycle} />
+                  </div>
+                  <div className="space-y-1.5">
+                    {Object.entries(gedStats.byLifecycle).filter(([, n]) => n > 0).map(([lc, n]) => (
+                      <div key={lc} className="flex items-center gap-2">
+                        <div className={`w-2 h-2 shrink-0 ${
+                          lc === 'DRAFT'    ? 'bg-[#8ff5ff]' :
+                          lc === 'REVIEW'   ? 'bg-[#b8b3ff]' :
+                          lc === 'APPROVED' ? 'bg-[#4cffb3]' :
+                          lc === 'REJECTED' ? 'bg-[#ff6b8a]' :
+                                              'bg-[#5a6a8a]'
+                        }`} />
+                        <span className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant">{lc}</span>
+                        <span className="font-headline font-bold text-xs ml-auto">{String(n)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {stats?.byCategory && Object.keys(stats.byCategory).length > 0 && (
+              <div className="bg-surface-container p-5">
+                <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-3">
+                  Paires par catégorie
+                </p>
+                <div className="h-36">
+                  <CategoryBar byCategory={stats.byCategory} />
+                </div>
+              </div>
+            )}
+
+          </div>
+        </section>
+      )}
 
       {/* ── RAG Capabilities ── */}
       <section className="space-y-4">
