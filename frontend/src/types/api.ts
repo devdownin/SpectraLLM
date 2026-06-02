@@ -134,3 +134,18 @@ export interface EvaluationReport {
   startedAt: string;
   completedAt: string | null;
 }
+
+export type CommentType = 'HUMAN' | 'AI_GENERATED';
+export type CommentRating = 'NONE' | 'APPROVED' | 'REJECTED';
+
+export interface ArticleComment {
+  id: number;
+  sha256: string;
+  content: string;
+  author: string;
+  type: CommentType;
+  rating: CommentRating;
+  focus: string;
+  createdAt: string;
+  updatedAt: string;
+}
