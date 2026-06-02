@@ -1,6 +1,11 @@
 spring:
   application:
     name: spectra-api
+  main:
+    allow-bean-definition-overriding: true
+  mvc:
+    contentnegotiation:
+      default-content-type: application/json
   threads:
     virtual:
       enabled: true

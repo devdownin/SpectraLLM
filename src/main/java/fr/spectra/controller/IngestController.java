@@ -23,7 +23,7 @@ import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/ingest")
+@RequestMapping(value = "/api/ingest", produces = MediaType.APPLICATION_JSON_VALUE)
 @Tag(name = "Ingestion", description = "Upload et traitement de documents")
 public class IngestController {
 

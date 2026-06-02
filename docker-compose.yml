@@ -174,9 +174,7 @@ services:
       - SPECTRA_SELF_RAG_ENABLED=${SPECTRA_SELF_RAG_ENABLED:-false}
       - SPECTRA_SELF_RAG_MAX_REFLECTIONS=${SPECTRA_SELF_RAG_MAX_REFLECTIONS:-1}
     volumes:
-      - ./data/documents:/app/data/documents
-      - ./data/dataset:/app/data/dataset
-      - ./data/models:/app/data/models
+      - ./data:/app/data
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
       interval: 20s

@@ -74,4 +74,9 @@ public class AppConfig {
     public ObjectMapper objectMapper() {
         return new ObjectMapper().findAndRegisterModules();
     }
+
+    @Bean
+    public WebClient.Builder webClientBuilder() {
+        return WebClient.builder();
+    }
 }

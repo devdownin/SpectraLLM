@@ -16,7 +16,7 @@ import reactor.core.publisher.Flux;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/models/hub")
+@RequestMapping(value = "/api/models/hub", produces = MediaType.APPLICATION_JSON_VALUE)
 @Tag(name = "Model Hub", description = "Découverte et installation de modèles via llmfit")
 public class ModelHubController {
 
