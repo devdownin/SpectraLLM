@@ -2,20 +2,77 @@ import { useState, useEffect, useRef } from 'react';
 import type { FC } from 'react';
 import { toast } from 'sonner';
 import { queryApi, configApi, fineTuningApi } from '../services/api';
+import type { StreamDoneMeta } from '../services/api';
 import Tooltip from '../components/Tooltip';
+import RagAdvisor from '../components/RagAdvisor';
 
 interface Source {
-  preview: string;
+  preview?: string;
+  text?: string;
   sourceFile: string;
   distance: number;
+}
+
+interface RagMeta {
+  conversationalApplied: boolean;
+  correctiveApplied: boolean;
+  selfRagApplied: boolean;
+  ragStrategy: string;
+  rerankApplied: boolean;
+  hybridSearchApplied: boolean;
+  multiQueryApplied: boolean;
+  compressionApplied: boolean;
+  semanticDedupApplied: boolean;
+  longContextApplied: boolean;
 }
 
 interface Message {
   role: 'user' | 'assistant';
   content: string;
   sources?: Source[];
+  ragMeta?: RagMeta;
   status?: 'PENDING' | 'SENT' | 'ERROR' | 'STREAMING';
 }
+
+const STRATEGY_COLORS: Record<string, string> = {
+  DIRECT:   'border-secondary/40 text-secondary bg-secondary/5',
+  STANDARD: 'border-outline-variant/30 text-outline',
+  AGENTIC:  'border-primary/40 text-primary bg-primary/5',
+};
+
+const RagBadges: FC<{ meta: RagMeta }> = ({ meta }) => {
+  const badges: { label: string; active: boolean; tooltip: string }[] = [
+    { label: 'CONV',  active: meta.conversationalApplied, tooltip: 'Conversational RAG — question reformulée avec historique' },
+    { label: 'CORR',  active: meta.correctiveApplied,     tooltip: 'Corrective RAG — chunks non pertinents filtrés' },
+    { label: 'SELF',  active: meta.selfRagApplied,        tooltip: 'Self-RAG — réponse auto-évaluée et raffinée' },
+    { label: 'RRNK',  active: meta.rerankApplied,         tooltip: 'Re-ranking Cross-Encoder appliqué' },
+    { label: 'HYB',   active: meta.hybridSearchApplied,   tooltip: 'Hybrid Search (Vector + BM25) utilisé' },
+    { label: 'MQ',    active: meta.multiQueryApplied,     tooltip: 'Multi-Query — N variantes de la question fusionnées' },
+    { label: 'CMPR',  active: meta.compressionApplied,    tooltip: 'Context Compression — passages pertinents extraits' },
+    { label: 'DEDUP', active: meta.semanticDedupApplied,  tooltip: 'Semantic Dedup — doublons quasi-identiques supprimés' },
+    { label: 'FULL',  active: meta.longContextApplied,    tooltip: 'Long-Context RAG — corpus chargé intégralement' },
+  ];
+
+  const activeBadges = badges.filter(b => b.active);
+  if (activeBadges.length === 0 && meta.ragStrategy === 'STANDARD') return null;
+
+  return (
+    <div className="mt-3 pt-3 border-t border-outline-variant/20 flex flex-wrap items-center gap-1.5">
+      <Tooltip content={`Stratégie : ${meta.ragStrategy}`}>
+        <span className={`text-[8px] font-bold px-1.5 py-0.5 border uppercase tracking-wider cursor-help ${STRATEGY_COLORS[meta.ragStrategy] ?? STRATEGY_COLORS.STANDARD}`}>
+          {meta.ragStrategy}
+        </span>
+      </Tooltip>
+      {activeBadges.map(b => (
+        <Tooltip key={b.label} content={b.tooltip}>
+          <span className="text-[8px] font-bold px-1.5 py-0.5 border border-primary/30 text-primary bg-primary/5 uppercase tracking-wider cursor-help">
+            {b.label}
+          </span>
+        </Tooltip>
+      ))}
+    </div>
+  );
+};
 
 const Playground: FC = () => {
   const [messages, setMessages] = useState<Message[]>(() => {
@@ -26,7 +83,7 @@ const Playground: FC = () => {
   });
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
-  
+
   const [temperature, setTemperature] = useState(() =>
     parseFloat(localStorage.getItem('spectra_temp') || '0.7'));
   const [topP, setTopP] = useState(() =>
@@ -35,12 +92,16 @@ const Playground: FC = () => {
     localStorage.getItem('spectra_rag') !== 'false');
   const [topCandidates, setTopCandidates] = useState(() =>
     parseInt(localStorage.getItem('spectra_top_candidates') || '20', 10));
+  const [convEnabled, setConvEnabled] = useState(() =>
+    localStorage.getItem('spectra_conv') !== 'false');
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [advisorOpen, setAdvisorOpen] = useState(false);
 
   const [activeModel, setActiveModel] = useState<string>('');
   const [availableModels, setAvailableModels] = useState<Array<{ name: string; provenance?: string }>>([]);
 
   const abortRef = useRef<AbortController | null>(null);
+  const bottomRef = useRef<HTMLDivElement | null>(null);
 
   const MAX_HISTORY = 50;
   useEffect(() => {
@@ -48,7 +109,6 @@ const Playground: FC = () => {
     try {
       localStorage.setItem('spectra_chat_history', JSON.stringify(trimmed));
     } catch {
-      // QuotaExceededError — discard oldest half and retry
       try {
         localStorage.setItem('spectra_chat_history', JSON.stringify(trimmed.slice(-Math.floor(MAX_HISTORY / 2))));
       } catch { /* ignore */ }
@@ -60,7 +120,12 @@ const Playground: FC = () => {
     localStorage.setItem('spectra_top_p', topP.toString());
     localStorage.setItem('spectra_rag', ragEnabled.toString());
     localStorage.setItem('spectra_top_candidates', topCandidates.toString());
-  }, [temperature, topP, ragEnabled, topCandidates]);
+    localStorage.setItem('spectra_conv', convEnabled.toString());
+  }, [temperature, topP, ragEnabled, topCandidates, convEnabled]);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   useEffect(() => {
     Promise.all([configApi.getModelConfig(), fineTuningApi.getModels()])
@@ -89,27 +154,37 @@ const Playground: FC = () => {
     toast.info('Chat history cleared');
   };
 
+  /** Builds the conversation history from SENT messages to send to the backend. */
+  const buildHistory = (): { role: string; content: string }[] => {
+    if (!convEnabled) return [];
+    return messages
+      .filter(m => m.status === 'SENT' && m.content.trim())
+      .slice(-20)
+      .map(m => ({ role: m.role, content: m.content }));
+  };
+
   const handleSend = async () => {
     if (!input.trim() || isTyping) return;
 
-    // Cancel any in-flight stream
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
     const guardTimer = setTimeout(() => controller.abort(new Error('timeout')), 120_000);
 
     const currentInput = input;
+    const history = buildHistory();
+
     setMessages(prev => [...prev, { role: 'user', content: currentInput, status: 'PENDING' }]);
     setInput('');
     setIsTyping(true);
-
-    // Placeholder assistant message that will be updated token by token
     setMessages(prev => [...prev, { role: 'assistant', content: '', status: 'STREAMING' }]);
 
     try {
       let sources: Source[] = [];
 
-      for await (const event of queryApi.queryStream(currentInput, ragEnabled, controller.signal, topCandidates)) {
+      for await (const event of queryApi.queryStream(
+        currentInput, ragEnabled, controller.signal, topCandidates, history
+      )) {
         if (event.type === 'sources') {
           try { sources = JSON.parse(event.data); } catch { /* ignore */ }
         } else if (event.type === 'token') {
@@ -120,12 +195,29 @@ const Playground: FC = () => {
             return [...updated];
           });
         } else if (event.type === 'done') {
+          let meta: RagMeta | undefined;
+          try {
+            const parsed = JSON.parse(event.data) as StreamDoneMeta;
+            meta = {
+              conversationalApplied: parsed.conversationalApplied ?? false,
+              correctiveApplied:     parsed.correctiveApplied     ?? false,
+              selfRagApplied:        parsed.selfRagApplied         ?? false,
+              ragStrategy:           parsed.ragStrategy            ?? 'STANDARD',
+              rerankApplied:         parsed.rerankApplied          ?? false,
+              hybridSearchApplied:   parsed.hybridSearchApplied    ?? false,
+              multiQueryApplied:     parsed.multiQueryApplied      ?? false,
+              compressionApplied:    parsed.compressionApplied     ?? false,
+              semanticDedupApplied:  parsed.semanticDedupApplied   ?? false,
+              longContextApplied:    parsed.longContextApplied     ?? false,
+            };
+          } catch { /* ignore */ }
+
           setMessages(prev => {
             const updated = [...prev];
             const lastUser = updated.findLast(m => m.role === 'user' && m.content === currentInput);
             if (lastUser) lastUser.status = 'SENT';
             const last = updated.findLast(m => m.role === 'assistant');
-            if (last) { last.status = 'SENT'; last.sources = sources; }
+            if (last) { last.status = 'SENT'; last.sources = sources; last.ragMeta = meta; }
             return [...updated];
           });
         } else if (event.type === 'error') {
@@ -243,40 +335,62 @@ const Playground: FC = () => {
             </label>
 
             {ragEnabled && (
-              <div>
-                <button
-                  className="flex items-center gap-1 text-[9px] uppercase tracking-widest text-on-surface-variant hover:text-primary transition-colors mt-1"
-                  onClick={() => setShowAdvanced(v => !v)}
-                >
-                  <span className="material-symbols-outlined text-[11px]">{showAdvanced ? 'expand_less' : 'expand_more'}</span>
-                  Advanced
-                </button>
-
-                {showAdvanced && (
-                  <div className="mt-3 space-y-2">
-                    <div className="flex justify-between items-center">
-                      <Tooltip content="Nombre de candidats envoyés au re-ranker (plus élevé = meilleure couverture, plus lent).">
-                        <label className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant cursor-help">
-                          Top Candidates
-                        </label>
-                      </Tooltip>
-                      <span className="text-[10px] font-mono text-primary">{topCandidates}</span>
-                    </div>
-                    <input
-                      type="range"
-                      className="w-full accent-primary bg-outline-variant h-1 appearance-none cursor-pointer"
-                      min="5" max="50" step="5"
-                      value={topCandidates}
-                      onChange={(e) => setTopCandidates(parseInt(e.target.value, 10))}
-                    />
+              <>
+                <label className="flex items-center gap-3 cursor-pointer group" onClick={() => {
+                  const next = !convEnabled;
+                  setConvEnabled(next);
+                  toast.info(next ? 'Conversational RAG activé' : 'Conversational RAG désactivé');
+                }}>
+                  <div className="w-4 h-4 border border-secondary flex items-center justify-center group-hover:bg-secondary/10 transition-colors">
+                    {convEnabled && <div className="w-2 h-2 bg-secondary"></div>}
                   </div>
-                )}
-              </div>
+                  <Tooltip content="Envoie l'historique de la conversation pour reformuler la question avant le retrieval (Conversational RAG).">
+                    <span className="text-xs font-label uppercase tracking-widest cursor-help">Conversational History</span>
+                  </Tooltip>
+                </label>
+
+                <div>
+                  <button
+                    className="flex items-center gap-1 text-[9px] uppercase tracking-widest text-on-surface-variant hover:text-primary transition-colors mt-1"
+                    onClick={() => setShowAdvanced(v => !v)}
+                  >
+                    <span className="material-symbols-outlined text-[11px]">{showAdvanced ? 'expand_less' : 'expand_more'}</span>
+                    Advanced
+                  </button>
+
+                  {showAdvanced && (
+                    <div className="mt-3 space-y-2">
+                      <div className="flex justify-between items-center">
+                        <Tooltip content="Nombre de candidats envoyés au re-ranker (plus élevé = meilleure couverture, plus lent).">
+                          <label className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant cursor-help">
+                            Top Candidates
+                          </label>
+                        </Tooltip>
+                        <span className="text-[10px] font-mono text-primary">{topCandidates}</span>
+                      </div>
+                      <input
+                        type="range"
+                        className="w-full accent-primary bg-outline-variant h-1 appearance-none cursor-pointer"
+                        min="5" max="50" step="5"
+                        value={topCandidates}
+                        onChange={(e) => setTopCandidates(parseInt(e.target.value, 10))}
+                      />
+                    </div>
+                  )}
+                </div>
+              </>
             )}
           </div>
         </div>
 
-        <div className="pt-8 border-t border-outline-variant/10">
+        <div className="pt-8 border-t border-outline-variant/10 space-y-3">
+          <button
+            onClick={() => setAdvisorOpen(true)}
+            className="w-full py-3 px-4 border border-primary/30 text-primary text-[10px] font-headline uppercase tracking-widest hover:bg-primary/5 transition-colors flex items-center justify-center gap-2"
+          >
+            <span className="material-symbols-outlined text-sm">psychology</span>
+            Conseiller RAG
+          </button>
           <button
             onClick={clearChat}
             className="w-full py-3 px-4 border border-error/30 text-error text-[10px] font-headline uppercase tracking-widest hover:bg-error/5 transition-colors flex items-center justify-center gap-2"
@@ -321,12 +435,16 @@ const Playground: FC = () => {
                     {msg.sources.map((src, j) => (
                       <div key={j} className="flex items-start gap-2">
                         <span className="material-symbols-outlined text-[12px] text-primary mt-0.5 shrink-0">article</span>
-                        <span className="font-mono text-[9px] text-on-surface-variant truncate" title={src.preview}>
+                        <span className="font-mono text-[9px] text-on-surface-variant truncate" title={src.preview ?? src.text}>
                           {src.sourceFile}
                         </span>
                       </div>
                     ))}
                   </div>
+                )}
+
+                {msg.ragMeta && msg.status === 'SENT' && msg.role === 'assistant' && (
+                  <RagBadges meta={msg.ragMeta} />
                 )}
               </div>
             </div>
@@ -343,9 +461,16 @@ const Playground: FC = () => {
               </div>
             </div>
           )}
+          <div ref={bottomRef} />
         </div>
 
         <div className="p-8 border-t border-outline-variant/10">
+          {convEnabled && messages.filter(m => m.status === 'SENT').length > 1 && (
+            <p className="text-[8px] font-label uppercase tracking-widest text-secondary mb-2 flex items-center gap-1">
+              <span className="material-symbols-outlined text-[10px]">forum</span>
+              Conversational — {messages.filter(m => m.status === 'SENT').length} messages dans l'historique
+            </p>
+          )}
           <div className="flex items-center gap-4 bg-surface-container-lowest border border-outline-variant/20 p-2">
             <input
               type="text"
@@ -370,6 +495,7 @@ const Playground: FC = () => {
           </div>
         </div>
       </div>
+      <RagAdvisor open={advisorOpen} onClose={() => setAdvisorOpen(false)} />
     </div>
   );
 };

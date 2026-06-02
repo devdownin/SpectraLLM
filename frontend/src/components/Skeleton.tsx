@@ -6,7 +6,7 @@ interface SkeletonProps {
 
 const Skeleton: FC<SkeletonProps> = ({ className }) => {
   return (
-    <div className={`bg-surface-variant animate-pulse ${className}`} />
+    <div className={`skeleton-shimmer ${className}`} />
   );
 };
 

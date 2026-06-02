@@ -41,14 +41,17 @@ Raw documents
                      ▼
 ┌─────────────────────────────────────────────────────┐
 │  SEARCH & RETRIEVAL                                 │
+│  Long-Context bypass · Multi-Query fusion           │
 │  ChromaDB (Vector) + BM25 (Full-text)               │
 │  Reciprocal Rank Fusion → Cross-Encoder Reranking   │
+│  Semantic Dedup · Context Compression               │
 └────────────────────┬────────────────────────────────┘
                      │
                      ▼
 ┌─────────────────────────────────────────────────────┐
 │  GENERATION                                         │
 │  Standard RAG · Hybrid RAG · Agentic ReAct loop     │
+│  Corrective RAG · Self-RAG · Adaptive routing       │
 │  Streaming responses via SSE                        │
 └────────────────────┬────────────────────────────────┘
                      │
@@ -61,9 +64,16 @@ Raw documents
                      │
                      ▼
 ┌─────────────────────────────────────────────────────┐
+│  ARTICLE COMMENTING                                 │
+│  Human or RAG-grounded AI comments per document    │
+│  👍/👎 ratings → DPO pairs for next training cycle │
+└────────────────────┬────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────┐
 │  FINE-TUNING                                        │
 │  QLoRA (Unsloth) · Configurable rank/alpha/epochs  │
-│  Real-time loss streaming → GGUF export             │
+│  Comment DPO + SFT dataset · GGUF export            │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -89,6 +99,15 @@ These are fused using **Reciprocal Rank Fusion (RRF)** — a statistically robus
 Standard RAG retrieves once and generates. That's fine for simple lookups. For multi-hop questions — _"What changed in the process described in section 4 of the Q3 report compared to the previous year?"_ — a single retrieval isn't enough.
 
 Spectra's **Agentic RAG** uses a ReAct (Reasoning + Acting) loop: the LLM decides whether it has enough information to answer, or whether it needs to search again with a refined query. It keeps iterating (up to a configurable limit) until it's confident. This dramatically improves accuracy on complex queries.
+
+### Production-grade retrieval pipeline
+
+Beyond the basics, Spectra ships four additional retrieval modules designed for real-world corpora:
+
+- **Multi-Query RAG**: generates N reformulations of each question (synonyms, alternative phrasings, different abstraction levels), runs retrieval for each, and merges the results. Catches relevant chunks that a single phrasing would miss.
+- **Context Compression**: after retrieval, extracts only the sentences directly relevant to the question from each chunk. Drastically reduces prompt noise and lets you fit more diverse sources in the same context window.
+- **Semantic Deduplication**: removes near-duplicate chunks after reranking using Jaccard word-overlap similarity. No extra API calls — pure Java, zero latency overhead. Prevents the LLM from reading the same passage twice in different words.
+- **Long-Context bypass**: when the entire corpus fits below a configurable chunk threshold, skips vector search entirely and loads all documents directly. Simpler, faster, and more accurate for small knowledge bases.
 
 ### Layout-aware PDF parsing
 
@@ -527,22 +546,30 @@ Transitions are validated — you cannot skip states or go backwards (except re-
 | **Retention policies** | Nightly cron: auto-archive after N days, auto-purge ARCHIVED after M days |
 | **Synchronized deletion** | Deleting a document removes it from both the GED (H2) and ChromaDB in one call |
 | **Statistics** | Lifecycle distribution, quality histogram, top tags, total indexed chunks |
+| **Article commenting** | Human and AI-generated comments per document; rated comments export as DPO training pairs |
 
 **API endpoints:**
 
 ```
-GET    /api/ged/documents                        # Paginated list with filters
-GET    /api/ged/documents/{sha256}               # Full document sheet + model links + audit
-DELETE /api/ged/documents/{sha256}               # Delete from GED + ChromaDB
-PUT    /api/ged/documents/{sha256}/lifecycle     # Transition lifecycle
-POST   /api/ged/documents/{sha256}/tags          # Add tags
-DELETE /api/ged/documents/{sha256}/tags          # Remove tags
-POST   /api/ged/documents/{sha256}/models        # Link to a model
-GET    /api/ged/models/{modelName}/documents     # Documents linked to a model
-GET    /api/ged/documents/{sha256}/audit         # Audit trail
-GET    /api/ged/stats                            # Aggregate statistics
-POST   /api/ged/documents/bulk/lifecycle         # Bulk lifecycle transition
-POST   /api/ged/documents/bulk/tags              # Bulk tag assignment
+GET    /api/ged/documents                              # Paginated list with filters
+GET    /api/ged/documents/{sha256}                     # Full document sheet + model links + audit
+DELETE /api/ged/documents/{sha256}                     # Delete from GED + ChromaDB
+PUT    /api/ged/documents/{sha256}/lifecycle           # Transition lifecycle
+POST   /api/ged/documents/{sha256}/tags                # Add tags
+DELETE /api/ged/documents/{sha256}/tags                # Remove tags
+POST   /api/ged/documents/{sha256}/models              # Link to a model
+GET    /api/ged/models/{modelName}/documents           # Documents linked to a model
+GET    /api/ged/documents/{sha256}/audit               # Audit trail
+GET    /api/ged/stats                                  # Aggregate statistics
+POST   /api/ged/documents/bulk/lifecycle               # Bulk lifecycle transition
+POST   /api/ged/documents/bulk/tags                    # Bulk tag assignment
+
+# Article commenting
+GET    /api/ged/documents/{sha256}/comments            # List comments for a document
+POST   /api/ged/documents/{sha256}/comments            # Add human comment or generate AI comment via RAG
+PATCH  /api/ged/documents/{sha256}/comments/{id}/rating  # Rate an AI comment (APPROVED / REJECTED)
+DELETE /api/ged/documents/{sha256}/comments/{id}       # Delete a comment
+POST   /api/ged/documents/export/comments-dpo          # Export rated comments as DPO JSONL
 ```
 
 **Filtering the document list:**
@@ -562,6 +589,60 @@ SPECTRA_GED_AUTO_QUALIFY_THRESHOLD=0.75          # 0.0 = disabled; 0.0 < x ≤ 1
 SPECTRA_GED_ARCHIVE_AFTER_DAYS=90                # 0 = disabled; archive INGESTED docs after N days
 SPECTRA_GED_PURGE_AFTER_DAYS=365                 # 0 = disabled; purge ARCHIVED docs after N days
 ```
+
+---
+
+### Article Commenting — RAG Generation + DPO Feedback Loop
+
+Every GED document supports a comment thread. Comments can be written by a human analyst or **generated automatically by the LLM**, grounded by the document's own indexed chunks via RAG.
+
+**How AI-generated comments work:**
+
+```
+User provides a focus angle (optional)
+           ↓
+  RAG: retrieve top-6 chunks from the document's collection
+           ↓
+  LLM generates an analytical comment (temperature 0.4 — factual mode)
+           ↓
+  User rates the comment:  👍 APPROVED  /  👎 REJECTED
+           ↓
+  POST /export/comments-dpo  →  comments_dpo.jsonl
+           ↓
+  Fine-tune on the rated pairs (next training cycle)
+```
+
+**Why this combination is optimal:**
+
+| Approach | What it adds |
+|---|---|
+| RAG alone | Comment is grounded in the actual document chunks — no hallucination |
+| Fine-tuning alone | Model learns domain style and terminology — but may invent details |
+| RAG + DPO fine-tuning | RAG grounds each comment; DPO trains the model to prefer the kind of comments **you** approve — quality compounds over cycles |
+
+**Adding a comment via the API:**
+
+```bash
+# Human comment
+curl -X POST http://localhost:8080/api/ged/documents/{sha256}/comments \
+  -H 'Content-Type: application/json' \
+  -d '{"content": "This document covers section R23 of the operational protocol.", "generate": false}'
+
+# AI-generated comment (RAG + LLM)
+curl -X POST http://localhost:8080/api/ged/documents/{sha256}/comments \
+  -H 'Content-Type: application/json' \
+  -d '{"content": "safety procedures and emergency contacts", "generate": true}'
+# "content" is used as the focus/retrieval query when generate=true
+
+# Rate an AI comment
+curl -X PATCH "http://localhost:8080/api/ged/documents/{sha256}/comments/42/rating?rating=APPROVED"
+
+# Export as DPO pairs
+curl -X POST http://localhost:8080/api/ged/documents/export/comments-dpo
+# → {"pairs": 18, "file": "./data/dataset/comments_dpo.jsonl", "exportedAt": "..."}
+```
+
+The exported JSONL file uses the same `{"prompt","chosen","rejected","source","exportedAt"}` schema as the existing DPO dataset, so it is **directly compatible** with the `DPOTrainer` fine-tuning pipeline.
 
 ---
 
@@ -690,6 +771,17 @@ All settings have environment variable overrides. The table below shows the most
 | `SPECTRA_AGENTIC_RAG_ENABLED` | `false` | Enable ReAct loop |
 | `SPECTRA_AGENTIC_MAX_ITERATIONS` | `3` | Max search iterations |
 | `SPECTRA_AGENTIC_LANGUAGE` | `fr` | Response language (`fr`/`en`/`auto`) |
+| `SPECTRA_MULTI_QUERY_ENABLED` | `false` | Enable multi-query retrieval fusion |
+| `SPECTRA_MULTI_QUERY_COUNT` | `2` | Number of query variants to generate |
+| `SPECTRA_CONTEXT_COMPRESSION_ENABLED` | `false` | Enable LLM-based passage extraction |
+| `SPECTRA_SEMANTIC_DEDUP_ENABLED` | `false` | Enable Jaccard near-duplicate removal |
+| `SPECTRA_SEMANTIC_DEDUP_THRESHOLD` | `0.85` | Similarity threshold for dedup (0–1) |
+| `SPECTRA_LONG_CONTEXT_RAG_ENABLED` | `false` | Load full corpus when small enough |
+| `SPECTRA_LONG_CONTEXT_MAX_CHUNKS` | `100` | Max chunks before switching to vector search |
+| `SPECTRA_CONVERSATIONAL_RAG_ENABLED` | `false` | Enable history-aware query rewriting |
+| `SPECTRA_CORRECTIVE_RAG_ENABLED` | `false` | Enable LLM chunk relevance grading |
+| `SPECTRA_ADAPTIVE_RAG_ENABLED` | `false` | Enable automatic strategy selection |
+| `SPECTRA_SELF_RAG_ENABLED` | `false` | Enable self-reflection and refinement |
 
 ### GED
 

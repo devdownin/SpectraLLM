@@ -10,7 +10,15 @@ public record QueryResponse(
         boolean hybridSearchApplied,
         boolean agenticApplied,
         int agenticIterations,
-        AgenticStopReason agenticStopReason
+        AgenticStopReason agenticStopReason,
+        boolean conversationalApplied,
+        boolean correctiveApplied,
+        boolean selfRagApplied,
+        String ragStrategy,
+        boolean multiQueryApplied,
+        boolean compressionApplied,
+        boolean semanticDedupApplied,
+        boolean longContextApplied
 ) {
     /** Raison d'arrêt de la boucle agentique. {@code null} si {@code agenticApplied == false}. */
     public enum AgenticStopReason {
@@ -26,18 +34,28 @@ public record QueryResponse(
 
     /** Backwards-compatible constructor without rerank/hybrid/agentic flags. */
     public QueryResponse(String answer, List<Source> sources, long durationMs) {
-        this(answer, sources, durationMs, false, false, false, 0, null);
+        this(answer, sources, durationMs, false, false, false, 0, null, false, false, false, "STANDARD", false, false, false, false);
     }
 
     /** Backwards-compatible constructor with rerankApplied only. */
     public QueryResponse(String answer, List<Source> sources, long durationMs, boolean rerankApplied) {
-        this(answer, sources, durationMs, rerankApplied, false, false, 0, null);
+        this(answer, sources, durationMs, rerankApplied, false, false, 0, null, false, false, false, "STANDARD", false, false, false, false);
     }
 
     /** Backwards-compatible constructor without agentic fields. */
     public QueryResponse(String answer, List<Source> sources, long durationMs,
                          boolean rerankApplied, boolean hybridSearchApplied) {
-        this(answer, sources, durationMs, rerankApplied, hybridSearchApplied, false, 0, null);
+        this(answer, sources, durationMs, rerankApplied, hybridSearchApplied, false, 0, null, false, false, false, "STANDARD", false, false, false, false);
+    }
+
+    /** Backwards-compatible constructor with agentic fields but without new RAG strategy fields. */
+    public QueryResponse(String answer, List<Source> sources, long durationMs,
+                         boolean rerankApplied, boolean hybridSearchApplied,
+                         boolean agenticApplied, int agenticIterations, AgenticStopReason agenticStopReason) {
+        this(answer, sources, durationMs, rerankApplied, hybridSearchApplied,
+                agenticApplied, agenticIterations, agenticStopReason,
+                false, false, false, agenticApplied ? "AGENTIC" : "STANDARD",
+                false, false, false, false);
     }
 
     public record Source(

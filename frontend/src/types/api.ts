@@ -72,9 +72,36 @@ export interface FineTuningJob {
   startTime: string;
 }
 
+export interface ConversationMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface QuerySource {
+  text: string;
+  sourceFile: string;
+  distance: number;
+  rerankScore: number | null;
+  bm25Score: number | null;
+}
+
 export interface QueryResponse {
   answer: string;
-  sources: string[];
+  sources: QuerySource[];
+  durationMs: number;
+  rerankApplied: boolean;
+  hybridSearchApplied: boolean;
+  agenticApplied: boolean;
+  agenticIterations: number;
+  agenticStopReason: string | null;
+  conversationalApplied: boolean;
+  correctiveApplied: boolean;
+  selfRagApplied: boolean;
+  ragStrategy: 'DIRECT' | 'STANDARD' | 'AGENTIC';
+  multiQueryApplied: boolean;
+  compressionApplied: boolean;
+  semanticDedupApplied: boolean;
+  longContextApplied: boolean;
 }
 
 export interface TrainingLog {
@@ -106,4 +133,19 @@ export interface EvaluationReport {
   error: string | null;
   startedAt: string;
   completedAt: string | null;
+}
+
+export type CommentType = 'HUMAN' | 'AI_GENERATED';
+export type CommentRating = 'NONE' | 'APPROVED' | 'REJECTED';
+
+export interface ArticleComment {
+  id: number;
+  sha256: string;
+  content: string;
+  author: string;
+  type: CommentType;
+  rating: CommentRating;
+  focus: string;
+  createdAt: string;
+  updatedAt: string;
 }

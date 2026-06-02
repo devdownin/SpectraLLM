@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { useSse } from '../hooks/useSse';
 import type { TrainingLog } from '../types/api';
 import { fineTuningApi, recipeApi } from '../services/api';
+import LossChart from '../components/charts/LossChart';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -53,7 +54,7 @@ interface StepBarProps { job: FineTuningJob }
 
 const StepBar: FC<StepBarProps> = ({ job }) => {
   const current = job.status === 'FAILED'
-    ? stepIndex('COMPLETED') - 1  // show where it failed (before complete)
+    ? stepIndex('COMPLETED') - 1
     : stepIndex(job.status);
 
   return (
@@ -62,17 +63,33 @@ const StepBar: FC<StepBarProps> = ({ job }) => {
         const isDone   = job.status !== 'FAILED' && i < current;
         const isActive = i === current && job.status !== 'COMPLETED';
         const isFailed = job.status === 'FAILED' && i === current;
+        const isTraining = isActive && step.status === 'TRAINING';
+        // Flow connector: the connector right before the active step
+        const isFlowConnector = isDone && i === current - 1 && job.status !== 'COMPLETED' && job.status !== 'FAILED';
 
         return (
           <div key={step.status} className="flex items-center flex-1 last:flex-none">
             <div className="flex flex-col items-center gap-1.5">
-              <div className={`w-9 h-9 flex items-center justify-center border transition-all ${
-                isFailed  ? 'border-error bg-error/10 text-error' :
-                isDone    ? 'border-primary bg-primary/10 text-primary' :
-                isActive  ? 'border-secondary bg-secondary/10 text-secondary' :
-                            'border-outline-variant/30 text-outline'
-              } ${isActive ? 'animate-pulse' : ''}`}>
-                <span className="material-symbols-outlined text-sm">{step.icon}</span>
+              <div className="relative">
+                {/* Double radar rings for active step */}
+                {isActive && (
+                  <>
+                    <div className="absolute -inset-[6px] border border-secondary/55 ripple-ring pointer-events-none" />
+                    <div className="absolute -inset-[6px] border border-secondary/25 ripple-ring-delayed pointer-events-none" />
+                  </>
+                )}
+                {/* Slow orbit ring for TRAINING specifically */}
+                {isTraining && (
+                  <div className="absolute -inset-[4px] border-t border-primary/50 orbit-ring pointer-events-none" />
+                )}
+                <div className={`w-9 h-9 flex items-center justify-center border transition-all relative z-10 ${
+                  isFailed  ? 'border-error bg-error/10 text-error' :
+                  isDone    ? 'border-primary bg-primary/10 text-primary' :
+                  isActive  ? 'border-secondary bg-secondary/10 text-secondary' :
+                              'border-outline-variant/30 text-outline'
+                }`}>
+                  <span className="material-symbols-outlined text-sm">{step.icon}</span>
+                </div>
               </div>
               <span className={`font-label text-[9px] uppercase tracking-widest ${
                 isFailed  ? 'text-error' :
@@ -82,7 +99,18 @@ const StepBar: FC<StepBarProps> = ({ job }) => {
               }`}>{step.label}</span>
             </div>
             {i < PIPELINE_STEPS.length - 1 && (
-              <div className={`flex-1 h-px mx-1 mb-5 ${isDone ? 'bg-primary' : 'bg-outline-variant/20'}`} />
+              <div className={`relative flex-1 h-px mx-1 mb-5 overflow-hidden ${
+                isDone ? 'bg-primary/30' : 'bg-outline-variant/20'
+              }`}>
+                {/* Solid primary fill for fully completed segments */}
+                {isDone && !isFlowConnector && (
+                  <div className="absolute inset-0 bg-primary" />
+                )}
+                {/* Animated flow particle on the segment leading to active step */}
+                {isFlowConnector && (
+                  <div className="absolute inset-0 flow-connector" />
+                )}
+              </div>
             )}
           </div>
         );
@@ -134,6 +162,7 @@ const FineTuning: FC = () => {
   const [activeJob, setActiveJob] = useState<FineTuningJob | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [lossHistory, setLossHistory] = useState<{ epoch: number; loss: number }[]>([]);
 
   const { register, handleSubmit, watch, reset, formState: { errors } } = useForm<TrainingFormValues>({
     resolver: zodResolver(trainingSchema),
@@ -205,10 +234,22 @@ const FineTuning: FC = () => {
     localStorage.setItem('spectra_ft_conf', (formValues.minConfidence || 0.8).toString());
   }, [formValues]);
 
-  // ── SSE logs ──────────────────────────────────────────────────────────────
+  // ── SSE logs + loss extraction ────────────────────────────────────────────
   useEffect(() => {
-    if (newLog) setLogs(prev => [...prev.slice(-999), newLog]);
-  }, [newLog]);
+    if (!newLog) return;
+    setLogs(prev => [...prev.slice(-999), newLog]);
+    // Parse "loss: 0.1234" or "loss=0.1234" from log messages
+    const m = newLog.message.match(/loss[=:\s]+([0-9]+\.[0-9]+)/i);
+    if (m && activeJob?.currentEpoch) {
+      const loss = parseFloat(m[1]);
+      setLossHistory(prev => {
+        const epoch = activeJob.currentEpoch!;
+        const last = prev[prev.length - 1];
+        if (last?.epoch === epoch) return [...prev.slice(0, -1), { epoch, loss }];
+        return [...prev, { epoch, loss }];
+      });
+    }
+  }, [newLog, activeJob?.currentEpoch]);
 
   useEffect(() => {
     if (autoScroll && listRef.current) {
@@ -237,6 +278,16 @@ const FineTuning: FC = () => {
         const res = await fineTuningApi.getJob(activeJob.jobId);
         const job: FineTuningJob = res.data;
         setActiveJob(job);
+        // Accumulate loss from polling when SSE doesn't carry it
+        if (job.loss !== null && job.currentEpoch !== null) {
+          setLossHistory(prev => {
+            const epoch = job.currentEpoch!;
+            const last = prev[prev.length - 1];
+            if (last?.epoch === epoch) return [...prev.slice(0, -1), { epoch, loss: job.loss! }];
+            if (prev.some(p => p.epoch === epoch)) return prev;
+            return [...prev, { epoch, loss: job.loss! }];
+          });
+        }
         if (job.status === 'COMPLETED' || job.status === 'FAILED') {
           clearInterval(interval);
           loadJobs();
@@ -259,6 +310,7 @@ const FineTuning: FC = () => {
       const res = await fineTuningApi.createJob(data);
       const job: FineTuningJob = res.data;
       setActiveJob(job);
+      setLossHistory([]);
       setShowForm(false);
       toast.success('Job soumis', { description: `ID: ${job.jobId.slice(0, 8)}…` });
     } catch (err: any) {
@@ -491,8 +543,24 @@ const FineTuning: FC = () => {
                 )}
               </div>
 
-              {/* Right: Telemetry stream */}
-              <div className="lg:col-span-3 h-72 bg-surface-container-lowest font-mono text-[10px] flex flex-col">
+              {/* Right: Loss curve + telemetry */}
+              <div className="lg:col-span-3 flex flex-col gap-4">
+
+                {/* Loss chart */}
+                {(lossHistory.length > 0 || activeJob.status === 'TRAINING') && (
+                  <div className="bg-surface-container-lowest border border-outline-variant/10">
+                    <div className="px-4 py-2.5 border-b border-outline-variant/10 flex justify-between items-center">
+                      <span className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant font-bold">Training Loss</span>
+                      <span className="text-[9px] text-outline">{lossHistory.length} points</span>
+                    </div>
+                    <div className="h-32">
+                      <LossChart data={lossHistory} totalEpochs={activeJob.totalEpochs} />
+                    </div>
+                  </div>
+                )}
+
+              {/* Telemetry stream */}
+              <div className="h-48 bg-surface-container-lowest font-mono text-[10px] flex flex-col">
                 <div className="px-4 py-2.5 bg-surface-container-lowest/80 backdrop-blur-sm border-b border-outline-variant/10 flex justify-between items-center shrink-0">
                   <span className="uppercase tracking-widest text-on-surface-variant font-bold text-[9px]">Telemetry Stream</span>
                   <span className="text-[9px] text-outline">{logs.length} events</span>
@@ -513,6 +581,7 @@ const FineTuning: FC = () => {
                   </div>
                 )}
               </div>
+              </div>{/* end flex-col right column */}
             </div>
           </div>
         )}
