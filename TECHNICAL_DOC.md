@@ -1100,6 +1100,91 @@ POST /api/fine-tuning/models/{name}/pull
     Les modèles doivent être gérés localement sous forme de GGUF
 ```
 
+### Commentaires d'articles (Article Commenting)
+
+```
+GET  /api/ged/documents/{sha256}/comments
+  Réponse : liste d'objets ArticleComment triés par date décroissante
+  {
+    "id": 42,
+    "sha256": "abc123...",
+    "content": "Ce document couvre la procédure R23...",
+    "author": "ui",
+    "type": "AI_GENERATED",   ← HUMAN | AI_GENERATED
+    "rating": "APPROVED",     ← NONE | APPROVED | REJECTED
+    "focus": "procédures de sécurité",
+    "createdAt": "2026-06-02T10:30:00Z",
+    "updatedAt": "2026-06-02T10:31:00Z"
+  }
+
+POST /api/ged/documents/{sha256}/comments?actor=ui
+  Corps :
+    { "content": "Mon annotation manuelle.", "generate": false }
+    → Enregistre un commentaire humain directement.
+
+    { "content": "procédures de sécurité et contacts d'urgence", "generate": true }
+    → Déclenche la génération IA via RAG :
+       1. content est utilisé comme focus/requête de retrieval
+       2. RagService.retrieveContext() récupère 6 chunks (température 0.4)
+       3. LLM génère un commentaire analytique ancré dans ces chunks
+       4. Le commentaire est persisté avec le contexte RAG (JSON) et le focus
+
+PATCH /api/ged/documents/{sha256}/comments/{id}/rating?rating=APPROVED
+  → Évalue un commentaire IA. Valeurs : NONE | APPROVED | REJECTED
+  Réponse : l'entité mise à jour.
+
+DELETE /api/ged/documents/{sha256}/comments/{id}
+  → Supprime définitivement le commentaire.
+
+POST /api/ged/documents/export/comments-dpo
+  → Exporte les commentaires IA évalués en paires DPO JSONL
+     compatibles avec trl.DPOTrainer.
+  Format de chaque ligne :
+  {
+    "prompt":     "procédures de sécurité et contacts d'urgence",
+    "chosen":     "Le document décrit...",       ← commentaire APPROVED
+    "rejected":   "Le document stipule...",      ← commentaire REJECTED ou synthétique
+    "source":     "article_comment:abc123...",
+    "exportedAt": "2026-06-02T10:35:00Z"
+  }
+  Fichier de sortie : data/dataset/comments_dpo.jsonl
+  Réponse : {"pairs": 18, "file": "...", "exportedAt": "..."}
+```
+
+**Entité persistée** (`article_comments`, H2) :
+
+| Colonne | Type | Description |
+|---|---|---|
+| `id` | BIGINT PK auto | Identifiant |
+| `document_sha256` | VARCHAR | Référence au document GED |
+| `content` | TEXT | Corps du commentaire |
+| `author` | VARCHAR | Identifiant de l'auteur |
+| `comment_type` | ENUM | `HUMAN` ou `AI_GENERATED` |
+| `rating` | ENUM | `NONE`, `APPROVED`, `REJECTED` |
+| `rag_context` | TEXT | JSON des chunks utilisés lors de la génération (null pour HUMAN) |
+| `focus` | TEXT | Angle d'analyse fourni par l'utilisateur (null pour HUMAN) |
+| `created_at` | TIMESTAMP | Date de création |
+| `updated_at` | TIMESTAMP | Date de dernière modification |
+
+**Boucle RAG → DPO :**
+
+```
+Cycle n                              Cycle n+1
+──────────────────────               ──────────────────────
+Générer commentaire (RAG)            Fine-tune sur comments_dpo.jsonl
+  → ancré dans chunks réels          → modèle apprend à produire
+                                       des commentaires du style
+Évaluer (👍/👎)                       que VOUS approuvez
+  → paires (chosen, rejected)
+                                     Générer commentaires avec
+Exporter → comments_dpo.jsonl         le modèle affiné
+  → même schema que dpo_pairs.jsonl    → meilleure qualité dès le départ
+```
+
+Le fichier `comments_dpo.jsonl` peut être utilisé **en complément** du `dpo_pairs.jsonl`
+existant lors du fine-tuning : les deux sources sont au même format et peuvent être
+concaténées avant de lancer `trl.DPOTrainer`.
+
 ### Statut et RAG
 
 ```

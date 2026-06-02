@@ -96,10 +96,10 @@ Voici le parcours complet pour créer votre assistant IA spécialisé :
  Vos documents    Paires Q/A        Modèle GGUF         Réponses RAG
                        │
                   (optionnel)
-                  [2b. DPO]
-               Paires rejetées
-               → entraînement
-                 par préférence
+                  [2b. DPO]                [2c. COMMENTAIRES]
+               Paires rejetées          Annotations manuelles ou IA
+               → entraînement           Évaluation → paires DPO
+                 par préférence         → fine-tuning par préférence
 ```
 
 ---
@@ -292,6 +292,91 @@ curl http://localhost:8080/api/dataset/dpo/stats
 ```
 
 > Lancez la génération DPO **après** la génération SFT (étape 2). Elle se base sur les paires déjà générées pour créer les réponses rejetées.
+
+---
+
+### Étape 2c — Commentaires d'articles (optionnel — boucle de rétroaction RAG + DPO)
+
+**Objectif** : annoter chaque document ingéré avec des commentaires analytiques, générés par l'IA via RAG ou rédigés manuellement, puis exporter les évaluations comme paires DPO pour le prochain cycle de fine-tuning.
+
+Cette étape crée une **boucle de rétroaction humaine** : vous lisez les commentaires générés, vous approuvez ceux qui sont pertinents, vous rejetez ceux qui ne le sont pas — et ces préférences deviennent des données d'entraînement.
+
+#### Via l'interface
+
+1. Cliquez sur **Database** dans le menu gauche (page GED Documents).
+2. Cliquez sur un document dans la liste pour ouvrir la fiche.
+3. Dans la fiche, faites défiler jusqu'à la section **Commentaires**.
+4. Trois onglets sont disponibles :
+
+   - **Liste** — affiche tous les commentaires existants (humains et IA).
+   - **+ Manuel** — zone de texte pour ajouter votre propre annotation.
+   - **✦ IA** — génération automatique via RAG.
+
+#### Générer un commentaire IA
+
+1. Cliquez sur l'onglet **✦ IA**.
+2. (Optionnel) Saisissez un angle d'analyse dans le champ, par exemple :
+   - `procédures d'urgence et contacts`
+   - `points réglementaires à surveiller`
+   - Laissez vide pour un résumé général du document.
+3. Cliquez sur **✦ Générer via RAG**.
+4. Spectra récupère automatiquement les 6 passages les plus pertinents du document (via ChromaDB), puis le LLM rédige un commentaire analytique ancré dans ce contenu.
+5. Le commentaire apparaît dans l'onglet **Liste** avec le badge `✦ IA`.
+
+#### Évaluer les commentaires IA
+
+Sous chaque commentaire IA, trois boutons d'évaluation sont visibles :
+
+| Bouton | Signification | Effet |
+|---|---|---|
+| 👍 | APPROVED | Ce commentaire est bon — il deviendra un exemple positif (chosen) dans le dataset DPO |
+| 👎 | REJECTED | Ce commentaire est mauvais — il deviendra un exemple négatif (rejected) dans le dataset DPO |
+| — | NONE | Pas d'évaluation (défaut) |
+
+> **Conseil** : évaluez au moins 10–20 commentaires avant d'exporter. La qualité du fine-tuning DPO dépend directement de la quantité et de la cohérence des évaluations.
+
+#### Exporter les paires DPO
+
+Une fois vos évaluations saisies, cliquez sur le bouton **DPO↓** (en haut de la section Commentaires).
+
+Une notification confirme le nombre de paires exportées. Le fichier `data/dataset/comments_dpo.jsonl` est créé ou mis à jour.
+
+> Si un commentaire approuvé n'a pas de version rejetée pour le même focus, Spectra génère automatiquement une version erronée synthétique via le LLM pour compléter la paire.
+
+#### Via l'API
+
+```bash
+# Ajouter un commentaire humain
+curl -X POST http://localhost:8080/api/ged/documents/{sha256}/comments \
+  -H 'Content-Type: application/json' \
+  -d '{"content": "Ce document couvre la procédure R23 du protocole opérationnel.", "generate": false}'
+
+# Générer un commentaire IA (le champ "content" est le focus de retrieval)
+curl -X POST http://localhost:8080/api/ged/documents/{sha256}/comments \
+  -H 'Content-Type: application/json' \
+  -d '{"content": "sécurité et contacts d'\''urgence", "generate": true}'
+# → {"id": 42, "type": "AI_GENERATED", "content": "...", "rating": "NONE", ...}
+
+# Approuver le commentaire
+curl -X PATCH "http://localhost:8080/api/ged/documents/{sha256}/comments/42/rating?rating=APPROVED"
+
+# Rejeter un autre commentaire
+curl -X PATCH "http://localhost:8080/api/ged/documents/{sha256}/comments/43/rating?rating=REJECTED"
+
+# Exporter les paires DPO
+curl -X POST http://localhost:8080/api/ged/documents/export/comments-dpo
+# → {"pairs": 8, "file": "./data/dataset/comments_dpo.jsonl", "exportedAt": "..."}
+```
+
+#### Utiliser les paires DPO dans le fine-tuning
+
+Le fichier `comments_dpo.jsonl` est au même format que `dpo_pairs.jsonl`. Pour les combiner avant l'entraînement :
+
+```bash
+cat data/dataset/dpo_pairs.jsonl data/dataset/comments_dpo.jsonl > data/dataset/all_dpo.jsonl
+```
+
+Puis, lors du lancement du fine-tuning (étape 3), cochez **Alignement DPO** pour que l'entraîneur utilise ces paires.
 
 ---
 
