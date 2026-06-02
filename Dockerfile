@@ -12,6 +12,7 @@ WORKDIR /app
 
 # Create a non-root user
 RUN groupadd -r spectra && useradd -r -g spectra spectra
+RUN mkdir -p /app/data && chown -R spectra:spectra /app/data
 
 # Install llmfit
 RUN apt-get update && apt-get install -y --no-install-recommends curl wget && \

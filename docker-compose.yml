@@ -167,9 +167,7 @@ services:
       - SPECTRA_HYBRID_BM25_TOP=${SPECTRA_HYBRID_BM25_TOP:-20}
       - SPECTRA_HYBRID_BM25_WEIGHT=${SPECTRA_HYBRID_BM25_WEIGHT:-1.0}
     volumes:
-      - ./data/documents:/app/data/documents
-      - ./data/dataset:/app/data/dataset
-      - ./data/models:/app/data/models
+      - ./data:/app/data
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
       interval: 20s
