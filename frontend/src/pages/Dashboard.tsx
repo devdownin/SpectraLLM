@@ -118,7 +118,7 @@ const Dashboard: FC = () => {
         <h3 className="font-headline text-sm font-bold uppercase tracking-tight text-on-surface-variant">Service Health</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
 
-          <div className="bg-surface-container p-6 flex items-center justify-between">
+          <div className="bg-surface-container p-6 flex items-center justify-between card-hover">
             <div className="flex items-center gap-4">
               <div className={`w-10 h-10 flex items-center justify-center border ${
                 loading ? 'border-outline-variant/30 text-outline' :
@@ -279,21 +279,21 @@ const Dashboard: FC = () => {
         </div>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
 
-          <div className="bg-surface-container p-5 border-t-2 border-primary">
+          <div className="bg-surface-container p-5 border-t-2 border-primary card-hover">
             <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-2">Chunks in Store</p>
             {statsLoading ? <Skeleton className="h-9 w-16" /> : (
-              <p className="font-headline font-bold text-3xl">{stats?.chunksInStore ?? 0}</p>
+              <p className="font-headline font-bold text-3xl text-primary stat-glow">{stats?.chunksInStore ?? 0}</p>
             )}
           </div>
 
-          <div className="bg-surface-container p-5 border-t-2 border-secondary">
+          <div className="bg-surface-container p-5 border-t-2 border-secondary card-hover">
             <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-2">Training Pairs</p>
             {statsLoading ? <Skeleton className="h-9 w-16" /> : (
-              <p className="font-headline font-bold text-3xl">{stats?.totalPairs ?? 0}</p>
+              <p className="font-headline font-bold text-3xl text-secondary stat-glow-secondary">{stats?.totalPairs ?? 0}</p>
             )}
           </div>
 
-          <div className="bg-surface-container p-5 border-t-2 border-outline-variant">
+          <div className="bg-surface-container p-5 border-t-2 border-outline-variant card-hover">
             <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-2">Avg Confidence</p>
             {statsLoading ? <Skeleton className="h-9 w-16" /> : (
               <p className="font-headline font-bold text-3xl">
@@ -302,7 +302,7 @@ const Dashboard: FC = () => {
             )}
           </div>
 
-          <div className="bg-surface-container p-5 border-t-2 border-outline-variant">
+          <div className="bg-surface-container p-5 border-t-2 border-outline-variant card-hover">
             <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-2">Categories</p>
             {statsLoading ? <Skeleton className="h-9 w-16" /> : (
               <p className="font-headline font-bold text-3xl">

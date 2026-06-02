@@ -13,8 +13,9 @@ const Layout: FC<LayoutProps> = ({ children }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   return (
-    <div className="min-h-screen bg-background">
-      <Toaster 
+    <div className="min-h-screen bg-background bg-scene">
+      <div className="accent-bar" />
+      <Toaster
         theme="dark" 
         position="bottom-right" 
         toastOptions={{
