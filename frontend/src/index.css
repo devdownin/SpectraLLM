@@ -65,10 +65,103 @@
     0% { transform: translateX(-100%); }
     100% { transform: translateX(100%); }
   }
+
+  @keyframes shimmer {
+    0%   { background-position: -600px 0; }
+    100% { background-position:  600px 0; }
+  }
+
+  @keyframes accent-pulse {
+    0%, 100% { opacity: 0.7; }
+    50%       { opacity: 1.0; }
+  }
 }
 
 .animate-progress-fast {
   animation: progress-fast 1s linear infinite;
+}
+
+/* ── Skeleton shimmer ── */
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    #192540 0%,
+    rgba(143, 245, 255, 0.08) 40%,
+    rgba(143, 245, 255, 0.08) 60%,
+    #192540 100%
+  );
+  background-size: 600px 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+
+/* ── Top accent gradient bar ── */
+.accent-bar {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent 0%, #8ff5ff 35%, #d674ff 65%, transparent 100%);
+  z-index: 9999;
+  animation: accent-pulse 4s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* ── Ambient background radial glow ── */
+.bg-scene::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 65% 45% at 6%  0%,  rgba(143, 245, 255, 0.04) 0%, transparent 70%),
+    radial-gradient(ellipse 40% 35% at 94% 96%, rgba(214, 116, 255, 0.025) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── Sidebar dot grid texture ── */
+.sidebar-dots {
+  background-image: radial-gradient(circle, rgba(64, 72, 93, 0.38) 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+
+/* ── Card hover glow ── */
+.card-hover {
+  transition: box-shadow 0.25s ease;
+}
+.card-hover:hover {
+  box-shadow: 0 0 28px rgba(143, 245, 255, 0.06);
+}
+
+/* ── Glowing metric numbers ── */
+.stat-glow {
+  text-shadow: 0 0 20px rgba(143, 245, 255, 0.35);
+}
+.stat-glow-secondary {
+  text-shadow: 0 0 20px rgba(214, 116, 255, 0.35);
+}
+
+/* ── Header gradient bottom border ── */
+.header-border {
+  position: relative;
+}
+.header-border::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(143, 245, 255, 0.18) 30%,
+    rgba(143, 245, 255, 0.28) 50%,
+    rgba(143, 245, 255, 0.18) 70%,
+    transparent 100%
+  );
+}
+
+/* ── Sidebar active nav item ── */
+.nav-active {
+  background: linear-gradient(90deg, rgba(143, 245, 255, 0.12) 0%, rgba(143, 245, 255, 0.04) 60%, transparent 100%);
+  box-shadow: inset 3px 0 0 #8ff5ff, inset 4px 0 12px rgba(143, 245, 255, 0.12);
 }
 
 @layer base {
