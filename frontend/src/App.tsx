@@ -37,7 +37,7 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ErrorBoundary>
-        <Router>
+        <Router basename={import.meta.env.BASE_URL}>
           <Layout>
             <Suspense fallback={<LoadingState />}>
               <Routes>
