@@ -139,6 +139,89 @@
   text-shadow: 0 0 20px rgba(214, 116, 255, 0.35);
 }
 
+/* ── Pipeline / training step animations ── */
+
+@keyframes flow-particle {
+  0%   { background-position: -60% 0; }
+  100% { background-position: 160% 0; }
+}
+
+@keyframes ripple-out {
+  0%   { transform: scale(1);   opacity: 0.45; }
+  100% { transform: scale(2);   opacity: 0; }
+}
+
+@keyframes rotate-slow {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes count-flash {
+  0%   { color: #8ff5ff; text-shadow: 0 0 16px rgba(143,245,255,0.9); transform: scale(1.08); }
+  100% { color: inherit; text-shadow: none; transform: scale(1); }
+}
+
+/* Moving light particle along a connector line */
+.flow-connector {
+  background: linear-gradient(
+    90deg, transparent 0%, rgba(143,245,255,0.95) 50%, transparent 100%
+  );
+  background-size: 55% 100%;
+  background-repeat: no-repeat;
+  animation: flow-particle 0.95s linear infinite;
+}
+
+/* Secondary connector for purple (generation) */
+.flow-connector-secondary {
+  background: linear-gradient(
+    90deg, transparent 0%, rgba(214,116,255,0.9) 50%, transparent 100%
+  );
+  background-size: 55% 100%;
+  background-repeat: no-repeat;
+  animation: flow-particle 1.1s linear infinite;
+}
+
+/* Expanding radar ring for active pipeline step */
+.ripple-ring {
+  animation: ripple-out 1.7s ease-out infinite;
+}
+.ripple-ring-delayed {
+  animation: ripple-out 1.7s ease-out 0.65s infinite;
+}
+
+/* Scanning beam overlay for progress bars */
+.scan-beam {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg, transparent 0%, rgba(214,116,255,0.55) 50%, transparent 100%
+  );
+  background-size: 45% 100%;
+  background-repeat: no-repeat;
+  animation: flow-particle 1.6s ease-in-out infinite;
+}
+
+.scan-beam-primary {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg, transparent 0%, rgba(143,245,255,0.5) 50%, transparent 100%
+  );
+  background-size: 45% 100%;
+  background-repeat: no-repeat;
+  animation: flow-particle 1.4s ease-in-out infinite;
+}
+
+/* Slow-rotating orbital arc around training icon */
+.orbit-ring {
+  animation: rotate-slow 2.5s linear infinite;
+}
+
+/* Counter flash when value updates */
+.count-flash {
+  animation: count-flash 0.35s ease-out;
+}
+
 /* ── Header gradient bottom border ── */
 .header-border {
   position: relative;

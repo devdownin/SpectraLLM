@@ -79,25 +79,43 @@ interface PipelineStepProps {
   icon: string;
   label: string;
   state: 'idle' | 'active' | 'done';
+  nextState?: 'idle' | 'active' | 'done';
   isLast?: boolean;
 }
 
-const PipelineStep: FC<PipelineStepProps> = ({ icon, label, state, isLast }) => (
+const PipelineStep: FC<PipelineStepProps> = ({ icon, label, state, nextState, isLast }) => (
   <div className="flex items-center gap-0">
     <div className="flex flex-col items-center gap-2">
-      <div className={`w-10 h-10 flex items-center justify-center border transition-all ${
-        state === 'done'   ? 'border-primary bg-primary/10 text-primary' :
-        state === 'active' ? 'border-secondary bg-secondary/10 text-secondary animate-pulse' :
-                             'border-outline-variant/30 text-outline'
-      }`}>
-        <span className="material-symbols-outlined text-base">{icon}</span>
+      {/* Step icon with radar rings when active */}
+      <div className="relative">
+        {state === 'active' && (
+          <>
+            <div className="absolute -inset-[6px] border border-secondary/50 ripple-ring pointer-events-none" />
+            <div className="absolute -inset-[6px] border border-secondary/25 ripple-ring-delayed pointer-events-none" />
+          </>
+        )}
+        <div className={`w-10 h-10 flex items-center justify-center border transition-all duration-500 relative z-10 ${
+          state === 'done'   ? 'border-primary bg-primary/10 text-primary' :
+          state === 'active' ? 'border-secondary bg-secondary/10 text-secondary' :
+                               'border-outline-variant/30 text-outline'
+        }`}>
+          <span className="material-symbols-outlined text-base">{icon}</span>
+        </div>
       </div>
       <span className={`font-label text-[9px] uppercase tracking-widest ${
         state === 'idle' ? 'text-outline' : state === 'done' ? 'text-primary' : 'text-secondary'
       }`}>{label}</span>
     </div>
     {!isLast && (
-      <div className={`w-16 h-px mb-5 mx-1 ${state === 'done' ? 'bg-primary' : 'bg-outline-variant/20'}`} />
+      <div className={`relative w-16 h-px mb-5 mx-1 overflow-hidden ${state === 'done' ? 'bg-primary/30' : 'bg-outline-variant/20'}`}>
+        {state === 'done' && nextState !== 'active' && (
+          <div className="absolute inset-0 bg-primary" />
+        )}
+        {/* Flow particle traveling toward the active step */}
+        {state === 'done' && nextState === 'active' && (
+          <div className="absolute inset-0 flow-connector" />
+        )}
+      </div>
     )}
   </div>
 );
@@ -362,7 +380,9 @@ const Datasets: FC = () => {
         <div className="flex items-center gap-3">
           {PIPELINE_STEPS.map((s, i) => (
             <PipelineStep key={s.key} icon={s.icon} label={s.label}
-              state={pipelineState(s.key)} isLast={i === PIPELINE_STEPS.length - 1} />
+              state={pipelineState(s.key)}
+              nextState={i < PIPELINE_STEPS.length - 1 ? pipelineState(PIPELINE_STEPS[i + 1].key) : undefined}
+              isLast={i === PIPELINE_STEPS.length - 1} />
           ))}
         </div>
         </div>
@@ -569,21 +589,28 @@ const Datasets: FC = () => {
             ) : (
               <div className="flex-1 space-y-3 overflow-y-auto custom-scrollbar">
                 {ingestEntries.map(entry => (
-                  <div key={entry.id} className="space-y-1.5">
+                  <div key={entry.id} className={`space-y-1.5 transition-colors duration-300 ${entry.status === 'PROCESSING' ? 'bg-secondary/3 -mx-1 px-1' : ''}`}>
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 min-w-0">
-                        <span className={`material-symbols-outlined text-sm ${statusColor[entry.status]} ${entry.status === 'PROCESSING' ? 'animate-spin' : ''}`}>
+                        {/* Icon: spin for PROCESSING, static otherwise */}
+                        <span className={`material-symbols-outlined text-sm ${statusColor[entry.status]}`}
+                          style={entry.status === 'PROCESSING' ? { animation: 'rotate-slow 1.2s linear infinite' } : undefined}>
                           {statusIcon[entry.status]}
                         </span>
                         <span className="text-[10px] font-label truncate">{entry.fileName}</span>
                       </div>
-                      <span className={`text-[9px] font-bold uppercase tracking-widest shrink-0 ${statusColor[entry.status]}`}>
+                      <span key={`${entry.status}-${entry.chunksCreated}`}
+                        className={`text-[9px] font-bold uppercase tracking-widest shrink-0 ${statusColor[entry.status]} ${entry.status === 'COMPLETED' ? 'count-flash' : ''}`}>
                         {entry.status === 'COMPLETED' ? `${entry.chunksCreated} chunks` : entry.status}
                       </span>
                     </div>
                     {(entry.status === 'PROCESSING' || entry.status === 'COMPLETED') && (
-                      <div className="w-full bg-outline-variant/20 h-0.5">
-                        <div className={`h-full transition-all ${entry.status === 'COMPLETED' ? 'bg-primary w-full' : 'bg-secondary w-2/3 animate-pulse'}`} />
+                      <div className="relative w-full bg-outline-variant/20 h-0.5 overflow-hidden">
+                        <div className={`h-full transition-all duration-700 ${
+                          entry.status === 'COMPLETED' ? 'bg-primary w-full' : 'bg-secondary/50 w-2/3'
+                        }`} />
+                        {/* Scanning beam overlay during processing */}
+                        {entry.status === 'PROCESSING' && <div className="scan-beam" />}
                       </div>
                     )}
                     {entry.error && (
@@ -681,11 +708,13 @@ const Datasets: FC = () => {
                         {genTask.chunksProcessed} / {genTask.totalChunks}
                       </span>
                     </div>
-                    <div className="w-full bg-outline-variant/20 h-1.5 relative overflow-hidden">
+                    <div className="relative w-full bg-outline-variant/20 h-1.5 overflow-hidden">
                       <div
                         className="absolute top-0 left-0 h-full bg-primary transition-all duration-500"
                         style={{ width: `${(genTask.chunksProcessed / genTask.totalChunks) * 100}%` }}
                       />
+                      {/* Scan beam travels ahead of the fill when active */}
+                      {genTask.status === 'PROCESSING' && <div className="scan-beam-primary" />}
                     </div>
                   </div>
                 )}
@@ -694,7 +723,10 @@ const Datasets: FC = () => {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="bg-surface-container-lowest p-4 border-l-2 border-primary">
                     <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-1">Pairs Generated</p>
-                    <p className="font-headline font-bold text-2xl">{genTask.pairsGenerated}</p>
+                    {/* key forces re-mount → count-flash animation replays on each new value */}
+                    <p key={genTask.pairsGenerated} className={`font-headline font-bold text-2xl ${genTask.status === 'PROCESSING' ? 'count-flash' : ''}`}>
+                      {genTask.pairsGenerated}
+                    </p>
                   </div>
                   <div className="bg-surface-container-lowest p-4 border-l-2 border-secondary">
                     <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-1">Chunks Total</p>

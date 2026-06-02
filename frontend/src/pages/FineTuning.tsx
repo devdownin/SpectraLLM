@@ -54,7 +54,7 @@ interface StepBarProps { job: FineTuningJob }
 
 const StepBar: FC<StepBarProps> = ({ job }) => {
   const current = job.status === 'FAILED'
-    ? stepIndex('COMPLETED') - 1  // show where it failed (before complete)
+    ? stepIndex('COMPLETED') - 1
     : stepIndex(job.status);
 
   return (
@@ -63,17 +63,33 @@ const StepBar: FC<StepBarProps> = ({ job }) => {
         const isDone   = job.status !== 'FAILED' && i < current;
         const isActive = i === current && job.status !== 'COMPLETED';
         const isFailed = job.status === 'FAILED' && i === current;
+        const isTraining = isActive && step.status === 'TRAINING';
+        // Flow connector: the connector right before the active step
+        const isFlowConnector = isDone && i === current - 1 && job.status !== 'COMPLETED' && job.status !== 'FAILED';
 
         return (
           <div key={step.status} className="flex items-center flex-1 last:flex-none">
             <div className="flex flex-col items-center gap-1.5">
-              <div className={`w-9 h-9 flex items-center justify-center border transition-all ${
-                isFailed  ? 'border-error bg-error/10 text-error' :
-                isDone    ? 'border-primary bg-primary/10 text-primary' :
-                isActive  ? 'border-secondary bg-secondary/10 text-secondary' :
-                            'border-outline-variant/30 text-outline'
-              } ${isActive ? 'animate-pulse' : ''}`}>
-                <span className="material-symbols-outlined text-sm">{step.icon}</span>
+              <div className="relative">
+                {/* Double radar rings for active step */}
+                {isActive && (
+                  <>
+                    <div className="absolute -inset-[6px] border border-secondary/55 ripple-ring pointer-events-none" />
+                    <div className="absolute -inset-[6px] border border-secondary/25 ripple-ring-delayed pointer-events-none" />
+                  </>
+                )}
+                {/* Slow orbit ring for TRAINING specifically */}
+                {isTraining && (
+                  <div className="absolute -inset-[4px] border-t border-primary/50 orbit-ring pointer-events-none" />
+                )}
+                <div className={`w-9 h-9 flex items-center justify-center border transition-all relative z-10 ${
+                  isFailed  ? 'border-error bg-error/10 text-error' :
+                  isDone    ? 'border-primary bg-primary/10 text-primary' :
+                  isActive  ? 'border-secondary bg-secondary/10 text-secondary' :
+                              'border-outline-variant/30 text-outline'
+                }`}>
+                  <span className="material-symbols-outlined text-sm">{step.icon}</span>
+                </div>
               </div>
               <span className={`font-label text-[9px] uppercase tracking-widest ${
                 isFailed  ? 'text-error' :
@@ -83,7 +99,18 @@ const StepBar: FC<StepBarProps> = ({ job }) => {
               }`}>{step.label}</span>
             </div>
             {i < PIPELINE_STEPS.length - 1 && (
-              <div className={`flex-1 h-px mx-1 mb-5 ${isDone ? 'bg-primary' : 'bg-outline-variant/20'}`} />
+              <div className={`relative flex-1 h-px mx-1 mb-5 overflow-hidden ${
+                isDone ? 'bg-primary/30' : 'bg-outline-variant/20'
+              }`}>
+                {/* Solid primary fill for fully completed segments */}
+                {isDone && !isFlowConnector && (
+                  <div className="absolute inset-0 bg-primary" />
+                )}
+                {/* Animated flow particle on the segment leading to active step */}
+                {isFlowConnector && (
+                  <div className="absolute inset-0 flow-connector" />
+                )}
+              </div>
             )}
           </div>
         );
