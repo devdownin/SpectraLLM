@@ -57,7 +57,8 @@
       "Bash(grep *)",
       "Bash(./mvnw -q -o test -Dtest='BM25IndexTest,FtsServiceTest,HybridSearchServiceTest')",
       "Bash(mvn -q -o test -Dtest='BM25IndexTest,FtsServiceTest,HybridSearchServiceTest')",
-      "PowerShell(mvn *)"
+      "PowerShell(mvn *)",
+      "Bash(git reset *)"
     ]
   }
 }
