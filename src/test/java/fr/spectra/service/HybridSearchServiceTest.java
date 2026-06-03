@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -33,13 +34,16 @@ class HybridSearchServiceTest {
     void setUp() {
         chromaDb  = mock(ChromaDbClient.class);
         ftsService = mock(FtsService.class);
+        hybridSearch = serviceWithFusion("rrf");
+    }
 
+    /** Construit un HybridSearchService avec le mode de fusion donné (rrf | weighted). */
+    private HybridSearchService serviceWithFusion(String fusionMode) {
         SpectraProperties.HybridSearchProperties hybridProps =
-                new SpectraProperties.HybridSearchProperties(true, 20, 1.0f);
+                new SpectraProperties.HybridSearchProperties(true, 20, 1.0f, fusionMode);
         SpectraProperties props = mock(SpectraProperties.class);
         when(props.hybridSearch()).thenReturn(hybridProps);
-
-        hybridSearch = new HybridSearchService(chromaDb, ftsService, props);
+        return new HybridSearchService(chromaDb, ftsService, props);
     }
 
     // ── Cas nominal ───────────────────────────────────────────────────────────
@@ -168,6 +172,49 @@ class HybridSearchServiceTest {
         assertThat(chunk.vectorDistance()).isEqualTo(0.15);
         assertThat(chunk.bm25Score()).isEqualTo(2.5f);
         assertThat(chunk.rrfScore()).isGreaterThan(0.0);
+    }
+
+    // ── Fusion pondérée normalisée ────────────────────────────────────────────
+
+    @Test
+    void weightedFusion_docInBothSources_rankedFirst() {
+        HybridSearchService weighted = serviceWithFusion("weighted");
+        // d1 : faible distance (forte similarité) + présent BM25 → doit dominer
+        stubVector(List.of("d1", "d2"), List.of("texte un", "texte deux"),
+                List.of(0.1, 0.9), List.of(Map.of("sourceFile", "a.txt"), Map.of("sourceFile", "b.txt")));
+        when(ftsService.search(anyString(), anyString(), anyInt())).thenReturn(List.of(
+                new BM25Index.ScoredDoc("d1", "texte un", "a.txt", 5.0f),
+                new BM25Index.ScoredDoc("d3", "bm25 exclusif", "c.txt", 1.0f)
+        ));
+
+        List<HybridSearchService.HybridChunk> results =
+                weighted.search("query", QUERY_EMBEDDING, COLL_ID, COLL_NAME, 10);
+
+        assertThat(results.get(0).id()).isEqualTo("d1");
+        // Scores décroissants
+        for (int i = 0; i < results.size() - 1; i++) {
+            assertThat(results.get(i).rrfScore())
+                    .isGreaterThanOrEqualTo(results.get(i + 1).rrfScore());
+        }
+    }
+
+    @Test
+    void weightedFusion_topScoreIsNormalizedSum() {
+        HybridSearchService weighted = serviceWithFusion("weighted");
+        // d1 : meilleure similarité vectorielle ET meilleur BM25 → normVec=1, normBm25=1
+        // score attendu = vecWeight(1) * 1 + bm25Weight(1) * 1 = 2.0
+        stubVector(List.of("d1", "d2"), List.of("a", "b"),
+                List.of(0.1, 0.5), List.of(Map.of(), Map.of()));
+        when(ftsService.search(anyString(), anyString(), anyInt())).thenReturn(List.of(
+                new BM25Index.ScoredDoc("d1", "a", "a.txt", 4.0f),
+                new BM25Index.ScoredDoc("d2", "b", "b.txt", 1.0f)
+        ));
+
+        List<HybridSearchService.HybridChunk> results =
+                weighted.search("query", QUERY_EMBEDDING, COLL_ID, COLL_NAME, 10);
+
+        assertThat(results.get(0).id()).isEqualTo("d1");
+        assertThat(results.get(0).rrfScore()).isCloseTo(2.0, within(1e-6));
     }
 
     // ── Helper ────────────────────────────────────────────────────────────────

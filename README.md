@@ -349,21 +349,26 @@ The in-memory BM25 (Okapi BM25) index runs inside the JVM alongside the API. It'
 - It's deterministic, fast, and very good at exact matches
 - It's weak on synonyms and paraphrases (a document about "vehicles" won't rank for "cars" unless the word appears)
 
+**French-aware tokenizer:** the BM25 tokenizer applies two normalizations (symmetrically to documents and queries) tuned for the French corpus:
+- **Accent folding** — `péage`↔`peage`, `contrôle`↔`controle`, so an unaccented query still matches.
+- **Stop-word filtering** — function words (`le`, `de`, `pour`…) have near-zero IDF and dilute scoring, so they're dropped. Number-words (`deux`, `trois`) are kept (often meaningful: "voie 2", "niveau 3").
+
 **How they're combined (Hybrid Search):**
-Both indexes produce a ranked list. Spectra merges them using **Reciprocal Rank Fusion**:
+Both indexes produce a ranked list. Spectra merges them using **Reciprocal Rank Fusion** by default:
 
 ```
 RRF_score(doc) = Σ  1 / (k + rank_i(doc))
                  i
 ```
 
-Where `k=60` is a smoothing constant. This formula rewards documents that rank well in multiple lists without requiring score normalization between the two systems.
+Where `k=60` is a smoothing constant. This formula rewards documents that rank well in multiple lists without requiring score normalization between the two systems. An optional `weighted` fusion mode (convex combination of min-max normalized vector similarity + BM25 score) is also available.
 
 **Configuration:**
 ```bash
-SPECTRA_HYBRID_SEARCH_ENABLED=true   # Enable hybrid mode (default: false)
+SPECTRA_HYBRID_SEARCH_ENABLED=true   # Enable hybrid mode (default: true)
 SPECTRA_HYBRID_BM25_TOP=20           # Candidates fetched from BM25 before fusion
 SPECTRA_HYBRID_BM25_WEIGHT=1.0       # Weight multiplier for BM25 scores
+SPECTRA_HYBRID_FUSION_MODE=rrf       # Fusion strategy: rrf (default) | weighted
 ```
 
 **Status endpoint:**
@@ -672,6 +677,17 @@ Use these to compare quantizations (Q4_K_M vs. IQ3_M) or hardware configurations
 
 ---
 
+### `Model Hub` — Hardware-optimized discovery
+
+Spectra integrates with the **llmfit** CLI tool to help you discover and install models that are a "perfect fit" for your specific hardware.
+
+- **Automated Recommendation**: detects your CPU, RAM, and GPU VRAM to suggest models that fit your memory profile.
+- **GGUF-only Filtering**: automatically filters HuggingFace results to ensure you only install compatible GGUF models.
+- **One-click Installation**: downloads models in the background and registers them automatically in your local registry.
+- **Simulation Mode**: test how different models would behave on theoretical hardware configurations before upgrading your machine.
+
+---
+
 ### `ResourceAdvisorService` — Hardware Auto-Detection
 
 Runs at startup, detects your hardware, and computes optimal `llama-server` parameters:
@@ -759,9 +775,10 @@ All settings have environment variable overrides. The table below shows the most
 
 | Environment variable | Default | Description |
 |---|---|---|
-| `SPECTRA_HYBRID_SEARCH_ENABLED` | `false` | Enable BM25 + vector fusion |
+| `SPECTRA_HYBRID_SEARCH_ENABLED` | `true` | Enable BM25 + vector fusion (set `false` for vector-only) |
 | `SPECTRA_HYBRID_BM25_TOP` | `20` | BM25 candidates before fusion |
 | `SPECTRA_HYBRID_BM25_WEIGHT` | `1.0` | BM25 score weight multiplier |
+| `SPECTRA_HYBRID_FUSION_MODE` | `rrf` | Fusion strategy: `rrf` or `weighted` |
 | `SPECTRA_RERANKER_ENABLED` | `false` | Enable Cross-Encoder reranking |
 | `SPECTRA_RERANKER_TOP_CANDIDATES` | `20` | Candidates fed to reranker |
 | `RERANKER_MODEL` | `cross-encoder/mmarco-...` | HuggingFace model ID |

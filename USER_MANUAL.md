@@ -505,7 +505,7 @@ Réponse :
 
 **Ce que fait le RAG :**
 1. *(Si Long-Context RAG activé)* Si le corpus est petit (≤ seuil configuré), tous les chunks sont chargés directement — les étapes 2 à 5 sont ignorées
-2. *(Si Multi-Query activé)* N variantes de la question sont générées, le retrieval est exécuté pour chacune, et les résultats sont fusionnés en éliminant les doublons exacts
+2. *(Si Multi-Query activé)* N variantes de la question sont générées, le retrieval est exécuté pour chacune, et les résultats sont fusionnés par Reciprocal Rank Fusion (les chunks bien classés sur plusieurs variantes remontent, les doublons exacts sont éliminés)
 3. Votre question est convertie en vecteur par `nomic-embed-text` (llm-embed)
 4. Les `topCandidates` extraits les plus proches sémantiquement sont récupérés dans ChromaDB
 5. *(Si recherche hybride activée)* Une recherche BM25 parallèle récupère les extraits correspondant le mieux aux mots-clés exacts de la question ; les deux listes sont fusionnées via RRF
@@ -517,13 +517,15 @@ Réponse :
 11. Les extraits pertinents sont injectés dans le prompt comme "contexte"
 12. Le modèle spécialisé formule une réponse précise et sourcée (llm-chat)
 
-**Activer la recherche hybride (BM25 + vecteurs) :**
+**Recherche hybride (BM25 + vecteurs) — activée par défaut :**
 
-La recherche hybride récupère les termes techniques exacts (codes, numéros, acronymes) que l'embedding peut diluer. Aucun service supplémentaire n'est requis — l'index BM25 est en mémoire.
+La recherche hybride récupère les termes techniques exacts (codes, numéros, acronymes) que l'embedding peut diluer. Aucun service supplémentaire n'est requis — l'index BM25 est en mémoire. Elle est **activée par défaut** ; pour revenir au vectoriel pur :
 
 ```bash
-SPECTRA_HYBRID_SEARCH_ENABLED=true docker compose up -d
+SPECTRA_HYBRID_SEARCH_ENABLED=false docker compose up -d
 ```
+
+Le tokeniseur BM25 est adapté au français : il **ignore les accents** (`peage` retrouve `péage`) et **filtre les mots-vides** (`le`, `de`, `pour`…) pour ne garder que les termes signifiants. La fusion utilise Reciprocal Rank Fusion par défaut ; un mode pondéré normalisé est disponible via `SPECTRA_HYBRID_FUSION_MODE=weighted`.
 
 Au démarrage, Spectra reconstruit automatiquement l'index BM25 depuis ChromaDB en arrière-plan. Les premières requêtes peuvent être vectorielles seules si l'index n'est pas encore prêt.
 
@@ -688,7 +690,37 @@ Tableau de bord des évaluations **LLM-as-a-judge** : après un fine-tuning, lan
 
 ---
 
-## 5. Gestion des Modèles
+## 5. Model Hub : Découverte et installation de modèles
+
+Le **Model Hub** est votre porte d'entrée pour découvrir de nouveaux modèles optimisés pour votre configuration matérielle sans quitter Spectra. Il s'appuie sur l'outil **llmfit** pour vous recommander les meilleurs modèles GGUF disponibles sur HuggingFace.
+
+### 5.1 Parcourir les recommandations
+
+1. Cliquez sur **Model Hub** dans le menu gauche.
+2. Spectra détecte automatiquement votre matériel (CPU, RAM, VRAM GPU) et affiche une liste de modèles recommandés.
+3. Chaque modèle dispose d'un **Fit Score** :
+    - **Perfect** : Le modèle tient entièrement en VRAM (performance maximale).
+    - **Good** : Le modèle tient en grande partie en VRAM, le reste sur la RAM.
+    - **Marginal** : Le modèle est utilisable mais sera lent car majoritairement sur la RAM.
+    - **Too Tight** : Le modèle risque de provoquer un plantage par manque de mémoire.
+4. Utilisez le bouton **Simulation** en haut à droite pour tester comment d'autres modèles se comporteraient si vous aviez plus de RAM ou un meilleur GPU.
+
+### 5.2 Filtrage intelligent
+
+Spectra filtre automatiquement les résultats pour ne vous proposer que des modèles au format **GGUF** (les seuls compatibles avec `llama.cpp`). Les formats incompatibles comme GPTQ ou AWQ sont écartés pour vous garantir une installation sans erreur.
+
+### 5.3 Installer un modèle
+
+1. Cliquez sur le bouton **Installer** sous le modèle de votre choix.
+2. Spectra lance le téléchargement en arrière-plan. Une barre de progression s'affiche sur la carte du modèle.
+3. Le processus est asynchrone : vous pouvez continuer à utiliser Spectra pendant le téléchargement.
+4. (Optionnel) Cochez **Auto-activation** avant de cliquer sur Installer : le nouveau modèle sera automatiquement défini comme le modèle de chat actif dès la fin de son installation.
+
+> **Note :** Une fois le modèle installé, n'oubliez pas de redémarrer le service de chat pour l'utiliser : `docker compose restart llm-chat`.
+
+---
+
+## 6. Gestion des Modèles
 
 Spectra maintient un **registre local** des modèles dans `data/models/registry.json`, géré automatiquement par l'application.
 

@@ -19,6 +19,25 @@ public class BM25Index {
     private static final float B  = 0.75f;
     private static final int   MIN_TOKEN_LEN = 2;
 
+    /**
+     * Mots-vides français (forme repliée, sans accent — voir {@link #foldAccents}).
+     * Ces termes de fonction (articles, prépositions, pronoms, auxiliaires) apparaissent
+     * dans presque tous les chunks : leur IDF est quasi nul et ils diluent le score BM25
+     * des termes métier. On les exclut donc de l'indexation comme de la requête.
+     * Les mots-nombres ("deux", "trois"…) sont volontairement conservés (souvent signifiants
+     * dans un corpus technique : "voie 2", "niveau 3").
+     */
+    private static final Set<String> FRENCH_STOPWORDS = Set.of(
+            "le", "la", "les", "un", "une", "des", "de", "du", "au", "aux",
+            "et", "ou", "ni", "or", "mais", "donc", "car", "que", "qui", "quoi",
+            "dont", "en", "dans", "sur", "sous", "par", "pour", "avec", "sans",
+            "ce", "cet", "cette", "ces", "se", "sa", "son", "ses", "leur", "leurs",
+            "mon", "ma", "mes", "ton", "ta", "tes", "notre", "nos", "votre", "vos",
+            "il", "elle", "ils", "elles", "on", "nous", "vous", "je", "tu",
+            "ne", "pas", "plus", "est", "sont", "etre", "ete", "etait",
+            "avoir", "ont", "avait", "comme", "si", "ainsi", "tout", "tous", "toute", "toutes",
+            "cela", "celui", "celle", "aussi", "tres", "entre", "vers", "chez", "afin");
+
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
 
     // docId → token frequency map
@@ -157,19 +176,47 @@ public class BM25Index {
         Map<String, Integer> freq = new HashMap<>();
         // Split sur les espaces uniquement pour conserver les tirets dans les tokens bruts
         for (String raw : text.toLowerCase().split("\\s+")) {
+            // Repli des accents (péage→peage) AVANT nettoyage : indexation et requête
+            // partagent le même pipeline → "contrôle" matche "controle" et inversement.
+            String folded = foldAccents(raw);
             // Nettoyer les caractères non significatifs en conservant le tiret à l'intérieur
-            String cleaned = raw.replaceAll("[^a-zA-Z0-9àâäéèêëîïôùûüçœæ\\-]", "")
-                                 .replaceAll("^-+|-+$", ""); // supprimer tirets en début/fin
-            if (cleaned.length() < MIN_TOKEN_LEN) continue;
-            freq.merge(cleaned, 1, Integer::sum);   // terme complet (ex: "porte-à-faux")
+            String cleaned = folded.replaceAll("[^a-z0-9\\-]", "")
+                                   .replaceAll("^-+|-+$", ""); // supprimer tirets en début/fin
+            if (cleaned.length() < MIN_TOKEN_LEN || FRENCH_STOPWORDS.contains(cleaned)) continue;
+            freq.merge(cleaned, 1, Integer::sum);   // terme complet (ex: "porte-a-faux")
             if (cleaned.contains("-")) {
                 for (String part : cleaned.split("-")) {
-                    if (part.length() >= MIN_TOKEN_LEN) {
+                    if (part.length() >= MIN_TOKEN_LEN && !FRENCH_STOPWORDS.contains(part)) {
                         freq.merge(part, 1, Integer::sum);  // parties (ex: "porte", "faux")
                     }
                 }
             }
         }
         return freq;
+    }
+
+    /**
+     * Replie les caractères accentués français sur leur lettre de base
+     * (à/â/ä→a, é/è/ê/ë→e, î/ï→i, ô→o, ù/û/ü→u, ç→c, œ→oe, æ→ae).
+     * Rend la recherche tolérante aux accents manquants, fréquents dans les requêtes.
+     * L'entrée doit déjà être en minuscules.
+     */
+    private static String foldAccents(String s) {
+        StringBuilder sb = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case 'à', 'â', 'ä' -> sb.append('a');
+                case 'é', 'è', 'ê', 'ë' -> sb.append('e');
+                case 'î', 'ï' -> sb.append('i');
+                case 'ô', 'ö' -> sb.append('o');
+                case 'ù', 'û', 'ü' -> sb.append('u');
+                case 'ç' -> sb.append('c');
+                case 'œ' -> sb.append("oe");
+                case 'æ' -> sb.append("ae");
+                default -> sb.append(c);
+            }
+        }
+        return sb.toString();
     }
 }

@@ -37,7 +37,8 @@ spectra:
     embedding:
       base-url: ${SPECTRA_LLM_EMBEDDING_BASE_URL:http://llm-embed:8082}
   chromadb:
-    base-url: ${CHROMADB_URL:http://chromadb:8000}
+    base-url: ${SPECTRA_CHROMADB_BASE_URL:${CHROMADB_URL:http://chromadb:8000}}
+    buffer-size-mb: ${SPECTRA_CHROMADB_BUFFER_MB:16}
   pipeline:
     chunk-max-tokens: ${SPECTRA_CHUNK_MAX_TOKENS:512}
     chunk-overlap-tokens: ${SPECTRA_CHUNK_OVERLAP_TOKENS:64}
@@ -51,9 +52,14 @@ spectra:
     timeout-seconds: ${SPECTRA_LAYOUT_PARSER_TIMEOUT:120}
     buffer-size-mb: ${SPECTRA_LAYOUT_PARSER_BUFFER_MB:100}
   hybrid-search:
-    enabled: ${SPECTRA_HYBRID_SEARCH_ENABLED:false}
+    # Activé par défaut : combine recherche vectorielle (ChromaDB) et lexicale (BM25/FTS).
+    # Mettre SPECTRA_HYBRID_SEARCH_ENABLED=false pour revenir au vectoriel pur.
+    enabled: ${SPECTRA_HYBRID_SEARCH_ENABLED:true}
     top-bm25: ${SPECTRA_HYBRID_BM25_TOP:20}
     bm25-weight: ${SPECTRA_HYBRID_BM25_WEIGHT:1.0}
+    # Stratégie de fusion : "rrf" (Reciprocal Rank Fusion, robuste, défaut)
+    # ou "weighted" (combinaison convexe de scores normalisés min-max).
+    fusion-mode: ${SPECTRA_HYBRID_FUSION_MODE:rrf}
   reranker:
     enabled: ${SPECTRA_RERANKER_ENABLED:false}
     base-url: ${SPECTRA_RERANKER_URL:http://reranker:8000}

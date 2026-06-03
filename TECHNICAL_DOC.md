@@ -682,22 +682,31 @@ La recherche vectorielle pure peut rater des termes techniques précis (codes de
 
 | Classe | Rôle |
 |--------|------|
-| `BM25Index` | BM25Okapi en mémoire, thread-safe (`ReentrantReadWriteLock`). Tokeniseur Unicode (accents FR inclus). k1=1.5, b=0.75. |
+| `BM25Index` | BM25Okapi en mémoire, thread-safe (`ReentrantReadWriteLock`). Tokeniseur français : **repli des accents** (péage↔peage, contrôle↔controle) et **filtrage des mots-vides** (`le`, `de`, `pour`…) appliqués symétriquement à l'indexation et à la requête. k1=1.5, b=0.75. |
 | `FtsService` | Un `BM25Index` par collection. Rebuild asynchrone au démarrage depuis ChromaDB. Mis à jour à chaque ingestion / suppression. |
-| `HybridSearchService` | Lance vecteur + BM25 en parallèle (`CompletableFuture`). Fusionne via RRF. Activé par `@ConditionalOnProperty`. |
+| `HybridSearchService` | Lance vecteur + BM25 en parallèle (`CompletableFuture`). Fusionne via RRF (défaut) ou fusion pondérée normalisée. Activé par `@ConditionalOnProperty`. |
 
-**Reciprocal Rank Fusion (RRF) :**
+**Prétraitement lexical du tokeniseur BM25 :**
+
+Pour un corpus français, deux normalisations améliorent nettement le signal lexical :
+- **Repli des accents** : `à/â/ä→a`, `é/è/ê/ë→e`, `ç→c`, `œ→oe`… Une requête tapée sans accent (`peage`, `controle`) matche le document accentué et inversement.
+- **Mots-vides** : les termes de fonction (articles, prépositions, pronoms, auxiliaires) ont un IDF quasi nul et diluent le score des termes métier ; ils sont exclus de l'indexation comme de la requête. Les mots-nombres (`deux`, `trois`) sont conservés car souvent signifiants (`voie 2`, `niveau 3`).
+
+**Fusion — deux stratégies (`spectra.hybrid-search.fusion-mode`) :**
 
 ```
+# Mode "rrf" (Reciprocal Rank Fusion — défaut, robuste, insensible à l'échelle)
 score_rrf(d) = w_vec   / (k + rank_vec(d))
              + w_bm25  / (k + rank_bm25(d))
+k = 60   w_vec = 1.0 (fixe)   w_bm25 = 1.0 (spectra.hybrid-search.bm25-weight)
 
-k = 60  (constante standard — réduit l'impact des documents très bien classés dans un seul signal)
-w_vec  = 1.0 (fixe)
-w_bm25 = 1.0 (configurable via spectra.hybrid-search.bm25-weight)
+# Mode "weighted" (combinaison convexe de scores normalisés min-max)
+score_w(d) = w_vec · normSim_vec(d) + w_bm25 · normBM25(d)
+normSim_vec = min-max( 1 − distance_cosinus )  ∈ [0,1]
+normBM25    = min-max( score_bm25 )            ∈ [0,1]
 ```
 
-Si un document n'apparaît que dans l'un des deux signaux, sa contribution depuis l'autre signal est 0.
+RRF ne voit que le rang et ne nécessite aucun réglage : c'est le défaut recommandé. Le mode `weighted` conserve la magnitude des correspondances fortes mais est plus sensible aux valeurs extrêmes. Si un document n'apparaît que dans l'un des deux signaux, sa contribution depuis l'autre signal est 0.
 
 **Cycle de vie de l'index BM25 :**
 
@@ -723,9 +732,10 @@ Suppression :
 ```yaml
 spectra:
   hybrid-search:
-    enabled:    ${SPECTRA_HYBRID_SEARCH_ENABLED:false}  # désactivé par défaut
+    enabled:    ${SPECTRA_HYBRID_SEARCH_ENABLED:true}   # activé par défaut
     top-bm25:   ${SPECTRA_HYBRID_BM25_TOP:20}           # candidats BM25 récupérés
     bm25-weight: ${SPECTRA_HYBRID_BM25_WEIGHT:1.0}      # poids relatif du signal BM25
+    fusion-mode: ${SPECTRA_HYBRID_FUSION_MODE:rrf}      # "rrf" (défaut) | "weighted"
 ```
 
 **Combinaison I1 + I2 :** quand les deux sont activés, le pipeline complet est :
@@ -812,7 +822,7 @@ spectra:
 
 La recherche RAG standard encode une seule formulation de la question. Si l'utilisateur utilise un terme différent de celui présent dans les documents (synonyme, abréviation, reformulation), le vecteur produit peut s'éloigner des vecteurs des chunks pertinents.
 
-**Principe :** générer N reformulations de la question sous angles différents, exécuter le retrieval pour chacune, fusionner les résultats en dédupliquant sur le texte exact des chunks.
+**Principe :** générer N reformulations de la question sous angles différents, exécuter le retrieval pour chacune, puis fusionner les résultats par **Reciprocal Rank Fusion sur le rang** de chaque chunk dans sa sous-requête (déduplication sur le texte exact). Fusionner sur le rang plutôt que sur la distance cosinus brute préserve le classement hybride : un chunk remonté uniquement par BM25 (distance ≈ 1.0) n'est plus relégué en fin de liste, et un chunk bien classé par plusieurs variantes voit son score cumulé.
 
 ```
 MultiQueryService.generateQueries("Procédure d'évacuation en cas d'incident ?")
@@ -1100,6 +1110,22 @@ POST /api/fine-tuning/models/{name}/pull
     Les modèles doivent être gérés localement sous forme de GGUF
 ```
 
+### Model Hub
+
+```
+GET /api/models/hub/recommendations?limit=N&memory=X&ram=Y&cpuCores=Z
+  limit : nombre de recommandations (défaut 10)
+  memory, ram, cpuCores : (optionnel) simulation de matériel
+  Réponse : LlmFitRecommendation (modèles filtrés GGUF uniquement)
+
+POST /api/models/hub/install?modelName=...&quant=...&autoActivate=true
+  Lance le téléchargement asynchrone via llmfit.
+  Réponse : {"status": "IN_PROGRESS", "modelName": "..."}
+
+GET /api/models/hub/install/progress?modelName=... (SSE)
+  Suivi temps réel du téléchargement et de l'enregistrement.
+```
+
 ### Commentaires d'articles (Article Commenting)
 
 ```
@@ -1353,9 +1379,10 @@ Ces `.so` sont copiés depuis le stage `llama_cpp_build` vers `llama_cpp_runtime
 | `SPECTRA_RERANKER_URL` | `http://reranker:8000` | URL interne du service reranker |
 | `SPECTRA_RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Modèle Cross-Encoder (voir table section 6) |
 | `SPECTRA_RERANKER_TOP_CANDIDATES` | `20` | Nombre de candidats récupérés avant re-ranking |
-| `SPECTRA_HYBRID_SEARCH_ENABLED` | `false` | Active la recherche hybride BM25 + vecteurs |
-| `SPECTRA_HYBRID_BM25_TOP` | `20` | Candidats BM25 récupérés avant fusion RRF |
-| `SPECTRA_HYBRID_BM25_WEIGHT` | `1.0` | Poids du signal BM25 dans le score RRF |
+| `SPECTRA_HYBRID_SEARCH_ENABLED` | `true` | Active la recherche hybride BM25 + vecteurs (mettre `false` pour vectoriel pur) |
+| `SPECTRA_HYBRID_BM25_TOP` | `20` | Candidats BM25 récupérés avant fusion |
+| `SPECTRA_HYBRID_BM25_WEIGHT` | `1.0` | Poids du signal BM25 dans la fusion |
+| `SPECTRA_HYBRID_FUSION_MODE` | `rrf` | Stratégie de fusion : `rrf` (défaut) ou `weighted` (scores normalisés min-max) |
 | `SPECTRA_AGENTIC_RAG_ENABLED` | `false` | Active la boucle de raisonnement ReAct (`true` pour activer) |
 | `SPECTRA_AGENTIC_MAX_ITERATIONS` | `3` | Nombre maximal de tours de recherche complémentaire avant réponse forcée |
 | `SPECTRA_AGENTIC_INITIAL_TOP_K` | `5` | Chunks du retrieval initial transmis à la boucle agentique |
@@ -1608,3 +1635,37 @@ Ce script envoie des requêtes réelles à l'API Spectra et mesure les temps de 
 | Ingestion URL : max 20 URLs par requête | Volume limité par appel API | Effectuer plusieurs appels successifs |
 | Rendu JS (browserless) : timeout 60 s | Pages très lentes non rendues | Augmenter `BROWSERLESS_TIMEOUT` dans `UrlFetcherService` |
 | Extraction HTML : sélecteurs CSS fixes | Certains sites avec structures non-standards perdent du contenu | Ajouter les sélecteurs dans `HtmlExtractor.java` et recompiler |
+
+---
+
+## 14. Model Hub et Intégration llmfit
+
+Le Model Hub permet de découvrir et d'installer des modèles LLM optimisés pour le matériel détecté ou simulé.
+
+### 14.1 Recommandations matérielles
+
+Spectra utilise l'outil CLI **llmfit** (installé dans l'image Docker) pour obtenir des recommandations.
+
+- **Processus** : `spectra-api` invoque `llmfit recommend --json`.
+- **Simulation** : Les paramètres `memory`, `ram` et `cpuCores` permettent d'outrepasser la détection automatique pour tester des configurations théoriques.
+- **Filtrage GGUF** : Spectra applique un filtrage strict sur les sorties de `llmfit`. Un modèle n'est conservé que si :
+    - Son nom contient "GGUF".
+    - OU il possède des sources GGUF explicites dans ses métadonnées.
+    - OU sa quantification (`best_quant`) correspond à un format GGUF connu (`Qx_x`, `F16`, etc.).
+    - Les formats incompatibles comme `.w4a16`, `GPTQ` ou `AWQ` sont écartés pour éviter les échecs de téléchargement ou d'exécution par `llama.cpp`.
+
+### 14.2 Installation asynchrone
+
+L'installation est pilotée par `LlmFitService` et s'exécute en tâche de fond.
+
+1. **Commande** : Invoque `llmfit download <repo> --quant <quant>`.
+2. **Streaming des logs** : La sortie standard de `llmfit` est parsée en temps réel pour extraire le pourcentage de progression via des expressions régulières.
+3. **Enregistrement automatique** : Une fois le fichier `.gguf` téléchargé, Spectra l'enregistre dans le `ModelRegistryService` avec un alias dérivé du nom de fichier.
+4. **Auto-activation** : Si l'option est cochée, le nouveau modèle devient le modèle de chat actif dès la fin du téléchargement.
+
+### 14.3 Suivi via SSE
+
+Le frontend suit la progression via un flux Server-Sent Events (`/api/models/hub/install/progress`). Chaque événement contient :
+- `progress` : entier de 0 à 100.
+- `status` : `RUNNING`, `COMPLETED` ou `FAILED`.
+- `message` : détails sur l'étape en cours ou l'erreur rencontrée.

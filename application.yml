@@ -52,6 +52,7 @@ spectra:
   chromadb:
     base-url: http://chromadb:8000
     collection: spectra_documents
+    buffer-size-mb: ${SPECTRA_CHROMADB_BUFFER_MB:16}
   dataset:
     dir: ./data/dataset
     # Catégories de classification — adapter au domaine des documents ingérés.

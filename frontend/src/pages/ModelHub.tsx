@@ -4,8 +4,16 @@ import { modelsHubApi } from '../services/api';
 import Skeleton from '../components/Skeleton';
 import { useState } from 'react';
 
+type InstallStatus = 'RUNNING' | 'COMPLETED' | 'FAILED';
+
+interface InstallState {
+  progress: number;
+  status: InstallStatus;
+  message?: string;
+}
+
 const ModelHub: FC = () => {
-  const [installingModels, setInstallingModels] = useState<Record<string, number>>({});
+  const [installingModels, setInstallingModels] = useState<Record<string, InstallState>>({});
   const [autoActivate, setAutoActivate] = useState(false);
   const [filter, setFilter] = useState('All');
   const [limit, setLimit] = useState(12);
@@ -18,20 +26,31 @@ const ModelHub: FC = () => {
   });
 
   const installMutation = useMutation({
-    mutationFn: ({ modelName, quant }: { modelName: string; quant?: string }) =>
-      modelsHubApi.installModel(modelName, quant, autoActivate),
+    mutationFn: ({ modelName, downloadRepo, quant }: { modelName: string; downloadRepo: string; quant?: string }) =>
+      modelsHubApi.installModel(downloadRepo || modelName, quant, autoActivate),
     onSuccess: (_, variables) => {
-      setInstallingModels(prev => ({ ...prev, [variables.modelName]: 0 }));
+      setInstallingModels(prev => ({
+        ...prev,
+        [variables.modelName]: { progress: 0, status: 'RUNNING', message: 'Téléchargement démarré' },
+      }));
 
-      const eventSource = modelsHubApi.getProgressSource(variables.modelName);
+      const eventSource = modelsHubApi.getProgressSource(variables.downloadRepo || variables.modelName);
       eventSource.onmessage = (event) => {
-        const progress = parseInt(event.data);
-        setInstallingModels(prev => ({ ...prev, [variables.modelName]: progress }));
-        if (progress >= 100) {
+        const payload = JSON.parse(event.data) as InstallState;
+        setInstallingModels(prev => ({ ...prev, [variables.modelName]: payload }));
+        if (payload.status === 'COMPLETED' || payload.status === 'FAILED') {
           eventSource.close();
         }
       };
       eventSource.onerror = () => {
+        setInstallingModels(prev => ({
+          ...prev,
+          [variables.modelName]: {
+            progress: prev[variables.modelName]?.progress ?? 0,
+            status: 'FAILED',
+            message: 'Connexion au suivi de téléchargement interrompue.',
+          },
+        }));
         eventSource.close();
       };
     },
@@ -40,8 +59,8 @@ const ModelHub: FC = () => {
     }
   });
 
-  const handleInstall = (modelName: string, quant?: string) => {
-    installMutation.mutate({ modelName, quant });
+  const handleInstall = (modelName: string, downloadRepo: string, quant?: string) => {
+    installMutation.mutate({ modelName, downloadRepo, quant });
   };
 
   const filteredModels = recommendations?.models?.filter((m: any) => {
@@ -217,6 +236,14 @@ const ModelHub: FC = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
         {filteredModels?.map((model: any) => (
           <div key={model.name} className="group relative bg-surface-container-lowest border border-outline-variant/10 hover:border-primary/30 transition-all flex flex-col h-full shadow-sm hover:shadow-md">
+            {(() => {
+              const installState = installingModels[model.name];
+              const isInstalling = installState?.status === 'RUNNING';
+              const installFailed = installState?.status === 'FAILED';
+              const installCompleted = installState?.status === 'COMPLETED';
+
+              return (
+                <>
             <div className="p-6 flex-1">
               <div className="flex justify-between items-start mb-4">
                 <div className="px-2 py-0.5 bg-primary/10 text-primary text-[10px] font-black uppercase tracking-widest border border-primary/20">
@@ -270,26 +297,36 @@ const ModelHub: FC = () => {
             </div>
 
             <div className="relative">
-              {installingModels[model.name] !== undefined && installingModels[model.name] < 100 && (
-                <div className="absolute top-0 left-0 h-1 bg-secondary transition-all duration-300" style={{ width: `${installingModels[model.name]}%` }}></div>
+              {isInstalling && (
+                <div className="absolute top-0 left-0 h-1 bg-secondary transition-all duration-300" style={{ width: `${installState.progress}%` }}></div>
+              )}
+              {installFailed && installState.message && (
+                <div className="px-4 py-3 bg-error/10 text-error text-xs border-t border-error/20 break-words">
+                  {installState.message}
+                </div>
               )}
               <button
-                onClick={() => handleInstall(model.name, model.best_quant)}
-                disabled={model.installed || installingModels[model.name] !== undefined}
+                onClick={() => handleInstall(model.name, model.download_repo, model.best_quant)}
+                disabled={model.installed || isInstalling || installCompleted}
                 className={`w-full py-4 font-headline uppercase tracking-[0.2em] text-[11px] font-black flex items-center justify-center gap-2 transition-all ${
-                  model.installed
+                  model.installed || installCompleted
                   ? 'bg-surface-variant text-outline cursor-default'
-                  : installingModels[model.name] !== undefined
+                  : isInstalling
                     ? 'bg-secondary text-on-secondary cursor-wait'
+                    : installFailed
+                      ? 'bg-error text-on-error hover:bg-error/90'
                     : 'bg-primary text-on-primary hover:bg-primary/90'
                 }`}
               >
                 <span className="material-symbols-outlined text-sm">
-                  {model.installed ? 'check_circle' : installingModels[model.name] !== undefined ? 'sync' : 'download'}
+                  {model.installed || installCompleted ? 'check_circle' : isInstalling ? 'sync' : installFailed ? 'error' : 'download'}
                 </span>
-                {model.installed ? 'Installé' : installingModels[model.name] !== undefined ? `Téléchargement (${installingModels[model.name]}%)` : 'Installer'}
+                {model.installed || installCompleted ? 'Installé' : isInstalling ? `Téléchargement (${installState.progress}%)` : installFailed ? 'Réessayer' : 'Installer'}
               </button>
             </div>
+                </>
+              );
+            })()}
           </div>
         ))}
       </div>

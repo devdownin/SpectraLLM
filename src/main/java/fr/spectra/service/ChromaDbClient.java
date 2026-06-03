@@ -53,7 +53,9 @@ public class ChromaDbClient {
     public ChromaDbClient(@Qualifier("chromaDbWebClient") WebClient webClient,
                           SpectraProperties properties) {
         this.webClient = webClient;
-        this.props = properties.chromadb();
+        this.props = properties.chromadb() != null
+                ? properties.chromadb()
+                : new SpectraProperties.ChromaDbProperties(null, null, null);
     }
 
     public ServiceStatus checkHealth() {
@@ -65,11 +67,11 @@ public class ChromaDbClient {
                     .bodyToMono(Map.class)
                     .block(TIMEOUT_DEFAULT);
             long elapsed = System.currentTimeMillis() - start;
-            return new ServiceStatus("chromadb", props.baseUrl(), true, "ok", elapsed, Map.of());
+            return new ServiceStatus("chromadb", props.effectiveBaseUrl(), true, "ok", elapsed, Map.of());
         } catch (Exception e) {
             long elapsed = System.currentTimeMillis() - start;
             log.warn("ChromaDB indisponible: {}", e.getMessage());
-            return ServiceStatus.unavailable("chromadb", props.baseUrl(), elapsed);
+            return ServiceStatus.unavailable("chromadb", props.effectiveBaseUrl(), elapsed);
         }
     }
 

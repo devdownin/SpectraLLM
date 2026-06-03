@@ -22,10 +22,16 @@ public class AppConfig {
 
     @Bean
     public WebClient chromaDbWebClient(SpectraProperties props) {
-        String baseUrl = props.chromadb() != null && props.chromadb().baseUrl() != null
-                ? props.chromadb().baseUrl()
+        String baseUrl = props.chromadb() != null
+                ? props.chromadb().effectiveBaseUrl()
                 : "http://chromadb:8000";
-        return WebClient.builder().baseUrl(baseUrl).build();
+        int bufferBytes = (props.chromadb() != null
+                ? props.chromadb().effectiveBufferSizeMb()
+                : 16) * 1024 * 1024;
+        return WebClient.builder()
+                .baseUrl(baseUrl)
+                .codecs(c -> c.defaultCodecs().maxInMemorySize(bufferBytes))
+                .build();
     }
 
     @Bean

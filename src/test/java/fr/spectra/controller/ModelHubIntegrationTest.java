@@ -3,6 +3,7 @@ package fr.spectra.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import fr.spectra.dto.LlmFitRecommendation;
 import fr.spectra.service.LlmFitService;
+import fr.spectra.service.LlmFitService.InstallationProgress;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -18,6 +19,7 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.mockito.ArgumentMatchers.*;
@@ -26,6 +28,7 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import reactor.core.publisher.Flux;
 
 @ExtendWith(MockitoExtension.class)
 class ModelHubIntegrationTest {
@@ -59,7 +62,7 @@ class ModelHubIntegrationTest {
     @Test
     void getRecommendations_withModels_returnsModelDetails() throws Exception {
         LlmFitRecommendation.ModelRecommendation model = new LlmFitRecommendation.ModelRecommendation(
-                "llama3.2:3b", "Meta", "3B", "chat", 0.87, "good", "Q4_K_M",
+                "llama3.2:3b", "llama3.2:3b", "Meta", "3B", "chat", 0.87, "good", "Q4_K_M",
                 12.5, 2.1, 1.8, 4096, List.of("Rapide sur CPU"),
                 Map.of("fit", 0.9), List.of(), false, "CPU");
         when(llmFitService.getRecommendations(anyInt(), any(), any(), any()))
@@ -117,10 +120,10 @@ class ModelHubIntegrationTest {
     @Test
     void getRecommendations_multipleModels_orderPreserved() throws Exception {
         LlmFitRecommendation.ModelRecommendation m1 = new LlmFitRecommendation.ModelRecommendation(
-                "model-a", "ProvA", "3B", "chat", 0.95, "perfect", "Q4_K_M",
+                "model-a", "model-a", "ProvA", "3B", "chat", 0.95, "perfect", "Q4_K_M",
                 15.0, 2.0, 1.5, 4096, List.of(), Map.of(), List.of(), false, "CPU");
         LlmFitRecommendation.ModelRecommendation m2 = new LlmFitRecommendation.ModelRecommendation(
-                "model-b", "ProvB", "7B", "chat", 0.80, "good", "Q5_K_M",
+                "model-b", "model-b", "ProvB", "7B", "chat", 0.80, "good", "Q5_K_M",
                 8.0, 4.5, 4.0, 8192, List.of(), Map.of(), List.of(), false, "GPU");
         when(llmFitService.getRecommendations(anyInt(), any(), any(), any()))
                 .thenReturn(new LlmFitRecommendation(List.of(m1, m2), null));
@@ -159,6 +162,20 @@ class ModelHubIntegrationTest {
     }
 
     @Test
+    void installModel_withAutoActivate_passesFlagToService() throws Exception {
+        when(llmFitService.installModel("phi-4", null, true))
+                .thenReturn(CompletableFuture.completedFuture(true));
+
+        mockMvc.perform(post("/api/models/hub/install")
+                        .param("modelName", "phi-4")
+                        .param("autoActivate", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status", is("IN_PROGRESS")));
+
+        verify(llmFitService).installModel("phi-4", null, true);
+    }
+
+    @Test
     void installModel_missingModelName_returns400() throws Exception {
         mockMvc.perform(post("/api/models/hub/install"))
                 .andExpect(status().isBadRequest());
@@ -179,7 +196,7 @@ class ModelHubIntegrationTest {
     @Test
     void recommendThenInstall_fullHttpFlow_succeeds() throws Exception {
         LlmFitRecommendation.ModelRecommendation topModel = new LlmFitRecommendation.ModelRecommendation(
-                "mistral:7b-q4km", "Mistral", "7B", "chat", 0.91, "perfect",
+                "mistral:7b-q4km", "mistral:7b-q4km", "Mistral", "7B", "chat", 0.91, "perfect",
                 "Q4_K_M", 8.3, 4.2, 3.9, 8192, List.of(), Map.of(), List.of(), false, "GPU");
         when(llmFitService.getRecommendations(anyInt(), any(), any(), any()))
                 .thenReturn(new LlmFitRecommendation(List.of(topModel), null));
@@ -217,5 +234,18 @@ class ModelHubIntegrationTest {
                         .param("memory", "2048"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.models").isEmpty());
+    }
+
+    @Test
+    void getInstallationProgress_queryParamSupportsSlashInModelName() throws Exception {
+        when(llmFitService.getInstallationProgress("RedHatAI/Qwen3"))
+                .thenReturn(Flux.just(new InstallationProgress(42, "RUNNING", "Téléchargement en cours")));
+
+        mockMvc.perform(get("/api/models/hub/install/progress")
+                        .param("modelName", "RedHatAI/Qwen3"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM))
+                .andExpect(content().string(containsString("\"progress\":42")))
+                .andExpect(content().string(containsString("\"status\":\"RUNNING\"")));
     }
 }

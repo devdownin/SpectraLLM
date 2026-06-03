@@ -6,6 +6,38 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ---
 
+## [1.10.0] — 2026-06-03
+
+### Amélioré — Recherche hybride (Hybrid Information Retrieval, I2)
+
+Approfondissement du retrieval hybride existant (BM25 + vecteurs) sur quatre axes, sans nouveau service externe.
+
+#### Tokeniseur BM25 adapté au français (`BM25Index`)
+
+- **Repli des accents** appliqué symétriquement à l'indexation et à la requête : `péage`↔`peage`, `contrôle`↔`controle`, `maçonnerie`↔`maconnerie` (`à/â/ä→a`, `é/è/ê/ë→e`, `ç→c`, `œ→oe`, `æ→ae`…). Une requête tapée sans accent retrouve désormais le document accentué.
+- **Filtrage des mots-vides français** : les termes de fonction (`le`, `la`, `de`, `des`, `pour`, `dans`…) ont un IDF quasi nul et diluaient le score des termes métier ; ils sont exclus de l'index comme de la requête. Les mots-nombres (`deux`, `trois`) sont conservés car signifiants ("voie 2", "niveau 3").
+
+#### Fusion pondérée normalisée optionnelle (`HybridSearchService`)
+
+- Nouveau mode de fusion `weighted` : combinaison convexe de la similarité vectorielle (`1 − distance cosinus`) et du score BM25, chacun normalisé min-max sur `[0,1]`. Conserve la magnitude des correspondances fortes, là où RRF ne voit que le rang.
+- **RRF reste le défaut** (robuste, sans réglage). Sélection via `spectra.hybrid-search.fusion-mode` / `SPECTRA_HYBRID_FUSION_MODE` (`rrf` | `weighted`).
+
+#### Correction multi-query + hybride (`RagService.executeMultiQueryRetrieval`)
+
+- La fusion multi-query re-triait les chunks par **distance cosinus brute**, ce qui reléguait en fin de liste les chunks remontés par BM25 (distance ≈ 1.0) et écrasait le classement hybride des sous-requêtes.
+- Remplacé par une **Reciprocal Rank Fusion sur le rang** de chaque chunk dans sa sous-requête : un chunk bien classé sur plusieurs variantes voit son score cumulé, indépendamment du mode de retrieval (vectoriel ou hybride).
+
+#### Activation par défaut
+
+- `spectra.hybrid-search.enabled` passe à `true` par défaut (`SPECTRA_HYBRID_SEARCH_ENABLED=false` pour revenir au vectoriel pur). L'index BM25 est en mémoire, reconstruit en arrière-plan au démarrage : aucun service supplémentaire requis.
+
+#### Tests
+
+- `BM25IndexTest` : +6 tests (repli des accents, filtrage des mots-vides, conservation des mots-nombres).
+- `HybridSearchServiceTest` : +2 tests (mode `weighted` — classement et score normalisé). Suite complète verte (442 tests).
+
+---
+
 ## [1.9.0] — 2026-04-22
 
 ### Correctifs — Bugs, sécurité, fiabilisation

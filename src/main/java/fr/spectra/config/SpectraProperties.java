@@ -9,6 +9,7 @@ public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, 
 
     public SpectraProperties {
         if (pipeline == null) pipeline = new PipelineProperties(null, null, null, null, null, null);
+        if (chromadb == null) chromadb = new ChromaDbProperties(null, null, null);
         if (ged == null) ged = new GedProperties(null, null, null);
     }
 
@@ -66,9 +67,21 @@ public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, 
         public List<String> effectiveExtraArgs() { return extraArgs != null ? extraArgs : List.of(); }
     }
 
-    public record ChromaDbProperties(String baseUrl, String collection) {
+    public record ChromaDbProperties(String baseUrl, String collection, Integer bufferSizeMb) {
+        public ChromaDbProperties(String baseUrl, String collection) {
+            this(baseUrl, collection, null);
+        }
+
+        public String effectiveBaseUrl() {
+            return baseUrl != null ? baseUrl : "http://chromadb:8000";
+        }
+
         public String effectiveCollection() {
             return collection != null ? collection : "spectra_documents";
+        }
+
+        public int effectiveBufferSizeMb() {
+            return bufferSizeMb != null && bufferSizeMb > 0 ? bufferSizeMb : 16;
         }
     }
 
@@ -95,11 +108,19 @@ public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, 
     public record HybridSearchProperties(
             Boolean enabled,
             Integer topBm25,
-            Float bm25Weight
+            Float bm25Weight,
+            String fusionMode
     ) {
         public boolean isEnabled() { return Boolean.TRUE.equals(enabled); }
         public int effectiveTopBm25() { return topBm25 != null ? topBm25 : 20; }
         public float effectiveBm25Weight() { return bm25Weight != null ? bm25Weight : 1.0f; }
+        /**
+         * Stratégie de fusion : {@code "rrf"} (Reciprocal Rank Fusion, défaut, robuste)
+         * ou {@code "weighted"} (combinaison convexe de scores normalisés min-max).
+         */
+        public String effectiveFusionMode() {
+            return (fusionMode != null && !fusionMode.isBlank()) ? fusionMode.trim().toLowerCase() : "rrf";
+        }
     }
 
     public record RerankerProperties(

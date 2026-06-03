@@ -194,9 +194,9 @@ export const modelsHubApi = {
   getRecommendations: (params: { limit?: number; memory?: string; ram?: string; cpuCores?: number } = {}) =>
     api.get('/models/hub/recommendations', { params }),
   installModel: (modelName: string, quant?: string, autoActivate = false) =>
-    api.post(`/models/hub/install?modelName=${encodeURIComponent(modelName)}${quant ? `&quant=${quant}` : ''}&autoActivate=${autoActivate}`),
+    api.post(`/models/hub/install?modelName=${encodeURIComponent(modelName)}${quant ? `&quant=${encodeURIComponent(quant)}` : ''}&autoActivate=${autoActivate}`),
   getProgressSource: (modelName: string) =>
-    new EventSource(`/api/models/hub/install/${encodeURIComponent(modelName)}/progress`),
+    new EventSource(`/api/models/hub/install/progress?modelName=${encodeURIComponent(modelName)}`),
 };
 
 export default api;

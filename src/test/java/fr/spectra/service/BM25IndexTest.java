@@ -157,6 +157,56 @@ class BM25IndexTest {
         assertThat(index.search("a", 5)).isEmpty();
     }
 
+    // ── Repli des accents (accent folding) ────────────────────────────────────
+
+    @Test
+    void search_accentInsensitive_unaccentedQueryMatchesAccentedDoc() {
+        index.add("d1", "le péage de l'autoroute A7", "src.txt");
+        // Requête sans accent → doit matcher le document accentué
+        assertThat(index.search("peage", 5)).isNotEmpty();
+    }
+
+    @Test
+    void search_accentInsensitive_accentedQueryMatchesUnaccentedDoc() {
+        index.add("d1", "controle technique des vehicules", "src.txt");
+        // Requête accentuée → doit matcher le document sans accent
+        assertThat(index.search("contrôle", 5)).isNotEmpty();
+    }
+
+    @Test
+    void search_accentFolding_cedillaAndCircumflex() {
+        index.add("d1", "maçonnerie et bâtiment", "src.txt");
+        assertThat(index.search("maconnerie", 5)).isNotEmpty();
+        assertThat(index.search("batiment", 5)).isNotEmpty();
+    }
+
+    // ── Mots-vides français (stopwords) ───────────────────────────────────────
+
+    @Test
+    void search_stopword_returnsEmpty() {
+        index.add("d1", "le contrôle de la chaussée par les équipes", "src.txt");
+        // "le", "de", "la", "par", "les" sont des mots-vides → non indexés
+        assertThat(index.search("le", 5)).isEmpty();
+        assertThat(index.search("des", 5)).isEmpty();
+        assertThat(index.search("pour", 5)).isEmpty();
+    }
+
+    @Test
+    void search_contentWordSurvivesStopwordFiltering() {
+        index.add("d1", "le contrôle de la chaussée par les équipes", "src.txt");
+        // Les termes métier restent indexés malgré le filtrage des mots-vides
+        assertThat(index.search("chaussee", 5)).isNotEmpty();
+        assertThat(index.search("equipes", 5)).isNotEmpty();
+    }
+
+    @Test
+    void search_numberWordsAreKept() {
+        // Les mots-nombres sont signifiants dans un corpus technique et conservés
+        index.add("d1", "fermeture de la voie deux niveau trois", "src.txt");
+        assertThat(index.search("deux", 5)).isNotEmpty();
+        assertThat(index.search("trois", 5)).isNotEmpty();
+    }
+
     // ── removeBySource ────────────────────────────────────────────────────────
 
     @Test
