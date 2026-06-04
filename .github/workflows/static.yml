@@ -1,5 +1,8 @@
-name: Deploy Spectra UI to GitHub Pages
+name: Deploy site (promo + app) to GitHub Pages
 
+# Assemble un artefact Pages unique :
+#   /SpectraLLM/        → site promotionnel statique (dossier website/)
+#   /SpectraLLM/app/    → interface React (build Vite du dossier frontend/)
 on:
   push:
     branches: ["main"]
@@ -32,16 +35,30 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: Build Vite app
+      - name: Build Vite app (servi sous /SpectraLLM/app/)
         working-directory: frontend
         env:
-          VITE_BASE_PATH: /SpectraLLM/
+          VITE_BASE_PATH: /SpectraLLM/app/
         run: npm run build
+
+      - name: Assemble Pages artifact
+        run: |
+          set -euo pipefail
+          rm -rf _site
+          mkdir -p _site/app
+          # Site promotionnel à la racine
+          cp -r website/. _site/
+          # Interface React sous /app/
+          cp -r frontend/dist/. _site/app/
+          # Désactive le traitement Jekyll (sert les fichiers tels quels)
+          touch _site/.nojekyll
+          echo "── Contenu de _site ──"
+          find _site -maxdepth 2 -type f | sort
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: frontend/dist
+          path: _site
 
   deploy:
     needs: build

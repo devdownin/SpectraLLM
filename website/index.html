@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spectra — Construisez votre IA métier, 100 % locale</title>
+  <meta name="description" content="Spectra : pipeline souverain RAG + fine-tuning. Transformez vos documents en assistant IA spécialisé, sur votre propre matériel. Recherche hybride avancée, raisonnement agentique, fine-tuning local. 100 % local, open-source, MIT." />
+  <meta name="theme-color" content="#0b0f17" />
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Spectra — Votre IA métier, 100 % locale" />
+  <meta property="og:description" content="Pipeline souverain RAG + fine-tuning : de vos documents à un modèle GGUF spécialisé, sans cloud." />
+  <meta property="og:locale" content="fr_FR" />
+
+  <!-- Favicon : prisme SVG inline, zéro requête -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpolygon points='16,4 28,26 4,26' fill='none' stroke='%236366f1' stroke-width='2'/%3E%3Cline x1='16' y1='15' x2='30' y2='9' stroke='%2322d3ee' stroke-width='2'/%3E%3Cline x1='16' y1='16' x2='31' y2='16' stroke='%2360a5fa' stroke-width='2'/%3E%3Cline x1='16' y1='17' x2='30' y2='23' stroke='%23a78bfa' stroke-width='2'/%3E%3C/svg%3E" />
+
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- ─────────────────────────── NAV ─────────────────────────── -->
+  <header class="nav" id="nav">
+    <a class="nav__brand" href="#top" aria-label="Spectra, accueil">
+      <svg class="nav__logo" viewBox="0 0 32 32" aria-hidden="true">
+        <polygon points="16,5 27,25 5,25" fill="none" stroke="url(#g)" stroke-width="2"/>
+        <line x1="16" y1="15" x2="31" y2="9"  stroke="#22d3ee" stroke-width="2"/>
+        <line x1="16" y1="16" x2="32" y2="16" stroke="#60a5fa" stroke-width="2"/>
+        <line x1="16" y1="17" x2="31" y2="23" stroke="#a78bfa" stroke-width="2"/>
+        <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#6366f1"/><stop offset="1" stop-color="#22d3ee"/>
+        </linearGradient></defs>
+      </svg>
+      <span>Spectra</span>
+    </a>
+    <nav class="nav__links">
+      <a href="#pipeline">Pipeline</a>
+      <a href="#retrieval">Recherche hybride</a>
+      <a href="#forces">Forces</a>
+      <a href="#stack">Stack</a>
+      <a class="btn btn--ghost" href="./app/">Démo (UI)</a>
+      <a class="btn btn--primary" href="https://github.com/devdownin/SpectraLLM" target="_blank" rel="noopener">GitHub ↗</a>
+    </nav>
+  </header>
+
+  <main id="top">
+
+  <!-- ─────────────────────────── HERO ─────────────────────────── -->
+  <section class="hero">
+    <div class="hero__glow" aria-hidden="true"></div>
+    <div class="hero__inner reveal">
+      <p class="hero__eyebrow">Pipeline souverain · RAG + Fine-tuning · 100 % local</p>
+      <h1 class="hero__title">
+        Transformez vos documents<br/>en <span class="grad">IA métier spécialisée</span>.
+      </h1>
+      <p class="hero__lede">
+        La plupart des outils vous forcent à choisir : <em>RAG</em> <strong>ou</strong> <em>fine-tuning</em>.
+        Spectra fait les deux, en séquence, automatiquement — sur <strong>votre</strong> matériel.
+        Aucune API cloud, aucune donnée qui sort, aucun abonnement.
+      </p>
+      <div class="hero__cta">
+        <a class="btn btn--primary btn--lg" href="https://github.com/devdownin/SpectraLLM" target="_blank" rel="noopener">Voir le code sur GitHub ↗</a>
+        <a class="btn btn--ghost btn--lg" href="#pipeline">Comment ça marche ↓</a>
+      </div>
+      <ul class="hero__chips">
+        <li>🔒 Souverain</li>
+        <li>⚙️ Java 21 · Spring Boot 3.4</li>
+        <li>🧠 11 stratégies RAG</li>
+        <li>🪶 Tourne sur CPU (GGUF)</li>
+        <li>📜 Open-source MIT</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────── PITCH ─────────────────────────── -->
+  <section class="band">
+    <div class="container reveal">
+      <h2 class="section__title">Le problème que Spectra résout</h2>
+      <p class="section__intro">
+        Votre savoir-faire est enfermé dans des PDF, des documents Word, des wikis internes, des exports de données.
+        Un LLM générique n'en connaît rien. Le reconstruire soi-même, c'est assembler à la main LangChain, une base
+        vectorielle, un chunker, un serveur d'embeddings, un framework de fine-tuning, un pipeline d'export et un frontend —
+        chacun avec sa configuration, ses pannes et ses contraintes de version.
+      </p>
+      <p class="section__intro section__intro--accent">
+        Spectra livre tout cela dans un seul <code>docker compose up</code>. Un pipeline cohérent, du document brut
+        jusqu'au fichier <code>GGUF</code> déployable partout.
+      </p>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────── PIPELINE ─────────────────────────── -->
+  <section id="pipeline" class="container section">
+    <h2 class="section__title reveal">Le pipeline complet, en un coup d'œil</h2>
+    <p class="section__intro reveal">Six étapes, entièrement orchestrées. Chaque module est activable indépendamment.</p>
+
+    <ol class="pipe">
+      <li class="pipe__step reveal">
+        <span class="pipe__num">1</span>
+        <div>
+          <h3>Ingestion</h3>
+          <p>PDF · DOCX · DOC · HTML · JSON · XML · Avro · TXT · ZIP · URL. Parsing conscient de la mise en page
+             (tableaux, hiérarchie), nettoyage en 8 passes, chunking sémantique, déduplication SHA-256.</p>
+        </div>
+      </li>
+      <li class="pipe__step reveal">
+        <span class="pipe__num">2</span>
+        <div>
+          <h3>Recherche &amp; Retrieval</h3>
+          <p>Bypass long-contexte · fusion multi-requêtes · <strong>recherche hybride BM25 + vecteurs</strong> ·
+             Reciprocal Rank Fusion · reranking Cross-Encoder · déduplication sémantique · compression de contexte.</p>
+        </div>
+      </li>
+      <li class="pipe__step reveal">
+        <span class="pipe__num">3</span>
+        <div>
+          <h3>Génération</h3>
+          <p>RAG standard · RAG hybride · boucle agentique ReAct · Corrective RAG · Self-RAG · routage adaptatif.
+             Réponses <strong>streamées token par token</strong> via Server-Sent Events.</p>
+        </div>
+      </li>
+      <li class="pipe__step reveal">
+        <span class="pipe__num">4</span>
+        <div>
+          <h3>Synthèse de dataset</h3>
+          <p>Génération de paires Q/R, résumés et exemples DPO par le LLM, à partir de vos propres documents.
+             Évaluation automatique <em>LLM-as-a-Judge</em> (notes 1–10).</p>
+        </div>
+      </li>
+      <li class="pipe__step reveal">
+        <span class="pipe__num">5</span>
+        <div>
+          <h3>Annotation d'articles</h3>
+          <p>Commentaires humains ou IA ancrés dans le RAG, par document. Les votes 👍/👎 deviennent des paires DPO
+             pour le cycle d'entraînement suivant.</p>
+        </div>
+      </li>
+      <li class="pipe__step reveal">
+        <span class="pipe__num">6</span>
+        <div>
+          <h3>Fine-tuning</h3>
+          <p>QLoRA (Unsloth), rang/alpha/époques configurables, alignement DPO + SFT, multipacking, recettes YAML.
+             Export <code>GGUF</code> prêt à déployer.</p>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <!-- ─────────────────────── RETRIEVAL (highlight) ─────────────────────── -->
+  <section id="retrieval" class="band band--feature">
+    <div class="container reveal">
+      <p class="kicker">Au cœur de la précision</p>
+      <h2 class="section__title">Hybrid Information Retrieval</h2>
+      <p class="section__intro">
+        La plupart des démos RAG n'utilisent que la similarité vectorielle. C'est excellent pour le sens, mais cela
+        rate les termes exacts : codes de procédure, numéros d'article, acronymes métier. Spectra combine
+        <strong>deux signaux fondamentalement différents</strong> et les fusionne intelligemment.
+      </p>
+
+      <div class="two">
+        <div class="card card--soft">
+          <h3>🔤 BM25 — lexical</h3>
+          <p>Index BM25Okapi en Java pur, en mémoire, thread-safe. Rapide, déterministe, imbattable sur les
+             correspondances exactes et les termes rares.</p>
+          <p class="card__note">Tokeniseur adapté au français : <strong>repli des accents</strong>
+             (<code>péage ↔ peage</code>, <code>contrôle ↔ controle</code>) et <strong>filtrage des mots-vides</strong>,
+             appliqués symétriquement à l'indexation et à la requête.</p>
+        </div>
+        <div class="card card--soft">
+          <h3>🧭 Vecteurs — sémantique</h3>
+          <p>Embeddings <code>nomic-embed-text</code> servis par llama.cpp, indexés dans ChromaDB. Capte les
+             paraphrases et les synonymes qu'un index lexical manquerait.</p>
+          <p class="card__note">Un document parlant de « véhicules » ressort pour une requête « voitures »,
+             même si le mot exact n'apparaît jamais.</p>
+        </div>
+      </div>
+
+      <div class="fusion">
+        <h3>La fusion, expliquée</h3>
+        <p>
+          Chaque index produit une liste classée. Spectra les fusionne par <strong>Reciprocal Rank Fusion</strong> —
+          une méthode statistiquement robuste qui ne combine que les <em>rangs</em>, sans avoir à régler de poids
+          entre deux échelles de scores incomparables :
+        </p>
+        <pre class="formula" aria-label="Formule RRF"><code>score(d) =  Σ   1 / (k + rang_i(d))        avec k = 60</code></pre>
+        <p>
+          Un mode <strong>pondéré normalisé</strong> optionnel (combinaison convexe min-max de la similarité
+          vectorielle et du score BM25) est aussi disponible quand on veut conserver la magnitude des
+          correspondances fortes. Et lorsque la <strong>multi-requête</strong> est active, les sous-requêtes sont
+          elles aussi fusionnées par RRF sur le rang — ce qui préserve le classement hybride au lieu de le perdre.
+        </p>
+        <p class="fusion__foot">Activé par défaut. L'index BM25 vit dans la JVM : <strong>aucun service externe requis.</strong></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────── FORCES ─────────────────────────── -->
+  <section id="forces" class="container section">
+    <h2 class="section__title reveal">Forces techniques</h2>
+    <p class="section__intro reveal">Ce qui distingue Spectra d'un assemblage de briques.</p>
+
+    <div class="grid">
+      <article class="card reveal">
+        <div class="card__icon">🔒</div>
+        <h3>Souveraineté totale</h3>
+        <p>Tout tourne en local : modèles <code>GGUF</code> via llama.cpp, exécution CPU possible. Aucune donnée
+           ne quitte votre infrastructure, aucun coût récurrent. Licence MIT.</p>
+      </article>
+
+      <article class="card reveal">
+        <div class="card__icon">🧠</div>
+        <h3>11 stratégies RAG composables</h3>
+        <p>Adaptive routing, Conversational, Long-Context, Multi-Query, Hybrid, Reranking, Semantic Dedup,
+           Corrective, Compression, Agentic ReAct, Self-RAG — chacune activable par configuration.</p>
+        <button class="card__more" data-toggle="rag-detail" aria-expanded="false">Détailler les 11 stratégies ▾</button>
+        <dl class="detail" id="rag-detail" hidden>
+          <dt>Adaptive RAG</dt><dd>Classe la requête (DIRECT / STANDARD / AGENTIC) pour router vers le pipeline le moins coûteux.</dd>
+          <dt>Conversational RAG</dt><dd>Reformule la question en requête autonome à partir de l'historique de conversation.</dd>
+          <dt>Long-Context RAG</dt><dd>Si le corpus est petit, charge tout le contexte sans retrieval vectoriel — zéro bruit de chunking.</dd>
+          <dt>Multi-Query</dt><dd>Génère N reformulations, fait un retrieval pour chacune, fusionne par RRF.</dd>
+          <dt>Hybrid Search</dt><dd>Combine BM25 (lexical) et vecteurs (sémantique), fusion RRF ou pondérée.</dd>
+          <dt>Cross-Encoder Reranking</dt><dd>Réévalue chaque paire (question, extrait) avec un modèle joint, bien plus précis qu'un bi-encodeur.</dd>
+          <dt>Semantic Dedup</dt><dd>Élimine les extraits quasi-identiques (similarité Jaccard), sans appel LLM.</dd>
+          <dt>Corrective RAG</dt><dd>Un LLM note la pertinence de chaque extrait et écarte les non pertinents.</dd>
+          <dt>Context Compression</dt><dd>Ne garde que les phrases réellement utiles de chaque extrait — contexte plus dense, moins bruité.</dd>
+          <dt>Agentic RAG</dt><dd>Boucle ReAct : le modèle décide s'il lui faut une recherche complémentaire avant de répondre.</dd>
+          <dt>Self-RAG</dt><dd>Génère puis auto-évalue sa réponse ; raffine si la qualité est jugée insuffisante.</dd>
+        </dl>
+      </article>
+
+      <article class="card reveal">
+        <div class="card__icon">🎯</div>
+        <h3>Fine-tuning intégré</h3>
+        <p>Du dataset au modèle : génération de paires Q/R par LLM, alignement <strong>DPO</strong>, évaluation
+           <em>LLM-as-a-Judge</em>, multipacking, recettes YAML réutilisables, export <code>GGUF</code>.</p>
+      </article>
+
+      <article class="card reveal">
+        <div class="card__icon">⚙️</div>
+        <h3>Qualité production</h3>
+        <p>WebFlux + <strong>streaming SSE</strong> token par token, virtual threads (Java 21), circuit breaker
+           (resilience4j), métriques <strong>Micrometer / Prometheus</strong>, persistance H2/JPA, healthchecks
+           profonds, authentification par clé API, multi-collections.</p>
+      </article>
+
+      <article class="card reveal">
+        <div class="card__icon">📥</div>
+        <h3>Ingestion riche</h3>
+        <p>10 formats dont PDF <em>layout-aware</em> (Docling / pymupdf4llm) pour extraire proprement tableaux et
+           hiérarchie. Nettoyage 8 passes, chunking sémantique, déduplication par hash.</p>
+      </article>
+
+      <article class="card reveal">
+        <div class="card__icon">🧩</div>
+        <h3>Model Hub</h3>
+        <p>Découverte de modèles adaptés à <strong>votre matériel</strong> via <code>llmfit</code> (CPU/RAM/VRAM),
+           filtrage GGUF automatique, installation en un clic avec suivi de progression en SSE.</p>
+      </article>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────── ORIGINALITÉ ─────────────────────────── -->
+  <section class="band">
+    <div class="container reveal">
+      <h2 class="section__title">Pourquoi c'est original</h2>
+      <div class="compare">
+        <div class="compare__col compare__col--bad">
+          <h3>Assembler soi-même</h3>
+          <ul>
+            <li>LangChain + base vectorielle + chunker + serveur d'embeddings…</li>
+            <li>…+ framework de fine-tuning + pipeline d'export + frontend</li>
+            <li>Configurations hétérogènes, pannes en cascade, contraintes de versions</li>
+            <li>RAG <em>ou</em> fine-tuning, rarement les deux reliés</li>
+            <li>Souvent dépendant d'API cloud payantes</li>
+          </ul>
+        </div>
+        <div class="compare__col compare__col--good">
+          <h3>Avec Spectra</h3>
+          <ul>
+            <li>Un seul stack, un seul <code>docker compose up</code></li>
+            <li>RAG <strong>et</strong> fine-tuning reliés dans un même flux</li>
+            <li>11 stratégies RAG de pointe, activables à la carte</li>
+            <li>Recherche hybride adaptée au français, prête à l'emploi</li>
+            <li>100 % local, souverain, open-source MIT</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────── STACK ─────────────────────────── -->
+  <section id="stack" class="container section">
+    <h2 class="section__title reveal">Stack technique</h2>
+    <p class="section__intro reveal">Des choix précis, modernes et éprouvés.</p>
+    <div class="stack reveal">
+      <span class="tag">Java 21</span>
+      <span class="tag">Spring Boot 3.4.1</span>
+      <span class="tag">Spring WebFlux (SSE)</span>
+      <span class="tag">Virtual Threads</span>
+      <span class="tag">resilience4j 2.2</span>
+      <span class="tag">Spring Data JPA · H2</span>
+      <span class="tag">Micrometer · Prometheus</span>
+      <span class="tag">React 19 · Vite 8 · TS</span>
+      <span class="tag">ChromaDB</span>
+      <span class="tag">llama.cpp · GGUF</span>
+      <span class="tag">nomic-embed-text</span>
+      <span class="tag">BM25Okapi (Java)</span>
+      <span class="tag">Cross-Encoder reranker</span>
+      <span class="tag">Docling · pymupdf4llm</span>
+      <span class="tag">QLoRA · Unsloth</span>
+      <span class="tag">Apache POI · Avro</span>
+      <span class="tag">Docker Compose</span>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────── CTA FINAL ─────────────────────────── -->
+  <section class="finalcta">
+    <div class="container reveal">
+      <h2>Prêt à donner votre métier en mémoire à un LLM ?</h2>
+      <p>Cloner, <code>docker compose up</code>, ingérer vos documents — et discuter avec votre savoir.</p>
+      <div class="hero__cta">
+        <a class="btn btn--primary btn--lg" href="https://github.com/devdownin/SpectraLLM" target="_blank" rel="noopener">Démarrer sur GitHub ↗</a>
+        <a class="btn btn--ghost btn--lg" href="./app/">Explorer l'interface →</a>
+      </div>
+    </div>
+  </section>
+
+  </main>
+
+  <!-- ─────────────────────────── FOOTER ─────────────────────────── -->
+  <footer class="footer">
+    <div class="container footer__inner">
+      <div class="footer__brand">
+        <svg class="nav__logo" viewBox="0 0 32 32" aria-hidden="true">
+          <polygon points="16,5 27,25 5,25" fill="none" stroke="#6366f1" stroke-width="2"/>
+          <line x1="16" y1="16" x2="32" y2="16" stroke="#60a5fa" stroke-width="2"/>
+        </svg>
+        <span>Spectra</span>
+      </div>
+      <p class="footer__meta">
+        Open-source sous licence MIT ·
+        <a href="https://github.com/devdownin/SpectraLLM" target="_blank" rel="noopener">github.com/devdownin/SpectraLLM</a>
+      </p>
+      <p class="footer__fine">Pipeline souverain RAG + fine-tuning. Aucune affiliation cloud — vos données restent chez vous.</p>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
