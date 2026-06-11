@@ -18,6 +18,8 @@ public interface IngestedFileRepository
 
     List<IngestedFileEntity> findByCollectionNameOrderByIngestedAtDesc(String collectionName);
 
+    Page<IngestedFileEntity> findByFileNameContainingIgnoreCase(String fileName, Pageable pageable);
+
     Page<IngestedFileEntity> findAll(
             org.springframework.data.jpa.domain.Specification<IngestedFileEntity> spec,
             Pageable pageable);
@@ -33,4 +35,21 @@ public interface IngestedFileRepository
     // Stats : total chunks
     @Query("SELECT SUM(f.chunksCreated) FROM IngestedFileEntity f")
     Long sumChunks();
+
+    // Stats : distribution qualité — comptages par tranche, sans chargement en mémoire
+    @Query("SELECT COUNT(f) FROM IngestedFileEntity f WHERE f.qualityScore IS NOT NULL AND f.qualityScore < 0.25")
+    Long countQualityQ0();
+
+    @Query("SELECT COUNT(f) FROM IngestedFileEntity f WHERE f.qualityScore IS NOT NULL AND f.qualityScore >= 0.25 AND f.qualityScore < 0.5")
+    Long countQualityQ1();
+
+    @Query("SELECT COUNT(f) FROM IngestedFileEntity f WHERE f.qualityScore IS NOT NULL AND f.qualityScore >= 0.5 AND f.qualityScore < 0.75")
+    Long countQualityQ2();
+
+    @Query("SELECT COUNT(f) FROM IngestedFileEntity f WHERE f.qualityScore IS NOT NULL AND f.qualityScore >= 0.75")
+    Long countQualityQ3();
+
+    // Stats : uniquement la colonne tags — évite de charger les entités complètes
+    @Query("SELECT f.tags FROM IngestedFileEntity f WHERE f.tags IS NOT NULL AND f.tags <> '[]'")
+    List<String> findAllTagsJson();
 }

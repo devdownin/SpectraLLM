@@ -161,6 +161,7 @@ const FineTuning: FC = () => {
   const [jobs, setJobs] = useState<FineTuningJob[]>([]);
   const [activeJob, setActiveJob] = useState<FineTuningJob | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const jobRestoredRef = useRef(false);
   const [submitting, setSubmitting] = useState(false);
   const [lossHistory, setLossHistory] = useState<{ epoch: number; loss: number }[]>([]);
 
@@ -262,7 +263,15 @@ const FineTuning: FC = () => {
     try {
       const res = await fineTuningApi.getJobs();
       const list: FineTuningJob[] = res.data;
-      setJobs(list.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+      const sorted = list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      setJobs(sorted);
+      // Restore active job once on initial load (page reload while a job is running)
+      if (!jobRestoredRef.current && sorted.length > 0) {
+        jobRestoredRef.current = true;
+        const inFlight = sorted.find(j =>
+          j.status !== 'COMPLETED' && j.status !== 'FAILED');
+        if (inFlight) setActiveJob(inFlight);
+      }
     } catch { /* ignore */ }
   }, []);
 

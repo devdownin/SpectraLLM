@@ -133,6 +133,10 @@ const Datasets: FC = () => {
   const [genTask, setGenTask] = useState<GenerationTask | null>(null);
   const [stats, setStats] = useState<DatasetStats | null>(null);
   const [history, setHistory] = useState<IngestedFile[]>([]);
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const [historyPage, setHistoryPage] = useState(0);
+  const [historySearch, setHistorySearch] = useState('');
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
 
   const pollingTasks   = useRef<Set<string>>(new Set());
@@ -149,11 +153,18 @@ const Datasets: FC = () => {
     } catch { /* ignore */ }
   }, []);
 
-  const loadHistory = useCallback(async () => {
+  const loadHistory = useCallback(async (page = 0, q = '', append = false) => {
+    setHistoryLoading(true);
     try {
-      const res = await ingestApi.getHistory();
-      setHistory(res.data);
+      const res = await ingestApi.getHistory({ page, size: 30, q: q || undefined });
+      const data = res.data;
+      const items: IngestedFile[] = data.content ?? data;
+      const total: number = data.totalElements ?? items.length;
+      setHistoryTotal(total);
+      setHistoryPage(data.number ?? page);
+      setHistory(prev => append ? [...prev, ...items] : items);
     } catch { /* ignore */ }
+    finally { setHistoryLoading(false); }
   }, []);
 
   useEffect(() => {
@@ -189,7 +200,7 @@ const Datasets: FC = () => {
           clearInterval(interval);
           activeIntervals.current.delete(interval);
           pollingTasks.current.delete(taskId);
-          if (t.status === 'COMPLETED') { loadStats(); loadHistory(); }
+          if (t.status === 'COMPLETED') { loadStats(); loadHistory(0, historySearch); }
         }
       } catch {
         if (++failures >= 5) {
@@ -200,7 +211,7 @@ const Datasets: FC = () => {
       }
     }, 3000);
     activeIntervals.current.add(interval);
-  }, [loadStats, loadHistory]);
+  }, [loadStats, loadHistory, historySearch]);
 
   // ── Upload file ───────────────────────────────────────────────────────────
   const uploadFile = useCallback(async (file: File) => {
@@ -291,7 +302,7 @@ const Datasets: FC = () => {
   // ── Restore tasks on mount ────────────────────────────────────────────────
   useEffect(() => {
     const restoreTasks = async () => {
-      loadHistory();
+      loadHistory(0, '');
       try {
         // Restore Ingestion Tasks
         const ingestRes = await ingestApi.getAllTasks();
@@ -467,9 +478,9 @@ const Datasets: FC = () => {
               </span>
               <h4 className="font-headline text-sm font-bold mb-1 uppercase tracking-tight">Inject Raw Intelligence</h4>
               <p className="text-on-surface-variant text-xs mb-4 text-center max-w-sm">
-                PDF, DOCX, TXT, JSON, XML — déposez ou cliquez pour sélectionner
+                PDF, DOCX, TXT, JSON, XML, HTML, ZIP — déposez ou cliquez pour sélectionner
               </p>
-              <input ref={fileInputRef} type="file" accept=".pdf,.docx,.txt,.json,.xml" className="hidden"
+              <input ref={fileInputRef} type="file" accept=".pdf,.docx,.doc,.txt,.json,.xml,.htm,.html,.zip" className="hidden"
                 onChange={handleFileChange} multiple />
               <button
                 onClick={e => { e.stopPropagation(); fileInputRef.current?.click(); }}
@@ -535,12 +546,16 @@ const Datasets: FC = () => {
 
           {/* Live ingestion list */}
           <div className="bg-surface-container p-5 flex flex-col min-h-[300px]">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-3">
               <h4 className="font-headline text-xs font-bold uppercase tracking-tight">
                 {showHistory ? 'Ingestion History' : 'Live Ingestion Stream'}
               </h4>
-              <button 
-                onClick={() => setShowHistory(!showHistory)}
+              <button
+                onClick={() => {
+                  const next = !showHistory;
+                  setShowHistory(next);
+                  if (next) loadHistory(0, historySearch);
+                }}
                 className="text-[9px] font-label uppercase tracking-widest text-primary hover:underline flex items-center gap-1"
               >
                 <span className="material-symbols-outlined text-sm">{showHistory ? 'sensors' : 'history'}</span>
@@ -548,36 +563,72 @@ const Datasets: FC = () => {
               </button>
             </div>
             {showHistory ? (
-              <div className="flex-1 space-y-4 overflow-y-auto custom-scrollbar">
-                {history.length === 0 ? (
-                  <div className="flex-1 flex items-center justify-center">
-                    <p className="text-[10px] text-outline uppercase tracking-widest italic text-center">
-                      Historique vide
+              <div className="flex-1 flex flex-col gap-3">
+                {/* Search input */}
+                <div className="flex items-center gap-2 bg-surface-container-lowest border border-outline-variant/20 px-2 py-1.5">
+                  <span className="material-symbols-outlined text-sm text-outline shrink-0">search</span>
+                  <input
+                    type="text"
+                    className="flex-1 bg-transparent border-none focus:ring-0 text-[10px] font-body placeholder:text-outline"
+                    placeholder="Rechercher un fichier…"
+                    value={historySearch}
+                    onChange={e => {
+                      setHistorySearch(e.target.value);
+                      loadHistory(0, e.target.value);
+                    }}
+                  />
+                  {historySearch && (
+                    <button onClick={() => { setHistorySearch(''); loadHistory(0, ''); }}
+                      className="material-symbols-outlined text-sm text-outline hover:text-error transition-colors">
+                      close
+                    </button>
+                  )}
+                </div>
+                {/* Count */}
+                <p className="text-[9px] text-outline font-label uppercase tracking-widest">
+                  {historyTotal} fichier{historyTotal !== 1 ? 's' : ''}{historySearch ? ` · "${historySearch}"` : ''}
+                </p>
+                {/* List */}
+                <div className="flex-1 space-y-2 overflow-y-auto custom-scrollbar max-h-64">
+                  {history.length === 0 && !historyLoading ? (
+                    <p className="text-[10px] text-outline uppercase tracking-widest italic text-center py-4">
+                      {historySearch ? 'Aucun résultat' : 'Historique vide'}
                     </p>
-                  </div>
-                ) : (
-                  history.map(item => (
-                    <div key={item.sha256} className="p-3 bg-surface-container-lowest border-l-2 border-primary/20 hover:border-primary transition-all group">
-                      <div className="flex justify-between items-start mb-1">
-                        <span className="text-[10px] font-bold truncate max-w-[150px]">{item.fileName}</span>
-                        <span className="text-[9px] font-mono text-outline">{item.sha256.slice(0, 8)}</span>
-                      </div>
-                      <div className="flex justify-between items-end">
-                        <div className="flex gap-2 items-center">
-                          <span className="text-[9px] font-label uppercase tracking-widest text-on-surface-variant">
-                            {item.format === 'application/pdf' ? 'PDF' : 
-                             item.format.includes('xml') ? 'XML' : 
-                             item.format.includes('json') ? 'JSON' : 'DOC'}
-                          </span>
-                          <span className="w-1 h-1 rounded-full bg-outline-variant"></span>
-                          <span className="text-[9px] text-outline">
-                            {new Date(item.ingestedAt).toLocaleDateString()}
-                          </span>
+                  ) : (
+                    history.map(item => (
+                      <div key={item.sha256} className="p-2.5 bg-surface-container-lowest border-l-2 border-primary/20 hover:border-primary transition-all">
+                        <div className="flex justify-between items-start mb-0.5">
+                          <span className="text-[10px] font-bold truncate max-w-[140px]" title={item.fileName}>{item.fileName}</span>
+                          <span className="text-[9px] font-mono text-outline shrink-0 ml-1">{item.sha256.slice(0, 7)}</span>
                         </div>
-                        <span className="text-[10px] font-bold text-primary">{item.chunksCreated} chunks</span>
+                        <div className="flex justify-between items-center">
+                          <div className="flex gap-1.5 items-center">
+                            <span className="text-[8px] font-bold font-label uppercase tracking-widest text-on-surface-variant border border-outline-variant/30 px-1">
+                              {item.format?.toUpperCase() ?? '?'}
+                            </span>
+                            <span className="text-[9px] text-outline">
+                              {new Date(item.ingestedAt).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })}
+                            </span>
+                          </div>
+                          <span className="text-[9px] font-bold text-primary">{item.chunksCreated}ch</span>
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    ))
+                  )}
+                  {historyLoading && (
+                    <p className="text-[9px] text-outline font-label uppercase tracking-widest text-center animate-pulse py-2">
+                      Chargement…
+                    </p>
+                  )}
+                </div>
+                {/* Load more */}
+                {history.length < historyTotal && !historyLoading && (
+                  <button
+                    onClick={() => loadHistory(historyPage + 1, historySearch, true)}
+                    className="text-[9px] font-label uppercase tracking-widest text-primary border border-primary/30 px-3 py-1.5 hover:bg-primary/5 transition-colors w-full"
+                  >
+                    Charger plus ({historyTotal - history.length} restants)
+                  </button>
                 )}
               </div>
             ) : ingestEntries.length === 0 ? (

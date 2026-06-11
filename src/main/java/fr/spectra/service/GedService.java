@@ -304,23 +304,25 @@ public class GedService {
         Double avg = fileRepo.avgQualityScore();
         result.put("avgQualityScore", avg != null ? Math.round(avg * 100.0) / 100.0 : null);
 
-        // Distribution qualité
-        List<IngestedFileEntity> all = fileRepo.findAllByOrderByIngestedAtDesc();
-        long q0 = all.stream().filter(d -> d.getQualityScore() != null && d.getQualityScore() < 0.25).count();
-        long q1 = all.stream().filter(d -> d.getQualityScore() != null && d.getQualityScore() >= 0.25 && d.getQualityScore() < 0.5).count();
-        long q2 = all.stream().filter(d -> d.getQualityScore() != null && d.getQualityScore() >= 0.5 && d.getQualityScore() < 0.75).count();
-        long q3 = all.stream().filter(d -> d.getQualityScore() != null && d.getQualityScore() >= 0.75).count();
+        // Distribution qualité — DB-level counts, pas de chargement en mémoire
         result.put("qualityDistribution", Map.of(
-                "0.00-0.25", q0,
-                "0.25-0.50", q1,
-                "0.50-0.75", q2,
-                "0.75-1.00", q3
+                "0.00-0.25", nullToZero(fileRepo.countQualityQ0()),
+                "0.25-0.50", nullToZero(fileRepo.countQualityQ1()),
+                "0.50-0.75", nullToZero(fileRepo.countQualityQ2()),
+                "0.75-1.00", nullToZero(fileRepo.countQualityQ3())
         ));
 
-        // Top 10 tags
+        // Top 10 tags — seule la colonne tags est chargée (pas les entités complètes)
         Map<String, Long> tagCounts = new HashMap<>();
-        all.forEach(d -> d.getTags().forEach(t ->
-                tagCounts.merge(t, 1L, Long::sum)));
+        fileRepo.findAllTagsJson().forEach(tagsJson -> {
+            if (tagsJson != null && !tagsJson.isBlank()) {
+                try {
+                    @SuppressWarnings("unchecked")
+                    List<String> tags = MAPPER.readValue(tagsJson, List.class);
+                    tags.forEach(t -> tagCounts.merge(t, 1L, Long::sum));
+                } catch (Exception ignored) {}
+            }
+        });
         List<Map<String, Object>> topTags = tagCounts.entrySet().stream()
                 .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
                 .limit(10)
@@ -334,6 +336,10 @@ public class GedService {
 
         return result;
     }
+
+    // ── Internal helpers ─────────────────────────────────────────────────────
+
+    private static long nullToZero(Long v) { return v != null ? v : 0L; }
 
     // ── Queries ──────────────────────────────────────────────────────────────
 

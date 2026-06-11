@@ -2,11 +2,13 @@ package fr.spectra.controller;
 
 import fr.spectra.dto.IngestionTask;
 import fr.spectra.dto.UrlIngestionRequest;
+import fr.spectra.persistence.IngestedFileEntity;
 import fr.spectra.service.IngestionService;
 import fr.spectra.service.UrlIngestionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -33,6 +35,21 @@ public class IngestController {
     public IngestController(IngestionService ingestionService, UrlIngestionService urlIngestionService) {
         this.ingestionService = ingestionService;
         this.urlIngestionService = urlIngestionService;
+    }
+
+    @GetMapping
+    @Operation(summary = "Lister toutes les tâches d'ingestion actives en mémoire")
+    public List<IngestionTask> getAllTasks() {
+        return ingestionService.getAllTasks();
+    }
+
+    @GetMapping("/files")
+    @Operation(summary = "Historique paginé des fichiers ingérés (page, size, q)")
+    public Page<IngestedFileEntity> getHistory(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size,
+            @RequestParam(required = false) String q) {
+        return ingestionService.getHistory(page, size, q);
     }
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)

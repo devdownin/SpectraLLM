@@ -230,10 +230,32 @@ const Comparison: FC = () => {
                   </span>
                 </div>
 
-                {selected.status === 'RUNNING' && (
+                {(selected.status === 'RUNNING' || selected.status === 'PENDING') && (
                   <div>
-                    <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">Progression</p>
-                    <ProgressBar value={selected.processed} max={selected.testSetSize} />
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Progression</p>
+                      <span className="flex items-center gap-1 text-[9px] font-label uppercase tracking-widest text-secondary">
+                        <span className="w-1.5 h-1.5 bg-secondary rounded-full animate-pulse inline-block" />
+                        {selected.status === 'PENDING' ? 'En attente…' : 'En cours'}
+                      </span>
+                    </div>
+                    <div className="relative w-full bg-outline-variant/20 h-1 overflow-hidden">
+                      {selected.testSetSize > 0 ? (
+                        <div className="absolute top-0 left-0 h-full bg-secondary transition-all duration-500"
+                             style={{ width: `${Math.round((selected.processed / selected.testSetSize) * 100)}%` }} />
+                      ) : null}
+                      {selected.status === 'RUNNING' && (
+                        <div className="absolute inset-0 scan-beam-secondary" />
+                      )}
+                      {selected.status === 'PENDING' && (
+                        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-secondary/30 to-transparent animate-pulse" />
+                      )}
+                    </div>
+                    {selected.testSetSize > 0 && (
+                      <p className="font-label text-[9px] text-on-surface-variant mt-0.5 text-right">
+                        {selected.processed} / {selected.testSetSize} paires
+                      </p>
+                    )}
                   </div>
                 )}
 

@@ -35,7 +35,8 @@ export const ingestApi = {
   ingestUrls: (urls: string[]) => api.post('/ingest/url', { urls }),
   getTaskStatus: (taskId: string) => api.get(`/ingest/${taskId}`),
   getAllTasks: () => api.get('/ingest'),
-  getHistory: () => api.get('/ingest/files'),
+  getHistory: (params?: { page?: number; size?: number; q?: string }) =>
+    api.get('/ingest/files', { params }),
 };
 
 export const gedApi = {
