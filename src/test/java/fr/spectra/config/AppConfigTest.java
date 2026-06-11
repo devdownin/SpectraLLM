@@ -39,7 +39,7 @@ class AppConfigTest {
         server.start();
 
         SpectraProperties.ChromaDbProperties chromaProps =
-                new SpectraProperties.ChromaDbProperties(baseUrl(), "spectra_documents", 16);
+                new SpectraProperties.ChromaDbProperties(baseUrl(), "spectra_documents", 1);
         SpectraProperties props = mock(SpectraProperties.class);
         when(props.chromadb()).thenReturn(chromaProps);
 

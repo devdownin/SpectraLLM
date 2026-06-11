@@ -335,7 +335,56 @@ Sous chaque commentaire IA, trois boutons d'évaluation sont visibles :
 
 > **Conseil** : évaluez au moins 10–20 commentaires avant d'exporter. La qualité du fine-tuning DPO dépend directement de la quantité et de la cohérence des évaluations.
 
-#### Exporter les paires DPO
+#### Re-entraînement automatique (auto-trigger)
+
+Spectra peut lancer un job de fine-tuning **automatiquement** chaque fois qu'un seuil d'approbations est atteint. Ce mécanisme est piloté par la variable `SPECTRA_GED_AUTO_RETRAIN_THRESHOLD` (défaut : **5**).
+
+**Comment ça fonctionne, pas à pas :**
+
+```
+[1] Vous approuvez un commentaire IA (👍 APPROVED)
+          ↓
+[2] Spectra compte les commentaires IA approuvés depuis le début
+    approvedCount = 5  →  5 % 5 == 0  ✓ seuil atteint
+          ↓ (en arrière-plan, sans bloquer l'interface)
+[3] Export automatique des paires DPO → data/dataset/comments_dpo.jsonl
+          ↓
+[4] Soumission automatique d'un job de fine-tuning
+    nom du job : auto-dpo-1718200000000  (timestamp)
+          ↓
+[5] Job visible dans Fine-Tuning → Training History
+    statut : QUEUED → EXPORT → TRAINING → IMPORT → COMPLETE
+```
+
+**Visualiser la progression vers le prochain trigger :**
+
+Dans le **Dashboard**, la section "Cycle de Personnalisation" affiche :
+- Le nombre de commentaires approuvés
+- La barre de progression vers le prochain seuil
+- Le nombre de fine-tunings déjà déclenchés automatiquement
+
+```bash
+# État détaillé via l'API
+curl http://localhost:8080/api/metrics/personalization
+# → {"approvedComments": 7, "nextTriggerIn": 3, "autoRetrainThreshold": 5,
+#    "completedCycles": 1, "completedFineTuningJobs": 1, "latestEvalScore": 7.4, ...}
+```
+
+**Ajuster le seuil :**
+
+```bash
+# Déclencher tous les 20 approbations (recommandé en production)
+SPECTRA_GED_AUTO_RETRAIN_THRESHOLD=20 docker compose up -d
+
+# Désactiver l'auto-trigger
+SPECTRA_GED_AUTO_RETRAIN_THRESHOLD=0 docker compose up -d
+```
+
+> **Conseil :** en développement, gardez le seuil à 5 pour tester le mécanisme rapidement. En production, utilisez 20–50 pour éviter de lancer un entraînement à chaque poignée d'évaluations.
+
+> **Garde de qualité sur les paires DPO :** avant d'accepter une paire `(réponse choisie, réponse rejetée)`, Spectra vérifie que les deux textes sont suffisamment différents. Si leur similarité Jaccard dépasse 85 %, la paire est ignorée et un avertissement est affiché dans les logs — une paire trop similaire ne contribue pas à l'apprentissage.
+
+#### Exporter les paires DPO manuellement
 
 Une fois vos évaluations saisies, cliquez sur le bouton **DPO↓** (en haut de la section Commentaires).
 
@@ -505,7 +554,7 @@ Réponse :
 
 **Ce que fait le RAG :**
 1. *(Si Long-Context RAG activé)* Si le corpus est petit (≤ seuil configuré), tous les chunks sont chargés directement — les étapes 2 à 5 sont ignorées
-2. *(Si Multi-Query activé)* N variantes de la question sont générées, le retrieval est exécuté pour chacune, et les résultats sont fusionnés par Reciprocal Rank Fusion (les chunks bien classés sur plusieurs variantes remontent, les doublons exacts sont éliminés)
+2. *(Si Multi-Query activé)* N variantes de la question sont générées, le retrieval est exécuté pour chacune, et les résultats sont fusionnés en éliminant les doublons exacts
 3. Votre question est convertie en vecteur par `nomic-embed-text` (llm-embed)
 4. Les `topCandidates` extraits les plus proches sémantiquement sont récupérés dans ChromaDB
 5. *(Si recherche hybride activée)* Une recherche BM25 parallèle récupère les extraits correspondant le mieux aux mots-clés exacts de la question ; les deux listes sont fusionnées via RRF
@@ -517,15 +566,13 @@ Réponse :
 11. Les extraits pertinents sont injectés dans le prompt comme "contexte"
 12. Le modèle spécialisé formule une réponse précise et sourcée (llm-chat)
 
-**Recherche hybride (BM25 + vecteurs) — activée par défaut :**
+**Activer la recherche hybride (BM25 + vecteurs) :**
 
-La recherche hybride récupère les termes techniques exacts (codes, numéros, acronymes) que l'embedding peut diluer. Aucun service supplémentaire n'est requis — l'index BM25 est en mémoire. Elle est **activée par défaut** ; pour revenir au vectoriel pur :
+La recherche hybride récupère les termes techniques exacts (codes, numéros, acronymes) que l'embedding peut diluer. Aucun service supplémentaire n'est requis — l'index BM25 est en mémoire.
 
 ```bash
-SPECTRA_HYBRID_SEARCH_ENABLED=false docker compose up -d
+SPECTRA_HYBRID_SEARCH_ENABLED=true docker compose up -d
 ```
-
-Le tokeniseur BM25 est adapté au français : il **ignore les accents** (`peage` retrouve `péage`) et **filtre les mots-vides** (`le`, `de`, `pour`…) pour ne garder que les termes signifiants. La fusion utilise Reciprocal Rank Fusion par défaut ; un mode pondéré normalisé est disponible via `SPECTRA_HYBRID_FUSION_MODE=weighted`.
 
 Au démarrage, Spectra reconstruit automatiquement l'index BM25 depuis ChromaDB en arrière-plan. Les premières requêtes peuvent être vectorielles seules si l'index n'est pas encore prêt.
 
@@ -621,7 +668,9 @@ Une fois activés, les champs `hybridSearchApplied`, `rerankApplied`, `agenticAp
 
 ### Dashboard
 
-Le tableau de bord affiche en temps réel trois cartes de santé :
+Le tableau de bord affiche en temps réel trois cartes de santé et le cycle de personnalisation.
+
+**Cartes de santé des services :**
 
 | Carte | Service surveillé | Information affichée |
 |-------|------------------|---------------------|
@@ -630,6 +679,29 @@ Le tableau de bord affiche en temps réel trois cartes de santé :
 | **ChromaDB** | `chromadb` | Online/Offline · nombre de chunks indexés |
 
 En dessous : statistiques de la base de connaissances (chunks, paires d'entraînement, score de confiance moyen, nombre de catégories).
+
+**Section "Cycle de Personnalisation" :**
+
+Cette section affiche l'état de la boucle de rétroaction humaine en 4 indicateurs :
+
+| Indicateur | Signification |
+|------------|--------------|
+| **Approuvés** | Nombre total de commentaires IA approuvés depuis le démarrage |
+| **Paires DPO** | Nombre de paires d'entraînement dans le dataset courant |
+| **Fine-Tunings** | Nombre de jobs terminés (automatiques + manuels) |
+| **Score Éval** | Score moyen de la dernière évaluation LLM-as-Judge (sur 10) |
+
+Une **barre de progression** montre l'avancement vers le prochain déclencheur automatique.
+
+**Exemple de lecture :**
+```
+Approuvés : 7/10       ██████████░░░░░░  70 %  →  3 approbations avant prochain entraînement
+Paires DPO : 42
+Fine-Tunings terminés : 1
+Score Éval : 7.4/10
+```
+
+> Si l'indicateur affiche `–` pour le score, aucune évaluation n'a encore été lancée. Utilisez **Model Comparison → New Evaluation** pour obtenir une mesure de référence.
 
 ### Dataset Pipelines (Étapes 1 et 2)
 
@@ -690,37 +762,7 @@ Tableau de bord des évaluations **LLM-as-a-judge** : après un fine-tuning, lan
 
 ---
 
-## 5. Model Hub : Découverte et installation de modèles
-
-Le **Model Hub** est votre porte d'entrée pour découvrir de nouveaux modèles optimisés pour votre configuration matérielle sans quitter Spectra. Il s'appuie sur l'outil **llmfit** pour vous recommander les meilleurs modèles GGUF disponibles sur HuggingFace.
-
-### 5.1 Parcourir les recommandations
-
-1. Cliquez sur **Model Hub** dans le menu gauche.
-2. Spectra détecte automatiquement votre matériel (CPU, RAM, VRAM GPU) et affiche une liste de modèles recommandés.
-3. Chaque modèle dispose d'un **Fit Score** :
-    - **Perfect** : Le modèle tient entièrement en VRAM (performance maximale).
-    - **Good** : Le modèle tient en grande partie en VRAM, le reste sur la RAM.
-    - **Marginal** : Le modèle est utilisable mais sera lent car majoritairement sur la RAM.
-    - **Too Tight** : Le modèle risque de provoquer un plantage par manque de mémoire.
-4. Utilisez le bouton **Simulation** en haut à droite pour tester comment d'autres modèles se comporteraient si vous aviez plus de RAM ou un meilleur GPU.
-
-### 5.2 Filtrage intelligent
-
-Spectra filtre automatiquement les résultats pour ne vous proposer que des modèles au format **GGUF** (les seuls compatibles avec `llama.cpp`). Les formats incompatibles comme GPTQ ou AWQ sont écartés pour vous garantir une installation sans erreur.
-
-### 5.3 Installer un modèle
-
-1. Cliquez sur le bouton **Installer** sous le modèle de votre choix.
-2. Spectra lance le téléchargement en arrière-plan. Une barre de progression s'affiche sur la carte du modèle.
-3. Le processus est asynchrone : vous pouvez continuer à utiliser Spectra pendant le téléchargement.
-4. (Optionnel) Cochez **Auto-activation** avant de cliquer sur Installer : le nouveau modèle sera automatiquement défini comme le modèle de chat actif dès la fin de son installation.
-
-> **Note :** Une fois le modèle installé, n'oubliez pas de redémarrer le service de chat pour l'utiliser : `docker compose restart llm-chat`.
-
----
-
-## 6. Gestion des Modèles
+## 5. Gestion des Modèles
 
 Spectra maintient un **registre local** des modèles dans `data/models/registry.json`, géré automatiquement par l'application.
 
@@ -801,6 +843,15 @@ Chaque job de fine-tuning produit un rapport `REPORT.md` dans `data/fine-tuning/
 4. Fine-tunez (recette "CPU Rapide" pour un premier essai) et comparez les réponses avec/sans RAG dans le Playground.
 5. Lancez une **évaluation** (onglet Model Comparison) pour mesurer le score moyen avant d'aller en production.
 6. Si le score est insuffisant (< 6) : générez des paires DPO (`POST /api/dataset/dpo/generate`) et relancez le fine-tuning avec l'option "Alignement DPO".
+7. **Boucle de personnalisation continue** : générez des commentaires IA sur vos documents (étape 2c), approuvez/rejetez-les. Dès que `SPECTRA_GED_AUTO_RETRAIN_THRESHOLD` approbations sont atteintes, Spectra lance automatiquement un nouveau fine-tuning DPO. Suivez la progression dans **Dashboard → Cycle de Personnalisation**.
+
+```
+Documents → RAG → Commentaires IA → 👍 Approbations
+     ↑                                      │
+     │                         seuil atteint │ auto-trigger
+     │                                      ↓
+     └──────── Modèle affiné ← Fine-tuning DPO
+```
 
 ---
 

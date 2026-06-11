@@ -3,17 +3,11 @@ import { useQuery, useMutation } from '@tanstack/react-query';
 import { modelsHubApi } from '../services/api';
 import Skeleton from '../components/Skeleton';
 import { useState } from 'react';
-
-type InstallStatus = 'RUNNING' | 'COMPLETED' | 'FAILED';
-
-interface InstallState {
-  progress: number;
-  status: InstallStatus;
-  message?: string;
-}
+import { toast } from 'sonner';
 
 const ModelHub: FC = () => {
-  const [installingModels, setInstallingModels] = useState<Record<string, InstallState>>({});
+  const [installingModels, setInstallingModels] = useState<Record<string, number>>({});
+  const [installedModels, setInstalledModels] = useState<string[]>([]);
   const [autoActivate, setAutoActivate] = useState(false);
   const [filter, setFilter] = useState('All');
   const [limit, setLimit] = useState(12);
@@ -26,41 +20,54 @@ const ModelHub: FC = () => {
   });
 
   const installMutation = useMutation({
-    mutationFn: ({ modelName, downloadRepo, quant }: { modelName: string; downloadRepo: string; quant?: string }) =>
-      modelsHubApi.installModel(downloadRepo || modelName, quant, autoActivate),
+    mutationFn: ({ modelName, quant }: { modelName: string; quant?: string }) =>
+      modelsHubApi.installModel(modelName, quant, autoActivate),
     onSuccess: (_, variables) => {
-      setInstallingModels(prev => ({
-        ...prev,
-        [variables.modelName]: { progress: 0, status: 'RUNNING', message: 'Téléchargement démarré' },
-      }));
+      setInstallingModels(prev => ({ ...prev, [variables.modelName]: 0 }));
 
-      const eventSource = modelsHubApi.getProgressSource(variables.downloadRepo || variables.modelName);
+      const eventSource = modelsHubApi.getProgressSource(variables.modelName);
       eventSource.onmessage = (event) => {
-        const payload = JSON.parse(event.data) as InstallState;
-        setInstallingModels(prev => ({ ...prev, [variables.modelName]: payload }));
-        if (payload.status === 'COMPLETED' || payload.status === 'FAILED') {
-          eventSource.close();
+        const progress = parseInt(event.data);
+        if (!isNaN(progress)) {
+          setInstallingModels(prev => ({ ...prev, [variables.modelName]: progress }));
+          if (progress >= 100) {
+            eventSource.close();
+            setInstallingModels(prev => {
+              const next = { ...prev };
+              delete next[variables.modelName];
+              return next;
+            });
+            setInstalledModels(prev => prev.includes(variables.modelName) ? prev : [...prev, variables.modelName]);
+            toast.success(`Modèle "${variables.modelName}" téléchargé`, {
+              description: autoActivate
+                ? 'Activé — redémarrez llm-chat pour le charger : docker compose restart llm-chat'
+                : 'Enregistré dans le registre. Activez-le dans le Playground puis redémarrez llm-chat.',
+              duration: 8000,
+            });
+          }
         }
       };
       eventSource.onerror = () => {
-        setInstallingModels(prev => ({
-          ...prev,
-          [variables.modelName]: {
-            progress: prev[variables.modelName]?.progress ?? 0,
-            status: 'FAILED',
-            message: 'Connexion au suivi de téléchargement interrompue.',
-          },
-        }));
         eventSource.close();
+        setInstallingModels(prev => {
+          const next = { ...prev };
+          delete next[variables.modelName];
+          return next;
+        });
+        toast.error(`Suivi de progression indisponible pour "${variables.modelName}"`, {
+          description: 'Le téléchargement est peut-être en cours. Vérifiez les logs : docker compose logs spectra-api',
+        });
       };
     },
     onError: (error: any) => {
-      alert(`Erreur lors du lancement de l'installation : ${error.message}`);
+      toast.error('Échec du lancement du téléchargement', {
+        description: error?.response?.data?.message ?? error.message,
+      });
     }
   });
 
-  const handleInstall = (modelName: string, downloadRepo: string, quant?: string) => {
-    installMutation.mutate({ modelName, downloadRepo, quant });
+  const handleInstall = (modelName: string, quant?: string) => {
+    installMutation.mutate({ modelName, quant });
   };
 
   const filteredModels = recommendations?.models?.filter((m: any) => {
@@ -233,17 +240,28 @@ const ModelHub: FC = () => {
         </section>
       )}
 
+      {/* Post-install Docker restart reminder */}
+      {installedModels.length > 0 && (
+        <div className="bg-primary/5 border border-primary/30 p-4 flex items-start gap-3">
+          <span className="material-symbols-outlined text-primary text-sm mt-0.5 shrink-0">info</span>
+          <div className="space-y-1">
+            <p className="text-[10px] font-label font-bold uppercase tracking-widest text-primary">
+              Modèle(s) téléchargé(s) — redémarrage requis
+            </p>
+            <p className="text-[9px] text-on-surface-variant leading-relaxed">
+              Le fichier GGUF a été copié dans <code className="font-mono bg-surface-container px-1">data/models/</code>.
+              Pour que <strong>llm-chat</strong> serve ce modèle, mettez à jour <code className="font-mono bg-surface-container px-1">.env</code> puis redémarrez :
+            </p>
+            <code className="block font-mono text-[9px] bg-surface-container px-2 py-1 text-primary mt-1">
+              docker compose restart llm-chat
+            </code>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
         {filteredModels?.map((model: any) => (
           <div key={model.name} className="group relative bg-surface-container-lowest border border-outline-variant/10 hover:border-primary/30 transition-all flex flex-col h-full shadow-sm hover:shadow-md">
-            {(() => {
-              const installState = installingModels[model.name];
-              const isInstalling = installState?.status === 'RUNNING';
-              const installFailed = installState?.status === 'FAILED';
-              const installCompleted = installState?.status === 'COMPLETED';
-
-              return (
-                <>
             <div className="p-6 flex-1">
               <div className="flex justify-between items-start mb-4">
                 <div className="px-2 py-0.5 bg-primary/10 text-primary text-[10px] font-black uppercase tracking-widest border border-primary/20">
@@ -297,36 +315,26 @@ const ModelHub: FC = () => {
             </div>
 
             <div className="relative">
-              {isInstalling && (
-                <div className="absolute top-0 left-0 h-1 bg-secondary transition-all duration-300" style={{ width: `${installState.progress}%` }}></div>
-              )}
-              {installFailed && installState.message && (
-                <div className="px-4 py-3 bg-error/10 text-error text-xs border-t border-error/20 break-words">
-                  {installState.message}
-                </div>
+              {installingModels[model.name] !== undefined && installingModels[model.name] < 100 && (
+                <div className="absolute top-0 left-0 h-1 bg-secondary transition-all duration-300" style={{ width: `${installingModels[model.name]}%` }}></div>
               )}
               <button
-                onClick={() => handleInstall(model.name, model.download_repo, model.best_quant)}
-                disabled={model.installed || isInstalling || installCompleted}
+                onClick={() => handleInstall(model.name, model.best_quant)}
+                disabled={model.installed || installingModels[model.name] !== undefined}
                 className={`w-full py-4 font-headline uppercase tracking-[0.2em] text-[11px] font-black flex items-center justify-center gap-2 transition-all ${
-                  model.installed || installCompleted
+                  model.installed
                   ? 'bg-surface-variant text-outline cursor-default'
-                  : isInstalling
+                  : installingModels[model.name] !== undefined
                     ? 'bg-secondary text-on-secondary cursor-wait'
-                    : installFailed
-                      ? 'bg-error text-on-error hover:bg-error/90'
                     : 'bg-primary text-on-primary hover:bg-primary/90'
                 }`}
               >
                 <span className="material-symbols-outlined text-sm">
-                  {model.installed || installCompleted ? 'check_circle' : isInstalling ? 'sync' : installFailed ? 'error' : 'download'}
+                  {model.installed ? 'check_circle' : installingModels[model.name] !== undefined ? 'sync' : 'download'}
                 </span>
-                {model.installed || installCompleted ? 'Installé' : isInstalling ? `Téléchargement (${installState.progress}%)` : installFailed ? 'Réessayer' : 'Installer'}
+                {model.installed ? 'Installé' : installingModels[model.name] !== undefined ? `Téléchargement (${installingModels[model.name]}%)` : 'Installer'}
               </button>
             </div>
-                </>
-              );
-            })()}
           </div>
         ))}
       </div>

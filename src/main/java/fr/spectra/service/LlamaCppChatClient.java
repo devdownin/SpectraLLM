@@ -17,6 +17,7 @@ import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -79,6 +80,31 @@ public class LlamaCppChatClient implements LlmChatClient {
         modelRegistry.setActiveChatModel(model);
         runtimeOrchestrator.ensureChatModelServed(model);
         log.info("Modèle actif llama.cpp changé : {} → {}", previous, model);
+        // Vérifie que le serveur sert bien le modèle demandé après le changement
+        CompletableFuture.runAsync(() -> verifyModelLoaded(model));
+    }
+
+    /**
+     * Vérifie que le modèle actif est bien chargé par llama-server.
+     * Avertit si le registre et le serveur sont désynchronisés (modèle manquant ou mauvais alias).
+     */
+    private void verifyModelLoaded(String model) {
+        try {
+            ServiceStatus health = checkHealth();
+            if (!health.available()) {
+                log.warn("ALERTE MODELE : llama-server inaccessible après activation de '{}' — les requêtes vont échouer.",
+                        model);
+            } else if (!"ok".equals(health.version())) {
+                log.warn("ALERTE REGISTRE/SERVEUR : le modèle '{}' est actif dans le registre mais " +
+                         "n'est pas reconnu par llama-server (status='{}'). " +
+                         "Vérifiez que l'alias GGUF correspond au modèle chargé avec '-a'.",
+                        model, health.version());
+            } else {
+                log.debug("Vérification modèle '{}' : OK (chargé et servi)", model);
+            }
+        } catch (Exception e) {
+            log.warn("Impossible de vérifier le chargement du modèle '{}' : {}", model, e.getMessage());
+        }
     }
 
     @Override

@@ -54,11 +54,7 @@
       "Bash(docker exec:*)",
       "Bash(python3 -m json.tool)",
       "Bash(xargs cat *)",
-      "Bash(grep *)",
-      "Bash(./mvnw -q -o test -Dtest='BM25IndexTest,FtsServiceTest,HybridSearchServiceTest')",
-      "Bash(mvn -q -o test -Dtest='BM25IndexTest,FtsServiceTest,HybridSearchServiceTest')",
-      "PowerShell(mvn *)",
-      "Bash(git reset *)"
+      "Bash(grep *)"
     ]
   }
 }

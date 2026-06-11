@@ -35,7 +35,8 @@ export const ingestApi = {
   ingestUrls: (urls: string[]) => api.post('/ingest/url', { urls }),
   getTaskStatus: (taskId: string) => api.get(`/ingest/${taskId}`),
   getAllTasks: () => api.get('/ingest'),
-  getHistory: () => api.get('/ingest/files'),
+  getHistory: (params?: { page?: number; size?: number; q?: string }) =>
+    api.get('/ingest/files', { params }),
 };
 
 export const gedApi = {
@@ -185,6 +186,10 @@ export const queryApi = {
   },
 };
 
+export const metricsApi = {
+  getPersonalization: () => api.get('/metrics/personalization'),
+};
+
 export const configApi = {
   getModelConfig: () => api.get('/config/model'),
   setModelConfig: (config: any) => api.post('/config/model', config),
@@ -194,9 +199,9 @@ export const modelsHubApi = {
   getRecommendations: (params: { limit?: number; memory?: string; ram?: string; cpuCores?: number } = {}) =>
     api.get('/models/hub/recommendations', { params }),
   installModel: (modelName: string, quant?: string, autoActivate = false) =>
-    api.post(`/models/hub/install?modelName=${encodeURIComponent(modelName)}${quant ? `&quant=${encodeURIComponent(quant)}` : ''}&autoActivate=${autoActivate}`),
+    api.post(`/models/hub/install?modelName=${encodeURIComponent(modelName)}${quant ? `&quant=${quant}` : ''}&autoActivate=${autoActivate}`),
   getProgressSource: (modelName: string) =>
-    new EventSource(`/api/models/hub/install/progress?modelName=${encodeURIComponent(modelName)}`),
+    new EventSource(`/api/models/hub/install/${encodeURIComponent(modelName)}/progress`),
 };
 
 export default api;

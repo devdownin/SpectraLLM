@@ -14,7 +14,6 @@ public record LlmFitRecommendation(
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record ModelRecommendation(
             String name,
-            @JsonProperty("download_repo") String downloadRepo,
             String provider,
             @JsonProperty("parameter_count") String parameterCount,
             @JsonProperty("use_case") String useCase,

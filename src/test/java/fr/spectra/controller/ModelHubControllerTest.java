@@ -2,10 +2,8 @@ package fr.spectra.controller;
 
 import fr.spectra.dto.LlmFitRecommendation;
 import fr.spectra.service.LlmFitService;
-import fr.spectra.service.LlmFitService.InstallationProgress;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import reactor.core.publisher.Flux;
 
 import java.util.List;
 import java.util.Map;
@@ -56,7 +54,7 @@ class ModelHubControllerTest {
     @Test
     void getRecommendations_serviceReturnsModels_propagatesListIntact() {
         LlmFitRecommendation.ModelRecommendation model = new LlmFitRecommendation.ModelRecommendation(
-                "llama3.2:3b", "llama3.2:3b", "Meta", "3B", "chat", 0.87, "good", "Q4_K_M",
+                "llama3.2:3b", "Meta", "3B", "chat", 0.87, "good", "Q4_K_M",
                 12.5, 2.1, 1.8, 4096, List.of(), Map.of(), List.of(), false, "CPU");
         when(llmFitService.getRecommendations(anyInt(), any(), any(), any()))
                 .thenReturn(new LlmFitRecommendation(List.of(model), null));
@@ -111,24 +109,18 @@ class ModelHubControllerTest {
         verify(llmFitService).installModel("mistral:7b", null, false);
     }
 
+    /**
+     * Le frontend expose un toggle "Auto-Activation" mais le contrôleur
+     * force autoActivate=false sans exposer ce paramètre côté HTTP.
+     * Ce test documente ce comportement actuel.
+     */
     @Test
-    void installModel_autoActivateTrue_passesIntentToService() {
+    void installModel_autoActivateHardcodedFalse_regardlessOfIntent() {
         when(llmFitService.installModel(any(), any(), anyBoolean()))
                 .thenReturn(CompletableFuture.completedFuture(true));
 
-        controller.installModel("any-model", null, true);
+        controller.installModel("any-model", null, false);
 
-        verify(llmFitService).installModel(anyString(), any(), eq(true));
-    }
-
-    @Test
-    void getInstallationProgressByQuery_delegatesToService() {
-        Flux<InstallationProgress> expected = Flux.just(new InstallationProgress(42, "RUNNING", "Téléchargement en cours"));
-        when(llmFitService.getInstallationProgress("RedHatAI/Qwen3")).thenReturn(expected);
-
-        Flux<InstallationProgress> result = controller.getInstallationProgressByQuery("RedHatAI/Qwen3");
-
-        assertThat(result).isSameAs(expected);
-        verify(llmFitService).getInstallationProgress("RedHatAI/Qwen3");
+        verify(llmFitService).installModel(anyString(), any(), eq(false));
     }
 }

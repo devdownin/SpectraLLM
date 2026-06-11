@@ -2,7 +2,6 @@ package fr.spectra.controller;
 
 import fr.spectra.dto.LlmFitRecommendation;
 import fr.spectra.service.LlmFitService;
-import fr.spectra.service.LlmFitService.InstallationProgress;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.MediaType;
@@ -39,22 +38,24 @@ public class ModelHubController {
 
     @PostMapping("/install")
     @Operation(summary = "Lancer le téléchargement et l'installation d'un modèle")
-    public Map<String, String> installModel(@RequestParam String modelName,
-                                           @RequestParam(required = false) String quant,
-                                           @RequestParam(defaultValue = "false") boolean autoActivate) {
+    public Map<String, String> installModel(
+            @RequestParam String modelName,
+            @RequestParam(required = false) String quant,
+            @RequestParam(defaultValue = "false") boolean autoActivate) {
         llmFitService.installModel(modelName, quant, autoActivate);
         return Map.of("status", "IN_PROGRESS", "modelName", modelName);
     }
 
-    @GetMapping(value = "/install/{modelName}/progress", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    @Operation(summary = "Suivre la progression d'installation d'un modèle")
-    public Flux<InstallationProgress> getInstallationProgress(@PathVariable String modelName) {
-        return llmFitService.getInstallationProgress(modelName);
-    }
-
-    @GetMapping(value = "/install/progress", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    @Operation(summary = "Suivre la progression d'installation d'un modèle par nom complet")
-    public Flux<InstallationProgress> getInstallationProgressByQuery(@RequestParam String modelName) {
+    /**
+     * SSE stream of download progress (0–100) for a model being installed.
+     * The endpoint is deliberately mapped under /api/sse/ so that nginx
+     * applies proxy_buffering off without requiring a separate location block.
+     */
+    @GetMapping(value = "/install/{modelName}/progress",
+                produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @Operation(summary = "Flux SSE de progression du téléchargement (0–100)")
+    public Flux<Integer> getInstallationProgress(@PathVariable String modelName) {
         return llmFitService.getInstallationProgress(modelName);
     }
 }
+

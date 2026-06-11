@@ -28,7 +28,7 @@ class FtsServiceTest {
                 .thenThrow(new RuntimeException("ChromaDB absent en test"));
 
         SpectraProperties.ChromaDbProperties chromaProps =
-                new SpectraProperties.ChromaDbProperties("http://chroma:8000", "spectra_documents");
+                new SpectraProperties.ChromaDbProperties("http://chroma:8000", "spectra_documents", 16);
         SpectraProperties props = mock(SpectraProperties.class);
         when(props.chromadb()).thenReturn(chromaProps);
 

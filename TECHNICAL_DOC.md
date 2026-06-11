@@ -682,31 +682,22 @@ La recherche vectorielle pure peut rater des termes techniques précis (codes de
 
 | Classe | Rôle |
 |--------|------|
-| `BM25Index` | BM25Okapi en mémoire, thread-safe (`ReentrantReadWriteLock`). Tokeniseur français : **repli des accents** (péage↔peage, contrôle↔controle) et **filtrage des mots-vides** (`le`, `de`, `pour`…) appliqués symétriquement à l'indexation et à la requête. k1=1.5, b=0.75. |
+| `BM25Index` | BM25Okapi en mémoire, thread-safe (`ReentrantReadWriteLock`). Tokeniseur Unicode (accents FR inclus). k1=1.5, b=0.75. |
 | `FtsService` | Un `BM25Index` par collection. Rebuild asynchrone au démarrage depuis ChromaDB. Mis à jour à chaque ingestion / suppression. |
-| `HybridSearchService` | Lance vecteur + BM25 en parallèle (`CompletableFuture`). Fusionne via RRF (défaut) ou fusion pondérée normalisée. Activé par `@ConditionalOnProperty`. |
+| `HybridSearchService` | Lance vecteur + BM25 en parallèle (`CompletableFuture`). Fusionne via RRF. Activé par `@ConditionalOnProperty`. |
 
-**Prétraitement lexical du tokeniseur BM25 :**
-
-Pour un corpus français, deux normalisations améliorent nettement le signal lexical :
-- **Repli des accents** : `à/â/ä→a`, `é/è/ê/ë→e`, `ç→c`, `œ→oe`… Une requête tapée sans accent (`peage`, `controle`) matche le document accentué et inversement.
-- **Mots-vides** : les termes de fonction (articles, prépositions, pronoms, auxiliaires) ont un IDF quasi nul et diluent le score des termes métier ; ils sont exclus de l'indexation comme de la requête. Les mots-nombres (`deux`, `trois`) sont conservés car souvent signifiants (`voie 2`, `niveau 3`).
-
-**Fusion — deux stratégies (`spectra.hybrid-search.fusion-mode`) :**
+**Reciprocal Rank Fusion (RRF) :**
 
 ```
-# Mode "rrf" (Reciprocal Rank Fusion — défaut, robuste, insensible à l'échelle)
 score_rrf(d) = w_vec   / (k + rank_vec(d))
              + w_bm25  / (k + rank_bm25(d))
-k = 60   w_vec = 1.0 (fixe)   w_bm25 = 1.0 (spectra.hybrid-search.bm25-weight)
 
-# Mode "weighted" (combinaison convexe de scores normalisés min-max)
-score_w(d) = w_vec · normSim_vec(d) + w_bm25 · normBM25(d)
-normSim_vec = min-max( 1 − distance_cosinus )  ∈ [0,1]
-normBM25    = min-max( score_bm25 )            ∈ [0,1]
+k = 60  (constante standard — réduit l'impact des documents très bien classés dans un seul signal)
+w_vec  = 1.0 (fixe)
+w_bm25 = 1.0 (configurable via spectra.hybrid-search.bm25-weight)
 ```
 
-RRF ne voit que le rang et ne nécessite aucun réglage : c'est le défaut recommandé. Le mode `weighted` conserve la magnitude des correspondances fortes mais est plus sensible aux valeurs extrêmes. Si un document n'apparaît que dans l'un des deux signaux, sa contribution depuis l'autre signal est 0.
+Si un document n'apparaît que dans l'un des deux signaux, sa contribution depuis l'autre signal est 0.
 
 **Cycle de vie de l'index BM25 :**
 
@@ -732,10 +723,9 @@ Suppression :
 ```yaml
 spectra:
   hybrid-search:
-    enabled:    ${SPECTRA_HYBRID_SEARCH_ENABLED:true}   # activé par défaut
+    enabled:    ${SPECTRA_HYBRID_SEARCH_ENABLED:false}  # désactivé par défaut
     top-bm25:   ${SPECTRA_HYBRID_BM25_TOP:20}           # candidats BM25 récupérés
     bm25-weight: ${SPECTRA_HYBRID_BM25_WEIGHT:1.0}      # poids relatif du signal BM25
-    fusion-mode: ${SPECTRA_HYBRID_FUSION_MODE:rrf}      # "rrf" (défaut) | "weighted"
 ```
 
 **Combinaison I1 + I2 :** quand les deux sont activés, le pipeline complet est :
@@ -822,7 +812,7 @@ spectra:
 
 La recherche RAG standard encode une seule formulation de la question. Si l'utilisateur utilise un terme différent de celui présent dans les documents (synonyme, abréviation, reformulation), le vecteur produit peut s'éloigner des vecteurs des chunks pertinents.
 
-**Principe :** générer N reformulations de la question sous angles différents, exécuter le retrieval pour chacune, puis fusionner les résultats par **Reciprocal Rank Fusion sur le rang** de chaque chunk dans sa sous-requête (déduplication sur le texte exact). Fusionner sur le rang plutôt que sur la distance cosinus brute préserve le classement hybride : un chunk remonté uniquement par BM25 (distance ≈ 1.0) n'est plus relégué en fin de liste, et un chunk bien classé par plusieurs variantes voit son score cumulé.
+**Principe :** générer N reformulations de la question sous angles différents, exécuter le retrieval pour chacune, fusionner les résultats en dédupliquant sur le texte exact des chunks.
 
 ```
 MultiQueryService.generateQueries("Procédure d'évacuation en cas d'incident ?")
@@ -1110,22 +1100,6 @@ POST /api/fine-tuning/models/{name}/pull
     Les modèles doivent être gérés localement sous forme de GGUF
 ```
 
-### Model Hub
-
-```
-GET /api/models/hub/recommendations?limit=N&memory=X&ram=Y&cpuCores=Z
-  limit : nombre de recommandations (défaut 10)
-  memory, ram, cpuCores : (optionnel) simulation de matériel
-  Réponse : LlmFitRecommendation (modèles filtrés GGUF uniquement)
-
-POST /api/models/hub/install?modelName=...&quant=...&autoActivate=true
-  Lance le téléchargement asynchrone via llmfit.
-  Réponse : {"status": "IN_PROGRESS", "modelName": "..."}
-
-GET /api/models/hub/install/progress?modelName=... (SSE)
-  Suivi temps réel du téléchargement et de l'enregistrement.
-```
-
 ### Commentaires d'articles (Article Commenting)
 
 ```
@@ -1210,6 +1184,205 @@ Exporter → comments_dpo.jsonl         le modèle affiné
 Le fichier `comments_dpo.jsonl` peut être utilisé **en complément** du `dpo_pairs.jsonl`
 existant lors du fine-tuning : les deux sources sont au même format et peuvent être
 concaténées avant de lancer `trl.DPOTrainer`.
+
+---
+
+### Garde de similarité Jaccard sur les paires DPO (`DpoGenerationService`)
+
+Avant d'accepter une paire `(chosen, rejected)`, `DpoGenerationService` calcule la similarité de Jaccard sur les sacs de mots des deux réponses.
+
+**Formule :**
+
+```
+J(A, B) = |A ∩ B| / |A ∪ B|
+
+où A = ensemble des mots (lowercase) de chosen
+   B = ensemble des mots (lowercase) de rejected
+```
+
+**Seuil :** `SIMILARITY_THRESHOLD = 0.85` (constant de classe, non configurable via propriétés — modifiable dans le code).
+
+**Exemple :**
+
+| chosen | rejected | Jaccard | Résultat |
+|--------|----------|---------|----------|
+| `"la procédure exige un casque"` | `"un casque est exigé par la procédure"` | 0.71 | ✅ Paire acceptée |
+| `"la procédure exige un casque"` | `"la procédure nécessite un casque"` | 0.80 | ✅ Paire acceptée |
+| `"la procédure exige un casque blanc"` | `"la procédure exige un casque blanc de sécurité"` | 0.90 | ❌ Paire rejetée (trop similaires) |
+
+**Implémentation (`DpoGenerationService.generateRejected()`) :**
+
+```java
+private static final double SIMILARITY_THRESHOLD = 0.85;
+
+// Dans generateRejected(), après avoir obtenu la réponse du LLM :
+double similarity = jaccardSimilarity(chosen, rejectedTrimmed);
+if (similarity > SIMILARITY_THRESHOLD) {
+    log.warn("Paire DPO ignorée — chosen/rejected trop similaires (Jaccard={}) pour : {}",
+            String.format("%.2f", similarity), user.substring(0, Math.min(60, user.length())));
+    return null;
+}
+
+private double jaccardSimilarity(String a, String b) {
+    Set<String> setA = Arrays.stream(a.toLowerCase().split("\\s+")).collect(Collectors.toSet());
+    Set<String> setB = Arrays.stream(b.toLowerCase().split("\\s+")).collect(Collectors.toSet());
+    if (setA.isEmpty() && setB.isEmpty()) return 1.0;
+    long intersection = setA.stream().filter(setB::contains).count();
+    long union = setA.size() + setB.size() - intersection;
+    return union == 0 ? 1.0 : (double) intersection / union;
+}
+```
+
+**Pourquoi cette garde est nécessaire :** `trl.DPOTrainer` apprend à maximiser `log P(chosen) - log P(rejected)`. Si les deux textes sont presque identiques, ce différentiel est nul — la paire ne contribue pas à l'apprentissage et peut introduire du bruit de gradient.
+
+**La même garde** est appliquée indépendamment dans `ArticleCommentService` lors de l'export `comments_dpo.jsonl`.
+
+---
+
+### Déclencheur automatique de re-entraînement (`ArticleCommentService`)
+
+Chaque appel à `PATCH /rating?rating=APPROVED` déclenche une vérification du seuil de re-entraînement après sauvegarde en base.
+
+**Logique :**
+
+```
+rateComment(commentId, APPROVED)
+  │
+  ├── commentRepo.save(comment)
+  │
+  ├── approvedCount = countByCommentTypeAndRating(AI_GENERATED, APPROVED)
+  │
+  └── if approvedCount > 0 && approvedCount % autoRetrainThreshold == 0 :
+        CompletableFuture.runAsync(() → {
+          pairs = exportDpoPairs(dpoExportPath)    ← écriture JSONL sur disque
+          if pairs == 0 → return (rien à entraîner)
+          jobId = fineTuningService.submit(
+                    FineTuningRequest("auto-dpo-<epoch>", dpoEnabled=true))
+          log.info("Re-entraînement DPO automatique soumis : {} paires, jobId={}", pairs, jobId)
+        })
+```
+
+**Points clés de conception :**
+
+| Aspect | Choix | Raison |
+|--------|-------|--------|
+| Asynchronisme | `CompletableFuture.runAsync()` | `@Async` ne fonctionne pas en appel intra-classe (contourne le proxy CGLIB) |
+| Injection FineTuningService | `@Lazy` | Évite les dépendances circulaires au démarrage Spring |
+| Comptage | `countByCommentTypeAndRating()` JPA | Requête SQL directe, pas de chargement en mémoire |
+| Nommage du job | `"auto-dpo-" + Instant.now().toEpochMilli()` | Unicité garantie même si deux triggers se chevauchent |
+
+**Configuration :**
+
+```yaml
+spectra:
+  ged:
+    auto-retrain-threshold: 5   # 0 = désactivé ; N > 0 = déclencher tous les N commentaires approuvés
+  dataset:
+    dir: ./data/dataset          # dossier de sortie du fichier comments_dpo.jsonl
+```
+
+Variables d'environnement équivalentes :
+```bash
+SPECTRA_GED_AUTO_RETRAIN_THRESHOLD=20   # recommandé en production : 20–50
+SPECTRA_DATASET_DIR=./data/dataset
+```
+
+**Suivi :** les jobs déclenchés automatiquement apparaissent dans l'historique `GET /api/fine-tuning` avec le préfixe `auto-dpo-` dans le nom du modèle.
+
+---
+
+### Vérification de cohérence registre ↔ llama-server (`LlamaCppChatClient`)
+
+Après chaque appel `setActiveModel(model)`, une tâche asynchrone vérifie que llama-server sert effectivement le modèle activé dans le registre.
+
+**Flux :**
+
+```
+setActiveModel("spectra-v2")
+  │
+  ├── activeModel.getAndSet("spectra-v2")
+  ├── modelRegistry.setActiveChatModel("spectra-v2")
+  ├── runtimeOrchestrator.ensureChatModelServed("spectra-v2")
+  │
+  └── CompletableFuture.runAsync(() → verifyModelLoaded("spectra-v2"))
+        │
+        ├── checkHealth()               ← GET /v1/models (timeout 5 s)
+        │
+        ├── !health.available()
+        │     → WARN "llama-server inaccessible après activation de 'spectra-v2'"
+        │
+        ├── !"ok".equals(health.version())
+        │     → WARN "ALERTE REGISTRE/SERVEUR : 'spectra-v2' actif dans le registre
+        │             mais pas reconnu par llama-server (status='model-not-loaded').
+        │             Vérifiez que l'alias GGUF correspond au modèle chargé avec '-a'."
+        │
+        └── else
+              → DEBUG "Vérification modèle 'spectra-v2' : OK"
+```
+
+**`health.version()`** contient `"ok"` si `activeModelLoaded=true`, `"model-not-loaded"` sinon (voir `ServiceStatus` record — le champ `version` porte le statut de santé).
+
+**Cas d'alerte typique :**
+
+```
+# Registre : activeChatModel = "spectra-v2"
+# llama-server démarré avec : llama-server -m model.gguf -a old-name
+#                                                              ↑ alias différent
+# → WARN ALERTE REGISTRE/SERVEUR : 'spectra-v2' non reconnu par llama-server
+#        status='model-not-loaded'
+```
+
+**Correction :** redémarrer llama-server avec `-a spectra-v2`, ou enregistrer le modèle avec le même alias que celui passé à `-a`.
+
+---
+
+### Tableau de bord de personnalisation (`PersonalizationMetricsService` + `MetricsController`)
+
+Le service agrège en un seul appel toutes les métriques du cycle de personnalisation : commentaires, paires DPO, jobs de fine-tuning et scores d'évaluation.
+
+**Endpoint :**
+
+```
+GET /api/metrics/personalization
+  Réponse :
+  {
+    "approvedComments":         12,        ← commentaires IA approuvés (total)
+    "rejectedComments":          3,        ← commentaires IA rejetés (total)
+    "totalAiComments":          15,        ← total commentaires IA (approuvés + rejetés + NONE)
+    "dpoPairs":                 47,        ← paires DPO dans le dataset courant
+    "fineTuningJobs":           [...],     ← liste de tous les jobs (voir §5)
+    "evaluations":              [...],     ← liste de tous les rapports (voir §EvaluationService)
+    "completedCycles":           2,        ← approvedComments / autoRetrainThreshold
+    "nextTriggerIn":             3,        ← nombre d'approbations avant prochain trigger
+    "autoRetrainThreshold":      5,        ← valeur du seuil configuré
+    "completedFineTuningJobs":   2,        ← jobs en statut COMPLETED
+    "latestEvalScore":           7.4       ← score moyen du dernier rapport COMPLETED (-1.0 si aucun)
+  }
+```
+
+**Logique de `PersonalizationMetricsService.getMetrics()` :**
+
+```java
+long approved = commentRepo.countByCommentTypeAndRating(AI_GENERATED, APPROVED);
+long rejected = commentRepo.countByCommentTypeAndRating(AI_GENERATED, REJECTED);
+long total    = commentRepo.countByCommentType(AI_GENERATED);
+int  dpoPairs = dpoService.getAllPairs().size();
+List<FineTuningJob>    jobs  = fineTuningService.getAllJobs();
+List<EvaluationReport> evals = evaluationService.getAllReports();
+
+long completedCycles = threshold > 0 ? approved / threshold : 0;
+long nextTriggerIn   = threshold > 0 ? threshold - (approved % threshold) : -1;
+long completedJobs   = jobs.stream().filter(j -> j.status() == COMPLETED).count();
+double latestScore   = evals.stream()
+    .filter(r -> "COMPLETED".equals(r.status()))
+    .mapToDouble(EvaluationReport::averageScore)
+    .max().orElse(-1.0);
+```
+
+**Utilisation frontend :** le composant `Dashboard.tsx` consomme cet endpoint via `metricsApi.getPersonalization()` et affiche :
+- 4 cartes KPI : Approuvés · Paires DPO · Fine-Tunings terminés · Score éval
+- Une barre de progression vers le prochain trigger automatique
+- La liste des jobs récents avec leur statut
 
 ### Statut et RAG
 
@@ -1312,6 +1485,23 @@ POST /api/config/resources/refresh
   Déclenche une nouvelle détection des ressources (ResourceAdvisorService.refresh())
   Utile si un GPU a été ajouté ou si les limites cgroup ont changé sans redémarrage
   Réponse : même structure que GET /api/config/resources, avec le nouveau profil
+
+GET /api/metrics/personalization
+  Réponse : tableau de bord du cycle de personnalisation
+  {
+    "approvedComments":         12,      ← commentaires IA approuvés (total cumulé)
+    "rejectedComments":          3,      ← commentaires IA rejetés (total cumulé)
+    "totalAiComments":          15,      ← tous commentaires IA (APPROVED + REJECTED + NONE)
+    "dpoPairs":                 47,      ← paires dans le dataset DPO courant (en mémoire)
+    "fineTuningJobs":           [...],   ← liste complète des jobs (voir GET /api/fine-tuning)
+    "evaluations":              [...],   ← liste complète des rapports d'évaluation
+    "completedCycles":           2,      ← approvedComments / autoRetrainThreshold
+    "nextTriggerIn":             3,      ← approbations restantes avant prochain auto-trigger
+    "autoRetrainThreshold":      5,      ← valeur du seuil (0 = désactivé)
+    "completedFineTuningJobs":   2,      ← jobs avec statut COMPLETED
+    "latestEvalScore":           7.4     ← score moyen du dernier rapport COMPLETED (-1.0 si aucun)
+  }
+  Contrôleur : MetricsController → GET /api/metrics/personalization (200 OK)
 ```
 
 ---
@@ -1379,13 +1569,14 @@ Ces `.so` sont copiés depuis le stage `llama_cpp_build` vers `llama_cpp_runtime
 | `SPECTRA_RERANKER_URL` | `http://reranker:8000` | URL interne du service reranker |
 | `SPECTRA_RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Modèle Cross-Encoder (voir table section 6) |
 | `SPECTRA_RERANKER_TOP_CANDIDATES` | `20` | Nombre de candidats récupérés avant re-ranking |
-| `SPECTRA_HYBRID_SEARCH_ENABLED` | `true` | Active la recherche hybride BM25 + vecteurs (mettre `false` pour vectoriel pur) |
-| `SPECTRA_HYBRID_BM25_TOP` | `20` | Candidats BM25 récupérés avant fusion |
-| `SPECTRA_HYBRID_BM25_WEIGHT` | `1.0` | Poids du signal BM25 dans la fusion |
-| `SPECTRA_HYBRID_FUSION_MODE` | `rrf` | Stratégie de fusion : `rrf` (défaut) ou `weighted` (scores normalisés min-max) |
+| `SPECTRA_HYBRID_SEARCH_ENABLED` | `false` | Active la recherche hybride BM25 + vecteurs |
+| `SPECTRA_HYBRID_BM25_TOP` | `20` | Candidats BM25 récupérés avant fusion RRF |
+| `SPECTRA_HYBRID_BM25_WEIGHT` | `1.0` | Poids du signal BM25 dans le score RRF |
 | `SPECTRA_AGENTIC_RAG_ENABLED` | `false` | Active la boucle de raisonnement ReAct (`true` pour activer) |
 | `SPECTRA_AGENTIC_MAX_ITERATIONS` | `3` | Nombre maximal de tours de recherche complémentaire avant réponse forcée |
 | `SPECTRA_AGENTIC_INITIAL_TOP_K` | `5` | Chunks du retrieval initial transmis à la boucle agentique |
+| `SPECTRA_GED_AUTO_RETRAIN_THRESHOLD` | `5` | Commentaires IA approuvés par déclencheur automatique de fine-tuning (0 = désactivé) |
+| `SPECTRA_DATASET_DIR` | `./data/dataset` | Dossier de sortie du fichier `comments_dpo.jsonl` |
 
 ### Paramètres JVM (`Dockerfile` runtime Java)
 
@@ -1635,37 +1826,3 @@ Ce script envoie des requêtes réelles à l'API Spectra et mesure les temps de 
 | Ingestion URL : max 20 URLs par requête | Volume limité par appel API | Effectuer plusieurs appels successifs |
 | Rendu JS (browserless) : timeout 60 s | Pages très lentes non rendues | Augmenter `BROWSERLESS_TIMEOUT` dans `UrlFetcherService` |
 | Extraction HTML : sélecteurs CSS fixes | Certains sites avec structures non-standards perdent du contenu | Ajouter les sélecteurs dans `HtmlExtractor.java` et recompiler |
-
----
-
-## 14. Model Hub et Intégration llmfit
-
-Le Model Hub permet de découvrir et d'installer des modèles LLM optimisés pour le matériel détecté ou simulé.
-
-### 14.1 Recommandations matérielles
-
-Spectra utilise l'outil CLI **llmfit** (installé dans l'image Docker) pour obtenir des recommandations.
-
-- **Processus** : `spectra-api` invoque `llmfit recommend --json`.
-- **Simulation** : Les paramètres `memory`, `ram` et `cpuCores` permettent d'outrepasser la détection automatique pour tester des configurations théoriques.
-- **Filtrage GGUF** : Spectra applique un filtrage strict sur les sorties de `llmfit`. Un modèle n'est conservé que si :
-    - Son nom contient "GGUF".
-    - OU il possède des sources GGUF explicites dans ses métadonnées.
-    - OU sa quantification (`best_quant`) correspond à un format GGUF connu (`Qx_x`, `F16`, etc.).
-    - Les formats incompatibles comme `.w4a16`, `GPTQ` ou `AWQ` sont écartés pour éviter les échecs de téléchargement ou d'exécution par `llama.cpp`.
-
-### 14.2 Installation asynchrone
-
-L'installation est pilotée par `LlmFitService` et s'exécute en tâche de fond.
-
-1. **Commande** : Invoque `llmfit download <repo> --quant <quant>`.
-2. **Streaming des logs** : La sortie standard de `llmfit` est parsée en temps réel pour extraire le pourcentage de progression via des expressions régulières.
-3. **Enregistrement automatique** : Une fois le fichier `.gguf` téléchargé, Spectra l'enregistre dans le `ModelRegistryService` avec un alias dérivé du nom de fichier.
-4. **Auto-activation** : Si l'option est cochée, le nouveau modèle devient le modèle de chat actif dès la fin du téléchargement.
-
-### 14.3 Suivi via SSE
-
-Le frontend suit la progression via un flux Server-Sent Events (`/api/models/hub/install/progress`). Chaque événement contient :
-- `progress` : entier de 0 à 100.
-- `status` : `RUNNING`, `COMPLETED` ou `FAILED`.
-- `message` : détails sur l'étape en cours ou l'erreur rencontrée.

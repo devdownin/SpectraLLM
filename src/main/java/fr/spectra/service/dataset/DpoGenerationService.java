@@ -20,6 +20,7 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.stream.Collectors;
 
 /**
  * Génère des paires DPO (chosen / rejected) à partir du dataset SFT existant.
@@ -36,6 +37,9 @@ public class DpoGenerationService {
 
     private static final Logger log = LoggerFactory.getLogger(DpoGenerationService.class);
     private static final ObjectMapper mapper = new ObjectMapper();
+
+    /** Seuil de similarité Jaccard au-dessus duquel une paire DPO est rejetée comme trop similaire. */
+    private static final double SIMILARITY_THRESHOLD = 0.85;
 
     private static final String REJECTION_SYSTEM_PROMPT = """
             Tu génères des réponses incorrectes pour l'entraînement DPO (Direct Preference Optimization).
@@ -165,12 +169,32 @@ public class DpoGenerationService {
             String rejected = chatClient.chat(REJECTION_SYSTEM_PROMPT, "Question : " + user);
             if (rejected == null || rejected.isBlank()) return null;
 
-            return new DpoPair(prompt, chosen, rejected.trim(),
+            String rejectedTrimmed = rejected.trim();
+            double similarity = jaccardSimilarity(chosen, rejectedTrimmed);
+            if (similarity > SIMILARITY_THRESHOLD) {
+                log.warn("Paire DPO ignorée — chosen/rejected trop similaires (Jaccard={}) pour : {}",
+                        String.format("%.2f", similarity), user.substring(0, Math.min(60, user.length())));
+                return null;
+            }
+
+            return new DpoPair(prompt, chosen, rejectedTrimmed,
                     sft.metadata().category(), sft.metadata().source());
         } catch (Exception e) {
             log.warn("Échec génération rejet DPO: {}", e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * Similarité de Jaccard sur ensembles de mots pour détecter les paires chosen/rejected trop proches.
+     */
+    private double jaccardSimilarity(String a, String b) {
+        Set<String> setA = Arrays.stream(a.toLowerCase().split("\\s+")).collect(Collectors.toSet());
+        Set<String> setB = Arrays.stream(b.toLowerCase().split("\\s+")).collect(Collectors.toSet());
+        if (setA.isEmpty() && setB.isEmpty()) return 1.0;
+        long intersection = setA.stream().filter(setB::contains).count();
+        long union = setA.size() + setB.size() - intersection;
+        return union == 0 ? 1.0 : (double) intersection / union;
     }
 
     private String extractRole(TrainingPair pair, String role) {

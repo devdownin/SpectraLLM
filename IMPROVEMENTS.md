@@ -679,12 +679,6 @@ La recherche vectorielle seule est parfois imprécise. L'ajout d'une étape de r
 Combiner la recherche sémantique (vecteurs) avec une recherche par mots-clés traditionnelle (BM25/FTS) permet de ne pas rater des termes techniques précis ou des numéros de procédures que l'embedding pourrait diluer.
 
 > **Implémenté** : `BM25Index` — BM25Okapi pur Java en mémoire, thread-safe (ReadWriteLock), tokeniseur adapté au français (accents). `FtsService` — gère un index BM25 par collection ChromaDB ; rebuild asynchrone depuis ChromaDB au démarrage ; mis à jour à chaque ingestion (`IngestionTaskExecutor`) et suppression (`DocumentController`). `HybridSearchService` — lance en parallèle la recherche vectorielle (ChromaDB) et BM25 (FtsService), fusionne via Reciprocal Rank Fusion (RRF, k=60, poids BM25 configurable). Activé par `SPECTRA_HYBRID_SEARCH_ENABLED=true` (désactivé par défaut). Compatible avec le re-ranking I1 (s'enchaîne après la fusion). `QueryResponse` expose `hybridSearchApplied` (boolean) et `Source.bm25Score` (Float). Config : `spectra.hybrid-search.{enabled, top-bm25, bm25-weight}`.
->
-> **Approfondissement (v1.10.0, 2026-06-03)** :
-> - **Tokeniseur FR** : repli des accents symétrique indexation/requête (`péage`↔`peage`, `contrôle`↔`controle`) + filtrage des mots-vides français (`le`, `de`, `pour`…) ; les mots-nombres (`deux`, `trois`) sont conservés. Gain net de précision lexicale sur le corpus métier.
-> - **Fusion pondérée optionnelle** : mode `weighted` (combinaison convexe de la similarité vectorielle et du score BM25 normalisés min-max) en plus de RRF (qui reste le défaut). Sélection via `spectra.hybrid-search.fusion-mode` / `SPECTRA_HYBRID_FUSION_MODE`.
-> - **Fix multi-query + hybride** : `RagService.executeMultiQueryRetrieval` fusionne désormais les sous-requêtes par RRF sur le rang au lieu de re-trier par distance cosinus brute (ce qui reléguait les chunks BM25-only). Préserve le classement hybride et cumule le score des chunks bien classés sur plusieurs variantes.
-> - **Activé par défaut** : `spectra.hybrid-search.enabled=true` (l'index BM25 est en mémoire, aucun service externe requis).
 
 ### I3 — Layout-Aware Parsing (Docling / DeepDoc) 🔴 ⚠️ ✅ Implémenté
 

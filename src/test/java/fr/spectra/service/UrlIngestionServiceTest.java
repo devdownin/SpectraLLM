@@ -61,7 +61,7 @@ class UrlIngestionServiceTest {
         SpectraProperties.PipelineProperties pipeline =
                 new SpectraProperties.PipelineProperties(512, 64, 10, 30, 120, 4);
         SpectraProperties.ChromaDbProperties chromaProps =
-                new SpectraProperties.ChromaDbProperties("http://chroma:8000", COLLECTION_NAME);
+                new SpectraProperties.ChromaDbProperties("http://chroma:8000", COLLECTION_NAME, 16);
         SpectraProperties props = mock(SpectraProperties.class);
         when(props.pipeline()).thenReturn(pipeline);
         when(props.chromadb()).thenReturn(chromaProps);

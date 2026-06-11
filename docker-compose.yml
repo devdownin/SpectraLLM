@@ -7,7 +7,7 @@ services:
     image: alpine:3.20
     container_name: spectra-model-init
     volumes:
-      - ./data/models:/models:ro     
+      - ./data/models:/models:ro
       - ./scripts/check-models.sh:/check-models.sh:ro
     environment:
       - LLM_CHAT_MODEL_FILE=${LLM_CHAT_MODEL_FILE:-Phi-4-mini-reasoning-UD-IQ1_S.gguf}
@@ -105,7 +105,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
-    restart: unless-stopped
 
   # ── Reranker (optionnel, profil reranker) ─────────────────────────────────
   reranker:
@@ -164,10 +163,9 @@ services:
       - SPECTRA_AGENTIC_INITIAL_TOP_K=${SPECTRA_AGENTIC_INITIAL_TOP_K:-5}
       - SPECTRA_AGENTIC_LANGUAGE=${SPECTRA_AGENTIC_LANGUAGE:-fr}
       - SPECTRA_AGENTIC_MAX_CONTEXT_TOKENS=${SPECTRA_AGENTIC_MAX_CONTEXT_TOKENS:-3000}
-      - SPECTRA_HYBRID_SEARCH_ENABLED=${SPECTRA_HYBRID_SEARCH_ENABLED:-true}
+      - SPECTRA_HYBRID_SEARCH_ENABLED=${SPECTRA_HYBRID_SEARCH_ENABLED:-false}
       - SPECTRA_HYBRID_BM25_TOP=${SPECTRA_HYBRID_BM25_TOP:-20}
       - SPECTRA_HYBRID_BM25_WEIGHT=${SPECTRA_HYBRID_BM25_WEIGHT:-1.0}
-      - SPECTRA_HYBRID_FUSION_MODE=${SPECTRA_HYBRID_FUSION_MODE:-rrf}
       # ── RAG avancé (nouvelles stratégies) ──────────────────────────────────────
       - SPECTRA_CONVERSATIONAL_RAG_ENABLED=${SPECTRA_CONVERSATIONAL_RAG_ENABLED:-false}
       - SPECTRA_CORRECTIVE_RAG_ENABLED=${SPECTRA_CORRECTIVE_RAG_ENABLED:-false}
@@ -177,7 +175,6 @@ services:
       - SPECTRA_SELF_RAG_MAX_REFLECTIONS=${SPECTRA_SELF_RAG_MAX_REFLECTIONS:-1}
     volumes:
       - ./data:/app/data
-      - ./data/models/tmp:/home/spectra/.cache/llmfit/models      
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
       interval: 20s

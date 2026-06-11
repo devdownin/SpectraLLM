@@ -461,9 +461,7 @@ class GedServiceTest {
 
     @Test
     void stats_topTags_countedCorrectly() {
-        IngestedFileEntity d1 = entity("t1"); d1.setTags(List.of("kafka", "xml"));
-        IngestedFileEntity d2 = entity("t2"); d2.setTags(List.of("kafka"));
-        when(fileRepo.findAllByOrderByIngestedAtDesc()).thenReturn(List.of(d1, d2));
+        when(fileRepo.findAllTagsJson()).thenReturn(List.of("[\"kafka\", \"xml\"]", "[\"kafka\"]"));
         when(fileRepo.countByLifecycle()).thenReturn(List.of());
 
         Map<String, Object> stats = ged.stats();

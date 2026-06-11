@@ -586,29 +586,18 @@ public class RagService {
     }
 
     /**
-     * Exécute le retrieval pour chaque requête de la liste et fusionne les résultats par
-     * <b>Reciprocal Rank Fusion</b> sur le rang de chaque chunk dans sa sous-requête.
-     *
-     * <p>Chaque sous-requête renvoie déjà ses chunks classés du plus pertinent au moins
-     * pertinent — que le retrieval soit vectoriel pur (tri par distance) ou hybride (tri RRF
-     * BM25+vecteur). Fusionner sur le rang plutôt que sur la distance cosinus brute préserve
-     * donc le classement hybride : un chunk remonté uniquement par BM25 (distance ≈ 1.0) n'est
-     * plus injustement relégué en fin de liste, et un chunk bien classé par plusieurs variantes
-     * de la question voit son score cumulé.
-     *
-     * <p>Le résultat est dédupliqué sur le texte exact et limité à {@code retrieveCount} chunks
-     * triés par score RRF fusionné décroissant.
+     * Exécute le retrieval pour chaque requête de la liste, fusionne les résultats
+     * en déduplication exacte sur le texte du chunk (premier trouvé = meilleur score).
+     * Le résultat est limité à {@code retrieveCount} chunks triés par distance croissante.
      */
     private MultiQueryMerge executeMultiQueryRetrieval(List<String> queries, String collectionId,
                                                         String collectionName, int retrieveCount) {
-        final int RRF_K = 60;
         // LinkedHashMap pour conserver l'ordre d'insertion (question originale en premier)
         Map<String, Integer> indexByText = new LinkedHashMap<>();
         List<String>              mergedChunks    = new ArrayList<>();
         List<Map<String, String>> mergedMetadatas = new ArrayList<>();
         List<Double>              mergedDistances = new ArrayList<>();
         List<Float>               mergedBm25      = new ArrayList<>();
-        List<Double>              fusedScores     = new ArrayList<>(); // RRF cumulé, aligné sur mergedChunks
         boolean hybridApplied = false;
         boolean trackBm25 = true; // désactivé si un résultat n'a pas de scores BM25
 
@@ -619,36 +608,29 @@ public class RagService {
 
             for (int i = 0; i < r.chunks().size(); i++) {
                 String text = r.chunks().get(i);
-                double rrf = 1.0 / (RRF_K + (i + 1)); // rang 1-indexé dans cette sous-requête
-                Integer existingIdx = indexByText.get(text);
-                if (existingIdx == null) {
+                if (!indexByText.containsKey(text)) {
                     indexByText.put(text, mergedChunks.size());
                     mergedChunks.add(text);
                     mergedMetadatas.add(r.metadatas().get(i));
                     mergedDistances.add(r.distances().get(i));
                     if (trackBm25 && r.bm25Scores() != null) mergedBm25.add(r.bm25Scores().get(i));
-                    fusedScores.add(rrf);
                 } else {
-                    fusedScores.set(existingIdx, fusedScores.get(existingIdx) + rrf);
                     // Conserve la meilleure distance (plus faible = plus proche) pour ce chunk
+                    int existingIdx = indexByText.get(text);
                     if (r.distances().get(i) < mergedDistances.get(existingIdx)) {
                         mergedDistances.set(existingIdx, r.distances().get(i));
-                    }
-                    // Conserve le meilleur score BM25 observé pour ce chunk
-                    if (trackBm25 && r.bm25Scores() != null && existingIdx < mergedBm25.size()) {
-                        mergedBm25.set(existingIdx, Math.max(mergedBm25.get(existingIdx), r.bm25Scores().get(i)));
                     }
                 }
             }
         }
 
-        // Trier par score RRF fusionné décroissant et limiter à retrieveCount
+        // Trier par distance croissante et limiter à retrieveCount
         List<Integer> sortedIdx = new ArrayList<>();
         for (int i = 0; i < mergedChunks.size(); i++) sortedIdx.add(i);
-        sortedIdx.sort((a, b) -> Double.compare(fusedScores.get(b), fusedScores.get(a)));
+        sortedIdx.sort((a, b) -> Double.compare(mergedDistances.get(a), mergedDistances.get(b)));
         List<Integer> topIdx = sortedIdx.subList(0, Math.min(retrieveCount, sortedIdx.size()));
 
-        log.info("Multi-query : {} chunks uniques fusionnés (RRF) depuis {} requêtes → {} retenus",
+        log.info("Multi-query : {} chunks uniques fusionnés depuis {} requêtes → {} retenus",
                 mergedChunks.size(), queries.size(), topIdx.size());
 
         return new MultiQueryMerge(
