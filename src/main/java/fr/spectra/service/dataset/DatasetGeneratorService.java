@@ -95,6 +95,10 @@ public class DatasetGeneratorService {
         return tasks.get(taskId);
     }
 
+    public List<GenerationTask> getAllTasks() {
+        return new ArrayList<>(tasks.values());
+    }
+
     public List<TrainingPair> getAllPairs() {
         return List.copyOf(generatedPairs);
     }
