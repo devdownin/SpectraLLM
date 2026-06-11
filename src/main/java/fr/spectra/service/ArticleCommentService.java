@@ -1,12 +1,15 @@
 package fr.spectra.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import fr.spectra.dto.FineTuningRequest;
 import fr.spectra.dto.QueryRequest;
 import fr.spectra.persistence.ArticleCommentEntity;
 import fr.spectra.persistence.ArticleCommentRepository;
 import fr.spectra.persistence.IngestedFileRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.nio.file.Files;
@@ -14,9 +17,13 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 
 /**
  * Gestion des commentaires d'articles avec génération RAG et export DPO.
@@ -28,6 +35,8 @@ import java.util.NoSuchElementException;
  *   <li>Évaluation : l'utilisateur note chaque commentaire IA (APPROVED / REJECTED).</li>
  *   <li>Export : les paires (focus-prompt, commentaire approuvé, commentaire rejeté)
  *       constituent un jeu de données DPO prêt à l'emploi pour le fine-tuning.</li>
+ *   <li>Re-entraînement automatique : quand le nombre de commentaires approuvés
+ *       atteint un multiple du seuil configuré, un job DPO est soumis automatiquement.</li>
  * </ol>
  */
 @Service
@@ -35,6 +44,9 @@ public class ArticleCommentService {
 
     private static final Logger log = LoggerFactory.getLogger(ArticleCommentService.class);
     private static final ObjectMapper mapper = new ObjectMapper();
+
+    /** Seuil de similarité Jaccard au-dessus duquel un rejet synthétique est considéré trop proche du chosen. */
+    private static final double SIMILARITY_THRESHOLD = 0.85;
 
     private static final String COMMENT_SYSTEM_PROMPT = """
             Tu es un expert en analyse documentaire.
@@ -51,15 +63,24 @@ public class ArticleCommentService {
     private final IngestedFileRepository fileRepo;
     private final RagService ragService;
     private final LlmChatClient chatClient;
+    private final FineTuningService fineTuningService;
+    private final Path dpoExportPath;
+    private final int autoRetrainThreshold;
 
     public ArticleCommentService(ArticleCommentRepository commentRepo,
                                  IngestedFileRepository fileRepo,
                                  RagService ragService,
-                                 LlmChatClient chatClient) {
+                                 LlmChatClient chatClient,
+                                 @Lazy FineTuningService fineTuningService,
+                                 @Value("${spectra.dataset.dir:./data/dataset}") String datasetDir,
+                                 @Value("${spectra.ged.auto-retrain-threshold:5}") int autoRetrainThreshold) {
         this.commentRepo = commentRepo;
         this.fileRepo = fileRepo;
         this.ragService = ragService;
         this.chatClient = chatClient;
+        this.fineTuningService = fineTuningService;
+        this.dpoExportPath = Path.of(datasetDir).resolve("comments_dpo.jsonl");
+        this.autoRetrainThreshold = autoRetrainThreshold;
     }
 
     // ── Lecture ───────────────────────────────────────────────────────────────
@@ -136,11 +157,53 @@ public class ArticleCommentService {
 
     // ── Évaluation (rating) ──────────────────────────────────────────────────
 
+    /**
+     * Note un commentaire IA et déclenche automatiquement un re-entraînement DPO
+     * quand le nombre de commentaires approuvés atteint un multiple du seuil configuré.
+     */
     public ArticleCommentEntity rateComment(Long commentId, ArticleCommentEntity.Rating rating) {
         ArticleCommentEntity comment = commentRepo.findById(commentId)
                 .orElseThrow(() -> new NoSuchElementException("Commentaire introuvable : " + commentId));
         comment.setRating(rating);
-        return commentRepo.save(comment);
+        ArticleCommentEntity saved = commentRepo.save(comment);
+
+        if (rating == ArticleCommentEntity.Rating.APPROVED) {
+            long approvedCount = commentRepo.countByCommentTypeAndRating(
+                    ArticleCommentEntity.CommentType.AI_GENERATED,
+                    ArticleCommentEntity.Rating.APPROVED);
+            if (approvedCount > 0 && approvedCount % autoRetrainThreshold == 0) {
+                log.info("Seuil de re-entraînement atteint ({}/{}) — déclenchement automatique DPO",
+                        approvedCount, autoRetrainThreshold);
+                CompletableFuture.runAsync(() -> triggerRetraining(approvedCount));
+            }
+        }
+        return saved;
+    }
+
+    /**
+     * Exporte les paires DPO et soumet un job de fine-tuning avec alignement DPO.
+     * Exécuté hors du thread HTTP pour ne pas bloquer la réponse.
+     */
+    private void triggerRetraining(long approvedCount) {
+        try {
+            int pairs = exportDpoPairs(dpoExportPath);
+            if (pairs == 0) {
+                log.warn("Re-entraînement automatique annulé : aucune paire DPO exportable");
+                return;
+            }
+            String modelName = "auto-dpo-" + Instant.now().toEpochMilli();
+            FineTuningRequest request = new FineTuningRequest(
+                    modelName, null, null, null, null, null, null, null, true);
+            String jobId = fineTuningService.submit(request);
+            log.info("Re-entraînement DPO automatique soumis : {} paires, {} approuvés, jobId={}",
+                    pairs, approvedCount, jobId);
+        } catch (Exception e) {
+            log.warn("Échec du re-entraînement automatique : {}", e.getMessage());
+        }
+    }
+
+    public int getAutoRetrainThreshold() {
+        return autoRetrainThreshold;
     }
 
     // ── Suppression ──────────────────────────────────────────────────────────
@@ -162,6 +225,7 @@ public class ArticleCommentService {
      *
      * <p>Si un prompt n'a que des APPROVED, on génère un rejected synthétique
      * via le LLM (hallucination plausible) pour constituer la paire.
+     * Les paires dont chosen et rejected sont trop similaires (Jaccard > 0.85) sont exclues.
      *
      * @param outputPath chemin du fichier JSONL de sortie
      * @return nombre de paires exportées
@@ -195,12 +259,16 @@ public class ArticleCommentService {
             for (ArticleCommentEntity app : approved) {
                 String focus = app.getFocus();
                 List<String> rejects = rejectedByFocus.getOrDefault(focus, List.of());
-                String rejectedContent;
+                String rejectedContent = null;
 
-                if (!rejects.isEmpty()) {
-                    rejectedContent = rejects.get(0);
-                } else {
-                    // Génère un rejet synthétique si aucun n'existe
+                for (String candidate : rejects) {
+                    if (jaccardSimilarity(app.getContent(), candidate) <= SIMILARITY_THRESHOLD) {
+                        rejectedContent = candidate;
+                        break;
+                    }
+                }
+
+                if (rejectedContent == null) {
                     rejectedContent = generateSyntheticRejected(focus, app.getContent());
                     if (rejectedContent == null) continue;
                 }
@@ -247,10 +315,28 @@ public class ArticleCommentService {
         try {
             String result = chatClient.chat(sysPrompt,
                     "Focus : " + focus + "\n\nCommentaire de référence :\n" + chosen);
-            return (result != null && !result.isBlank()) ? result.trim() : null;
+            if (result == null || result.isBlank()) return null;
+            String candidate = result.trim();
+            if (jaccardSimilarity(chosen, candidate) > SIMILARITY_THRESHOLD) {
+                log.debug("Rejet synthétique trop similaire au chosen (Jaccard > {}) — ignoré", SIMILARITY_THRESHOLD);
+                return null;
+            }
+            return candidate;
         } catch (Exception e) {
             log.warn("Impossible de générer un rejet synthétique : {}", e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * Similarité de Jaccard sur ensembles de mots (minuscules) pour détecter les paires trop proches.
+     */
+    private double jaccardSimilarity(String a, String b) {
+        Set<String> setA = Arrays.stream(a.toLowerCase().split("\\s+")).collect(Collectors.toSet());
+        Set<String> setB = Arrays.stream(b.toLowerCase().split("\\s+")).collect(Collectors.toSet());
+        if (setA.isEmpty() && setB.isEmpty()) return 1.0;
+        long intersection = setA.stream().filter(setB::contains).count();
+        long union = setA.size() + setB.size() - intersection;
+        return union == 0 ? 1.0 : (double) intersection / union;
     }
 }

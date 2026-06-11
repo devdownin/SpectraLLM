@@ -3,7 +3,7 @@ import type { FC } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useStatus } from '../hooks/useStatus';
-import { datasetApi, gedApi, commentApi } from '../services/api';
+import { datasetApi, gedApi, commentApi, metricsApi } from '../services/api';
 import Skeleton from '../components/Skeleton';
 import Tooltip from '../components/Tooltip';
 import LifecycleDonut from '../components/charts/LifecycleDonut';
@@ -30,19 +30,35 @@ interface CommentStats {
   aiGenerated: number;
 }
 
+interface PersonalizationMetrics {
+  approvedComments: number;
+  rejectedComments: number;
+  totalAiComments: number;
+  dpoPairs: number;
+  fineTuningJobs: Array<{ status: string; modelName: string; loss?: number; completedAt?: string }>;
+  evaluations: Array<{ status: string; averageScore: number; completedAt?: string }>;
+  completedCycles: number;
+  nextTriggerIn: number;
+  autoRetrainThreshold: number;
+  completedFineTuningJobs: number;
+  latestEvalScore: number;
+}
+
 const Dashboard: FC = () => {
   const navigate = useNavigate();
   const { status, loading, error } = useStatus();
   const [stats, setStats]         = useState<DatasetStats | null>(null);
   const [gedStats, setGedStats]   = useState<GedStats | null>(null);
   const [commentStats, setCommentStats] = useState<CommentStats | null>(null);
+  const [personalizationMetrics, setPersonalizationMetrics] = useState<PersonalizationMetrics | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
 
   const loadStats = useCallback(async () => {
     try {
-      const [dsRes, gedRes] = await Promise.allSettled([
+      const [dsRes, gedRes, metricsRes] = await Promise.allSettled([
         datasetApi.getStats(),
         gedApi.getStats(),
+        metricsApi.getPersonalization(),
       ]);
       if (dsRes.status === 'fulfilled') setStats(dsRes.value.data);
       if (gedRes.status === 'fulfilled') {
@@ -51,6 +67,7 @@ const Dashboard: FC = () => {
         // Derive comment stats from GED stats if available
         if (g.commentStats) setCommentStats(g.commentStats);
       }
+      if (metricsRes.status === 'fulfilled') setPersonalizationMetrics(metricsRes.value.data);
     } catch {
       // ignore
     } finally {
@@ -473,6 +490,115 @@ const Dashboard: FC = () => {
           </div>
         </section>
       )}
+
+      {/* ── Personalization Cycle ── */}
+      <section className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="font-headline text-sm font-bold uppercase tracking-tight text-on-surface-variant">Cycle de Personnalisation</h3>
+          <Tooltip content="Boucle continue : commentaires approuvés → paires DPO → fine-tuning → évaluation.">
+            <span className="material-symbols-outlined text-sm text-outline cursor-help">info</span>
+          </Tooltip>
+        </div>
+
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+
+          <div className="bg-surface-container p-5 border-t-2 border-primary">
+            <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-1">Approuvés</p>
+            {statsLoading ? <Skeleton className="h-9 w-12" /> : (
+              <>
+                <p className="font-headline font-bold text-3xl text-primary">
+                  {personalizationMetrics?.approvedComments ?? 0}
+                </p>
+                <p className="text-[9px] text-on-surface-variant mt-1">
+                  commentaires IA évalués
+                </p>
+              </>
+            )}
+          </div>
+
+          <div className="bg-surface-container p-5 border-t-2 border-secondary">
+            <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-1">Paires DPO</p>
+            {statsLoading ? <Skeleton className="h-9 w-12" /> : (
+              <>
+                <p className="font-headline font-bold text-3xl text-secondary">
+                  {personalizationMetrics?.dpoPairs ?? 0}
+                </p>
+                <p className="text-[9px] text-on-surface-variant mt-1">
+                  prêtes à l'entraînement
+                </p>
+              </>
+            )}
+          </div>
+
+          <div className="bg-surface-container p-5 border-t-2 border-outline-variant">
+            <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-1">Fine-Tunings</p>
+            {statsLoading ? <Skeleton className="h-9 w-12" /> : (
+              <>
+                <p className="font-headline font-bold text-3xl">
+                  {personalizationMetrics?.completedFineTuningJobs ?? 0}
+                </p>
+                <p className="text-[9px] text-on-surface-variant mt-1">
+                  cycles complétés
+                </p>
+              </>
+            )}
+          </div>
+
+          <div className="bg-surface-container p-5 border-t-2 border-outline-variant">
+            <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-1">Score Éval.</p>
+            {statsLoading ? <Skeleton className="h-9 w-12" /> : (
+              <>
+                <p className="font-headline font-bold text-3xl">
+                  {personalizationMetrics && personalizationMetrics.latestEvalScore >= 0
+                    ? personalizationMetrics.latestEvalScore.toFixed(1)
+                    : '—'}
+                </p>
+                <p className="text-[9px] text-on-surface-variant mt-1">
+                  {personalizationMetrics && personalizationMetrics.latestEvalScore >= 0 ? '/10 (dernier cycle)' : 'aucune évaluation'}
+                </p>
+              </>
+            )}
+          </div>
+
+        </div>
+
+        {/* Auto-trigger progress */}
+        {!statsLoading && personalizationMetrics && personalizationMetrics.autoRetrainThreshold > 0 && (
+          <div className="bg-surface-container p-4">
+            <div className="flex items-center justify-between mb-2">
+              <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant">
+                Prochain re-entraînement automatique
+              </p>
+              <p className="text-[9px] font-mono text-outline">
+                seuil : {personalizationMetrics.autoRetrainThreshold} approbations
+              </p>
+            </div>
+            <div className="w-full bg-surface-container-high h-1.5">
+              <div
+                className="h-1.5 bg-primary transition-all duration-500"
+                style={{
+                  width: `${Math.min(100, ((personalizationMetrics.autoRetrainThreshold - personalizationMetrics.nextTriggerIn) / personalizationMetrics.autoRetrainThreshold) * 100)}%`
+                }}
+              />
+            </div>
+            <div className="flex justify-between mt-1">
+              <p className="text-[8px] text-outline">
+                {personalizationMetrics.autoRetrainThreshold - personalizationMetrics.nextTriggerIn} / {personalizationMetrics.autoRetrainThreshold}
+              </p>
+              <p className="text-[8px] text-outline">
+                {personalizationMetrics.nextTriggerIn > 0
+                  ? `encore ${personalizationMetrics.nextTriggerIn} approbation(s)`
+                  : 'déclenchement imminent'}
+              </p>
+            </div>
+            {personalizationMetrics.completedCycles > 0 && (
+              <p className="text-[9px] text-primary mt-2 font-label uppercase tracking-widest">
+                {personalizationMetrics.completedCycles} cycle(s) de re-entraînement complété(s)
+              </p>
+            )}
+          </div>
+        )}
+      </section>
 
       {/* ── RAG Capabilities ── */}
       <section className="space-y-4">

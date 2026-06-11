@@ -185,6 +185,10 @@ export const queryApi = {
   },
 };
 
+export const metricsApi = {
+  getPersonalization: () => api.get('/metrics/personalization'),
+};
+
 export const configApi = {
   getModelConfig: () => api.get('/config/model'),
   setModelConfig: (config: any) => api.post('/config/model', config),
