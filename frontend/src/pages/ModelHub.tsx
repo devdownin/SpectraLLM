@@ -3,9 +3,11 @@ import { useQuery, useMutation } from '@tanstack/react-query';
 import { modelsHubApi } from '../services/api';
 import Skeleton from '../components/Skeleton';
 import { useState } from 'react';
+import { toast } from 'sonner';
 
 const ModelHub: FC = () => {
   const [installingModels, setInstallingModels] = useState<Record<string, number>>({});
+  const [installedModels, setInstalledModels] = useState<string[]>([]);
   const [autoActivate, setAutoActivate] = useState(false);
   const [filter, setFilter] = useState('All');
   const [limit, setLimit] = useState(12);
@@ -26,17 +28,41 @@ const ModelHub: FC = () => {
       const eventSource = modelsHubApi.getProgressSource(variables.modelName);
       eventSource.onmessage = (event) => {
         const progress = parseInt(event.data);
-        setInstallingModels(prev => ({ ...prev, [variables.modelName]: progress }));
-        if (progress >= 100) {
-          eventSource.close();
+        if (!isNaN(progress)) {
+          setInstallingModels(prev => ({ ...prev, [variables.modelName]: progress }));
+          if (progress >= 100) {
+            eventSource.close();
+            setInstallingModels(prev => {
+              const next = { ...prev };
+              delete next[variables.modelName];
+              return next;
+            });
+            setInstalledModels(prev => prev.includes(variables.modelName) ? prev : [...prev, variables.modelName]);
+            toast.success(`Modèle "${variables.modelName}" téléchargé`, {
+              description: autoActivate
+                ? 'Activé — redémarrez llm-chat pour le charger : docker compose restart llm-chat'
+                : 'Enregistré dans le registre. Activez-le dans le Playground puis redémarrez llm-chat.',
+              duration: 8000,
+            });
+          }
         }
       };
       eventSource.onerror = () => {
         eventSource.close();
+        setInstallingModels(prev => {
+          const next = { ...prev };
+          delete next[variables.modelName];
+          return next;
+        });
+        toast.error(`Suivi de progression indisponible pour "${variables.modelName}"`, {
+          description: 'Le téléchargement est peut-être en cours. Vérifiez les logs : docker compose logs spectra-api',
+        });
       };
     },
     onError: (error: any) => {
-      alert(`Erreur lors du lancement de l'installation : ${error.message}`);
+      toast.error('Échec du lancement du téléchargement', {
+        description: error?.response?.data?.message ?? error.message,
+      });
     }
   });
 
@@ -212,6 +238,25 @@ const ModelHub: FC = () => {
             </div>
           )}
         </section>
+      )}
+
+      {/* Post-install Docker restart reminder */}
+      {installedModels.length > 0 && (
+        <div className="bg-primary/5 border border-primary/30 p-4 flex items-start gap-3">
+          <span className="material-symbols-outlined text-primary text-sm mt-0.5 shrink-0">info</span>
+          <div className="space-y-1">
+            <p className="text-[10px] font-label font-bold uppercase tracking-widest text-primary">
+              Modèle(s) téléchargé(s) — redémarrage requis
+            </p>
+            <p className="text-[9px] text-on-surface-variant leading-relaxed">
+              Le fichier GGUF a été copié dans <code className="font-mono bg-surface-container px-1">data/models/</code>.
+              Pour que <strong>llm-chat</strong> serve ce modèle, mettez à jour <code className="font-mono bg-surface-container px-1">.env</code> puis redémarrez :
+            </p>
+            <code className="block font-mono text-[9px] bg-surface-container px-2 py-1 text-primary mt-1">
+              docker compose restart llm-chat
+            </code>
+          </div>
+        </div>
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
