@@ -13,6 +13,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
@@ -145,6 +149,19 @@ public class IngestionService {
 
     public IngestionTask getTask(String taskId) {
         return tasks.get(taskId);
+    }
+
+    public List<IngestionTask> getAllTasks() {
+        return new ArrayList<>(tasks.values());
+    }
+
+    public Page<IngestedFileEntity> getHistory(int page, int size, String q) {
+        PageRequest pageable = PageRequest.of(page, Math.min(size, 200),
+                Sort.by(Sort.Direction.DESC, "ingestedAt"));
+        if (q != null && !q.isBlank()) {
+            return repository.findByFileNameContainingIgnoreCase(q.trim(), pageable);
+        }
+        return repository.findAll(pageable);
     }
 
     public IngestionTask registerTask(String taskId, List<String> fileNames) {
