@@ -335,7 +335,56 @@ Sous chaque commentaire IA, trois boutons d'évaluation sont visibles :
 
 > **Conseil** : évaluez au moins 10–20 commentaires avant d'exporter. La qualité du fine-tuning DPO dépend directement de la quantité et de la cohérence des évaluations.
 
-#### Exporter les paires DPO
+#### Re-entraînement automatique (auto-trigger)
+
+Spectra peut lancer un job de fine-tuning **automatiquement** chaque fois qu'un seuil d'approbations est atteint. Ce mécanisme est piloté par la variable `SPECTRA_GED_AUTO_RETRAIN_THRESHOLD` (défaut : **5**).
+
+**Comment ça fonctionne, pas à pas :**
+
+```
+[1] Vous approuvez un commentaire IA (👍 APPROVED)
+          ↓
+[2] Spectra compte les commentaires IA approuvés depuis le début
+    approvedCount = 5  →  5 % 5 == 0  ✓ seuil atteint
+          ↓ (en arrière-plan, sans bloquer l'interface)
+[3] Export automatique des paires DPO → data/dataset/comments_dpo.jsonl
+          ↓
+[4] Soumission automatique d'un job de fine-tuning
+    nom du job : auto-dpo-1718200000000  (timestamp)
+          ↓
+[5] Job visible dans Fine-Tuning → Training History
+    statut : QUEUED → EXPORT → TRAINING → IMPORT → COMPLETE
+```
+
+**Visualiser la progression vers le prochain trigger :**
+
+Dans le **Dashboard**, la section "Cycle de Personnalisation" affiche :
+- Le nombre de commentaires approuvés
+- La barre de progression vers le prochain seuil
+- Le nombre de fine-tunings déjà déclenchés automatiquement
+
+```bash
+# État détaillé via l'API
+curl http://localhost:8080/api/metrics/personalization
+# → {"approvedComments": 7, "nextTriggerIn": 3, "autoRetrainThreshold": 5,
+#    "completedCycles": 1, "completedFineTuningJobs": 1, "latestEvalScore": 7.4, ...}
+```
+
+**Ajuster le seuil :**
+
+```bash
+# Déclencher tous les 20 approbations (recommandé en production)
+SPECTRA_GED_AUTO_RETRAIN_THRESHOLD=20 docker compose up -d
+
+# Désactiver l'auto-trigger
+SPECTRA_GED_AUTO_RETRAIN_THRESHOLD=0 docker compose up -d
+```
+
+> **Conseil :** en développement, gardez le seuil à 5 pour tester le mécanisme rapidement. En production, utilisez 20–50 pour éviter de lancer un entraînement à chaque poignée d'évaluations.
+
+> **Garde de qualité sur les paires DPO :** avant d'accepter une paire `(réponse choisie, réponse rejetée)`, Spectra vérifie que les deux textes sont suffisamment différents. Si leur similarité Jaccard dépasse 85 %, la paire est ignorée et un avertissement est affiché dans les logs — une paire trop similaire ne contribue pas à l'apprentissage.
+
+#### Exporter les paires DPO manuellement
 
 Une fois vos évaluations saisies, cliquez sur le bouton **DPO↓** (en haut de la section Commentaires).
 
@@ -619,7 +668,9 @@ Une fois activés, les champs `hybridSearchApplied`, `rerankApplied`, `agenticAp
 
 ### Dashboard
 
-Le tableau de bord affiche en temps réel trois cartes de santé :
+Le tableau de bord affiche en temps réel trois cartes de santé et le cycle de personnalisation.
+
+**Cartes de santé des services :**
 
 | Carte | Service surveillé | Information affichée |
 |-------|------------------|---------------------|
@@ -628,6 +679,29 @@ Le tableau de bord affiche en temps réel trois cartes de santé :
 | **ChromaDB** | `chromadb` | Online/Offline · nombre de chunks indexés |
 
 En dessous : statistiques de la base de connaissances (chunks, paires d'entraînement, score de confiance moyen, nombre de catégories).
+
+**Section "Cycle de Personnalisation" :**
+
+Cette section affiche l'état de la boucle de rétroaction humaine en 4 indicateurs :
+
+| Indicateur | Signification |
+|------------|--------------|
+| **Approuvés** | Nombre total de commentaires IA approuvés depuis le démarrage |
+| **Paires DPO** | Nombre de paires d'entraînement dans le dataset courant |
+| **Fine-Tunings** | Nombre de jobs terminés (automatiques + manuels) |
+| **Score Éval** | Score moyen de la dernière évaluation LLM-as-Judge (sur 10) |
+
+Une **barre de progression** montre l'avancement vers le prochain déclencheur automatique.
+
+**Exemple de lecture :**
+```
+Approuvés : 7/10       ██████████░░░░░░  70 %  →  3 approbations avant prochain entraînement
+Paires DPO : 42
+Fine-Tunings terminés : 1
+Score Éval : 7.4/10
+```
+
+> Si l'indicateur affiche `–` pour le score, aucune évaluation n'a encore été lancée. Utilisez **Model Comparison → New Evaluation** pour obtenir une mesure de référence.
 
 ### Dataset Pipelines (Étapes 1 et 2)
 
@@ -769,6 +843,15 @@ Chaque job de fine-tuning produit un rapport `REPORT.md` dans `data/fine-tuning/
 4. Fine-tunez (recette "CPU Rapide" pour un premier essai) et comparez les réponses avec/sans RAG dans le Playground.
 5. Lancez une **évaluation** (onglet Model Comparison) pour mesurer le score moyen avant d'aller en production.
 6. Si le score est insuffisant (< 6) : générez des paires DPO (`POST /api/dataset/dpo/generate`) et relancez le fine-tuning avec l'option "Alignement DPO".
+7. **Boucle de personnalisation continue** : générez des commentaires IA sur vos documents (étape 2c), approuvez/rejetez-les. Dès que `SPECTRA_GED_AUTO_RETRAIN_THRESHOLD` approbations sont atteintes, Spectra lance automatiquement un nouveau fine-tuning DPO. Suivez la progression dans **Dashboard → Cycle de Personnalisation**.
+
+```
+Documents → RAG → Commentaires IA → 👍 Approbations
+     ↑                                      │
+     │                         seuil atteint │ auto-trigger
+     │                                      ↓
+     └──────── Modèle affiné ← Fine-tuning DPO
+```
 
 ---
 

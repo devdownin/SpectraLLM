@@ -59,6 +59,7 @@ Raw documents
 ┌─────────────────────────────────────────────────────┐
 │  DATASET SYNTHESIS                                  │
 │  LLM-generated Q&A, DPO, summaries from your docs  │
+│  Jaccard guard: rejects DPO pairs with overlap > 85%│
 │  LLM-as-a-Judge automatic evaluation (1–10 scores) │
 └────────────────────┬────────────────────────────────┘
                      │
@@ -67,6 +68,7 @@ Raw documents
 │  ARTICLE COMMENTING                                 │
 │  Human or RAG-grounded AI comments per document    │
 │  👍/👎 ratings → DPO pairs for next training cycle │
+│  ↺ Auto-trigger: every N approvals → fine-tune job │
 └────────────────────┬────────────────────────────────┘
                      │
                      ▼
@@ -74,7 +76,12 @@ Raw documents
 │  FINE-TUNING                                        │
 │  QLoRA (Unsloth) · Configurable rank/alpha/epochs  │
 │  Comment DPO + SFT dataset · GGUF export            │
-└─────────────────────────────────────────────────────┘
+│  Model sync verification: registry ↔ llama-server  │
+└────────────────────┬────────────────────────────────┘
+                     │
+              ↺ feedback loop
+                     │
+     ▼ (metrics dashboard: GET /api/metrics/personalization)
 ```
 
 ---
@@ -607,10 +614,28 @@ User provides a focus angle (optional)
            ↓
   User rates the comment:  👍 APPROVED  /  👎 REJECTED
            ↓
+  countByCommentTypeAndRating(AI_GENERATED, APPROVED)
+           ↓ (when approvedCount % threshold == 0)
+  ↺ Auto-trigger: export DPO pairs → submit fine-tuning job automatically
+           ↓ (or manually)
   POST /export/comments-dpo  →  comments_dpo.jsonl
            ↓
   Fine-tune on the rated pairs (next training cycle)
 ```
+
+**Jaccard similarity guard on DPO pairs:**
+
+Before accepting a `(chosen, rejected)` pair, Spectra computes the Jaccard similarity of the two responses' word sets:
+
+```
+J(A, B) = |A ∩ B| / |A ∪ B|
+```
+
+If `J > 0.85`, the pair is rejected and a warning is logged — a pair where chosen and rejected are nearly identical provides no useful training signal.
+
+**Model registry ↔ llama-server sync:**
+
+After every `setActiveModel()` call, an async health check (via `CompletableFuture.runAsync`) verifies that llama-server is actually serving the newly activated model. A `WARN` is logged if the registry and server are out of sync.
 
 **Why this combination is optimal:**
 
@@ -791,6 +816,7 @@ All settings have environment variable overrides. The table below shows the most
 | `SPECTRA_GED_AUTO_QUALIFY_THRESHOLD` | `0.0` | Auto-qualify threshold (0 = disabled) |
 | `SPECTRA_GED_ARCHIVE_AFTER_DAYS` | `0` | Auto-archive INGESTED docs after N days (0 = disabled) |
 | `SPECTRA_GED_PURGE_AFTER_DAYS` | `0` | Auto-purge ARCHIVED docs after N days (0 = disabled) |
+| `SPECTRA_GED_AUTO_RETRAIN_THRESHOLD` | `5` | Approved AI comments per auto fine-tuning trigger (0 = disabled) |
 
 ---
 
@@ -827,6 +853,9 @@ GET /actuator/health
 
 # Hardware profile and recommended llama-server params
 GET /api/config/resources
+
+# Personalization cycle metrics (approved comments, DPO pairs, fine-tuning jobs, eval scores)
+GET /api/metrics/personalization
 
 # OpenAPI spec
 GET /api-docs

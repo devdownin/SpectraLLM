@@ -9,7 +9,9 @@ import org.springframework.stereotype.Service;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -35,6 +37,14 @@ public class LlmFitService {
 
     @Value("${llmfit.path:llmfit}")
     private String llmfitPath;
+
+    /**
+     * Répertoire cible des modèles téléchargés.
+     * Doit correspondre au volume monté par llm-chat (./data/models → /models).
+     * Dans le conteneur spectra-api : ./data/models = /app/data/models (volume ./data:/app/data).
+     */
+    @Value("${llmfit.models-dir:./data/models}")
+    private String modelsDirPath;
 
     public LlmFitService(ObjectMapper objectMapper, ModelRegistryService modelRegistryService) {
         this.objectMapper = objectMapper;
@@ -129,22 +139,38 @@ public class LlmFitService {
                     sink.tryEmitComplete();
 
                     if (downloadedFile != null) {
-                        Path path = Path.of(downloadedFile);
-                        String fileName = path.getFileName().toString();
-                        String alias = fileName.replace(".gguf", "");
+                        Path source   = Path.of(downloadedFile);
+                        String fileName = source.getFileName().toString();
+                        String alias    = fileName.replace(".gguf", "");
+
+                        /*
+                         * Ensure the GGUF is in the shared models volume so that
+                         * llm-chat (mounted at ./data/models:/models) can serve it.
+                         * llmfit may download to its own cache (e.g. ~/.llmfit/…);
+                         * we always copy to modelsDirPath so the path registered in
+                         * registry.json is reachable by every container.
+                         */
+                        Path modelsDir = Path.of(modelsDirPath);
+                        Path target    = modelsDir.resolve(fileName);
+                        if (!source.toAbsolutePath().equals(target.toAbsolutePath())) {
+                            Files.createDirectories(modelsDir);
+                            Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
+                            log.info("Modèle copié dans le volume partagé : {} → {}", source, target);
+                        }
+                        String registeredPath = target.toAbsolutePath().toString();
 
                         modelRegistryService.registerChatModel(
                             alias,
-                            downloadedFile,
+                            registeredPath,
                             "Tu es un assistant IA spécialisé.",
                             Collections.emptyMap(),
                             "llmfit"
                         );
-                        log.info("Modèle enregistré dans Spectra sous l'alias : {}", alias);
+                        log.info("Modèle enregistré dans Spectra sous l'alias '{}' → {}", alias, registeredPath);
 
                         if (autoActivate) {
                             modelRegistryService.setActiveChatModel(alias);
-                            log.info("Modèle '{}' activé automatiquement.", alias);
+                            log.info("Modèle '{}' activé automatiquement. Redémarrez llm-chat pour le charger.", alias);
                         }
                     }
 

@@ -99,6 +99,13 @@ spectra:
       archive-after-days: ${SPECTRA_GED_ARCHIVE_AFTER_DAYS:0}
       purge-after-days: ${SPECTRA_GED_PURGE_AFTER_DAYS:0}
 
+llmfit:
+  path: ${LLMFIT_PATH:llmfit}
+  # Target directory for downloaded models — must match the volume shared with llm-chat.
+  # In Docker: spectra-api mounts ./data:/app/data, llm-chat mounts ./data/models:/models
+  # → set to ./data/models so both containers see the same files.
+  models-dir: ${LLMFIT_MODELS_DIR:./data/models}
+
 # Actuator
 management:
   endpoints:

@@ -3,7 +3,7 @@ import type { FC } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useStatus } from '../hooks/useStatus';
-import { datasetApi, gedApi, commentApi } from '../services/api';
+import { datasetApi, gedApi, commentApi, metricsApi } from '../services/api';
 import Skeleton from '../components/Skeleton';
 import Tooltip from '../components/Tooltip';
 import LifecycleDonut from '../components/charts/LifecycleDonut';
@@ -30,19 +30,69 @@ interface CommentStats {
   aiGenerated: number;
 }
 
+interface FtJob {
+  status: string;
+  modelName: string;
+  loss?: number;
+  completedAt?: string;
+  createdAt?: string;
+}
+
+interface EvalResult {
+  status: string;
+  averageScore: number;
+  completedAt?: string;
+  modelName?: string;
+}
+
+interface PersonalizationMetrics {
+  approvedComments: number;
+  rejectedComments: number;
+  totalAiComments: number;
+  dpoPairs: number;
+  fineTuningJobs: FtJob[];
+  evaluations: EvalResult[];
+  completedCycles: number;
+  nextTriggerIn: number;
+  autoRetrainThreshold: number;
+  completedFineTuningJobs: number;
+  latestEvalScore: number;
+}
+
+function relativeTime(iso?: string): string {
+  if (!iso) return '—';
+  const delta = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (delta < 60)   return `${Math.round(delta)}s`;
+  if (delta < 3600) return `${Math.round(delta / 60)}m`;
+  if (delta < 86400) return `${Math.round(delta / 3600)}h`;
+  return `${Math.round(delta / 86400)}j`;
+}
+
+function statusChip(status: string): { label: string; cls: string } {
+  switch (status.toUpperCase()) {
+    case 'COMPLETED': return { label: 'OK',        cls: 'text-primary border-primary/40 bg-primary/5' };
+    case 'TRAINING':
+    case 'PROCESSING':return { label: 'En cours',  cls: 'text-secondary border-secondary/40 bg-secondary/5' };
+    case 'FAILED':    return { label: 'Échec',     cls: 'text-error border-error/40 bg-error/5' };
+    default:          return { label: status.slice(0,6), cls: 'text-outline border-outline-variant/30' };
+  }
+}
+
 const Dashboard: FC = () => {
   const navigate = useNavigate();
   const { status, loading, error } = useStatus();
   const [stats, setStats]         = useState<DatasetStats | null>(null);
   const [gedStats, setGedStats]   = useState<GedStats | null>(null);
   const [commentStats, setCommentStats] = useState<CommentStats | null>(null);
+  const [personalizationMetrics, setPersonalizationMetrics] = useState<PersonalizationMetrics | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
 
   const loadStats = useCallback(async () => {
     try {
-      const [dsRes, gedRes] = await Promise.allSettled([
+      const [dsRes, gedRes, metricsRes] = await Promise.allSettled([
         datasetApi.getStats(),
         gedApi.getStats(),
+        metricsApi.getPersonalization(),
       ]);
       if (dsRes.status === 'fulfilled') setStats(dsRes.value.data);
       if (gedRes.status === 'fulfilled') {
@@ -51,6 +101,7 @@ const Dashboard: FC = () => {
         // Derive comment stats from GED stats if available
         if (g.commentStats) setCommentStats(g.commentStats);
       }
+      if (metricsRes.status === 'fulfilled') setPersonalizationMetrics(metricsRes.value.data);
     } catch {
       // ignore
     } finally {
@@ -141,6 +192,12 @@ const Dashboard: FC = () => {
                   {chatSvc?.details?.activeModel && (
                     <p className="text-[9px] text-outline font-mono mt-0.5 max-w-[120px] truncate" title={chatSvc.details.activeModel}>
                       {chatSvc.details.activeModel}
+                    </p>
+                  )}
+                  {chatSvc?.available && chatSvc?.details?.activeModelLoaded === false && (
+                    <p className="text-[8px] font-bold text-error uppercase tracking-widest mt-1 flex items-center gap-1">
+                      <span className="material-symbols-outlined text-[10px]">warning</span>
+                      modèle non chargé
                     </p>
                   )}
                 </>
@@ -473,6 +530,279 @@ const Dashboard: FC = () => {
           </div>
         </section>
       )}
+
+      {/* ── Personalization Cycle ── */}
+      <section className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="font-headline text-sm font-bold uppercase tracking-tight text-on-surface-variant">Cycle de Personnalisation</h3>
+          <Tooltip content="Boucle continue : commentaires approuvés → paires DPO → fine-tuning → évaluation.">
+            <span className="material-symbols-outlined text-sm text-outline cursor-help">info</span>
+          </Tooltip>
+        </div>
+
+        {/* KPI row */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+
+          {/* Approuvés + approval ratio */}
+          <div className="bg-surface-container p-5 border-t-2 border-primary space-y-2">
+            <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant">Approuvés</p>
+            {statsLoading ? <Skeleton className="h-9 w-12" /> : (
+              <>
+                <p className="font-headline font-bold text-3xl text-primary">
+                  {personalizationMetrics?.approvedComments ?? 0}
+                </p>
+                {/* approval/rejection mini-bar */}
+                {(() => {
+                  const m = personalizationMetrics;
+                  if (!m || m.totalAiComments === 0) return (
+                    <p className="text-[9px] text-on-surface-variant">aucun commentaire IA</p>
+                  );
+                  const pending = m.totalAiComments - m.approvedComments - m.rejectedComments;
+                  const pctA = (m.approvedComments / m.totalAiComments) * 100;
+                  const pctR = (m.rejectedComments / m.totalAiComments) * 100;
+                  const pctP = (pending / m.totalAiComments) * 100;
+                  return (
+                    <div className="space-y-1">
+                      <div className="flex h-1.5 w-full overflow-hidden rounded-sm">
+                        <div className="bg-primary transition-all" style={{ width: `${pctA}%` }} />
+                        <div className="bg-error transition-all"   style={{ width: `${pctR}%` }} />
+                        <div className="bg-outline-variant/30 transition-all" style={{ width: `${pctP}%` }} />
+                      </div>
+                      <div className="flex gap-2 text-[8px] text-outline">
+                        <span className="text-primary">👍 {m.approvedComments}</span>
+                        <span className="text-error">👎 {m.rejectedComments}</span>
+                        <span>⏳ {pending}</span>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </>
+            )}
+          </div>
+
+          {/* Paires DPO */}
+          <div className="bg-surface-container p-5 border-t-2 border-secondary space-y-2">
+            <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant">Paires DPO</p>
+            {statsLoading ? <Skeleton className="h-9 w-12" /> : (
+              <>
+                <p className="font-headline font-bold text-3xl text-secondary">
+                  {personalizationMetrics?.dpoPairs ?? 0}
+                </p>
+                <p className="text-[9px] text-on-surface-variant">
+                  {(personalizationMetrics?.dpoPairs ?? 0) > 0
+                    ? 'prêtes · garde Jaccard > 0.85 active'
+                    : 'aucune paire filtrée disponible'}
+                </p>
+              </>
+            )}
+          </div>
+
+          {/* Fine-Tunings */}
+          <div className="bg-surface-container p-5 border-t-2 border-outline-variant space-y-2">
+            <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant">Fine-Tunings</p>
+            {statsLoading ? <Skeleton className="h-9 w-12" /> : (
+              <>
+                <p className="font-headline font-bold text-3xl">
+                  {personalizationMetrics?.completedFineTuningJobs ?? 0}
+                </p>
+                <p className="text-[9px] text-on-surface-variant">
+                  complétés · {(personalizationMetrics?.fineTuningJobs ?? []).length} total
+                </p>
+              </>
+            )}
+          </div>
+
+          {/* Score Éval. avec tendance */}
+          <div className="bg-surface-container p-5 border-t-2 border-outline-variant space-y-2">
+            <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant">Score Éval.</p>
+            {statsLoading ? <Skeleton className="h-9 w-12" /> : (() => {
+              const m = personalizationMetrics;
+              const completed = (m?.evaluations ?? []).filter(e => e.status === 'COMPLETED');
+              const last  = completed.at(-1);
+              const prev  = completed.at(-2);
+              const delta = last && prev ? last.averageScore - prev.averageScore : null;
+              return (
+                <>
+                  <div className="flex items-end gap-2">
+                    <p className="font-headline font-bold text-3xl">
+                      {last ? last.averageScore.toFixed(1) : '—'}
+                    </p>
+                    {delta !== null && (
+                      <span className={`text-[10px] font-bold mb-1 ${delta >= 0 ? 'text-primary' : 'text-error'}`}>
+                        {delta >= 0 ? '▲' : '▼'} {Math.abs(delta).toFixed(1)}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[9px] text-on-surface-variant">
+                    {last ? `/10 · ${relativeTime(last.completedAt)}` : 'aucune évaluation'}
+                  </p>
+                </>
+              );
+            })()}
+          </div>
+
+        </div>
+
+        {/* Auto-trigger progress */}
+        {!statsLoading && personalizationMetrics && personalizationMetrics.autoRetrainThreshold > 0 && (
+          <div className="bg-surface-container p-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant">
+                Prochain re-entraînement automatique
+              </p>
+              <p className="text-[9px] font-mono text-outline">
+                seuil : {personalizationMetrics.autoRetrainThreshold} approbations
+              </p>
+            </div>
+            <div className="w-full bg-surface-container-high h-1.5">
+              <div
+                className="h-1.5 bg-primary transition-all duration-500"
+                style={{
+                  width: `${Math.min(100, ((personalizationMetrics.autoRetrainThreshold - personalizationMetrics.nextTriggerIn) / personalizationMetrics.autoRetrainThreshold) * 100)}%`
+                }}
+              />
+            </div>
+            <div className="flex justify-between">
+              <p className="text-[8px] text-outline">
+                {personalizationMetrics.autoRetrainThreshold - personalizationMetrics.nextTriggerIn} / {personalizationMetrics.autoRetrainThreshold}
+              </p>
+              <p className={`text-[8px] font-bold ${personalizationMetrics.nextTriggerIn <= 1 ? 'text-primary' : 'text-outline'}`}>
+                {personalizationMetrics.nextTriggerIn > 0
+                  ? `encore ${personalizationMetrics.nextTriggerIn} approbation(s)`
+                  : '↺ déclenchement imminent'}
+              </p>
+            </div>
+            {personalizationMetrics.completedCycles > 0 && (
+              <p className="text-[9px] text-primary font-label uppercase tracking-widest flex items-center gap-1">
+                <span className="material-symbols-outlined text-[11px]">check_circle</span>
+                {personalizationMetrics.completedCycles} cycle(s) de re-entraînement complété(s)
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Recent fine-tuning jobs + recent evaluations side by side */}
+        {!statsLoading && personalizationMetrics && (
+          (personalizationMetrics.fineTuningJobs.length > 0 || personalizationMetrics.evaluations.length > 0)
+        ) && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+            {/* Recent jobs */}
+            {(personalizationMetrics?.fineTuningJobs.length ?? 0) > 0 && (
+              <div className="bg-surface-container p-4 space-y-3">
+                <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant">
+                  Jobs récents
+                </p>
+                <div className="space-y-2">
+                  {(personalizationMetrics!.fineTuningJobs)
+                    .slice()
+                    .reverse()
+                    .slice(0, 4)
+                    .map((job, i) => {
+                      const chip = statusChip(job.status);
+                      return (
+                        <div key={i} className="flex items-center justify-between gap-2 py-1.5 border-b border-outline-variant/10 last:border-0">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="material-symbols-outlined text-[11px] text-outline shrink-0">model_training</span>
+                            <span className="font-mono text-[9px] text-on-surface-variant truncate" title={job.modelName}>
+                              {job.modelName}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            {job.loss != null && (
+                              <span className="text-[8px] text-outline font-mono">loss {job.loss.toFixed(3)}</span>
+                            )}
+                            <span className={`text-[7px] font-bold uppercase px-1.5 py-0.5 border ${chip.cls}`}>
+                              {chip.label}
+                            </span>
+                            <span className="text-[8px] text-outline w-6 text-right">
+                              {relativeTime(job.completedAt ?? job.createdAt)}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+                <button
+                  onClick={() => navigate('/fine-tuning')}
+                  className="text-[9px] font-label font-bold uppercase tracking-widest text-primary hover:text-primary/70 transition-colors flex items-center gap-1"
+                >
+                  <span className="material-symbols-outlined text-[11px]">arrow_forward</span>
+                  Voir tous les jobs
+                </button>
+              </div>
+            )}
+
+            {/* Recent evaluations */}
+            {(personalizationMetrics?.evaluations.length ?? 0) > 0 && (
+              <div className="bg-surface-container p-4 space-y-3">
+                <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant">
+                  Évaluations récentes
+                </p>
+                <div className="space-y-2">
+                  {(personalizationMetrics!.evaluations)
+                    .filter(e => e.status === 'COMPLETED')
+                    .slice()
+                    .reverse()
+                    .slice(0, 4)
+                    .map((ev, i, arr) => {
+                      const prev = arr[i + 1];
+                      const delta = prev ? ev.averageScore - prev.averageScore : null;
+                      const scoreColor = ev.averageScore >= 7 ? 'text-primary' : ev.averageScore >= 4 ? 'text-secondary' : 'text-error';
+                      return (
+                        <div key={i} className="flex items-center justify-between gap-2 py-1.5 border-b border-outline-variant/10 last:border-0">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="material-symbols-outlined text-[11px] text-outline shrink-0">analytics</span>
+                            <div className="w-24 bg-surface-container-high h-1">
+                              <div
+                                className={`h-1 ${scoreColor.replace('text-', 'bg-')} transition-all`}
+                                style={{ width: `${(ev.averageScore / 10) * 100}%` }}
+                              />
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className={`font-headline font-bold text-xs ${scoreColor}`}>
+                              {ev.averageScore.toFixed(1)}
+                            </span>
+                            {delta !== null && (
+                              <span className={`text-[8px] font-bold ${delta >= 0 ? 'text-primary' : 'text-error'}`}>
+                                {delta >= 0 ? '▲' : '▼'}{Math.abs(delta).toFixed(1)}
+                              </span>
+                            )}
+                            <span className="text-[8px] text-outline w-6 text-right">
+                              {relativeTime(ev.completedAt)}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+                <button
+                  onClick={() => navigate('/evaluation')}
+                  className="text-[9px] font-label font-bold uppercase tracking-widest text-primary hover:text-primary/70 transition-colors flex items-center gap-1"
+                >
+                  <span className="material-symbols-outlined text-[11px]">arrow_forward</span>
+                  Voir toutes les évaluations
+                </button>
+              </div>
+            )}
+
+          </div>
+        )}
+
+        {/* Empty state — no metrics at all */}
+        {!statsLoading && (!personalizationMetrics || (
+          personalizationMetrics.totalAiComments === 0 &&
+          personalizationMetrics.fineTuningJobs.length === 0
+        )) && (
+          <div className="p-4 border border-outline-variant/20 bg-surface-container flex items-start gap-3">
+            <span className="material-symbols-outlined text-sm text-outline mt-0.5 shrink-0">info</span>
+            <p className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant leading-relaxed">
+              Aucune donnée de personnalisation — générez des commentaires IA sur vos documents (Database → fiche document → ✦ IA), puis évaluez-les pour démarrer le cycle.
+            </p>
+          </div>
+        )}
+      </section>
 
       {/* ── RAG Capabilities ── */}
       <section className="space-y-4">
