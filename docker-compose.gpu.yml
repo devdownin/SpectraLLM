@@ -1,13 +1,15 @@
 # Override pour activer l'accélération GPU NVIDIA (CUDA).
 # Usage : docker compose -f docker-compose.yml -f docker-compose.gpu.yml up
+# Les paramètres -c/-b respectent le .env généré par detect-env.sh (LLM_CONTEXT),
+# avec les mêmes défauts que docker-compose.yml.
 services:
   llm-chat:
-    image: ghcr.io/ggerganov/llama.cpp:server-cuda
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
     command: >
       --host 0.0.0.0
       --port 8081
       --model /models/${LLM_CHAT_MODEL_FILE:-Phi-4-mini-reasoning-UD-IQ1_S.gguf}
-      --ctx-size 4096
+      --ctx-size ${LLM_CONTEXT:-4096}
       --parallel ${LLM_PARALLEL:-2}
       --n-gpu-layers 99
     deploy:
@@ -19,13 +21,15 @@ services:
               capabilities: [gpu]
 
   llm-embed:
-    image: ghcr.io/ggerganov/llama.cpp:server-cuda
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
     command: >
       --host 0.0.0.0
       --port 8082
       --model /models/${LLM_EMBED_MODEL_FILE:-embed.gguf}
       --embedding
-      --ctx-size 512
+      -c 8192
+      -b 2048
+      -ub 2048
       --parallel ${LLM_EMBED_PARALLEL:-4}
       --n-gpu-layers 99
     deploy:

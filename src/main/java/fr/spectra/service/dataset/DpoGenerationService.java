@@ -107,7 +107,7 @@ public class DpoGenerationService {
             generate(taskId, maxPairs);
         } catch (Exception e) {
             log.error("Génération DPO {} échouée: {}", taskId, e.getMessage(), e);
-            tasks.put(taskId, tasks.get(taskId).failed(e.getMessage()));
+            tasks.computeIfPresent(taskId, (k, t) -> t.failed(e.getMessage()));
         }
     }
 
@@ -117,13 +117,14 @@ public class DpoGenerationService {
                 .toList();
 
         if (sftPairs.isEmpty()) {
-            tasks.put(taskId, tasks.get(taskId).failed(
+            tasks.computeIfPresent(taskId, (k, t) -> t.failed(
                     "Aucune paire SFT disponible — lancez d'abord POST /api/dataset/generate"));
             return;
         }
 
         int total = (maxPairs > 0) ? Math.min(maxPairs, sftPairs.size()) : sftPairs.size();
-        tasks.put(taskId, new DpoTask(taskId, "RUNNING", 0, total, null, tasks.get(taskId).startedAt(), null));
+        tasks.computeIfPresent(taskId, (k, t) ->
+                new DpoTask(taskId, "RUNNING", 0, total, null, t.startedAt(), null));
         log.info("Génération DPO {}: {} paires à traiter", taskId, total);
 
         List<DpoPair> localPairs = new ArrayList<>();
@@ -143,16 +144,16 @@ public class DpoGenerationService {
                     writer.flush();
                 }
                 int done = i + 1;
-                tasks.put(taskId, new DpoTask(taskId, "RUNNING", done, total, null,
-                        tasks.get(taskId).startedAt(), null));
+                tasks.computeIfPresent(taskId, (k, t) ->
+                        new DpoTask(taskId, "RUNNING", done, total, null, t.startedAt(), null));
             }
         }
 
         dpoPairs.clear();
         dpoPairs.addAll(localPairs);
 
-        tasks.put(taskId, new DpoTask(taskId, "COMPLETED", localPairs.size(), total, null,
-                tasks.get(taskId).startedAt(), Instant.now()));
+        tasks.computeIfPresent(taskId, (k, t) ->
+                new DpoTask(taskId, "COMPLETED", localPairs.size(), total, null, t.startedAt(), Instant.now()));
         log.info("Génération DPO {} terminée: {} paires", taskId, localPairs.size());
     }
 

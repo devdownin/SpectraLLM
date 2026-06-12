@@ -351,6 +351,10 @@ public class IngestionService {
                 if (entry.isDirectory()) continue;
                 String entryName = entry.getName();
                 if (entryName.startsWith("__MACOSX/") || entryName.startsWith(".")) continue;
+                if (entryName.contains("..")) {
+                    log.warn("Entrée ZIP suspecte ignorée (path traversal): {}", entryName);
+                    continue;
+                }
 
                 String fileName = entryName.contains("/")
                         ? entryName.substring(entryName.lastIndexOf('/') + 1)
