@@ -693,3 +693,142 @@ Remplacer le parsing PDF textuel par un parsing conscient de la mise en page (la
 Permettre au système de décider s'il a besoin de plus de contexte ou de consulter une source externe avant de répondre, via une boucle de type ReAct (Reasoning and Acting).
 
 > **Implémenté** : `AgenticRagService` — boucle ReAct (THOUGHT → ACTION : SEARCH|ANSWER) activée via `SPECTRA_AGENTIC_RAG_ENABLED=true`. Le LLM reçoit un prompt structuré et décide à chaque itération s'il émet `ACTION: SEARCH` (requête complémentaire → nouveau retrieval, déduplication par texte) ou `ACTION: ANSWER` (extraction de la réponse finale). La boucle est bornée par `max-iterations` (défaut 3) ; fallback sur génération directe si le budget est épuisé. Compatible I1 (re-ranking) et I2 (hybrid search) : le pipeline d'enrichissement initial est exécuté avant d'entrer dans la boucle. `RagService` injecte `Optional<AgenticRagService>` et délègue lorsque le bean est présent. `QueryResponse` enrichi : champs `agenticApplied` (boolean) et `agenticIterations` (int). Config : `spectra.agentic-rag.{enabled, max-iterations, initial-top-k}` + variables d'env `SPECTRA_AGENTIC_*`. Aucun impact sur les déploiements existants (désactivé par défaut).
+
+---
+
+## 10. Audit de robustesse (2026-06-12)
+
+### J1 — Streaming SSE vide / Toggle useRag ignoré 🟢 🔥 ✅ Implémenté
+
+**Problème**
+`POST /api/query/stream` émettait des `event:token` avec un body vide. Le `ServerSentEventHttpMessageReader`
+de Spring WebFlux supprime le préfixe `data: ` avant d'émettre les chaînes à `bodyToFlux(String.class)` ;
+le filtre `.filter(l -> l.startsWith("data: "))` ne matchait donc jamais. Par ailleurs, le champ `useRag`
+envoyé par le frontend était silencieusement ignoré (absent de `QueryRequest`).
+
+> **Implémenté** : `LlamaCppChatClient` — filtre remplacé par `.filter(data -> !data.equals("[DONE]"))` ;
+> méthode `extractTokenFromJson` supprime le dépouillement du préfixe. `QueryRequest` : champ `Boolean useRag`
+> (défaut `true`). `RagService.query()` et `queryStream()` : court-circuit LLM direct quand `useRag=false`,
+> émettant `sources:[]` et `ragStrategy:"DIRECT"`.
+
+---
+
+### J2 — Annulation de tâches async + nettoyage mémoire 🟡 ⚠️ ✅ Implémenté
+
+**Problème**
+Aucun endpoint ne permettait d'annuler une ingestion, une génération de dataset, une évaluation ou un
+fine-tuning en cours. De plus, les `ConcurrentHashMap` de tâches terminées grandissaient indéfiniment
+(fuite mémoire après des heures d'utilisation).
+
+> **Implémenté** : `DELETE /api/ingest/{taskId}`, `DELETE /api/dataset/generate/{taskId}`,
+> `DELETE /api/evaluation/{evalId}`, `DELETE /api/fine-tuning/{jobId}`. Statut `CANCELLED` ajouté aux enums.
+> `@Scheduled(fixedDelay = 3_600_000) cleanupOldTasks()` sur les 4 services — purge horaire des tâches
+> terminées de plus d'une heure.
+
+---
+
+### J3 — Circuit breakers ChromaDB et Embedding 🟡 ⚠️ ✅ Implémenté
+
+**Problème**
+Une panne de ChromaDB ou du service d'embedding se propageait en cascade via des exceptions non typées.
+Aucun mécanisme ne coupait le circuit lors de pannes répétées.
+
+> **Implémenté** : `@CircuitBreaker(name = "chroma")` sur `ChromaDbClient.getOrCreateCollection()` et `.query()`.
+> `@CircuitBreaker(name = "embed")` sur `LlamaCppEmbeddingClient.embed()`. Fallbacks typés
+> `ChromaDbUnavailableException` et `EmbeddingUnavailableException`. Resilience4j configuré dans
+> `application.yml` (sliding-window-size, failure-rate-threshold, wait-duration-in-open-state).
+
+---
+
+### J4 — Dégradation gracieuse Multi-Query 🟢 ⚠️ ✅ Implémenté
+
+**Problème**
+Une erreur dans `MultiQueryService.generateQueries()` (LLM timeout, parsing raté) faisait échouer toute
+la requête RAG au lieu de continuer avec une seule requête.
+
+> **Implémenté** : bloc multi-query dans `RagService.retrieveContext()` enveloppé dans try/catch avec
+> fallback automatique vers `executeSingleQuery()` et log WARN.
+
+---
+
+### J5 — Timeout upload multipart manquant 🟢 ⚠️ ✅ Implémenté
+
+**Problème**
+Un fichier de 50 Mo depuis un client lent (ou malveillant) pouvait bloquer une connexion indéfiniment.
+`spring.servlet.multipart.max-file-size` limite la taille mais pas la durée du transfert.
+
+> **Implémenté** : `TomcatUploadConfig` — `WebServerFactoryCustomizer<TomcatServletWebServerFactory>`
+> (Spring Boot 4 : `org.springframework.boot.tomcat.servlet`) ; `disableUploadTimeout=false` +
+> `connectionUploadTimeout=120000 ms`.
+
+---
+
+### J6 — ddl-auto: update en production 🟡 🔥 ✅ Implémenté
+
+**Problème**
+`spring.jpa.hibernate.ddl-auto: update` appliquait silencieusement les migrations de schéma au démarrage,
+sans trace, sans rollback possible, avec risque de perte de données si une colonne était renommée.
+
+> **Implémenté** : `ddl-auto: validate` dans `application.yml` (Hibernate fail-fast si un champ n'a pas
+> de colonne correspondante). `schema.sql` (`CREATE TABLE IF NOT EXISTS`) pour les 7 tables — exécuté
+> avant la validation via `spring.sql.init.mode: always`. `application-dev.yml` : profil `dev`
+> (`SPRING_PROFILES_ACTIVE=dev`) conservant `update` pour le développement d'entités.
+
+---
+
+### J7 — Tests manquants : QueryController et pipeline RAG 🟡 ⚠️ ✅ Implémenté
+
+**Problème**
+Zéro test sur `RagService` et `QueryController`, les chemins les plus critiques (streaming SSE, pipeline RAG).
+
+> **Implémenté** : `QueryControllerTest` (5 tests MockMvc) — `POST /api/query` (valide → 200, question
+> vide → 400, champ manquant → 400) ; `POST /api/query/stream` (async dispatch + content-type
+> `text/event-stream`, question vide → 400). `RagServiceStreamTest` (7 tests StepVerifier, voir J8).
+
+---
+
+### J8 — Tests scénarios d'erreur chat 🟡 ⚠️ ✅ Implémenté
+
+**Problème**
+LLM indisponible, ChromaDB timeout, requête invalide — aucun test ne vérifiait que le frontend recevait
+bien un `event:error` dans ces cas.
+
+> **Implémenté** : `RagServiceStreamTest` — `useRag=false` happy path (sources → tokens → done, strategy DIRECT) ;
+> LLM erreur réactive (`Flux.error`) → sources puis `event:error` ; LLM exception synchrone → `event:error` seul ;
+> ChromaDB indisponible (circuit breaker) → `event:error` seul ; embedding down → `event:error` seul ;
+> `query()` + ChromaDB down → `ChromaDbUnavailableException` propagée.
+
+---
+
+### J9 — UX : confirmation avant génération dataset 🟢 💡 ✅ Implémenté
+
+**Problème**
+Lancer la génération du dataset pendant une ingestion active produisait un dataset incomplet sans
+avertissement.
+
+> **Implémenté** : `Datasets.tsx` — `window.confirm()` avant `handleGenerateDataset()` si
+> `ingestEntries.some(e => e.status === 'PENDING' || e.status === 'PROCESSING')`.
+
+---
+
+### J10 — Dashboard silencieux sur erreurs de stats 🟢 💡 ✅ Implémenté
+
+**Problème**
+`Promise.allSettled()` dans `Dashboard.loadStats()` ignorait silencieusement les rejets partiels.
+L'utilisateur ne savait pas si les statistiques affichées étaient complètes.
+
+> **Implémenté** : `statsErrors: string[]` tracke les services en échec. Icône `warning` avec tooltip
+> affiché à côté des headers `Knowledge Base`, `Documents & Annotations` et `Cycle de Personnalisation`
+> si le fetch correspondant a échoué.
+
+---
+
+### J11 — Endpoint de santé unifié 🟢 💡 ✅ Implémenté
+
+**Problème**
+Pas d'endpoint dédié retournant uniquement la liste des services externes avec leur statut, distinct
+du `GET /api/status` (qui retourne un objet complet `SystemStatusResponse`).
+
+> **Implémenté** : `HealthController` — `GET /api/health/services` retourne `List<ServiceStatus>`
+> (LLM chat, embedding, ChromaDB, layout-parser optionnel, reranker optionnel). `healthApi.getServices()`
+> ajouté dans `frontend/src/services/api.ts`.

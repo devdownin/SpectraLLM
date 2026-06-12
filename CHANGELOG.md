@@ -6,6 +6,40 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ---
 
+## [1.10.0] — 2026-06-12
+
+### Correctifs — Chat / RAG streaming
+
+- **SSE tokens vides (`event:token` silencieux)** : `LlamaCppChatClient` — racine identifiée dans le `ServerSentEventHttpMessageReader` de Spring qui supprime le préfixe `data: ` avant d'émettre. Le filtre `.filter(l -> l.startsWith("data: "))` ne matchait donc jamais. Corrigé : filtre remplacé par `.filter(data -> !data.equals("[DONE]"))` ; méthode de parsing renommée `extractTokenFromJson` (sans dépouillement du préfixe).
+- **Toggle `useRag` ignoré** : champ `Boolean useRag` ajouté à `QueryRequest` (défaut `true`). `RagService.query()` et `queryStream()` : court-circuit vers le LLM direct quand `useRag=false`, émettant `sources:[]` puis `ragStrategy:"DIRECT"`.
+
+### Nouvelles fonctionnalités — Résilience et opérations
+
+- **Annulation de tâches asynchrones** : `DELETE /api/ingest/{taskId}`, `DELETE /api/dataset/generate/{taskId}`, `DELETE /api/evaluation/{evalId}`, `DELETE /api/fine-tuning/{jobId}` — endpoint d'annulation pour les 4 services async. Un `Set<String> cancelledTaskIds` est vérifié à chaque itération de boucle.
+- **Nettoyage mémoire planifié** : `@Scheduled(fixedDelay = 3_600_000)` sur les 4 services — purge horaire des tâches `COMPLETED`/`FAILED`/`CANCELLED` âgées de plus d'une heure (évite la fuite mémoire des `ConcurrentHashMap`).
+- **Circuit breakers** : `@CircuitBreaker(name = "chroma")` sur `ChromaDbClient.getOrCreateCollection()` et `.query()` ; `@CircuitBreaker(name = "embed")` sur `LlamaCppEmbeddingClient.embed()`. Fallbacks typés (`ChromaDbUnavailableException`, `EmbeddingUnavailableException`). Configuration Resilience4j dans `application.yml` (`sliding-window-size`, `failure-rate-threshold`, `wait-duration-in-open-state`).
+- **Dégradation gracieuse du multi-query** : bloc multi-query dans `RagService` enveloppé dans un try/catch avec fallback automatique vers le retrieval simple si la génération de variantes échoue.
+- **`GET /api/health/services`** : nouveau `HealthController` agrégeant les `checkHealth()` de tous les services externes (LLM chat, embedding, ChromaDB, layout-parser, reranker). `healthApi.getServices()` ajouté dans `api.ts`.
+
+### Améliorations frontend
+
+- **Confirmation d'ingestion active** : `Datasets.tsx` — `window.confirm()` avant de lancer la génération si une tâche d'ingestion est en cours (`PENDING` ou `PROCESSING`), pour éviter un dataset incomplet.
+- **Indicateurs d'erreur par service** : `Dashboard.tsx` — `statsErrors: string[]` tracke les rejets de `Promise.allSettled`. Icône `warning` affichée à côté des headers de section concernés (`Knowledge Base`, `Documents & Annotations`, `Cycle de Personnalisation`) en cas d'échec de fetch.
+
+### Fiabilité — Schéma base de données
+
+- **`ddl-auto: update` → `validate`** : `application.yml` — Hibernate ne modifie plus silencieusement le schéma au démarrage. Tout écart entre entité et base provoque un échec explicite au boot.
+- **`schema.sql`** : DDL complet (`CREATE TABLE IF NOT EXISTS`) des 7 tables (`ingested_files`, `ingestion_tasks`, `generation_tasks`, `article_comments`, `ged_audit_log`, `document_model_links`, `fine_tuning_jobs`). Exécuté avant la validation Hibernate (`spring.sql.init.mode: always`). Idempotent — safe sur une base existante comme sur H2 fraîche.
+- **`application-dev.yml`** : profil `dev` (`SPRING_PROFILES_ACTIVE=dev`) conservant `ddl-auto: update` pour le développement d'entités ; workflow : implémenter → valider avec profil dev → reporter dans `schema.sql`.
+- **Timeout upload multipart** : `TomcatUploadConfig` — `disableUploadTimeout=false` + `connectionUploadTimeout=120000 ms`. Un fichier de 50 Mo depuis un client lent ne peut plus bloquer une connexion indéfiniment.
+
+### Tests
+
+- **`QueryControllerTest`** (5 tests MockMvc) : `POST /api/query` — requête valide → 200, question vide → 400, champ manquant → 400 ; `POST /api/query/stream` — dispatch async + `text/event-stream`, question vide → 400.
+- **`RagServiceStreamTest`** (7 tests StepVerifier) : chemin direct `useRag=false` (sources → tokens → done, `ragStrategy=DIRECT`) ; LLM erreur réactive (`Flux.error`) → `sources` puis `event:error` ; LLM exception synchrone → `event:error` seul ; ChromaDB indisponible (circuit breaker) → `event:error` seul ; embedding indisponible → `event:error` seul ; `query()` + ChromaDB down → `ChromaDbUnavailableException` propagée.
+
+---
+
 ## [1.9.0] — 2026-04-22
 
 ### Correctifs — Bugs, sécurité, fiabilisation
