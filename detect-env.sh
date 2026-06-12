@@ -8,11 +8,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ENV_FILE="$SCRIPT_DIR/.env"
-FORCE_GPU=false
+GPU_TYPE="none"   # none | nvidia | amd | vulkan
 
 for arg in "$@"; do
     case "$arg" in
-        --gpu) FORCE_GPU=true ;;
+        --gpu) GPU_TYPE="nvidia" ;;   # force NVIDIA pour tests sans carte physique
     esac
 done
 
@@ -31,17 +31,34 @@ else
     CPU_CORES=$(nproc)
 fi
 
-# ── 3. Détection GPU NVIDIA ──
-GPU_DETECTED=false
-if command -v nvidia-smi &>/dev/null; then
-    if nvidia-smi &>/dev/null; then
-        GPU_DETECTED=true
+# ── 3. Détection GPU (même ordre de priorité que llama-autostart.sh) ──
+if [[ "$GPU_TYPE" == "none" ]]; then
+    # NVIDIA : nvidia-smi doit répondre ET lister au moins un GPU
+    if command -v nvidia-smi &>/dev/null && nvidia-smi --query-gpu=name --format=csv,noheader &>/dev/null 2>&1; then
+        GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 || true)
+        if [[ -n "$GPU_NAME" ]]; then
+            GPU_TYPE="nvidia"
+            GPU_VRAM_MB=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d ' ' || echo 0)
+        fi
     fi
 fi
 
-if [[ "$FORCE_GPU" == true ]]; then
-    GPU_DETECTED=true
+if [[ "$GPU_TYPE" == "none" ]]; then
+    # AMD ROCm : /dev/kfd (driver KFD) + /dev/dri présent
+    if [[ -e /dev/kfd && -d /dev/dri ]]; then
+        GPU_TYPE="amd"
+    fi
 fi
+
+if [[ "$GPU_TYPE" == "none" ]]; then
+    # GPU générique via Vulkan (rendu partiel)
+    if [[ -e /dev/dri/renderD128 ]]; then
+        GPU_TYPE="vulkan"
+    fi
+fi
+
+GPU_VRAM_MB="${GPU_VRAM_MB:-0}"
+GPU_DETECTED=$([[ "$GPU_TYPE" != "none" ]] && echo true || echo false)
 
 # ── 4. Calcul du profil ──
 if (( TOTAL_RAM_MB < 8192 )); then
@@ -53,9 +70,9 @@ else
 fi
 
 echo "► Détection du serveur :"
-echo "  RAM        : ${TOTAL_RAM_MB} Mo"
+echo "  RAM dispo  : ${TOTAL_RAM_MB} Mo"
 echo "  CPU cores  : ${CPU_CORES}"
-echo "  GPU NVIDIA : ${GPU_DETECTED}"
+echo "  GPU        : ${GPU_TYPE} (VRAM: ${GPU_VRAM_MB} Mo)"
 echo "  Profil     : ${PROFILE}"
 
 # ── 5. Calcul des paramètres pipeline ──
@@ -113,7 +130,7 @@ fi
 # ── 6. Écriture du .env ──
 cat > "$ENV_FILE" <<EOF
 # ── Spectra — Configuration auto-détectée ──
-# Profil: ${PROFILE} | RAM: ${TOTAL_RAM_MB} Mo | CPU: ${CPU_CORES} cores | GPU: ${GPU_DETECTED}
+# Profil: ${PROFILE} | RAM: ${TOTAL_RAM_MB} Mo | CPU: ${CPU_CORES} cores | GPU: ${GPU_TYPE} (VRAM: ${GPU_VRAM_MB} Mo)
 # Généré le $(date -Iseconds 2>/dev/null || date)
 
 # ── Pipeline ──
@@ -143,6 +160,8 @@ SPECTRA_LLM_PROVIDER=llama-cpp
 
 # ── GPU ──
 SPECTRA_GPU_ENABLED=${GPU_DETECTED}
+SPECTRA_GPU_TYPE=${GPU_TYPE}
+SPECTRA_GPU_VRAM_MB=${GPU_VRAM_MB}
 EOF
 
 echo ""
