@@ -30,6 +30,11 @@ graph LR
 
 ---
 
+## 📚 Documentation Pédagogique
+Pour comprendre en détail le fonctionnement de Spectra, les algorithmes utilisés (RAG, BM25, RRF, Fine-tuning, etc.) et la philosophie du projet, consultez notre **[Guide Pédagogique et Technique](./DOCUMENTATION_PEDAGOGIQUE.fr.md)**.
+
+---
+
 ## ✨ Pourquoi Spectra ? (Originalité & Innovation)
 
 ### 🧩 Workflow Unifié "Tout-en-un"
