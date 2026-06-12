@@ -33,7 +33,14 @@ public record QueryRequest(
          * Historique de conversation pour le Conversational RAG.
          * {@code null} ou liste vide = pas de contexte conversationnel.
          */
-        List<ConversationMessage> conversationHistory
+        List<ConversationMessage> conversationHistory,
+
+        /**
+         * Active ou désactive le RAG (retrieval vectoriel ChromaDB).
+         * {@code null} ou {@code true} = RAG actif (comportement par défaut).
+         * {@code false} = réponse directe du LLM, sans retrieval.
+         */
+        Boolean useRag
 ) {
     public QueryRequest {
         if (maxContextChunks == null) maxContextChunks = 5;
@@ -41,5 +48,6 @@ public record QueryRequest(
         if (topCandidates < maxContextChunks) topCandidates = maxContextChunks;
         if (temperature == null) temperature = 0.7f;
         if (topP == null)        topP = 0.9f;
+        if (useRag == null)      useRag = true;
     }
 }

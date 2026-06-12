@@ -125,6 +125,7 @@ public class ArticleCommentService {
                 doc.getCollectionName(),
                 0.4f,    // température basse : commentaire factuel
                 0.9f,
+                null,
                 null
         );
 

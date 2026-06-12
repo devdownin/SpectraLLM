@@ -241,16 +241,17 @@ public class LlamaCppChatClient implements LlmChatClient {
                 .accept(MediaType.TEXT_EVENT_STREAM)
                 .bodyValue(request)
                 .retrieve()
+                // ServerSentEventHttpMessageReader strips "data: " prefix — each element
+                // is already the raw JSON payload (or "[DONE]" for the terminal marker).
                 .bodyToFlux(String.class)
-                .filter(line -> line.startsWith("data: ") && !line.equals("data: [DONE]"))
-                .mapNotNull(this::extractTokenFromSseLine)
+                .filter(data -> !data.equals("[DONE]"))
+                .mapNotNull(this::extractTokenFromJson)
                 .filter(token -> !token.isEmpty());
     }
 
     @SuppressWarnings("unchecked")
-    private String extractTokenFromSseLine(String line) {
+    private String extractTokenFromJson(String json) {
         try {
-            String json = line.substring("data: ".length()).trim();
             Map<String, Object> parsed = objectMapper.readValue(json, Map.class);
             List<Map<String, Object>> choices = (List<Map<String, Object>>) parsed.get("choices");
             if (choices == null || choices.isEmpty()) return null;
@@ -259,7 +260,7 @@ public class LlamaCppChatClient implements LlmChatClient {
             String content = (String) delta.get("content");
             return content != null ? content : "";
         } catch (Exception e) {
-            log.debug("Ligne SSE ignorée (parse): {}", line);
+            log.debug("SSE data ignorée (parse): {}", json);
             return null;
         }
     }

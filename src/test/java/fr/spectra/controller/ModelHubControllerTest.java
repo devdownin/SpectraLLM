@@ -83,7 +83,7 @@ class ModelHubControllerTest {
         when(llmFitService.installModel("llama3.2:3b", null, false))
                 .thenReturn(CompletableFuture.completedFuture(true));
 
-        Map<String, String> result = controller.installModel("llama3.2:3b", null);
+        Map<String, String> result = controller.installModel("llama3.2:3b", null, false);
 
         assertThat(result).containsEntry("status", "IN_PROGRESS");
         assertThat(result).containsEntry("modelName", "llama3.2:3b");
@@ -94,7 +94,7 @@ class ModelHubControllerTest {
         when(llmFitService.installModel(anyString(), anyString(), anyBoolean()))
                 .thenReturn(CompletableFuture.completedFuture(true));
 
-        controller.installModel("phi-4", "Q4_K_M");
+        controller.installModel("phi-4", "Q4_K_M", false);
 
         verify(llmFitService).installModel("phi-4", "Q4_K_M", false);
     }
@@ -104,7 +104,7 @@ class ModelHubControllerTest {
         when(llmFitService.installModel(anyString(), isNull(), anyBoolean()))
                 .thenReturn(CompletableFuture.completedFuture(true));
 
-        controller.installModel("mistral:7b", null);
+        controller.installModel("mistral:7b", null, false);
 
         verify(llmFitService).installModel("mistral:7b", null, false);
     }
@@ -119,7 +119,7 @@ class ModelHubControllerTest {
         when(llmFitService.installModel(any(), any(), anyBoolean()))
                 .thenReturn(CompletableFuture.completedFuture(true));
 
-        controller.installModel("any-model", null);
+        controller.installModel("any-model", null, false);
 
         verify(llmFitService).installModel(anyString(), any(), eq(false));
     }
