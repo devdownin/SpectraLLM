@@ -1,0 +1,43 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release notes path
+        id: notes
+        run: |
+          TAG="${{ github.ref_name }}"
+          NOTES_FILE=".github/release-notes/${TAG}.md"
+          if [ -f "$NOTES_FILE" ]; then
+            echo "path=$NOTES_FILE" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          if [ -n "${{ steps.notes.outputs.path }}" ]; then
+            gh release create "$TAG" \
+              --title "SpectraLLM $TAG" \
+              --notes-file "${{ steps.notes.outputs.path }}"
+          else
+            gh release create "$TAG" \
+              --title "SpectraLLM $TAG" \
+              --generate-notes
+          fi
