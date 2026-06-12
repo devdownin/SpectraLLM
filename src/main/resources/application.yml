@@ -15,9 +15,12 @@ spring:
     password:
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate   # schema.sql gère la création ; validate détecte les dérives en prod
     show-sql: false
     open-in-view: false
+  sql:
+    init:
+      mode: always         # exécute schema.sql au démarrage (idempotent : CREATE TABLE IF NOT EXISTS)
   h2:
     console:
       enabled: false

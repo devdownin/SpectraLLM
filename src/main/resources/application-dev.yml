@@ -1,0 +1,8 @@
+# Profil développement local — activer avec : SPRING_PROFILES_ACTIVE=dev
+# Permet à Hibernate de créer/modifier les tables automatiquement lors de
+# l'ajout de nouveaux champs sur les entités.
+# Après chaque modification, reporter les changements dans schema.sql.
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: update
