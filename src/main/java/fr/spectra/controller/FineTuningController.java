@@ -8,6 +8,8 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -59,5 +61,18 @@ public class FineTuningController {
     @Operation(summary = "Lister les modèles disponibles sur le serveur LLM")
     public List<Map<String, Object>> listModels() {
         return llmClient.listModels();
+    }
+
+    @DeleteMapping("/{jobId}")
+    @Operation(summary = "Annuler un job de fine-tuning en cours")
+    public ResponseEntity<Map<String, String>> cancelJob(@PathVariable String jobId) {
+        boolean cancelled = fineTuningService.cancelJob(jobId);
+        if (!cancelled) {
+            FineTuningJob job = fineTuningService.getJob(jobId);
+            if (job == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Job inconnu: " + jobId);
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Impossible d'annuler (status=" + job.status() + ")");
+        }
+        return ResponseEntity.ok(Map.of("jobId", jobId, "status", "CANCELLED"));
     }
 }

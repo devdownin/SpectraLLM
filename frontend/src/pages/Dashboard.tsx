@@ -86,27 +86,28 @@ const Dashboard: FC = () => {
   const [commentStats, setCommentStats] = useState<CommentStats | null>(null);
   const [personalizationMetrics, setPersonalizationMetrics] = useState<PersonalizationMetrics | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
+  const [statsErrors, setStatsErrors] = useState<string[]>([]);
 
   const loadStats = useCallback(async () => {
-    try {
-      const [dsRes, gedRes, metricsRes] = await Promise.allSettled([
-        datasetApi.getStats(),
-        gedApi.getStats(),
-        metricsApi.getPersonalization(),
-      ]);
-      if (dsRes.status === 'fulfilled') setStats(dsRes.value.data);
-      if (gedRes.status === 'fulfilled') {
-        const g = gedRes.value.data;
-        setGedStats(g);
-        // Derive comment stats from GED stats if available
-        if (g.commentStats) setCommentStats(g.commentStats);
-      }
-      if (metricsRes.status === 'fulfilled') setPersonalizationMetrics(metricsRes.value.data);
-    } catch {
-      // ignore
-    } finally {
-      setStatsLoading(false);
+    const [dsRes, gedRes, metricsRes] = await Promise.allSettled([
+      datasetApi.getStats(),
+      gedApi.getStats(),
+      metricsApi.getPersonalization(),
+    ]);
+    const errors: string[] = [];
+    if (dsRes.status === 'fulfilled') setStats(dsRes.value.data);
+    else errors.push('dataset');
+    if (gedRes.status === 'fulfilled') {
+      const g = gedRes.value.data;
+      setGedStats(g);
+      if (g.commentStats) setCommentStats(g.commentStats);
+    } else {
+      errors.push('ged');
     }
+    if (metricsRes.status === 'fulfilled') setPersonalizationMetrics(metricsRes.value.data);
+    else errors.push('metrics');
+    setStatsErrors(errors);
+    setStatsLoading(false);
   }, []);
 
   // Load comment stats separately (new endpoint)
@@ -329,7 +330,14 @@ const Dashboard: FC = () => {
       {/* ── Knowledge Base Stats ── */}
       <section className="space-y-4">
         <div className="flex items-center justify-between">
-          <h3 className="font-headline text-sm font-bold uppercase tracking-tight text-on-surface-variant">Knowledge Base</h3>
+          <div className="flex items-center gap-2">
+            <h3 className="font-headline text-sm font-bold uppercase tracking-tight text-on-surface-variant">Knowledge Base</h3>
+            {statsErrors.includes('dataset') && (
+              <Tooltip content="Impossible de charger les stats dataset — l'API est peut-être indisponible.">
+                <span className="material-symbols-outlined text-sm text-error cursor-help">warning</span>
+              </Tooltip>
+            )}
+          </div>
           <Tooltip content="Données stockées dans ChromaDB et en mémoire API.">
             <span className="material-symbols-outlined text-sm text-outline cursor-help">info</span>
           </Tooltip>
@@ -390,7 +398,14 @@ const Dashboard: FC = () => {
       {/* ── GED + Comment Stats ── */}
       <section className="space-y-4">
         <div className="flex items-center justify-between">
-          <h3 className="font-headline text-sm font-bold uppercase tracking-tight text-on-surface-variant">Documents & Annotations</h3>
+          <div className="flex items-center gap-2">
+            <h3 className="font-headline text-sm font-bold uppercase tracking-tight text-on-surface-variant">Documents & Annotations</h3>
+            {statsErrors.includes('ged') && (
+              <Tooltip content="Impossible de charger les stats GED — vérifiez l'API.">
+                <span className="material-symbols-outlined text-sm text-error cursor-help">warning</span>
+              </Tooltip>
+            )}
+          </div>
           <button
             onClick={() => navigate('/pipelines')}
             className="text-[9px] font-label font-bold uppercase tracking-widest text-primary hover:text-primary/70 transition-colors flex items-center gap-1"
@@ -534,7 +549,14 @@ const Dashboard: FC = () => {
       {/* ── Personalization Cycle ── */}
       <section className="space-y-4">
         <div className="flex items-center justify-between">
-          <h3 className="font-headline text-sm font-bold uppercase tracking-tight text-on-surface-variant">Cycle de Personnalisation</h3>
+          <div className="flex items-center gap-2">
+            <h3 className="font-headline text-sm font-bold uppercase tracking-tight text-on-surface-variant">Cycle de Personnalisation</h3>
+            {statsErrors.includes('metrics') && (
+              <Tooltip content="Impossible de charger les métriques de personnalisation.">
+                <span className="material-symbols-outlined text-sm text-error cursor-help">warning</span>
+              </Tooltip>
+            )}
+          </div>
           <Tooltip content="Boucle continue : commentaires approuvés → paires DPO → fine-tuning → évaluation.">
             <span className="material-symbols-outlined text-sm text-outline cursor-help">info</span>
           </Tooltip>

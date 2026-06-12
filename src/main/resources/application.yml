@@ -15,9 +15,12 @@ spring:
     password:
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate   # schema.sql gère la création ; validate détecte les dérives en prod
     show-sql: false
     open-in-view: false
+  sql:
+    init:
+      mode: always         # exécute schema.sql au démarrage (idempotent : CREATE TABLE IF NOT EXISTS)
   h2:
     console:
       enabled: false
@@ -105,6 +108,22 @@ llmfit:
   # In Docker: spectra-api mounts ./data:/app/data, llm-chat mounts ./data/models:/models
   # → set to ./data/models so both containers see the same files.
   models-dir: ${LLMFIT_MODELS_DIR:./data/models}
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      chroma:
+        sliding-window-size: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 2
+        register-health-indicator: true
+      embed:
+        sliding-window-size: 5
+        failure-rate-threshold: 60
+        wait-duration-in-open-state: 20s
+        permitted-number-of-calls-in-half-open-state: 2
+        register-health-indicator: true
 
 # Actuator
 management:

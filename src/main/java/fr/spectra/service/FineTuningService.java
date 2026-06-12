@@ -10,6 +10,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.io.BufferedReader;
@@ -17,9 +18,11 @@ import java.io.BufferedWriter;
 import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -41,6 +44,7 @@ public class FineTuningService {
     private final String trainingScript;
 
     private final Map<String, FineTuningJob> jobs = new ConcurrentHashMap<>();
+    private final Set<String> cancelledJobs = ConcurrentHashMap.newKeySet();
 
     public FineTuningService(DatasetGeneratorService datasetGenerator,
                              LlmChatClient llmClient,
@@ -82,6 +86,26 @@ public class FineTuningService {
 
     public List<FineTuningJob> getAllJobs() {
         return new ArrayList<>(jobs.values());
+    }
+
+    public boolean cancelJob(String jobId) {
+        FineTuningJob job = jobs.get(jobId);
+        if (job == null) return false;
+        if (job.status() == Status.COMPLETED || job.status() == Status.FAILED) return false;
+        cancelledJobs.add(jobId);
+        updateJob(jobId, j -> j.failed("Annulé par l'utilisateur"));
+        return true;
+    }
+
+    @Scheduled(fixedDelay = 3_600_000)
+    public void cleanupOldJobs() {
+        Instant cutoff = Instant.now().minusSeconds(3600);
+        jobs.entrySet().removeIf(e -> {
+            FineTuningJob j = e.getValue();
+            return (j.status() == Status.COMPLETED || j.status() == Status.FAILED)
+                    && j.completedAt() != null && j.completedAt().isBefore(cutoff);
+        });
+        cancelledJobs.removeIf(id -> !jobs.containsKey(id));
     }
 
     @Async

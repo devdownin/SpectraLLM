@@ -347,6 +347,15 @@ const Datasets: FC = () => {
   }, [pollIngest, pollGenTask, loadHistory]);
 
   const handleGenerateDataset = async () => {
+    const hasActiveIngestion = ingestEntries.some(
+      e => e.status === 'PENDING' || e.status === 'PROCESSING'
+    );
+    if (hasActiveIngestion) {
+      const ok = window.confirm(
+        'Une ingestion est en cours. Lancer la génération maintenant peut produire un dataset incomplet. Continuer quand même ?'
+      );
+      if (!ok) return;
+    }
     try {
       const res = await datasetApi.generateDataset(syntheticQA ? maxChunks : 0);
       const taskId: string = res.data.taskId;

@@ -11,6 +11,7 @@ import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -81,5 +82,18 @@ public class IngestController {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Tâche inconnue: " + taskId);
         }
         return task;
+    }
+
+    @DeleteMapping("/{taskId}")
+    @Operation(summary = "Annuler une ingestion en cours ou en attente")
+    public Map<String, String> cancelTask(@PathVariable String taskId) {
+        boolean cancelled = ingestionService.cancelTask(taskId);
+        if (!cancelled) {
+            IngestionTask task = ingestionService.getTask(taskId);
+            if (task == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Tâche inconnue: " + taskId);
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Impossible d'annuler une tâche déjà terminée (status=" + task.status() + ")");
+        }
+        return Map.of("taskId", taskId, "status", "CANCELLED");
     }
 }

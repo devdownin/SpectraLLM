@@ -17,6 +17,8 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 
+import org.springframework.scheduling.annotation.Scheduled;
+
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
@@ -28,6 +30,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.zip.ZipEntry;
@@ -57,6 +60,7 @@ public class IngestionService {
     private final double autoQualifyThreshold;
 
     private final Map<String, IngestionTask> tasks = new ConcurrentHashMap<>();
+    private final Set<String> cancelledTaskIds = ConcurrentHashMap.newKeySet();
 
     public IngestionService(DocumentExtractorFactory extractorFactory,
                             TextCleanerService textCleaner,
@@ -153,6 +157,39 @@ public class IngestionService {
 
     public List<IngestionTask> getAllTasks() {
         return new ArrayList<>(tasks.values());
+    }
+
+    /**
+     * Annule une tâche en cours. La tâche en exécution sera interrompue au prochain
+     * point de contrôle dans l'exécuteur.
+     */
+    public boolean cancelTask(String taskId) {
+        IngestionTask task = tasks.get(taskId);
+        if (task == null) return false;
+        if (task.status() == IngestionTask.Status.COMPLETED
+                || task.status() == IngestionTask.Status.FAILED
+                || task.status() == IngestionTask.Status.CANCELLED) return false;
+        cancelledTaskIds.add(taskId);
+        tasks.put(taskId, task.cancelled());
+        return true;
+    }
+
+    public boolean isCancelled(String taskId) {
+        return cancelledTaskIds.contains(taskId);
+    }
+
+    /** Supprime les tâches terminées / annulées datant de plus d'une heure. */
+    @Scheduled(fixedDelay = 3_600_000)
+    public void cleanupOldTasks() {
+        Instant cutoff = Instant.now().minusSeconds(3600);
+        tasks.entrySet().removeIf(e -> {
+            IngestionTask t = e.getValue();
+            return (t.status() == IngestionTask.Status.COMPLETED
+                    || t.status() == IngestionTask.Status.FAILED
+                    || t.status() == IngestionTask.Status.CANCELLED)
+                    && t.completedAt() != null && t.completedAt().isBefore(cutoff);
+        });
+        cancelledTaskIds.removeIf(id -> !tasks.containsKey(id));
     }
 
     public Page<IngestedFileEntity> getHistory(int page, int size, String q) {
