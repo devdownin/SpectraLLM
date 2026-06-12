@@ -21,6 +21,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Semaphore;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
@@ -46,6 +47,7 @@ public class IngestionTaskExecutor {
     private final ChromaDbClient chromaDbClient;
     private final FtsService ftsService;
     private final int embeddingBatchSize;
+    private final Semaphore concurrencySemaphore;
     private final Counter chunksIngested;
     private final Counter filesIngested;
     private final Timer ingestionTimer;
@@ -57,7 +59,8 @@ public class IngestionTaskExecutor {
                                  ChromaDbClient chromaDbClient,
                                  FtsService ftsService,
                                  MeterRegistry meterRegistry,
-                                 @Value("${spectra.pipeline.embedding-batch-size:10}") int embeddingBatchSize) {
+                                 @Value("${spectra.pipeline.embedding-batch-size:10}") int embeddingBatchSize,
+                                 @Value("${spectra.pipeline.concurrent-ingestions:4}") int concurrentIngestions) {
         this.extractorFactory = extractorFactory;
         this.textCleaner = textCleaner;
         this.chunkingService = chunkingService;
@@ -65,6 +68,8 @@ public class IngestionTaskExecutor {
         this.chromaDbClient = chromaDbClient;
         this.ftsService = ftsService;
         this.embeddingBatchSize = embeddingBatchSize;
+        this.concurrencySemaphore = new Semaphore(Math.max(1, concurrentIngestions), true);
+        log.info("[ingestion] Limite de concurrence : {} ingestion(s) simultanée(s)", concurrentIngestions);
         this.chunksIngested = Counter.builder("spectra.ingestion.chunks.total")
                 .description("Nombre total de chunks ingérés dans ChromaDB")
                 .register(meterRegistry);
@@ -94,6 +99,13 @@ public class IngestionTaskExecutor {
                         Map<String, IngestionTask> tasks, String collectionName,
                         Map<Path, String> tempFileToHash, IngestionCallback onIngested,
                         Path tempDir) {
+        try {
+            concurrencySemaphore.acquire();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            tasks.put(taskId, tasks.get(taskId).failed("Ingestion annulée (attente de slot interrompue)"));
+            return;
+        }
         tasks.put(taskId, tasks.get(taskId).processing());
         try {
             String collectionId = chromaDbClient.getOrCreateCollection(collectionName);
@@ -134,6 +146,7 @@ public class IngestionTaskExecutor {
             log.error("Erreur lors de l'ingestion {}: {}", taskId, e.getMessage(), e);
             tasks.put(taskId, tasks.get(taskId).failed(e.getClass().getSimpleName() + ": " + e.getMessage()));
         } finally {
+            concurrencySemaphore.release();
             tempFiles.forEach(p -> { try { Files.deleteIfExists(p); } catch (Exception ignored) {} });
             if (tempDir != null) {
                 try { Files.deleteIfExists(tempDir); }

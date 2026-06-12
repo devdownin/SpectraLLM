@@ -16,11 +16,12 @@ for arg in "$@"; do
     esac
 done
 
-# ── 1. Détection RAM (en Mo) ──
+# ── 1. Détection RAM disponible (en Mo) ──
+# MemAvailable = RAM libre + reclaimable ; plus représentative de la marge réelle.
 if [[ "$(uname)" == "Darwin" ]]; then
     TOTAL_RAM_MB=$(( $(sysctl -n hw.memsize) / 1024 / 1024 ))
 else
-    TOTAL_RAM_MB=$(awk '/MemTotal/ {printf "%d", $2/1024}' /proc/meminfo)
+    TOTAL_RAM_MB=$(awk '/MemAvailable/ {printf "%d", $2/1024}' /proc/meminfo)
 fi
 
 # ── 2. Détection CPU ──
@@ -98,6 +99,17 @@ LLM_PARALLEL=$(( CPU_CORES / 2 ))
 if (( LLM_PARALLEL < 1 )); then LLM_PARALLEL=1; fi
 if (( LLM_PARALLEL > 8 )); then LLM_PARALLEL=8; fi
 
+# Taille de contexte LLM — alignée sur les seuils de ResourceAdvisorService
+if (( TOTAL_RAM_MB >= 32768 )); then
+    LLM_CONTEXT=4096
+elif (( TOTAL_RAM_MB >= 16384 )); then
+    LLM_CONTEXT=2048
+elif (( TOTAL_RAM_MB >= 8192 )); then
+    LLM_CONTEXT=1024
+else
+    LLM_CONTEXT=512
+fi
+
 # ── 6. Écriture du .env ──
 cat > "$ENV_FILE" <<EOF
 # ── Spectra — Configuration auto-détectée ──
@@ -113,12 +125,13 @@ SPECTRA_GENERATION_TIMEOUT=${GENERATION_TIMEOUT}
 SPECTRA_CONCURRENT_INGESTIONS=${CONCURRENT_INGESTIONS}
 
 # ── JVM ──
-JAVA_OPTS=-Xms256m -Xmx${JVM_HEAP}m -XX:+UseZGC
+JAVA_OPTS="-Xms256m -Xmx${JVM_HEAP}m -XX:+UseZGC"
 
 # ── Serveur LLM — Chat ──
 LLM_CHAT_MODEL_FILE=Phi-4-mini-reasoning-UD-IQ1_S.gguf
 LLM_CHAT_MODEL_NAME=phi-4-mini
 LLM_PARALLEL=${LLM_PARALLEL}
+LLM_CONTEXT=${LLM_CONTEXT}
 
 # ── Serveur LLM — Embedding ──
 LLM_EMBED_MODEL_FILE=embed.gguf

@@ -29,7 +29,7 @@ services:
       --host 0.0.0.0
       --port 8081
       --model /models/${LLM_CHAT_MODEL_FILE:-Phi-4-mini-reasoning-UD-IQ1_S.gguf}
-      --ctx-size 4096
+      --ctx-size ${LLM_CONTEXT:-4096}
       --parallel ${LLM_PARALLEL:-2}
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8081/health || exit 1"]
