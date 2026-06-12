@@ -14,6 +14,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -72,6 +73,19 @@ public class DatasetController {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Tâche inconnue: " + taskId);
         }
         return task;
+    }
+
+    @DeleteMapping("/generate/{taskId}")
+    @Operation(summary = "Annuler une génération SFT en cours")
+    public Map<String, String> cancelGeneration(@PathVariable String taskId) {
+        boolean cancelled = generatorService.cancelTask(taskId);
+        if (!cancelled) {
+            GenerationTask task = generatorService.getTask(taskId);
+            if (task == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Tâche inconnue: " + taskId);
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Impossible d'annuler (status=" + task.status() + ")");
+        }
+        return Map.of("taskId", taskId, "status", "CANCELLED");
     }
 
     // ── DPO generation ───────────────────────────────────────────────────────

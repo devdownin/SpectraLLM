@@ -2,6 +2,7 @@ package fr.spectra.service;
 
 import fr.spectra.config.SpectraProperties;
 import fr.spectra.dto.ServiceStatus;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -81,6 +82,7 @@ public class LlamaCppEmbeddingClient implements EmbeddingClient {
     }
 
     @Override
+    @CircuitBreaker(name = "embed", fallbackMethod = "embedFallback")
     @SuppressWarnings("unchecked")
     public List<Float> embed(String text) {
         Map<String, Object> request = Map.of(
@@ -118,5 +120,14 @@ public class LlamaCppEmbeddingClient implements EmbeddingClient {
         return texts.stream()
                 .map(this::embed)
                 .toList();
+    }
+
+    List<Float> embedFallback(String text, Throwable cause) {
+        log.warn("[circuit-breaker] embed ouvert : {}", cause.getMessage());
+        throw new EmbeddingUnavailableException("Service d'embedding temporairement indisponible", cause);
+    }
+
+    public static class EmbeddingUnavailableException extends RuntimeException {
+        public EmbeddingUnavailableException(String msg, Throwable cause) { super(msg, cause); }
     }
 }

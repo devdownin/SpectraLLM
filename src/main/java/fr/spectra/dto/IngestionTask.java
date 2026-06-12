@@ -15,7 +15,7 @@ public record IngestionTask(
         int layoutAwareChunks
 ) {
     public enum Status {
-        PENDING, PROCESSING, COMPLETED, FAILED
+        PENDING, PROCESSING, COMPLETED, FAILED, CANCELLED
     }
 
     public static IngestionTask pending(String taskId, List<String> files) {
@@ -37,5 +37,10 @@ public record IngestionTask(
 
     public IngestionTask failed(String error) {
         return new IngestionTask(taskId, Status.FAILED, files, chunksCreated, error, createdAt, Instant.now(), null, 0);
+    }
+
+    public IngestionTask cancelled() {
+        return new IngestionTask(taskId, Status.CANCELLED, files, chunksCreated, "Annulé par l'utilisateur",
+                createdAt, Instant.now(), null, 0);
     }
 }

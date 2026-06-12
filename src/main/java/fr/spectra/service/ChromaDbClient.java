@@ -3,6 +3,7 @@ package fr.spectra.service;
 import fr.spectra.config.SpectraProperties;
 import fr.spectra.dto.ServiceStatus;
 import fr.spectra.model.TextChunk;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -77,6 +78,7 @@ public class ChromaDbClient {
      * Crée une collection si elle n'existe pas et retourne son ID.
      * L'ID est mis en cache pour éviter un aller-retour réseau à chaque appel.
      */
+    @CircuitBreaker(name = "chroma", fallbackMethod = "getOrCreateCollectionFallback")
     @SuppressWarnings("unchecked")
     public String getOrCreateCollection(String name) {
         // S1 — Validation du nom avant tout appel ChromaDB
@@ -138,6 +140,7 @@ public class ChromaDbClient {
     /**
      * Recherche les chunks les plus similaires à un vecteur de requête.
      */
+    @CircuitBreaker(name = "chroma", fallbackMethod = "queryFallback")
     @SuppressWarnings("unchecked")
     public Map<String, Object> query(String collectionId, List<Float> queryEmbedding, int nResults) {
         Map<String, Object> body = Map.of(
@@ -250,6 +253,22 @@ public class ChromaDbClient {
                 .bodyToMono(Integer.class)
                 .block(TIMEOUT_DEFAULT);
         return count != null ? count : 0;
+    }
+
+    // ── Circuit breaker fallbacks ──────────────────────────────────────────────
+
+    String getOrCreateCollectionFallback(String name, Throwable cause) {
+        log.warn("[circuit-breaker] chroma ouvert — getOrCreateCollection('{}') : {}", name, cause.getMessage());
+        throw new ChromaDbUnavailableException("ChromaDB temporairement indisponible", cause);
+    }
+
+    Map<String, Object> queryFallback(String collectionId, List<Float> queryEmbedding, int nResults, Throwable cause) {
+        log.warn("[circuit-breaker] chroma ouvert — query sur '{}' : {}", collectionId, cause.getMessage());
+        throw new ChromaDbUnavailableException("ChromaDB temporairement indisponible", cause);
+    }
+
+    public static class ChromaDbUnavailableException extends RuntimeException {
+        public ChromaDbUnavailableException(String msg, Throwable cause) { super(msg, cause); }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

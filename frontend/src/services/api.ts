@@ -22,6 +22,10 @@ export const statusApi = {
   getStatus: () => api.get('/status'),
 };
 
+export const healthApi = {
+  getServices: () => api.get('/health/services'),
+};
+
 export const ingestApi = {
   uploadFile: (file: File) => {
     const formData = new FormData();

@@ -42,7 +42,8 @@ public class GenerationTaskEntity {
         return new GenerationTask(
                 taskId,
                 GenerationTask.Status.valueOf(status),
-                pairsGenerated, chunksProcessed, totalChunks, error);
+                pairsGenerated, chunksProcessed, totalChunks, error,
+                java.time.Instant.now());
     }
 
     public String getTaskId() { return taskId; }

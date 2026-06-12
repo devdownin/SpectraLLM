@@ -442,17 +442,25 @@ public class RagService {
         boolean multiQueryApplied = false;
 
         if (multiQueryService.isPresent()) {
-            List<String> queries = multiQueryService.get().generateQueries(retrievalQuestion);
-            if (queries.size() > 1) {
-                MultiQueryMerge merged = executeMultiQueryRetrieval(
-                        queries, collectionId, collectionName, retrieveCount);
-                allChunks      = merged.chunks();
-                allMetadatas   = merged.metadatas();
-                allDistances   = merged.distances();
-                allBm25Scores  = merged.bm25Scores();
-                hybridApplied  = merged.hybridApplied();
-                multiQueryApplied = true;
-            } else {
+            try {
+                List<String> queries = multiQueryService.get().generateQueries(retrievalQuestion);
+                if (queries.size() > 1) {
+                    MultiQueryMerge merged = executeMultiQueryRetrieval(
+                            queries, collectionId, collectionName, retrieveCount);
+                    allChunks      = merged.chunks();
+                    allMetadatas   = merged.metadatas();
+                    allDistances   = merged.distances();
+                    allBm25Scores  = merged.bm25Scores();
+                    hybridApplied  = merged.hybridApplied();
+                    multiQueryApplied = true;
+                } else {
+                    SingleQueryResult r = executeSingleQuery(retrievalQuestion, collectionId, collectionName, retrieveCount);
+                    allChunks = r.chunks(); allMetadatas = r.metadatas();
+                    allDistances = r.distances(); allBm25Scores = r.bm25Scores();
+                    hybridApplied = r.hybridApplied();
+                }
+            } catch (Exception e) {
+                log.warn("Multi-query échoué, fallback retrieval simple: {}", e.getMessage());
                 SingleQueryResult r = executeSingleQuery(retrievalQuestion, collectionId, collectionName, retrieveCount);
                 allChunks = r.chunks(); allMetadatas = r.metadatas();
                 allDistances = r.distances(); allBm25Scores = r.bm25Scores();

@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PostConstruct;
@@ -60,6 +61,7 @@ public class EvaluationService {
     private final LlmChatClient chatClient;
     private final Path workDir;
     private final Map<String, EvaluationReport> reports = new ConcurrentHashMap<>();
+    private final Set<String> cancelledEvals = ConcurrentHashMap.newKeySet();
     private Path reportsFile;
 
     @Autowired @Lazy
@@ -118,6 +120,33 @@ public class EvaluationService {
         return new ArrayList<>(reports.values());
     }
 
+    public boolean cancelEvaluation(String evalId) {
+        EvaluationReport report = reports.get(evalId);
+        if (report == null) return false;
+        if ("COMPLETED".equals(report.status()) || "FAILED".equals(report.status())
+                || "CANCELLED".equals(report.status())) return false;
+        cancelledEvals.add(evalId);
+        updateReport(evalId, r -> new EvaluationReport(
+                r.evalId(), "CANCELLED", r.modelName(), r.jobId(),
+                r.testSetSize(), r.processed(), r.averageScore(),
+                r.scoresByCategory(), r.scores(), "Annulé par l'utilisateur",
+                r.startedAt(), Instant.now()
+        ));
+        persistReports();
+        return true;
+    }
+
+    @Scheduled(fixedDelay = 3_600_000)
+    public void cleanupOldReports() {
+        Instant cutoff = Instant.now().minusSeconds(3600);
+        reports.entrySet().removeIf(e -> {
+            EvaluationReport r = e.getValue();
+            return ("COMPLETED".equals(r.status()) || "FAILED".equals(r.status()) || "CANCELLED".equals(r.status()))
+                    && r.completedAt() != null && r.completedAt().isBefore(cutoff);
+        });
+        cancelledEvals.removeIf(id -> !reports.containsKey(id));
+    }
+
     @Async
     protected void runAsync(String evalId, EvaluationRequest request, String modelName) {
         try {
@@ -162,6 +191,10 @@ public class EvaluationService {
 
         List<EvaluationScore> scores = new ArrayList<>();
         for (int i = 0; i < testPairs.size(); i++) {
+            if (cancelledEvals.contains(evalId)) {
+                log.info("Évaluation {} annulée à l'itération {}", evalId, i);
+                return;
+            }
             EvaluationScore score = evaluatePair(testPairs.get(i));
             if (score != null) scores.add(score);
 

@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.io.BufferedWriter;
@@ -22,6 +23,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.time.Instant;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -48,6 +50,7 @@ public class DatasetGeneratorService {
     private final List<TrainingPair> generatedPairs = new CopyOnWriteArrayList<>();
     private final Map<String, GenerationTask> tasks = new ConcurrentHashMap<>();
     private final AtomicBoolean generationRunning = new AtomicBoolean(false);
+    private final Set<String> cancelledTasks = ConcurrentHashMap.newKeySet();
 
     public DatasetGeneratorService(LlmChatClient llmChatClient,
                                    ChromaDbClient chromaDbClient,
@@ -72,8 +75,8 @@ public class DatasetGeneratorService {
     }
 
     public record GenerationTask(String taskId, Status status, int pairsGenerated, int chunksProcessed,
-                                  int totalChunks, String error) {
-        public enum Status { PENDING, PROCESSING, COMPLETED, FAILED }
+                                  int totalChunks, String error, Instant createdAt) {
+        public enum Status { PENDING, PROCESSING, COMPLETED, FAILED, CANCELLED }
     }
 
     /**
@@ -85,7 +88,7 @@ public class DatasetGeneratorService {
             return null;
         }
         String taskId = UUID.randomUUID().toString();
-        tasks.put(taskId, new GenerationTask(taskId, GenerationTask.Status.PENDING, 0, 0, 0, null));
+        tasks.put(taskId, new GenerationTask(taskId, GenerationTask.Status.PENDING, 0, 0, 0, null, Instant.now()));
         DatasetGeneratorService proxy = (self != null) ? self : this;
         proxy.generateAsync(taskId, maxChunks);
         return taskId;
@@ -99,12 +102,38 @@ public class DatasetGeneratorService {
         return new ArrayList<>(tasks.values());
     }
 
+    public boolean cancelTask(String taskId) {
+        GenerationTask task = tasks.get(taskId);
+        if (task == null) return false;
+        if (task.status() == GenerationTask.Status.COMPLETED
+                || task.status() == GenerationTask.Status.FAILED
+                || task.status() == GenerationTask.Status.CANCELLED) return false;
+        cancelledTasks.add(taskId);
+        tasks.put(taskId, new GenerationTask(taskId, GenerationTask.Status.CANCELLED,
+                task.pairsGenerated(), task.chunksProcessed(), task.totalChunks(),
+                "Annulé par l'utilisateur", task.createdAt()));
+        generationRunning.set(false);
+        return true;
+    }
+
+    @Scheduled(fixedDelay = 3_600_000)
+    public void cleanupOldTasks() {
+        Instant cutoff = Instant.now().minusSeconds(3600);
+        tasks.entrySet().removeIf(e -> {
+            GenerationTask t = e.getValue();
+            return (t.status() == GenerationTask.Status.COMPLETED
+                    || t.status() == GenerationTask.Status.FAILED
+                    || t.status() == GenerationTask.Status.CANCELLED)
+                    && t.createdAt() != null && t.createdAt().isBefore(cutoff);
+        });
+    }
+
     public List<TrainingPair> getAllPairs() {
         return List.copyOf(generatedPairs);
     }
 
     public int generate(String taskId, int minPairs) {
-        tasks.put(taskId, new GenerationTask(taskId, GenerationTask.Status.PENDING, 0, 0, 0, null));
+        tasks.put(taskId, new GenerationTask(taskId, GenerationTask.Status.PENDING, 0, 0, 0, null, Instant.now()));
         DatasetGeneratorService proxy = (self != null) ? self : this;
         proxy.generateAsync(taskId, 0);
         return generatedPairs.size();
@@ -131,7 +160,7 @@ public class DatasetGeneratorService {
 
             if (documents == null || documents.isEmpty()) {
                 log.info("Aucun chunk disponible dans ChromaDB pour la génération (taskId={})", taskId);
-                tasks.put(taskId, new GenerationTask(taskId, GenerationTask.Status.COMPLETED, 0, 0, 0, null));
+                tasks.put(taskId, new GenerationTask(taskId, GenerationTask.Status.COMPLETED, 0, 0, 0, null, Instant.now()));
                 return;
             }
 
@@ -143,17 +172,25 @@ public class DatasetGeneratorService {
                         metadatas != null ? metadatas.size() : "null",
                         ids != null ? ids.size() : "null");
                 log.error("{} (taskId={})", msg, taskId);
-                tasks.put(taskId, new GenerationTask(taskId, GenerationTask.Status.FAILED, 0, 0, 0, msg));
+                tasks.put(taskId, new GenerationTask(taskId, GenerationTask.Status.FAILED, 0, 0, 0, msg, Instant.now()));
                 return;
             }
 
             int total = documents.size();
-            tasks.put(taskId, new GenerationTask(taskId, GenerationTask.Status.PROCESSING, 0, 0, total, null));
+            tasks.put(taskId, new GenerationTask(taskId, GenerationTask.Status.PROCESSING, 0, 0, total, null, Instant.now()));
             log.info("Génération de dataset: {} chunks à traiter", total);
 
             int pairsCount = 0;
 
             for (int i = 0; i < documents.size(); i++) {
+                // Point d'annulation
+                if (cancelledTasks.contains(taskId)) {
+                    log.info("Génération {} annulée à l'itération {}", taskId, i);
+                    tasks.put(taskId, new GenerationTask(taskId, GenerationTask.Status.CANCELLED,
+                            pairsCount, i, total, "Annulé par l'utilisateur", Instant.now()));
+                    return;
+                }
+
                 String chunkText = documents.get(i);
                 Map<String, String> meta = metadatas.get(i);
                 String sourceFile = meta.getOrDefault("sourceFile", "inconnu");
@@ -166,21 +203,23 @@ public class DatasetGeneratorService {
                     log.warn("Erreur sur chunk {}: {}", ids.get(i), e.getMessage());
                 }
 
+                final int fp = pairsCount;
                 tasks.put(taskId, new GenerationTask(
-                        taskId, GenerationTask.Status.PROCESSING, pairsCount, i + 1, total, null));
+                        taskId, GenerationTask.Status.PROCESSING, fp, i + 1, total, null, Instant.now()));
             }
 
             tasks.put(taskId, new GenerationTask(
-                    taskId, GenerationTask.Status.COMPLETED, pairsCount, total, total, null));
+                    taskId, GenerationTask.Status.COMPLETED, pairsCount, total, total, null, Instant.now()));
             log.info("Génération terminée: {} paires depuis {} chunks", pairsCount, total);
             persistPairs();
 
         } catch (Exception e) {
             log.error("Erreur génération dataset {}: {}", taskId, e.getMessage(), e);
             tasks.put(taskId, new GenerationTask(
-                    taskId, GenerationTask.Status.FAILED, 0, 0, 0, e.getMessage()));
+                    taskId, GenerationTask.Status.FAILED, 0, 0, 0, e.getMessage(), Instant.now()));
         } finally {
             generationRunning.set(false);
+            cancelledTasks.remove(taskId);
         }
     }
 
