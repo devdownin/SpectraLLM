@@ -147,6 +147,16 @@ public class RagService {
     public QueryResponse query(QueryRequest request) {
         long start = System.currentTimeMillis();
 
+        // ── 0. Direct LLM mode (RAG désactivé) ────────────────────────────
+        if (Boolean.FALSE.equals(request.useRag())) {
+            String answer = llmClient.chat(DIRECT_SYSTEM_PROMPT, request.question());
+            long duration = System.currentTimeMillis() - start;
+            return new QueryResponse(answer, List.of(), duration,
+                    false, false, false, 0, null,
+                    false, false, false, "DIRECT",
+                    false, false, false, false);
+        }
+
         // ── 1. Adaptive RAG : routing ──────────────────────────────────────
         String ragStrategy = "STANDARD";
         boolean forceAgentic = false;
@@ -288,6 +298,36 @@ public class RagService {
      * L'événement {@code done} contient un JSON avec les métadonnées du pipeline.
      */
     public Flux<ServerSentEvent<String>> queryStream(QueryRequest request) {
+        // Direct LLM mode (RAG disabled by caller)
+        if (Boolean.FALSE.equals(request.useRag())) {
+            return Mono.fromCallable(() -> llmClient.chatStream(
+                            DIRECT_SYSTEM_PROMPT, request.question(),
+                            request.temperature(), request.topP()))
+                    .subscribeOn(Schedulers.boundedElastic())
+                    .flatMapMany(tokenFlux -> {
+                        ServerSentEvent<String> sourcesEvent = ServerSentEvent.<String>builder()
+                                .event("sources").data("[]").build();
+                        Flux<ServerSentEvent<String>> tokens = tokenFlux
+                                .timeout(streamTimeout)
+                                .map(t -> ServerSentEvent.<String>builder().event("token").data(t).build());
+                        ServerSentEvent<String> doneEvent = ServerSentEvent.<String>builder()
+                                .event("done")
+                                .data("{\"conversationalApplied\":false,\"correctiveApplied\":false,"
+                                        + "\"selfRagApplied\":false,\"ragStrategy\":\"DIRECT\","
+                                        + "\"rerankApplied\":false,\"hybridSearchApplied\":false,"
+                                        + "\"multiQueryApplied\":false,\"semanticDedupApplied\":false,"
+                                        + "\"longContextApplied\":false,\"compressionApplied\":false}")
+                                .build();
+                        return Flux.concat(Flux.just(sourcesEvent), tokens, Flux.just(doneEvent));
+                    })
+                    .onErrorResume(e -> {
+                        log.error("Erreur streaming direct: {}", e.getMessage());
+                        String safeMsg = e.getMessage() != null ? e.getMessage().replace("\"", "'") : "Erreur interne";
+                        return Flux.just(ServerSentEvent.<String>builder()
+                                .event("error").data("{\"message\":\"" + safeMsg + "\"}").build());
+                    });
+        }
+
         return Mono.fromCallable(() -> {
                     String retrievalQuestion = request.question();
                     boolean conversationalApplied = false;
