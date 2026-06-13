@@ -33,8 +33,11 @@ public class TrainingLogBroadcaster {
         event.put("level", level);
         event.put("message", message);
         event.put("timestamp", LocalTime.now().format(TIME_FMT));
-        // FAIL_NON_SERIALIZED est normal si aucun subscriber n'est actif
-        sink.tryEmitNext(event);
+        // publish() peut être appelé depuis plusieurs threads : retenter uniquement
+        // en cas de contention d'émission (FAIL_NON_SERIALIZED) pour ne pas perdre
+        // d'évènements ; abandonner sur les autres causes (pas de subscriber, annulé).
+        sink.emitNext(event, (signalType, emitResult) ->
+                emitResult == Sinks.EmitResult.FAIL_NON_SERIALIZED);
     }
 
     public void info(String message) {

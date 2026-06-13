@@ -7,7 +7,6 @@ import org.jsoup.nodes.Element;
 import org.springframework.stereotype.Component;
 
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Set;
@@ -27,13 +26,15 @@ public class HtmlExtractor implements DocumentExtractor {
 
     @Override
     public ExtractedDocument extract(String fileName, InputStream inputStream) throws ExtractionException {
-        String html;
+        Document doc;
         try {
-            html = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+            // charset=null : jsoup auto-détecte l'encodage via le BOM, la balise
+            // <meta charset> ou <meta http-equiv> — évite le mojibake sur les pages
+            // non-UTF-8 (ISO-8859-1, windows-1252, fréquentes en contenu FR).
+            doc = Jsoup.parse(inputStream, null, fileName != null ? fileName : "");
         } catch (Exception e) {
             throw new ExtractionException("Impossible de lire le contenu HTML: " + e.getMessage());
         }
-        Document doc = Jsoup.parse(html);
 
         // Supprimer les éléments non-contenu
         doc.select("script, style, nav, footer, header, aside, " +

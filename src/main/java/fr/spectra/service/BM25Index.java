@@ -129,8 +129,8 @@ public class BM25Index {
     private void removeById(String id) {
         Map<String, Integer> termFreq = docTermFreq.remove(id);
         if (termFreq != null) {
-            int docLen = docLengths.remove(id);
-            totalDocLength -= docLen;
+            Integer docLen = docLengths.remove(id);
+            if (docLen != null) totalDocLength -= docLen;
             for (String token : termFreq.keySet()) {
                 Set<String> postings = invertedIndex.get(token);
                 if (postings != null) {
@@ -156,7 +156,7 @@ public class BM25Index {
         if (text == null || text.isBlank()) return Map.of();
         Map<String, Integer> freq = new HashMap<>();
         // Split sur les espaces uniquement pour conserver les tirets dans les tokens bruts
-        for (String raw : text.toLowerCase().split("\\s+")) {
+        for (String raw : text.toLowerCase(Locale.ROOT).split("\\s+")) {
             // Nettoyer les caractères non significatifs en conservant le tiret à l'intérieur
             String cleaned = raw.replaceAll("[^a-zA-Z0-9àâäéèêëîïôùûüçœæ\\-]", "")
                                  .replaceAll("^-+|-+$", ""); // supprimer tirets en début/fin

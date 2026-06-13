@@ -39,6 +39,7 @@ public class DocumentExtractorFactory {
         if (lower.endsWith(".json")) return "application/json";
         if (lower.endsWith(".xml")) return "application/xml";
         if (lower.endsWith(".html") || lower.endsWith(".htm")) return "text/html";
+        if (lower.endsWith(".avro")) return "application/avro";
         if (lower.endsWith(".txt")) return "text/plain";
         throw new ExtractionException("Extension de fichier non supportée: " + fileName);
     }

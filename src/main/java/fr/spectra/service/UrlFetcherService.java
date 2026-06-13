@@ -9,7 +9,9 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
+import java.net.InetAddress;
 import java.net.URI;
+import java.net.UnknownHostException;
 import java.time.Duration;
 import java.util.Set;
 
@@ -44,7 +46,7 @@ public class UrlFetcherService {
      * Retourne le contenu brut et un nom de fichier dérivé de l'URL.
      */
     public FetchedContent fetch(String url) {
-        validateScheme(url);
+        validateUrl(url);
         String contentType = detectContentType(url);
         if ("text/html".equals(contentType)) {
             return fetchHtmlViaBrowserless(url);
@@ -146,16 +148,56 @@ public class UrlFetcherService {
         return new ByteArrayInputStream(bytes != null ? bytes : new byte[0]);
     }
 
-    private void validateScheme(String url) {
-        String scheme;
+    /**
+     * Valide le schéma <em>et</em> l'hôte cible d'une URL avant tout fetch (protection SSRF).
+     *
+     * <p>Rejette les adresses loopback, any-local, link-local (169.254/16, fe80::),
+     * site-local privées (10/8, 172.16/12, 192.168/16), multicast, CGNAT (100.64/10)
+     * et IPv6 unique-local (fc00::/7) — empêchant l'accès aux métadonnées cloud
+     * (169.254.169.254) et aux services internes.</p>
+     *
+     * <p>Note : Reactor Netty ne suit pas les redirections par défaut, ce qui limite
+     * le SSRF via {@code Location} 30x.</p>
+     */
+    private void validateUrl(String url) {
+        URI uri;
         try {
-            scheme = URI.create(url).getScheme();
+            uri = URI.create(url);
         } catch (Exception e) {
             throw new IllegalArgumentException("URL invalide : " + url);
         }
+        String scheme = uri.getScheme();
         if (scheme == null || !ALLOWED_SCHEMES.contains(scheme.toLowerCase())) {
             throw new IllegalArgumentException("Schéma URL non autorisé : " + scheme + ". Seuls http et https sont acceptés.");
         }
+        String host = uri.getHost();
+        if (host == null || host.isBlank()) {
+            throw new IllegalArgumentException("Hôte URL manquant : " + url);
+        }
+        try {
+            for (InetAddress addr : InetAddress.getAllByName(host)) {
+                if (isForbiddenAddress(addr)) {
+                    throw new IllegalArgumentException(
+                            "Accès à une adresse interne/privée interdit (SSRF) : " + host + " → " + addr.getHostAddress());
+                }
+            }
+        } catch (UnknownHostException e) {
+            throw new IllegalArgumentException("Hôte URL non résolvable : " + host);
+        }
+    }
+
+    private static boolean isForbiddenAddress(InetAddress addr) {
+        if (addr.isLoopbackAddress() || addr.isAnyLocalAddress()
+                || addr.isLinkLocalAddress() || addr.isSiteLocalAddress()
+                || addr.isMulticastAddress()) {
+            return true;
+        }
+        byte[] b = addr.getAddress();
+        if (b.length == 4) {
+            int first = b[0] & 0xFF, second = b[1] & 0xFF;
+            return first == 100 && second >= 64 && second <= 127;   // 100.64.0.0/10 (CGNAT)
+        }
+        return (b[0] & 0xFE) == 0xFC;                                // fc00::/7 (IPv6 unique-local)
     }
 
     public record FetchedContent(String filename, InputStream inputStream) {}

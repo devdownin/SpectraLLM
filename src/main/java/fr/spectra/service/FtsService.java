@@ -35,6 +35,9 @@ public class FtsService {
     /** One BM25 index per collection name. */
     private final Map<String, BM25Index> indices = new ConcurrentHashMap<>();
 
+    /** Empêche deux rebuilds simultanés (PostConstruct + retry planifié) de se concurrencer. */
+    private final AtomicBoolean rebuilding = new AtomicBoolean(false);
+
     public FtsService(ChromaDbClient chromaDbClient, SpectraProperties props) {
         this.chromaDbClient = chromaDbClient;
         this.props = props;
@@ -76,6 +79,10 @@ public class FtsService {
      * Runs in the background; does not block startup.
      */
     public void rebuildCollection(String collectionName) {
+        if (!rebuilding.compareAndSet(false, true)) {
+            log.debug("FTS: rebuild déjà en cours — '{}' ignoré", collectionName);
+            return;
+        }
         log.info("FTS: rebuilding index for collection '{}'", collectionName);
         try {
             String collectionId = chromaDbClient.getOrCreateCollection(collectionName);
@@ -113,6 +120,8 @@ public class FtsService {
             log.info("FTS: index '{}' rebuilt — {} chunks indexed", collectionName, total);
         } catch (Exception e) {
             log.warn("FTS: could not rebuild index for '{}': {}", collectionName, e.getMessage());
+        } finally {
+            rebuilding.set(false);
         }
     }
 

@@ -11,6 +11,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 
 /**
  * Filtre d'authentification par clé API (header {@code X-API-Key}).
@@ -59,7 +61,7 @@ public class ApiKeyFilter extends OncePerRequestFilter {
             return;
         }
         String provided = request.getHeader(HEADER);
-        if (!expectedKey.equals(provided)) {
+        if (!constantTimeEquals(expectedKey, provided)) {
             log.warn("Requête rejetée — clé API invalide ou absente (URI={})", request.getRequestURI());
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             response.setContentType("application/json;charset=UTF-8");
@@ -67,5 +69,13 @@ public class ApiKeyFilter extends OncePerRequestFilter {
             return;
         }
         chain.doFilter(request, response);
+    }
+
+    /** Comparaison à temps constant pour éviter une fuite de la clé par canal temporel. */
+    private static boolean constantTimeEquals(String expected, String provided) {
+        if (provided == null) return false;
+        return MessageDigest.isEqual(
+                expected.getBytes(StandardCharsets.UTF_8),
+                provided.getBytes(StandardCharsets.UTF_8));
     }
 }

@@ -16,6 +16,10 @@ public interface IngestedFileRepository
 
     List<IngestedFileEntity> findByLifecycleOrderByIngestedAtDesc(IngestedFileEntity.Lifecycle lifecycle);
 
+    /** Filtre lifecycle + date côté SQL (politique de rétention) — évite de tout charger en mémoire. */
+    List<IngestedFileEntity> findByLifecycleAndIngestedAtBefore(
+            IngestedFileEntity.Lifecycle lifecycle, java.time.Instant cutoff);
+
     List<IngestedFileEntity> findByCollectionNameOrderByIngestedAtDesc(String collectionName);
 
     Page<IngestedFileEntity> findByFileNameContainingIgnoreCase(String fileName, Pageable pageable);

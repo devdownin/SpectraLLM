@@ -20,6 +20,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -237,7 +238,9 @@ public class RagService {
         }
 
         // ── 5. Agentic RAG ─────────────────────────────────────────────────
-        if (agenticRagService.isPresent() || forceAgentic) {
+        // Déclenché uniquement quand le routage adaptatif a classé la requête comme
+        // AGENTIC (forceAgentic) ET que le service agentique est disponible.
+        if (agenticRagService.isPresent() && forceAgentic) {
             if (agenticRagService.isPresent()) {
                 QueryResponse agenticResp = agenticRagService.get().query(
                         request,
@@ -760,11 +763,15 @@ public class RagService {
      * {@code threshold}, il est éliminé (le premier chunk = score le plus élevé est gardé).
      */
     private List<Integer> deduplicateSemantically(List<String> chunks, double threshold) {
+        // Pré-tokenise chaque chunk une seule fois (évite une re-tokenisation O(n²)).
+        List<Set<String>> wordSets = new ArrayList<>(chunks.size());
+        for (String chunk : chunks) wordSets.add(tokenizeToSet(chunk));
+
         List<Integer> kept = new ArrayList<>();
         for (int i = 0; i < chunks.size(); i++) {
             boolean duplicate = false;
             for (int j : kept) {
-                if (jaccardSimilarity(chunks.get(i), chunks.get(j)) >= threshold) {
+                if (jaccardSimilarity(wordSets.get(i), wordSets.get(j)) >= threshold) {
                     duplicate = true;
                     break;
                 }
@@ -774,13 +781,18 @@ public class RagService {
         return kept;
     }
 
-    private static double jaccardSimilarity(String a, String b) {
-        Set<String> wordsA = new HashSet<>(Arrays.asList(a.toLowerCase().split("\\s+")));
-        Set<String> wordsB = new HashSet<>(Arrays.asList(b.toLowerCase().split("\\s+")));
+    private static Set<String> tokenizeToSet(String text) {
+        return new HashSet<>(Arrays.asList(text.toLowerCase(Locale.ROOT).split("\\s+")));
+    }
+
+    private static double jaccardSimilarity(Set<String> wordsA, Set<String> wordsB) {
         if (wordsA.isEmpty() && wordsB.isEmpty()) return 1.0;
         int intersection = 0;
-        for (String w : wordsA) {
-            if (wordsB.contains(w)) intersection++;
+        // Itère sur le plus petit ensemble pour limiter les lookups.
+        Set<String> smaller = wordsA.size() <= wordsB.size() ? wordsA : wordsB;
+        Set<String> larger  = smaller == wordsA ? wordsB : wordsA;
+        for (String w : smaller) {
+            if (larger.contains(w)) intersection++;
         }
         int union = wordsA.size() + wordsB.size() - intersection;
         return union == 0 ? 0.0 : (double) intersection / union;

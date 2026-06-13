@@ -12,6 +12,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
@@ -27,10 +28,17 @@ class RetentionPolicyServiceTest {
     private IngestedFileRepository fileRepo(List<IngestedFileEntity> ingested,
                                              List<IngestedFileEntity> archived) {
         IngestedFileRepository repo = mock(IngestedFileRepository.class);
-        when(repo.findByLifecycleOrderByIngestedAtDesc(IngestedFileEntity.Lifecycle.INGESTED))
-                .thenReturn(ingested);
-        when(repo.findByLifecycleOrderByIngestedAtDesc(IngestedFileEntity.Lifecycle.ARCHIVED))
-                .thenReturn(archived);
+        // Le filtrage date est désormais fait côté SQL : on simule ce comportement.
+        when(repo.findByLifecycleAndIngestedAtBefore(eq(IngestedFileEntity.Lifecycle.INGESTED), any()))
+                .thenAnswer(inv -> {
+                    Instant cutoff = inv.getArgument(1);
+                    return ingested.stream().filter(d -> d.getIngestedAt().isBefore(cutoff)).toList();
+                });
+        when(repo.findByLifecycleAndIngestedAtBefore(eq(IngestedFileEntity.Lifecycle.ARCHIVED), any()))
+                .thenAnswer(inv -> {
+                    Instant cutoff = inv.getArgument(1);
+                    return archived.stream().filter(d -> d.getIngestedAt().isBefore(cutoff)).toList();
+                });
         return repo;
     }
 
