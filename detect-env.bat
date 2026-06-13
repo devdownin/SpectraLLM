@@ -9,33 +9,49 @@ REM  ─────────────────────────
 
 cd /d "%~dp0"
 
-set FORCE_GPU=0
+set GPU_TYPE=none
+set GPU_VRAM_MB=0
 
 :parse_args
 if "%~1"=="" goto done_args
-if "%~1"=="--gpu" set FORCE_GPU=1
+if "%~1"=="--gpu" set GPU_TYPE=nvidia
 shift
 goto parse_args
 :done_args
 
-REM  ── 1. Detection RAM (en Mo) ──
-for /f "tokens=2 delims==" %%a in ('wmic computersystem get TotalPhysicalMemory /value 2^>nul ^| find "="') do (
-    set "RAM_BYTES=%%a"
+REM  ── 1. Detection RAM disponible (en Mo) ──
+REM  FreePhysicalMemory (KB) = equivalent Windows de MemAvailable :
+REM  reflete la marge reelle sur un serveur deja charge.
+for /f "tokens=2 delims==" %%a in ('wmic OS get FreePhysicalMemory /value 2^>nul ^| find "="') do (
+    set "RAM_FREE_KB=%%a"
 )
-REM  Utiliser PowerShell pour la division (eviter les depassements batch)
-for /f %%a in ('powershell -Command "[math]::Floor(%RAM_BYTES% / 1048576)"') do set TOTAL_RAM_MB=%%a
+for /f %%a in ('powershell -Command "[math]::Floor(%RAM_FREE_KB% / 1024)"') do set TOTAL_RAM_MB=%%a
 
 REM  ── 2. Detection CPU ──
 set CPU_CORES=%NUMBER_OF_PROCESSORS%
 
-REM  ── 3. Detection GPU NVIDIA ──
-set GPU_DETECTED=false
+REM  ── 3. Detection GPU (NVIDIA via nvidia-smi, AMD via le nom du controleur video) ──
+if not "%GPU_TYPE%"=="none" goto gpu_done
+
 where nvidia-smi >nul 2>&1
 if %errorlevel%==0 (
     nvidia-smi >nul 2>&1
-    if !errorlevel!==0 set GPU_DETECTED=true
+    if !errorlevel!==0 (
+        set GPU_TYPE=nvidia
+        for /f %%a in ('nvidia-smi --query-gpu^=memory.total --format^=csv^,noheader^,nounits 2^>nul') do (
+            if "!GPU_VRAM_MB!"=="0" set GPU_VRAM_MB=%%a
+        )
+    )
 )
-if %FORCE_GPU%==1 set GPU_DETECTED=true
+
+if "%GPU_TYPE%"=="none" (
+    wmic path win32_VideoController get name 2>nul | findstr /i "AMD Radeon" >nul 2>&1
+    if !errorlevel!==0 set GPU_TYPE=amd
+)
+
+:gpu_done
+set GPU_DETECTED=false
+if not "%GPU_TYPE%"=="none" set GPU_DETECTED=true
 
 REM  ── 4. Calcul du profil ──
 set PROFILE=medium
@@ -43,9 +59,9 @@ if %TOTAL_RAM_MB% LSS 8192 set PROFILE=small
 if %TOTAL_RAM_MB% GEQ 24576 set PROFILE=large
 
 echo ^> Detection du serveur :
-echo   RAM        : %TOTAL_RAM_MB% Mo
+echo   RAM dispo  : %TOTAL_RAM_MB% Mo
 echo   CPU cores  : %CPU_CORES%
-echo   GPU NVIDIA : %GPU_DETECTED%
+echo   GPU        : %GPU_TYPE% (VRAM: %GPU_VRAM_MB% Mo)
 echo   Profil     : %PROFILE%
 
 REM  ── 5. Calcul des parametres pipeline ──
@@ -85,10 +101,16 @@ set /a LLM_PARALLEL=%CPU_CORES% / 2
 if %LLM_PARALLEL% LSS 1 set LLM_PARALLEL=1
 if %LLM_PARALLEL% GTR 8 set LLM_PARALLEL=8
 
+REM  Taille de contexte LLM — memes seuils que detect-env.sh / ResourceAdvisorService
+set LLM_CONTEXT=512
+if %TOTAL_RAM_MB% GEQ 8192 set LLM_CONTEXT=1024
+if %TOTAL_RAM_MB% GEQ 16384 set LLM_CONTEXT=2048
+if %TOTAL_RAM_MB% GEQ 32768 set LLM_CONTEXT=4096
+
 REM  ── 6. Ecriture du .env ──
 (
     echo # ── Spectra — Configuration auto-detectee ──
-    echo # Profil: %PROFILE% ^| RAM: %TOTAL_RAM_MB% Mo ^| CPU: %CPU_CORES% cores ^| GPU: %GPU_DETECTED%
+    echo # Profil: %PROFILE% ^| RAM: %TOTAL_RAM_MB% Mo ^| CPU: %CPU_CORES% cores ^| GPU: %GPU_TYPE% ^(VRAM: %GPU_VRAM_MB% Mo^)
     echo.
     echo # ── Pipeline ──
     echo SPECTRA_CHUNK_MAX_TOKENS=%CHUNK_MAX_TOKENS%
@@ -99,12 +121,13 @@ REM  ── 6. Ecriture du .env ──
     echo SPECTRA_CONCURRENT_INGESTIONS=%CONCURRENT_INGESTIONS%
     echo.
     echo # ── JVM ──
-    echo JAVA_OPTS=-Xms256m -Xmx%JVM_HEAP%m -XX:+UseZGC
+    echo JAVA_OPTS="-Xms256m -Xmx%JVM_HEAP%m -XX:+UseZGC"
     echo.
     echo # ── Serveur LLM — Chat ──
     echo LLM_CHAT_MODEL_FILE=Phi-4-mini-reasoning-UD-IQ1_S.gguf
     echo LLM_CHAT_MODEL_NAME=phi-4-mini
     echo LLM_PARALLEL=%LLM_PARALLEL%
+    echo LLM_CONTEXT=%LLM_CONTEXT%
     echo.
     echo # ── Serveur LLM — Embedding ──
     echo LLM_EMBED_MODEL_FILE=embed.gguf
@@ -116,6 +139,8 @@ REM  ── 6. Ecriture du .env ──
     echo.
     echo # ── GPU ──
     echo SPECTRA_GPU_ENABLED=%GPU_DETECTED%
+    echo SPECTRA_GPU_TYPE=%GPU_TYPE%
+    echo SPECTRA_GPU_VRAM_MB=%GPU_VRAM_MB%
 ) > .env
 
 echo.

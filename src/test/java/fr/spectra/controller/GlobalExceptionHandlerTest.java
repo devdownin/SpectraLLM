@@ -63,7 +63,8 @@ class GlobalExceptionHandlerTest {
     void handleGeneric_detailContainsMessage() {
         ProblemDetail problem = handler.handleGeneric(
                 new IllegalStateException("État invalide"));
-        assertThat(problem.getDetail()).contains("État invalide");
+        assertThat(problem.getStatus()).isEqualTo(500);
+        assertThat(problem.getDetail()).isEqualTo("Une erreur interne est survenue.");
     }
 
     @Test

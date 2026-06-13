@@ -39,6 +39,8 @@ public class IngestionTaskExecutor {
     }
 
     private static final Logger log = LoggerFactory.getLogger(IngestionTaskExecutor.class);
+    /** Même limite que IngestionService.MAX_ZIP_DEPTH — protège contre les ZIP bombs imbriqués. */
+    private static final int MAX_ZIP_DEPTH = 3;
 
     private final DocumentExtractorFactory extractorFactory;
     private final TextCleanerService textCleaner;
@@ -103,10 +105,10 @@ public class IngestionTaskExecutor {
             concurrencySemaphore.acquire();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            tasks.put(taskId, tasks.get(taskId).failed("Ingestion annulée (attente de slot interrompue)"));
+            tasks.computeIfPresent(taskId, (k, t) -> t.failed("Ingestion annulée (attente de slot interrompue)"));
             return;
         }
-        tasks.put(taskId, tasks.get(taskId).processing());
+        tasks.computeIfPresent(taskId, (k, t) -> t.processing());
         try {
             String collectionId = chromaDbClient.getOrCreateCollection(collectionName);
             int totalChunks = 0;
@@ -140,11 +142,14 @@ public class IngestionTaskExecutor {
                     onIngested.onIngested(hash, name, chunks);
                 }
             }
-            tasks.put(taskId, tasks.get(taskId).completed(totalChunks, lastParserUsed, totalLayoutAwareChunks));
+            final int finalChunks = totalChunks;
+            final String finalParser = lastParserUsed;
+            final int finalLayout = totalLayoutAwareChunks;
+            tasks.computeIfPresent(taskId, (k, t) -> t.completed(finalChunks, finalParser, finalLayout));
             log.info("Ingestion {} terminée: {} chunks total, parser={}", taskId, totalChunks, lastParserUsed);
         } catch (Throwable e) {
             log.error("Erreur lors de l'ingestion {}: {}", taskId, e.getMessage(), e);
-            tasks.put(taskId, tasks.get(taskId).failed(e.getClass().getSimpleName() + ": " + e.getMessage()));
+            tasks.computeIfPresent(taskId, (k, t) -> t.failed(e.getClass().getSimpleName() + ": " + e.getMessage()));
         } finally {
             concurrencySemaphore.release();
             tempFiles.forEach(p -> { try { Files.deleteIfExists(p); } catch (Exception ignored) {} });
@@ -207,6 +212,15 @@ public class IngestionTaskExecutor {
 
     /** Package-visible for testing. */
     int ingestZip(InputStream zipStream, String archiveName, String collectionId, String collectionName) throws Exception {
+        return ingestZip(zipStream, archiveName, collectionId, collectionName, 0);
+    }
+
+    private int ingestZip(InputStream zipStream, String archiveName, String collectionId,
+                          String collectionName, int depth) throws Exception {
+        if (depth >= MAX_ZIP_DEPTH) {
+            log.warn("Profondeur ZIP max ({}) atteinte — archive imbriquée ignorée: {}", MAX_ZIP_DEPTH, archiveName);
+            return 0;
+        }
         int totalChunks = 0;
         try (ZipInputStream zis = new ZipInputStream(zipStream)) {
             ZipEntry entry;
@@ -214,6 +228,10 @@ public class IngestionTaskExecutor {
                 if (entry.isDirectory()) continue;
                 String entryName = entry.getName();
                 if (entryName.startsWith("__MACOSX/") || entryName.startsWith(".")) continue;
+                if (entryName.contains("..")) {
+                    log.warn("Entrée ZIP suspecte ignorée (path traversal): {}", entryName);
+                    continue;
+                }
 
                 String fileName = entryName.contains("/")
                         ? entryName.substring(entryName.lastIndexOf('/') + 1)
@@ -225,7 +243,8 @@ public class IngestionTaskExecutor {
                     InputStream nonClosing = new FilterInputStream(zis) {
                         @Override public void close() {}
                     };
-                    totalChunks += ingestZip(nonClosing, archiveName + "/" + entryName, collectionId, collectionName);
+                    totalChunks += ingestZip(nonClosing, archiveName + "/" + entryName,
+                            collectionId, collectionName, depth + 1);
                     continue;
                 }
                 if (!isSupportedFile(fileName)) continue;

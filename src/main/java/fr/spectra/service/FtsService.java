@@ -118,20 +118,23 @@ public class FtsService {
 
     /** Index a batch of newly ingested chunks. Called from IngestionTaskExecutor. */
     public void indexChunks(List<TextChunk> chunks, String collectionName) {
-        BM25Index index = indices.computeIfAbsent(collectionName, k -> new BM25Index());
-        for (TextChunk chunk : chunks) {
-            index.add(chunk.id(), chunk.text(), chunk.sourceFile());
-        }
+        indices.compute(collectionName, (k, existing) -> {
+            BM25Index index = existing != null ? existing : new BM25Index();
+            for (TextChunk chunk : chunks) {
+                index.add(chunk.id(), chunk.text(), chunk.sourceFile());
+            }
+            return index;
+        });
         log.debug("FTS: indexed {} chunks into '{}'", chunks.size(), collectionName);
     }
 
     /** Remove all chunks belonging to a source file. Called from DocumentController. */
     public void removeBySource(String sourceFile, String collectionName) {
-        BM25Index index = indices.get(collectionName);
-        if (index != null) {
-            index.removeBySource(sourceFile);
-            log.debug("FTS: removed '{}' from index '{}'", sourceFile, collectionName);
-        }
+        indices.compute(collectionName, (k, existing) -> {
+            if (existing != null) existing.removeBySource(sourceFile);
+            return existing;
+        });
+        log.debug("FTS: removed '{}' from index '{}'", sourceFile, collectionName);
     }
 
     /**

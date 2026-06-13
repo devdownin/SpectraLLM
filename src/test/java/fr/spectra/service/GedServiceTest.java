@@ -281,7 +281,7 @@ class GedServiceTest {
         DocumentModelLinkEntity link = new DocumentModelLinkEntity(
                 "sha-match", "phi-mini", DocumentModelLinkEntity.LinkType.TRAINED_ON, Instant.now());
         when(linkRepo.findByModelName("phi-mini")).thenReturn(List.of(link));
-        when(fileRepo.findById("sha-match")).thenReturn(Optional.of(entity("sha-match")));
+        when(fileRepo.findAllById(List.of("sha-match"))).thenReturn(List.of(entity("sha-match")));
 
         List<IngestedFileEntity> docs = ged.getDocumentsByModel("phi-mini");
 
@@ -461,9 +461,8 @@ class GedServiceTest {
 
     @Test
     void stats_topTags_countedCorrectly() {
-        IngestedFileEntity d1 = entity("t1"); d1.setTags(List.of("kafka", "xml"));
-        IngestedFileEntity d2 = entity("t2"); d2.setTags(List.of("kafka"));
-        when(fileRepo.findAllByOrderByIngestedAtDesc()).thenReturn(List.of(d1, d2));
+        // stats() lit la colonne tags via findAllTagsJson() (JSON brut, anti-OOM)
+        when(fileRepo.findAllTagsJson()).thenReturn(List.of("[\"kafka\",\"xml\"]", "[\"kafka\"]"));
         when(fileRepo.countByLifecycle()).thenReturn(List.of());
 
         Map<String, Object> stats = ged.stats();

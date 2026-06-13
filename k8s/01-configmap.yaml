@@ -11,7 +11,7 @@ data:
 
   # Endpoints internes (noms de services K8s dans le même namespace)
   SPECTRA_LLM_CHAT_BASE_URL: "http://llama-cpp-chat:8080"
-  SPECTRA_LLM_CHAT_MODEL: "spectra-domain"
+  SPECTRA_LLM_MODEL: "spectra-domain"
   SPECTRA_LLM_EMBEDDING_BASE_URL: "http://llama-cpp-embed:8080"
   SPECTRA_LLM_EMBEDDING_MODEL: "nomic-embed-text"
   SPECTRA_CHROMADB_BASE_URL: "http://chromadb:8000"
