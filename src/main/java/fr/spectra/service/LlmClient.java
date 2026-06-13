@@ -75,8 +75,17 @@ public class LlmClient {
                 .bodyToMono(Map.class)
                 .block(generateTimeout);
 
+        if (response == null) {
+            throw new IllegalStateException("Réponse null du serveur LLM (/v1/chat/completions)");
+        }
         List<Map<String, Object>> choices = (List<Map<String, Object>>) response.get("choices");
+        if (choices == null || choices.isEmpty()) {
+            throw new IllegalStateException("Champ 'choices' absent ou vide de la réponse LLM : " + response.keySet());
+        }
         Map<String, Object> message = (Map<String, Object>) choices.getFirst().get("message");
+        if (message == null) {
+            throw new IllegalStateException("Champ 'message' absent de la réponse LLM");
+        }
         return (String) message.get("content");
     }
 

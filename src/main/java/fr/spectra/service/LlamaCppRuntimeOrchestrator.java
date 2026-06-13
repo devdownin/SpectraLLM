@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Orchestration runtime d'une instance locale `llama-server` pour le chat.
@@ -151,7 +152,12 @@ public class LlamaCppRuntimeOrchestrator {
             log.info("Arrêt de llama-server pour le modèle '{}'", chatRuntime.alias());
             process.destroy();
             try {
-                process.waitFor();
+                // Escalade vers un kill forcé si le process ignore SIGTERM (évite un blocage indéfini).
+                if (!process.waitFor(10, TimeUnit.SECONDS)) {
+                    log.warn("llama-server n'a pas répondu à l'arrêt en 10s — destroyForcibly()");
+                    process.destroyForcibly();
+                    process.waitFor(5, TimeUnit.SECONDS);
+                }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 process.destroyForcibly();

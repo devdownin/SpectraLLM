@@ -12,6 +12,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -107,19 +109,63 @@ public class LlamaCppEmbeddingClient implements EmbeddingClient {
             throw new IllegalStateException("Champ 'data' absent de la réponse llama.cpp embeddings: " + response.keySet());
         }
 
-        List<Double> embedding = (List<Double>) data.getFirst().get("embedding");
-        if (embedding == null) {
-            throw new IllegalStateException("Champ 'embedding' absent de la réponse llama.cpp embeddings");
-        }
-
-        return embedding.stream().map(Double::floatValue).toList();
+        return toFloatVector(data.getFirst().get("embedding"));
     }
 
     @Override
+    @CircuitBreaker(name = "embed", fallbackMethod = "embedBatchFallback")
+    @SuppressWarnings("unchecked")
     public List<List<Float>> embedBatch(List<String> texts) {
-        return texts.stream()
-                .map(this::embed)
-                .toList();
+        if (texts == null || texts.isEmpty()) return List.of();
+
+        // llama-server (/v1/embeddings, compatible OpenAI) accepte un tableau `input`,
+        // ce qui évite N allers-retours HTTP séquentiels.
+        Map<String, Object> request = Map.of(
+                "model", embeddingModel,
+                "input", texts
+        );
+
+        Map<String, Object> response = webClient.post()
+                .uri("/v1/embeddings")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(request)
+                .retrieve()
+                .bodyToMono(Map.class)
+                .block(timeout);
+
+        if (response == null) {
+            throw new IllegalStateException("Réponse null de llama.cpp /v1/embeddings");
+        }
+        List<Map<String, Object>> data = (List<Map<String, Object>>) response.get("data");
+        if (data == null || data.size() != texts.size()) {
+            throw new IllegalStateException("Réponse embeddings incohérente : "
+                    + (data == null ? "data absent" : data.size() + " vecteurs pour " + texts.size() + " textes"));
+        }
+
+        // L'ordre n'est pas garanti : trier par le champ 'index' renvoyé par le serveur.
+        List<List<Float>> result = new ArrayList<>(Collections.nCopies(texts.size(), null));
+        for (int i = 0; i < data.size(); i++) {
+            Map<String, Object> item = data.get(i);
+            Object idxObj = item.get("index");
+            int idx = idxObj instanceof Number n ? n.intValue() : i;
+            if (idx < 0 || idx >= result.size()) idx = i;
+            result.set(idx, toFloatVector(item.get("embedding")));
+        }
+        return result;
+    }
+
+    /** Convertit un vecteur JSON (List de Number) en List&lt;Float&gt; de façon robuste. */
+    private static List<Float> toFloatVector(Object embedding) {
+        if (!(embedding instanceof List<?> list)) {
+            throw new IllegalStateException("Champ 'embedding' absent ou invalide de la réponse llama.cpp embeddings");
+        }
+        // Jackson peut désérialiser un composant entier (0, 1) en Integer : passer par Number.
+        return list.stream().map(v -> ((Number) v).floatValue()).toList();
+    }
+
+    List<List<Float>> embedBatchFallback(List<String> texts, Throwable cause) {
+        log.warn("[circuit-breaker] embedBatch ouvert : {}", cause.getMessage());
+        throw new EmbeddingUnavailableException("Service d'embedding temporairement indisponible", cause);
     }
 
     List<Float> embedFallback(String text, Throwable cause) {

@@ -41,6 +41,10 @@ public class IngestionTaskExecutor {
     private static final Logger log = LoggerFactory.getLogger(IngestionTaskExecutor.class);
     /** Même limite que IngestionService.MAX_ZIP_DEPTH — protège contre les ZIP bombs imbriqués. */
     private static final int MAX_ZIP_DEPTH = 3;
+    /** Nombre maximal d'entrées traitées par archive (protection ZIP bomb). */
+    private static final int MAX_ZIP_ENTRIES = 10_000;
+    /** Taille décompressée maximale autorisée par entrée (protection ZIP bomb). */
+    private static final long MAX_ENTRY_UNCOMPRESSED_BYTES = 200L * 1024 * 1024;
 
     private final DocumentExtractorFactory extractorFactory;
     private final TextCleanerService textCleaner;
@@ -108,7 +112,9 @@ public class IngestionTaskExecutor {
             tasks.computeIfPresent(taskId, (k, t) -> t.failed("Ingestion annulée (attente de slot interrompue)"));
             return;
         }
-        tasks.computeIfPresent(taskId, (k, t) -> t.processing());
+        // Ne pas écraser un statut CANCELLED positionné avant le démarrage effectif.
+        tasks.computeIfPresent(taskId, (k, t) ->
+                t.status() == IngestionTask.Status.CANCELLED ? t : t.processing());
         try {
             String collectionId = chromaDbClient.getOrCreateCollection(collectionName);
             int totalChunks = 0;
@@ -116,7 +122,14 @@ public class IngestionTaskExecutor {
             int totalLayoutAwareChunks = 0;
 
             for (int i = 0; i < tempFiles.size(); i++) {
-                String name = i < fileNames.size() ? fileNames.get(i) : tempFiles.get(i).getFileName().toString();
+                // Point de contrôle d'annulation : interrompt proprement la boucle.
+                IngestionTask current = tasks.get(taskId);
+                if (current != null && current.status() == IngestionTask.Status.CANCELLED) {
+                    log.info("Ingestion {} annulée — arrêt après {} fichier(s) traité(s)", taskId, i);
+                    return;
+                }
+                String declaredName = i < fileNames.size() ? fileNames.get(i) : null;
+                String name = declaredName != null ? declaredName : tempFiles.get(i).getFileName().toString();
                 Path currentTempFile = tempFiles.get(i);
                 final int[] resultHolder = new int[1];
                 final String[] parserHolder = new String[1];
@@ -145,7 +158,9 @@ public class IngestionTaskExecutor {
             final int finalChunks = totalChunks;
             final String finalParser = lastParserUsed;
             final int finalLayout = totalLayoutAwareChunks;
-            tasks.computeIfPresent(taskId, (k, t) -> t.completed(finalChunks, finalParser, finalLayout));
+            // Ne pas écraser un statut CANCELLED par COMPLETED.
+            tasks.computeIfPresent(taskId, (k, t) ->
+                    t.status() == IngestionTask.Status.CANCELLED ? t : t.completed(finalChunks, finalParser, finalLayout));
             log.info("Ingestion {} terminée: {} chunks total, parser={}", taskId, totalChunks, lastParserUsed);
         } catch (Throwable e) {
             log.error("Erreur lors de l'ingestion {}: {}", taskId, e.getMessage(), e);
@@ -222,14 +237,25 @@ public class IngestionTaskExecutor {
             return 0;
         }
         int totalChunks = 0;
+        int entryCount = 0;
         try (ZipInputStream zis = new ZipInputStream(zipStream)) {
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
                 if (entry.isDirectory()) continue;
+                if (++entryCount > MAX_ZIP_ENTRIES) {
+                    log.warn("Nombre max d'entrées ZIP ({}) atteint — archive tronquée: {}", MAX_ZIP_ENTRIES, archiveName);
+                    break;
+                }
                 String entryName = entry.getName();
                 if (entryName.startsWith("__MACOSX/") || entryName.startsWith(".")) continue;
                 if (entryName.contains("..")) {
                     log.warn("Entrée ZIP suspecte ignorée (path traversal): {}", entryName);
+                    continue;
+                }
+                // Pré-filtre : rejeter une entrée dont la taille décompressée déclarée est démesurée.
+                if (entry.getSize() > MAX_ENTRY_UNCOMPRESSED_BYTES) {
+                    log.warn("Entrée ZIP ignorée (taille décompressée {} > {} octets): {}",
+                            entry.getSize(), MAX_ENTRY_UNCOMPRESSED_BYTES, entryName);
                     continue;
                 }
 
@@ -240,9 +266,9 @@ public class IngestionTaskExecutor {
                 if (fileName.toLowerCase().endsWith(".zip")) {
                     // Wrap in non-closing stream so the recursive ingestZip() won't close
                     // the parent ZipInputStream when it reaches its own try-with-resources.
-                    InputStream nonClosing = new FilterInputStream(zis) {
+                    InputStream nonClosing = new LimitedInputStream(new FilterInputStream(zis) {
                         @Override public void close() {}
-                    };
+                    }, MAX_ENTRY_UNCOMPRESSED_BYTES);
                     totalChunks += ingestZip(nonClosing, archiveName + "/" + entryName,
                             collectionId, collectionName, depth + 1);
                     continue;
@@ -251,11 +277,12 @@ public class IngestionTaskExecutor {
 
                 String qualifiedName = archiveName + "/" + entryName;
                 try {
-                    // Wrap in non-closing stream: some extractors (Jackson AUTO_CLOSE_SOURCE)
-                    // close the stream after reading, which would break the ZipInputStream.
-                    InputStream entryStream = new FilterInputStream(zis) {
+                    // Wrap in non-closing + bounded stream: some extractors (Jackson AUTO_CLOSE_SOURCE)
+                    // close the stream after reading, which would break the ZipInputStream ; la borne
+                    // protège contre une entrée décompressée surdimensionnée (ZIP bomb).
+                    InputStream entryStream = new LimitedInputStream(new FilterInputStream(zis) {
                         @Override public void close() { /* do not close the parent ZipInputStream */ }
-                    };
+                    }, MAX_ENTRY_UNCOMPRESSED_BYTES);
                     totalChunks += ingestEntry(qualifiedName, entryStream, collectionId, collectionName);
                 } catch (ExtractionException e) {
                     log.warn("Erreur sur entrée ZIP {}: {}", qualifiedName, e.getMessage());

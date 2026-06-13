@@ -10,7 +10,11 @@ import java.time.Instant;
  */
 @Entity
 @Table(name = "document_model_links",
-       uniqueConstraints = @UniqueConstraint(columnNames = {"documentSha256", "modelName", "linkType"}))
+       uniqueConstraints = @UniqueConstraint(columnNames = {"documentSha256", "modelName", "linkType"}),
+       indexes = {
+           @Index(name = "idx_doc_model_sha256", columnList = "documentSha256"),
+           @Index(name = "idx_doc_model_name", columnList = "modelName")
+       })
 public class DocumentModelLinkEntity {
 
     public enum LinkType { TRAINED_ON, EVALUATED_ON }

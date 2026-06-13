@@ -8,7 +8,10 @@ import java.time.Instant;
  * R6 — Audit trail complet de toutes les opérations GED.
  */
 @Entity
-@Table(name = "ged_audit_log")
+@Table(name = "ged_audit_log", indexes = {
+        @Index(name = "idx_ged_audit_sha256", columnList = "documentSha256"),
+        @Index(name = "idx_ged_audit_timestamp", columnList = "timestamp")
+})
 public class AuditLogEntity {
 
     public enum Action {

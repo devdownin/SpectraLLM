@@ -7,7 +7,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Entity
-@Table(name = "ingested_files")
+@Table(name = "ingested_files", indexes = {
+        @Index(name = "idx_ingested_files_lifecycle", columnList = "lifecycle"),
+        @Index(name = "idx_ingested_files_ingested_at", columnList = "ingestedAt"),
+        @Index(name = "idx_ingested_files_collection", columnList = "collectionName")
+})
 public class IngestedFileEntity {
 
     /** Cycle de vie GED (R2) avec machine à états. */

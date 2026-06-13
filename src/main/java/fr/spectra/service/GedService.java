@@ -12,6 +12,8 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -29,6 +31,11 @@ public class GedService {
 
     private static final Logger log = LoggerFactory.getLogger(GedService.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final long TOP_TAGS_TTL_MS = 30_000;
+
+    // Cache TTL des top-tags pour /api/ged/stats (évite de reparser tout le JSON à chaque appel).
+    private volatile List<Map<String, Object>> cachedTopTags = List.of();
+    private volatile long topTagsCachedAt = 0L;
 
     private final IngestedFileRepository      fileRepo;
     private final DocumentModelLinkRepository linkRepo;
@@ -259,27 +266,42 @@ public class GedService {
     public Map<String, Object> deleteDocument(String sha256, String actor) {
         IngestedFileEntity doc = requireDoc(sha256);
         String collection = doc.getCollectionName();
-        int chunksDeleted = 0;
+        String fileName = doc.getFileName();
 
-        if (collection != null && !collection.isBlank()) {
-            try {
-                String collectionId = chromaDbClient.getOrCreateCollection(collection);
-                chunksDeleted = chromaDbClient.deleteBySource(collectionId, doc.getFileName());
-                ftsService.removeBySource(doc.getFileName(), collection);
-            } catch (Exception e) {
-                log.warn("Impossible de supprimer les chunks ChromaDB pour {} : {}", sha256, e.getMessage());
-            }
-        }
-
+        // 1. Suppressions DB autoritatives à l'intérieur de la transaction.
         linkRepo.deleteAll(linkRepo.findByDocumentSha256(sha256));
         auditRepo.deleteAll(auditRepo.findByDocumentSha256OrderByTimestampDesc(sha256));
         fileRepo.delete(doc);
 
-        log.info("Document {} supprimé de la GED ({} chunks ChromaDB supprimés)", sha256, chunksDeleted);
+        // 2. Nettoyage externe (ChromaDB + FTS) en best-effort, exécuté APRÈS le commit :
+        //    un rollback de la transaction ne doit jamais orpheliner l'état externe,
+        //    et un échec ChromaDB ne doit pas annuler la suppression GED autoritative.
+        final int[] chunksDeleted = {0};
+        Runnable cleanup = () -> {
+            if (collection != null && !collection.isBlank()) {
+                try {
+                    String collectionId = chromaDbClient.getOrCreateCollection(collection);
+                    chunksDeleted[0] = chromaDbClient.deleteBySource(collectionId, fileName);
+                    ftsService.removeBySource(fileName, collection);
+                    log.info("Document {} : {} chunks ChromaDB supprimés", sha256, chunksDeleted[0]);
+                } catch (Exception e) {
+                    log.warn("Nettoyage ChromaDB/FTS échoué pour {} : {}", sha256, e.getMessage());
+                }
+            }
+        };
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void afterCommit() { cleanup.run(); }
+            });
+        } else {
+            cleanup.run();
+        }
+
+        log.info("Document {} supprimé de la GED", sha256);
         return Map.of(
                 "sha256", sha256,
-                "fileName", doc.getFileName(),
-                "chunksDeleted", chunksDeleted,
+                "fileName", fileName,
+                "chunksDeleted", chunksDeleted[0],
                 "actor", actor != null ? actor : "api"
         );
     }
@@ -309,7 +331,25 @@ public class GedService {
                 "0.75-1.00", nullToZero(fileRepo.countQualityQ3())
         ));
 
-        // Top 10 tags — seule la colonne tags est chargée (pas les entités complètes)
+        // Top 10 tags — reparse coûteux mis en cache avec un TTL court.
+        result.put("topTags", topTags());
+
+        // Total chunks
+        Long totalChunks = fileRepo.sumChunks();
+        result.put("totalChunks", totalChunks != null ? totalChunks : 0L);
+
+        return result;
+    }
+
+    /**
+     * Calcule le top 10 des tags (seule la colonne tags est chargée), mis en cache
+     * {@value #TOP_TAGS_TTL_MS} ms pour éviter de reparser tout le JSON à chaque appel
+     * de {@code /api/ged/stats}.
+     */
+    private List<Map<String, Object>> topTags() {
+        long now = System.currentTimeMillis();
+        if (now - topTagsCachedAt < TOP_TAGS_TTL_MS) return cachedTopTags;
+
         Map<String, Long> tagCounts = new HashMap<>();
         fileRepo.findAllTagsJson().forEach(tagsJson -> {
             if (tagsJson != null && !tagsJson.isBlank()) {
@@ -325,13 +365,9 @@ public class GedService {
                 .limit(10)
                 .map(e -> Map.<String, Object>of("tag", e.getKey(), "count", e.getValue()))
                 .toList();
-        result.put("topTags", topTags);
-
-        // Total chunks
-        Long totalChunks = fileRepo.sumChunks();
-        result.put("totalChunks", totalChunks != null ? totalChunks : 0L);
-
-        return result;
+        cachedTopTags = topTags;
+        topTagsCachedAt = now;
+        return topTags;
     }
 
     // ── Internal helpers ─────────────────────────────────────────────────────

@@ -53,10 +53,7 @@ public class RetentionPolicyService {
     private void autoArchive() {
         Instant cutoff = Instant.now().minus(archiveAfterDays, ChronoUnit.DAYS);
         List<IngestedFileEntity> candidates =
-                fileRepo.findByLifecycleOrderByIngestedAtDesc(IngestedFileEntity.Lifecycle.INGESTED)
-                        .stream()
-                        .filter(d -> d.getIngestedAt().isBefore(cutoff))
-                        .toList();
+                fileRepo.findByLifecycleAndIngestedAtBefore(IngestedFileEntity.Lifecycle.INGESTED, cutoff);
         for (IngestedFileEntity doc : candidates) {
             gedService.transitionLifecycle(doc.getSha256(),
                     IngestedFileEntity.Lifecycle.ARCHIVED, "retention-policy");
@@ -68,10 +65,7 @@ public class RetentionPolicyService {
     private void autoPurge() {
         Instant cutoff = Instant.now().minus(purgeAfterDays, ChronoUnit.DAYS);
         List<IngestedFileEntity> toDelete =
-                fileRepo.findByLifecycleOrderByIngestedAtDesc(IngestedFileEntity.Lifecycle.ARCHIVED)
-                        .stream()
-                        .filter(d -> d.getIngestedAt().isBefore(cutoff))
-                        .toList();
+                fileRepo.findByLifecycleAndIngestedAtBefore(IngestedFileEntity.Lifecycle.ARCHIVED, cutoff);
         for (IngestedFileEntity doc : toDelete) {
             fileRepo.delete(doc);
             log.info("Rétention : document {} purgé de la DB", doc.getSha256());

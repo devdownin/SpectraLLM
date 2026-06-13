@@ -35,6 +35,7 @@ public class RecipeController {
 
     private static final Logger log = LoggerFactory.getLogger(RecipeController.class);
     private static final String RECIPES_CLASSPATH = "classpath:recipes/*.yml";
+    private static final java.util.regex.Pattern RECIPE_NAME = java.util.regex.Pattern.compile("[A-Za-z0-9_-]+");
 
     @GetMapping("/recipes")
     @Operation(summary = "Lister les recettes d'entraînement disponibles")
@@ -68,6 +69,10 @@ public class RecipeController {
     @GetMapping("/recipes/{name}")
     @Operation(summary = "Charger une recette comme objet FineTuningRequest (pour pré-remplir le formulaire)")
     public ResponseEntity<Map<String, Object>> getRecipe(@PathVariable String name) {
+        // Empêche l'évasion du préfixe recipes/ (../, séparateurs de chemin, etc.)
+        if (name == null || !RECIPE_NAME.matcher(name).matches()) {
+            return ResponseEntity.badRequest().build();
+        }
         try {
             PathMatchingResourcePatternResolver resolver = new PathMatchingResourcePatternResolver();
             Resource res = resolver.getResource("classpath:recipes/" + name + ".yml");
@@ -109,9 +114,11 @@ public class RecipeController {
             String yaml = new Yaml(opts).dump(doc);
             byte[] bytes = yaml.getBytes(StandardCharsets.UTF_8);
 
-            String filename = (request.modelName() != null ? request.modelName() : "recipe") + ".yml";
+            String safeName = (request.modelName() != null ? request.modelName() : "recipe")
+                    .replaceAll("[^A-Za-z0-9._-]", "_");
+            String filename = safeName + ".yml";
             return ResponseEntity.ok()
-                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=" + filename)
+                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
                     .contentType(MediaType.parseMediaType("application/yaml"))
                     .body(bytes);
         } catch (Exception e) {

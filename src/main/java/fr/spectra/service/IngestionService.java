@@ -42,6 +42,10 @@ public class IngestionService {
     private static final Logger log = LoggerFactory.getLogger(IngestionService.class);
     private static final String DEFAULT_COLLECTION = "spectra_documents";
     private static final int MAX_ZIP_DEPTH = 3;
+    /** Nombre maximal d'entrées traitées par archive (protection ZIP bomb). */
+    private static final int MAX_ZIP_ENTRIES = 10_000;
+    /** Taille décompressée maximale autorisée par entrée (protection ZIP bomb). */
+    private static final long MAX_ENTRY_UNCOMPRESSED_BYTES = 200L * 1024 * 1024;
 
     // Direct-pipeline deps (used by ingest() and ingestLocalFiles())
     private final DocumentExtractorFactory extractorFactory;
@@ -362,14 +366,24 @@ public class IngestionService {
             return 0;
         }
         int totalChunks = 0;
+        int entryCount = 0;
         try (ZipInputStream zis = new ZipInputStream(zipStream)) {
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
                 if (entry.isDirectory()) continue;
+                if (++entryCount > MAX_ZIP_ENTRIES) {
+                    log.warn("Nombre max d'entrées ZIP ({}) atteint — archive tronquée: {}", MAX_ZIP_ENTRIES, archiveName);
+                    break;
+                }
                 String entryName = entry.getName();
                 if (entryName.startsWith("__MACOSX/") || entryName.startsWith(".")) continue;
                 if (entryName.contains("..")) {
                     log.warn("Entrée ZIP suspecte ignorée (path traversal): {}", entryName);
+                    continue;
+                }
+                if (entry.getSize() > MAX_ENTRY_UNCOMPRESSED_BYTES) {
+                    log.warn("Entrée ZIP ignorée (taille décompressée {} > {} octets): {}",
+                            entry.getSize(), MAX_ENTRY_UNCOMPRESSED_BYTES, entryName);
                     continue;
                 }
 
@@ -378,9 +392,9 @@ public class IngestionService {
                         : entryName;
 
                 if (fileName.toLowerCase().endsWith(".zip")) {
-                    InputStream nonClosing = new java.io.FilterInputStream(zis) {
+                    InputStream nonClosing = new LimitedInputStream(new java.io.FilterInputStream(zis) {
                         @Override public void close() {}
-                    };
+                    }, MAX_ENTRY_UNCOMPRESSED_BYTES);
                     totalChunks += processZip(nonClosing, archiveName + "/" + entryName, collectionId, depth + 1);
                     continue;
                 }
@@ -388,12 +402,12 @@ public class IngestionService {
 
                 String qualifiedName = archiveName + "/" + entryName;
                 try {
-                    // Enveloppe zis dans un flux non-fermable : certains extracteurs
-                    // (Jackson AUTO_CLOSE_SOURCE) ferment le stream après lecture,
-                    // ce qui invaliderait le ZipInputStream pour les entrées suivantes.
-                    InputStream entryStream = new java.io.FilterInputStream(zis) {
+                    // Enveloppe zis dans un flux non-fermable + borné : certains extracteurs
+                    // (Jackson AUTO_CLOSE_SOURCE) ferment le stream après lecture, ce qui
+                    // invaliderait le ZipInputStream ; la borne protège des ZIP bombs.
+                    InputStream entryStream = new LimitedInputStream(new java.io.FilterInputStream(zis) {
                         @Override public void close() { /* ne pas fermer le ZipInputStream parent */ }
-                    };
+                    }, MAX_ENTRY_UNCOMPRESSED_BYTES);
                     totalChunks += processSingleFile(qualifiedName, entryStream, collectionId, defaultCollection);
                 } catch (ExtractionException e) {
                     log.warn("Erreur sur {}: {}", qualifiedName, e.getMessage());

@@ -110,10 +110,12 @@ public class HybridSearchService {
         for (int i = 0; i < vecDocs.size(); i++) {
             String id = i < vecIds.size() ? vecIds.get(i) : ("__vec_" + i);
             vecRankByid.put(id, i + 1);
-            vecDistById.put(id, vecDists.isEmpty() ? 0.0 : vecDists.get(i));
+            // Réponse Chroma potentiellement plus courte que vecDocs : borner chaque accès.
+            vecDistById.put(id, i < vecDists.size() ? vecDists.get(i) : 0.0);
             vecTextById.put(id, vecDocs.get(i));
-            String src = vecMetas.isEmpty() ? "inconnu"
-                    : vecMetas.get(i).getOrDefault("sourceFile", "inconnu");
+            String src = i < vecMetas.size() && vecMetas.get(i) != null
+                    ? vecMetas.get(i).getOrDefault("sourceFile", "inconnu")
+                    : "inconnu";
             vecSrcById.put(id, src);
         }
 
@@ -162,8 +164,9 @@ public class HybridSearchService {
                 })
                 .toList();
 
-        int vecOnly  = (int) results.stream().filter(c -> c.bm25Score() == 0f).count();
-        int bm25Only = (int) results.stream().filter(c -> c.vectorDistance() >= 1.0).count();
+        // Appartenance réelle à chaque source (et non heuristique sur score/distance).
+        int vecOnly  = (int) results.stream().filter(c -> !bm25RankById.containsKey(c.id())).count();
+        int bm25Only = (int) results.stream().filter(c -> !vecRankByid.containsKey(c.id())).count();
         int both     = results.size() - vecOnly - bm25Only;
         log.info("Hybrid search: {} results (vec-only={}, bm25-only={}, both={})",
                 results.size(), vecOnly, bm25Only, both);
