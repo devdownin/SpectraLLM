@@ -8,7 +8,10 @@ import fr.spectra.service.UrlIngestionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import org.springframework.data.domain.Page;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -25,6 +28,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.List;
 import java.util.Map;
 
+@Validated
 @RestController
 @RequestMapping(value = "/api/ingest", produces = MediaType.APPLICATION_JSON_VALUE)
 @Tag(name = "Ingestion", description = "Upload et traitement de documents")
@@ -47,8 +51,8 @@ public class IngestController {
     @GetMapping("/files")
     @Operation(summary = "Historique paginé des fichiers ingérés (page, size, q)")
     public Page<IngestedFileEntity> getHistory(
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "50") int size,
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "50") @Min(1) @Max(200) int size,
             @RequestParam(required = false) String q) {
         return ingestionService.getHistory(page, size, q);
     }

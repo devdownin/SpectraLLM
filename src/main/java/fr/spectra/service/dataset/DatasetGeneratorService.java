@@ -63,8 +63,8 @@ public class DatasetGeneratorService {
     @PostConstruct
     private void loadPersistedPairs() {
         if (!Files.exists(pairsFile)) return;
-        try {
-            Files.lines(pairsFile).forEach(line -> {
+        try (var lines = Files.lines(pairsFile)) {
+            lines.forEach(line -> {
                 try { generatedPairs.add(mapper.readValue(line, TrainingPair.class)); }
                 catch (Exception ignored) {}
             });
@@ -214,9 +214,15 @@ public class DatasetGeneratorService {
             persistPairs();
 
         } catch (Exception e) {
-            log.error("Erreur génération dataset {}: {}", taskId, e.getMessage(), e);
-            tasks.put(taskId, new GenerationTask(
-                    taskId, GenerationTask.Status.FAILED, 0, 0, 0, e.getMessage(), Instant.now()));
+            if (cancelledTasks.contains(taskId)) {
+                log.info("Génération dataset {} interrompue par annulation: {}", taskId, e.getMessage());
+                tasks.put(taskId, new GenerationTask(
+                        taskId, GenerationTask.Status.CANCELLED, 0, 0, 0, "Annulé par l'utilisateur", Instant.now()));
+            } else {
+                log.error("Erreur génération dataset {}: {}", taskId, e.getMessage(), e);
+                tasks.put(taskId, new GenerationTask(
+                        taskId, GenerationTask.Status.FAILED, 0, 0, 0, e.getMessage(), Instant.now()));
+            }
         } finally {
             generationRunning.set(false);
             cancelledTasks.remove(taskId);

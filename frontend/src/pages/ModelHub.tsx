@@ -2,13 +2,19 @@ import type { FC } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { modelsHubApi } from '../services/api';
 import Skeleton from '../components/Skeleton';
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 
 const ModelHub: FC = () => {
   const [installingModels, setInstallingModels] = useState<Record<string, number>>({});
   const [installedModels, setInstalledModels] = useState<string[]>([]);
   const [autoActivate, setAutoActivate] = useState(false);
+  const activeEventSources = useRef<Map<string, EventSource>>(new Map());
+
+  useEffect(() => {
+    const sources = activeEventSources.current;
+    return () => { sources.forEach(es => es.close()); };
+  }, []);
   const [filter, setFilter] = useState('All');
   const [limit, setLimit] = useState(12);
   const [simulation, setSimulation] = useState<{memory?: string, ram?: string, cpuCores?: number}>({});
@@ -26,12 +32,17 @@ const ModelHub: FC = () => {
       setInstallingModels(prev => ({ ...prev, [variables.modelName]: 0 }));
 
       const eventSource = modelsHubApi.getProgressSource(variables.modelName);
+      activeEventSources.current.set(variables.modelName, eventSource);
+      const cleanupSource = (name: string) => {
+        activeEventSources.current.get(name)?.close();
+        activeEventSources.current.delete(name);
+      };
       eventSource.onmessage = (event) => {
         const progress = parseInt(event.data);
         if (!isNaN(progress)) {
           setInstallingModels(prev => ({ ...prev, [variables.modelName]: progress }));
           if (progress >= 100) {
-            eventSource.close();
+            cleanupSource(variables.modelName);
             setInstallingModels(prev => {
               const next = { ...prev };
               delete next[variables.modelName];
@@ -48,7 +59,7 @@ const ModelHub: FC = () => {
         }
       };
       eventSource.onerror = () => {
-        eventSource.close();
+        cleanupSource(variables.modelName);
         setInstallingModels(prev => {
           const next = { ...prev };
           delete next[variables.modelName];

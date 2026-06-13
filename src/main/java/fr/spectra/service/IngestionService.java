@@ -113,8 +113,8 @@ public class IngestionService {
 
         for (MultipartFile file : files) {
             String fileName = file.getOriginalFilename();
+            Path tempFile = tempDir.resolve(UUID.randomUUID() + "_" + (fileName != null ? fileName : "unknown"));
             try {
-                Path tempFile = tempDir.resolve(UUID.randomUUID() + "_" + (fileName != null ? fileName : "unknown"));
                 String hash = copyAndHash(file.getInputStream(), tempFile);
 
                 if (!force && repository.existsById(hash)) {
@@ -129,6 +129,7 @@ public class IngestionService {
 
             } catch (Exception e) {
                 log.warn("Erreur préparation fichier {}: {}", fileName, e.getMessage());
+                try { Files.deleteIfExists(tempFile); } catch (Exception ignored) {}
             }
         }
 
@@ -255,21 +256,31 @@ public class IngestionService {
         }
     }
 
+    private static final long MAX_SINGLE_FILE_BYTES = 200L * 1024 * 1024; // 200 MB
+
     /**
      * Ingère un seul fichier depuis un InputStream (utilisé par UrlIngestionService).
+     * Stream via un fichier temporaire pour éviter de charger l'intégralité en mémoire.
      */
     public int ingest(String fileName, InputStream inputStream, String collectionId) throws Exception {
-        byte[] bytes = inputStream.readAllBytes();
-        String hash = sha256(new java.io.ByteArrayInputStream(bytes));
-        if (repository.existsById(hash)) {
-            log.info("Fichier ignoré (déjà ingéré, sha256={}): {}", hash, fileName);
-            return 0;
+        Path tempFile = Files.createTempFile("spectra-url-", null);
+        try {
+            String hash = copyAndHash(inputStream, tempFile);
+            if (repository.existsById(hash)) {
+                log.info("Fichier ignoré (déjà ingéré, sha256={}): {}", hash, fileName);
+                return 0;
+            }
+            int chunks;
+            try (InputStream in = Files.newInputStream(tempFile)) {
+                chunks = processSingleFile(fileName, in, collectionId, defaultCollection);
+            }
+            if (chunks > 0) {
+                recordIngestion(hash, fileName, chunks, defaultCollection);
+            }
+            return chunks;
+        } finally {
+            Files.deleteIfExists(tempFile);
         }
-        int chunks = processSingleFile(fileName, new java.io.ByteArrayInputStream(bytes), collectionId, defaultCollection);
-        if (chunks > 0) {
-            recordIngestion(hash, fileName, chunks, defaultCollection);
-        }
-        return chunks;
     }
 
     /**
@@ -281,6 +292,12 @@ public class IngestionService {
             int total = 0;
             for (Path path : paths) {
                 try {
+                    long fileSize = Files.size(path);
+                    if (fileSize > MAX_SINGLE_FILE_BYTES) {
+                        log.warn("Fichier ignoré (trop grand {}MB > {}MB): {}",
+                                fileSize / (1024 * 1024), MAX_SINGLE_FILE_BYTES / (1024 * 1024), path);
+                        continue;
+                    }
                     byte[] bytes = Files.readAllBytes(path);
                     String hash = sha256(new java.io.ByteArrayInputStream(bytes));
                     int chunks = processSingleFile(path.getFileName().toString(),

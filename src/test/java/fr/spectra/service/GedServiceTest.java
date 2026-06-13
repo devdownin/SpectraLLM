@@ -281,7 +281,7 @@ class GedServiceTest {
         DocumentModelLinkEntity link = new DocumentModelLinkEntity(
                 "sha-match", "phi-mini", DocumentModelLinkEntity.LinkType.TRAINED_ON, Instant.now());
         when(linkRepo.findByModelName("phi-mini")).thenReturn(List.of(link));
-        when(fileRepo.findById("sha-match")).thenReturn(Optional.of(entity("sha-match")));
+        when(fileRepo.findAllById(List.of("sha-match"))).thenReturn(List.of(entity("sha-match")));
 
         List<IngestedFileEntity> docs = ged.getDocumentsByModel("phi-mini");
 

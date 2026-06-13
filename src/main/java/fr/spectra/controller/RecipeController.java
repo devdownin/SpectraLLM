@@ -2,6 +2,7 @@ package fr.spectra.controller;
 
 import fr.spectra.dto.FineTuningRequest;
 import io.swagger.v3.oas.annotations.Operation;
+import jakarta.validation.Valid;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -86,7 +87,7 @@ public class RecipeController {
 
     @PostMapping("/recipe/export")
     @Operation(summary = "Exporter la configuration d'un job comme fichier YAML téléchargeable")
-    public ResponseEntity<byte[]> exportRecipe(@RequestBody FineTuningRequest request) {
+    public ResponseEntity<byte[]> exportRecipe(@Valid @RequestBody FineTuningRequest request) {
         try {
             // Build an ordered map of the request fields for clean YAML output
             Map<String, Object> doc = new LinkedHashMap<>();

@@ -289,7 +289,8 @@ public class RagService {
     }
 
     /** Tuple interne pour la phase de setup du streaming. */
-    private record StreamSetup(RagContext ctx, boolean conversationalApplied) {}
+    private record StreamSetup(RagContext ctx, boolean conversationalApplied,
+                               boolean correctiveApplied, boolean compressionApplied) {}
 
     /**
      * Streaming SSE token par token. Émet : sources → token* → done | error.
@@ -341,7 +342,41 @@ public class RagService {
                             conversationalApplied = true;
                         }
                     }
-                    return new StreamSetup(retrieveContext(request, retrievalQuestion), conversationalApplied);
+                    RagContext ctx = retrieveContext(request, retrievalQuestion);
+
+                    boolean correctiveApplied = false;
+                    if (correctiveRagService.isPresent() && !ctx.contextChunks().isEmpty()) {
+                        List<Integer> keptIndices = correctiveRagService.get()
+                                .gradeChunks(request.question(), ctx.contextChunks());
+                        if (keptIndices.size() < ctx.contextChunks().size()) {
+                            CorrectiveRagService.FilteredContext filtered = correctiveRagService.get().filterByIndices(
+                                    keptIndices,
+                                    ctx.contextChunks(), ctx.chunkMetadatas(), ctx.chunkDistances(),
+                                    ctx.rerankScores(), ctx.bm25Scores());
+                            ctx = rebuildContext(filtered, ctx.rerankApplied(), ctx.hybridApplied(),
+                                    ctx.multiQueryApplied(), ctx.semanticDedupApplied(), ctx.longContextApplied());
+                            correctiveApplied = true;
+                        }
+                    }
+
+                    boolean compressionApplied = false;
+                    if (contextCompressionService.isPresent() && !ctx.contextChunks().isEmpty()) {
+                        ContextCompressionService.CompressionResult cr =
+                                contextCompressionService.get().compress(request.question(), ctx.contextChunks());
+                        if (!cr.keptIndices().isEmpty()) {
+                            ctx = buildRagContext(
+                                    cr.compressedTexts(),
+                                    filterByIndices(ctx.chunkMetadatas(), cr.keptIndices()),
+                                    filterByIndices(ctx.chunkDistances(), cr.keptIndices()),
+                                    ctx.rerankScores()  != null ? filterByIndices(ctx.rerankScores(), cr.keptIndices())  : null,
+                                    ctx.bm25Scores()    != null ? filterByIndices(ctx.bm25Scores(), cr.keptIndices())    : null,
+                                    ctx.rerankApplied(), ctx.hybridApplied(),
+                                    ctx.multiQueryApplied(), ctx.semanticDedupApplied(), ctx.longContextApplied());
+                            compressionApplied = true;
+                        }
+                    }
+
+                    return new StreamSetup(ctx, conversationalApplied, correctiveApplied, compressionApplied);
                 })
                 .subscribeOn(Schedulers.boundedElastic())
                 .flatMapMany(setup -> {
@@ -374,13 +409,15 @@ public class RagService {
                     }
 
                     String doneMeta = String.format(
-                            "{\"conversationalApplied\":%b,\"correctiveApplied\":false,"
+                            "{\"conversationalApplied\":%b,\"correctiveApplied\":%b,"
                             + "\"selfRagApplied\":false,\"ragStrategy\":\"STANDARD\","
                             + "\"rerankApplied\":%b,\"hybridSearchApplied\":%b,"
                             + "\"multiQueryApplied\":%b,\"semanticDedupApplied\":%b,"
-                            + "\"longContextApplied\":%b,\"compressionApplied\":false}",
-                            setup.conversationalApplied(), ctx.rerankApplied(), ctx.hybridApplied(),
-                            ctx.multiQueryApplied(), ctx.semanticDedupApplied(), ctx.longContextApplied());
+                            + "\"longContextApplied\":%b,\"compressionApplied\":%b}",
+                            setup.conversationalApplied(), setup.correctiveApplied(),
+                            ctx.rerankApplied(), ctx.hybridApplied(),
+                            ctx.multiQueryApplied(), ctx.semanticDedupApplied(), ctx.longContextApplied(),
+                            setup.compressionApplied());
                     ServerSentEvent<String> doneEvent = ServerSentEvent.<String>builder()
                             .event("done").data(doneMeta).build();
 
@@ -491,6 +528,11 @@ public class RagService {
                 rerankScores   = new ArrayList<>(ranked.size());
                 bm25Scores     = new ArrayList<>(ranked.size());
                 for (RerankerClient.RankedResult r : ranked) {
+                    if (r.index() < 0 || r.index() >= allChunks.size()) {
+                        log.warn("Re-ranker returned out-of-bounds index {} (allChunks.size={}), skipping",
+                                r.index(), allChunks.size());
+                        continue;
+                    }
                     contextChunks.add(allChunks.get(r.index()));
                     chunkMetadatas.add(allMetadatas.get(r.index()));
                     chunkDistances.add(allDistances.get(r.index()));

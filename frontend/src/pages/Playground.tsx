@@ -75,11 +75,11 @@ const RagBadges: FC<{ meta: RagMeta }> = ({ meta }) => {
 };
 
 const Playground: FC = () => {
+  const defaultWelcome: Message = { role: 'assistant', content: 'Welcome to the Spectra Playground. I am ready to answer questions based on your ingested documents. How can I help you today?', status: 'SENT' };
   const [messages, setMessages] = useState<Message[]>(() => {
     const saved = localStorage.getItem('spectra_chat_history');
-    return saved ? JSON.parse(saved) : [
-      { role: 'assistant', content: 'Welcome to the Spectra Playground. I am ready to answer questions based on your ingested documents. How can I help you today?', status: 'SENT' }
-    ];
+    if (!saved) return [defaultWelcome];
+    try { return JSON.parse(saved); } catch { return [defaultWelcome]; }
   });
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -189,10 +189,11 @@ const Playground: FC = () => {
           try { sources = JSON.parse(event.data); } catch { /* ignore */ }
         } else if (event.type === 'token') {
           setMessages(prev => {
-            const updated = [...prev];
-            const last = updated.findLast(m => m.role === 'assistant');
-            if (last) last.content += event.data;
-            return [...updated];
+            const lastIdx = prev.findLastIndex(m => m.role === 'assistant');
+            if (lastIdx < 0) return prev;
+            return prev.map((m, i) =>
+              i === lastIdx ? { ...m, content: m.content + event.data } : m
+            );
           });
         } else if (event.type === 'done') {
           let meta: RagMeta | undefined;
@@ -213,22 +214,21 @@ const Playground: FC = () => {
           } catch { /* ignore */ }
 
           setMessages(prev => {
-            const updated = [...prev];
-            const lastUser = updated.findLast(m => m.role === 'user' && m.content === currentInput);
-            if (lastUser) lastUser.status = 'SENT';
-            const last = updated.findLast(m => m.role === 'assistant');
-            if (last) { last.status = 'SENT'; last.sources = sources; last.ragMeta = meta; }
-            return [...updated];
+            const lastUserIdx = prev.findLastIndex(m => m.role === 'user' && m.content === currentInput);
+            const lastAsstIdx = prev.findLastIndex(m => m.role === 'assistant');
+            return prev.map((m, i) => {
+              if (i === lastUserIdx) return { ...m, status: 'SENT' };
+              if (i === lastAsstIdx) return { ...m, status: 'SENT', sources, ragMeta: meta };
+              return m;
+            });
           });
         } else if (event.type === 'error') {
           let msg = 'Spectra core is currently unreachable or timed out.';
           try { msg = JSON.parse(event.data).message ?? msg; } catch { /* ignore */ }
           toast.error('Query Uplink Failed', { description: msg });
           setMessages(prev => {
-            const updated = [...prev];
-            const last = updated.findLast(m => m.role === 'assistant');
-            if (last) last.status = 'ERROR';
-            return [...updated];
+            const lastAsstIdx = prev.findLastIndex(m => m.role === 'assistant');
+            return prev.map((m, i) => i === lastAsstIdx ? { ...m, status: 'ERROR' } : m);
           });
         }
       }
@@ -238,12 +238,13 @@ const Playground: FC = () => {
         description: 'Spectra core is currently unreachable or timed out.'
       });
       setMessages(prev => {
-        const updated = [...prev];
-        const lastUser = updated.findLast(m => m.role === 'user' && m.content === currentInput);
-        if (lastUser) lastUser.status = 'ERROR';
-        const last = updated.findLast(m => m.role === 'assistant');
-        if (last && last.content === '') updated.splice(updated.lastIndexOf(last), 1);
-        return [...updated];
+        const lastUserIdx = prev.findLastIndex(m => m.role === 'user' && m.content === currentInput);
+        const lastAsstIdx = prev.findLastIndex(m => m.role === 'assistant');
+        const removeEmpty = lastAsstIdx >= 0 && prev[lastAsstIdx].content === '';
+        // lastUserIdx < lastAsstIdx always, so filtering assistant doesn't shift user's position
+        return prev
+          .filter((_, i) => !(removeEmpty && i === lastAsstIdx))
+          .map((m, i) => i === lastUserIdx ? { ...m, status: 'ERROR' } : m);
       });
     } finally {
       clearTimeout(guardTimer);

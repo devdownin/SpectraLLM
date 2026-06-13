@@ -174,11 +174,8 @@ public class GedService {
     public List<IngestedFileEntity> getDocumentsByModel(String modelName) {
         List<String> sha256s = linkRepo.findByModelName(modelName)
                 .stream().map(DocumentModelLinkEntity::getDocumentSha256).distinct().toList();
-        return sha256s.stream()
-                .map(fileRepo::findById)
-                .filter(Optional::isPresent)
-                .map(Optional::get)
-                .toList();
+        if (sha256s.isEmpty()) return List.of();
+        return fileRepo.findAllById(sha256s);
     }
 
     // ── R6 — Audit trail ─────────────────────────────────────────────────────

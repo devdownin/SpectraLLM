@@ -90,7 +90,7 @@ public class GlobalExceptionHandler {
         log.error("Erreur interne: {}", e.getMessage(), e);
         ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.INTERNAL_SERVER_ERROR);
         problem.setTitle("Erreur interne");
-        problem.setDetail(e.getMessage());
+        problem.setDetail("Une erreur interne est survenue.");
         return problem;
     }
 }

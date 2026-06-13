@@ -71,8 +71,8 @@ public class DpoGenerationService {
     @PostConstruct
     private void loadPersistedPairs() {
         if (!Files.exists(pairsFile)) return;
-        try {
-            Files.lines(pairsFile).forEach(line -> {
+        try (var lines = Files.lines(pairsFile)) {
+            lines.forEach(line -> {
                 try { dpoPairs.add(mapper.readValue(line, DpoPair.class)); }
                 catch (Exception ignored) {}
             });
