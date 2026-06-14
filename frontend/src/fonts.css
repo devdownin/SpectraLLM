@@ -1,0 +1,21 @@
+/* Polices auto-hébergées — supprime toute dépendance au CDN Google Fonts.
+ *
+ * Ce fichier est importé via JS (main.tsx) afin que Vite traite les url() et
+ * émette les woff2 dans le bundle. Les @fontsource ne déclarent que des
+ * @font-face (familles 'Inter' / 'Space Grotesk' — tokens inchangés).
+ *
+ * La police d'icônes est importée dans la couche `base` : sa règle
+ * `.material-symbols-outlined { font-size: 24px }` reste ainsi dominée par les
+ * utilitaires de taille Tailwind (text-[Npx]), placés dans la couche `utilities`.
+ */
+@import "@fontsource/inter/300.css";
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
+@import "@fontsource/inter/700.css";
+@import "@fontsource/space-grotesk/300.css";
+@import "@fontsource/space-grotesk/400.css";
+@import "@fontsource/space-grotesk/500.css";
+@import "@fontsource/space-grotesk/600.css";
+@import "@fontsource/space-grotesk/700.css";
+@import "material-symbols/outlined.css" layer(base);
