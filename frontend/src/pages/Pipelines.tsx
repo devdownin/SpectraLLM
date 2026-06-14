@@ -104,6 +104,14 @@ const Pipelines: FC = () => {
 
   useEffect(() => { setPage(0); }, [deferredSearch, selectedLifecycle, selectedFormats, qualityMin, groupBy, sortMode]);
 
+  // Fermeture de la fiche document au clavier (Échap).
+  useEffect(() => {
+    if (!selectedSha) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setSelectedSha(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selectedSha]);
+
   // ── Queries ────────────────────────────────────────────────────────────────
 
   const { data: stats } = useQuery({
@@ -739,14 +747,18 @@ const Pipelines: FC = () => {
 
       {/* Document Detail Sheet */}
       {selectedSha && (
-        <div className="fixed inset-y-0 right-0 w-full lg:w-[520px] bg-surface-container-high shadow-[-20px_0_40px_rgba(0,0,0,0.5)] z-50 animate-in slide-in-from-right duration-300 border-l border-outline-variant/20 flex flex-col">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Fiche document"
+          className="fixed inset-y-0 right-0 w-full lg:w-[520px] bg-surface-container-high shadow-[-20px_0_40px_rgba(0,0,0,0.5)] z-50 animate-in slide-in-from-right duration-300 border-l border-outline-variant/20 flex flex-col">
           <header className="p-6 border-b border-outline-variant/20 flex justify-between items-center">
             <div className="min-w-0">
               <p className="text-[9px] font-label uppercase tracking-widest text-outline">Fiche Document</p>
               <h3 className="font-headline text-lg font-bold truncate max-w-[380px]">{sheet?.fileName ?? '—'}</h3>
             </div>
-            <button onClick={() => setSelectedSha(null)} className="w-10 h-10 flex items-center justify-center hover:bg-surface-variant transition-colors shrink-0">
-              <span className="material-symbols-outlined">close</span>
+            <button onClick={() => setSelectedSha(null)} aria-label="Fermer la fiche document" className="w-10 h-10 flex items-center justify-center hover:bg-surface-variant transition-colors shrink-0">
+              <span aria-hidden="true" className="material-symbols-outlined">close</span>
             </button>
           </header>
 

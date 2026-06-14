@@ -608,8 +608,8 @@ const FineTuning: FC = () => {
           </button>
         </div>
 
-        <div className="bg-surface-container overflow-hidden">
-          <table className="w-full text-left border-collapse">
+        <div className="bg-surface-container overflow-x-auto">
+          <table className="w-full min-w-[640px] text-left border-collapse">
             <thead>
               <tr className="bg-surface-container-high">
                 {['Job ID', 'Model', 'Base', 'Dataset', 'Epochs', 'Status', 'Date'].map(h => (

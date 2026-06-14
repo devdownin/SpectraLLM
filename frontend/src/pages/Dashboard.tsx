@@ -800,7 +800,7 @@ const Dashboard: FC = () => {
                     })}
                 </div>
                 <button
-                  onClick={() => navigate('/evaluation')}
+                  onClick={() => navigate('/comparison')}
                   className="text-[9px] font-label font-bold uppercase tracking-widest text-primary hover:text-primary/70 transition-colors flex items-center gap-1"
                 >
                   <span className="material-symbols-outlined text-[11px]">arrow_forward</span>

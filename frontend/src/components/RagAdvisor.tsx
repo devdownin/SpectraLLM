@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import type { FC } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { gedApi, ingestApi } from '../services/api';
@@ -209,6 +209,14 @@ const RagAdvisor: FC<Props> = ({ open, onClose }) => {
 
   const recommendations = useMemo(() => computeRecommendations(stats ?? null, formats), [stats, formats]);
 
+  // Fermeture au clavier (Échap) tant que le panneau est ouvert.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
   const total       = stats?.total       as number ?? 0;
   const avgQ        = stats?.avgQualityScore as number | null ?? null;
   const totalChunks = stats?.totalChunks  as number ?? 0;
@@ -225,7 +233,11 @@ const RagAdvisor: FC<Props> = ({ open, onClose }) => {
       />
 
       {/* Panel */}
-      <div className="fixed inset-y-0 right-0 w-full lg:w-[560px] bg-surface-container-high shadow-[-20px_0_40px_rgba(0,0,0,0.5)] z-50 animate-in slide-in-from-right duration-300 border-l border-outline-variant/20 flex flex-col">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Conseiller RAG"
+        className="fixed inset-y-0 right-0 w-full lg:w-[560px] bg-surface-container-high shadow-[-20px_0_40px_rgba(0,0,0,0.5)] z-50 animate-in slide-in-from-right duration-300 border-l border-outline-variant/20 flex flex-col">
 
         {/* Header */}
         <header className="p-6 border-b border-outline-variant/20 flex justify-between items-start shrink-0">
@@ -236,8 +248,8 @@ const RagAdvisor: FC<Props> = ({ open, onClose }) => {
               Recommandations basées sur votre corpus actuel
             </p>
           </div>
-          <button onClick={onClose} className="w-10 h-10 flex items-center justify-center hover:bg-surface-variant transition-colors shrink-0 mt-1">
-            <span className="material-symbols-outlined">close</span>
+          <button onClick={onClose} aria-label="Fermer le conseiller RAG" className="w-10 h-10 flex items-center justify-center hover:bg-surface-variant transition-colors shrink-0 mt-1">
+            <span aria-hidden="true" className="material-symbols-outlined">close</span>
           </button>
         </header>
 

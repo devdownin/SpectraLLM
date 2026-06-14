@@ -53,6 +53,14 @@
   --color-on-secondary: #390050;
   --color-primary: #8ff5ff;
 
+  /* Alias tokens (compat shadcn-style) — mappent vers la vraie palette pour que
+     les pages utilisant foreground/muted-foreground/border/card rendent correctement. */
+  --color-foreground: #dee5ff;          /* = on-surface */
+  --color-muted-foreground: #a3aac4;    /* = on-surface-variant */
+  --color-border: #40485d;              /* = outline-variant */
+  --color-primary-foreground: #005d63;  /* = on-primary (texte sombre sur primary cyan) */
+  --color-card: #0f1930;                /* = surface-container */
+
   --font-headline: "Space Grotesk";
   --font-body: "Inter";
   --font-label: "Inter";
@@ -60,21 +68,21 @@
   --radius-default: 0px;
   --radius-lg: 0px;
   --radius-xl: 0px;
+}
 
-  @keyframes progress-fast {
-    0% { transform: translateX(-100%); }
-    100% { transform: translateX(100%); }
-  }
+@keyframes progress-fast {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
 
-  @keyframes shimmer {
-    0%   { background-position: -600px 0; }
-    100% { background-position:  600px 0; }
-  }
+@keyframes shimmer {
+  0%   { background-position: -600px 0; }
+  100% { background-position:  600px 0; }
+}
 
-  @keyframes accent-pulse {
-    0%, 100% { opacity: 0.7; }
-    50%       { opacity: 1.0; }
-  }
+@keyframes accent-pulse {
+  0%, 100% { opacity: 0.7; }
+  50%       { opacity: 1.0; }
 }
 
 .animate-progress-fast {
@@ -250,6 +258,25 @@
 @layer base {
   body {
     @apply bg-surface text-on-surface font-body;
+  }
+
+  /* Anneau de focus clavier visible (le reset met focus:outline-none sur les inputs). */
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+}
+
+/* Respect des préférences d'accessibilité : neutralise les ~15 animations infinies
+   décoratives pour les utilisateurs sensibles au mouvement. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
   }
 }
 
