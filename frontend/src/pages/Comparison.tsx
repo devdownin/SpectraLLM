@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { evaluationApi } from '../services/api';
 import type { EvaluationReport, EvaluationScore } from '../types/api';
 import ScoreRadar from '../components/charts/ScoreRadar';
+import Skeleton from '../components/Skeleton';
 
 const STATUS_LABEL: Record<string, string> = {
   PENDING:   'En attente',
@@ -149,9 +150,10 @@ const Comparison: FC = () => {
       </header>
 
       {isLoading ? (
-        <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">
-          Chargement...
-        </p>
+        <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-6 items-start">
+          <Skeleton className="h-64" />
+          <Skeleton className="h-80" />
+        </div>
       ) : reports.length === 0 ? (
         <div className="bg-surface-container p-8 text-center space-y-2">
           <p className="font-headline text-lg">Aucune évaluation</p>

@@ -41,19 +41,6 @@ const Header: FC<HeaderProps> = ({ onMenuClick }) => {
         )}
       </div>
       <div className="flex items-center gap-6">
-        <div className="relative hidden lg:block">
-          <label htmlFor="header-search" className="sr-only">Search parameters</label>
-          <input
-            id="header-search"
-            className="bg-surface-variant/60 border border-outline-variant/20 text-on-surface text-sm px-4 py-1.5 focus:outline-none focus:border-primary/40 w-64 font-body transition-colors placeholder:text-outline/50"
-            placeholder="Search parameters..."
-            type="text"
-            onChange={() => {}}
-          />
-          <span aria-hidden="true" className="material-symbols-outlined absolute right-3 top-1.5 text-outline/50 text-sm">
-            search
-          </span>
-        </div>
         <div className="flex items-center gap-3 text-on-surface-variant">
           <button
             className="hover:bg-surface-variant/60 p-1.5 transition-colors duration-200 hover:text-primary"

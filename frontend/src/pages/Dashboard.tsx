@@ -1,8 +1,6 @@
-import { useEffect } from 'react';
 import type { FC } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { toast } from 'sonner';
 import { useStatus } from '../hooks/useStatus';
 import { datasetApi, gedApi, commentApi, metricsApi } from '../services/api';
 import Skeleton from '../components/Skeleton';
@@ -81,7 +79,7 @@ function statusChip(status: string): { label: string; cls: string } {
 
 const Dashboard: FC = () => {
   const navigate = useNavigate();
-  const { status, loading, error } = useStatus();
+  const { status, loading } = useStatus();
   // Stats périodiques (dataset + GED + métriques) via React Query — Promise.allSettled
   // pour que l'échec d'une source n'invalide pas les autres ; polling 30 s.
   const { data: statsData, isLoading: statsLoading } = useQuery({
@@ -144,10 +142,7 @@ const Dashboard: FC = () => {
   const statsErrors = statsData?.errors ?? [];
   // Les stats calculées priment sur celles embarquées dans gedStats (comportement d'origine).
   const commentStats = computedCommentStats ?? statsData?.commentStatsFromGed ?? null;
-
-  useEffect(() => {
-    if (error) toast.error('Connection Failed', { description: 'Unable to reach Spectra API.' });
-  }, [error]);
+  // Les pannes réseau / 5xx sont signalées globalement par l'intercepteur axios.
 
   const chatSvc  = status?.services?.find((s: { name: string }) => s.name === 'llama-cpp');
   const embedSvc = status?.services?.find((s: { name: string }) => s.name === 'llama-cpp-embed');
@@ -457,9 +452,15 @@ const Dashboard: FC = () => {
                 <p className="font-headline font-bold text-3xl">
                   {(commentStats?.approved ?? 0) + (commentStats?.rejected ?? 0)}
                 </p>
-                <div className="flex gap-2 mt-2">
-                  <span className="text-[8px] font-bold text-primary">👍 {commentStats?.approved ?? 0}</span>
-                  <span className="text-[8px] font-bold text-error">👎 {commentStats?.rejected ?? 0}</span>
+                <div className="flex gap-3 mt-2">
+                  <span className="flex items-center gap-1 text-[9px] font-bold text-primary" title="Approuvés">
+                    <span aria-hidden="true" className="material-symbols-outlined text-[12px]">thumb_up</span>
+                    {commentStats?.approved ?? 0}
+                  </span>
+                  <span className="flex items-center gap-1 text-[9px] font-bold text-error" title="Rejetés">
+                    <span aria-hidden="true" className="material-symbols-outlined text-[12px]">thumb_down</span>
+                    {commentStats?.rejected ?? 0}
+                  </span>
                 </div>
               </>
             )}
@@ -593,10 +594,16 @@ const Dashboard: FC = () => {
                         <div className="bg-error transition-all"   style={{ width: `${pctR}%` }} />
                         <div className="bg-outline-variant/30 transition-all" style={{ width: `${pctP}%` }} />
                       </div>
-                      <div className="flex gap-2 text-[8px] text-outline">
-                        <span className="text-primary">👍 {m.approvedComments}</span>
-                        <span className="text-error">👎 {m.rejectedComments}</span>
-                        <span>⏳ {pending}</span>
+                      <div className="flex gap-3 text-[9px] text-outline">
+                        <span className="flex items-center gap-1 text-primary" title="Approuvés">
+                          <span aria-hidden="true" className="material-symbols-outlined text-[12px]">thumb_up</span>{m.approvedComments}
+                        </span>
+                        <span className="flex items-center gap-1 text-error" title="Rejetés">
+                          <span aria-hidden="true" className="material-symbols-outlined text-[12px]">thumb_down</span>{m.rejectedComments}
+                        </span>
+                        <span className="flex items-center gap-1" title="En attente">
+                          <span aria-hidden="true" className="material-symbols-outlined text-[12px]">schedule</span>{pending}
+                        </span>
                       </div>
                     </div>
                   );

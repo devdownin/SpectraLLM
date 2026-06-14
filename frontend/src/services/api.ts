@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { toast } from 'sonner';
 
 const api = axios.create({
   baseURL: '/api',
@@ -7,13 +8,24 @@ const api = axios.create({
   },
 });
 
-// Axios Interceptor for Global Error Handling (Suggestion 3)
+// Gestion globale des erreurs : signale les pannes réseau et les erreurs serveur
+// (5xx) que les pages ne gèrent généralement pas. Les 4xx restent traitées
+// localement. Les toasts utilisent un id stable pour ne pas s'empiler en cas de
+// polling répété pendant une panne.
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    const status = error.response?.status;
     const message = error.response?.data?.message || error.message || 'Spectra API Error';
     console.error(`[API Error] ${message}`, error);
-    // Here we could trigger a toast notification system
+    if (!error.response) {
+      toast.error('Connexion impossible', {
+        id: 'api-network-error',
+        description: 'Le service Spectra est injoignable.',
+      });
+    } else if (status >= 500) {
+      toast.error('Erreur serveur', { id: 'api-server-error', description: message });
+    }
     return Promise.reject(error);
   }
 );

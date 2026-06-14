@@ -975,7 +975,9 @@ const Pipelines: FC = () => {
                                   key={r}
                                   onClick={() => rateCommentMutation.mutate({ sha: sheet!.sha256, id: c.id, rating: r })}
                                   disabled={rateCommentMutation.isPending}
-                                  className={`px-2 py-0.5 text-[8px] font-bold uppercase border transition-all disabled:opacity-40 ${
+                                  aria-pressed={c.rating === r}
+                                  aria-label={r === 'APPROVED' ? 'Approuver le commentaire' : r === 'REJECTED' ? 'Rejeter le commentaire' : 'Aucune évaluation'}
+                                  className={`px-2 py-0.5 text-[8px] font-bold uppercase border transition-all disabled:opacity-40 flex items-center ${
                                     c.rating === r
                                       ? r === 'APPROVED' ? 'border-primary bg-primary/20 text-primary'
                                         : r === 'REJECTED' ? 'border-error bg-error/20 text-error'
@@ -983,7 +985,11 @@ const Pipelines: FC = () => {
                                       : 'border-outline-variant/20 text-outline hover:border-outline'
                                   }`}
                                 >
-                                  {r === 'APPROVED' ? '👍' : r === 'REJECTED' ? '👎' : '—'}
+                                  {r === 'APPROVED'
+                                    ? <span aria-hidden="true" className="material-symbols-outlined text-[13px]">thumb_up</span>
+                                    : r === 'REJECTED'
+                                      ? <span aria-hidden="true" className="material-symbols-outlined text-[13px]">thumb_down</span>
+                                      : '—'}
                                 </button>
                               ))}
                               <button

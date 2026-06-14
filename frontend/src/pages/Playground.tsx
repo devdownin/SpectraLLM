@@ -102,6 +102,7 @@ const Playground: FC = () => {
 
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
   const MAX_HISTORY = 50;
   useEffect(() => {
@@ -124,6 +125,10 @@ const Playground: FC = () => {
   }, [temperature, topP, ragEnabled, topCandidates, convEnabled]);
 
   useEffect(() => {
+    // N'auto-scroll que si l'utilisateur est déjà proche du bas — évite de
+    // combattre un défilement manuel pendant le streaming des tokens.
+    const c = scrollContainerRef.current;
+    if (c && c.scrollHeight - c.scrollTop - c.clientHeight > 120) return;
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
@@ -415,7 +420,7 @@ const Playground: FC = () => {
       </aside>
 
       <div className="flex-1 flex flex-col bg-surface-container overflow-hidden">
-        <div className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar">
+        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar">
           {messages.map((msg, i) => (
             <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
               <div className={`max-w-[80%] p-6 group relative ${

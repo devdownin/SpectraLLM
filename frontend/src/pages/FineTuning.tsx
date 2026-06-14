@@ -153,7 +153,7 @@ interface Recipe {
 // ── Main component ───────────────────────────────────────────────────────────
 
 const FineTuning: FC = () => {
-  const { data: newLog } = useSse<TrainingLog>('/api/sse/training-logs');
+  const { data: newLog, status: sseStatus } = useSse<TrainingLog>('/api/sse/training-logs');
   const [logs, setLogs] = useState<TrainingLog[]>([]);
   const listRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -572,11 +572,35 @@ const FineTuning: FC = () => {
               <div className="h-48 bg-surface-container-lowest font-mono text-[10px] flex flex-col">
                 <div className="px-4 py-2.5 bg-surface-container-lowest/80 backdrop-blur-sm border-b border-outline-variant/10 flex justify-between items-center shrink-0">
                   <span className="uppercase tracking-widest text-on-surface-variant font-bold text-[9px]">Telemetry Stream</span>
-                  <span className="text-[9px] text-outline">{logs.length} events</span>
+                  <div className="flex items-center gap-3">
+                    {/* État de la connexion SSE (live / reconnexion / coupée) */}
+                    <span
+                      className={`flex items-center gap-1 text-[9px] uppercase tracking-widest font-bold ${
+                        sseStatus === 'open' ? 'text-primary'
+                          : sseStatus === 'connecting' ? 'text-secondary'
+                          : 'text-error'
+                      }`}
+                      title={`Flux télémétrie : ${sseStatus}`}
+                    >
+                      <span className={`w-1.5 h-1.5 rounded-full ${
+                        sseStatus === 'open' ? 'bg-primary animate-pulse'
+                          : sseStatus === 'connecting' ? 'bg-secondary animate-pulse'
+                          : 'bg-error'
+                      }`} aria-hidden="true" />
+                      {sseStatus === 'open' ? 'Live' : sseStatus === 'connecting' ? 'Connexion…' : 'Coupé'}
+                    </span>
+                    <span className="text-[9px] text-outline">{logs.length} events</span>
+                  </div>
                 </div>
                 {logs.length === 0 ? (
                   <div className="flex-1 flex items-center justify-center">
-                    <p className="text-outline italic text-[10px]">Establishing telemetry uplink…</p>
+                    <p className="text-outline italic text-[10px]">
+                      {sseStatus === 'closed'
+                        ? 'Flux télémétrie interrompu — reconnexion impossible.'
+                        : sseStatus === 'connecting'
+                          ? 'Connexion au flux télémétrie…'
+                          : 'En attente d’évènements…'}
+                    </p>
                   </div>
                 ) : (
                   <div ref={listRef} className="custom-scrollbar py-2 overflow-y-auto flex-1">

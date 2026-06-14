@@ -3,6 +3,7 @@ import type { FC } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import Tooltip from '../components/Tooltip';
+import Skeleton from '../components/Skeleton';
 import { ingestApi, datasetApi } from '../services/api';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -441,7 +442,7 @@ const Datasets: FC = () => {
         </div>
         <div className="flex items-center gap-3 justify-end">
           {!stats ? (
-            <span className="text-[9px] text-outline uppercase tracking-widest font-label animate-pulse">Chargement…</span>
+            <Skeleton className="h-5 w-44" />
           ) : stats.chunksInStore === 0 ? (
             <span className="text-[9px] text-outline uppercase tracking-widest font-label border border-outline-variant/30 px-2 py-1">
               Base vide — ingérez des documents
