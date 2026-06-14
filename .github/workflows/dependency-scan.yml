@@ -20,7 +20,7 @@ jobs:
           distribution: 'temurin'
           cache: maven
       - name: OWASP Dependency Check
-        run: mvn org.owasp:dependency-check-maven:check
+        run: mvn -Pdep-check org.owasp:dependency-check-maven:check
       - name: Upload Report
         uses: actions/upload-artifact@v7
         with:
