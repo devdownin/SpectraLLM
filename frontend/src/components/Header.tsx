@@ -13,13 +13,25 @@ const PAGE_NAMES: Record<string, string> = {
   '/documentation': 'Documentation',
 };
 
-const Header: FC = () => {
+interface HeaderProps {
+  onMenuClick?: () => void;
+}
+
+const Header: FC<HeaderProps> = ({ onMenuClick }) => {
   const location = useLocation();
   const pageName = PAGE_NAMES[location.pathname] ?? '';
 
   return (
-    <header className="header-border flex justify-between items-center px-6 py-3 sticky top-0 z-50 bg-surface-container/80 backdrop-blur-md">
+    <header className="header-border flex justify-between items-center px-4 md:px-6 py-3 sticky top-0 z-30 bg-surface-container/80 backdrop-blur-md">
       <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={onMenuClick}
+          aria-label="Ouvrir la navigation"
+          className="md:hidden p-1.5 -ml-1.5 hover:bg-surface-variant/60 text-on-surface-variant hover:text-primary transition-colors"
+        >
+          <span aria-hidden="true" className="material-symbols-outlined text-[22px]">menu</span>
+        </button>
         <span className="font-label text-[9px] uppercase tracking-[0.15em] text-outline select-none">Spectra</span>
         {pageName && (
           <>

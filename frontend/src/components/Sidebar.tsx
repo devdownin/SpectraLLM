@@ -5,6 +5,8 @@ import Tooltip from './Tooltip';
 interface SidebarProps {
   isCollapsed: boolean;
   onToggle: () => void;
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
 }
 
 const NeuralIcon: FC<{ size?: number }> = ({ size = 22 }) => (
@@ -24,7 +26,7 @@ const NeuralIcon: FC<{ size?: number }> = ({ size = 22 }) => (
   </svg>
 );
 
-const Sidebar: FC<SidebarProps> = ({ isCollapsed, onToggle }) => {
+const Sidebar: FC<SidebarProps> = ({ isCollapsed, onToggle, mobileOpen = false, onMobileClose }) => {
   const navigate = useNavigate();
 
   const navItems = [
@@ -38,7 +40,7 @@ const Sidebar: FC<SidebarProps> = ({ isCollapsed, onToggle }) => {
   ];
 
   return (
-    <aside className={`sidebar-dots fixed left-0 top-0 h-full flex flex-col p-4 z-40 bg-surface-container-low transition-all duration-300 ${isCollapsed ? 'w-20' : 'w-64'} border-r border-outline-variant/10`}>
+    <aside className={`sidebar-dots fixed left-0 top-0 h-full flex flex-col p-4 z-50 bg-surface-container-low transition-all duration-300 w-64 ${isCollapsed ? 'md:w-20' : 'md:w-64'} ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 border-r border-outline-variant/10`}>
       {/* Logo */}
       <div className="flex items-center justify-between mb-8 overflow-hidden">
         {!isCollapsed && (
@@ -87,6 +89,7 @@ const Sidebar: FC<SidebarProps> = ({ isCollapsed, onToggle }) => {
             <NavLink
               to={item.path}
               end={item.path === '/'}
+              onClick={onMobileClose}
               className={({ isActive }) =>
                 `flex items-center transition-all duration-150 cursor-pointer w-full ${isCollapsed ? 'px-3 py-3 justify-center' : 'px-4 py-3'} ${
                   isActive
@@ -108,7 +111,7 @@ const Sidebar: FC<SidebarProps> = ({ isCollapsed, onToggle }) => {
 
       <Tooltip content={isCollapsed ? 'New Model' : ''}>
         <button
-          onClick={() => navigate('/fine-tuning')}
+          onClick={() => { navigate('/fine-tuning'); onMobileClose?.(); }}
           className={`mt-4 mb-6 bg-primary text-on-primary-fixed font-bold flex items-center justify-center transition-all hover:opacity-90 hover:shadow-[0_0_20px_rgba(143,245,255,0.25)] ${isCollapsed ? 'w-10 h-10 mx-auto' : 'py-2.5 px-4 gap-2'}`}
         >
           <span className="material-symbols-outlined text-[16px]">add</span>
@@ -120,6 +123,7 @@ const Sidebar: FC<SidebarProps> = ({ isCollapsed, onToggle }) => {
         <Tooltip content={isCollapsed ? 'Documentation' : ''}>
           <NavLink
             to="/documentation"
+            onClick={onMobileClose}
             className={({ isActive }) =>
               `flex items-center text-outline hover:text-primary hover:bg-surface-container-high/60 transition-all cursor-pointer w-full ${isCollapsed ? 'px-3 py-2 justify-center' : 'px-4 py-2'} ${isActive ? 'text-primary nav-active' : ''}`
             }

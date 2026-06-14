@@ -1,9 +1,10 @@
-import { useEffect, useMemo } from 'react';
+import { useMemo } from 'react';
 import type { FC } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { gedApi, ingestApi } from '../services/api';
 import Skeleton from './Skeleton';
 import Tooltip from './Tooltip';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 // ── Strategy definitions ──────────────────────────────────────────────────────
 
@@ -209,13 +210,8 @@ const RagAdvisor: FC<Props> = ({ open, onClose }) => {
 
   const recommendations = useMemo(() => computeRecommendations(stats ?? null, formats), [stats, formats]);
 
-  // Fermeture au clavier (Échap) tant que le panneau est ouvert.
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+  // Piège de focus + fermeture Échap + restauration du focus.
+  const panelRef = useFocusTrap<HTMLDivElement>(open, onClose);
 
   const total       = stats?.total       as number ?? 0;
   const avgQ        = stats?.avgQualityScore as number | null ?? null;
@@ -234,10 +230,12 @@ const RagAdvisor: FC<Props> = ({ open, onClose }) => {
 
       {/* Panel */}
       <div
+        ref={panelRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-label="Conseiller RAG"
-        className="fixed inset-y-0 right-0 w-full lg:w-[560px] bg-surface-container-high shadow-[-20px_0_40px_rgba(0,0,0,0.5)] z-50 animate-in slide-in-from-right duration-300 border-l border-outline-variant/20 flex flex-col">
+        className="fixed inset-y-0 right-0 w-full lg:w-[560px] bg-surface-container-high shadow-[-20px_0_40px_rgba(0,0,0,0.5)] z-50 animate-in slide-in-from-right duration-300 border-l border-outline-variant/20 flex flex-col outline-none">
 
         {/* Header */}
         <header className="p-6 border-b border-outline-variant/20 flex justify-between items-start shrink-0">

@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useEffect } from 'react';
 import type { FC } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useStatus } from '../hooks/useStatus';
 import { datasetApi, gedApi, commentApi, metricsApi } from '../services/api';
@@ -81,41 +82,44 @@ function statusChip(status: string): { label: string; cls: string } {
 const Dashboard: FC = () => {
   const navigate = useNavigate();
   const { status, loading, error } = useStatus();
-  const [stats, setStats]         = useState<DatasetStats | null>(null);
-  const [gedStats, setGedStats]   = useState<GedStats | null>(null);
-  const [commentStats, setCommentStats] = useState<CommentStats | null>(null);
-  const [personalizationMetrics, setPersonalizationMetrics] = useState<PersonalizationMetrics | null>(null);
-  const [statsLoading, setStatsLoading] = useState(true);
-  const [statsErrors, setStatsErrors] = useState<string[]>([]);
+  // Stats périodiques (dataset + GED + métriques) via React Query — Promise.allSettled
+  // pour que l'échec d'une source n'invalide pas les autres ; polling 30 s.
+  const { data: statsData, isLoading: statsLoading } = useQuery({
+    queryKey: ['dashboard-stats'],
+    queryFn: async () => {
+      const [dsRes, gedRes, metricsRes] = await Promise.allSettled([
+        datasetApi.getStats(),
+        gedApi.getStats(),
+        metricsApi.getPersonalization(),
+      ]);
+      const errors: string[] = [];
+      const out = {
+        stats: null as DatasetStats | null,
+        gedStats: null as GedStats | null,
+        commentStatsFromGed: null as CommentStats | null,
+        personalizationMetrics: null as PersonalizationMetrics | null,
+        errors,
+      };
+      if (dsRes.status === 'fulfilled') out.stats = dsRes.value.data; else errors.push('dataset');
+      if (gedRes.status === 'fulfilled') {
+        out.gedStats = gedRes.value.data;
+        if (gedRes.value.data.commentStats) out.commentStatsFromGed = gedRes.value.data.commentStats;
+      } else {
+        errors.push('ged');
+      }
+      if (metricsRes.status === 'fulfilled') out.personalizationMetrics = metricsRes.value.data; else errors.push('metrics');
+      return out;
+    },
+    refetchInterval: 30_000,
+  });
 
-  const loadStats = useCallback(async () => {
-    const [dsRes, gedRes, metricsRes] = await Promise.allSettled([
-      datasetApi.getStats(),
-      gedApi.getStats(),
-      metricsApi.getPersonalization(),
-    ]);
-    const errors: string[] = [];
-    if (dsRes.status === 'fulfilled') setStats(dsRes.value.data);
-    else errors.push('dataset');
-    if (gedRes.status === 'fulfilled') {
-      const g = gedRes.value.data;
-      setGedStats(g);
-      if (g.commentStats) setCommentStats(g.commentStats);
-    } else {
-      errors.push('ged');
-    }
-    if (metricsRes.status === 'fulfilled') setPersonalizationMetrics(metricsRes.value.data);
-    else errors.push('metrics');
-    setStatsErrors(errors);
-    setStatsLoading(false);
-  }, []);
-
-  // Load comment stats separately (new endpoint)
-  const loadCommentStats = useCallback(async () => {
-    try {
+  // Stats de commentaires (endpoint dérivé, non critique) — calculées une fois, cache 60 s.
+  const { data: computedCommentStats } = useQuery({
+    queryKey: ['dashboard-comment-stats'],
+    queryFn: async (): Promise<CommentStats | null> => {
       const docs = await gedApi.listDocuments({ size: 500 });
       const allDocs = docs.data?.content ?? [];
-      if (allDocs.length === 0) return;
+      if (allDocs.length === 0) return null;
       const commentResponses = await Promise.allSettled(
         allDocs.slice(0, 20).map((d: { sha256: string }) => commentApi.list(d.sha256))
       );
@@ -129,18 +133,17 @@ const Dashboard: FC = () => {
           aiGenerated += list.filter((c: any) => c.type === 'AI_GENERATED').length;
         }
       });
-      setCommentStats({ total, approved, rejected, aiGenerated });
-    } catch {
-      // ignore — comment stats are non-critical
-    }
-  }, []);
+      return { total, approved, rejected, aiGenerated };
+    },
+    staleTime: 60_000,
+  });
 
-  useEffect(() => {
-    loadStats();
-    loadCommentStats();
-    const id = setInterval(() => { loadStats(); }, 30_000);
-    return () => clearInterval(id);
-  }, [loadStats, loadCommentStats]);
+  const stats = statsData?.stats ?? null;
+  const gedStats = statsData?.gedStats ?? null;
+  const personalizationMetrics = statsData?.personalizationMetrics ?? null;
+  const statsErrors = statsData?.errors ?? [];
+  // Les stats calculées priment sur celles embarquées dans gedStats (comportement d'origine).
+  const commentStats = computedCommentStats ?? statsData?.commentStatsFromGed ?? null;
 
   useEffect(() => {
     if (error) toast.error('Connection Failed', { description: 'Unable to reach Spectra API.' });

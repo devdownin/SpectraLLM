@@ -324,12 +324,18 @@ const Playground: FC = () => {
         <div>
           <h3 className="font-headline text-sm font-bold tracking-tight mb-4 uppercase">RAG Configuration</h3>
           <div className="space-y-3">
-            <label className="flex items-center gap-3 cursor-pointer group" onClick={() => {
-              const next = !ragEnabled;
-              setRagEnabled(next);
-              toast.info(next ? 'Knowledge Base Linked' : 'Knowledge Base Disconnected');
-            }}>
-              <div className="w-4 h-4 border border-primary flex items-center justify-center group-hover:bg-primary/10 transition-colors">
+            <label className="flex items-center gap-3 cursor-pointer group">
+              <input
+                type="checkbox"
+                checked={ragEnabled}
+                onChange={(e) => {
+                  const next = e.target.checked;
+                  setRagEnabled(next);
+                  toast.info(next ? 'Knowledge Base Linked' : 'Knowledge Base Disconnected');
+                }}
+                className="sr-only peer"
+              />
+              <div className="w-4 h-4 border border-primary flex items-center justify-center group-hover:bg-primary/10 transition-colors peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-primary peer-focus-visible:outline-offset-2">
                 {ragEnabled && <div className="w-2 h-2 bg-primary"></div>}
               </div>
               <span className="text-xs font-label uppercase tracking-widest">Enable Knowledge Base</span>
@@ -337,12 +343,18 @@ const Playground: FC = () => {
 
             {ragEnabled && (
               <>
-                <label className="flex items-center gap-3 cursor-pointer group" onClick={() => {
-                  const next = !convEnabled;
-                  setConvEnabled(next);
-                  toast.info(next ? 'Conversational RAG activé' : 'Conversational RAG désactivé');
-                }}>
-                  <div className="w-4 h-4 border border-secondary flex items-center justify-center group-hover:bg-secondary/10 transition-colors">
+                <label className="flex items-center gap-3 cursor-pointer group">
+                  <input
+                    type="checkbox"
+                    checked={convEnabled}
+                    onChange={(e) => {
+                      const next = e.target.checked;
+                      setConvEnabled(next);
+                      toast.info(next ? 'Conversational RAG activé' : 'Conversational RAG désactivé');
+                    }}
+                    className="sr-only peer"
+                  />
+                  <div className="w-4 h-4 border border-secondary flex items-center justify-center group-hover:bg-secondary/10 transition-colors peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-secondary peer-focus-visible:outline-offset-2">
                     {convEnabled && <div className="w-2 h-2 bg-secondary"></div>}
                   </div>
                   <Tooltip content="Envoie l'historique de la conversation pour reformuler la question avant le retrieval (Conversational RAG).">

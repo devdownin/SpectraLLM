@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import Skeleton from '../components/Skeleton';
 import Tooltip from '../components/Tooltip';
 import { gedApi, commentApi } from '../services/api';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import type { IngestedFile, IngestedFileSheet, DocumentLifecycle, ArticleComment } from '../types/api';
 
 type DocumentTypeKey = 'pdf' | 'json' | 'xml' | 'docx' | 'doc' | 'txt' | 'avro' | 'other';
@@ -104,13 +105,8 @@ const Pipelines: FC = () => {
 
   useEffect(() => { setPage(0); }, [deferredSearch, selectedLifecycle, selectedFormats, qualityMin, groupBy, sortMode]);
 
-  // Fermeture de la fiche document au clavier (Échap).
-  useEffect(() => {
-    if (!selectedSha) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setSelectedSha(null); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [selectedSha]);
+  // Piège de focus + fermeture Échap + restauration du focus sur la fiche document.
+  const sheetRef = useFocusTrap<HTMLDivElement>(Boolean(selectedSha), () => setSelectedSha(null));
 
   // ── Queries ────────────────────────────────────────────────────────────────
 
@@ -350,11 +346,18 @@ const Pipelines: FC = () => {
         onClick={() => setSelectedSha(doc.sha256)}
         className={`group grid grid-cols-1 lg:grid-cols-[32px_minmax(0,1.5fr)_100px_140px_120px_100px_80px] gap-4 items-center px-4 py-4 bg-surface-container-low hover:bg-surface-container-high transition-all cursor-pointer border-l-2 ${isActive ? 'border-primary bg-surface-container-high' : 'border-transparent'}`}
       >
-        <div className="flex justify-center" onClick={e => toggleSelect(doc.sha256, e)}>
-          <div className={`w-4 h-4 border flex items-center justify-center transition-all shrink-0 ${isChecked ? 'bg-primary border-primary' : 'border-outline-variant/40 hover:border-primary/50'}`}>
-            {isChecked && <span className="material-symbols-outlined text-white text-[10px]">check</span>}
-          </div>
-        </div>
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked={isChecked}
+          aria-label={`Sélectionner ${doc.fileName}`}
+          onClick={e => toggleSelect(doc.sha256, e)}
+          className="flex justify-center"
+        >
+          <span className={`w-4 h-4 border flex items-center justify-center transition-all shrink-0 ${isChecked ? 'bg-primary border-primary' : 'border-outline-variant/40 hover:border-primary/50'}`}>
+            {isChecked && <span aria-hidden="true" className="material-symbols-outlined text-white text-[10px]">check</span>}
+          </span>
+        </button>
 
         <div className="flex items-center gap-4 min-w-0">
           <div className={`w-10 h-10 flex items-center justify-center border shrink-0 ${type.accentClass}`}>
@@ -384,7 +387,14 @@ const Pipelines: FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          <div className="flex-1 h-1 bg-outline-variant/20 rounded-full overflow-hidden">
+          <div
+            role="progressbar"
+            aria-valuenow={Math.round(score * 100)}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label={`Qualité ${(score * 100).toFixed(0)} % — ${score > 0.7 ? 'bonne' : score > 0.4 ? 'moyenne' : 'faible'}`}
+            className="flex-1 h-1 bg-outline-variant/20 rounded-full overflow-hidden"
+          >
             <div
               className={`h-full ${score > 0.7 ? 'bg-primary' : score > 0.4 ? 'bg-secondary' : 'bg-error'}`}
               style={{ width: `${score * 100}%` }}
@@ -597,13 +607,17 @@ const Pipelines: FC = () => {
         {/* Column headers */}
         <div className="hidden lg:grid lg:grid-cols-[32px_minmax(0,1.5fr)_100px_140px_120px_100px_80px] gap-4 px-4 py-3 border-b border-outline-variant/10 text-[9px] font-label uppercase tracking-widest text-outline">
           <div className="flex justify-center">
-            <div
+            <button
+              type="button"
+              role="checkbox"
+              aria-checked={allSelected ? true : someSelected ? 'mixed' : false}
+              aria-label="Tout sélectionner"
               onClick={toggleSelectAll}
               className={`w-4 h-4 border flex items-center justify-center cursor-pointer transition-all ${allSelected ? 'bg-primary border-primary' : 'border-outline-variant/40 hover:border-primary/50'}`}
             >
-              {allSelected && <span className="material-symbols-outlined text-white text-[10px]">check</span>}
-              {!allSelected && someSelected && <span className="material-symbols-outlined text-primary text-[10px]">remove</span>}
-            </div>
+              {allSelected && <span aria-hidden="true" className="material-symbols-outlined text-white text-[10px]">check</span>}
+              {!allSelected && someSelected && <span aria-hidden="true" className="material-symbols-outlined text-primary text-[10px]">remove</span>}
+            </button>
           </div>
           <span>Document</span>
           <span className="text-center">Lifecycle</span>
@@ -648,12 +662,20 @@ const Pipelines: FC = () => {
                       className="flex items-center gap-3 px-4 py-2.5 bg-surface-container border border-outline-variant/10 cursor-pointer hover:bg-surface-container-high transition-colors select-none"
                       onClick={() => toggleGroup(key)}
                     >
-                      <div onClick={toggleGroupSelect} className="flex justify-center" style={{ width: 32 }}>
-                        <div className={`w-4 h-4 border flex items-center justify-center transition-all ${allGroupSelected ? 'bg-primary border-primary' : groupSelected > 0 ? 'border-primary bg-primary/20' : 'border-outline-variant/40 hover:border-primary/50'}`}>
-                          {allGroupSelected && <span className="material-symbols-outlined text-white text-[10px]">check</span>}
-                          {!allGroupSelected && groupSelected > 0 && <span className="material-symbols-outlined text-primary text-[10px]">remove</span>}
-                        </div>
-                      </div>
+                      <button
+                        type="button"
+                        role="checkbox"
+                        aria-checked={allGroupSelected ? true : groupSelected > 0 ? 'mixed' : false}
+                        aria-label={`Sélectionner le groupe ${label}`}
+                        onClick={toggleGroupSelect}
+                        className="flex justify-center"
+                        style={{ width: 32 }}
+                      >
+                        <span className={`w-4 h-4 border flex items-center justify-center transition-all ${allGroupSelected ? 'bg-primary border-primary' : groupSelected > 0 ? 'border-primary bg-primary/20' : 'border-outline-variant/40 hover:border-primary/50'}`}>
+                          {allGroupSelected && <span aria-hidden="true" className="material-symbols-outlined text-white text-[10px]">check</span>}
+                          {!allGroupSelected && groupSelected > 0 && <span aria-hidden="true" className="material-symbols-outlined text-primary text-[10px]">remove</span>}
+                        </span>
+                      </button>
                       <span className={`material-symbols-outlined text-base text-on-surface-variant transition-transform ${isCollapsed ? '-rotate-90' : ''}`}>expand_more</span>
                       <p className="font-headline font-bold text-sm uppercase tracking-tight flex-1">{label}</p>
                       <span className="text-[10px] font-label text-on-surface-variant uppercase tracking-widest">{docs.length} doc{docs.length > 1 ? 's' : ''}</span>
@@ -748,10 +770,12 @@ const Pipelines: FC = () => {
       {/* Document Detail Sheet */}
       {selectedSha && (
         <div
+          ref={sheetRef}
+          tabIndex={-1}
           role="dialog"
           aria-modal="true"
           aria-label="Fiche document"
-          className="fixed inset-y-0 right-0 w-full lg:w-[520px] bg-surface-container-high shadow-[-20px_0_40px_rgba(0,0,0,0.5)] z-50 animate-in slide-in-from-right duration-300 border-l border-outline-variant/20 flex flex-col">
+          className="fixed inset-y-0 right-0 w-full lg:w-[520px] bg-surface-container-high shadow-[-20px_0_40px_rgba(0,0,0,0.5)] z-50 animate-in slide-in-from-right duration-300 border-l border-outline-variant/20 flex flex-col outline-none">
           <header className="p-6 border-b border-outline-variant/20 flex justify-between items-center">
             <div className="min-w-0">
               <p className="text-[9px] font-label uppercase tracking-widest text-outline">Fiche Document</p>
