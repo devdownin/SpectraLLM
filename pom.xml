@@ -135,7 +135,7 @@
                     <plugin>
                         <groupId>org.owasp</groupId>
                         <artifactId>dependency-check-maven</artifactId>
-                        <version>12.2.2</version>
+                        <version>12.1.0</version>
                         <configuration>
                             <suppressionFiles>
                                 <suppressionFile>dependency-suppression.xml</suppressionFile>
@@ -144,13 +144,6 @@
                             <ossindexAnalyzerEnabled>false</ossindexAnalyzerEnabled>
                         </configuration>
                         <executions>
-                            <execution>
-                                <id>nvd-update</id>
-                                <goals>
-                                    <goal>update-only</goal>
-                                </goals>
-                                <phase>validate</phase>
-                            </execution>
                             <execution>
                                 <goals>
                                     <goal>check</goal>
