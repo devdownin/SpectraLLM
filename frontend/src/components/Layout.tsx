@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { FC, ReactNode } from 'react';
 import { Toaster } from 'sonner';
 import Sidebar from './Sidebar';
@@ -9,15 +9,35 @@ interface LayoutProps {
   children: ReactNode;
 }
 
+const DESKTOP_QUERY = '(min-width: 768px)';
+
 const Layout: FC<LayoutProps> = ({ children }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia(DESKTOP_QUERY).matches,
+  );
+
+  // Suit le breakpoint : ferme le drawer en repassant desktop.
+  useEffect(() => {
+    const mq = window.matchMedia(DESKTOP_QUERY);
+    const handler = (e: MediaQueryListEvent) => {
+      setIsDesktop(e.matches);
+      if (e.matches) setMobileOpen(false);
+    };
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+
+  // Sur mobile, la sidebar est un drawer toujours déployé (jamais en mode "collapsed").
+  const effectiveCollapsed = isDesktop ? isCollapsed : false;
 
   return (
     <div className="min-h-screen bg-background bg-scene">
       <div className="accent-bar" />
       <Toaster
-        theme="dark" 
-        position="bottom-right" 
+        theme="dark"
+        position="bottom-right"
         toastOptions={{
           style: {
             background: '#192540',
@@ -29,15 +49,29 @@ const Layout: FC<LayoutProps> = ({ children }) => {
             textTransform: 'uppercase',
             letterSpacing: '0.05em'
           }
-        }} 
+        }}
       />
-      
-      <Sidebar isCollapsed={isCollapsed} onToggle={() => setIsCollapsed(!isCollapsed)} />
-      
-      <main className={`transition-all duration-300 ${isCollapsed ? 'ml-20' : 'ml-64'} min-h-screen flex flex-col`}>
-        <Header />
+
+      <Sidebar
+        isCollapsed={effectiveCollapsed}
+        onToggle={() => setIsCollapsed(!isCollapsed)}
+        mobileOpen={mobileOpen}
+        onMobileClose={() => setMobileOpen(false)}
+      />
+
+      {/* Backdrop du drawer mobile */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden animate-in fade-in duration-200"
+          onClick={() => setMobileOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
+      <main className={`transition-all duration-300 ml-0 ${isCollapsed ? 'md:ml-20' : 'md:ml-64'} min-h-screen flex flex-col`}>
+        <Header onMenuClick={() => setMobileOpen(true)} />
         <WizardProgress />
-        <div className="flex-1 p-8 max-w-[1600px] mx-auto w-full">
+        <div className="flex-1 p-4 md:p-8 max-w-[1600px] mx-auto w-full">
           {children}
         </div>
       </main>

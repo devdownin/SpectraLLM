@@ -13,13 +13,25 @@ const PAGE_NAMES: Record<string, string> = {
   '/documentation': 'Documentation',
 };
 
-const Header: FC = () => {
+interface HeaderProps {
+  onMenuClick?: () => void;
+}
+
+const Header: FC<HeaderProps> = ({ onMenuClick }) => {
   const location = useLocation();
   const pageName = PAGE_NAMES[location.pathname] ?? '';
 
   return (
-    <header className="header-border flex justify-between items-center px-6 py-3 sticky top-0 z-50 bg-surface-container/80 backdrop-blur-md">
+    <header className="header-border flex justify-between items-center px-4 md:px-6 py-3 sticky top-0 z-30 bg-surface-container/80 backdrop-blur-md">
       <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={onMenuClick}
+          aria-label="Ouvrir la navigation"
+          className="md:hidden p-1.5 -ml-1.5 hover:bg-surface-variant/60 text-on-surface-variant hover:text-primary transition-colors"
+        >
+          <span aria-hidden="true" className="material-symbols-outlined text-[22px]">menu</span>
+        </button>
         <span className="font-label text-[9px] uppercase tracking-[0.15em] text-outline select-none">Spectra</span>
         {pageName && (
           <>
@@ -29,39 +41,31 @@ const Header: FC = () => {
         )}
       </div>
       <div className="flex items-center gap-6">
-        <div className="relative hidden lg:block">
-          <input
-            className="bg-surface-variant/60 border border-outline-variant/20 text-on-surface text-sm px-4 py-1.5 focus:outline-none focus:border-primary/40 w-64 font-body transition-colors placeholder:text-outline/50"
-            placeholder="Search parameters..."
-            type="text"
-            onChange={() => {}}
-          />
-          <span className="material-symbols-outlined absolute right-3 top-1.5 text-outline/50 text-sm">
-            search
-          </span>
-        </div>
         <div className="flex items-center gap-3 text-on-surface-variant">
           <button
             className="hover:bg-surface-variant/60 p-1.5 transition-colors duration-200 hover:text-primary"
+            aria-label="Settings"
             title="Settings"
             onClick={() => toast.info('Settings panel coming soon')}
           >
-            <span className="material-symbols-outlined text-[20px]">settings</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[20px]">settings</span>
           </button>
           <button
             className="hover:bg-surface-variant/60 p-1.5 transition-colors duration-200 relative hover:text-primary"
+            aria-label="Notifications"
             title="Notifications"
             onClick={() => toast.info('No new notifications')}
           >
-            <span className="material-symbols-outlined text-[20px]">notifications</span>
-            <span className="absolute top-1 right-1 w-1.5 h-1.5 bg-secondary rounded-full"></span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[20px]">notifications</span>
+            <span aria-hidden="true" className="absolute top-1 right-1 w-1.5 h-1.5 bg-secondary rounded-full"></span>
           </button>
           <button
             className="hover:bg-surface-variant/60 p-1.5 transition-colors duration-200 hover:text-primary"
+            aria-label="Account"
             title="Account"
             onClick={() => toast.info('Account management coming soon')}
           >
-            <span className="material-symbols-outlined text-[20px]">account_circle</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[20px]">account_circle</span>
           </button>
         </div>
       </div>

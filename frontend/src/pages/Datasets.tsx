@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import type { FC } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import Tooltip from '../components/Tooltip';
+import Skeleton from '../components/Skeleton';
 import { ingestApi, datasetApi } from '../services/api';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -129,9 +131,9 @@ const Datasets: FC = () => {
   const [urlInput, setUrlInput] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const queryClient = useQueryClient();
   const [ingestEntries, setIngestEntries] = useState<IngestEntry[]>([]);
   const [genTask, setGenTask] = useState<GenerationTask | null>(null);
-  const [stats, setStats] = useState<DatasetStats | null>(null);
   const [history, setHistory] = useState<IngestedFile[]>([]);
   const [historyTotal, setHistoryTotal] = useState(0);
   const [historyPage, setHistoryPage] = useState(0);
@@ -145,13 +147,18 @@ const Datasets: FC = () => {
   // Cleanup all intervals on unmount (Fix 7)
   useEffect(() => () => { activeIntervals.current.forEach(clearInterval); }, []);
 
-  // ── Stats loader — polling every 10 s ─────────────────────────────────────
-  const loadStats = useCallback(async () => {
-    try {
-      const res = await datasetApi.getStats();
-      setStats(res.data);
-    } catch { /* ignore */ }
-  }, []);
+  // ── Stats — React Query, polling 10 s ─────────────────────────────────────
+  const { data: statsData } = useQuery({
+    queryKey: ['dataset-stats'],
+    queryFn: async (): Promise<DatasetStats> => (await datasetApi.getStats()).data,
+    refetchInterval: 10_000,
+  });
+  const stats = statsData ?? null;
+
+  // Rafraîchit les stats à la demande (post-ingestion / génération / bouton).
+  const loadStats = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['dataset-stats'] });
+  }, [queryClient]);
 
   const loadHistory = useCallback(async (page = 0, q = '', append = false) => {
     setHistoryLoading(true);
@@ -166,12 +173,6 @@ const Datasets: FC = () => {
     } catch { /* ignore */ }
     finally { setHistoryLoading(false); }
   }, []);
-
-  useEffect(() => {
-    loadStats();
-    const id = setInterval(loadStats, 10_000);
-    return () => clearInterval(id);
-  }, [loadStats]);
 
   // ── Ingest task polling ───────────────────────────────────────────────────
   const pollIngest = useCallback((entryId: string, taskId: string) => {
@@ -441,7 +442,7 @@ const Datasets: FC = () => {
         </div>
         <div className="flex items-center gap-3 justify-end">
           {!stats ? (
-            <span className="text-[9px] text-outline uppercase tracking-widest font-label animate-pulse">Chargement…</span>
+            <Skeleton className="h-5 w-44" />
           ) : stats.chunksInStore === 0 ? (
             <span className="text-[9px] text-outline uppercase tracking-widest font-label border border-outline-variant/30 px-2 py-1">
               Base vide — ingérez des documents
@@ -543,8 +544,14 @@ const Datasets: FC = () => {
                     <span className="material-symbols-outlined text-xs text-outline cursor-help">help</span>
                   </Tooltip>
                 </div>
-                <label className="flex items-center gap-3 cursor-pointer group" onClick={() => setSyntheticQA(v => !v)}>
-                  <div className="w-4 h-4 border border-primary flex items-center justify-center group-hover:bg-primary/10 transition-colors">
+                <label className="flex items-center gap-3 cursor-pointer group">
+                  <input
+                    type="checkbox"
+                    checked={syntheticQA}
+                    onChange={(e) => setSyntheticQA(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-4 h-4 border border-primary flex items-center justify-center group-hover:bg-primary/10 transition-colors peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-primary peer-focus-visible:outline-offset-2">
                     {syntheticQA && <div className="w-2 h-2 bg-primary"></div>}
                   </div>
                   <span className="text-xs font-label uppercase tracking-widest">Synthetic Q&amp;A</span>

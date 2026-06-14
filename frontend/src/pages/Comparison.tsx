@@ -1,8 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import type { FC } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { evaluationApi } from '../services/api';
 import type { EvaluationReport, EvaluationScore } from '../types/api';
 import ScoreRadar from '../components/charts/ScoreRadar';
+import Skeleton from '../components/Skeleton';
 
 const STATUS_LABEL: Record<string, string> = {
   PENDING:   'En attente',
@@ -90,54 +92,34 @@ function ScoreDetail({ score }: { score: EvaluationScore }) {
 }
 
 const Comparison: FC = () => {
-  const [reports, setReports] = useState<EvaluationReport[]>([]);
+  const queryClient = useQueryClient();
   const [selected, setSelected] = useState<EvaluationReport | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [isTriggering, setIsTriggering] = useState(false);
 
-  const fetchReports = useCallback(async () => {
-    try {
-      const res = await evaluationApi.getAll();
-      const sorted: EvaluationReport[] = (res.data ?? [])
-        .sort((a: EvaluationReport, b: EvaluationReport) =>
-          new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
-        );
-      setReports(sorted);
-      // Auto-select latest, or refresh selected
-      if (selected) {
-        const refreshed = sorted.find(r => r.evalId === selected.evalId);
-        setSelected(refreshed ?? sorted[0] ?? null);
-      } else if (sorted.length > 0) {
-        setSelected(sorted[0]);
-      }
-    } catch {
-      // ignore
-    } finally {
-      setIsLoading(false);
-    }
-  }, [selected]);
+  const { data: reports = [], isLoading } = useQuery({
+    queryKey: ['evaluation-reports'],
+    queryFn: async (): Promise<EvaluationReport[]> =>
+      (((await evaluationApi.getAll()).data ?? []) as EvaluationReport[])
+        .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()),
+    // Polling 5 s tant qu'une évaluation tourne, sinon désactivé.
+    refetchInterval: (query) => {
+      const data = query.state.data as EvaluationReport[] | undefined;
+      return data?.some(r => r.status === 'RUNNING' || r.status === 'PENDING') ? 5000 : false;
+    },
+  });
 
+  // Synchronise la sélection quand la liste change (préserve le rapport choisi).
   useEffect(() => {
-    fetchReports();
-  }, []);
-
-  // Poll while any evaluation is running — stops after 5 consecutive failures
-  useEffect(() => {
-    const running = reports.some(r => r.status === 'RUNNING' || r.status === 'PENDING');
-    if (!running) return;
-    let failures = 0;
-    const id = setInterval(async () => {
-      try { await fetchReports(); failures = 0; }
-      catch { if (++failures >= 5) clearInterval(id); }
-    }, 5000);
-    return () => clearInterval(id);
-  }, [reports, fetchReports]);
+    setSelected(prev =>
+      prev ? (reports.find(r => r.evalId === prev.evalId) ?? reports[0] ?? null) : (reports[0] ?? null)
+    );
+  }, [reports]);
 
   const handleNewEvaluation = async () => {
     setIsTriggering(true);
     try {
       await evaluationApi.submit();
-      await fetchReports();
+      await queryClient.invalidateQueries({ queryKey: ['evaluation-reports'] });
     } catch {
       // ignore
     } finally {
@@ -168,9 +150,10 @@ const Comparison: FC = () => {
       </header>
 
       {isLoading ? (
-        <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">
-          Chargement...
-        </p>
+        <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-6 items-start">
+          <Skeleton className="h-64" />
+          <Skeleton className="h-80" />
+        </div>
       ) : reports.length === 0 ? (
         <div className="bg-surface-container p-8 text-center space-y-2">
           <p className="font-headline text-lg">Aucune évaluation</p>
