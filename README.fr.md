@@ -123,7 +123,7 @@ Pour l'accélération GPU : `./start.sh --detach --gpu`
 
 ## ⚖️ Licence
 
-Spectra est publié sous licence **MIT**. Construisez, modifiez et déployez librement.
+Spectra est publié sous licence **GNU AGPL-3.0**. Vous pouvez l'utiliser, le modifier et l'auto-héberger librement. L'AGPL est une licence copyleft forte : si vous exécutez une version modifiée comme service réseau, vous devez en mettre le code source correspondant à disposition de ses utilisateurs. Voir [LICENSE](LICENSE) pour le texte complet.
 
 ---
 
