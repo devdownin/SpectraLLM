@@ -176,7 +176,7 @@ services:
     volumes:
       - ./data:/app/data
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health/readiness"]
       interval: 20s
       timeout: 5s
       retries: 5

@@ -95,3 +95,13 @@ CREATE TABLE IF NOT EXISTS fine_tuning_jobs (
     completed_at     TIMESTAMP WITH TIME ZONE,
     PRIMARY KEY (job_id)
 );
+
+-- Index de performance (ddl-auto: validate ne crée pas les index déclarés via @Index ;
+-- ils doivent donc être créés ici, source de vérité du schéma). Idempotents.
+CREATE INDEX IF NOT EXISTS idx_ingested_files_lifecycle   ON ingested_files(lifecycle);
+CREATE INDEX IF NOT EXISTS idx_ingested_files_ingested_at ON ingested_files(ingested_at);
+CREATE INDEX IF NOT EXISTS idx_ingested_files_collection  ON ingested_files(collection_name);
+CREATE INDEX IF NOT EXISTS idx_ged_audit_sha256           ON ged_audit_log(document_sha256);
+CREATE INDEX IF NOT EXISTS idx_ged_audit_timestamp        ON ged_audit_log(timestamp);
+CREATE INDEX IF NOT EXISTS idx_doc_model_sha256           ON document_model_links(document_sha256);
+CREATE INDEX IF NOT EXISTS idx_doc_model_name             ON document_model_links(model_name);

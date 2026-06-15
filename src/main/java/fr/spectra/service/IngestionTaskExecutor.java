@@ -85,6 +85,9 @@ public class IngestionTaskExecutor {
         this.ingestionTimer = Timer.builder("spectra.ingestion.file.duration")
                 .description("Durée d'ingestion par fichier")
                 .register(meterRegistry);
+        // Profondeur de file / capacité disponible — détecte la saturation du pipeline d'ingestion.
+        meterRegistry.gauge("spectra.ingestion.concurrency.available", concurrencySemaphore, Semaphore::availablePermits);
+        meterRegistry.gauge("spectra.ingestion.concurrency.queued", concurrencySemaphore, s -> (double) s.getQueueLength());
     }
 
     /**

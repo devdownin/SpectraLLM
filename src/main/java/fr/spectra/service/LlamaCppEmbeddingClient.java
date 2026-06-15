@@ -3,6 +3,7 @@ package fr.spectra.service;
 import fr.spectra.config.SpectraProperties;
 import fr.spectra.dto.ServiceStatus;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.retry.annotation.Retry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -85,6 +86,7 @@ public class LlamaCppEmbeddingClient implements EmbeddingClient {
 
     @Override
     @CircuitBreaker(name = "embed", fallbackMethod = "embedFallback")
+    @Retry(name = "embed")
     @SuppressWarnings("unchecked")
     public List<Float> embed(String text) {
         Map<String, Object> request = Map.of(
@@ -114,6 +116,7 @@ public class LlamaCppEmbeddingClient implements EmbeddingClient {
 
     @Override
     @CircuitBreaker(name = "embed", fallbackMethod = "embedBatchFallback")
+    @Retry(name = "embed")
     @SuppressWarnings("unchecked")
     public List<List<Float>> embedBatch(List<String> texts) {
         if (texts == null || texts.isEmpty()) return List.of();

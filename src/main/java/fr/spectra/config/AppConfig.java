@@ -11,6 +11,8 @@ import org.springframework.web.reactive.function.client.WebClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import reactor.netty.http.client.HttpClient;
 
+import java.time.Duration;
+
 @Configuration
 @EnableConfigurationProperties(SpectraProperties.class)
 @EnableScheduling
@@ -30,6 +32,18 @@ public class AppConfig {
                 HttpClient.create().option(ChannelOption.CONNECT_TIMEOUT_MILLIS, CONNECT_TIMEOUT_MS));
     }
 
+    /**
+     * Connecteur avec timeout de réponse, pour les dépendances non-LLM (ChromaDB,
+     * reranker, docparser) : libère le client si le service accepte la connexion
+     * mais ne répond jamais. À ne PAS appliquer aux endpoints de génération LLM.
+     */
+    private static ClientHttpConnector connector(Duration responseTimeout) {
+        return new ReactorClientHttpConnector(
+                HttpClient.create()
+                        .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, CONNECT_TIMEOUT_MS)
+                        .responseTimeout(responseTimeout));
+    }
+
     @Bean
     public WebClient llmWebClient(SpectraProperties props) {
         String baseUrl = props.llm() != null && props.llm().baseUrl() != null
@@ -43,7 +57,7 @@ public class AppConfig {
         String baseUrl = props.chromadb() != null && props.chromadb().baseUrl() != null
                 ? props.chromadb().baseUrl()
                 : "http://chromadb:8000";
-        return WebClient.builder().baseUrl(baseUrl).clientConnector(connector()).build();
+        return WebClient.builder().baseUrl(baseUrl).clientConnector(connector(Duration.ofSeconds(60))).build();
     }
 
     @Bean
@@ -72,7 +86,7 @@ public class AppConfig {
         String baseUrl = props.reranker() != null
                 ? props.reranker().effectiveBaseUrl()
                 : "http://reranker:8000";
-        return WebClient.builder().baseUrl(baseUrl).clientConnector(connector()).build();
+        return WebClient.builder().baseUrl(baseUrl).clientConnector(connector(Duration.ofSeconds(60))).build();
     }
 
     @Bean
@@ -84,7 +98,7 @@ public class AppConfig {
                 ? props.layoutParser().effectiveBufferSizeMb() : 100) * 1024 * 1024;
         return WebClient.builder()
                 .baseUrl(baseUrl)
-                .clientConnector(connector())
+                .clientConnector(connector(Duration.ofSeconds(180)))
                 .codecs(c -> c.defaultCodecs().maxInMemorySize(bufferBytes))
                 .build();
     }

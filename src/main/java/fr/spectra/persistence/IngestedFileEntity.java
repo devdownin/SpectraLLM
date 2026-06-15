@@ -9,8 +9,8 @@ import java.util.List;
 @Entity
 @Table(name = "ingested_files", indexes = {
         @Index(name = "idx_ingested_files_lifecycle", columnList = "lifecycle"),
-        @Index(name = "idx_ingested_files_ingested_at", columnList = "ingestedAt"),
-        @Index(name = "idx_ingested_files_collection", columnList = "collectionName")
+        @Index(name = "idx_ingested_files_ingested_at", columnList = "ingested_at"),
+        @Index(name = "idx_ingested_files_collection", columnList = "collection_name")
 })
 public class IngestedFileEntity {
 
