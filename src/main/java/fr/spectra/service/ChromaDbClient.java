@@ -4,6 +4,7 @@ import fr.spectra.config.SpectraProperties;
 import fr.spectra.dto.ServiceStatus;
 import fr.spectra.model.TextChunk;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.retry.annotation.Retry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -79,6 +80,7 @@ public class ChromaDbClient {
      * L'ID est mis en cache pour éviter un aller-retour réseau à chaque appel.
      */
     @CircuitBreaker(name = "chroma", fallbackMethod = "getOrCreateCollectionFallback")
+    @Retry(name = "chroma")
     @SuppressWarnings("unchecked")
     public String getOrCreateCollection(String name) {
         // S1 — Validation du nom avant tout appel ChromaDB
@@ -141,6 +143,7 @@ public class ChromaDbClient {
      * Recherche les chunks les plus similaires à un vecteur de requête.
      */
     @CircuitBreaker(name = "chroma", fallbackMethod = "queryFallback")
+    @Retry(name = "chroma")
     @SuppressWarnings("unchecked")
     public Map<String, Object> query(String collectionId, List<Float> queryEmbedding, int nResults) {
         Map<String, Object> body = Map.of(

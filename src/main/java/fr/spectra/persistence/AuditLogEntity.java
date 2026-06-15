@@ -9,7 +9,7 @@ import java.time.Instant;
  */
 @Entity
 @Table(name = "ged_audit_log", indexes = {
-        @Index(name = "idx_ged_audit_sha256", columnList = "documentSha256"),
+        @Index(name = "idx_ged_audit_sha256", columnList = "document_sha256"),
         @Index(name = "idx_ged_audit_timestamp", columnList = "timestamp")
 })
 public class AuditLogEntity {

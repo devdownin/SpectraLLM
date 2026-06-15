@@ -24,9 +24,13 @@ spring:
   h2:
     console:
       enabled: false
+  # Arrêt gracieux : laisse les requêtes/ingestions en cours se terminer au SIGTERM
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
 
 server:
   port: 8080
+  shutdown: graceful
 
 # Services externes
 spectra:
@@ -111,6 +115,9 @@ llmfit:
 
 resilience4j:
   circuitbreaker:
+    # CircuitBreaker en aspect externe (ordre > retry) : les retries s'exécutent
+    # à l'intérieur, sur l'exception transitoire brute, avant le fallback du CB.
+    circuit-breaker-aspect-order: 2
     instances:
       chroma:
         sliding-window-size: 5
@@ -124,16 +131,45 @@ resilience4j:
         wait-duration-in-open-state: 20s
         permitted-number-of-calls-in-half-open-state: 2
         register-health-indicator: true
+  # Retries sur appels idempotents (lecture) — absorbe les défaillances transitoires
+  # avant que le circuit breaker ne s'ouvre. Backoff exponentiel + jitter.
+  retry:
+    retry-aspect-order: 1
+    instances:
+      chroma:
+        max-attempts: 3
+        wait-duration: 300ms
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+        enable-randomized-wait: true
+        retry-exceptions:
+          - java.io.IOException
+          - org.springframework.web.reactive.function.client.WebClientRequestException
+          - java.util.concurrent.TimeoutException
+      embed:
+        max-attempts: 3
+        wait-duration: 300ms
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+        enable-randomized-wait: true
+        retry-exceptions:
+          - java.io.IOException
+          - org.springframework.web.reactive.function.client.WebClientRequestException
+          - java.util.concurrent.TimeoutException
 
 # Actuator
 management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus
   endpoint:
     health:
       show-details: always
+      # Groupes liveness/readiness : la liveness ne doit PAS dépendre d'indicateurs
+      # externes/diskSpace (évite les redémarrages en cascade).
+      probes:
+        enabled: true
 
 # OpenAPI
 springdoc:

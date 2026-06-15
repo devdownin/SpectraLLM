@@ -56,18 +56,28 @@ spec:
             limits:
               cpu: "1000m"
               memory: "2Gi"
+          # startupProbe : laisse le temps au démarrage (JVM + schema.sql + rebuild FTS)
+          # sans que la liveness ne tue le pod prématurément (jusqu'à ~5 min).
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            periodSeconds: 10
+            failureThreshold: 30
+          # readiness : groupe readiness (gate le trafic), découplé de la liveness.
           readinessProbe:
             httpGet:
-              path: /actuator/health
+              path: /actuator/health/readiness
               port: 8080
-            initialDelaySeconds: 20
+            initialDelaySeconds: 10
             periodSeconds: 10
             failureThreshold: 6
+          # liveness : groupe liveness uniquement (état interne) — n'inclut pas
+          # diskSpace/dépendances externes, pour éviter les redémarrages en cascade.
           livenessProbe:
             httpGet:
-              path: /actuator/health
+              path: /actuator/health/liveness
               port: 8080
-            initialDelaySeconds: 40
             periodSeconds: 20
             failureThreshold: 3
 

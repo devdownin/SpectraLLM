@@ -12,8 +12,8 @@ import java.time.Instant;
 @Table(name = "document_model_links",
        uniqueConstraints = @UniqueConstraint(columnNames = {"documentSha256", "modelName", "linkType"}),
        indexes = {
-           @Index(name = "idx_doc_model_sha256", columnList = "documentSha256"),
-           @Index(name = "idx_doc_model_name", columnList = "modelName")
+           @Index(name = "idx_doc_model_sha256", columnList = "document_sha256"),
+           @Index(name = "idx_doc_model_name", columnList = "model_name")
        })
 public class DocumentModelLinkEntity {
 
