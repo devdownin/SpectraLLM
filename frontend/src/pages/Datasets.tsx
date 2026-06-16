@@ -668,7 +668,9 @@ const Datasets: FC = () => {
                       </div>
                       <span key={`${entry.status}-${entry.chunksCreated}`}
                         className={`text-[9px] font-bold uppercase tracking-widest shrink-0 ${statusColor[entry.status]} ${entry.status === 'COMPLETED' ? 'count-flash' : ''}`}>
-                        {entry.status === 'COMPLETED' ? `${entry.chunksCreated} chunks` : entry.status}
+                        {entry.status === 'COMPLETED' ? `${entry.chunksCreated} chunks` : 
+                         entry.status === 'PROCESSING' && entry.chunksCreated > 0 ? `PROCESSING (${entry.chunksCreated})` :
+                         entry.status}
                       </span>
                     </div>
                     {(entry.status === 'PROCESSING' || entry.status === 'COMPLETED') && (
