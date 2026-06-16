@@ -15,6 +15,13 @@ target/
 *.jar
 *.war
 
+# Logs
+*.log
+
+# Node / frontend build
+node_modules/
+frontend/dist/
+
 # OS
 .DS_Store
 Thumbs.db

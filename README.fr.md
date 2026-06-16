@@ -1,5 +1,15 @@
 # Spectra — Domain LLM Builder 🚀
 
+[![Java CI with Maven](https://github.com/devdownin/SpectraLLM/actions/workflows/ci.yml/badge.svg)](https://github.com/devdownin/SpectraLLM/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/devdownin/SpectraLLM/actions/workflows/codeql.yml/badge.svg)](https://github.com/devdownin/SpectraLLM/actions/workflows/codeql.yml)
+[![Dependency Check](https://github.com/devdownin/SpectraLLM/actions/workflows/dependency-scan.yml/badge.svg)](https://github.com/devdownin/SpectraLLM/actions/workflows/dependency-scan.yml)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+[![Java 21](https://img.shields.io/badge/Java-21-orange.svg)](https://adoptium.net/)
+[![Spring Boot 4](https://img.shields.io/badge/Spring%20Boot-4.0-6DB33F.svg)](https://spring.io/projects/spring-boot)
+[![React 19](https://img.shields.io/badge/React-19-61DAFB.svg)](https://react.dev/)
+
+🌍 **Langues :** [English](README.md) · Français
+
 > **Transformez vos documents métier bruts en LLMs spécialisés, prêts pour la production. 100 % local, souverain et respectueux de la vie privée.**
 
 Spectra est une plateforme complète conçue pour construire, optimiser et déployer des modèles de langage (LLM) spécialisés à partir de vos propres données. De l'ingestion de PDF au fine-tuning QLoRA, en passant par le déploiement GGUF, Spectra gère l'intégralité du cycle de spécialisation des modèles dans une seule stack simplifiée.
@@ -123,7 +133,7 @@ Pour l'accélération GPU : `./start.sh --detach --gpu`
 
 ## ⚖️ Licence
 
-Spectra est publié sous licence **MIT**. Construisez, modifiez et déployez librement.
+Spectra est publié sous licence **GNU AGPL-3.0**. Vous pouvez l'utiliser, le modifier et l'auto-héberger librement. L'AGPL est une licence copyleft forte : si vous exécutez une version modifiée comme service réseau, vous devez en mettre le code source correspondant à disposition de ses utilisateurs. Voir [LICENSE](LICENSE) pour le texte complet.
 
 ---
 

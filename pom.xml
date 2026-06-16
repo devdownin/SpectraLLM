@@ -134,14 +134,18 @@
     </build>
 
     <profiles>
+        <!-- Analyse de sécurité des dépendances (OWASP). Volontairement HORS du
+             build par défaut : la mise à jour de la base NVD est lente et fragile
+             (clé API requise) et ralentirait/casserait chaque `mvn package`.
+             Activée par le workflow dependency-scan via `-Psecurity`. -->
         <profile>
-            <id>dep-check</id>
+            <id>security</id>
             <build>
                 <plugins>
                     <plugin>
                         <groupId>org.owasp</groupId>
                         <artifactId>dependency-check-maven</artifactId>
-                        <version>12.1.0</version>
+                        <version>12.2.2</version>
                         <configuration>
                             <suppressionFiles>
                                 <suppressionFile>dependency-suppression.xml</suppressionFile>
@@ -150,6 +154,13 @@
                             <ossindexAnalyzerEnabled>false</ossindexAnalyzerEnabled>
                         </configuration>
                         <executions>
+                            <execution>
+                                <id>nvd-update</id>
+                                <goals>
+                                    <goal>update-only</goal>
+                                </goals>
+                                <phase>validate</phase>
+                            </execution>
                             <execution>
                                 <goals>
                                     <goal>check</goal>

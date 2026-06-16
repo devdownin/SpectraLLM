@@ -20,9 +20,9 @@ jobs:
           distribution: 'temurin'
           cache: maven
       - name: OWASP Dependency Check
-        run: mvn -Pdep-check org.owasp:dependency-check-maven:check
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: mvn -Psecurity verify -DskipTests
       - name: Upload Report
         uses: actions/upload-artifact@v7
         with:

@@ -1,0 +1,15 @@
+cff-version: 1.2.0
+message: "If you use SpectraLLM in your work, please cite it as below."
+title: SpectraLLM
+abstract: >-
+  Self-hosted, domain-specialized LLM builder: document ingestion,
+  multi-strategy RAG (hybrid search, re-ranking, agentic/corrective/adaptive),
+  and integrated QLoRA + DPO fine-tuning — fully local, no cloud dependency.
+type: software
+url: "https://github.com/devdownin/spectrallm"
+repository-code: "https://github.com/devdownin/spectrallm"
+license: AGPL-3.0-or-later
+version: 1.1.0
+date-released: "2026-06-15"
+authors:
+  - name: "The SpectraLLM contributors"

@@ -1,8 +1,14 @@
 # Spectra — Domain LLM Builder
 
 [![Java CI with Maven](https://github.com/devdownin/SpectraLLM/actions/workflows/ci.yml/badge.svg)](https://github.com/devdownin/SpectraLLM/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/devdownin/SpectraLLM/actions/workflows/codeql.yml/badge.svg)](https://github.com/devdownin/SpectraLLM/actions/workflows/codeql.yml)
 [![Dependency Check](https://github.com/devdownin/SpectraLLM/actions/workflows/dependency-scan.yml/badge.svg)](https://github.com/devdownin/SpectraLLM/actions/workflows/dependency-scan.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+[![Java 21](https://img.shields.io/badge/Java-21-orange.svg)](https://adoptium.net/)
+[![Spring Boot 4](https://img.shields.io/badge/Spring%20Boot-4.0-6DB33F.svg)](https://spring.io/projects/spring-boot)
+[![React 19](https://img.shields.io/badge/React-19-61DAFB.svg)](https://react.dev/)
+
+🌍 **Languages:** English · [Français](README.fr.md)
 
 > **Turn your business documents into a specialized, production-ready AI assistant. 100% local. No cloud. No subscriptions.**
 
@@ -866,7 +872,7 @@ GET /swagger-ui.html
 
 ## License
 
-Spectra is released under the **MIT License**. Build, modify, and deploy freely — in production, on premises, or air-gapped.
+Spectra is released under the **GNU AGPL-3.0**. You may use, modify, and self-host it freely — in production, on premises, or air-gapped. Note that the AGPL is a strong copyleft license: if you run a modified version as a network service, you must make the corresponding source available to its users. See [LICENSE](LICENSE) for the full text.
 
 ---
 

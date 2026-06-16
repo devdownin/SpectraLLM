@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 🔒 Signalement de vulnérabilité
+    url: https://github.com/devdownin/spectrallm/security/advisories/new
+    about: Merci de signaler les failles de sécurité en privé (voir SECURITY.md), pas via une issue publique.
+  - name: 💬 Questions & discussions
+    url: https://github.com/devdownin/spectrallm/discussions
+    about: Posez vos questions et partagez vos idées ici.
