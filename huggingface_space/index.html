@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="fr" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spectra - Domain LLM Builder</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({ startOnLoad: true, theme: 'neutral' });
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .gradient-text {
+            background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .bg-gradient-spectra {
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 leading-relaxed">
+
+    <!-- Header -->
+    <header class="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-slate-200">
+        <nav class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+                <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold">S</div>
+                <span class="text-xl font-bold tracking-tight">Spectra</span>
+            </div>
+            <div class="hidden md:flex gap-8 text-sm font-medium text-slate-600">
+                <a href="#about" class="hover:text-blue-600 transition">À propos</a>
+                <a href="#pipeline" class="hover:text-blue-600 transition">Pipeline</a>
+                <a href="#retrieval" class="hover:text-blue-600 transition">Recherche</a>
+                <a href="#specialization" class="hover:text-blue-600 transition">Spécialisation</a>
+                <a href="#architecture" class="hover:text-blue-600 transition">Architecture</a>
+            </div>
+            <div>
+                <a href="https://github.com/devdownin/SpectraLLM" class="inline-flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-full text-sm font-medium hover:bg-slate-800 transition">
+                    <i class="fab fa-github"></i> GitHub
+                </a>
+            </div>
+        </nav>
+    </header>
+
+    <!-- Hero Section -->
+    <section class="relative overflow-hidden pt-16 pb-24 lg:pt-32 lg:pb-40 bg-gradient-spectra text-white">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+            <div class="lg:grid lg:grid-cols-2 lg:gap-12 items-center">
+                <div>
+                    <h1 class="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight mb-6">
+                        Construisez votre expertise <span class="text-blue-400">IA souveraine</span>
+                    </h1>
+                    <p class="text-lg sm:text-xl text-slate-300 mb-10 max-w-2xl">
+                        Transformez vos documents métier en un assistant IA spécialisé. 100 % local. Zéro Cloud. Zéro compromis sur la confidentialité.
+                    </p>
+                    <div class="flex flex-wrap gap-4">
+                        <a href="#pipeline" class="bg-blue-600 hover:bg-blue-500 text-white px-8 py-3 rounded-lg font-semibold transition shadow-lg shadow-blue-500/20">
+                            Découvrir le Pipeline
+                        </a>
+                        <a href="#about" class="bg-slate-800 hover:bg-slate-700 text-white px-8 py-3 rounded-lg font-semibold border border-slate-700 transition">
+                            En savoir plus
+                        </a>
+                    </div>
+                </div>
+                <div class="mt-16 lg:mt-0 relative">
+                    <div class="relative rounded-2xl overflow-hidden shadow-2xl border border-slate-700/50">
+                        <img src="assets/hero.png" alt="Spectra UI Hero" class="w-full h-auto">
+                        <div class="absolute inset-0 bg-gradient-to-t from-slate-900/40 to-transparent"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!-- Decorative elements -->
+        <div class="absolute top-0 right-0 -translate-y-1/2 translate-x-1/4 w-96 h-96 bg-blue-600/10 rounded-full blur-3xl"></div>
+        <div class="absolute bottom-0 left-0 translate-y-1/2 -translate-x-1/4 w-96 h-96 bg-indigo-600/10 rounded-full blur-3xl"></div>
+    </section>
+
+    <!-- Features Overview -->
+    <section id="about" class="py-24 bg-white">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center max-w-3xl mx-auto mb-16">
+                <h2 class="text-3xl font-bold tracking-tight sm:text-4xl mb-4">Qu'est-ce que Spectra ?</h2>
+                <p class="text-lg text-slate-600">
+                    Spectra est un **Domain LLM Builder**. Contrairement aux assistants IA généralistes, il est conçu pour devenir un expert de **votre** domaine métier en utilisant **votre** documentation interne.
+                </p>
+            </div>
+
+            <div class="grid md:grid-cols-2 gap-12 items-center">
+                <div class="space-y-8">
+                    <div class="flex gap-4">
+                        <div class="flex-shrink-0 w-12 h-12 bg-blue-100 text-blue-600 rounded-xl flex items-center justify-center">
+                            <i class="fas fa-search text-xl"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-xl font-bold mb-2">RAG (Retrieval-Augmented Generation)</h3>
+                            <p class="text-slate-600">L'IA "lit" vos documents en temps réel pour répondre à une question, garantissant des réponses sourcées et à jour.</p>
+                        </div>
+                    </div>
+                    <div class="flex gap-4">
+                        <div class="flex-shrink-0 w-12 h-12 bg-indigo-100 text-indigo-600 rounded-xl flex items-center justify-center">
+                            <i class="fas fa-brain text-xl"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-xl font-bold mb-2">Fine-Tuning (Affinage)</h3>
+                            <p class="text-slate-600">L'IA "apprend" en permanence votre jargon et vos spécificités métier pour améliorer sa compréhension globale via QLoRA.</p>
+                        </div>
+                    </div>
+                    <div class="flex gap-4">
+                        <div class="flex-shrink-0 w-12 h-12 bg-emerald-100 text-emerald-600 rounded-xl flex items-center justify-center">
+                            <i class="fas fa-shield-alt text-xl"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-xl font-bold mb-2">Souveraineté Totale</h3>
+                            <p class="text-slate-600">Fonctionne 100 % en local. Aucune donnée ne quitte votre infrastructure. Idéal pour les données sensibles.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-slate-900 p-8 rounded-3xl shadow-xl overflow-hidden relative">
+                    <div class="mermaid">
+graph TD
+    A[Docs Bruts] --> B[Ingestion Intelligente]
+    B --> C[Base Vectorielle]
+    C --> D[RAG Avancé]
+    D --> E[Génération Dataset]
+    E --> F[Fine-Tuning]
+    F --> G[LLM Spécialisé]
+    G -. feedback loop .-> E
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Ingestion Pipeline -->
+    <section id="pipeline" class="py-24 bg-slate-50 overflow-hidden">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex flex-col lg:flex-row gap-16 items-center">
+                <div class="lg:w-1/2 order-2 lg:order-1">
+                    <img src="assets/pipeline.png" alt="Ingestion Pipeline" class="rounded-2xl shadow-2xl border border-slate-200">
+                </div>
+                <div class="lg:w-1/2 order-1 lg:order-2">
+                    <h2 class="text-3xl font-bold tracking-tight sm:text-4xl mb-6">Pipeline d'Ingestion : De la donnée brute au savoir</h2>
+                    <div class="space-y-6">
+                        <div class="relative pl-8 border-l-2 border-blue-200">
+                            <div class="absolute -left-2 top-0 w-4 h-4 bg-blue-600 rounded-full border-4 border-white"></div>
+                            <h4 class="font-bold text-slate-900 mb-1">Parsing "Layout-Aware"</h4>
+                            <p class="text-slate-600 text-sm">Transformation des PDF complexes en Markdown via IBM Docling ou PyMuPDF4LLM pour préserver la structure (tableaux, titres).</p>
+                        </div>
+                        <div class="relative pl-8 border-l-2 border-blue-200">
+                            <div class="absolute -left-2 top-0 w-4 h-4 bg-blue-600 rounded-full border-4 border-white"></div>
+                            <h4 class="font-bold text-slate-900 mb-1">Nettoyage en 8 étapes</h4>
+                            <p class="text-slate-600 text-sm">Normalisation Unicode, suppression des en-têtes/pieds de page, correction OCR et nettoyage des tableaux ASCII.</p>
+                        </div>
+                        <div class="relative pl-8 border-l-2 border-blue-200">
+                            <div class="absolute -left-2 top-0 w-4 h-4 bg-blue-600 rounded-full border-4 border-white"></div>
+                            <h4 class="font-bold text-slate-900 mb-1">Chunking Sémantique</h4>
+                            <p class="text-slate-600 text-sm">Découpage intelligent en morceaux de 512 tokens avec "sliding window" de 64 tokens pour ne jamais perdre le contexte.</p>
+                        </div>
+                        <div class="relative pl-8 border-l-2 border-blue-200">
+                            <div class="absolute -left-2 top-0 w-4 h-4 bg-blue-600 rounded-full border-4 border-white"></div>
+                            <h4 class="font-bold text-slate-900 mb-1">Vectorisation (Embeddings)</h4>
+                            <p class="text-slate-600 text-sm">Conversion du texte en vecteurs mathématiques via Nomic Embed, stockés dans ChromaDB pour une recherche instantanée.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Search & Retrieval -->
+    <section id="retrieval" class="py-24 bg-white">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center max-w-3xl mx-auto mb-16">
+                <h2 class="text-3xl font-bold tracking-tight sm:text-4xl mb-4">Recherche Hybride de Haute Précision</h2>
+                <p class="text-lg text-slate-600">Trouver l'aiguille dans la botte de foin grâce à une combinaison d'algorithmes éprouvés.</p>
+            </div>
+
+            <div class="grid lg:grid-cols-3 gap-8">
+                <div class="p-8 bg-slate-50 rounded-2xl border border-slate-100">
+                    <div class="w-12 h-12 bg-blue-600 text-white rounded-lg flex items-center justify-center mb-6">
+                        <i class="fas fa-layer-group"></i>
+                    </div>
+                    <h3 class="text-xl font-bold mb-4">Fusion RRF</h3>
+                    <p class="text-slate-600 text-sm">Combine la <strong>Recherche Vectorielle</strong> (sens) et <strong>BM25</strong> (mots-clés) via Reciprocal Rank Fusion pour un équilibre parfait entre sens global et précision technique.</p>
+                </div>
+                <div class="p-8 bg-slate-50 rounded-2xl border border-slate-100">
+                    <div class="w-12 h-12 bg-indigo-600 text-white rounded-lg flex items-center justify-center mb-6">
+                        <i class="fas fa-filter"></i>
+                    </div>
+                    <h3 class="text-xl font-bold mb-4">Re-ranking Cross-Encoder</h3>
+                    <p class="text-slate-600 text-sm">Un modèle IA expert analyse en profondeur les 20 meilleurs candidats pour ne conserver que les plus pertinents avant la génération.</p>
+                </div>
+                <div class="p-8 bg-slate-50 rounded-2xl border border-slate-100">
+                    <div class="w-12 h-12 bg-emerald-600 text-white rounded-lg flex items-center justify-center mb-6">
+                        <i class="fas fa-sync-alt"></i>
+                    </div>
+                    <h3 class="text-xl font-bold mb-4">RAG Agentique (ReAct)</h3>
+                    <p class="text-slate-600 text-sm">Pour les questions complexes, Spectra active une boucle de raisonnement : le LLM peut décider d'effectuer plusieurs recherches affinées successives.</p>
+                </div>
+            </div>
+
+            <div class="mt-16 rounded-2xl overflow-hidden shadow-2xl">
+                <img src="assets/playground.png" alt="Spectra Playground" class="w-full h-auto">
+            </div>
+        </div>
+    </section>
+
+    <!-- Specialization -->
+    <section id="specialization" class="py-24 bg-slate-900 text-white">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="lg:grid lg:grid-cols-2 lg:gap-16 items-center">
+                <div>
+                    <h2 class="text-3xl font-bold tracking-tight sm:text-4xl mb-8">Spécialisation : Fine-Tuning & Apprentissage Continu</h2>
+                    <p class="text-slate-400 mb-8">Le RAG permet de répondre, mais le fine-tuning permet au modèle de **devenir** l'expert de votre domaine.</p>
+
+                    <div class="space-y-6">
+                        <div class="bg-slate-800/50 p-6 rounded-xl border border-slate-700">
+                            <h4 class="font-bold mb-2 flex items-center gap-2">
+                                <span class="w-6 h-6 bg-blue-500 rounded text-xs flex items-center justify-center">1</span>
+                                Synthèse de Dataset Automatique
+                            </h4>
+                            <p class="text-slate-400 text-sm italic">Génération auto de paires Q&A et DPO à partir de vos documents avec garde de qualité Jaccard.</p>
+                        </div>
+                        <div class="bg-slate-800/50 p-6 rounded-xl border border-slate-700">
+                            <h4 class="font-bold mb-2 flex items-center gap-2">
+                                <span class="w-6 h-6 bg-indigo-500 rounded text-xs flex items-center justify-center">2</span>
+                                Fine-Tuning QLoRA (Unsloth)
+                            </h4>
+                            <p class="text-slate-400 text-sm italic">Entraînement ultra-rapide sur des "modules de mémoire" (LoRA) pour une efficacité maximale sur matériel local.</p>
+                        </div>
+                        <div class="bg-slate-800/50 p-6 rounded-xl border border-slate-700">
+                            <h4 class="font-bold mb-2 flex items-center gap-2">
+                                <span class="w-6 h-6 bg-emerald-500 rounded text-xs flex items-center justify-center">3</span>
+                                Boucle de Rétroaction (DPO)
+                            </h4>
+                            <p class="text-slate-400 text-sm italic">Évaluez les réponses (👍/👎) pour déclencher un ré-entraînement automatique qui affine les préférences du modèle.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-12 lg:mt-0">
+                    <img src="assets/training.png" alt="Fine-Tuning Monitor" class="rounded-2xl shadow-blue-500/10 shadow-2xl border border-slate-700">
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Architecture -->
+    <section id="architecture" class="py-24 bg-white">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+            <h2 class="text-3xl font-bold mb-16 tracking-tight sm:text-4xl">Stack Technique Moderne</h2>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-8">
+                <div class="space-y-2">
+                    <div class="text-3xl font-bold text-blue-600">Java 21</div>
+                    <div class="text-sm font-medium text-slate-500">Virtual Threads (Loom)</div>
+                </div>
+                <div class="space-y-2">
+                    <div class="text-3xl font-bold text-blue-600">React 19</div>
+                    <div class="text-sm font-medium text-slate-500">Tailwind CSS 4</div>
+                </div>
+                <div class="space-y-2">
+                    <div class="text-3xl font-bold text-blue-600">GGUF</div>
+                    <div class="text-sm font-medium text-slate-500">llama.cpp / llama-server</div>
+                </div>
+                <div class="space-y-2">
+                    <div class="text-3xl font-bold text-blue-600">ChromaDB</div>
+                    <div class="text-sm font-medium text-slate-500">Vector Database (API v2)</div>
+                </div>
+            </div>
+
+            <div class="mt-24 p-12 bg-slate-900 rounded-[3rem] text-left relative overflow-hidden">
+                <div class="relative z-10 grid lg:grid-cols-2 gap-12 items-center">
+                    <div>
+                        <h3 class="text-2xl font-bold text-white mb-6">Hardware Auto-Detection</h3>
+                        <p class="text-slate-400 mb-8">Spectra analyse au démarrage votre CPU, RAM et GPU (NVIDIA, AMD ou Vulkan) pour configurer dynamiquement les paramètres optimaux de `llama-server` (threads, couches GPU, taille du contexte).</p>
+                        <ul class="space-y-4">
+                            <li class="flex items-center gap-3 text-slate-300">
+                                <i class="fas fa-check-circle text-emerald-500"></i>
+                                Cgroups v2 & Procfs aware
+                            </li>
+                            <li class="flex items-center gap-3 text-slate-300">
+                                <i class="fas fa-check-circle text-emerald-500"></i>
+                                Optimisation KV Cache (q8_0 / iq4_nl)
+                            </li>
+                            <li class="flex items-center gap-3 text-slate-300">
+                                <i class="fas fa-check-circle text-emerald-500"></i>
+                                Support Flash Attention
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="grid grid-cols-1 gap-4">
+                        <div class="bg-slate-800 p-4 rounded-xl border border-slate-700 text-xs font-mono text-blue-400">
+                            GET /api/status<br/>
+                            {<br/>
+                            &nbsp;&nbsp;"services": [<br/>
+                            &nbsp;&nbsp;&nbsp;&nbsp;{ "name": "llama-cpp", "available": true },<br/>
+                            &nbsp;&nbsp;&nbsp;&nbsp;{ "name": "llm-embed", "available": true },<br/>
+                            &nbsp;&nbsp;&nbsp;&nbsp;{ "name": "chromadb", "available": true }<br/>
+                            &nbsp;&nbsp;]<br/>
+                            }
+                        </div>
+                        <img src="assets/dashboard.png" alt="Dashboard" class="rounded-xl shadow-lg border border-slate-700">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Glossary -->
+    <section class="py-24 bg-slate-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <h2 class="text-3xl font-bold mb-12 tracking-tight">Glossaire Technique</h2>
+            <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div class="bg-white p-6 rounded-xl border border-slate-200">
+                    <h5 class="font-bold mb-2">Embedding</h5>
+                    <p class="text-slate-600 text-sm">Traduction d'un texte en une liste de nombres représentant son sens sémantique.</p>
+                </div>
+                <div class="bg-white p-6 rounded-xl border border-slate-200">
+                    <h5 class="font-bold mb-2">BM25</h5>
+                    <p class="text-slate-600 text-sm">Algorithme de recherche par mots-clés (statistiques sur la fréquence des termes).</p>
+                </div>
+                <div class="bg-white p-6 rounded-xl border border-slate-200">
+                    <h5 class="font-bold mb-2">RRF</h5>
+                    <p class="text-slate-600 text-sm">Méthode mathématique pour fusionner deux classements différents (Vecteur + BM25).</p>
+                </div>
+                <div class="bg-white p-6 rounded-xl border border-slate-200">
+                    <h5 class="font-bold mb-2">Cross-Encoder</h5>
+                    <p class="text-slate-600 text-sm">Modèle IA expert qui compare précisément une question et un document pour les trier.</p>
+                </div>
+                <div class="bg-white p-6 rounded-xl border border-slate-200">
+                    <h5 class="font-bold mb-2">QLoRA</h5>
+                    <p class="text-slate-600 text-sm">Méthode d'entraînement ultra-efficace qui ne modifie que quelques paramètres du modèle.</p>
+                </div>
+                <div class="bg-white p-6 rounded-xl border border-slate-200">
+                    <h5 class="font-bold mb-2">ReAct</h5>
+                    <p class="text-slate-600 text-sm">Stratégie où l'IA alterne entre réflexion et action (recherche documentaire).</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-slate-900 text-slate-400 py-12 border-t border-slate-800">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex flex-col md:flex-row justify-between items-center gap-8">
+                <div class="flex items-center gap-2">
+                    <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold">S</div>
+                    <span class="text-xl font-bold text-white tracking-tight">Spectra</span>
+                </div>
+                <div class="flex gap-8 text-sm">
+                    <a href="https://github.com/devdownin/SpectraLLM" class="hover:text-white transition">Documentation</a>
+                    <a href="https://github.com/devdownin/SpectraLLM/blob/main/LICENSE" class="hover:text-white transition">Licence MIT</a>
+                </div>
+                <div class="text-sm">
+                    © 2024 Spectra LLM Project. Tous droits réservés.
+                </div>
+            </div>
+        </div>
+    </footer>
+
+</body>
+</html>
