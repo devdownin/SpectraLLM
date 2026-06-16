@@ -43,4 +43,8 @@ public record IngestionTask(
         return new IngestionTask(taskId, Status.CANCELLED, files, chunksCreated, "Annulé par l'utilisateur",
                 createdAt, Instant.now(), null, 0);
     }
+
+    public IngestionTask withChunks(int chunks) {
+        return new IngestionTask(taskId, status, files, chunks, error, createdAt, completedAt, parserUsed, layoutAwareChunks);
+    }
 }

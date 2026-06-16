@@ -1,5 +1,6 @@
 package fr.spectra.service;
 
+import fr.spectra.config.SpectraProperties;
 import fr.spectra.dto.IngestionTask;
 import fr.spectra.model.ExtractedDocument;
 import fr.spectra.model.TextChunk;
@@ -41,10 +42,6 @@ public class IngestionTaskExecutor {
     private static final Logger log = LoggerFactory.getLogger(IngestionTaskExecutor.class);
     /** Même limite que IngestionService.MAX_ZIP_DEPTH — protège contre les ZIP bombs imbriqués. */
     private static final int MAX_ZIP_DEPTH = 3;
-    /** Nombre maximal d'entrées traitées par archive (protection ZIP bomb). */
-    private static final int MAX_ZIP_ENTRIES = 10_000;
-    /** Taille décompressée maximale autorisée par entrée (protection ZIP bomb). */
-    private static final long MAX_ENTRY_UNCOMPRESSED_BYTES = 200L * 1024 * 1024;
 
     private final DocumentExtractorFactory extractorFactory;
     private final TextCleanerService textCleaner;
@@ -53,6 +50,8 @@ public class IngestionTaskExecutor {
     private final ChromaDbClient chromaDbClient;
     private final FtsService ftsService;
     private final int embeddingBatchSize;
+    private final int maxZipEntries;
+    private final long maxEntryBytes;
     private final Semaphore concurrencySemaphore;
     private final Counter chunksIngested;
     private final Counter filesIngested;
@@ -65,15 +64,18 @@ public class IngestionTaskExecutor {
                                  ChromaDbClient chromaDbClient,
                                  FtsService ftsService,
                                  MeterRegistry meterRegistry,
-                                 @Value("${spectra.pipeline.embedding-batch-size:10}") int embeddingBatchSize,
-                                 @Value("${spectra.pipeline.concurrent-ingestions:4}") int concurrentIngestions) {
+                                 SpectraProperties properties) {
         this.extractorFactory = extractorFactory;
         this.textCleaner = textCleaner;
         this.chunkingService = chunkingService;
         this.embeddingService = embeddingService;
         this.chromaDbClient = chromaDbClient;
         this.ftsService = ftsService;
-        this.embeddingBatchSize = embeddingBatchSize;
+        this.embeddingBatchSize = properties.pipeline().embeddingBatchSize();
+        this.maxZipEntries = properties.ingestion() != null ? properties.ingestion().effectiveMaxZipEntries() : 10_000;
+        this.maxEntryBytes = properties.ingestion() != null ? properties.ingestion().effectiveMaxEntryBytes() : 200L * 1024 * 1024;
+
+        int concurrentIngestions = properties.pipeline().concurrentIngestions();
         this.concurrencySemaphore = new Semaphore(Math.max(1, concurrentIngestions), true);
         log.info("[ingestion] Limite de concurrence : {} ingestion(s) simultanée(s)", concurrentIngestions);
         this.chunksIngested = Counter.builder("spectra.ingestion.chunks.total")
@@ -152,7 +154,12 @@ public class IngestionTaskExecutor {
                 if (parserHolder[0] != null) lastParserUsed = parserHolder[0];
                 totalLayoutAwareChunks += layoutHolder[0];
                 totalChunks += chunks;
-                if (chunks > 0) { chunksIngested.increment(chunks); filesIngested.increment(); }
+                if (chunks > 0) {
+                    chunksIngested.increment(chunks);
+                    filesIngested.increment();
+                    final int currentTotal = totalChunks;
+                    tasks.computeIfPresent(taskId, (k, t) -> t.withChunks(currentTotal));
+                }
                 if (chunks > 0 && onIngested != null) {
                     String hash = tempFileToHash != null ? tempFileToHash.get(tempFiles.get(i)) : null;
                     onIngested.onIngested(hash, name, chunks);
@@ -245,8 +252,8 @@ public class IngestionTaskExecutor {
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
                 if (entry.isDirectory()) continue;
-                if (++entryCount > MAX_ZIP_ENTRIES) {
-                    log.warn("Nombre max d'entrées ZIP ({}) atteint — archive tronquée: {}", MAX_ZIP_ENTRIES, archiveName);
+                if (++entryCount > maxZipEntries) {
+                    log.warn("Nombre max d'entrées ZIP ({}) atteint — archive tronquée: {}", maxZipEntries, archiveName);
                     break;
                 }
                 String entryName = entry.getName();
@@ -256,9 +263,9 @@ public class IngestionTaskExecutor {
                     continue;
                 }
                 // Pré-filtre : rejeter une entrée dont la taille décompressée déclarée est démesurée.
-                if (entry.getSize() > MAX_ENTRY_UNCOMPRESSED_BYTES) {
+                if (entry.getSize() > maxEntryBytes) {
                     log.warn("Entrée ZIP ignorée (taille décompressée {} > {} octets): {}",
-                            entry.getSize(), MAX_ENTRY_UNCOMPRESSED_BYTES, entryName);
+                            entry.getSize(), maxEntryBytes, entryName);
                     continue;
                 }
 
@@ -271,7 +278,7 @@ public class IngestionTaskExecutor {
                     // the parent ZipInputStream when it reaches its own try-with-resources.
                     InputStream nonClosing = new LimitedInputStream(new FilterInputStream(zis) {
                         @Override public void close() {}
-                    }, MAX_ENTRY_UNCOMPRESSED_BYTES);
+                    }, maxEntryBytes);
                     totalChunks += ingestZip(nonClosing, archiveName + "/" + entryName,
                             collectionId, collectionName, depth + 1);
                     continue;
@@ -285,7 +292,7 @@ public class IngestionTaskExecutor {
                     // protège contre une entrée décompressée surdimensionnée (ZIP bomb).
                     InputStream entryStream = new LimitedInputStream(new FilterInputStream(zis) {
                         @Override public void close() { /* do not close the parent ZipInputStream */ }
-                    }, MAX_ENTRY_UNCOMPRESSED_BYTES);
+                    }, maxEntryBytes);
                     totalChunks += ingestEntry(qualifiedName, entryStream, collectionId, collectionName);
                 } catch (ExtractionException e) {
                     log.warn("Erreur sur entrée ZIP {}: {}", qualifiedName, e.getMessage());
