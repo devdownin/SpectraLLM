@@ -526,23 +526,23 @@ const sectionCommenting = () => (
 
     {/* API reference */}
     <div className="bg-card/50 border border-border/40 rounded-xl p-8">
-      <h3 className="text-lg font-headline font-bold text-foreground mb-4">Référence API</h3>
+      <h3 className="text-lg font-headline font-bold text-foreground mb-4">API Reference</h3>
       <div className="bg-black/40 p-5 rounded-lg font-mono text-sm border border-border/20 space-y-1 overflow-x-auto">
-        <p className="text-green-400"># Lister les commentaires d'un document</p>
+        <p className="text-green-400"># List a document's comments</p>
         <p className="text-foreground mb-3">GET /api/ged/documents/{'{sha256}'}/comments</p>
 
-        <p className="text-green-400"># Générer un commentaire IA via RAG</p>
+        <p className="text-green-400"># Generate an AI comment via RAG</p>
         <p className="text-foreground">POST /api/ged/documents/{'{sha256}'}/comments</p>
-        <p className="text-muted-foreground mb-3">{'{ "content": "procédures de sécurité", "generate": true }'}</p>
+        <p className="text-muted-foreground mb-3">{'{ "content": "safety procedures", "generate": true }'}</p>
 
-        <p className="text-green-400"># Évaluer (APPROVED / REJECTED / NONE)</p>
+        <p className="text-green-400"># Rate (APPROVED / REJECTED / NONE)</p>
         <p className="text-foreground mb-3">PATCH /api/ged/documents/{'{sha256}'}/comments/{'{id}'}/rating?rating=APPROVED</p>
 
-        <p className="text-green-400"># Exporter les paires DPO (filtrées Jaccard)</p>
+        <p className="text-green-400"># Export DPO pairs (Jaccard-filtered)</p>
         <p className="text-foreground">POST /api/ged/documents/export/comments-dpo</p>
         <p className="text-muted-foreground mb-3">{'→ { "pairs": 12, "file": "data/dataset/comments_dpo.jsonl" }'}</p>
 
-        <p className="text-green-400"># Métriques du cycle de personnalisation</p>
+        <p className="text-green-400"># Personalization cycle metrics</p>
         <p className="text-foreground">GET /api/metrics/personalization</p>
         <p className="text-muted-foreground">{'→ { "approvedComments": 8, "dpoPairs": 6, "completedCycles": 1, "nextTriggerIn": 2, ... }'}</p>
       </div>
@@ -560,12 +560,12 @@ const sectionPersonalisation = () => (
     <div className="bg-primary/10 border border-primary/30 rounded-xl p-8">
       <div className="flex items-center gap-3 mb-4">
         <span className="material-symbols-outlined text-2xl text-primary">auto_mode</span>
-        <h2 className="text-2xl font-headline font-bold text-foreground">Personnalisation Continue</h2>
+        <h2 className="text-2xl font-headline font-bold text-foreground">Continuous Personalization</h2>
         <span className="text-[8px] font-bold uppercase tracking-widest border border-primary/40 text-primary px-2 py-0.5 rounded-full">v1.1</span>
       </div>
       <p className="text-sm text-foreground/80 leading-relaxed">
-        Spectra implémente une <strong>boucle de personnalisation automatique</strong> en 4 mécanismes complémentaires.
-        Ensemble, ils garantissent que vos annotations humaines améliorent réellement le modèle à chaque cycle.
+        Spectra implements an <strong>automatic personalization loop</strong> built from 4 complementary mechanisms.
+        Together, they ensure your human annotations genuinely improve the model on every cycle.
       </p>
     </div>
 
@@ -574,23 +574,23 @@ const sectionPersonalisation = () => (
       <div className="flex items-start gap-3">
         <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center font-headline font-bold text-primary-foreground text-sm shrink-0">1</div>
         <div>
-          <h3 className="text-lg font-headline font-bold text-foreground">Déclencheur automatique de re-entraînement</h3>
+          <h3 className="text-lg font-headline font-bold text-foreground">Automatic re-training trigger</h3>
           <p className="text-xs text-muted-foreground mt-1 uppercase tracking-widest">ArticleCommentService → FineTuningService</p>
         </div>
       </div>
 
       <p className="text-sm text-foreground/80 leading-relaxed">
-        À chaque approbation de commentaire (👍), Spectra compte le total de commentaires IA approuvés.
-        Quand ce total atteint un <strong>multiple du seuil configuré</strong>, un job de fine-tuning DPO
-        est soumis automatiquement — sans intervention.
+        On every comment approval (👍), Spectra counts the total number of approved AI comments.
+        When that total reaches a <strong>multiple of the configured threshold</strong>, a DPO fine-tuning job
+        is submitted automatically — with no manual intervention.
       </p>
 
       {/* Diagram */}
       <div className="bg-black/40 rounded-xl p-6 border border-border/20">
-        <p className="text-[9px] font-headline uppercase tracking-widest text-muted-foreground mb-4">Schéma de déclenchement</p>
+        <p className="text-[9px] font-headline uppercase tracking-widest text-muted-foreground mb-4">Trigger diagram</p>
         <div className="font-mono text-xs space-y-1">
           <div className="flex items-center gap-2">
-            <span className="text-muted-foreground w-28">Approbation 1</span>
+            <span className="text-muted-foreground w-28">Approval 1</span>
             <div className="flex gap-0.5">
               <div className="w-6 h-3 bg-primary/40 rounded-sm" />
               <div className="w-6 h-3 bg-border/20 rounded-sm" />
@@ -601,7 +601,7 @@ const sectionPersonalisation = () => (
             <span className="text-muted-foreground text-[9px]">1 / 5</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-muted-foreground w-28">Approbation 3</span>
+            <span className="text-muted-foreground w-28">Approval 3</span>
             <div className="flex gap-0.5">
               <div className="w-6 h-3 bg-primary/40 rounded-sm" />
               <div className="w-6 h-3 bg-primary/40 rounded-sm" />
@@ -612,7 +612,7 @@ const sectionPersonalisation = () => (
             <span className="text-muted-foreground text-[9px]">3 / 5</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-foreground w-28 font-bold">Approbation 5</span>
+            <span className="text-foreground w-28 font-bold">Approval 5</span>
             <div className="flex gap-0.5">
               <div className="w-6 h-3 bg-primary rounded-sm" />
               <div className="w-6 h-3 bg-primary rounded-sm" />
@@ -621,11 +621,11 @@ const sectionPersonalisation = () => (
               <div className="w-6 h-3 bg-primary rounded-sm" />
             </div>
             <span className="text-primary font-bold text-[9px] flex items-center gap-1">
-              5 / 5 → <span className="material-symbols-outlined text-[11px]">rocket_launch</span> DPO FT lancé !
+              5 / 5 → <span className="material-symbols-outlined text-[11px]">rocket_launch</span> DPO FT launched!
             </span>
           </div>
           <div className="flex items-center gap-2 mt-1">
-            <span className="text-muted-foreground w-28">Approbation 10</span>
+            <span className="text-muted-foreground w-28">Approval 10</span>
             <div className="flex gap-0.5">
               <div className="w-6 h-3 bg-primary rounded-sm" />
               <div className="w-6 h-3 bg-primary rounded-sm" />
@@ -634,7 +634,7 @@ const sectionPersonalisation = () => (
               <div className="w-6 h-3 bg-primary rounded-sm" />
             </div>
             <span className="text-primary text-[9px] flex items-center gap-1">
-              10 / 5 → <span className="material-symbols-outlined text-[11px]">rocket_launch</span> 2ème cycle
+              10 / 5 → <span className="material-symbols-outlined text-[11px]">rocket_launch</span> 2nd cycle
             </span>
           </div>
         </div>
@@ -644,17 +644,17 @@ const sectionPersonalisation = () => (
         <div className="bg-black/30 rounded-lg p-4">
           <p className="text-[9px] font-headline uppercase tracking-widest text-primary mb-2">Configuration</p>
           <div className="font-mono text-xs space-y-1 text-foreground/80">
-            <p><span className="text-muted-foreground">Clé :</span> spectra.ged.auto-retrain-threshold</p>
-            <p><span className="text-muted-foreground">Défaut :</span> 5</p>
-            <p><span className="text-muted-foreground">Env var :</span> SPECTRA_GED_AUTO_RETRAIN_THRESHOLD</p>
+            <p><span className="text-muted-foreground">Key:</span> spectra.ged.auto-retrain-threshold</p>
+            <p><span className="text-muted-foreground">Default:</span> 5</p>
+            <p><span className="text-muted-foreground">Env var:</span> SPECTRA_GED_AUTO_RETRAIN_THRESHOLD</p>
           </div>
         </div>
         <div className="bg-black/30 rounded-lg p-4">
-          <p className="text-[9px] font-headline uppercase tracking-widest text-secondary mb-2">Ce qui se passe</p>
+          <p className="text-[9px] font-headline uppercase tracking-widest text-secondary mb-2">What happens</p>
           <div className="text-xs space-y-1 text-foreground/80">
             <p>1. <code className="font-mono">exportDpoPairs()</code> → <code className="font-mono">comments_dpo.jsonl</code></p>
-            <p>2. <code className="font-mono">FineTuningService.submit()</code> avec <code className="font-mono">dpoEnabled=true</code></p>
-            <p>3. Exécution asynchrone (hors thread HTTP)</p>
+            <p>2. <code className="font-mono">FineTuningService.submit()</code> with <code className="font-mono">dpoEnabled=true</code></p>
+            <p>3. Asynchronous execution (off the HTTP thread)</p>
           </div>
         </div>
       </div>
@@ -665,30 +665,30 @@ const sectionPersonalisation = () => (
       <div className="flex items-start gap-3">
         <div className="w-8 h-8 rounded-full bg-secondary/80 flex items-center justify-center font-headline font-bold text-foreground text-sm shrink-0">2</div>
         <div>
-          <h3 className="text-lg font-headline font-bold text-foreground">Garde de qualité DPO — Similarité de Jaccard</h3>
+          <h3 className="text-lg font-headline font-bold text-foreground">DPO quality guard — Jaccard similarity</h3>
           <p className="text-xs text-muted-foreground mt-1 uppercase tracking-widest">DpoGenerationService · ArticleCommentService</p>
         </div>
       </div>
 
       <p className="text-sm text-foreground/80 leading-relaxed">
-        Une paire DPO n'a de valeur que si <code className="font-mono bg-black/30 px-1">chosen</code> et <code className="font-mono bg-black/30 px-1">rejected</code> sont <strong>vraiment différents</strong>.
-        Si le LLM génère une réponse "incorrecte" quasi-identique à la réponse correcte,
-        l'entraînement DPO ne peut pas apprendre la distinction — et peut même dégrader le modèle.
+        A DPO pair is only valuable if <code className="font-mono bg-black/30 px-1">chosen</code> and <code className="font-mono bg-black/30 px-1">rejected</code> are <strong>genuinely different</strong>.
+        If the LLM produces an "incorrect" answer that is nearly identical to the correct one,
+        DPO training cannot learn the distinction — and may even degrade the model.
       </p>
 
       {/* Formula */}
       <div className="bg-black/40 rounded-xl p-6 border border-border/20 space-y-4">
-        <p className="text-[9px] font-headline uppercase tracking-widest text-muted-foreground">Formule de Jaccard sur ensembles de mots</p>
+        <p className="text-[9px] font-headline uppercase tracking-widest text-muted-foreground">Jaccard formula over word sets</p>
         <div className="flex items-center justify-center">
           <div className="font-mono text-sm text-center space-y-1">
-            <p className="text-foreground/60 text-xs">Soient A = mots de <span className="text-primary">chosen</span>, B = mots de <span className="text-secondary">rejected</span></p>
+            <p className="text-foreground/60 text-xs">Let A = words of <span className="text-primary">chosen</span>, B = words of <span className="text-secondary">rejected</span></p>
             <div className="bg-secondary/20 px-6 py-3 rounded-lg inline-block mt-2">
               <p className="text-foreground text-base">
                 J(A, B) = <span className="text-primary">|A ∩ B|</span> / <span className="text-secondary">|A ∪ B|</span>
               </p>
             </div>
             <p className="text-muted-foreground text-xs mt-2">
-              Résultat ∈ [0, 1] · Si J &gt; <span className="text-primary font-bold">0.85</span> → paire rejetée
+              Result ∈ [0, 1] · If J &gt; <span className="text-primary font-bold">0.85</span> → pair rejected
             </p>
           </div>
         </div>
@@ -696,43 +696,43 @@ const sectionPersonalisation = () => (
 
       {/* Worked example */}
       <div className="space-y-3">
-        <p className="text-[9px] font-headline uppercase tracking-widest text-muted-foreground">Exemple concret</p>
+        <p className="text-[9px] font-headline uppercase tracking-widest text-muted-foreground">Concrete example</p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="bg-green-500/5 border border-green-500/20 rounded-lg p-4">
-            <p className="text-[9px] font-bold uppercase tracking-widest text-green-400 mb-2">Paire ACCEPTÉE ✓</p>
+            <p className="text-[9px] font-bold uppercase tracking-widest text-green-400 mb-2">ACCEPTED pair ✓</p>
             <div className="font-mono text-xs space-y-2">
               <div>
                 <p className="text-primary text-[9px] uppercase">chosen</p>
-                <p className="text-foreground/80">"Le document décrit 5 étapes : alerte, confinement, évacuation, intervention, retour-à-la-normale"</p>
+                <p className="text-foreground/80">"The document describes 5 steps: alert, containment, evacuation, response, return-to-normal"</p>
               </div>
               <div>
                 <p className="text-secondary text-[9px] uppercase">rejected</p>
-                <p className="text-foreground/60">"Ce rapport résume les obligations légales de sécurité en 3 points principaux"</p>
+                <p className="text-foreground/60">"This report summarizes the legal safety obligations in 3 main points"</p>
               </div>
               <div className="border-t border-border/20 pt-2">
-                <p className="text-muted-foreground">A ∩ B = {'{'}le, de{'}'} = 2 mots</p>
-                <p className="text-muted-foreground">A ∪ B ≈ 22 mots</p>
-                <p className="text-green-400 font-bold">J = 2/22 = <strong>0.09</strong> → ACCEPTÉE</p>
+                <p className="text-muted-foreground">A ∩ B = {'{'}the{'}'} = 2 words</p>
+                <p className="text-muted-foreground">A ∪ B ≈ 22 words</p>
+                <p className="text-green-400 font-bold">J = 2/22 = <strong>0.09</strong> → ACCEPTED</p>
               </div>
             </div>
           </div>
 
           <div className="bg-red-500/5 border border-red-500/20 rounded-lg p-4">
-            <p className="text-[9px] font-bold uppercase tracking-widest text-red-400 mb-2">Paire REJETÉE ✗</p>
+            <p className="text-[9px] font-bold uppercase tracking-widest text-red-400 mb-2">REJECTED pair ✗</p>
             <div className="font-mono text-xs space-y-2">
               <div>
                 <p className="text-primary text-[9px] uppercase">chosen</p>
-                <p className="text-foreground/80">"Le document décrit 5 étapes : alerte, confinement, évacuation, intervention, retour-à-la-normale"</p>
+                <p className="text-foreground/80">"The document describes 5 steps: alert, containment, evacuation, response, return-to-normal"</p>
               </div>
               <div>
                 <p className="text-secondary text-[9px] uppercase">rejected</p>
-                <p className="text-foreground/60">"Le document décrit 5 étapes : alerte, confinement, évacuation, intervention, normalisation"</p>
+                <p className="text-foreground/60">"The document describes 5 steps: alert, containment, evacuation, response, normalization"</p>
               </div>
               <div className="border-t border-border/20 pt-2">
-                <p className="text-muted-foreground">A ∩ B = 13 mots communs</p>
-                <p className="text-muted-foreground">A ∪ B = 15 mots</p>
-                <p className="text-red-400 font-bold">J = 13/15 = <strong>0.87</strong> → REJETÉE (› 0.85)</p>
+                <p className="text-muted-foreground">A ∩ B = 13 common words</p>
+                <p className="text-muted-foreground">A ∪ B = 15 words</p>
+                <p className="text-red-400 font-bold">J = 13/15 = <strong>0.87</strong> → REJECTED (› 0.85)</p>
               </div>
             </div>
           </div>
@@ -742,9 +742,9 @@ const sectionPersonalisation = () => (
       <div className="flex items-start gap-2 p-3 bg-secondary/5 border border-secondary/20 rounded-lg">
         <span className="material-symbols-outlined text-sm text-secondary shrink-0 mt-0.5">info</span>
         <p className="text-xs text-muted-foreground">
-          Le seuil 0.85 est codé en constante <code className="font-mono bg-black/30 px-1">SIMILARITY_THRESHOLD</code> dans les deux services.
-          Un seuil plus bas (ex. 0.70) est plus strict — il filtre aussi des paires légitimement proches.
-          0.85 est un bon compromis pour des textes techniques.
+          The 0.85 threshold is hard-coded as the <code className="font-mono bg-black/30 px-1">SIMILARITY_THRESHOLD</code> constant in both services.
+          A lower threshold (e.g. 0.70) is stricter — it also filters out legitimately close pairs.
+          0.85 is a good compromise for technical text.
         </p>
       </div>
     </div>
@@ -754,23 +754,23 @@ const sectionPersonalisation = () => (
       <div className="flex items-start gap-3">
         <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center font-headline font-bold text-primary-foreground text-sm shrink-0">3</div>
         <div>
-          <h3 className="text-lg font-headline font-bold text-foreground">Vérification registre ↔ serveur llama</h3>
+          <h3 className="text-lg font-headline font-bold text-foreground">Registry ↔ llama-server consistency check</h3>
           <p className="text-xs text-muted-foreground mt-1 uppercase tracking-widest">LlamaCppChatClient · ModelRegistryService</p>
         </div>
       </div>
 
       <p className="text-sm text-foreground/80 leading-relaxed">
-        Spectra maintient un registre JSON local des modèles (<code className="font-mono bg-black/30 px-1">data/models/registry.json</code>)
-        indépendamment de llama-server. En cas de désynchronisation — le registre désigne un modèle que le
-        serveur ne connaît pas — toutes les requêtes échoueront silencieusement.
+        Spectra maintains a local JSON model registry (<code className="font-mono bg-black/30 px-1">data/models/registry.json</code>)
+        independently of llama-server. In the event of a mismatch — the registry points to a model the
+        server does not know about — all requests will fail silently.
       </p>
 
       {/* Problem/Solution diagram */}
       <div className="bg-black/40 rounded-xl p-6 border border-border/20 space-y-4">
-        <p className="text-[9px] font-headline uppercase tracking-widest text-muted-foreground">Problème de désynchronisation</p>
+        <p className="text-[9px] font-headline uppercase tracking-widest text-muted-foreground">Mismatch problem</p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs font-mono">
           <div className="bg-red-500/10 border border-red-500/20 rounded p-3">
-            <p className="text-red-400 font-bold text-[9px] uppercase mb-2">Registre (registry.json)</p>
+            <p className="text-red-400 font-bold text-[9px] uppercase mb-2">Registry (registry.json)</p>
             <p className="text-foreground">activeChatModel:</p>
             <p className="text-primary font-bold">"phi-4-mini-finetuned"</p>
           </div>
@@ -783,34 +783,34 @@ const sectionPersonalisation = () => (
         </div>
         <div className="flex items-center gap-2 p-2 bg-red-500/5 rounded">
           <span className="material-symbols-outlined text-sm text-red-400">error</span>
-          <p className="text-xs text-red-400">Résultat : toutes les requêtes vers "phi-4-mini-finetuned" échouent (modèle introuvable)</p>
+          <p className="text-xs text-red-400">Result: every request to "phi-4-mini-finetuned" fails (model not found)</p>
         </div>
       </div>
 
       {/* Solution */}
       <div className="bg-black/40 rounded-xl p-6 border border-border/20 space-y-3">
-        <p className="text-[9px] font-headline uppercase tracking-widest text-muted-foreground">Solution implémentée</p>
+        <p className="text-[9px] font-headline uppercase tracking-widest text-muted-foreground">Implemented solution</p>
         <div className="font-mono text-xs space-y-1 text-foreground/80">
           <p><span className="text-primary">setActiveModel(</span><span className="text-secondary">"phi-4-mini-finetuned"</span><span className="text-primary">)</span></p>
-          <p className="text-muted-foreground">  ↓ 1. Mise à jour du registre</p>
+          <p className="text-muted-foreground">  ↓ 1. Update the registry</p>
           <p className="text-muted-foreground">  ↓ 2. runtimeOrchestrator.ensureChatModelServed()</p>
           <p className="text-foreground">  ↓ 3. <span className="text-secondary">CompletableFuture.runAsync</span> → checkHealth()</p>
-          <p className="text-muted-foreground pl-8">Si status ≠ "ok" → WARN dans les logs</p>
-          <p className="text-muted-foreground pl-8">"ALERTE REGISTRE/SERVEUR : modèle 'X' actif</p>
-          <p className="text-muted-foreground pl-8"> mais non servi par llama-server"</p>
+          <p className="text-muted-foreground pl-8">If status ≠ "ok" → WARN in the logs</p>
+          <p className="text-muted-foreground pl-8">"REGISTRY/SERVER ALERT: model 'X' active</p>
+          <p className="text-muted-foreground pl-8"> but not served by llama-server"</p>
         </div>
         <div className="flex items-start gap-2 p-2 bg-green-500/5 border border-green-500/20 rounded">
           <span className="material-symbols-outlined text-sm text-green-400 shrink-0">check_circle</span>
-          <p className="text-xs text-green-400">La vérification est asynchrone : elle ne bloque pas le changement de modèle.</p>
+          <p className="text-xs text-green-400">The check is asynchronous: it does not block the model switch.</p>
         </div>
       </div>
 
       <div className="bg-black/30 rounded-lg p-4">
-        <p className="text-[9px] font-headline uppercase tracking-widest text-muted-foreground mb-2">Surveiller les désynchronisations</p>
+        <p className="text-[9px] font-headline uppercase tracking-widest text-muted-foreground mb-2">Monitor mismatches</p>
         <div className="font-mono text-xs text-foreground/70 space-y-1">
-          <p className="text-green-400"># Chercher dans les logs</p>
+          <p className="text-green-400"># Search the logs</p>
           <p>docker compose logs spectra-api | grep "ALERTE REGISTRE"</p>
-          <p className="text-green-400 mt-2"># Vérifier le modèle actif côté serveur</p>
+          <p className="text-green-400 mt-2"># Check the active model on the server side</p>
           <p>curl http://localhost:8081/v1/models | jq '.data[].id'</p>
         </div>
       </div>
@@ -821,31 +821,31 @@ const sectionPersonalisation = () => (
       <div className="flex items-start gap-3">
         <div className="w-8 h-8 rounded-full bg-secondary/80 flex items-center justify-center font-headline font-bold text-foreground text-sm shrink-0">4</div>
         <div>
-          <h3 className="text-lg font-headline font-bold text-foreground">Dashboard de métriques de personnalisation</h3>
+          <h3 className="text-lg font-headline font-bold text-foreground">Personalization metrics dashboard</h3>
           <p className="text-xs text-muted-foreground mt-1 uppercase tracking-widest">PersonalizationMetricsService · GET /api/metrics/personalization</p>
         </div>
       </div>
 
       <p className="text-sm text-foreground/80 leading-relaxed">
-        Un nouvel endpoint agrège en temps réel toutes les métriques de la boucle de personnalisation.
-        Le Dashboard affiche ces données dans la section <strong>"Cycle de Personnalisation"</strong>.
+        A new endpoint aggregates all personalization-loop metrics in real time.
+        The Dashboard displays this data in the <strong>"Personalization Cycle"</strong> section.
       </p>
 
       {/* Metrics map */}
       <div className="bg-black/40 rounded-xl p-6 border border-border/20">
-        <p className="text-[9px] font-headline uppercase tracking-widest text-muted-foreground mb-4">Structure de la réponse</p>
+        <p className="text-[9px] font-headline uppercase tracking-widest text-muted-foreground mb-4">Response structure</p>
         <div className="font-mono text-xs space-y-0.5 overflow-x-auto">
           <p className="text-foreground">{`GET /api/metrics/personalization`}</p>
           <p className="text-muted-foreground">{`{`}</p>
-          <p className="text-muted-foreground pl-4"><span className="text-primary">"approvedComments"</span>{`: 12,`}<span className="text-muted-foreground/50 ml-3">//  commentaires IA notés 👍</span></p>
-          <p className="text-muted-foreground pl-4"><span className="text-primary">"rejectedComments"</span>{`: 4,`} <span className="text-muted-foreground/50 ml-3">//  commentaires IA notés 👎</span></p>
-          <p className="text-muted-foreground pl-4"><span className="text-primary">"totalAiComments"</span>{`: 20,`}<span className="text-muted-foreground/50 ml-3">//  tous les commentaires IA</span></p>
-          <p className="text-muted-foreground pl-4"><span className="text-secondary">"dpoPairs"</span>{`: 9,`}        <span className="text-muted-foreground/50 ml-3">//  paires valides en mémoire</span></p>
-          <p className="text-muted-foreground pl-4"><span className="text-secondary">"completedCycles"</span>{`: 2,`}  <span className="text-muted-foreground/50 ml-3">//  cycles auto déclenchés</span></p>
-          <p className="text-muted-foreground pl-4"><span className="text-secondary">"nextTriggerIn"</span>{`: 3,`}   <span className="text-muted-foreground/50 ml-3">//  approbations avant prochain trigger</span></p>
+          <p className="text-muted-foreground pl-4"><span className="text-primary">"approvedComments"</span>{`: 12,`}<span className="text-muted-foreground/50 ml-3">//  AI comments rated 👍</span></p>
+          <p className="text-muted-foreground pl-4"><span className="text-primary">"rejectedComments"</span>{`: 4,`} <span className="text-muted-foreground/50 ml-3">//  AI comments rated 👎</span></p>
+          <p className="text-muted-foreground pl-4"><span className="text-primary">"totalAiComments"</span>{`: 20,`}<span className="text-muted-foreground/50 ml-3">//  all AI comments</span></p>
+          <p className="text-muted-foreground pl-4"><span className="text-secondary">"dpoPairs"</span>{`: 9,`}        <span className="text-muted-foreground/50 ml-3">//  valid pairs in memory</span></p>
+          <p className="text-muted-foreground pl-4"><span className="text-secondary">"completedCycles"</span>{`: 2,`}  <span className="text-muted-foreground/50 ml-3">//  auto-triggered cycles</span></p>
+          <p className="text-muted-foreground pl-4"><span className="text-secondary">"nextTriggerIn"</span>{`: 3,`}   <span className="text-muted-foreground/50 ml-3">//  approvals before next trigger</span></p>
           <p className="text-muted-foreground pl-4"><span className="text-primary">"autoRetrainThreshold"</span>{`: 5,`}</p>
           <p className="text-muted-foreground pl-4"><span className="text-primary">"completedFineTuningJobs"</span>{`: 2,`}</p>
-          <p className="text-muted-foreground pl-4"><span className="text-secondary">"latestEvalScore"</span>{`: 7.3,`}<span className="text-muted-foreground/50 ml-3">//  score moyen /10 dernier cycle</span></p>
+          <p className="text-muted-foreground pl-4"><span className="text-secondary">"latestEvalScore"</span>{`: 7.3,`}<span className="text-muted-foreground/50 ml-3">//  avg score /10 for last cycle</span></p>
           <p className="text-muted-foreground pl-4"><span className="text-muted-foreground">"fineTuningJobs"</span>{`: [...],`}</p>
           <p className="text-muted-foreground pl-4"><span className="text-muted-foreground">"evaluations"</span>{`: [...]`}</p>
           <p className="text-muted-foreground">{`}`}</p>
@@ -854,13 +854,13 @@ const sectionPersonalisation = () => (
 
       {/* Dashboard visual */}
       <div className="space-y-3">
-        <p className="text-[9px] font-headline uppercase tracking-widest text-muted-foreground">Ce que vous voyez dans le Dashboard</p>
+        <p className="text-[9px] font-headline uppercase tracking-widest text-muted-foreground">What you see in the Dashboard</p>
         <div className="grid grid-cols-4 gap-3">
           {[
-            { label: 'Approuvés', value: '12', color: 'border-primary text-primary' },
-            { label: 'Paires DPO', value: '9', color: 'border-secondary text-secondary' },
+            { label: 'Approved', value: '12', color: 'border-primary text-primary' },
+            { label: 'DPO Pairs', value: '9', color: 'border-secondary text-secondary' },
             { label: 'Fine-Tunings', value: '2', color: 'border-border/40 text-foreground' },
-            { label: 'Score Éval.', value: '7.3/10', color: 'border-border/40 text-foreground' },
+            { label: 'Eval Score', value: '7.3/10', color: 'border-border/40 text-foreground' },
           ].map(m => (
             <div key={m.label} className={`bg-black/30 rounded p-3 border-t-2 ${m.color}`}>
               <p className="text-[8px] uppercase tracking-widest text-muted-foreground">{m.label}</p>
@@ -872,15 +872,15 @@ const sectionPersonalisation = () => (
         {/* Progress bar */}
         <div className="bg-black/30 rounded-lg p-4">
           <div className="flex justify-between mb-2">
-            <p className="text-[9px] uppercase tracking-widest text-muted-foreground">Prochain re-entraînement auto</p>
-            <p className="text-[9px] font-mono text-muted-foreground">seuil : 5</p>
+            <p className="text-[9px] uppercase tracking-widest text-muted-foreground">Next auto re-training</p>
+            <p className="text-[9px] font-mono text-muted-foreground">threshold: 5</p>
           </div>
           <div className="w-full bg-border/20 h-2 rounded-full">
             <div className="h-2 bg-primary rounded-full" style={{ width: '80%' }} />
           </div>
           <div className="flex justify-between mt-1">
-            <p className="text-[8px] text-muted-foreground">12 / 15 (2ème cycle + 2 sur 3ème)</p>
-            <p className="text-[8px] text-muted-foreground">encore 3 approbations</p>
+            <p className="text-[8px] text-muted-foreground">12 / 15 (2nd cycle + 2 into 3rd)</p>
+            <p className="text-[8px] text-muted-foreground">3 more approvals</p>
           </div>
         </div>
       </div>
