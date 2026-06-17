@@ -67,7 +67,9 @@ class ZipIngestionExecutorTest {
                 chromaDb,
                 ftsService,
                 new SimpleMeterRegistry(),
-                props);
+                10,
+                50,
+                4);
     }
 
     // ── Contenu JSON ──────────────────────────────────────────────────────────

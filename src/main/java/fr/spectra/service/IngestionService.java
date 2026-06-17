@@ -42,6 +42,8 @@ public class IngestionService {
     private static final Logger log = LoggerFactory.getLogger(IngestionService.class);
     private static final String DEFAULT_COLLECTION = "spectra_documents";
     private static final int MAX_ZIP_DEPTH = 3;
+    /** Nombre maximal d'entrées traitées par archive (protection ZIP bomb). */
+    private static final int MAX_ZIP_ENTRIES = 10_000;
 
     // Direct-pipeline deps (used by ingest() and ingestLocalFiles())
     private final DocumentExtractorFactory extractorFactory;
@@ -51,8 +53,8 @@ public class IngestionService {
     private final ChromaDbClient chromaDbClient;
     private final FtsService ftsService;
     private final int embeddingBatchSize;
-    private final int maxZipEntries;
-    private final long maxEntryBytes;
+    /** Taille décompressée maximale par fichier/entrée ZIP (mémoire + anti-ZIP-bomb). */
+    private final long maxUncompressedBytes;
 
     // Async + dedup deps (used by submit())
     private final IngestionTaskExecutor executor;
@@ -73,7 +75,11 @@ public class IngestionService {
                             IngestionTaskExecutor executor,
                             IngestedFileRepository repository,
                             GedService gedService,
-                            SpectraProperties properties) {
+                            SpectraProperties properties,
+                            @org.springframework.beans.factory.annotation.Value("${spectra.pipeline.max-uncompressed-mb:0}") int maxUncompressedMb,
+                            @org.springframework.beans.factory.annotation.Value("${spectra.pipeline.concurrent-ingestions:4}") int concurrentIngestions) {
+        // 0 → auto-calcul selon le heap et la concurrence (évite l'OOM).
+        this.maxUncompressedBytes = IngestionLimits.resolveMaxUncompressedBytes(maxUncompressedMb, concurrentIngestions);
         this.extractorFactory = extractorFactory;
         this.textCleaner = textCleaner;
         this.chunkingService = chunkingService;
@@ -260,8 +266,6 @@ public class IngestionService {
         }
     }
 
-    private static final long MAX_SINGLE_FILE_BYTES = 200L * 1024 * 1024; // 200 MB
-
     /**
      * Ingère un seul fichier depuis un InputStream (utilisé par UrlIngestionService).
      * Stream via un fichier temporaire pour éviter de charger l'intégralité en mémoire.
@@ -297,9 +301,9 @@ public class IngestionService {
             for (Path path : paths) {
                 try {
                     long fileSize = Files.size(path);
-                    if (fileSize > MAX_SINGLE_FILE_BYTES) {
+                    if (fileSize > maxUncompressedBytes) {
                         log.warn("Fichier ignoré (trop grand {}MB > {}MB): {}",
-                                fileSize / (1024 * 1024), MAX_SINGLE_FILE_BYTES / (1024 * 1024), path);
+                                fileSize / (1024 * 1024), maxUncompressedBytes / (1024 * 1024), path);
                         continue;
                     }
                     byte[] bytes = Files.readAllBytes(path);
@@ -342,14 +346,15 @@ public class IngestionService {
             return 0;
         }
 
-        List<List<Float>> allEmbeddings = new ArrayList<>();
+        // Embed + ajout ChromaDB par lot (pas d'accumulation mémoire de toutes les embeddings).
         for (int i = 0; i < chunks.size(); i += embeddingBatchSize) {
             int end = Math.min(i + embeddingBatchSize, chunks.size());
-            allEmbeddings.addAll(embeddingService.embedBatch(
-                    chunks.subList(i, end).stream().map(TextChunk::text).toList()));
+            List<TextChunk> batch = chunks.subList(i, end);
+            List<List<Float>> batchEmbeddings = embeddingService.embedBatch(
+                    batch.stream().map(TextChunk::text).toList());
+            chromaDbClient.addDocuments(collectionId, batch, batchEmbeddings);
         }
 
-        chromaDbClient.addDocuments(collectionId, chunks, allEmbeddings);
         ftsService.indexChunks(chunks, collectionName);
         log.info("Fichier {} traité: {} chunks", fileName, chunks.size());
         return chunks.size();
@@ -381,9 +386,9 @@ public class IngestionService {
                     log.warn("Entrée ZIP suspecte ignorée (path traversal): {}", entryName);
                     continue;
                 }
-                if (entry.getSize() > maxEntryBytes) {
+                if (entry.getSize() > maxUncompressedBytes) {
                     log.warn("Entrée ZIP ignorée (taille décompressée {} > {} octets): {}",
-                            entry.getSize(), maxEntryBytes, entryName);
+                            entry.getSize(), maxUncompressedBytes, entryName);
                     continue;
                 }
 
@@ -394,7 +399,7 @@ public class IngestionService {
                 if (fileName.toLowerCase().endsWith(".zip")) {
                     InputStream nonClosing = new LimitedInputStream(new java.io.FilterInputStream(zis) {
                         @Override public void close() {}
-                    }, maxEntryBytes);
+                    }, maxUncompressedBytes);
                     totalChunks += processZip(nonClosing, archiveName + "/" + entryName, collectionId, depth + 1);
                     continue;
                 }
@@ -407,7 +412,7 @@ public class IngestionService {
                     // invaliderait le ZipInputStream ; la borne protège des ZIP bombs.
                     InputStream entryStream = new LimitedInputStream(new java.io.FilterInputStream(zis) {
                         @Override public void close() { /* ne pas fermer le ZipInputStream parent */ }
-                    }, maxEntryBytes);
+                    }, maxUncompressedBytes);
                     totalChunks += processSingleFile(qualifiedName, entryStream, collectionId, defaultCollection);
                 } catch (ExtractionException e) {
                     log.warn("Erreur sur {}: {}", qualifiedName, e.getMessage());
