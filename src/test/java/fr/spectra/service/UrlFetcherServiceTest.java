@@ -72,7 +72,7 @@ class UrlFetcherServiceTest {
         when(builder.build()).thenReturn(mockWebClient);
 
         SpectraProperties.IngestionProperties ingestion =
-                new SpectraProperties.IngestionProperties("http://browserless-test:3000");
+                new SpectraProperties.IngestionProperties("http://browserless-test:3000", null, null);
         SpectraProperties props = mock(SpectraProperties.class);
         when(props.ingestion()).thenReturn(ingestion);
 

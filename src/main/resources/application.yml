@@ -45,13 +45,17 @@ spectra:
       base-url: ${SPECTRA_LLM_EMBEDDING_BASE_URL:http://llm-embed:8082}
   chromadb:
     base-url: ${CHROMADB_URL:http://chromadb:8000}
+  ingestion:
+    browserless-url: ${SPECTRA_INGESTION_BROWSERLESS_URL:http://browserless:3000}
+    max-zip-entries: ${SPECTRA_INGESTION_MAX_ZIP_ENTRIES:10000}
+    max-entry-bytes: ${SPECTRA_INGESTION_MAX_ENTRY_BYTES:52428800} # 50MB
   pipeline:
     chunk-max-tokens: ${SPECTRA_CHUNK_MAX_TOKENS:512}
     chunk-overlap-tokens: ${SPECTRA_CHUNK_OVERLAP_TOKENS:64}
     embedding-batch-size: ${SPECTRA_EMBEDDING_BATCH_SIZE:10}
     embedding-timeout-seconds: ${SPECTRA_EMBEDDING_TIMEOUT:30}
     generation-timeout-seconds: ${SPECTRA_GENERATION_TIMEOUT:120}
-    concurrent-ingestions: ${SPECTRA_CONCURRENT_INGESTIONS:4}
+    concurrent-ingestions: ${SPECTRA_CONCURRENT_INGESTIONS:1}
   layout-parser:
     enabled: ${SPECTRA_LAYOUT_PARSER_ENABLED:false}
     base-url: ${SPECTRA_LAYOUT_PARSER_URL:http://docparser:8001}
