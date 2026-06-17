@@ -157,6 +157,11 @@ public class IngestionTaskExecutor {
                     String hash = tempFileToHash != null ? tempFileToHash.get(tempFiles.get(i)) : null;
                     onIngested.onIngested(hash, name, chunks);
                 }
+                // Progression incrémentale : expose le total courant pendant le traitement
+                // (visible pour les ZIP / multi-fichiers via le polling de l'UI).
+                final int running = totalChunks;
+                tasks.computeIfPresent(taskId, (k, t) ->
+                        t.status() == IngestionTask.Status.CANCELLED ? t : t.progress(running));
             }
             final int finalChunks = totalChunks;
             final String finalParser = lastParserUsed;

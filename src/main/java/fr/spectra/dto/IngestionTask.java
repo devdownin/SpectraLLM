@@ -26,6 +26,12 @@ public record IngestionTask(
         return new IngestionTask(taskId, Status.PROCESSING, files, chunksCreated, null, createdAt, null, null, 0);
     }
 
+    /** Mise à jour incrémentale du nombre de chunks pendant le traitement (statut PROCESSING). */
+    public IngestionTask progress(int chunks) {
+        return new IngestionTask(taskId, Status.PROCESSING, files, chunks, null, createdAt, null,
+                parserUsed, layoutAwareChunks);
+    }
+
     public IngestionTask completed(int chunks) {
         return new IngestionTask(taskId, Status.COMPLETED, files, chunks, null, createdAt, Instant.now(), null, 0);
     }
