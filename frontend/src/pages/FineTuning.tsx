@@ -132,9 +132,9 @@ const jobStatusColor = (s: JobStatus) => {
 
 const trainingSchema = z.object({
   modelName: z.string()
-    .min(3, 'Le nom doit faire au moins 3 caractères')
-    .regex(/^[a-z0-9-_]+$/, 'Lettres minuscules, chiffres, - et _ uniquement'),
-  baseModel: z.string().min(1, 'Modèle de base requis'),
+    .min(3, 'Name must be at least 3 characters')
+    .regex(/^[a-z0-9-_]+$/, 'Lowercase letters, digits, - and _ only'),
+  baseModel: z.string().min(1, 'Base model required'),
   epochs: z.number().min(1).max(50),
   loraRank: z.number().min(4).max(256),
   minConfidence: z.number().min(0).max(1),
@@ -301,9 +301,9 @@ const FineTuning: FC = () => {
           clearInterval(interval);
           loadJobs();
           if (job.status === 'COMPLETED') {
-            toast.success('Fine-tuning terminé !', { description: `Modèle ${job.modelName} enregistré dans llama-server` });
+            toast.success('Fine-tuning complete!', { description: `Model ${job.modelName} saved to llama-server` });
           } else {
-            toast.error('Fine-tuning échoué', { description: job.error ?? undefined });
+            toast.error('Fine-tuning failed', { description: job.error ?? undefined });
           }
         }
       } catch { clearInterval(interval); }
@@ -321,9 +321,9 @@ const FineTuning: FC = () => {
       setActiveJob(job);
       setLossHistory([]);
       setShowForm(false);
-      toast.success('Job soumis', { description: `ID: ${job.jobId.slice(0, 8)}…` });
+      toast.success('Job submitted', { description: `ID: ${job.jobId.slice(0, 8)}…` });
     } catch (err: any) {
-      toast.error('Erreur soumission', { description: err?.response?.data?.detail ?? err.message });
+      toast.error('Submission error', { description: err?.response?.data?.detail ?? err.message });
     } finally {
       setSubmitting(false);
     }
@@ -366,7 +366,7 @@ const FineTuning: FC = () => {
           {recipes.length > 0 && (
             <div className="mb-6 p-4 bg-surface-container-high/50 border border-outline-variant/20">
               <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-3">
-                Recettes {loadingRecipe ? '— chargement…' : ''}
+                Recipes {loadingRecipe ? '— loading…' : ''}
               </p>
               <div className="flex flex-wrap gap-2">
                 {recipes.map(r => (
@@ -486,7 +486,7 @@ const FineTuning: FC = () => {
           <div className="py-12 flex flex-col items-center justify-center gap-3">
             <span className="material-symbols-outlined text-4xl text-outline">model_training</span>
             <p className="text-[10px] text-outline uppercase tracking-widest italic text-center">
-              Aucun job actif.<br />Cliquez sur "New Training Job" pour lancer un entraînement.
+              No active job.<br />Click "New Training Job" to start training.
             </p>
           </div>
         ) : (
@@ -587,7 +587,7 @@ const FineTuning: FC = () => {
                           : sseStatus === 'connecting' ? 'bg-secondary animate-pulse'
                           : 'bg-error'
                       }`} aria-hidden="true" />
-                      {sseStatus === 'open' ? 'Live' : sseStatus === 'connecting' ? 'Connexion…' : 'Coupé'}
+                      {sseStatus === 'open' ? 'Live' : sseStatus === 'connecting' ? 'Connecting…' : 'Disconnected'}
                     </span>
                     <span className="text-[9px] text-outline">{logs.length} events</span>
                   </div>
@@ -596,10 +596,10 @@ const FineTuning: FC = () => {
                   <div className="flex-1 flex items-center justify-center">
                     <p className="text-outline italic text-[10px]">
                       {sseStatus === 'closed'
-                        ? 'Flux télémétrie interrompu — reconnexion impossible.'
+                        ? 'Telemetry stream interrupted — reconnection failed.'
                         : sseStatus === 'connecting'
-                          ? 'Connexion au flux télémétrie…'
-                          : 'En attente d’évènements…'}
+                          ? 'Connecting to telemetry stream…'
+                          : 'Waiting for events…'}
                     </p>
                   </div>
                 ) : (
@@ -645,7 +645,7 @@ const FineTuning: FC = () => {
               {jobs.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-5 py-8 text-center text-[10px] text-outline uppercase tracking-widest italic">
-                    Aucun job dans l'historique
+                    No jobs in history
                   </td>
                 </tr>
               ) : jobs.map(job => (
@@ -669,7 +669,7 @@ const FineTuning: FC = () => {
                     }`}>{job.status}</span>
                   </td>
                   <td className="px-5 py-3 font-label text-xs text-on-surface-variant">
-                    {job.createdAt ? new Date(job.createdAt).toLocaleDateString('fr-FR') : '—'}
+                    {job.createdAt ? new Date(job.createdAt).toLocaleDateString('en-US') : '—'}
                   </td>
                 </tr>
               ))}

@@ -4,8 +4,8 @@ import { useLocation, Link } from 'react-router-dom';
 const STEPS = [
   { path: '/datasets', label: 'Ingestion', icon: 'cloud_upload' },
   { path: '/pipelines', label: 'Dataset', icon: 'analytics' },
-  { path: '/fine-tuning', label: 'Entraînement', icon: 'history' },
-  { path: '/playground', label: 'Interrogation', icon: 'chat_bubble' },
+  { path: '/fine-tuning', label: 'Training', icon: 'history' },
+  { path: '/playground', label: 'Querying', icon: 'chat_bubble' },
 ];
 
 const WizardProgress: FC = () => {

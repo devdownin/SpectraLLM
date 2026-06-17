@@ -228,7 +228,7 @@ const Datasets: FC = () => {
     } catch (err: any) {
       const msg = err?.response?.data?.detail ?? err.message;
       setIngestEntries(prev => prev.map(e => e.id === id ? { ...e, status: 'FAILED', error: msg } : e));
-      toast.error(`Ingestion échouée : ${file.name}`, { description: msg });
+      toast.error(`Ingestion failed: ${file.name}`, { description: msg });
     }
   }, [pollIngest]);
 
@@ -251,7 +251,7 @@ const Datasets: FC = () => {
     const trimmed = url.trim();
     if (!trimmed) return;
     try { new URL(trimmed); } catch {
-      toast.error('URL invalide', { description: trimmed });
+      toast.error('Invalid URL', { description: trimmed });
       return;
     }
 
@@ -268,7 +268,7 @@ const Datasets: FC = () => {
     } catch (err: any) {
       const msg = err?.response?.data?.detail ?? err.message;
       setIngestEntries(prev => prev.map(e => e.id === id ? { ...e, status: 'FAILED', error: msg } : e));
-      toast.error('Ingestion URL échouée', { description: msg });
+      toast.error('URL ingestion failed', { description: msg });
     }
   }, [pollIngest]);
 
@@ -353,7 +353,7 @@ const Datasets: FC = () => {
     );
     if (hasActiveIngestion) {
       const ok = window.confirm(
-        'Une ingestion est en cours. Lancer la génération maintenant peut produire un dataset incomplet. Continuer quand même ?'
+        'An ingestion is in progress. Starting generation now may produce an incomplete dataset. Continue anyway?'
       );
       if (!ok) return;
     }
@@ -362,9 +362,9 @@ const Datasets: FC = () => {
       const taskId: string = res.data.taskId;
       setGenTask({ taskId, status: 'PENDING', pairsGenerated: 0, chunksProcessed: 0, totalChunks: 0, error: null });
       pollGenTask(taskId);
-      toast.success('Génération lancée', { description: `Task ${taskId.slice(0, 8)}…` });
+      toast.success('Generation started', { description: `Task ${taskId.slice(0, 8)}…` });
     } catch (err: any) {
-      toast.error('Erreur génération', { description: err?.response?.data?.detail ?? err.message });
+      toast.error('Generation error', { description: err?.response?.data?.detail ?? err.message });
     }
   };
 
@@ -425,7 +425,7 @@ const Datasets: FC = () => {
             <p className="font-headline font-bold text-xl">
               {stats ? stats.chunksInStore : '—'}
             </p>
-            <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant">Chunks indexés</p>
+            <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant">Indexed chunks</p>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -437,7 +437,7 @@ const Datasets: FC = () => {
             <p className="font-headline font-bold text-xl">
               {stats ? stats.totalPairs : '—'}
             </p>
-            <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant">Paires d'entraînement</p>
+            <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant">Training pairs</p>
           </div>
         </div>
         <div className="flex items-center gap-3 justify-end">
@@ -445,15 +445,15 @@ const Datasets: FC = () => {
             <Skeleton className="h-5 w-44" />
           ) : stats.chunksInStore === 0 ? (
             <span className="text-[9px] text-outline uppercase tracking-widest font-label border border-outline-variant/30 px-2 py-1">
-              Base vide — ingérez des documents
+              Empty store — ingest documents
             </span>
           ) : stats.totalPairs === 0 ? (
             <span className="text-[9px] text-secondary uppercase tracking-widest font-label border border-secondary/30 px-2 py-1">
-              {stats.chunksInStore} chunks prêts — lancez l'étape 2
+              {stats.chunksInStore} chunks ready — start step 2
             </span>
           ) : (
             <span className="text-[9px] text-primary uppercase tracking-widest font-label border border-primary/30 px-2 py-1">
-              Dataset prêt — {stats.totalPairs} paires
+              Dataset ready — {stats.totalPairs} pairs
             </span>
           )}
         </div>
@@ -488,7 +488,7 @@ const Datasets: FC = () => {
               </span>
               <h4 className="font-headline text-sm font-bold mb-1 uppercase tracking-tight">Inject Raw Intelligence</h4>
               <p className="text-on-surface-variant text-xs mb-4 text-center max-w-sm">
-                PDF, DOCX, TXT, JSON, XML, HTML, ZIP — déposez ou cliquez pour sélectionner
+                PDF, DOCX, TXT, JSON, XML, HTML, ZIP — drop files or click to select
               </p>
               <input ref={fileInputRef} type="file" accept=".pdf,.docx,.doc,.txt,.json,.xml,.htm,.html,.zip" className="hidden"
                 onChange={handleFileChange} multiple />
@@ -506,7 +506,7 @@ const Datasets: FC = () => {
               <input
                 type="url"
                 className="flex-1 bg-transparent border-none focus:ring-0 text-xs font-body px-2 placeholder:text-outline"
-                placeholder="https://example.com/document.pdf ou page web..."
+                placeholder="https://example.com/document.pdf or web page..."
                 value={urlInput}
                 onChange={e => setUrlInput(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') ingestUrl(urlInput); }}
@@ -525,7 +525,7 @@ const Datasets: FC = () => {
               <div className="bg-surface-container p-5 space-y-3">
                 <div className="flex items-center gap-2">
                   <h4 className="font-headline text-xs font-bold uppercase tracking-tight">Extraction Strategy</h4>
-                  <Tooltip content="Méthode de découpage des documents en chunks sémantiques.">
+                  <Tooltip content="Method for splitting documents into semantic chunks.">
                     <span className="material-symbols-outlined text-xs text-outline cursor-help">help</span>
                   </Tooltip>
                 </div>
@@ -540,7 +540,7 @@ const Datasets: FC = () => {
               <div className="bg-surface-container p-5 space-y-3">
                 <div className="flex items-center gap-2">
                   <h4 className="font-headline text-xs font-bold uppercase tracking-tight">Augmentation</h4>
-                  <Tooltip content="Active la génération de paires Q/A synthétiques à la volée.">
+                  <Tooltip content="Enables on-the-fly generation of synthetic Q/A pairs.">
                     <span className="material-symbols-outlined text-xs text-outline cursor-help">help</span>
                   </Tooltip>
                 </div>
@@ -586,7 +586,7 @@ const Datasets: FC = () => {
                   <input
                     type="text"
                     className="flex-1 bg-transparent border-none focus:ring-0 text-[10px] font-body placeholder:text-outline"
-                    placeholder="Rechercher un fichier…"
+                    placeholder="Search for a file…"
                     value={historySearch}
                     onChange={e => {
                       setHistorySearch(e.target.value);
@@ -602,13 +602,13 @@ const Datasets: FC = () => {
                 </div>
                 {/* Count */}
                 <p className="text-[9px] text-outline font-label uppercase tracking-widest">
-                  {historyTotal} fichier{historyTotal !== 1 ? 's' : ''}{historySearch ? ` · "${historySearch}"` : ''}
+                  {historyTotal} file{historyTotal !== 1 ? 's' : ''}{historySearch ? ` · "${historySearch}"` : ''}
                 </p>
                 {/* List */}
                 <div className="flex-1 space-y-2 overflow-y-auto custom-scrollbar max-h-64">
                   {history.length === 0 && !historyLoading ? (
                     <p className="text-[10px] text-outline uppercase tracking-widest italic text-center py-4">
-                      {historySearch ? 'Aucun résultat' : 'Historique vide'}
+                      {historySearch ? 'No results' : 'Empty history'}
                     </p>
                   ) : (
                     history.map(item => (
@@ -633,7 +633,7 @@ const Datasets: FC = () => {
                   )}
                   {historyLoading && (
                     <p className="text-[9px] text-outline font-label uppercase tracking-widest text-center animate-pulse py-2">
-                      Chargement…
+                      Loading…
                     </p>
                   )}
                 </div>
@@ -643,14 +643,14 @@ const Datasets: FC = () => {
                     onClick={() => loadHistory(historyPage + 1, historySearch, true)}
                     className="text-[9px] font-label uppercase tracking-widest text-primary border border-primary/30 px-3 py-1.5 hover:bg-primary/5 transition-colors w-full"
                   >
-                    Charger plus ({historyTotal - history.length} restants)
+                    Load more ({historyTotal - history.length} remaining)
                   </button>
                 )}
               </div>
             ) : ingestEntries.length === 0 ? (
               <div className="flex-1 flex items-center justify-center">
                 <p className="text-[10px] text-outline uppercase tracking-widest italic text-center">
-                  Aucun fichier<br />en cours d'ingestion
+                  No files<br />currently ingesting
                 </p>
               </div>
             ) : (
@@ -709,7 +709,7 @@ const Datasets: FC = () => {
               <div className="flex justify-between items-center">
                 <div className="flex items-center gap-2">
                   <label className="font-label text-[10px] uppercase tracking-widest">Max Chunks</label>
-                  <Tooltip content="Nombre de chunks à traiter (0 = tous). Limiter pour un test rapide.">
+                  <Tooltip content="Number of chunks to process (0 = all). Limit for a quick test.">
                     <span className="material-symbols-outlined text-xs text-outline cursor-help">help</span>
                   </Tooltip>
                 </div>
@@ -747,8 +747,8 @@ const Datasets: FC = () => {
             {!genTask ? (
               <div className="h-full flex items-center justify-center">
                 <p className="text-[10px] text-outline uppercase tracking-widest italic text-center">
-                  Aucune génération en cours.<br />
-                  Uploadez des documents puis lancez le pipeline.
+                  No generation in progress.<br />
+                  Upload documents then start the pipeline.
                 </p>
               </div>
             ) : (
@@ -828,8 +828,8 @@ const Datasets: FC = () => {
           {stats.totalPairs === 0 && stats.chunksInStore === 0 ? (
             <div className="bg-surface-container p-8 flex items-center justify-center">
               <p className="text-[10px] text-outline uppercase tracking-widest italic text-center">
-                Aucune donnée en base.<br />
-                Ingérez des documents (étape 1) puis lancez la génération (étape 2).
+                No data in store.<br />
+                Ingest documents (step 1) then start generation (step 2).
               </p>
             </div>
           ) : (

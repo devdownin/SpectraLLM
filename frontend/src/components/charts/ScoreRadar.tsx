@@ -6,9 +6,9 @@ import {
 
 const CATEGORY_LABEL: Record<string, string> = {
   qa:             'Q/R',
-  summary:        'Résumé',
+  summary:        'Summary',
   classification: 'Classif.',
-  negative:       'Négatif',
+  negative:       'Negative',
 };
 
 interface Props {
