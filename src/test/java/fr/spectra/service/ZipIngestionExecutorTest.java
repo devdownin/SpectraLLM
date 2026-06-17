@@ -62,6 +62,7 @@ class ZipIngestionExecutorTest {
                 ftsService,
                 new SimpleMeterRegistry(),
                 10,
+                50,
                 4);
     }
 

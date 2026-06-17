@@ -18,7 +18,6 @@ import java.io.FilterInputStream;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Semaphore;
@@ -43,8 +42,6 @@ public class IngestionTaskExecutor {
     private static final int MAX_ZIP_DEPTH = 3;
     /** Nombre maximal d'entrées traitées par archive (protection ZIP bomb). */
     private static final int MAX_ZIP_ENTRIES = 10_000;
-    /** Taille décompressée maximale autorisée par entrée (protection ZIP bomb). */
-    private static final long MAX_ENTRY_UNCOMPRESSED_BYTES = 200L * 1024 * 1024;
 
     private final DocumentExtractorFactory extractorFactory;
     private final TextCleanerService textCleaner;
@@ -53,6 +50,8 @@ public class IngestionTaskExecutor {
     private final ChromaDbClient chromaDbClient;
     private final FtsService ftsService;
     private final int embeddingBatchSize;
+    /** Taille décompressée maximale autorisée par fichier/entrée (mémoire + anti-ZIP-bomb). */
+    private final long maxEntryUncompressedBytes;
     private final Semaphore concurrencySemaphore;
     private final Counter chunksIngested;
     private final Counter filesIngested;
@@ -66,6 +65,7 @@ public class IngestionTaskExecutor {
                                  FtsService ftsService,
                                  MeterRegistry meterRegistry,
                                  @Value("${spectra.pipeline.embedding-batch-size:10}") int embeddingBatchSize,
+                                 @Value("${spectra.pipeline.max-uncompressed-mb:50}") int maxUncompressedMb,
                                  @Value("${spectra.pipeline.concurrent-ingestions:4}") int concurrentIngestions) {
         this.extractorFactory = extractorFactory;
         this.textCleaner = textCleaner;
@@ -74,6 +74,7 @@ public class IngestionTaskExecutor {
         this.chromaDbClient = chromaDbClient;
         this.ftsService = ftsService;
         this.embeddingBatchSize = embeddingBatchSize;
+        this.maxEntryUncompressedBytes = Math.max(1, maxUncompressedMb) * 1024L * 1024L;
         this.concurrencySemaphore = new Semaphore(Math.max(1, concurrentIngestions), true);
         log.info("[ingestion] Limite de concurrence : {} ingestion(s) simultanée(s)", concurrentIngestions);
         this.chunksIngested = Counter.builder("spectra.ingestion.chunks.total")
@@ -218,16 +219,16 @@ public class IngestionTaskExecutor {
             return new IngestOneResult(0, parserUsed, 0);
         }
 
-        List<List<Float>> allEmbeddings = new ArrayList<>();
+        // Embed + envoie à ChromaDB par lot : on n'accumule jamais toutes les
+        // embeddings ni un gros payload d'ajout en mémoire (réduit le pic mémoire).
         for (int i = 0; i < chunks.size(); i += embeddingBatchSize) {
             int end = Math.min(i + embeddingBatchSize, chunks.size());
-            List<String> batchTexts = chunks.subList(i, end).stream()
-                    .map(TextChunk::text)
-                    .toList();
-            allEmbeddings.addAll(embeddingService.embedBatch(batchTexts));
+            List<TextChunk> batch = chunks.subList(i, end);
+            List<List<Float>> batchEmbeddings = embeddingService.embedBatch(
+                    batch.stream().map(TextChunk::text).toList());
+            chromaDbClient.addDocuments(collectionId, batch, batchEmbeddings);
         }
 
-        chromaDbClient.addDocuments(collectionId, chunks, allEmbeddings);
         ftsService.indexChunks(chunks, collectionName);
         log.info("Fichier {} traité: {} chunks, parser={}", fileName, chunks.size(), parserUsed);
         return new IngestOneResult(chunks.size(), parserUsed, layoutAware ? chunks.size() : 0);
@@ -261,9 +262,9 @@ public class IngestionTaskExecutor {
                     continue;
                 }
                 // Pré-filtre : rejeter une entrée dont la taille décompressée déclarée est démesurée.
-                if (entry.getSize() > MAX_ENTRY_UNCOMPRESSED_BYTES) {
+                if (entry.getSize() > maxEntryUncompressedBytes) {
                     log.warn("Entrée ZIP ignorée (taille décompressée {} > {} octets): {}",
-                            entry.getSize(), MAX_ENTRY_UNCOMPRESSED_BYTES, entryName);
+                            entry.getSize(), maxEntryUncompressedBytes, entryName);
                     continue;
                 }
 
@@ -276,7 +277,7 @@ public class IngestionTaskExecutor {
                     // the parent ZipInputStream when it reaches its own try-with-resources.
                     InputStream nonClosing = new LimitedInputStream(new FilterInputStream(zis) {
                         @Override public void close() {}
-                    }, MAX_ENTRY_UNCOMPRESSED_BYTES);
+                    }, maxEntryUncompressedBytes);
                     totalChunks += ingestZip(nonClosing, archiveName + "/" + entryName,
                             collectionId, collectionName, depth + 1);
                     continue;
@@ -290,7 +291,7 @@ public class IngestionTaskExecutor {
                     // protège contre une entrée décompressée surdimensionnée (ZIP bomb).
                     InputStream entryStream = new LimitedInputStream(new FilterInputStream(zis) {
                         @Override public void close() { /* do not close the parent ZipInputStream */ }
-                    }, MAX_ENTRY_UNCOMPRESSED_BYTES);
+                    }, maxEntryUncompressedBytes);
                     totalChunks += ingestEntry(qualifiedName, entryStream, collectionId, collectionName);
                 } catch (ExtractionException e) {
                     log.warn("Erreur sur entrée ZIP {}: {}", qualifiedName, e.getMessage());
@@ -314,14 +315,14 @@ public class IngestionTaskExecutor {
             return 0;
         }
 
-        List<List<Float>> allEmbeddings = new ArrayList<>();
         for (int i = 0; i < chunks.size(); i += embeddingBatchSize) {
             int end = Math.min(i + embeddingBatchSize, chunks.size());
-            allEmbeddings.addAll(embeddingService.embedBatch(
-                    chunks.subList(i, end).stream().map(TextChunk::text).toList()));
+            List<TextChunk> batch = chunks.subList(i, end);
+            List<List<Float>> batchEmbeddings = embeddingService.embedBatch(
+                    batch.stream().map(TextChunk::text).toList());
+            chromaDbClient.addDocuments(collectionId, batch, batchEmbeddings);
         }
 
-        chromaDbClient.addDocuments(collectionId, chunks, allEmbeddings);
         ftsService.indexChunks(chunks, collectionName);
         log.info("Entrée ZIP {} traitée: {} chunks", fileName, chunks.size());
         return chunks.size();

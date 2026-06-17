@@ -102,7 +102,7 @@ class ZipIngestionTest {
                 mock(IngestionTaskExecutor.class),
                 mock(IngestedFileRepository.class),
                 mock(GedService.class),
-                props);
+                props, 50);
     }
 
     // ── Pipeline JSON synthétique ─────────────────────────────────────────────
