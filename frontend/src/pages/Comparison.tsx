@@ -7,10 +7,10 @@ import ScoreRadar from '../components/charts/ScoreRadar';
 import Skeleton from '../components/Skeleton';
 
 const STATUS_LABEL: Record<string, string> = {
-  PENDING:   'En attente',
-  RUNNING:   'En cours',
-  COMPLETED: 'Terminé',
-  FAILED:    'Échec',
+  PENDING:   'Pending',
+  RUNNING:   'Running',
+  COMPLETED: 'Completed',
+  FAILED:    'Failed',
 };
 
 const STATUS_COLOR: Record<string, string> = {
@@ -21,10 +21,10 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 const CATEGORY_LABEL: Record<string, string> = {
-  qa:             'Q/R',
-  summary:        'Résumé',
+  qa:             'Q&A',
+  summary:        'Summary',
   classification: 'Classification',
-  negative:       'Négatif',
+  negative:       'Negative',
 };
 
 function ScoreBar({ score, color = 'bg-primary' }: { score: number; color?: string }) {
@@ -73,18 +73,18 @@ function ScoreDetail({ score }: { score: EvaluationScore }) {
       {open && (
         <div className="px-4 pb-4 space-y-3 bg-surface-container-low/20">
           <div>
-            <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-1">Réponse de référence</p>
+            <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-1">Reference answer</p>
             <p className="text-xs text-on-surface-variant leading-relaxed">{score.referenceAnswer}</p>
           </div>
           <div>
-            <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-1">Réponse du modèle</p>
+            <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-1">Model answer</p>
             <p className="text-xs text-on-surface leading-relaxed">{score.modelAnswer}</p>
           </div>
           <div>
-            <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-1">Justification du juge</p>
+            <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-1">Judge justification</p>
             <p className="text-xs italic text-on-surface-variant">{score.justification}</p>
           </div>
-          <p className="font-label text-[9px] text-on-surface-variant">Source : {score.source}</p>
+          <p className="font-label text-[9px] text-on-surface-variant">Source: {score.source}</p>
         </div>
       )}
     </div>
@@ -145,7 +145,7 @@ const Comparison: FC = () => {
           className="px-4 py-2 bg-primary text-on-primary font-label text-[11px] uppercase tracking-widest
                      hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
         >
-          {isTriggering ? 'Lancement...' : '+ Nouvelle évaluation'}
+          {isTriggering ? 'Launching...' : '+ New evaluation'}
         </button>
       </header>
 
@@ -156,19 +156,17 @@ const Comparison: FC = () => {
         </div>
       ) : reports.length === 0 ? (
         <div className="bg-surface-container p-8 text-center space-y-2">
-          <p className="font-headline text-lg">Aucune évaluation</p>
+          <p className="font-headline text-lg">No evaluations</p>
           <p className="text-sm text-on-surface-variant">
-            Cliquez sur «&nbsp;Nouvelle évaluation&nbsp;» pour noter la qualité du modèle actif
-            sur un échantillon du dataset.
+            Click &quot;New evaluation&quot; to score the active model&apos;s quality
+            on a dataset sample.
           </p>
         </div>
       ) : (
         <div className="grid grid-cols-[260px_1fr] gap-6 items-start">
           {/* Evaluation list */}
           <div className="bg-surface-container divide-y divide-outline-variant/10">
-            <p className="px-4 py-3 font-label text-[10px] uppercase tracking-widest text-on-surface-variant bg-surface-container-high">
-              Historique
-            </p>
+            <p className="px-4 py-3 font-label text-[10px] uppercase tracking-widest text-on-surface-variant bg-surface-container-high">History</p>
             {reports.map(r => (
               <button
                 key={r.evalId}
@@ -204,7 +202,7 @@ const Comparison: FC = () => {
               <div className="bg-surface-container p-6 space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Modèle évalué</p>
+                    <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Evaluated model</p>
                     <p className="font-headline font-bold text-lg">{selected.modelName}</p>
                   </div>
                   <span className={`font-label text-[11px] uppercase tracking-widest px-3 py-1 border ${STATUS_COLOR[selected.status]}
@@ -219,7 +217,7 @@ const Comparison: FC = () => {
                       <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Progression</p>
                       <span className="flex items-center gap-1 text-[9px] font-label uppercase tracking-widest text-secondary">
                         <span className="w-1.5 h-1.5 bg-secondary rounded-full animate-pulse inline-block" />
-                        {selected.status === 'PENDING' ? 'En attente…' : 'En cours'}
+                        {selected.status === 'PENDING' ? 'Pending…' : 'Running'}
                       </span>
                     </div>
                     <div className="relative w-full bg-outline-variant/20 h-1 overflow-hidden">
@@ -263,7 +261,7 @@ const Comparison: FC = () => {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
                         {/* Score bars */}
                         <div>
-                          <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-3">Par catégorie</p>
+                          <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-3">By category</p>
                           <div className="space-y-2">
                             {categories.map(([cat, avg]) => (
                               <div key={cat} className="grid grid-cols-[100px_1fr] gap-3 items-center">

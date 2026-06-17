@@ -67,7 +67,7 @@ function getDocumentType(file: IngestedFile): DocumentTypeMeta {
 }
 
 function formatDate(value: string): string {
-  return new Date(value).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' });
+  return new Date(value).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
 }
 
 function getGroupKey(doc: IngestedFile, groupBy: GroupBy): string {

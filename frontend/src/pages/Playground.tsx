@@ -42,15 +42,15 @@ const STRATEGY_COLORS: Record<string, string> = {
 
 const RagBadges: FC<{ meta: RagMeta }> = ({ meta }) => {
   const badges: { label: string; active: boolean; tooltip: string }[] = [
-    { label: 'CONV',  active: meta.conversationalApplied, tooltip: 'Conversational RAG — question reformulée avec historique' },
-    { label: 'CORR',  active: meta.correctiveApplied,     tooltip: 'Corrective RAG — chunks non pertinents filtrés' },
-    { label: 'SELF',  active: meta.selfRagApplied,        tooltip: 'Self-RAG — réponse auto-évaluée et raffinée' },
-    { label: 'RRNK',  active: meta.rerankApplied,         tooltip: 'Re-ranking Cross-Encoder appliqué' },
-    { label: 'HYB',   active: meta.hybridSearchApplied,   tooltip: 'Hybrid Search (Vector + BM25) utilisé' },
-    { label: 'MQ',    active: meta.multiQueryApplied,     tooltip: 'Multi-Query — N variantes de la question fusionnées' },
-    { label: 'CMPR',  active: meta.compressionApplied,    tooltip: 'Context Compression — passages pertinents extraits' },
-    { label: 'DEDUP', active: meta.semanticDedupApplied,  tooltip: 'Semantic Dedup — doublons quasi-identiques supprimés' },
-    { label: 'FULL',  active: meta.longContextApplied,    tooltip: 'Long-Context RAG — corpus chargé intégralement' },
+    { label: 'CONV',  active: meta.conversationalApplied, tooltip: 'Conversational RAG — question rephrased using conversation history' },
+    { label: 'CORR',  active: meta.correctiveApplied,     tooltip: 'Corrective RAG — irrelevant chunks filtered out' },
+    { label: 'SELF',  active: meta.selfRagApplied,        tooltip: 'Self-RAG — self-evaluated and refined answer' },
+    { label: 'RRNK',  active: meta.rerankApplied,         tooltip: 'Cross-Encoder re-ranking applied' },
+    { label: 'HYB',   active: meta.hybridSearchApplied,   tooltip: 'Hybrid Search (Vector + BM25) used' },
+    { label: 'MQ',    active: meta.multiQueryApplied,     tooltip: 'Multi-Query — N question variants merged' },
+    { label: 'CMPR',  active: meta.compressionApplied,    tooltip: 'Context Compression — relevant passages extracted' },
+    { label: 'DEDUP', active: meta.semanticDedupApplied,  tooltip: 'Semantic Dedup — near-duplicate passages removed' },
+    { label: 'FULL',  active: meta.longContextApplied,    tooltip: 'Long-Context RAG — full corpus loaded' },
   ];
 
   const activeBadges = badges.filter(b => b.active);
@@ -58,7 +58,7 @@ const RagBadges: FC<{ meta: RagMeta }> = ({ meta }) => {
 
   return (
     <div className="mt-3 pt-3 border-t border-outline-variant/20 flex flex-wrap items-center gap-1.5">
-      <Tooltip content={`Stratégie : ${meta.ragStrategy}`}>
+      <Tooltip content={`Strategy: ${meta.ragStrategy}`}>
         <span className={`text-[8px] font-bold px-1.5 py-0.5 border uppercase tracking-wider cursor-help ${STRATEGY_COLORS[meta.ragStrategy] ?? STRATEGY_COLORS.STANDARD}`}>
           {meta.ragStrategy}
         </span>
@@ -146,11 +146,11 @@ const Playground: FC = () => {
     try {
       await configApi.setModelConfig({ model: modelName });
       setActiveModel(modelName);
-      toast.info('Registre mis à jour', {
-        description: `Modèle "${modelName}" actif au prochain redémarrage de llama-cpp-chat.`,
+      toast.info('Registry updated', {
+        description: `Model "${modelName}" active on next llama-cpp-chat restart.`,
       });
     } catch {
-      toast.error('Erreur lors du changement de modèle');
+      toast.error('Failed to switch model');
     }
   };
 
@@ -355,14 +355,14 @@ const Playground: FC = () => {
                     onChange={(e) => {
                       const next = e.target.checked;
                       setConvEnabled(next);
-                      toast.info(next ? 'Conversational RAG activé' : 'Conversational RAG désactivé');
+                      toast.info(next ? 'Conversational RAG enabled' : 'Conversational RAG disabled');
                     }}
                     className="sr-only peer"
                   />
                   <div className="w-4 h-4 border border-secondary flex items-center justify-center group-hover:bg-secondary/10 transition-colors peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-secondary peer-focus-visible:outline-offset-2">
                     {convEnabled && <div className="w-2 h-2 bg-secondary"></div>}
                   </div>
-                  <Tooltip content="Envoie l'historique de la conversation pour reformuler la question avant le retrieval (Conversational RAG).">
+                  <Tooltip content="Sends the conversation history to rephrase the question before retrieval (Conversational RAG).">
                     <span className="text-xs font-label uppercase tracking-widest cursor-help">Conversational History</span>
                   </Tooltip>
                 </label>
@@ -379,7 +379,7 @@ const Playground: FC = () => {
                   {showAdvanced && (
                     <div className="mt-3 space-y-2">
                       <div className="flex justify-between items-center">
-                        <Tooltip content="Nombre de candidats envoyés au re-ranker (plus élevé = meilleure couverture, plus lent).">
+                        <Tooltip content="Number of candidates sent to the re-ranker (higher = better coverage, slower).">
                           <label className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant cursor-help">
                             Top Candidates
                           </label>
@@ -486,7 +486,7 @@ const Playground: FC = () => {
           {convEnabled && messages.filter(m => m.status === 'SENT').length > 1 && (
             <p className="text-[8px] font-label uppercase tracking-widest text-secondary mb-2 flex items-center gap-1">
               <span className="material-symbols-outlined text-[10px]">forum</span>
-              Conversational — {messages.filter(m => m.status === 'SENT').length} messages dans l'historique
+              Conversational — {messages.filter(m => m.status === 'SENT').length} messages in history
             </p>
           )}
           <div className="flex items-center gap-4 bg-surface-container-lowest border border-outline-variant/20 p-2">

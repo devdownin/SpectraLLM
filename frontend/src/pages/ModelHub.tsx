@@ -49,10 +49,10 @@ const ModelHub: FC = () => {
               return next;
             });
             setInstalledModels(prev => prev.includes(variables.modelName) ? prev : [...prev, variables.modelName]);
-            toast.success(`Modèle "${variables.modelName}" téléchargé`, {
+            toast.success(`Model "${variables.modelName}" downloaded`, {
               description: autoActivate
-                ? 'Activé — redémarrez llm-chat pour le charger : docker compose restart llm-chat'
-                : 'Enregistré dans le registre. Activez-le dans le Playground puis redémarrez llm-chat.',
+                ? 'Activated — restart llm-chat to load it: docker compose restart llm-chat'
+                : 'Saved to the registry. Activate it in the Playground, then restart llm-chat.',
               duration: 8000,
             });
           }
@@ -65,13 +65,13 @@ const ModelHub: FC = () => {
           delete next[variables.modelName];
           return next;
         });
-        toast.error(`Suivi de progression indisponible pour "${variables.modelName}"`, {
-          description: 'Le téléchargement est peut-être en cours. Vérifiez les logs : docker compose logs spectra-api',
+        toast.error(`Progress tracking unavailable for "${variables.modelName}"`, {
+          description: 'The download may still be running. Check the logs: docker compose logs spectra-api',
         });
       };
     },
     onError: (error: any) => {
-      toast.error('Échec du lancement du téléchargement', {
+      toast.error('Failed to start the download', {
         description: error?.response?.data?.message ?? error.message,
       });
     }
@@ -92,7 +92,7 @@ const ModelHub: FC = () => {
       <div className="p-8 space-y-6">
         <header>
           <h1 className="text-3xl font-black text-primary font-headline tracking-tight uppercase">Model Hub</h1>
-          <p className="text-outline mt-2">Optimisation matérielle par llmfit</p>
+          <p className="text-outline mt-2">Hardware optimization by llmfit</p>
         </header>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {[...Array(6)].map((_, i) => (
@@ -112,8 +112,8 @@ const ModelHub: FC = () => {
             <h1 className="text-3xl font-black text-primary font-headline tracking-tight uppercase">Model Hub</h1>
           </div>
           <p className="text-outline max-w-2xl">
-            Découvrez les modèles LLM les mieux adaptés à votre configuration matérielle actuelle ou simulée.
-            Propulsé par <span className="text-primary font-bold">llmfit</span>.
+            Discover the LLM models best suited to your current or simulated hardware configuration.
+            Powered by <span className="text-primary font-bold">llmfit</span>.
           </p>
         </div>
 
@@ -142,7 +142,7 @@ const ModelHub: FC = () => {
               <option value="Perfect">Perfect</option>
               <option value="Good">Good</option>
               <option value="Marginal">Marginal</option>
-              <option value="Runnable">Exécutables</option>
+              <option value="Runnable">Executables</option>
             </select>
           </div>
 
@@ -178,7 +178,7 @@ const ModelHub: FC = () => {
         <section className="bg-primary/5 p-6 border border-primary/20 animate-in slide-in-from-top-4 duration-300">
           <div className="flex items-center gap-3 mb-4">
              <span className="material-symbols-outlined text-primary">simulation</span>
-             <h2 className="text-sm font-black uppercase tracking-widest text-primary font-headline">Simulateur de Matériel</h2>
+             <h2 className="text-sm font-black uppercase tracking-widest text-primary font-headline">Hardware Simulator</h2>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="space-y-2">
@@ -192,7 +192,7 @@ const ModelHub: FC = () => {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-[10px] uppercase tracking-wider text-outline font-bold">RAM Système (ex: 32G, 64G)</label>
+              <label className="text-[10px] uppercase tracking-wider text-outline font-bold">System RAM (e.g. 32G, 64G)</label>
               <input
                 type="text"
                 placeholder="Auto"
@@ -202,7 +202,7 @@ const ModelHub: FC = () => {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-[10px] uppercase tracking-wider text-outline font-bold">Cœurs CPU</label>
+              <label className="text-[10px] uppercase tracking-wider text-outline font-bold">CPU Cores</label>
               <input
                 type="number"
                 placeholder="Auto"
@@ -244,7 +244,7 @@ const ModelHub: FC = () => {
               <span className="material-symbols-outlined text-secondary">memory_alt</span>
               <div>
                 <div className="text-[10px] uppercase tracking-wider text-secondary font-bold">GPU</div>
-                <div className="text-sm font-medium">{recommendations.system.gpu_name || 'Simulé'} ({recommendations.system.gpu_vram_gb?.toFixed(1) || simulation.memory} VRAM)</div>
+                <div className="text-sm font-medium">{recommendations.system.gpu_name || 'Simulated'} ({recommendations.system.gpu_vram_gb?.toFixed(1) || simulation.memory} VRAM)</div>
               </div>
             </div>
           )}
@@ -257,11 +257,11 @@ const ModelHub: FC = () => {
           <span className="material-symbols-outlined text-primary text-sm mt-0.5 shrink-0">info</span>
           <div className="space-y-1">
             <p className="text-[10px] font-label font-bold uppercase tracking-widest text-primary">
-              Modèle(s) téléchargé(s) — redémarrage requis
+              Model(s) downloaded — restart required
             </p>
             <p className="text-[9px] text-on-surface-variant leading-relaxed">
-              Le fichier GGUF a été copié dans <code className="font-mono bg-surface-container px-1">data/models/</code>.
-              Pour que <strong>llm-chat</strong> serve ce modèle, mettez à jour <code className="font-mono bg-surface-container px-1">.env</code> puis redémarrez :
+              The GGUF file was copied to <code className="font-mono bg-surface-container px-1">data/models/</code>.
+              To have <strong>llm-chat</strong> serve this model, update <code className="font-mono bg-surface-container px-1">.env</code> then restart:
             </p>
             <code className="block font-mono text-[9px] bg-surface-container px-2 py-1 text-primary mt-1">
               docker compose restart llm-chat
@@ -301,24 +301,24 @@ const ModelHub: FC = () => {
                   <span className="font-medium">{model.best_quant}</span>
                 </div>
                 <div className="flex justify-between items-center text-xs">
-                  <span className="text-outline">Vitesse estimée</span>
+                  <span className="text-outline">Estimated speed</span>
                   <span className="font-medium">{model.estimated_tps?.toFixed(1)} tok/s</span>
                 </div>
                 <div className="flex justify-between items-center text-xs">
-                  <span className="text-outline">Mémoire requise</span>
+                  <span className="text-outline">Required memory</span>
                   <span className="font-medium">{model.memory_required_gb?.toFixed(1)} GB</span>
                 </div>
               </div>
 
               <div className="mt-6 pt-6 border-t border-outline-variant/10">
-                 <div className="text-[10px] font-black uppercase tracking-widest text-outline mb-2">Capacités</div>
+                 <div className="text-[10px] font-black uppercase tracking-widest text-outline mb-2">Capabilities</div>
                  <div className="flex flex-wrap gap-2">
                     {model.score_components && Object.entries(model.score_components).map(([key, val]: [string, any]) => (
                       <div key={key} className="flex flex-col">
                          <div className="h-1 w-12 bg-surface-variant rounded-full overflow-hidden">
                             <div className="h-full bg-primary" style={{ width: `${val}%` }}></div>
                          </div>
-                         <span className="text-[8px] uppercase mt-1 text-outline-variant">{key === 'fit' ? 'fit' : key === 'quality' ? 'qualité' : key === 'speed' ? 'vitesse' : key}</span>
+                         <span className="text-[8px] uppercase mt-1 text-outline-variant">{key === 'fit' ? 'fit' : key === 'quality' ? 'quality' : key === 'speed' ? 'vitesse' : key}</span>
                       </div>
                     ))}
                  </div>
@@ -343,7 +343,7 @@ const ModelHub: FC = () => {
                 <span className="material-symbols-outlined text-sm">
                   {model.installed ? 'check_circle' : installingModels[model.name] !== undefined ? 'sync' : 'download'}
                 </span>
-                {model.installed ? 'Installé' : installingModels[model.name] !== undefined ? `Téléchargement (${installingModels[model.name]}%)` : 'Installer'}
+                {model.installed ? 'Installed' : installingModels[model.name] !== undefined ? `Downloading (${installingModels[model.name]}%)` : 'Installer'}
               </button>
             </div>
           </div>
@@ -353,7 +353,7 @@ const ModelHub: FC = () => {
       {filteredModels?.length === 0 && (
         <div className="text-center py-20 bg-surface-container-lowest border border-dashed border-outline-variant/30">
           <span className="material-symbols-outlined text-outline-variant text-4xl mb-3">search_off</span>
-          <p className="text-outline">Aucun modèle ne correspond à vos filtres.</p>
+          <p className="text-outline">No model matches your filters.</p>
         </div>
       )}
     </div>
