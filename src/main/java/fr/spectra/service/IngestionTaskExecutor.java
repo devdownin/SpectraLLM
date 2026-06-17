@@ -21,6 +21,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Semaphore;
+import java.util.function.IntConsumer;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
@@ -42,6 +43,7 @@ public class IngestionTaskExecutor {
     private static final int MAX_ZIP_DEPTH = 3;
     /** Nombre maximal d'entrées traitées par archive (protection ZIP bomb). */
     private static final int MAX_ZIP_ENTRIES = 10_000;
+    private static final IntConsumer NOOP_PROGRESS = i -> {};
 
     private final DocumentExtractorFactory extractorFactory;
     private final TextCleanerService textCleaner;
@@ -128,6 +130,15 @@ public class IngestionTaskExecutor {
             String lastParserUsed = null;
             int totalLayoutAwareChunks = 0;
 
+            // Progression live : chaque lot d'embeddings ajouté incrémente le compteur de la
+            // tâche, immédiatement visible via le polling de l'UI — y compris pour un seul fichier.
+            final int[] addedSoFar = {0};
+            final IntConsumer progress = delta -> {
+                final int now = (addedSoFar[0] += delta);
+                tasks.computeIfPresent(taskId, (k, t) ->
+                        t.status() == IngestionTask.Status.CANCELLED ? t : t.progress(now));
+            };
+
             for (int i = 0; i < tempFiles.size(); i++) {
                 // Point de contrôle d'annulation : interrompt proprement la boucle.
                 IngestionTask current = tasks.get(taskId);
@@ -143,7 +154,7 @@ public class IngestionTaskExecutor {
                 final int[] layoutHolder = new int[1];
                 ingestionTimer.record(() -> {
                     try {
-                        IngestOneResult r = ingestOne(name, currentTempFile, collectionId, collectionName);
+                        IngestOneResult r = ingestOne(name, currentTempFile, collectionId, collectionName, progress);
                         resultHolder[0] = r.chunks();
                         parserHolder[0] = r.parserUsed();
                         layoutHolder[0] = r.layoutAwareChunks();
@@ -161,11 +172,6 @@ public class IngestionTaskExecutor {
                     String hash = tempFileToHash != null ? tempFileToHash.get(tempFiles.get(i)) : null;
                     onIngested.onIngested(hash, name, chunks);
                 }
-                // Progression incrémentale : expose le total courant pendant le traitement
-                // (visible pour les ZIP / multi-fichiers via le polling de l'UI).
-                final int running = totalChunks;
-                tasks.computeIfPresent(taskId, (k, t) ->
-                        t.status() == IngestionTask.Status.CANCELLED ? t : t.progress(running));
             }
             final int finalChunks = totalChunks;
             final String finalParser = lastParserUsed;
@@ -187,12 +193,13 @@ public class IngestionTaskExecutor {
         }
     }
 
-    private IngestOneResult ingestOne(String fileName, Path tempFile, String collectionId, String collectionName) throws Exception {
+    private IngestOneResult ingestOne(String fileName, Path tempFile, String collectionId, String collectionName,
+                                      IntConsumer progress) throws Exception {
         log.info("Ingestion de: {}", fileName);
 
         if (fileName.toLowerCase().endsWith(".zip")) {
             try (InputStream is = Files.newInputStream(tempFile)) {
-                int chunks = ingestZip(is, fileName, collectionId, collectionName);
+                int chunks = ingestZip(is, fileName, collectionId, collectionName, 0, progress);
                 return new IngestOneResult(chunks, null, 0);
             }
         }
@@ -230,6 +237,7 @@ public class IngestionTaskExecutor {
             List<List<Float>> batchEmbeddings = embeddingService.embedBatch(
                     batch.stream().map(TextChunk::text).toList());
             chromaDbClient.addDocuments(collectionId, batch, batchEmbeddings);
+            progress.accept(batch.size());
         }
 
         ftsService.indexChunks(chunks, collectionName);
@@ -239,11 +247,11 @@ public class IngestionTaskExecutor {
 
     /** Package-visible for testing. */
     int ingestZip(InputStream zipStream, String archiveName, String collectionId, String collectionName) throws Exception {
-        return ingestZip(zipStream, archiveName, collectionId, collectionName, 0);
+        return ingestZip(zipStream, archiveName, collectionId, collectionName, 0, NOOP_PROGRESS);
     }
 
     private int ingestZip(InputStream zipStream, String archiveName, String collectionId,
-                          String collectionName, int depth) throws Exception {
+                          String collectionName, int depth, IntConsumer progress) throws Exception {
         if (depth >= MAX_ZIP_DEPTH) {
             log.warn("Profondeur ZIP max ({}) atteinte — archive imbriquée ignorée: {}", MAX_ZIP_DEPTH, archiveName);
             return 0;
@@ -282,7 +290,7 @@ public class IngestionTaskExecutor {
                         @Override public void close() {}
                     }, maxEntryUncompressedBytes);
                     totalChunks += ingestZip(nonClosing, archiveName + "/" + entryName,
-                            collectionId, collectionName, depth + 1);
+                            collectionId, collectionName, depth + 1, progress);
                     continue;
                 }
                 if (!isSupportedFile(fileName)) continue;
@@ -295,7 +303,7 @@ public class IngestionTaskExecutor {
                     InputStream entryStream = new LimitedInputStream(new FilterInputStream(zis) {
                         @Override public void close() { /* do not close the parent ZipInputStream */ }
                     }, maxEntryUncompressedBytes);
-                    totalChunks += ingestEntry(qualifiedName, entryStream, collectionId, collectionName);
+                    totalChunks += ingestEntry(qualifiedName, entryStream, collectionId, collectionName, progress);
                 } catch (ExtractionException e) {
                     log.warn("Erreur sur entrée ZIP {}: {}", qualifiedName, e.getMessage());
                 }
@@ -304,7 +312,8 @@ public class IngestionTaskExecutor {
         return totalChunks;
     }
 
-    private int ingestEntry(String fileName, InputStream inputStream, String collectionId, String collectionName) throws Exception {
+    private int ingestEntry(String fileName, InputStream inputStream, String collectionId, String collectionName,
+                            IntConsumer progress) throws Exception {
         String shortName = fileName.contains("/") ? fileName.substring(fileName.lastIndexOf('/') + 1) : fileName;
         String contentType = extractorFactory.resolveContentType(shortName);
         var extractor = extractorFactory.getExtractor(contentType);
@@ -324,6 +333,7 @@ public class IngestionTaskExecutor {
             List<List<Float>> batchEmbeddings = embeddingService.embedBatch(
                     batch.stream().map(TextChunk::text).toList());
             chromaDbClient.addDocuments(collectionId, batch, batchEmbeddings);
+            progress.accept(batch.size());
         }
 
         ftsService.indexChunks(chunks, collectionName);
