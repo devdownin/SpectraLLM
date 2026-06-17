@@ -73,7 +73,7 @@ class UrlIngestionServiceTest {
                 mock(IngestionTaskExecutor.class),
                 mock(IngestedFileRepository.class),
                 mock(GedService.class),
-                props, 50);
+                props, 50, 4);
 
         urlFetcher = mock(UrlFetcherService.class);
 

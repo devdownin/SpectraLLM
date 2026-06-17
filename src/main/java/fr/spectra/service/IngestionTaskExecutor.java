@@ -65,7 +65,7 @@ public class IngestionTaskExecutor {
                                  FtsService ftsService,
                                  MeterRegistry meterRegistry,
                                  @Value("${spectra.pipeline.embedding-batch-size:10}") int embeddingBatchSize,
-                                 @Value("${spectra.pipeline.max-uncompressed-mb:50}") int maxUncompressedMb,
+                                 @Value("${spectra.pipeline.max-uncompressed-mb:0}") int maxUncompressedMb,
                                  @Value("${spectra.pipeline.concurrent-ingestions:4}") int concurrentIngestions) {
         this.extractorFactory = extractorFactory;
         this.textCleaner = textCleaner;
@@ -74,9 +74,12 @@ public class IngestionTaskExecutor {
         this.chromaDbClient = chromaDbClient;
         this.ftsService = ftsService;
         this.embeddingBatchSize = embeddingBatchSize;
-        this.maxEntryUncompressedBytes = Math.max(1, maxUncompressedMb) * 1024L * 1024L;
+        // 0 → auto-calcul selon le heap et la concurrence (évite l'OOM).
+        this.maxEntryUncompressedBytes = IngestionLimits.resolveMaxUncompressedBytes(maxUncompressedMb, concurrentIngestions);
         this.concurrencySemaphore = new Semaphore(Math.max(1, concurrentIngestions), true);
-        log.info("[ingestion] Limite de concurrence : {} ingestion(s) simultanée(s)", concurrentIngestions);
+        log.info("[ingestion] Limite de concurrence : {} ; taille décompressée max/fichier : {} Mo ({})",
+                concurrentIngestions, maxEntryUncompressedBytes / (1024 * 1024),
+                maxUncompressedMb > 0 ? "explicite" : "auto");
         this.chunksIngested = Counter.builder("spectra.ingestion.chunks.total")
                 .description("Nombre total de chunks ingérés dans ChromaDB")
                 .register(meterRegistry);

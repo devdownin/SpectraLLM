@@ -49,9 +49,9 @@ spectra:
     chunk-max-tokens: ${SPECTRA_CHUNK_MAX_TOKENS:512}
     chunk-overlap-tokens: ${SPECTRA_CHUNK_OVERLAP_TOKENS:64}
     embedding-batch-size: ${SPECTRA_EMBEDDING_BATCH_SIZE:10}
-    # Taille décompressée max par fichier / entrée ZIP (Mo). Borne la mémoire :
-    # un fichier est lu/nettoyé/chunké en mémoire ; garder < heap / concurrence.
-    max-uncompressed-mb: ${SPECTRA_MAX_UNCOMPRESSED_MB:50}
+    # Taille décompressée max par fichier / entrée ZIP (Mo). Borne la mémoire
+    # d'ingestion. 0 = auto : calculé selon le heap JVM et la concurrence.
+    max-uncompressed-mb: ${SPECTRA_MAX_UNCOMPRESSED_MB:0}
     embedding-timeout-seconds: ${SPECTRA_EMBEDDING_TIMEOUT:30}
     generation-timeout-seconds: ${SPECTRA_GENERATION_TIMEOUT:120}
     concurrent-ingestions: ${SPECTRA_CONCURRENT_INGESTIONS:4}

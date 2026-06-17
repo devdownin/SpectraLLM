@@ -45,7 +45,8 @@ class IngestionServiceTest {
                 mock(IngestedFileRepository.class),
                 mock(GedService.class),
                 props,
-            50
+            50,
+            4
         );
     }
 

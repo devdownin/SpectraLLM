@@ -76,8 +76,10 @@ public class IngestionService {
                             IngestedFileRepository repository,
                             GedService gedService,
                             SpectraProperties properties,
-                            @org.springframework.beans.factory.annotation.Value("${spectra.pipeline.max-uncompressed-mb:50}") int maxUncompressedMb) {
-        this.maxUncompressedBytes = Math.max(1, maxUncompressedMb) * 1024L * 1024L;
+                            @org.springframework.beans.factory.annotation.Value("${spectra.pipeline.max-uncompressed-mb:0}") int maxUncompressedMb,
+                            @org.springframework.beans.factory.annotation.Value("${spectra.pipeline.concurrent-ingestions:4}") int concurrentIngestions) {
+        // 0 → auto-calcul selon le heap et la concurrence (évite l'OOM).
+        this.maxUncompressedBytes = IngestionLimits.resolveMaxUncompressedBytes(maxUncompressedMb, concurrentIngestions);
         this.extractorFactory = extractorFactory;
         this.textCleaner = textCleaner;
         this.chunkingService = chunkingService;
