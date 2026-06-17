@@ -323,7 +323,7 @@ const FineTuning: FC = () => {
       setShowForm(false);
       toast.success('Job submitted', { description: `ID: ${job.jobId.slice(0, 8)}…` });
     } catch (err: any) {
-      toast.error('Erreur soumission', { description: err?.response?.data?.detail ?? err.message });
+      toast.error('Submission error', { description: err?.response?.data?.detail ?? err.message });
     } finally {
       setSubmitting(false);
     }

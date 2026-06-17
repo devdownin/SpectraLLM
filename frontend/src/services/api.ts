@@ -19,12 +19,12 @@ api.interceptors.response.use(
     const message = error.response?.data?.message || error.message || 'Spectra API Error';
     console.error(`[API Error] ${message}`, error);
     if (!error.response) {
-      toast.error('Connexion impossible', {
+      toast.error('Connection failed', {
         id: 'api-network-error',
-        description: 'Le service Spectra est injoignable.',
+        description: 'The Spectra service is unreachable.',
       });
     } else if (status >= 500) {
-      toast.error('Erreur serveur', { id: 'api-server-error', description: message });
+      toast.error('Server error', { id: 'api-server-error', description: message });
     }
     return Promise.reject(error);
   }

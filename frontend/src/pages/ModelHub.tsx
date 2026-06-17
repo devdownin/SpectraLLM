@@ -119,7 +119,7 @@ const ModelHub: FC = () => {
 
         <div className="flex flex-wrap gap-3">
           <div className="flex items-center gap-2 bg-surface-container-low px-3 py-1 border border-outline-variant/20">
-            <span className="text-[10px] font-black uppercase tracking-widest text-outline">Afficher</span>
+            <span className="text-[10px] font-black uppercase tracking-widest text-outline">Show</span>
             <select
               value={limit}
               onChange={(e) => setLimit(parseInt(e.target.value))}
@@ -132,13 +132,13 @@ const ModelHub: FC = () => {
           </div>
 
           <div className="flex items-center gap-2 bg-surface-container-low px-3 py-1 border border-outline-variant/20">
-            <span className="text-[10px] font-black uppercase tracking-widest text-outline">Filtre</span>
+            <span className="text-[10px] font-black uppercase tracking-widest text-outline">Filter</span>
             <select
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
               className="bg-transparent text-xs font-bold text-primary focus:outline-none cursor-pointer"
             >
-              <option value="All">Tous</option>
+              <option value="All">All</option>
               <option value="Perfect">Perfect</option>
               <option value="Good">Good</option>
               <option value="Marginal">Marginal</option>
@@ -169,7 +169,7 @@ const ModelHub: FC = () => {
             className="flex items-center gap-2 px-4 py-2 bg-surface-container-high hover:bg-surface-variant text-primary transition-colors border border-outline-variant/20"
           >
             <span className={`material-symbols-outlined text-sm ${isFetching ? 'animate-spin' : ''}`}>refresh</span>
-            <span className="font-headline uppercase tracking-widest text-[10px] font-bold">Actualiser</span>
+            <span className="font-headline uppercase tracking-widest text-[10px] font-bold">Refresh</span>
           </button>
         </div>
       </header>
