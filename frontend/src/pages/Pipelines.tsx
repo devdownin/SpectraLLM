@@ -139,9 +139,9 @@ const Pipelines: FC = () => {
       queryClient.invalidateQueries({ queryKey: ['ged-documents'] });
       queryClient.invalidateQueries({ queryKey: ['ged-document'] });
       queryClient.invalidateQueries({ queryKey: ['ged-stats'] });
-      toast.success('Cycle de vie mis à jour');
+      toast.success('Lifecycle updated');
     },
-    onError: (err: any) => toast.error('Échec transition', { description: err.response?.data?.error }),
+    onError: (err: any) => toast.error('Transition failed', { description: err.response?.data?.error }),
   });
 
   const deleteMutation = useMutation({
@@ -150,7 +150,7 @@ const Pipelines: FC = () => {
       queryClient.invalidateQueries({ queryKey: ['ged-documents'] });
       queryClient.invalidateQueries({ queryKey: ['ged-stats'] });
       setSelectedSha(null);
-      toast.success('Document supprimé');
+      toast.success('Document deleted');
     },
   });
 
@@ -161,9 +161,9 @@ const Pipelines: FC = () => {
       queryClient.invalidateQueries({ queryKey: ['ged-documents'] });
       queryClient.invalidateQueries({ queryKey: ['ged-stats'] });
       setBulkSelected(new Set());
-      toast.success(`${sha256List.length} document(s) mis à jour`);
+      toast.success(`${sha256List.length} document(s) updated`);
     },
-    onError: () => toast.error('Échec de la mise à jour en lot'),
+    onError: () => toast.error('Bulk update failed'),
   });
 
   const bulkDeleteMutation = useMutation({
@@ -173,9 +173,9 @@ const Pipelines: FC = () => {
       queryClient.invalidateQueries({ queryKey: ['ged-stats'] });
       setBulkSelected(new Set());
       if (selectedSha && sha256List.includes(selectedSha)) setSelectedSha(null);
-      toast.success(`${sha256List.length} document(s) supprimé(s)`);
+      toast.success(`${sha256List.length} document(s) deleted`);
     },
-    onError: () => toast.error('Échec de la suppression en lot'),
+    onError: () => toast.error('Bulk deletion failed'),
   });
 
   const addTagMutation = useMutation({
@@ -184,7 +184,7 @@ const Pipelines: FC = () => {
       queryClient.invalidateQueries({ queryKey: ['ged-document', selectedSha] });
       queryClient.invalidateQueries({ queryKey: ['ged-documents'] });
       setNewTagInput('');
-      toast.success('Tag ajouté');
+      toast.success('Tag added');
     },
   });
 
@@ -193,7 +193,7 @@ const Pipelines: FC = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['ged-document', selectedSha] });
       queryClient.invalidateQueries({ queryKey: ['ged-documents'] });
-      toast.success('Tag supprimé');
+      toast.success('Tag removed');
     },
   });
 
@@ -212,9 +212,9 @@ const Pipelines: FC = () => {
       queryClient.invalidateQueries({ queryKey: ['comments', selectedSha] });
       setCommentInput('');
       setCommentTab('list');
-      toast.success('Commentaire ajouté');
+      toast.success('Comment added');
     },
-    onError: () => toast.error("Échec de l'ajout du commentaire"),
+    onError: () => toast.error('Failed to add comment'),
   });
 
   const generateCommentMutation = useMutation({
@@ -224,31 +224,31 @@ const Pipelines: FC = () => {
       queryClient.invalidateQueries({ queryKey: ['comments', selectedSha] });
       setFocusInput('');
       setCommentTab('list');
-      toast.success('Commentaire IA généré');
+      toast.success('AI comment generated');
     },
-    onError: (err: any) => toast.error('Échec génération IA',
-      { description: err.response?.data?.error ?? 'LLM indisponible' }),
+    onError: (err: any) => toast.error('AI generation failed',
+      { description: err.response?.data?.error ?? 'LLM unavailable' }),
   });
 
   const rateCommentMutation = useMutation({
     mutationFn: ({ sha, id, rating }: { sha: string; id: number; rating: 'APPROVED' | 'REJECTED' | 'NONE' }) =>
       commentApi.rate(sha, id, rating),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['comments', selectedSha] }),
-    onError: () => toast.error("Échec de l'évaluation"),
+    onError: () => toast.error('Rating failed'),
   });
 
   const deleteCommentMutation = useMutation({
     mutationFn: ({ sha, id }: { sha: string; id: number }) => commentApi.delete(sha, id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['comments', selectedSha] });
-      toast.success('Commentaire supprimé');
+      toast.success('Comment deleted');
     },
   });
 
   const exportDpoMutation = useMutation({
     mutationFn: () => commentApi.exportDpo(),
-    onSuccess: (res) => toast.success(`Export DPO : ${res.data.pairs} paire(s) exportée(s)`),
-    onError: () => toast.error('Échec export DPO'),
+    onSuccess: (res) => toast.success(`DPO export: ${res.data.pairs} pair(s) exported`),
+    onError: () => toast.error('DPO export failed'),
   });
 
   // ── Filtering & Sorting ────────────────────────────────────────────────────
@@ -350,7 +350,7 @@ const Pipelines: FC = () => {
           type="button"
           role="checkbox"
           aria-checked={isChecked}
-          aria-label={`Sélectionner ${doc.fileName}`}
+          aria-label={`Select ${doc.fileName}`}
           onClick={e => toggleSelect(doc.sha256, e)}
           className="flex justify-center"
         >
@@ -392,7 +392,7 @@ const Pipelines: FC = () => {
             aria-valuenow={Math.round(score * 100)}
             aria-valuemin={0}
             aria-valuemax={100}
-            aria-label={`Qualité ${(score * 100).toFixed(0)} % — ${score > 0.7 ? 'bonne' : score > 0.4 ? 'moyenne' : 'faible'}`}
+            aria-label={`Quality ${(score * 100).toFixed(0)} % — ${score > 0.7 ? 'good' : score > 0.4 ? 'medium' : 'low'}`}
             className="flex-1 h-1 bg-outline-variant/20 rounded-full overflow-hidden"
           >
             <div
@@ -431,8 +431,8 @@ const Pipelines: FC = () => {
           <p className="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-1">Knowledge & Records</p>
           <h2 className="font-headline text-3xl font-bold tracking-tighter uppercase">GED / DATABASE</h2>
           <p className="text-sm text-on-surface-variant mt-3 max-w-3xl leading-relaxed">
-            Gestion Électronique de Documents : suivez le cycle de vie, auditez les modifications
-            et gérez la qualité des sources alimentant vos modèles.
+            Electronic Document Management: track the lifecycle, audit changes,
+            and manage the quality of the sources feeding your models.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -489,14 +489,14 @@ const Pipelines: FC = () => {
         {/* Row 1 */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="space-y-2">
-            <label className="text-[9px] font-label uppercase tracking-widest text-on-surface-variant">Recherche</label>
+            <label className="text-[9px] font-label uppercase tracking-widest text-on-surface-variant">Search</label>
             <div className="flex items-center gap-3 border border-outline-variant/20 bg-surface-container-lowest px-4 py-2.5">
               <span className="material-symbols-outlined text-base text-outline">search</span>
               <input
                 type="text"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                placeholder="Nom, hash, tag, collection…"
+                placeholder="Name, hash, tag, collection…"
                 className="w-full bg-transparent outline-none text-sm font-body placeholder:text-outline"
               />
               {search && (
@@ -507,7 +507,7 @@ const Pipelines: FC = () => {
             </div>
           </div>
           <div className="space-y-2">
-            <label className="text-[9px] font-label uppercase tracking-widest text-on-surface-variant">Cycle de vie</label>
+            <label className="text-[9px] font-label uppercase tracking-widest text-on-surface-variant">Lifecycle</label>
             <div className="flex gap-2">
               {['all', 'INGESTED', 'QUALIFIED', 'TRAINED', 'ARCHIVED'].map(lc => (
                 <button
@@ -515,13 +515,13 @@ const Pipelines: FC = () => {
                   onClick={() => setSelectedLifecycle(lc)}
                   className={`flex-1 py-2 border text-[9px] font-label uppercase tracking-widest transition-all ${selectedLifecycle === lc ? 'border-primary bg-primary/10 text-primary' : 'border-outline-variant/20 text-on-surface-variant hover:border-primary/30'}`}
                 >
-                  {lc === 'all' ? 'Tous' : lc.slice(0, 1)}
+                  {lc === 'all' ? 'All' : lc.slice(0, 1)}
                 </button>
               ))}
             </div>
           </div>
           <div className="space-y-2">
-            <label className="text-[9px] font-label uppercase tracking-widest text-on-surface-variant">Tri</label>
+            <label className="text-[9px] font-label uppercase tracking-widest text-on-surface-variant">Sort</label>
             <div className="flex gap-2">
               {(['recent', 'name', 'chunks', 'quality'] as SortMode[]).map(m => (
                 <button
@@ -529,7 +529,7 @@ const Pipelines: FC = () => {
                   onClick={() => setSortMode(m)}
                   className={`flex-1 py-2 border text-[9px] font-label uppercase tracking-widest transition-all ${sortMode === m ? 'border-primary bg-primary/10 text-primary' : 'border-outline-variant/20 text-on-surface-variant hover:border-primary/30'}`}
                 >
-                  {m === 'recent' ? 'Date' : m === 'chunks' ? 'Chunks' : m === 'quality' ? 'Qualité' : 'Nom'}
+                  {m === 'recent' ? 'Date' : m === 'chunks' ? 'Chunks' : m === 'quality' ? 'Quality' : 'Name'}
                 </button>
               ))}
             </div>
@@ -540,7 +540,7 @@ const Pipelines: FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="space-y-2">
             <label className="text-[9px] font-label uppercase tracking-widest text-on-surface-variant">
-              Type de document {selectedFormats.size > 0 && <span className="text-primary">({selectedFormats.size} actif)</span>}
+              Document type {selectedFormats.size > 0 && <span className="text-primary">({selectedFormats.size} active)</span>}
             </label>
             <div className="flex flex-wrap gap-2">
               {availableFormats.map(fmt => {
@@ -559,14 +559,14 @@ const Pipelines: FC = () => {
               })}
               {selectedFormats.size > 0 && (
                 <button onClick={() => setSelectedFormats(new Set())} className="text-[9px] text-outline-variant hover:text-error uppercase tracking-widest px-2">
-                  Réinitialiser
+                  Reset
                 </button>
               )}
             </div>
           </div>
 
           <div className="space-y-2">
-            <label className="text-[9px] font-label uppercase tracking-widest text-on-surface-variant">Score qualité minimum</label>
+            <label className="text-[9px] font-label uppercase tracking-widest text-on-surface-variant">Minimum quality score</label>
             <div className="flex gap-2">
               {QUALITY_THRESHOLDS.map(({ label, value }) => (
                 <button
@@ -581,12 +581,12 @@ const Pipelines: FC = () => {
           </div>
 
           <div className="space-y-2">
-            <label className="text-[9px] font-label uppercase tracking-widest text-on-surface-variant">Regroupement</label>
+            <label className="text-[9px] font-label uppercase tracking-widest text-on-surface-variant">Grouping</label>
             <div className="flex gap-2">
               {([
-                { key: 'none', label: 'Aucun' },
+                { key: 'none', label: 'None' },
                 { key: 'type', label: 'Type' },
-                { key: 'lifecycle', label: 'État' },
+                { key: 'lifecycle', label: 'State' },
                 { key: 'collection', label: 'Collection' },
               ] as { key: GroupBy; label: string }[]).map(({ key, label }) => (
                 <button
@@ -611,7 +611,7 @@ const Pipelines: FC = () => {
               type="button"
               role="checkbox"
               aria-checked={allSelected ? true : someSelected ? 'mixed' : false}
-              aria-label="Tout sélectionner"
+              aria-label="Select all"
               onClick={toggleSelectAll}
               className={`w-4 h-4 border flex items-center justify-center cursor-pointer transition-all ${allSelected ? 'bg-primary border-primary' : 'border-outline-variant/40 hover:border-primary/50'}`}
             >
@@ -621,8 +621,8 @@ const Pipelines: FC = () => {
           </div>
           <span>Document</span>
           <span className="text-center">Lifecycle</span>
-          <span>Qualité</span>
-          <span>Ingéré le</span>
+          <span>Quality</span>
+          <span>Ingested on</span>
           <span className="text-right">Chunks</span>
           <span className="text-right">Actions</span>
         </div>
@@ -634,7 +634,7 @@ const Pipelines: FC = () => {
               {filtered.length === 0 && (
                 <div className="py-20 text-center text-on-surface-variant">
                   <span className="material-symbols-outlined text-4xl block mb-3 opacity-30">search_off</span>
-                  <p className="text-sm">Aucun document ne correspond aux filtres actifs.</p>
+                  <p className="text-sm">No document matches the active filters.</p>
                 </div>
               )}
             </>
@@ -666,7 +666,7 @@ const Pipelines: FC = () => {
                         type="button"
                         role="checkbox"
                         aria-checked={allGroupSelected ? true : groupSelected > 0 ? 'mixed' : false}
-                        aria-label={`Sélectionner le groupe ${label}`}
+                        aria-label={`Select group ${label}`}
                         onClick={toggleGroupSelect}
                         className="flex justify-center"
                         style={{ width: 32 }}
@@ -680,7 +680,7 @@ const Pipelines: FC = () => {
                       <p className="font-headline font-bold text-sm uppercase tracking-tight flex-1">{label}</p>
                       <span className="text-[10px] font-label text-on-surface-variant uppercase tracking-widest">{docs.length} doc{docs.length > 1 ? 's' : ''}</span>
                       {groupSelected > 0 && (
-                        <span className="text-[9px] font-label text-primary uppercase tracking-widest">{groupSelected} sélectionné{groupSelected > 1 ? 's' : ''}</span>
+                        <span className="text-[9px] font-label text-primary uppercase tracking-widest">{groupSelected} selected</span>
                       )}
                     </div>
                     {!isCollapsed && (
@@ -699,7 +699,7 @@ const Pipelines: FC = () => {
       {groupBy === 'none' && totalPages > 1 && (
         <div className="flex items-center justify-between border border-outline-variant/10 p-4 bg-surface-container">
           <span className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">
-            Page {page + 1} / {totalPages} — {filtered.length} résultats
+            Page {page + 1} / {totalPages} — {filtered.length} results
           </span>
           <div className="flex gap-2">
             <button
@@ -707,7 +707,7 @@ const Pipelines: FC = () => {
               disabled={page === 0}
               className="px-3 py-2 border border-outline-variant/20 text-[9px] font-label uppercase tracking-widest text-on-surface-variant hover:text-primary hover:border-primary/30 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             >
-              ← Précédent
+              ← Previous
             </button>
             {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
               const p = totalPages <= 7 ? i : (page < 4 ? i : page + i - 3);
@@ -727,7 +727,7 @@ const Pipelines: FC = () => {
               disabled={page >= totalPages - 1}
               className="px-3 py-2 border border-outline-variant/20 text-[9px] font-label uppercase tracking-widest text-on-surface-variant hover:text-primary hover:border-primary/30 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             >
-              Suivant →
+              Next →
             </button>
           </div>
         </div>
@@ -738,10 +738,10 @@ const Pipelines: FC = () => {
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom duration-300">
           <div className="flex items-center gap-4 bg-surface-container-high border border-primary/30 px-6 py-4 shadow-2xl">
             <span className="text-[10px] font-label uppercase tracking-widest text-primary font-bold">
-              {bulkSelected.size} sélectionné{bulkSelected.size > 1 ? 's' : ''}
+              {bulkSelected.size} selected
             </span>
             <div className="w-px h-6 bg-outline-variant/20" />
-            <span className="text-[9px] font-label uppercase tracking-widest text-on-surface-variant">Passer en :</span>
+            <span className="text-[9px] font-label uppercase tracking-widest text-on-surface-variant">Move to:</span>
             {(['INGESTED', 'QUALIFIED', 'TRAINED', 'ARCHIVED'] as DocumentLifecycle[]).map(lc => (
               <button
                 key={lc}
@@ -758,7 +758,7 @@ const Pipelines: FC = () => {
               disabled={bulkDeleteMutation.isPending}
               className="px-3 py-2 border border-error/30 text-error text-[9px] font-bold tracking-widest uppercase hover:bg-error hover:text-white transition-all disabled:opacity-50"
             >
-              Supprimer
+              Delete
             </button>
             <button onClick={() => setBulkSelected(new Set())} className="w-8 h-8 flex items-center justify-center text-outline-variant hover:text-on-surface transition-colors">
               <span className="material-symbols-outlined text-sm">close</span>
@@ -774,14 +774,14 @@ const Pipelines: FC = () => {
           tabIndex={-1}
           role="dialog"
           aria-modal="true"
-          aria-label="Fiche document"
+          aria-label="Document panel"
           className="fixed inset-y-0 right-0 w-full lg:w-[520px] bg-surface-container-high shadow-[-20px_0_40px_rgba(0,0,0,0.5)] z-50 animate-in slide-in-from-right duration-300 border-l border-outline-variant/20 flex flex-col outline-none">
           <header className="p-6 border-b border-outline-variant/20 flex justify-between items-center">
             <div className="min-w-0">
-              <p className="text-[9px] font-label uppercase tracking-widest text-outline">Fiche Document</p>
+              <p className="text-[9px] font-label uppercase tracking-widest text-outline">Document Sheet</p>
               <h3 className="font-headline text-lg font-bold truncate max-w-[380px]">{sheet?.fileName ?? '—'}</h3>
             </div>
-            <button onClick={() => setSelectedSha(null)} aria-label="Fermer la fiche document" className="w-10 h-10 flex items-center justify-center hover:bg-surface-variant transition-colors shrink-0">
+            <button onClick={() => setSelectedSha(null)} aria-label="Close document panel" className="w-10 h-10 flex items-center justify-center hover:bg-surface-variant transition-colors shrink-0">
               <span aria-hidden="true" className="material-symbols-outlined">close</span>
             </button>
           </header>
@@ -800,7 +800,7 @@ const Pipelines: FC = () => {
                   <p className="font-headline font-bold text-sm text-primary uppercase">{sheet.lifecycle}</p>
                 </div>
                 <div className="p-4 bg-surface-container-lowest border-l-2 border-secondary">
-                  <p className="text-[8px] uppercase tracking-widest text-outline mb-1">Qualité</p>
+                  <p className="text-[8px] uppercase tracking-widest text-outline mb-1">Quality</p>
                   <p className="font-headline font-bold text-sm text-secondary uppercase">{((sheet.qualityScore ?? 0) * 100).toFixed(0)}%</p>
                 </div>
                 <div className="p-4 bg-surface-container-lowest border-l-2 border-outline-variant">
@@ -845,7 +845,7 @@ const Pipelines: FC = () => {
                 <h4 className="text-[10px] font-bold uppercase tracking-widest text-outline">Tags</h4>
                 <div className="flex flex-wrap gap-2 min-h-[2rem]">
                   {sheet.tags.length === 0 && (
-                    <p className="text-xs italic text-outline">Aucun tag.</p>
+                    <p className="text-xs italic text-outline">No tags.</p>
                   )}
                   {sheet.tags.map(tag => (
                     <span key={tag} className="flex items-center gap-1 text-[9px] border border-outline-variant/30 px-2 py-1 text-outline-variant uppercase">
@@ -870,7 +870,7 @@ const Pipelines: FC = () => {
                         addTagMutation.mutate({ sha: sheet.sha256, tags: [newTagInput.trim().toLowerCase()] });
                       }
                     }}
-                    placeholder="Nouveau tag…"
+                    placeholder="New tag…"
                     className="flex-1 bg-surface-container-lowest border border-outline-variant/20 px-3 py-2 text-sm outline-none focus:border-primary/50 font-body placeholder:text-outline"
                   />
                   <button
@@ -887,9 +887,9 @@ const Pipelines: FC = () => {
 
               {/* Model links */}
               <div className="space-y-3">
-                <h4 className="text-[10px] font-bold uppercase tracking-widest text-outline">Associations Modèles</h4>
+                <h4 className="text-[10px] font-bold uppercase tracking-widest text-outline">Model Associations</h4>
                 {sheet.modelLinks.length === 0 ? (
-                  <p className="text-xs italic text-outline">Aucune association modèle.</p>
+                  <p className="text-xs italic text-outline">No model associations.</p>
                 ) : (
                   <div className="space-y-2">
                     {sheet.modelLinks.map((l, i) => (
@@ -908,7 +908,7 @@ const Pipelines: FC = () => {
               {/* Comments — RAG generation + DPO rating */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <h4 className="text-[10px] font-bold uppercase tracking-widest text-outline">Commentaires</h4>
+                  <h4 className="text-[10px] font-bold uppercase tracking-widest text-outline">Comments</h4>
                   <div className="flex gap-1">
                     {(['list', 'add', 'generate'] as const).map(tab => (
                       <button
@@ -920,10 +920,10 @@ const Pipelines: FC = () => {
                             : 'border-outline-variant/20 text-outline hover:border-primary/30 hover:text-primary'
                         }`}
                       >
-                        {tab === 'list' ? 'Liste' : tab === 'add' ? '+ Manuel' : '✦ IA'}
+                        {tab === 'list' ? 'List' : tab === 'add' ? '+ Manual' : '✦ AI'}
                       </button>
                     ))}
-                    <Tooltip content="Exporter paires DPO">
+                    <Tooltip content="Export DPO pairs">
                       <button
                         onClick={() => exportDpoMutation.mutate()}
                         disabled={exportDpoMutation.isPending}
@@ -940,7 +940,7 @@ const Pipelines: FC = () => {
                     {isLoadingComments ? (
                       <Skeleton className="h-16" />
                     ) : !comments?.length ? (
-                      <p className="text-xs italic text-outline">Aucun commentaire. Ajoutez-en un manuellement ou générez-en un via IA.</p>
+                      <p className="text-xs italic text-outline">No comments. Add one manually or generate one with AI.</p>
                     ) : (
                       comments.map(c => (
                         <div key={c.id} className={`p-3 border text-xs space-y-2 ${
@@ -955,7 +955,7 @@ const Pipelines: FC = () => {
                                   ? 'border-secondary/40 text-secondary bg-secondary/10'
                                   : 'border-outline-variant/30 text-outline'
                               }`}>
-                                {c.type === 'AI_GENERATED' ? '✦ IA' : '👤'}
+                                {c.type === 'AI_GENERATED' ? '✦ AI' : '👤'}
                               </span>
                               <span className="text-[9px] text-outline">{c.author}</span>
                             </div>
@@ -963,20 +963,20 @@ const Pipelines: FC = () => {
                           </div>
                           {c.focus && (
                             <p className="text-[9px] italic text-on-surface-variant border-l-2 border-secondary/30 pl-2">
-                              Focus : {c.focus}
+                              Focus: {c.focus}
                             </p>
                           )}
                           <p className="text-[11px] text-on-surface leading-relaxed whitespace-pre-line">{c.content}</p>
                           {c.type === 'AI_GENERATED' && (
                             <div className="flex items-center gap-2 pt-1">
-                              <span className="text-[8px] uppercase text-outline tracking-widest">Évaluation DPO :</span>
+                              <span className="text-[8px] uppercase text-outline tracking-widest">DPO Rating:</span>
                               {(['APPROVED', 'NONE', 'REJECTED'] as const).map(r => (
                                 <button
                                   key={r}
                                   onClick={() => rateCommentMutation.mutate({ sha: sheet!.sha256, id: c.id, rating: r })}
                                   disabled={rateCommentMutation.isPending}
                                   aria-pressed={c.rating === r}
-                                  aria-label={r === 'APPROVED' ? 'Approuver le commentaire' : r === 'REJECTED' ? 'Rejeter le commentaire' : 'Aucune évaluation'}
+                                  aria-label={r === 'APPROVED' ? 'Approve comment' : r === 'REJECTED' ? 'Reject comment' : 'No rating'}
                                   className={`px-2 py-0.5 text-[8px] font-bold uppercase border transition-all disabled:opacity-40 flex items-center ${
                                     c.rating === r
                                       ? r === 'APPROVED' ? 'border-primary bg-primary/20 text-primary'
@@ -1023,7 +1023,7 @@ const Pipelines: FC = () => {
                     <textarea
                       value={commentInput}
                       onChange={e => setCommentInput(e.target.value)}
-                      placeholder="Rédigez votre commentaire…"
+                      placeholder="Write your comment…"
                       rows={4}
                       className="w-full bg-surface-container-lowest border border-outline-variant/20 px-3 py-2 text-sm outline-none focus:border-primary/50 font-body placeholder:text-outline resize-none"
                     />
@@ -1036,7 +1036,7 @@ const Pipelines: FC = () => {
                       disabled={!commentInput.trim() || addCommentMutation.isPending}
                       className="w-full py-2 bg-primary/10 border border-primary/30 text-primary text-[9px] font-bold uppercase tracking-widest hover:bg-primary/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      {addCommentMutation.isPending ? 'Enregistrement…' : '+ Ajouter le commentaire'}
+                      {addCommentMutation.isPending ? 'Saving…' : '+ Add comment'}
                     </button>
                   </div>
                 )}
@@ -1044,14 +1044,14 @@ const Pipelines: FC = () => {
                 {commentTab === 'generate' && (
                   <div className="space-y-2">
                     <p className="text-[9px] text-on-surface-variant">
-                      Décrivez l'angle d'analyse. Le LLM utilisera le RAG pour récupérer
-                      les passages pertinents et générer un commentaire ancré dans le document.
+                      Describe the angle of analysis. The LLM will use RAG to retrieve
+                      the relevant passages and generate a comment grounded in the document.
                     </p>
                     <input
                       type="text"
                       value={focusInput}
                       onChange={e => setFocusInput(e.target.value)}
-                      placeholder="Ex : points de sécurité, procédures d'urgence…"
+                      placeholder="e.g. safety points, emergency procedures…"
                       className="w-full bg-surface-container-lowest border border-outline-variant/20 px-3 py-2 text-sm outline-none focus:border-secondary/50 font-body placeholder:text-outline"
                     />
                     <button
@@ -1064,12 +1064,12 @@ const Pipelines: FC = () => {
                       className="w-full py-2 bg-secondary/10 border border-secondary/30 text-secondary text-[9px] font-bold uppercase tracking-widest hover:bg-secondary/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       {generateCommentMutation.isPending
-                        ? '✦ Génération RAG en cours…'
-                        : '✦ Générer via RAG'}
+                        ? '✦ RAG generation in progress…'
+                        : '✦ Generate with RAG'}
                     </button>
                     <p className="text-[8px] text-outline">
-                      Les commentaires approuvés (👍) seront exportables comme paires DPO
-                      pour affiner le modèle avec vos préférences.
+                      Approved comments (👍) can be exported as DPO pairs
+                      to fine-tune the model with your preferences.
                     </p>
                   </div>
                 )}
@@ -1101,7 +1101,7 @@ const Pipelines: FC = () => {
               disabled={deleteMutation.isPending}
               className="w-full py-3 bg-error/10 border border-error/30 text-error font-bold text-[10px] tracking-widest uppercase hover:bg-error hover:text-white transition-all disabled:opacity-50"
             >
-              Supprimer définitivement
+              Delete permanently
             </button>
           </footer>
         </div>

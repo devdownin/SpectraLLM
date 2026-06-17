@@ -24,68 +24,68 @@ const STRATEGIES: StrategyMeta[] = [
   {
     key: 'conversational',
     name: 'Conversational RAG',
-    tagline: 'Chat multi-tours',
+    tagline: 'Multi-turn chat',
     icon: 'forum',
     accentClass: 'border-secondary/40 text-secondary bg-secondary/5',
     envVar: 'SPECTRA_CONVERSATIONAL_RAG_ENABLED=true',
     description:
-      "Reformule la question actuelle en question autonome à partir de l'historique de conversation avant d'effectuer le retrieval. Le LLM reçoit aussi l'historique complet lors de la génération.",
-    tradeoff: '+1 appel LLM (reformulation de la question)',
-    bestFor: "Interface chat avec questions de suivi (\"et pour lui ?\", \"quand ?\"). Inutile si les questions sont toujours indépendantes.",
+      "Rewrites the current question into a standalone query using the conversation history before performing retrieval. The LLM also receives the full history during generation.",
+    tradeoff: '+1 LLM call (question rewriting)',
+    bestFor: "Chat interfaces with follow-up questions (\"and for him?\", \"when?\"). Unnecessary if questions are always independent.",
   },
   {
     key: 'corrective',
     name: 'Corrective RAG',
-    tagline: 'Données bruitées / index imparfait',
+    tagline: 'Noisy data / imperfect index',
     icon: 'fact_check',
     accentClass: 'border-error/40 text-error bg-error/5',
     envVar: 'SPECTRA_CORRECTIVE_RAG_ENABLED=true',
     description:
-      "Évalue la pertinence de chaque chunk récupéré (RELEVANT / AMBIGUOUS / IRRELEVANT) en un seul appel LLM batch. Les chunks hors-sujet sont filtrés avant la génération, ce qui réduit les hallucinations liées au bruit.",
-    tradeoff: '+1 appel LLM batch (N chunks évalués en une fois)',
-    bestFor: "Score qualité moyen des documents < 60 %. OCR imparfait, PDF mal structurés, bases de données exportées brutes.",
+      "Evaluates the relevance of each retrieved chunk (RELEVANT / AMBIGUOUS / IRRELEVANT) in a single batched LLM call. Off-topic chunks are filtered out before generation, which reduces hallucinations caused by noise.",
+    tradeoff: '+1 batched LLM call (N chunks evaluated at once)',
+    bestFor: "Average document quality score below 60%. Imperfect OCR, poorly structured PDFs, raw database exports.",
   },
   {
     key: 'adaptive',
     name: 'Adaptive RAG',
-    tagline: 'Workloads variés / maîtrise des coûts',
+    tagline: 'Varied workloads / cost control',
     icon: 'route',
     accentClass: 'border-primary/40 text-primary bg-primary/5',
     envVar: 'SPECTRA_ADAPTIVE_RAG_ENABLED=true',
     description:
-      "Classifie chaque requête (DIRECT / STANDARD / AGENTIC) avant de la router vers la stratégie optimale. Les questions générales n'effectuent aucun retrieval. Les questions complexes activent l'Agentic RAG.",
-    tradeoff: '+1 appel LLM court (classification) — économise le retrieval sur les requêtes DIRECT',
-    bestFor: "Corpus large et varié, mélange de questions factuelles et générales. Permet de diviser par 2 la latence sur les requêtes simples.",
+      "Classifies each query (DIRECT / STANDARD / AGENTIC) before routing it to the optimal strategy. General questions skip retrieval entirely. Complex questions trigger Agentic RAG.",
+    tradeoff: '+1 short LLM call (classification) — saves retrieval on DIRECT queries',
+    bestFor: "Large and varied corpus, mixing factual and general questions. Can halve latency on simple queries.",
   },
   {
     key: 'self_rag',
     name: 'Self-RAG',
-    tagline: 'Haute fiabilité / zéro hallucination',
+    tagline: 'High reliability / zero hallucination',
     icon: 'verified',
     accentClass: 'border-primary/30 text-primary bg-primary/5',
     envVar: 'SPECTRA_SELF_RAG_ENABLED=true',
     description:
-      "Auto-évalue la réponse générée via trois tokens de réflexion : ISREL (chunks pertinents ?), ISSUP (réponse fondée sur les sources ?), ISUSE (réponse utile ?). Si la qualité est insuffisante, relance la génération avec un prompt renforcé.",
-    tradeoff: '+1 à +2 appels LLM (évaluation + raffinement éventuel)',
-    bestFor: "Documents critiques (juridique, médical, réglementaire, audit) où les erreurs factuelles sont inacceptables.",
+      "Self-assesses the generated answer using three reflection tokens: ISREL (relevant chunks?), ISSUP (answer grounded in sources?), ISUSE (answer useful?). If quality is insufficient, it re-runs generation with a reinforced prompt.",
+    tradeoff: '+1 to +2 LLM calls (evaluation + optional refinement)',
+    bestFor: "Critical documents (legal, medical, regulatory, audit) where factual errors are unacceptable.",
   },
   {
     key: 'agentic',
     name: 'Agentic RAG',
-    tagline: 'Questions complexes / multi-étapes',
+    tagline: 'Complex / multi-step questions',
     icon: 'psychology',
     accentClass: 'border-secondary/30 text-secondary bg-secondary/5',
     envVar: 'SPECTRA_AGENTIC_RAG_ENABLED=true',
     description:
-      "Boucle de raisonnement ReAct : le LLM décide lui-même s'il a besoin de plus d'information et reformule ses requêtes de recherche de façon itérative (max 3 tours). Compatible avec le Hybrid Search et le Re-ranking.",
-    tradeoff: '+2 à +6 appels LLM (boucle ReAct, 3 itérations max)',
-    bestFor: "Questions analytiques, comparatives ou multi-documents. Corpus volumineux avec l'information répartie sur plusieurs sources.",
+      "ReAct reasoning loop: the LLM decides on its own whether it needs more information and reformulates its search queries iteratively (up to 3 rounds). Compatible with Hybrid Search and Re-ranking.",
+    tradeoff: '+2 to +6 LLM calls (ReAct loop, 3 iterations max)',
+    bestFor: "Analytical, comparative or multi-document questions. Large corpus with information spread across multiple sources.",
   },
 ];
 
 // ── Recommendation engine ─────────────────────────────────────────────────────
 
-type Priority = 'PRIORITAIRE' | 'RECOMMANDÉ' | 'OPTIONNEL';
+type Priority = 'PRIORITY' | 'RECOMMENDED' | 'OPTIONAL';
 
 interface StrategyRec {
   key: string;
@@ -94,9 +94,9 @@ interface StrategyRec {
 }
 
 const PRIORITY_STYLES: Record<Priority, string> = {
-  PRIORITAIRE: 'border-error/40 text-error bg-error/5',
-  RECOMMANDÉ:  'border-primary/40 text-primary bg-primary/5',
-  OPTIONNEL:   'border-outline-variant/30 text-outline',
+  PRIORITY:    'border-error/40 text-error bg-error/5',
+  RECOMMENDED: 'border-primary/40 text-primary bg-primary/5',
+  OPTIONAL:    'border-outline-variant/30 text-outline',
 };
 
 function computeRecommendations(
@@ -116,16 +116,16 @@ function computeRecommendations(
   // ── Conversational : toujours utile dans le chat ────────────────────────────
   recs.push({
     key: 'conversational',
-    priority: 'RECOMMANDÉ',
-    reason: "Interface chat détectée — améliore le retrieval sur les questions de suivi.",
+    priority: 'RECOMMENDED',
+    reason: "Chat interface detected — improves retrieval on follow-up questions.",
   });
 
   // ── Corrective : données bruitées ──────────────────────────────────────────
   if (avgQ !== null && avgQ < 0.65) {
     recs.push({
       key: 'corrective',
-      priority: avgQ < 0.45 ? 'PRIORITAIRE' : 'RECOMMANDÉ',
-      reason: `Score qualité moyen ${(avgQ * 100).toFixed(0)} % — ${lowQCount} document(s) sous 50 %. Le filtrage correctif réduira les hallucinations.`,
+      priority: avgQ < 0.45 ? 'PRIORITY' : 'RECOMMENDED',
+      reason: `Average quality score ${(avgQ * 100).toFixed(0)}% — ${lowQCount} document(s) below 50%. Corrective filtering will reduce hallucinations.`,
     });
   }
 
@@ -134,8 +134,8 @@ function computeRecommendations(
   if (total >= 15 || formatVariety >= 3) {
     recs.push({
       key: 'adaptive',
-      priority: total >= 50 ? 'PRIORITAIRE' : 'RECOMMANDÉ',
-      reason: `${total} document(s) • ${formatVariety} format(s) — le routage adaptatif optimise la latence et les coûts selon la complexité de la question.`,
+      priority: total >= 50 ? 'PRIORITY' : 'RECOMMENDED',
+      reason: `${total} document(s) • ${formatVariety} format(s) — adaptive routing optimizes latency and cost based on question complexity.`,
     });
   }
 
@@ -143,8 +143,8 @@ function computeRecommendations(
   if (avgQ !== null && avgQ >= 0.65 && totalChunks >= 100) {
     recs.push({
       key: 'self_rag',
-      priority: 'RECOMMANDÉ',
-      reason: `Corpus de qualité (${(avgQ * 100).toFixed(0)} %) avec ${totalChunks} chunks — l'auto-évaluation maximise la fiabilité des réponses.`,
+      priority: 'RECOMMENDED',
+      reason: `High-quality corpus (${(avgQ * 100).toFixed(0)}%) with ${totalChunks} chunks — self-assessment maximizes answer reliability.`,
     });
   }
 
@@ -152,14 +152,14 @@ function computeRecommendations(
   if (totalChunks >= 500) {
     recs.push({
       key: 'agentic',
-      priority: totalChunks >= 2000 ? 'PRIORITAIRE' : 'RECOMMANDÉ',
-      reason: `${totalChunks} chunks indexés — la recherche multi-étapes ReAct couvre mieux les questions complexes nécessitant plusieurs sources.`,
+      priority: totalChunks >= 2000 ? 'PRIORITY' : 'RECOMMENDED',
+      reason: `${totalChunks} indexed chunks — multi-step ReAct search better covers complex questions requiring multiple sources.`,
     });
   }
 
-  // Dédoublonnage et tri
+  // Deduplication and sorting
   const seen = new Set<string>();
-  const order: Record<Priority, number> = { PRIORITAIRE: 0, RECOMMANDÉ: 1, OPTIONNEL: 2 };
+  const order: Record<Priority, number> = { PRIORITY: 0, RECOMMENDED: 1, OPTIONAL: 2 };
   return recs
     .filter(r => { if (seen.has(r.key)) return false; seen.add(r.key); return true; })
     .sort((a, b) => order[a.priority] - order[b.priority]);
@@ -168,12 +168,12 @@ function computeRecommendations(
 // ── Corpus profile label ──────────────────────────────────────────────────────
 
 function corpusLabel(total: number, totalChunks: number): string {
-  if (total === 0)       return 'Aucun document indexé';
-  if (total <= 5)        return 'Corpus minimal';
-  if (total <= 20)       return 'Corpus léger';
-  if (total <= 100)      return 'Corpus modéré';
-  if (totalChunks >= 2000) return 'Corpus large';
-  return 'Corpus substantiel';
+  if (total === 0)       return 'No documents indexed';
+  if (total <= 5)        return 'Minimal corpus';
+  if (total <= 20)       return 'Light corpus';
+  if (total <= 100)      return 'Moderate corpus';
+  if (totalChunks >= 2000) return 'Large corpus';
+  return 'Substantial corpus';
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -210,7 +210,7 @@ const RagAdvisor: FC<Props> = ({ open, onClose }) => {
 
   const recommendations = useMemo(() => computeRecommendations(stats ?? null, formats), [stats, formats]);
 
-  // Piège de focus + fermeture Échap + restauration du focus.
+  // Focus trap + Esc to close + focus restoration.
   const panelRef = useFocusTrap<HTMLDivElement>(open, onClose);
 
   const total       = stats?.total       as number ?? 0;
@@ -234,28 +234,28 @@ const RagAdvisor: FC<Props> = ({ open, onClose }) => {
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
-        aria-label="Conseiller RAG"
+        aria-label="RAG Advisor"
         className="fixed inset-y-0 right-0 w-full lg:w-[560px] bg-surface-container-high shadow-[-20px_0_40px_rgba(0,0,0,0.5)] z-50 animate-in slide-in-from-right duration-300 border-l border-outline-variant/20 flex flex-col outline-none">
 
         {/* Header */}
         <header className="p-6 border-b border-outline-variant/20 flex justify-between items-start shrink-0">
           <div>
             <p className="text-[9px] font-label uppercase tracking-widest text-outline mb-1">Intelligence Pipeline</p>
-            <h3 className="font-headline text-xl font-bold tracking-tight uppercase">Conseiller RAG</h3>
+            <h3 className="font-headline text-xl font-bold tracking-tight uppercase">RAG Advisor</h3>
             <p className="text-[10px] text-on-surface-variant mt-1">
-              Recommandations basées sur votre corpus actuel
+              Recommendations based on your current corpus
             </p>
           </div>
-          <button onClick={onClose} aria-label="Fermer le conseiller RAG" className="w-10 h-10 flex items-center justify-center hover:bg-surface-variant transition-colors shrink-0 mt-1">
+          <button onClick={onClose} aria-label="Close RAG Advisor" className="w-10 h-10 flex items-center justify-center hover:bg-surface-variant transition-colors shrink-0 mt-1">
             <span aria-hidden="true" className="material-symbols-outlined">close</span>
           </button>
         </header>
 
         <div className="flex-1 overflow-y-auto custom-scrollbar">
 
-          {/* ── Analyse du corpus ─────────────────────────────────────────── */}
+          {/* ── Corpus analysis ───────────────────────────────────────────── */}
           <section className="p-6 border-b border-outline-variant/10">
-            <p className="font-label text-[9px] uppercase tracking-widest text-outline mb-4">Analyse du corpus</p>
+            <p className="font-label text-[9px] uppercase tracking-widest text-outline mb-4">Corpus analysis</p>
 
             {loadingStats ? (
               <div className="space-y-3">
@@ -266,8 +266,8 @@ const RagAdvisor: FC<Props> = ({ open, onClose }) => {
               <div className="flex items-center gap-3 p-4 border border-outline-variant/20 bg-surface-container-lowest">
                 <span className="material-symbols-outlined text-outline text-2xl">inbox</span>
                 <div>
-                  <p className="font-headline font-bold text-sm">Aucun document indexé</p>
-                  <p className="text-[10px] text-on-surface-variant mt-0.5">Ingérez des documents via la page <strong>GED / Database</strong> pour obtenir des recommandations.</p>
+                  <p className="font-headline font-bold text-sm">No documents indexed</p>
+                  <p className="text-[10px] text-on-surface-variant mt-0.5">Ingest documents from the <strong>GED / Database</strong> page to get recommendations.</p>
                 </div>
               </div>
             ) : (
@@ -280,17 +280,17 @@ const RagAdvisor: FC<Props> = ({ open, onClose }) => {
                     <p className="text-[8px] text-on-surface-variant mt-0.5">{corpusLabel(total, totalChunks)}</p>
                   </div>
                   <div className="p-3 bg-surface-container-lowest border-l-2 border-secondary">
-                    <p className="text-[8px] uppercase tracking-widest text-outline mb-1">Qualité moy.</p>
+                    <p className="text-[8px] uppercase tracking-widest text-outline mb-1">Avg. quality</p>
                     <p className={`font-headline font-bold text-2xl ${avgQ !== null && avgQ < 0.5 ? 'text-error' : avgQ !== null && avgQ >= 0.7 ? 'text-primary' : ''}`}>
                       {avgQ !== null ? `${(avgQ * 100).toFixed(0)}%` : '—'}
                     </p>
                     <p className="text-[8px] text-on-surface-variant mt-0.5">
-                      {avgQ !== null && avgQ < 0.5 ? 'Index bruité' : avgQ !== null && avgQ >= 0.7 ? 'Bonne qualité' : 'Qualité moyenne'}
+                      {avgQ !== null && avgQ < 0.5 ? 'Noisy index' : avgQ !== null && avgQ >= 0.7 ? 'Good quality' : 'Average quality'}
                     </p>
                   </div>
                   <div className="p-3 bg-surface-container-lowest border-l-2 border-outline-variant">
                     <p className="text-[8px] uppercase tracking-widest text-outline mb-1">Chunks</p>
-                    <p className="font-headline font-bold text-2xl">{totalChunks.toLocaleString('fr-FR')}</p>
+                    <p className="font-headline font-bold text-2xl">{totalChunks.toLocaleString('en-US')}</p>
                     <p className="text-[8px] text-on-surface-variant mt-0.5">{formats.length} format(s)</p>
                   </div>
                 </div>
@@ -298,7 +298,7 @@ const RagAdvisor: FC<Props> = ({ open, onClose }) => {
                 {/* Quality histogram */}
                 {Object.keys(qualDist).length > 0 && (
                   <div className="mb-4">
-                    <p className="text-[8px] uppercase tracking-widest text-outline mb-2">Distribution de qualité</p>
+                    <p className="text-[8px] uppercase tracking-widest text-outline mb-2">Quality distribution</p>
                     <div className="flex gap-1 h-6">
                       {[
                         { key: '0.00-0.25', color: 'bg-error/60',            label: '0–25%' },
@@ -309,7 +309,7 @@ const RagAdvisor: FC<Props> = ({ open, onClose }) => {
                         const count = qualDist[key] ?? 0;
                         const pct = total > 0 ? (count / total) * 100 : 0;
                         return pct > 0 ? (
-                          <Tooltip key={key} content={`${label} : ${count} doc(s)`}>
+                          <Tooltip key={key} content={`${label}: ${count} doc(s)`}>
                             <div style={{ width: `${pct}%` }} className={`${color} h-full min-w-[4px] rounded-sm`} />
                           </Tooltip>
                         ) : null;
@@ -332,11 +332,11 @@ const RagAdvisor: FC<Props> = ({ open, onClose }) => {
             )}
           </section>
 
-          {/* ── Recommandations ───────────────────────────────────────────── */}
+          {/* ── Recommendations ───────────────────────────────────────────── */}
           {recommendations.length > 0 && (
             <section className="p-6 border-b border-outline-variant/10">
               <p className="font-label text-[9px] uppercase tracking-widest text-outline mb-4">
-                Recommandations pour ce corpus
+                Recommendations for this corpus
               </p>
               <div className="space-y-3">
                 {recommendations.map(rec => {
@@ -367,10 +367,10 @@ const RagAdvisor: FC<Props> = ({ open, onClose }) => {
             </section>
           )}
 
-          {/* ── Guide complet des stratégies ──────────────────────────────── */}
+          {/* ── Full strategy guide ───────────────────────────────────────── */}
           <section className="p-6">
             <p className="font-label text-[9px] uppercase tracking-widest text-outline mb-4">
-              Guide des stratégies
+              Strategy guide
             </p>
             <div className="space-y-4">
               {STRATEGIES.map(s => {
@@ -386,7 +386,7 @@ const RagAdvisor: FC<Props> = ({ open, onClose }) => {
                           <p className="font-headline font-bold text-sm tracking-tight">{s.name}</p>
                           {isRecommended && (
                             <span className="text-[7px] font-bold px-1 py-0.5 border border-primary/30 text-primary uppercase tracking-wider bg-primary/5">
-                              ✓ recommandé
+                              ✓ recommended
                             </span>
                           )}
                         </div>
@@ -404,14 +404,14 @@ const RagAdvisor: FC<Props> = ({ open, onClose }) => {
                         <div className="flex items-start gap-2">
                           <span className="material-symbols-outlined text-[13px] text-outline mt-0.5 shrink-0">speed</span>
                           <div>
-                            <p className="text-[8px] uppercase tracking-widest text-outline mb-0.5">Surcoût</p>
+                            <p className="text-[8px] uppercase tracking-widest text-outline mb-0.5">Overhead</p>
                             <p className="text-[10px] text-on-surface-variant">{s.tradeoff}</p>
                           </div>
                         </div>
                         <div className="flex items-start gap-2">
                           <span className="material-symbols-outlined text-[13px] text-outline mt-0.5 shrink-0">tips_and_updates</span>
                           <div>
-                            <p className="text-[8px] uppercase tracking-widest text-outline mb-0.5">Quand l'activer</p>
+                            <p className="text-[8px] uppercase tracking-widest text-outline mb-0.5">When to enable</p>
                             <p className="text-[10px] text-on-surface-variant">{s.bestFor}</p>
                           </div>
                         </div>
@@ -430,18 +430,18 @@ const RagAdvisor: FC<Props> = ({ open, onClose }) => {
               })}
             </div>
 
-            {/* Compatibilité matrix */}
+            {/* Compatibility matrix */}
             <div className="mt-6 p-4 bg-surface-container-lowest border border-outline-variant/10">
               <p className="text-[9px] font-bold uppercase tracking-widest text-outline mb-3">
-                Compatibilité — cumul des modules
+                Compatibility — combining modules
               </p>
               <div className="space-y-1.5 text-[9px] text-on-surface-variant">
                 {[
-                  { combo: 'Conversational + Adaptive', note: 'Optimal — reformule avant de router.' },
-                  { combo: 'Corrective + Reranker',     note: 'Recommandé — double filtrage de pertinence.' },
-                  { combo: 'Adaptive → Agentic',        note: 'Le classifier active l\'Agentic si AGENTIC.' },
-                  { combo: 'Self-RAG + Agentic',        note: 'Éviter — double boucle LLM, latence élevée.' },
-                  { combo: 'Tous activés',              note: 'Déconseillé en production — réservez aux tests.' },
+                  { combo: 'Conversational + Adaptive', note: 'Optimal — rewrites the query before routing.' },
+                  { combo: 'Corrective + Reranker',     note: 'Recommended — double relevance filtering.' },
+                  { combo: 'Adaptive → Agentic',        note: 'The classifier activates Agentic when AGENTIC.' },
+                  { combo: 'Self-RAG + Agentic',        note: 'Avoid — double LLM loop, high latency.' },
+                  { combo: 'All enabled',               note: 'Not recommended in production — reserve for testing.' },
                 ].map(({ combo, note }) => (
                   <div key={combo} className="flex items-start gap-2">
                     <span className="font-mono text-primary shrink-0">{combo}</span>

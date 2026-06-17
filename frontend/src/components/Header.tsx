@@ -27,7 +27,7 @@ const Header: FC<HeaderProps> = ({ onMenuClick }) => {
         <button
           type="button"
           onClick={onMenuClick}
-          aria-label="Ouvrir la navigation"
+          aria-label="Open navigation"
           className="md:hidden p-1.5 -ml-1.5 hover:bg-surface-variant/60 text-on-surface-variant hover:text-primary transition-colors"
         >
           <span aria-hidden="true" className="material-symbols-outlined text-[22px]">menu</span>

@@ -4,15 +4,15 @@ const Documentation: React.FC = () => {
   const [activeTab, setActiveTab] = useState('overview');
 
   const sections = [
-    { id: 'overview',          title: 'Vue d\'ensemble' },
-    { id: 'prerequisites',     title: 'Prérequis' },
+    { id: 'overview',          title: 'Overview' },
+    { id: 'prerequisites',     title: 'Prerequisites' },
     { id: 'pipeline',          title: 'Pipeline' },
-    { id: 'commenting',        title: 'Commentaires IA' },
-    { id: 'personalisation',   title: 'Personnalisation' },
+    { id: 'commenting',        title: 'AI Comments' },
+    { id: 'personalisation',   title: 'Personalization' },
     { id: 'interface',         title: 'Interface' },
     { id: 'benchmark',         title: 'Benchmark' },
-    { id: 'tips',              title: 'Conseils' },
-    { id: 'troubleshooting',   title: 'Dépannage' },
+    { id: 'tips',              title: 'Tips' },
+    { id: 'troubleshooting',   title: 'Troubleshooting' },
   ];
 
   return (
@@ -22,7 +22,7 @@ const Documentation: React.FC = () => {
         <div>
           <h1 className="text-4xl font-headline font-bold tracking-tight text-foreground">Documentation</h1>
           <p className="text-muted-foreground mt-2 max-w-2xl text-lg">
-            Maîtrisez Spectra — de l'ingestion de documents à la boucle de personnalisation continue et au fine-tuning par préférence.
+            Master Spectra — from document ingestion to the continuous personalization loop and preference-based fine-tuning.
           </p>
         </div>
         <div className="flex bg-secondary/30 p-1 rounded-lg border border-border/40 overflow-x-auto no-scrollbar flex-wrap gap-0.5">
@@ -62,11 +62,11 @@ const Documentation: React.FC = () => {
 const sectionOverview = () => (
   <div className="space-y-10 animate-in fade-in slide-in-from-right-4 duration-500">
     <div className="prose prose-invert max-w-none">
-      <h2 className="text-2xl font-headline font-bold text-primary mb-4">Bienvenue sur Spectra</h2>
+      <h2 className="text-2xl font-headline font-bold text-primary mb-4">Welcome to Spectra</h2>
       <p className="text-lg leading-relaxed text-foreground/80">
-        Spectra vous permet de créer votre propre assistant d'intelligence artificielle spécialisé dans{' '}
-        <strong>votre domaine métier</strong>, à partir de vos propres documents.
-        L'assistant fonctionne <strong>entièrement en local</strong> — aucune donnée ne quitte votre infrastructure.
+        Spectra lets you build your own artificial intelligence assistant specialized in{' '}
+        <strong>your business domain</strong>, from your own documents.
+        The assistant runs <strong>entirely on-premises</strong> — no data ever leaves your infrastructure.
       </p>
     </div>
 
@@ -79,8 +79,8 @@ const sectionOverview = () => (
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
           ),
-          title: 'Confidentialité Totale',
-          body: 'Vos documents ne quittent jamais votre infrastructure. Ingestion, RAG, fine-tuning — tout est 100 % local, sans dépendance cloud.',
+          title: 'Total Privacy',
+          body: 'Your documents never leave your infrastructure. Ingestion, RAG, fine-tuning — everything is 100% local, with no cloud dependency.',
           badge: 'Privacy',
         },
         {
@@ -89,8 +89,8 @@ const sectionOverview = () => (
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
           ),
-          title: 'RAG Multi-Stratégie',
-          body: 'Recherche hybride BM25 + vecteurs, re-ranking Cross-Encoder, boucle ReAct agentique, Multi-Query, Corrective RAG — 10+ modules configurables.',
+          title: 'Multi-Strategy RAG',
+          body: 'Hybrid BM25 + vector search, Cross-Encoder re-ranking, agentic ReAct loop, Multi-Query, Corrective RAG — 10+ configurable modules.',
           badge: 'Retrieval',
         },
         {
@@ -99,8 +99,8 @@ const sectionOverview = () => (
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
             </svg>
           ),
-          title: 'Fine-Tuning Intégré',
-          body: "QLoRA 4-bit (Unsloth), génération automatique de dataset SFT + DPO, streaming temps réel des métriques loss/epoch, export GGUF.",
+          title: 'Built-in Fine-Tuning',
+          body: "QLoRA 4-bit (Unsloth), automatic SFT + DPO dataset generation, real-time streaming of loss/epoch metrics, GGUF export.",
           badge: 'Training',
         },
         {
@@ -109,8 +109,8 @@ const sectionOverview = () => (
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
             </svg>
           ),
-          title: 'Personnalisation Continue',
-          body: 'Commentaires analytiques générés par RAG sur chaque document. Notez 👍/👎 pour constituer des paires DPO. Quand le seuil est atteint, le re-entraînement se déclenche automatiquement.',
+          title: 'Continuous Personalization',
+          body: 'Analytical comments generated via RAG on each document. Rate 👍/👎 to build DPO pairs. Once the threshold is reached, re-training triggers automatically.',
           badge: 'Auto-DPO',
         },
       ].map(p => (
@@ -131,21 +131,21 @@ const sectionOverview = () => (
 
     {/* Architecture flow — full cycle */}
     <div className="bg-card/50 border border-border/40 rounded-xl p-8 space-y-6">
-      <h3 className="text-lg font-headline font-bold text-foreground">Cycle complet de personnalisation</h3>
+      <h3 className="text-lg font-headline font-bold text-foreground">Complete personalization cycle</h3>
       <div className="overflow-x-auto">
         <div className="flex items-stretch gap-0 min-w-max">
           {[
             { num: '1', label: 'Ingest',      sub: 'PDF · DOCX · URL',     color: 'bg-primary', text: 'text-primary' },
             { arrow: true },
-            { num: '2', label: 'Generate',    sub: 'Q/A · résumés',        color: 'bg-primary', text: 'text-primary' },
+            { num: '2', label: 'Generate',    sub: 'Q/A · summaries',      color: 'bg-primary', text: 'text-primary' },
             { arrow: true },
-            { num: '3', label: 'Annotate',    sub: 'RAG → commentaires',   color: 'bg-secondary/80', text: 'text-secondary' },
+            { num: '3', label: 'Annotate',    sub: 'RAG → comments',       color: 'bg-secondary/80', text: 'text-secondary' },
             { arrow: true },
             { num: '4', label: 'Fine-Tune',   sub: 'QLoRA · GGUF',        color: 'bg-primary', text: 'text-primary' },
             { arrow: true },
-            { num: '5', label: 'Évaluation',  sub: 'LLM-as-judge',        color: 'bg-secondary/80', text: 'text-secondary' },
+            { num: '5', label: 'Evaluation',  sub: 'LLM-as-judge',        color: 'bg-secondary/80', text: 'text-secondary' },
             { arrow: true },
-            { num: '↺', label: 'Auto-trigger',sub: 'N approbations → FT', color: 'bg-primary', text: 'text-primary' },
+            { num: '↺', label: 'Auto-trigger',sub: 'N approvals → FT',    color: 'bg-primary', text: 'text-primary' },
           ].map((s: any, i) => s.arrow ? (
             <div key={i} className="flex items-center px-1 text-muted-foreground/40 font-mono text-lg">→</div>
           ) : (
@@ -160,9 +160,9 @@ const sectionOverview = () => (
       <div className="flex items-center gap-2 p-3 bg-primary/5 border border-primary/20 rounded-lg">
         <span className="material-symbols-outlined text-sm text-primary shrink-0">sync</span>
         <p className="text-xs text-foreground/70">
-          L'étape <strong>↺ Auto-trigger</strong> ferme la boucle : quand le nombre de commentaires approuvés atteint
-          le seuil configuré (<code className="font-mono bg-black/30 px-1">spectra.ged.auto-retrain-threshold</code>, défaut = 5),
-          un job de fine-tuning DPO est soumis <em>automatiquement</em> — sans intervention humaine.
+          The <strong>↺ Auto-trigger</strong> step closes the loop: when the number of approved comments reaches
+          the configured threshold (<code className="font-mono bg-black/30 px-1">spectra.ged.auto-retrain-threshold</code>, default = 5),
+          a DPO fine-tuning job is submitted <em>automatically</em> — with no human intervention.
         </p>
       </div>
     </div>
@@ -170,10 +170,10 @@ const sectionOverview = () => (
     {/* Stats highlight */}
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
       {[
-        { label: '10+',  sub: 'stratégies RAG',        color: 'text-primary' },
-        { label: 'Auto', sub: 're-train DPO intégré',  color: 'text-secondary' },
+        { label: '10+',  sub: 'RAG strategies',        color: 'text-primary' },
+        { label: 'Auto', sub: 'built-in DPO re-train', color: 'text-secondary' },
         { label: '100%', sub: 'local & open-source',   color: 'text-primary' },
-        { label: 'DPO',  sub: 'boucle humaine active', color: 'text-secondary' },
+        { label: 'DPO',  sub: 'active human loop',     color: 'text-secondary' },
       ].map(s => (
         <div key={s.label} className="bg-secondary/20 rounded-xl p-5 text-center border border-border/40">
           <p className={`text-3xl font-headline font-bold ${s.color}`}>{s.label}</p>
@@ -189,21 +189,21 @@ const sectionOverview = () => (
 const sectionPrerequisites = () => (
   <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-500">
     <div className="bg-card/50 border border-border/40 rounded-xl p-8">
-      <h2 className="text-2xl font-headline font-bold text-primary mb-6">Prérequis Système</h2>
+      <h2 className="text-2xl font-headline font-bold text-primary mb-6">System Prerequisites</h2>
       <div className="space-y-4">
-        <p className="text-foreground/80">Avant de commencer, assurez-vous d'avoir installé les composants suivants :</p>
+        <p className="text-foreground/80">Before getting started, make sure you have installed the following components:</p>
         <ul className="list-disc list-inside space-y-2 text-foreground/80 ml-4">
-          <li><span className="text-foreground font-bold">Docker Desktop</span> (v4.x+) — Démarré et opérationnel.</li>
-          <li><span className="text-foreground font-bold">llama-server</span> — Fourni automatiquement via Docker (llama-cpp-turboquant).</li>
+          <li><span className="text-foreground font-bold">Docker Desktop</span> (v4.x+) — Started and running.</li>
+          <li><span className="text-foreground font-bold">llama-server</span> — Provided automatically via Docker (llama-cpp-turboquant).</li>
         </ul>
 
         <div className="mt-8">
-          <h3 className="text-lg font-headline font-bold text-foreground mb-3 uppercase tracking-wider text-[10px]">Modèles GGUF Requis</h3>
+          <h3 className="text-lg font-headline font-bold text-foreground mb-3 uppercase tracking-wider text-[10px]">Required GGUF Models</h3>
           <div className="bg-black/40 p-4 rounded-lg font-mono text-sm border border-border/20">
-            <p className="text-green-400"># Embeddings — placez dans data/models/embed.gguf</p>
+            <p className="text-green-400"># Embeddings — place in data/models/embed.gguf</p>
             <p className="text-foreground mb-3">nomic-embed-text-v1.5.Q4_K_M.gguf</p>
-            <p className="text-green-400"># Chat — placez dans data/fine-tuning/merged/model.gguf</p>
-            <p className="text-foreground">phi-3-mini-4k-instruct-q4.gguf  (ou tout GGUF compatible)</p>
+            <p className="text-green-400"># Chat — place in data/fine-tuning/merged/model.gguf</p>
+            <p className="text-foreground">phi-3-mini-4k-instruct-q4.gguf  (or any compatible GGUF)</p>
           </div>
         </div>
 
@@ -212,8 +212,8 @@ const sectionPrerequisites = () => (
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
           </div>
           <p className="text-sm text-foreground/80 italic">
-            Pas de GPU requis pour démarrer. Spectra utilise l'inférence CPU par défaut.
-            Le fine-tuning avec poids réels est optionnel et nécessite une carte NVIDIA + CUDA.
+            No GPU required to get started. Spectra uses CPU inference by default.
+            Fine-tuning with real weights is optional and requires an NVIDIA card + CUDA.
           </p>
         </div>
       </div>
@@ -263,20 +263,20 @@ const sectionPipeline = () => (
           <h3 className="text-xl font-headline font-bold text-foreground">Ingestion</h3>
         </div>
         <p className="text-sm text-muted-foreground mb-4 leading-relaxed">
-          Chaque fichier déposé passe par une chaîne de traitement en 4 étapes avant d'être indexé :
+          Every uploaded file goes through a 4-step processing chain before being indexed:
         </p>
         {/* Mini pipeline diagram */}
         <div className="bg-black/30 rounded-lg p-3 font-mono text-xs space-y-1 mb-4">
-          <p className="text-green-400">Fichier (PDF/DOCX/JSON/URL)</p>
-          <p className="text-muted-foreground">  ↓ Extraction du texte brut</p>
-          <p className="text-muted-foreground">  ↓ Nettoyage (8 passes) : dédup · Unicode · stops</p>
-          <p className="text-muted-foreground">  ↓ Découpage : 512 tokens, 64 de recouvrement</p>
-          <p className="text-foreground">  ↓ Embedding → ChromaDB (vecteurs 768 dims)</p>
+          <p className="text-green-400">File (PDF/DOCX/JSON/URL)</p>
+          <p className="text-muted-foreground">  ↓ Raw text extraction</p>
+          <p className="text-muted-foreground">  ↓ Cleaning (8 passes): dedup · Unicode · stops</p>
+          <p className="text-muted-foreground">  ↓ Chunking: 512 tokens, 64 overlap</p>
+          <p className="text-foreground">  ↓ Embedding → ChromaDB (768-dim vectors)</p>
         </div>
         <ul className="space-y-1.5 text-xs text-foreground/80">
-          <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" /> Formats : PDF, DOCX, DOC, JSON, XML, TXT, HTML, Avro, ZIP, URL</li>
-          <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" /> Parsing layout-aware (tableaux préservés) via docparser optionnel</li>
-          <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" /> Gestion de cycle de vie GED : INGESTED → REVIEWED → TRAINED</li>
+          <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" /> Formats: PDF, DOCX, DOC, JSON, XML, TXT, HTML, Avro, ZIP, URL</li>
+          <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" /> Layout-aware parsing (tables preserved) via optional docparser</li>
+          <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" /> Document lifecycle management: INGESTED → REVIEWED → TRAINED</li>
         </ul>
       </div>
 
@@ -284,17 +284,17 @@ const sectionPipeline = () => (
       <div className="bg-card/50 border border-border/40 rounded-xl p-6">
         <div className="flex items-center gap-2 mb-4">
           <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center font-headline font-bold text-primary-foreground text-xs">2</div>
-          <h3 className="text-xl font-headline font-bold text-foreground">Génération Dataset</h3>
+          <h3 className="text-xl font-headline font-bold text-foreground">Dataset Generation</h3>
         </div>
         <p className="text-sm text-muted-foreground mb-4 leading-relaxed">
-          Pour chaque chunk, Spectra génère 3–4 paires d'entraînement couvrant différents types :
+          For each chunk, Spectra generates 3–4 training pairs covering different types:
         </p>
         <div className="grid grid-cols-2 gap-2 mb-4 text-xs">
           {[
-            { type: 'Q&A', desc: 'Question technique + réponse extraite', color: 'border-primary/30 text-primary' },
-            { type: 'Résumé', desc: 'Synthèse condensée du chunk', color: 'border-secondary/30 text-secondary' },
-            { type: 'Négatif', desc: 'Question hors-sujet → refus factuel', color: 'border-border/40 text-muted-foreground' },
-            { type: 'DPO pair', desc: 'Chosen (correct) + Rejected (LLM erroné)', color: 'border-border/40 text-muted-foreground' },
+            { type: 'Q&A', desc: 'Technical question + extracted answer', color: 'border-primary/30 text-primary' },
+            { type: 'Summary', desc: 'Condensed synthesis of the chunk', color: 'border-secondary/30 text-secondary' },
+            { type: 'Negative', desc: 'Off-topic question → factual refusal', color: 'border-border/40 text-muted-foreground' },
+            { type: 'DPO pair', desc: 'Chosen (correct) + Rejected (LLM erroneous)', color: 'border-border/40 text-muted-foreground' },
           ].map(t => (
             <div key={t.type} className={`rounded p-2 border ${t.color}`}>
               <p className={`font-bold text-[9px] uppercase tracking-widest ${t.color}`}>{t.type}</p>
@@ -302,28 +302,28 @@ const sectionPipeline = () => (
             </div>
           ))}
         </div>
-        <p className="text-xs text-muted-foreground">Score de confiance 0–1 assigné à chaque paire. Filtrage au seuil ≥ 0.8 avant fine-tuning.</p>
+        <p className="text-xs text-muted-foreground">A confidence score 0–1 is assigned to each pair. Filtered at the ≥ 0.8 threshold before fine-tuning.</p>
       </div>
 
       {/* Step 2c */}
       <div className="bg-card/50 border border-secondary/30 rounded-xl p-6">
         <div className="flex items-center gap-2 mb-4">
           <div className="w-7 h-7 rounded-full bg-secondary/80 flex items-center justify-center font-headline font-bold text-foreground text-xs">2c</div>
-          <h3 className="text-xl font-headline font-bold text-foreground">Annotations IA</h3>
-          <span className="text-[8px] font-bold uppercase tracking-widest border border-secondary/40 text-secondary px-2 py-0.5 rounded-full">Boucle DPO</span>
+          <h3 className="text-xl font-headline font-bold text-foreground">AI Annotations</h3>
+          <span className="text-[8px] font-bold uppercase tracking-widest border border-secondary/40 text-secondary px-2 py-0.5 rounded-full">DPO Loop</span>
         </div>
         <p className="text-sm text-muted-foreground mb-4 leading-relaxed">
-          Le LLM génère un commentaire analytique ancré dans les chunks réels du document (RAG). Vos notes 👍/👎 constituent des paires DPO.
+          The LLM generates an analytical comment grounded in the document's actual chunks (RAG). Your 👍/👎 ratings form DPO pairs.
         </p>
         <div className="bg-black/30 rounded-lg p-3 font-mono text-xs space-y-1 mb-3">
-          <p className="text-secondary">RAG (6 chunks) + focus utilisateur</p>
-          <p className="text-muted-foreground">  ↓ LLM génère commentaire (temp=0.4)</p>
-          <p className="text-muted-foreground">  ↓ Utilisateur : 👍 APPROVED / 👎 REJECTED</p>
-          <p className="text-foreground">  ↓ Export DPO : prompt / chosen / rejected</p>
+          <p className="text-secondary">RAG (6 chunks) + user focus</p>
+          <p className="text-muted-foreground">  ↓ LLM generates comment (temp=0.4)</p>
+          <p className="text-muted-foreground">  ↓ User: 👍 APPROVED / 👎 REJECTED</p>
+          <p className="text-foreground">  ↓ DPO export: prompt / chosen / rejected</p>
         </div>
         <ul className="space-y-1.5 text-xs text-foreground/80">
-          <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-secondary shrink-0" /> Garde Jaccard : paires trop similaires automatiquement rejetées</li>
-          <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-secondary shrink-0" /> Auto-trigger : N approbations → re-entraînement lancé automatiquement</li>
+          <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-secondary shrink-0" /> Jaccard guard: overly similar pairs automatically rejected</li>
+          <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-secondary shrink-0" /> Auto-trigger: N approvals → re-training launched automatically</li>
         </ul>
       </div>
 
@@ -334,13 +334,13 @@ const sectionPipeline = () => (
           <h3 className="text-xl font-headline font-bold text-foreground">Fine-Tuning</h3>
         </div>
         <p className="text-sm text-muted-foreground mb-4 leading-relaxed">
-          Entraîne le modèle de base avec QLoRA 4-bit via Unsloth. Trois recettes préconfigurées :
+          Trains the base model with 4-bit QLoRA via Unsloth. Three preconfigured recipes:
         </p>
         <div className="space-y-2 text-xs mb-4">
           {[
-            { name: 'cpu-rapide',      desc: 'rank 8, 1 époque — test rapide sur CPU',           color: 'text-muted-foreground' },
-            { name: 'gpu-qualite',     desc: 'rank 64, 3 époques — meilleure qualité (GPU)',      color: 'text-primary' },
-            { name: 'dpo-alignement',  desc: 'rank 32, DPO activé — intègre vos préférences',    color: 'text-secondary' },
+            { name: 'cpu-rapide',      desc: 'rank 8, 1 epoch — quick test on CPU',              color: 'text-muted-foreground' },
+            { name: 'gpu-qualite',     desc: 'rank 64, 3 epochs — best quality (GPU)',            color: 'text-primary' },
+            { name: 'dpo-alignement',  desc: 'rank 32, DPO enabled — integrates your preferences', color: 'text-secondary' },
           ].map(r => (
             <div key={r.name} className="flex items-start gap-2">
               <code className={`font-mono font-bold text-[9px] ${r.color} shrink-0`}>{r.name}</code>
@@ -348,42 +348,42 @@ const sectionPipeline = () => (
             </div>
           ))}
         </div>
-        <p className="text-xs text-muted-foreground">Sortie : <code className="font-mono bg-black/30 px-1">adapter.gguf</code> dans le répertoire de travail.</p>
+        <p className="text-xs text-muted-foreground">Output: <code className="font-mono bg-black/30 px-1">adapter.gguf</code> in the working directory.</p>
       </div>
 
       {/* Step 4 */}
       <div className="bg-card/50 border border-secondary/30 rounded-xl p-6">
         <div className="flex items-center gap-2 mb-4">
           <div className="w-7 h-7 rounded-full bg-secondary/80 flex items-center justify-center font-headline font-bold text-foreground text-xs">4</div>
-          <h3 className="text-xl font-headline font-bold text-foreground">Évaluation LLM-as-Judge</h3>
+          <h3 className="text-xl font-headline font-bold text-foreground">LLM-as-Judge Evaluation</h3>
         </div>
         <p className="text-sm text-muted-foreground mb-4 leading-relaxed">
-          Après fine-tuning, lancez une évaluation automatique. Le même LLM joue le rôle de juge et note les réponses de 1 à 10 :
+          After fine-tuning, run an automatic evaluation. The same LLM acts as judge and scores responses from 1 to 10:
         </p>
         <div className="bg-black/30 rounded-lg p-3 font-mono text-xs space-y-0.5 mb-3">
-          <p className="text-muted-foreground">5 % du dataset (min 5, max 50 paires)</p>
-          <p className="text-muted-foreground">  ↓ Modèle répond aux questions de test</p>
-          <p className="text-muted-foreground">  ↓ LLM-juge compare à la réponse de référence</p>
-          <p className="text-foreground">  ↓ Score 1–10 par critère : exactitude, complétude, clarté</p>
+          <p className="text-muted-foreground">5% of the dataset (min 5, max 50 pairs)</p>
+          <p className="text-muted-foreground">  ↓ Model answers the test questions</p>
+          <p className="text-muted-foreground">  ↓ LLM judge compares against the reference answer</p>
+          <p className="text-foreground">  ↓ Score 1–10 per criterion: accuracy, completeness, clarity</p>
         </div>
-        <p className="text-xs text-muted-foreground">Les scores par catégorie (qa, summary, classification) apparaissent dans le Dashboard &gt; Cycle de Personnalisation.</p>
+        <p className="text-xs text-muted-foreground">Per-category scores (qa, summary, classification) appear in Dashboard &gt; Personalization Cycle.</p>
       </div>
 
       {/* Step RAG */}
       <div className="bg-card/50 border border-border/40 rounded-xl p-6 md:col-span-2">
         <div className="flex items-center gap-2 mb-4">
           <div className="w-7 h-7 rounded-full bg-secondary/40 flex items-center justify-center font-headline font-bold text-foreground text-xs">5</div>
-          <h3 className="text-xl font-headline font-bold text-foreground">Interrogation RAG — Playground</h3>
+          <h3 className="text-xl font-headline font-bold text-foreground">RAG Querying — Playground</h3>
         </div>
         <p className="text-sm text-muted-foreground mb-4 leading-relaxed">
-          Posez vos questions techniques dans le Playground. Spectra sélectionne automatiquement la stratégie RAG optimale selon la complexité détectée.
+          Ask your technical questions in the Playground. Spectra automatically selects the optimal RAG strategy based on the detected complexity.
         </p>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {[
-            { label: 'Hybrid Search',   desc: 'BM25 + vecteurs → RRF fusion', icon: 'merge' },
-            { label: 'Re-ranking',      desc: 'Cross-Encoder 2 étapes', icon: 'sort' },
-            { label: 'Agentic ReAct',   desc: 'Boucle itérative multi-hop', icon: 'psychology' },
-            { label: 'Corrective RAG',  desc: 'Grading LLM des chunks', icon: 'fact_check' },
+            { label: 'Hybrid Search',   desc: 'BM25 + vectors → RRF fusion', icon: 'merge' },
+            { label: 'Re-ranking',      desc: '2-stage Cross-Encoder', icon: 'sort' },
+            { label: 'Agentic ReAct',   desc: 'Iterative multi-hop loop', icon: 'psychology' },
+            { label: 'Corrective RAG',  desc: 'LLM grading of chunks', icon: 'fact_check' },
           ].map(r => (
             <div key={r.label} className="bg-secondary/20 rounded-lg p-3">
               <span className="material-symbols-outlined text-sm text-primary">{r.icon}</span>
@@ -412,42 +412,42 @@ const sectionCommenting = () => (
           </svg>
         </div>
         <div>
-          <h2 className="text-2xl font-headline font-bold text-foreground">Commentaires IA — Boucle RAG + DPO</h2>
-          <p className="text-sm text-muted-foreground">Étape 2c du pipeline — disponible dans la page Database</p>
+          <h2 className="text-2xl font-headline font-bold text-foreground">AI Comments — RAG + DPO Loop</h2>
+          <p className="text-sm text-muted-foreground">Pipeline step 2c — available on the Database page</p>
         </div>
       </div>
       <p className="text-sm text-foreground/80 leading-relaxed">
-        Chaque document GED peut recevoir des commentaires analytiques générés automatiquement par le LLM,
-        ancrés dans le contenu réel du document via RAG. Vos évaluations (👍/👎) constituent des
-        paires DPO qui alimentent le prochain cycle de fine-tuning. Quand le seuil d'approbations configuré
-        est atteint, <strong>le re-entraînement se déclenche automatiquement</strong>.
+        Every GED document can receive analytical comments generated automatically by the LLM,
+        grounded in the document's actual content via RAG. Your ratings (👍/👎) form
+        DPO pairs that feed the next fine-tuning cycle. Once the configured approval threshold
+        is reached, <strong>re-training triggers automatically</strong>.
       </p>
     </div>
 
-    {/* Pourquoi c'est optimal */}
+    {/* Why it's optimal */}
     <div className="bg-card/50 border border-border/40 rounded-xl p-8 space-y-6">
-      <h3 className="text-lg font-headline font-bold text-foreground">Pourquoi RAG + Fine-tuning DPO est optimal</h3>
+      <h3 className="text-lg font-headline font-bold text-foreground">Why RAG + DPO Fine-tuning is optimal</h3>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {[
           {
             icon: 'search',
-            title: 'RAG seul',
-            body: 'Le commentaire est ancré dans le document réel — pas d\'hallucination. Mais le style et la terminologie restent génériques.',
-            badge: 'Factuel mais générique',
+            title: 'RAG alone',
+            body: 'The comment is grounded in the actual document — no hallucination. But the style and terminology remain generic.',
+            badge: 'Factual but generic',
             accent: 'border-outline-variant/40 text-muted-foreground',
           },
           {
             icon: 'model_training',
-            title: 'Fine-tuning seul',
-            body: 'Le modèle apprend le style de votre domaine. Mais sans contexte RAG, il peut inventer des détails absents du document.',
-            badge: 'Style adapté mais fragile',
+            title: 'Fine-tuning alone',
+            body: 'The model learns your domain\'s style. But without RAG context, it may invent details absent from the document.',
+            badge: 'Adapted style but fragile',
             accent: 'border-outline-variant/40 text-muted-foreground',
           },
           {
             icon: 'sync',
             title: 'RAG + DPO (optimal)',
-            body: 'RAG ancre chaque commentaire dans les chunks réels. DPO aligne le modèle sur vos préférences qualité. Chaque cycle améliore la pertinence.',
-            badge: 'Factuel ET aligné ✓',
+            body: 'RAG grounds each comment in the actual chunks. DPO aligns the model with your quality preferences. Each cycle improves relevance.',
+            badge: 'Factual AND aligned ✓',
             accent: 'border-primary/40 text-primary bg-primary/5',
           },
         ].map(c => (
@@ -465,17 +465,17 @@ const sectionCommenting = () => (
       </div>
     </div>
 
-    {/* Cycle complet */}
+    {/* Full lifecycle */}
     <div className="bg-card/50 border border-border/40 rounded-xl p-8 space-y-6">
-      <h3 className="text-lg font-headline font-bold text-foreground">Cycle de vie complet d'un commentaire IA</h3>
+      <h3 className="text-lg font-headline font-bold text-foreground">Full lifecycle of an AI comment</h3>
       <div className="space-y-3">
         {[
-          { n: '1', icon: 'chat_bubble',     label: 'Focus utilisateur',        desc: 'Fournissez un angle d\'analyse précis ("procédures d\'urgence") ou laissez vide pour un résumé général.', color: 'text-primary border-primary/30 bg-primary/5' },
-          { n: '2', icon: 'search',          label: 'Retrieval RAG',             desc: 'Spectra récupère les 6 passages les plus pertinents du document dans ChromaDB via recherche hybride.', color: 'text-primary border-primary/30 bg-primary/5' },
-          { n: '3', icon: 'memory',          label: 'Génération LLM (temp 0.4)', desc: 'Le LLM rédige un commentaire analytique factuel ancré dans ces passages. Température basse = moins d\'inventions.', color: 'text-secondary border-secondary/30 bg-secondary/5' },
-          { n: '4', icon: 'thumb_up',        label: 'Évaluation 👍/👎',         desc: 'Vous notez APPROVED ou REJECTED. Chaque note crée une préférence. La garde Jaccard filtre les paires trop similaires.', color: 'text-secondary border-secondary/30 bg-secondary/5' },
-          { n: '5', icon: 'download',        label: 'Export DPO',                desc: 'Cliquez "DPO↓" — Spectra exporte les paires (chosen, rejected) en JSONL. Les paires Jaccard > 0.85 sont exclues.', color: 'text-primary border-primary/30 bg-primary/5' },
-          { n: '↺', icon: 'auto_mode',       label: 'Re-entraînement auto',      desc: 'Au N-ième commentaire approuvé (seuil configurable), un job fine-tuning DPO se soumet automatiquement.', color: 'text-primary border-primary/30 bg-primary/5' },
+          { n: '1', icon: 'chat_bubble',     label: 'User focus',                desc: 'Provide a specific analysis angle ("emergency procedures") or leave blank for a general summary.', color: 'text-primary border-primary/30 bg-primary/5' },
+          { n: '2', icon: 'search',          label: 'RAG retrieval',             desc: 'Spectra retrieves the 6 most relevant passages of the document from ChromaDB via hybrid search.', color: 'text-primary border-primary/30 bg-primary/5' },
+          { n: '3', icon: 'memory',          label: 'LLM generation (temp 0.4)', desc: 'The LLM writes a factual analytical comment grounded in those passages. Low temperature = fewer fabrications.', color: 'text-secondary border-secondary/30 bg-secondary/5' },
+          { n: '4', icon: 'thumb_up',        label: 'Rating 👍/👎',             desc: 'You rate APPROVED or REJECTED. Each rating creates a preference. The Jaccard guard filters out overly similar pairs.', color: 'text-secondary border-secondary/30 bg-secondary/5' },
+          { n: '5', icon: 'download',        label: 'DPO export',                desc: 'Click "DPO↓" — Spectra exports the (chosen, rejected) pairs as JSONL. Pairs with Jaccard > 0.85 are excluded.', color: 'text-primary border-primary/30 bg-primary/5' },
+          { n: '↺', icon: 'auto_mode',       label: 'Auto re-training',          desc: 'At the Nth approved comment (configurable threshold), a DPO fine-tuning job is submitted automatically.', color: 'text-primary border-primary/30 bg-primary/5' },
         ].map(step => (
           <div key={step.n} className={`flex items-start gap-4 p-4 rounded-lg border ${step.color}`}>
             <div className={`w-7 h-7 rounded-full flex items-center justify-center font-headline font-bold text-xs shrink-0 border ${step.color}`}>
@@ -493,33 +493,33 @@ const sectionCommenting = () => (
       </div>
     </div>
 
-    {/* Mode d'emploi */}
+    {/* How to use */}
     <div className="bg-card/50 border border-border/40 rounded-xl p-8 space-y-5">
-      <h3 className="text-lg font-headline font-bold text-foreground">Mode d'emploi dans l'interface</h3>
+      <h3 className="text-lg font-headline font-bold text-foreground">How to use it in the interface</h3>
       <ol className="space-y-4 text-sm text-foreground/80">
         <li className="flex gap-3">
           <span className="w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">1</span>
-          <span>Cliquez sur <strong>Database</strong> dans le menu latéral, puis sur un document pour ouvrir sa fiche.</span>
+          <span>Click <strong>Database</strong> in the side menu, then a document to open its record.</span>
         </li>
         <li className="flex gap-3">
           <span className="w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">2</span>
-          <span>Dans la section <strong>Commentaires</strong>, choisissez l'onglet <strong>✦ IA</strong>.</span>
+          <span>In the <strong>Comments</strong> section, choose the <strong>✦ AI</strong> tab.</span>
         </li>
         <li className="flex gap-3">
           <span className="w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">3</span>
-          <span>Entrez un angle d'analyse (<em>ex. "procédures de sécurité"</em>) et cliquez <strong>✦ Générer via RAG</strong>.</span>
+          <span>Enter an analysis angle (<em>e.g. "safety procedures"</em>) and click <strong>✦ Generate via RAG</strong>.</span>
         </li>
         <li className="flex gap-3">
           <span className="w-6 h-6 rounded-full bg-secondary/30 text-secondary flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">4</span>
-          <span>Lisez le commentaire dans l'onglet <strong>Liste</strong> et cliquez <strong>👍</strong> ou <strong>👎</strong>. Dès que le seuil est atteint, la barre de progression dans le Dashboard se remplit.</span>
+          <span>Read the comment in the <strong>List</strong> tab and click <strong>👍</strong> or <strong>👎</strong>. As soon as the threshold is reached, the progress bar in the Dashboard fills up.</span>
         </li>
         <li className="flex gap-3">
           <span className="w-6 h-6 rounded-full bg-secondary/30 text-secondary flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">5</span>
-          <span>Répétez sur plusieurs documents. Le re-entraînement DPO se déclenche <strong>automatiquement</strong> au seuil (défaut : 5 approbations).</span>
+          <span>Repeat across several documents. DPO re-training triggers <strong>automatically</strong> at the threshold (default: 5 approvals).</span>
         </li>
         <li className="flex gap-3">
           <span className="w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">6</span>
-          <span>Suivez la progression dans <strong>Fine-Tuning</strong>, puis lancez une <strong>Évaluation</strong> pour mesurer le gain.</span>
+          <span>Track progress in <strong>Fine-Tuning</strong>, then run an <strong>Evaluation</strong> to measure the gain.</span>
         </li>
       </ol>
     </div>
