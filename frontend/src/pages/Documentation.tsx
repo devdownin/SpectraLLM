@@ -894,47 +894,47 @@ const sectionPersonalisation = () => (
 const sectionInterface = () => (
   <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-500">
     <div className="bg-card/50 border border-border/40 rounded-xl p-8">
-      <h2 className="text-2xl font-headline font-bold text-foreground mb-8">Navigation & Fonctionnalités</h2>
+      <h2 className="text-2xl font-headline font-bold text-foreground mb-8">Navigation & Features</h2>
 
       <div className="space-y-8">
         {[
           {
             key: 'Dashboard',
-            title: 'Surveillance en temps réel',
-            body: 'État de santé des services (LLM, ChromaDB), statistiques de la base de connaissances, section "Cycle de Personnalisation" (approuvés, DPO, FT, score d\'évaluation + barre de progression vers le prochain déclenchement auto).',
+            title: 'Real-time monitoring',
+            body: 'Service health (LLM, ChromaDB), knowledge base statistics, and a "Personalization Cycle" section (approvals, DPO, FT, evaluation score + a progress bar toward the next auto trigger).',
             icon: 'dashboard',
-            badge: 'Métriques auto',
+            badge: 'Auto metrics',
           },
           {
             key: 'Datasets',
-            title: 'Ingestion & Génération',
-            body: 'Zone de drop pour vos documents (PDF, DOCX, TXT, URL). Suivez l\'ingestion chunk par chunk. Lancez la génération du dataset Q/A avec le curseur Max Chunks.',
+            title: 'Ingestion & Generation',
+            body: 'A drop zone for your documents (PDF, DOCX, TXT, URL). Track ingestion chunk by chunk. Launch Q/A dataset generation with the Max Chunks slider.',
             icon: 'cloud_upload',
           },
           {
             key: 'Database',
-            title: 'GED + Commentaires IA',
-            body: 'Fiche complète de chaque document : cycle de vie, tags, audit trail. Section Commentaires avec 3 onglets : Liste / Manuel / ✦ IA — génération RAG, évaluation DPO, export. Le compteur d\'approbations alimente la barre de progression du Dashboard.',
+            title: 'DMS + AI Comments',
+            body: 'A complete record for every document: lifecycle, tags, audit trail. A Comments section with 3 tabs: List / Manual / ✦ AI — RAG generation, DPO rating, export. The approval counter feeds the Dashboard progress bar.',
             icon: 'analytics',
-            badge: 'Commentaires IA',
+            badge: 'AI Comments',
           },
           {
             key: 'Fine-Tuning',
-            title: 'Entraînement & Logs',
-            body: 'Lancez des jobs manuels (recettes CPU/GPU/DPO) ou consultez les jobs auto-déclenchés. Visualisez la télémétrie en direct (loss, epoch). Les jobs auto-DPO apparaissent avec le préfixe "auto-dpo-".',
+            title: 'Training & Logs',
+            body: 'Launch manual jobs (CPU/GPU/DPO recipes) or review auto-triggered jobs. View live telemetry (loss, epoch). Auto-DPO jobs appear with the "auto-dpo-" prefix.',
             icon: 'history',
-            badge: 'Jobs auto-DPO',
+            badge: 'Auto-DPO jobs',
           },
           {
             key: 'Playground',
-            title: 'Laboratoire de Tests',
-            body: 'Interrogez vos modèles avec le RAG complet. Activez/désactivez la Knowledge Base pour comparer avec et sans contexte documentaire. Historique de conversation multi-tour.',
+            title: 'Testing Lab',
+            body: 'Query your models with the full RAG pipeline. Toggle the Knowledge Base on/off to compare with and without document context. Multi-turn conversation history.',
             icon: 'chat_bubble',
           },
           {
             key: 'Comparison',
-            title: 'Benchmark de Modèles',
-            body: 'Comparez côte-à-côte deux modèles sur une même question. Utilisez cette page pour mesurer le gain de qualité après un cycle auto-DPO (score LLM-as-judge avant/après).',
+            title: 'Model Benchmark',
+            body: 'Compare two models side by side on the same question. Use this page to measure the quality gain after an auto-DPO cycle (LLM-as-judge score before/after).',
             icon: 'compare_arrows',
           },
         ].map(item => (
@@ -964,34 +964,34 @@ const sectionInterface = () => (
 const sectionBenchmark = () => (
   <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-500">
     <div className="bg-card/50 border border-border/40 rounded-xl p-8">
-      <h2 className="text-2xl font-headline font-bold text-primary mb-2">Benchmark turboquant</h2>
+      <h2 className="text-2xl font-headline font-bold text-primary mb-2">turboquant Benchmark</h2>
       <p className="text-sm text-muted-foreground mb-1">
-        Résultats mesurés le <strong>2 avril 2026</strong> — matériel : CPU 4 threads (conteneur Docker, WSL2), pas de GPU.
+        Results measured on <strong>April 2, 2026</strong> — hardware: 4-thread CPU (Docker container, WSL2), no GPU.
       </p>
       <p className="text-sm text-muted-foreground">
-        Fork : <code className="bg-black/40 px-1.5 py-0.5 rounded text-primary">TheTom/llama-cpp-turboquant</code> build <code className="bg-black/40 px-1.5 py-0.5 rounded text-primary">9c600bc</code>
+        Fork: <code className="bg-black/40 px-1.5 py-0.5 rounded text-primary">TheTom/llama-cpp-turboquant</code> build <code className="bg-black/40 px-1.5 py-0.5 rounded text-primary">9c600bc</code>
       </p>
     </div>
 
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
       <div className="bg-secondary/20 border border-border/40 rounded-xl p-6">
-        <h3 className="text-sm font-headline font-bold uppercase tracking-widest text-primary mb-3">Modèle Chat</h3>
+        <h3 className="text-sm font-headline font-bold uppercase tracking-widest text-primary mb-3">Chat Model</h3>
         <p className="text-foreground font-bold">Phi-3.5-mini-instruct Q4_K_M</p>
-        <p className="text-xs text-muted-foreground mt-1">2.23 GiB · 3.82 B paramètres · KV cache q8_0</p>
+        <p className="text-xs text-muted-foreground mt-1">2.23 GiB · 3.82 B parameters · KV cache q8_0</p>
       </div>
       <div className="bg-secondary/20 border border-border/40 rounded-xl p-6">
-        <h3 className="text-sm font-headline font-bold uppercase tracking-widest text-primary mb-3">Modèle Embedding</h3>
+        <h3 className="text-sm font-headline font-bold uppercase tracking-widest text-primary mb-3">Embedding Model</h3>
         <p className="text-foreground font-bold">nomic-embed-text-v1.5 Q4_K_M</p>
-        <p className="text-xs text-muted-foreground mt-1">79.5 MiB · 136.7 M paramètres · 768 dimensions</p>
+        <p className="text-xs text-muted-foreground mt-1">79.5 MiB · 136.7 M parameters · 768 dimensions</p>
       </div>
     </div>
 
     <div className="bg-card/50 border border-border/40 rounded-xl p-8">
-      <h3 className="text-lg font-headline font-bold text-foreground mb-1">1. Débit natif (llama-bench)</h3>
-      <p className="text-xs text-muted-foreground mb-6">3 répétitions par test · PP = prompt prefill · TG = text generation</p>
+      <h3 className="text-lg font-headline font-bold text-foreground mb-1">1. Native throughput (llama-bench)</h3>
+      <p className="text-xs text-muted-foreground mb-6">3 repetitions per test · PP = prompt prefill · TG = text generation</p>
       <div className="space-y-6">
         <div>
-          <p className="text-xs font-headline uppercase tracking-widest text-muted-foreground mb-3">Modèle chat — 4 threads CPU</p>
+          <p className="text-xs font-headline uppercase tracking-widest text-muted-foreground mb-3">Chat model — 4 CPU threads</p>
           <div className="overflow-x-auto">
             <table className="w-full text-sm font-mono border-collapse">
               <thead>
@@ -1020,7 +1020,7 @@ const sectionBenchmark = () => (
           </div>
         </div>
         <div>
-          <p className="text-xs font-headline uppercase tracking-widest text-muted-foreground mb-3">Modèle embedding — 2 threads CPU</p>
+          <p className="text-xs font-headline uppercase tracking-widest text-muted-foreground mb-3">Embedding model — 2 CPU threads</p>
           <div className="overflow-x-auto">
             <table className="w-full text-sm font-mono border-collapse">
               <thead>
@@ -1049,13 +1049,13 @@ const sectionBenchmark = () => (
     </div>
 
     <div className="bg-card/50 border border-border/40 rounded-xl p-8">
-      <h3 className="text-lg font-headline font-bold text-foreground mb-1">2. Latence API Spectra</h3>
-      <p className="text-xs text-muted-foreground mb-6">Mesures bout-en-bout via HTTP · inclut sérialisation, tokenisation et overhead Docker réseau</p>
+      <h3 className="text-lg font-headline font-bold text-foreground mb-1">2. Spectra API latency</h3>
+      <p className="text-xs text-muted-foreground mb-6">End-to-end measurements via HTTP · includes serialization, tokenization, and Docker network overhead</p>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-secondary/20 rounded-xl p-5">
           <h4 className="text-sm font-headline font-bold text-foreground mb-3">Embedding (10 × ~864 tokens)</h4>
           <div className="space-y-2 text-sm font-mono">
-            {[{ label: 'P50 latence', value: '4 239 ms' }, { label: 'P95 latence', value: '4 379 ms' }, { label: 'Succès', value: '10 / 10' }].map(r => (
+            {[{ label: 'P50 latency', value: '4 239 ms' }, { label: 'P95 latency', value: '4 379 ms' }, { label: 'Success', value: '10 / 10' }].map(r => (
               <div key={r.label} className="flex justify-between">
                 <span className="text-muted-foreground">{r.label}</span>
                 <span className="text-foreground font-bold">{r.value}</span>
@@ -1064,20 +1064,20 @@ const sectionBenchmark = () => (
           </div>
         </div>
         <div className="bg-secondary/20 rounded-xl p-5">
-          <h4 className="text-sm font-headline font-bold text-foreground mb-3">LLM pure (3 générations)</h4>
+          <h4 className="text-sm font-headline font-bold text-foreground mb-3">LLM only (3 generations)</h4>
           <div className="space-y-2 text-sm font-mono">
-            {[{ label: 'P50 latence', value: '10 153 ms' }, { label: 'P95 latence', value: '23 561 ms' }, { label: 'Succès', value: '3 / 3' }].map(r => (
+            {[{ label: 'P50 latency', value: '10 153 ms' }, { label: 'P95 latency', value: '23 561 ms' }, { label: 'Success', value: '3 / 3' }].map(r => (
               <div key={r.label} className="flex justify-between">
                 <span className="text-muted-foreground">{r.label}</span>
                 <span className="text-foreground font-bold">{r.value}</span>
               </div>
             ))}
           </div>
-          <p className="text-xs text-muted-foreground mt-3 italic">Variabilité P50→P95 élevée : augmenter à 10 itérations pour une mesure stable.</p>
+          <p className="text-xs text-muted-foreground mt-3 italic">High P50→P95 variability: increase to 10 iterations for a stable measurement.</p>
         </div>
         <div className="bg-secondary/20 rounded-xl p-5 md:col-span-2">
-          <h4 className="text-sm font-headline font-bold text-foreground mb-3">RAG bout-en-bout (estimé)</h4>
-          <p className="text-xs text-muted-foreground mb-3">Corpus vide lors du run — estimation par composant</p>
+          <h4 className="text-sm font-headline font-bold text-foreground mb-3">End-to-end RAG (estimated)</h4>
+          <p className="text-xs text-muted-foreground mb-3">Empty corpus during the run — per-component estimate</p>
           <div className="flex items-center gap-3 text-sm font-mono flex-wrap">
             <span className="bg-primary/10 px-3 py-1.5 rounded-lg text-primary">~4.2 s</span>
             <span className="text-muted-foreground">embed</span>
@@ -1095,12 +1095,12 @@ const sectionBenchmark = () => (
     </div>
 
     <div className="bg-card/50 border border-border/40 rounded-xl p-8">
-      <h3 className="text-lg font-headline font-bold text-foreground mb-6">3. Résumé & apport de turboquant</h3>
+      <h3 className="text-lg font-headline font-bold text-foreground mb-6">3. Summary & turboquant gains</h3>
       <div className="overflow-x-auto mb-6">
         <table className="w-full text-sm border-collapse">
           <thead>
             <tr className="text-xs text-muted-foreground border-b border-border/40">
-              <th className="text-left py-2 pr-4">Métrique</th>
+              <th className="text-left py-2 pr-4">Metric</th>
               <th className="text-right py-2 pr-4">turboquant</th>
               <th className="text-right py-2 pr-4">llama.cpp std</th>
               <th className="text-right py-2">Gain</th>
@@ -1111,9 +1111,9 @@ const sectionBenchmark = () => (
               { metric: 'TG chat (t/s)',         tq: '12.3',       std: '7–9',       gain: '+37–76 %', ok: true },
               { metric: 'PP chat (t/s)',          tq: '33–34',      std: '25–30',     gain: '+10–36 %', ok: true },
               { metric: 'PP embed pp128 (t/s)',   tq: '418',        std: '300–360',   gain: '+16–39 %', ok: true },
-              { metric: 'Embed latence P50',      tq: '4 239 ms',   std: '—',         gain: '(baseline)', ok: null },
-              { metric: 'LLM latence P50',        tq: '10 153 ms',  std: '—',         gain: '(baseline)', ok: null },
-              { metric: 'RAG latence P50 (est)',  tq: '~14 000 ms', std: '—',         gain: '✅ ≤ 60 000 ms', ok: true },
+              { metric: 'Embed latency P50',      tq: '4 239 ms',   std: '—',         gain: '(baseline)', ok: null },
+              { metric: 'LLM latency P50',        tq: '10 153 ms',  std: '—',         gain: '(baseline)', ok: null },
+              { metric: 'RAG latency P50 (est)',  tq: '~14 000 ms', std: '—',         gain: '✅ ≤ 60 000 ms', ok: true },
             ].map(r => (
               <tr key={r.metric} className="hover:bg-white/5 transition-colors">
                 <td className="py-2.5 pr-4 text-foreground/80">{r.metric}</td>
@@ -1126,16 +1126,16 @@ const sectionBenchmark = () => (
         </table>
       </div>
       <div className="p-4 bg-yellow-500/5 border border-yellow-500/20 rounded-lg text-xs text-muted-foreground">
-        <strong className="text-yellow-400/80">Note méthodologique :</strong> les baselines llama.cpp standard sont issues de benchmarks communautaires (même modèle, CPU similaire, 4 threads).
+        <strong className="text-yellow-400/80">Methodology note:</strong> the standard llama.cpp baselines come from community benchmarks (same model, similar CPU, 4 threads).
       </div>
     </div>
 
     <div className="bg-card/50 border border-border/40 rounded-xl p-8">
-      <h3 className="text-lg font-headline font-bold text-foreground mb-4">4. Relancer les benchmarks</h3>
+      <h3 className="text-lg font-headline font-bold text-foreground mb-4">4. Re-run the benchmarks</h3>
       <div className="bg-black/40 p-4 rounded-lg font-mono text-sm border border-border/20 space-y-1">
-        <p className="text-green-400"># Campagne complète</p>
+        <p className="text-green-400"># Full campaign</p>
         <p className="text-foreground mb-3">./scripts/benchmark.sh</p>
-        <p className="text-green-400"># Endpoints disponibles</p>
+        <p className="text-green-400"># Available endpoints</p>
         <p className="text-foreground">GET /api/benchmark/embedding?iterations=10</p>
         <p className="text-foreground">GET /api/benchmark/llm?iterations=3</p>
         <p className="text-foreground">GET /api/benchmark/rag?iterations=5&maxChunks=2</p>
@@ -1151,36 +1151,36 @@ const sectionTips = () => (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
       {[
         {
-          title: 'Qualité des Documents',
-          body: 'Privilégiez les PDF générés numériquement (non scannés). Les documents structurés avec des titres clairs produisent de meilleurs chunks sémantiques. Incluez vos lexiques métier.',
+          title: 'Document Quality',
+          body: 'Prefer digitally generated PDFs (not scanned). Structured documents with clear headings produce better semantic chunks. Include your domain glossaries.',
         },
         {
-          title: 'Volume Recommandé',
-          body: 'Visez 200–300 pages minimum pour un dataset de fine-tuning robuste. Base plus petite ? Baissez le seuil de confiance à 0.7.',
+          title: 'Recommended Volume',
+          body: 'Aim for at least 200–300 pages for a robust fine-tuning dataset. Smaller knowledge base? Lower the confidence threshold to 0.7.',
         },
         {
-          title: 'Tests Rapides',
-          body: 'Utilisez "Max Chunks = 10" lors de votre première génération. Vous validez la qualité des paires Q/A en quelques minutes avant de lancer le traitement complet.',
+          title: 'Quick Tests',
+          body: 'Use "Max Chunks = 10" for your first generation. You can validate Q/A pair quality in a few minutes before launching the full run.',
         },
         {
           title: 'RAG vs Fine-Tuning',
-          body: 'Le RAG est idéal pour trouver des faits précis dans vos documents. Le Fine-Tuning fait adopter le style et le raisonnement de votre domaine même sur des questions générales.',
+          body: 'RAG is ideal for finding precise facts in your documents. Fine-Tuning makes the model adopt your domain\'s style and reasoning, even on general questions.',
         },
         {
-          title: 'Seuil auto-retraining',
-          body: 'Le défaut (5 approbations) est volontairement bas pour valider la boucle rapidement. En production, augmentez à 20–50 pour accumuler davantage de signal avant chaque cycle.',
+          title: 'Auto-retraining Threshold',
+          body: 'The default (5 approvals) is intentionally low to validate the loop quickly. In production, raise it to 20–50 to accumulate more signal before each cycle.',
         },
         {
-          title: 'Commentaires IA — Focus',
-          body: 'Des angles précis ("procédures d\'urgence", "obligations contractuelles") produisent de meilleurs commentaires. Variez les angles sur un même document pour obtenir des perspectives complémentaires.',
+          title: 'AI Comments — Focus',
+          body: 'Precise angles ("emergency procedures", "contractual obligations") produce better comments. Vary the angles on the same document to gather complementary perspectives.',
         },
         {
-          title: 'Combiner les datasets DPO',
-          body: 'Concaténez dpo_pairs.jsonl (généré auto) et comments_dpo.jsonl (commentaires notés) avant le fine-tuning. Les deux sources sont au même format JSONL et se complètent.',
+          title: 'Combining DPO Datasets',
+          body: 'Concatenate dpo_pairs.jsonl (auto-generated) and comments_dpo.jsonl (rated comments) before fine-tuning. Both sources share the same JSONL format and complement each other.',
         },
         {
-          title: 'Cycles d\'amélioration',
-          body: 'Après chaque fine-tuning DPO, lancez une Évaluation (LLM-as-judge) pour quantifier le gain. Comparez les scores avant/après dans la page Comparison et le Dashboard.',
+          title: 'Improvement Cycles',
+          body: 'After each DPO fine-tuning, run an Evaluation (LLM-as-judge) to quantify the gain. Compare the before/after scores in the Comparison page and the Dashboard.',
         },
       ].map(tip => (
         <div key={tip.title} className="space-y-3">
@@ -1200,42 +1200,42 @@ const sectionTroubleshooting = () => (
       <div className="divide-y divide-border/40">
         {[
           {
-            q: "L'ingestion produit 0 chunks ?",
-            a: "Vérifiez que le texte de votre PDF est sélectionnable. S'il s'agit d'une image scannée, Spectra ne peut pas extraire le contenu sans OCR préalable.",
+            q: 'Ingestion produces 0 chunks?',
+            a: "Check that your PDF's text is selectable. If it's a scanned image, Spectra cannot extract the content without OCR first.",
           },
           {
-            q: 'Génération de dataset bloquée ?',
-            a: "Sur CPU, la génération est lente (2–5 min par chunk). Vérifiez les logs pour s'assurer que le modèle répond.",
+            q: 'Dataset generation stuck?',
+            a: 'On CPU, generation is slow (2–5 min per chunk). Check the logs to make sure the model is responding.',
             code: 'docker compose logs spectra-api',
           },
           {
-            q: "Erreur 400 lors du Fine-Tuning ?",
-            a: 'Vérifiez que le fichier GGUF de base est présent et que llama-cpp-chat est démarré et healthy.',
+            q: '400 error during Fine-Tuning?',
+            a: 'Check that the base GGUF file is present and that llama-cpp-chat is started and healthy.',
             code: 'data/fine-tuning/merged/model.gguf',
           },
           {
-            q: "Le job auto-DPO ne se déclenche pas ?",
-            a: "Vérifiez que vous avez bien noté des commentaires IA (pas humains) avec 👍 APPROVED. Le seuil par défaut est 5 approbations. Consultez les logs pour voir si le déclenchement a eu lieu.",
+            q: 'Auto-DPO job not triggering?',
+            a: 'Check that you have actually rated AI comments (not human ones) with 👍 APPROVED. The default threshold is 5 approvals. Check the logs to see whether the trigger fired.',
             code: 'docker compose logs spectra-api | grep "re-entraînement"',
           },
           {
-            q: "Avertissement 'ALERTE REGISTRE/SERVEUR' dans les logs ?",
-            a: "Le modèle activé dans le registre (registry.json) ne correspond pas à ce que llama-server sert. Relancez llama-server avec le bon fichier GGUF, ou activez le modèle correct dans Model Hub.",
+            q: "'REGISTRY/SERVER ALERT' warning in the logs?",
+            a: 'The model activated in the registry (registry.json) does not match what llama-server is serving. Restart llama-server with the correct GGUF file, or activate the correct model in Model Hub.',
             code: 'curl http://localhost:8081/v1/models | jq \'.data[].id\'',
           },
           {
-            q: "Export DPO retourne 0 paire ?",
-            a: "Vous devez avoir au moins un commentaire IA noté APPROVED. Si vous en avez mais que l'export retourne 0, c'est que la garde Jaccard a filtré toutes les paires (chosen ≈ rejected). Générez de nouveaux commentaires avec des angles différents.",
+            q: 'DPO export returns 0 pairs?',
+            a: 'You must have at least one AI comment rated APPROVED. If you do but the export still returns 0, the Jaccard guard has filtered out every pair (chosen ≈ rejected). Generate new comments with different angles.',
           },
           {
-            q: "Score d'évaluation faible après DPO ?",
-            a: "Vérifiez la cohérence de vos approbations (approuver des commentaires vagues peut dégrader le modèle). Augmentez le volume de paires DPO (20+ paires) avant de relancer.",
+            q: 'Low evaluation score after DPO?',
+            a: 'Check the consistency of your approvals (approving vague comments can degrade the model). Increase the volume of DPO pairs (20+ pairs) before re-running.',
           },
           {
-            q: "Réinitialisation d'urgence",
-            a: "Si la base vectorielle est corrompue : supprimez les volumes Docker puis relancez.",
+            q: 'Emergency reset',
+            a: 'If the vector store is corrupted: delete the Docker volumes, then restart.',
             code: 'docker compose down -v && docker compose up -d',
-            warning: 'Attention : cela efface toutes les données ingérées.',
+            warning: 'Warning: this erases all ingested data.',
           },
         ].map((item, i) => (
           <div key={i} className={`p-6 ${item.warning ? 'bg-primary/5' : ''}`}>
