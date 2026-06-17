@@ -1,5 +1,6 @@
 package fr.spectra.service;
 
+import fr.spectra.config.SpectraProperties;
 import fr.spectra.service.extraction.DocumentExtractorFactory;
 import fr.spectra.service.extraction.JsonExtractor;
 import fr.spectra.service.extraction.XmlExtractor;
@@ -53,10 +54,15 @@ class ZipIngestionExecutorTest {
 
         FtsService ftsService = mock(FtsService.class);
 
+        SpectraProperties.PipelineProperties pipeline = new SpectraProperties.PipelineProperties(
+                512, 64, 10, 30, 120, 4);
+        SpectraProperties props = mock(SpectraProperties.class);
+        when(props.pipeline()).thenReturn(pipeline);
+
         executor = new IngestionTaskExecutor(
                 factory,
                 new TextCleanerService(),
-                new ChunkingService(),
+                new ChunkingService(props),
                 embeddingService,
                 chromaDb,
                 ftsService,

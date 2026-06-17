@@ -90,6 +90,8 @@ public class IngestionService {
         this.repository = repository;
         this.gedService = gedService;
         this.embeddingBatchSize = properties.pipeline().embeddingBatchSize();
+        this.maxZipEntries = properties.ingestion() != null ? properties.ingestion().effectiveMaxZipEntries() : 10_000;
+        this.maxEntryBytes = properties.ingestion() != null ? properties.ingestion().effectiveMaxEntryBytes() : 200L * 1024 * 1024;
         this.defaultCollection = properties.chromadb() != null
                 ? properties.chromadb().effectiveCollection()
                 : DEFAULT_COLLECTION;
@@ -374,8 +376,8 @@ public class IngestionService {
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
                 if (entry.isDirectory()) continue;
-                if (++entryCount > MAX_ZIP_ENTRIES) {
-                    log.warn("Nombre max d'entrées ZIP ({}) atteint — archive tronquée: {}", MAX_ZIP_ENTRIES, archiveName);
+                if (++entryCount > maxZipEntries) {
+                    log.warn("Nombre max d'entrées ZIP ({}) atteint — archive tronquée: {}", maxZipEntries, archiveName);
                     break;
                 }
                 String entryName = entry.getName();

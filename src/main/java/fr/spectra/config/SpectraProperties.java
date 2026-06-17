@@ -73,9 +73,19 @@ public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, 
     }
 
     /** Ingestion pipeline configuration (URL fetcher, browserless, etc.). */
-    public record IngestionProperties(String browserlessUrl) {
+    public record IngestionProperties(
+            String browserlessUrl,
+            Integer maxZipEntries,
+            Long maxEntryBytes
+    ) {
         public String effectiveBrowserlessUrl() {
             return browserlessUrl != null ? browserlessUrl : "http://browserless:3000";
+        }
+        public int effectiveMaxZipEntries() {
+            return maxZipEntries != null ? maxZipEntries : 10_000;
+        }
+        public long effectiveMaxEntryBytes() {
+            return maxEntryBytes != null ? maxEntryBytes : 200L * 1024 * 1024;
         }
     }
 

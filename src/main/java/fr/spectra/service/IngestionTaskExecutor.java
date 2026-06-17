@@ -1,5 +1,6 @@
 package fr.spectra.service;
 
+import fr.spectra.config.SpectraProperties;
 import fr.spectra.dto.IngestionTask;
 import fr.spectra.model.ExtractedDocument;
 import fr.spectra.model.TextChunk;
@@ -156,7 +157,12 @@ public class IngestionTaskExecutor {
                 if (parserHolder[0] != null) lastParserUsed = parserHolder[0];
                 totalLayoutAwareChunks += layoutHolder[0];
                 totalChunks += chunks;
-                if (chunks > 0) { chunksIngested.increment(chunks); filesIngested.increment(); }
+                if (chunks > 0) {
+                    chunksIngested.increment(chunks);
+                    filesIngested.increment();
+                    final int currentTotal = totalChunks;
+                    tasks.computeIfPresent(taskId, (k, t) -> t.withChunks(currentTotal));
+                }
                 if (chunks > 0 && onIngested != null) {
                     String hash = tempFileToHash != null ? tempFileToHash.get(tempFiles.get(i)) : null;
                     onIngested.onIngested(hash, name, chunks);
@@ -254,8 +260,8 @@ public class IngestionTaskExecutor {
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
                 if (entry.isDirectory()) continue;
-                if (++entryCount > MAX_ZIP_ENTRIES) {
-                    log.warn("Nombre max d'entrées ZIP ({}) atteint — archive tronquée: {}", MAX_ZIP_ENTRIES, archiveName);
+                if (++entryCount > maxZipEntries) {
+                    log.warn("Nombre max d'entrées ZIP ({}) atteint — archive tronquée: {}", maxZipEntries, archiveName);
                     break;
                 }
                 String entryName = entry.getName();
