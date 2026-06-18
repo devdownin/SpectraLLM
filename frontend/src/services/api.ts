@@ -149,6 +149,9 @@ export const queryApi = {
   query: (question: string, model?: string, useRag = true) =>
     api.post('/query', { question, model, useRag }),
 
+  feedback: (question: string, answer: string, rating: 'UP' | 'DOWN') =>
+    api.post('/query/feedback', { question, answer, rating }),
+
   /**
    * Streaming RAG query via POST SSE (EventSource ne supporte pas POST).
    * Yields StreamEvent objects: sources → token* → done | error.
