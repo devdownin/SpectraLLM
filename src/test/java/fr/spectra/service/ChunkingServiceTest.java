@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 
 class ChunkingServiceTest {
 
@@ -95,5 +96,20 @@ class ChunkingServiceTest {
         String noSpace = "A".repeat(5000);
         List<TextChunk> chunks = chunkingService.chunk(noSpace, "file.txt", Map.of());
         assertThat(chunks).isNotEmpty();
+    }
+
+    @Test
+    void chunk_noInfiniteLoopWhenSpaceFollowedByLongRun() {
+        // Régression OOM : un espace en début de paragraphe suivi d'une longue
+        // séquence sans espace (URL, base64, JSON minifié, table…) figeait
+        // `end` sur le même espace → boucle infinie → liste de chunks illimitée → OOM,
+        // même sur un document de quelques Ko.
+        String pathological = "A".repeat(1500) + " " + "B".repeat(2000);
+        List<TextChunk> chunks = assertTimeoutPreemptively(
+                java.time.Duration.ofSeconds(5),
+                () -> chunkingService.chunk(pathological, "file.txt", Map.of()));
+        assertThat(chunks).isNotEmpty();
+        // Le texte complet doit être couvert (progression stricte, pas de chunk vide en boucle).
+        assertThat(chunks.stream().anyMatch(c -> c.text().contains("B"))).isTrue();
     }
 }

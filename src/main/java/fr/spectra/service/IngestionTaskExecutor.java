@@ -1,6 +1,8 @@
 package fr.spectra.service;
 
+import fr.spectra.config.SpectraProperties;
 import fr.spectra.dto.IngestionTask;
+import fr.spectra.model.ExtractedDocument;
 import fr.spectra.model.TextChunk;
 import fr.spectra.service.extraction.DocumentExtractorFactory;
 import fr.spectra.service.extraction.ExtractionException;
@@ -12,22 +14,17 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-import fr.spectra.config.SpectraProperties;
 
+import java.io.FilterInputStream;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Semaphore;
-<<<<<<< Updated upstream
 import java.util.function.IntConsumer;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
-=======
-import java.util.concurrent.TimeUnit;
-import java.util.function.IntConsumer;
->>>>>>> Stashed changes
 
 /**
  * Exécuteur asynchrone pour les tâches d'ingestion.
@@ -37,14 +34,9 @@ import java.util.function.IntConsumer;
 public class IngestionTaskExecutor {
 
     private static final Logger log = LoggerFactory.getLogger(IngestionTaskExecutor.class);
-<<<<<<< Updated upstream
     /** Même limite que IngestionService.MAX_ZIP_DEPTH — protège contre les ZIP bombs imbriqués. */
     private static final int MAX_ZIP_DEPTH = 3;
-    /** Nombre maximal d'entrées traitées par archive (protection ZIP bomb). */
-    private static final int MAX_ZIP_ENTRIES = 10_000;
     private static final IntConsumer NOOP_PROGRESS = i -> {};
-=======
->>>>>>> Stashed changes
 
     private final DocumentExtractorFactory extractorFactory;
     private final TextCleanerService textCleaner;
@@ -55,10 +47,8 @@ public class IngestionTaskExecutor {
     private final int embeddingBatchSize;
     /** Taille décompressée maximale autorisée par fichier/entrée (mémoire + anti-ZIP-bomb). */
     private final long maxEntryUncompressedBytes;
-<<<<<<< Updated upstream
-=======
+    /** Nombre maximal d'entrées traitées par archive (protection ZIP bomb). */
     private final int maxZipEntries;
->>>>>>> Stashed changes
     private final Semaphore concurrencySemaphore;
     private final Counter chunksIngested;
     private final Counter filesIngested;
@@ -71,10 +61,7 @@ public class IngestionTaskExecutor {
                                  ChromaDbClient chromaDbClient,
                                  FtsService ftsService,
                                  MeterRegistry meterRegistry,
-<<<<<<< Updated upstream
-=======
                                  SpectraProperties properties,
->>>>>>> Stashed changes
                                  @Value("${spectra.pipeline.embedding-batch-size:10}") int embeddingBatchSize,
                                  @Value("${spectra.pipeline.max-uncompressed-mb:0}") int maxUncompressedMb,
                                  @Value("${spectra.pipeline.concurrent-ingestions:4}") int concurrentIngestions) {
@@ -85,7 +72,7 @@ public class IngestionTaskExecutor {
         this.chromaDbClient = chromaDbClient;
         this.ftsService = ftsService;
         this.embeddingBatchSize = embeddingBatchSize;
-<<<<<<< Updated upstream
+        this.maxZipEntries = properties.ingestion() != null ? properties.ingestion().effectiveMaxZipEntries() : 10_000;
         // 0 → auto-calcul selon le heap et la concurrence (évite l'OOM).
         this.maxEntryUncompressedBytes = IngestionLimits.resolveMaxUncompressedBytes(maxUncompressedMb, concurrentIngestions);
         this.concurrencySemaphore = new Semaphore(Math.max(1, concurrentIngestions), true);
@@ -102,17 +89,6 @@ public class IngestionTaskExecutor {
                 .description("Durée d'ingestion par fichier")
                 .register(meterRegistry);
         // Profondeur de file / capacité disponible — détecte la saturation du pipeline d'ingestion.
-=======
-        this.maxZipEntries = properties.ingestion() != null ? properties.ingestion().effectiveMaxZipEntries() : 10_000;
-        // 0 → auto-calcul selon le heap et la concurrence (évite l'OOM).
-        this.maxEntryUncompressedBytes = IngestionLimits.resolveMaxUncompressedBytes(maxUncompressedMb, concurrentIngestions);
-        this.concurrencySemaphore = new Semaphore(Math.max(1, concurrentIngestions), true);
-
-        this.chunksIngested = meterRegistry.counter("spectra.ingestion.chunks");
-        this.filesIngested = meterRegistry.counter("spectra.ingestion.files");
-        this.ingestionTimer = meterRegistry.timer("spectra.ingestion.timer");
-
->>>>>>> Stashed changes
         meterRegistry.gauge("spectra.ingestion.concurrency.available", concurrencySemaphore, Semaphore::availablePermits);
         meterRegistry.gauge("spectra.ingestion.concurrency.queued", concurrencySemaphore, s -> (double) s.getQueueLength());
     }
@@ -121,7 +97,7 @@ public class IngestionTaskExecutor {
      * Exécute l'ingestion asynchrone.
      *
      * @param tempFileToHash map de fichier temp → SHA-256 (peut être null)
-     * @param onHashIngested callback appelé avec le hash après chaque ingestion réussie (peut être null)
+     * @param onIngested     callback appelé avec le hash après chaque ingestion réussie (peut être null)
      */
     @Async
     public void execute(String taskId, List<String> fileNames, List<Path> tempFiles,
@@ -156,16 +132,8 @@ public class IngestionTaskExecutor {
             final int[] addedSoFar = {0};
             final IntConsumer progress = delta -> {
                 final int now = (addedSoFar[0] += delta);
-<<<<<<< Updated upstream
                 tasks.computeIfPresent(taskId, (k, t) ->
                         t.status() == IngestionTask.Status.CANCELLED ? t : t.progress(now));
-=======
-                tasks.computeIfPresent(taskId, (k, t) -> {
-                    if (t.status() == IngestionTask.Status.CANCELLED) return t;
-                    // N'écraser que si on a réellement progressé (évite les retours en arrière si multi-fichiers)
-                    return (now > t.chunksCreated()) ? t.progress(now) : t;
-                });
->>>>>>> Stashed changes
             };
 
             for (int i = 0; i < tempFiles.size(); i++) {
@@ -213,10 +181,12 @@ public class IngestionTaskExecutor {
                     t.status() == IngestionTask.Status.CANCELLED ? t : t.completed(finalChunks, finalParser, finalLayout));
             log.info("Ingestion {} terminée: {} chunks total, parser={}", taskId, totalChunks, lastParserUsed);
         } catch (OutOfMemoryError e) {
-            log.error("ERREUR CRITIQUE : Mémoire saturée (OOM) lors de l'ingestion {}. La taille des fichiers ou la concurrence est trop élevée.", taskId);
-            tasks.computeIfPresent(taskId, (k, t) -> t.failed("Erreur mémoire (OOM) : le document est trop volumineux pour la configuration actuelle."));
-            System.gc(); // Tente de libérer de la mémoire pour les autres threads
-            try { Thread.sleep(500); } catch (InterruptedException ignored) {} // Laisse le temps au GC
+            // Convertit un OOM en échec de tâche explicite plutôt que de laisser mourir le thread
+            // d'ingestion : le semaphore est libéré dans le finally, le service reste opérationnel.
+            log.error("ERREUR CRITIQUE : mémoire saturée (OOM) lors de l'ingestion {}. "
+                    + "Fichier trop volumineux ou concurrence trop élevée pour le heap configuré.", taskId);
+            tasks.computeIfPresent(taskId, (k, t) ->
+                    t.failed("Erreur mémoire (OOM) : document trop volumineux pour la configuration mémoire actuelle."));
         } catch (Throwable e) {
             log.error("Erreur lors de l'ingestion {}: {}", taskId, e.getMessage(), e);
             tasks.computeIfPresent(taskId, (k, t) -> t.failed(e.getClass().getSimpleName() + ": " + e.getMessage()));
@@ -244,17 +214,9 @@ public class IngestionTaskExecutor {
         String contentType = extractorFactory.resolveContentType(fileName);
         var extractor = extractorFactory.getExtractor(contentType);
 
-        fr.spectra.model.ExtractedDocument doc;
+        ExtractedDocument doc;
         try (InputStream is = Files.newInputStream(tempFile)) {
             doc = extractor.extract(fileName, is);
-        }
-
-        // Garde-fou mémoire : on vérifie l'état du heap avant les opérations lourdes (nettoyage + chunking)
-        Runtime rt = Runtime.getRuntime();
-        long freeMemory = rt.freeMemory() + (rt.maxMemory() - rt.totalMemory());
-        if (freeMemory < maxEntryUncompressedBytes * 2) {
-             log.warn("Mémoire critique avant chunking '{}' ({} Mo libres). Déclenchement GC préventif.", fileName, freeMemory / (1024 * 1024));
-             System.gc();
         }
 
         String parserUsed = doc.metadata() != null ? doc.metadata().get("parser") : null;
@@ -262,6 +224,7 @@ public class IngestionTaskExecutor {
 
         String cleanedText = textCleaner.clean(doc.text());
 
+        Runtime rt = Runtime.getRuntime();
         long usedMb = (rt.totalMemory() - rt.freeMemory()) / 1024 / 1024;
         log.debug("Avant chunking '{}': textLen={} chars, heap used={}MB / max={}MB",
                 fileName, cleanedText.length(), usedMb, rt.maxMemory() / 1024 / 1024);
@@ -284,7 +247,6 @@ public class IngestionTaskExecutor {
             progress.accept(batch.size());
         }
 
-<<<<<<< Updated upstream
         ftsService.indexChunks(chunks, collectionName);
         log.info("Fichier {} traité: {} chunks, parser={}", fileName, chunks.size(), parserUsed);
         return new IngestOneResult(chunks.size(), parserUsed, layoutAware ? chunks.size() : 0);
@@ -295,25 +257,16 @@ public class IngestionTaskExecutor {
         return ingestZip(zipStream, archiveName, collectionId, collectionName, 0, NOOP_PROGRESS);
     }
 
-    private int ingestZip(InputStream zipStream, String archiveName, String collectionId,
-                          String collectionName, int depth, IntConsumer progress) throws Exception {
+    int ingestZip(InputStream zipStream, String archiveName, String collectionId,
+                  String collectionName, int depth, IntConsumer progress) throws Exception {
         if (depth >= MAX_ZIP_DEPTH) {
             log.warn("Profondeur ZIP max ({}) atteinte — archive imbriquée ignorée: {}", MAX_ZIP_DEPTH, archiveName);
-=======
-        return new IngestOneResult(chunks.size(), parserUsed, layoutAware ? chunks.size() : 0);
-    }
-
-    protected int ingestZip(InputStream is, String archiveName, String collectionId, String collectionName,
-                          int depth, IntConsumer progress) throws Exception {
-        if (depth > 3) {
-            log.warn("Profondeur ZIP maximale atteinte pour: {}", archiveName);
->>>>>>> Stashed changes
             return 0;
         }
         int totalChunks = 0;
-        try (java.util.zip.ZipInputStream zis = new java.util.zip.ZipInputStream(is)) {
-            java.util.zip.ZipEntry entry;
-            int entryCount = 0;
+        int entryCount = 0;
+        try (ZipInputStream zis = new ZipInputStream(zipStream)) {
+            ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
                 if (entry.isDirectory()) continue;
                 if (++entryCount > maxZipEntries) {
@@ -326,10 +279,7 @@ public class IngestionTaskExecutor {
                     log.warn("Entrée ZIP suspecte ignorée (path traversal): {}", entryName);
                     continue;
                 }
-<<<<<<< Updated upstream
                 // Pré-filtre : rejeter une entrée dont la taille décompressée déclarée est démesurée.
-=======
->>>>>>> Stashed changes
                 if (entry.getSize() > maxEntryUncompressedBytes) {
                     log.warn("Entrée ZIP ignorée (taille décompressée {} > {} octets): {}",
                             entry.getSize(), maxEntryUncompressedBytes, entryName);
@@ -341,66 +291,33 @@ public class IngestionTaskExecutor {
                         : entryName;
 
                 if (fileName.toLowerCase().endsWith(".zip")) {
-                    InputStream nonClosing = new fr.spectra.service.LimitedInputStream(new java.io.FilterInputStream(zis) {
+                    // Flux non-fermable : la récursion ne doit pas fermer le ZipInputStream parent.
+                    InputStream nonClosing = new LimitedInputStream(new FilterInputStream(zis) {
                         @Override public void close() {}
                     }, maxEntryUncompressedBytes);
-<<<<<<< Updated upstream
                     totalChunks += ingestZip(nonClosing, archiveName + "/" + entryName,
                             collectionId, collectionName, depth + 1, progress);
-=======
-                    totalChunks += ingestZip(nonClosing, archiveName + "/" + entryName, collectionId, collectionName, depth + 1, progress);
->>>>>>> Stashed changes
                     continue;
                 }
                 if (!isSupportedFile(fileName)) continue;
 
                 String qualifiedName = archiveName + "/" + entryName;
                 try {
-<<<<<<< Updated upstream
-                    // Wrap in non-closing + bounded stream: some extractors (Jackson AUTO_CLOSE_SOURCE)
-                    // close the stream after reading, which would break the ZipInputStream ; la borne
-                    // protège contre une entrée décompressée surdimensionnée (ZIP bomb).
+                    // Flux non-fermable + borné : certains extracteurs (Jackson AUTO_CLOSE_SOURCE)
+                    // ferment le stream après lecture, ce qui invaliderait le ZipInputStream ;
+                    // la borne protège contre une entrée décompressée surdimensionnée (ZIP bomb).
                     InputStream entryStream = new LimitedInputStream(new FilterInputStream(zis) {
-                        @Override public void close() { /* do not close the parent ZipInputStream */ }
+                        @Override public void close() { /* ne pas fermer le ZipInputStream parent */ }
                     }, maxEntryUncompressedBytes);
                     totalChunks += ingestEntry(qualifiedName, entryStream, collectionId, collectionName, progress);
                 } catch (ExtractionException e) {
                     log.warn("Erreur sur entrée ZIP {}: {}", qualifiedName, e.getMessage());
-=======
-                    InputStream entryStream = new fr.spectra.service.LimitedInputStream(new java.io.FilterInputStream(zis) {
-                        @Override public void close() { /* ne pas fermer le ZipInputStream parent */ }
-                    }, maxEntryUncompressedBytes);
-                    
-                    // On ne peut pas facilement appeler ingestOne ici car il attend un Path (fichier temp).
-                    // On simule une partie de ingestOne pour le contenu du stream.
-                    String contentType = extractorFactory.resolveContentType(fileName);
-                    var extractor = extractorFactory.getExtractor(contentType);
-                    fr.spectra.model.ExtractedDocument doc = extractor.extract(fileName, entryStream);
-                    String cleanedText = textCleaner.clean(doc.text());
-                    List<TextChunk> chunks = chunkingService.chunk(cleanedText, qualifiedName, doc.metadata());
-                    
-                    if (!chunks.isEmpty()) {
-                        for (int i = 0; i < chunks.size(); i += embeddingBatchSize) {
-                            int end = Math.min(i + embeddingBatchSize, chunks.size());
-                            List<TextChunk> batch = chunks.subList(i, end);
-                            List<List<Float>> batchEmbeddings = embeddingService.embedBatch(
-                                    batch.stream().map(TextChunk::text).toList());
-                            chromaDbClient.addDocuments(collectionId, batch, batchEmbeddings);
-                            progress.accept(batch.size());
-                        }
-                        totalChunks += chunks.size();
-                        log.info("Entrée ZIP {} traitée: {} chunks", qualifiedName, chunks.size());
-                    }
-                } catch (Exception e) {
-                    log.warn("Erreur sur {}: {}", qualifiedName, e.getMessage());
->>>>>>> Stashed changes
                 }
             }
         }
         return totalChunks;
     }
 
-<<<<<<< Updated upstream
     private int ingestEntry(String fileName, InputStream inputStream, String collectionId, String collectionName,
                             IntConsumer progress) throws Exception {
         String shortName = fileName.contains("/") ? fileName.substring(fileName.lastIndexOf('/') + 1) : fileName;
@@ -430,8 +347,6 @@ public class IngestionTaskExecutor {
         return chunks.size();
     }
 
-=======
->>>>>>> Stashed changes
     private boolean isSupportedFile(String fileName) {
         try {
             extractorFactory.resolveContentType(fileName);
