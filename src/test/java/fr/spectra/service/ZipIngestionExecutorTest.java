@@ -67,10 +67,7 @@ class ZipIngestionExecutorTest {
                 chromaDb,
                 ftsService,
                 new SimpleMeterRegistry(),
-<<<<<<< Updated upstream
-=======
                 props,
->>>>>>> Stashed changes
                 10,
                 50,
                 4);

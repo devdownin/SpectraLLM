@@ -55,11 +55,8 @@ public class IngestionService {
     private final int embeddingBatchSize;
     /** Taille décompressée maximale par fichier/entrée ZIP (mémoire + anti-ZIP-bomb). */
     private final long maxUncompressedBytes;
-<<<<<<< Updated upstream
-=======
+    /** Nombre maximal d'entrées traitées par archive (protection ZIP bomb). */
     private final int maxZipEntries;
-    private final long maxEntryBytes;
->>>>>>> Stashed changes
 
     // Async + dedup deps (used by submit())
     private final IngestionTaskExecutor executor;
@@ -96,7 +93,6 @@ public class IngestionService {
         this.gedService = gedService;
         this.embeddingBatchSize = properties.pipeline().embeddingBatchSize();
         this.maxZipEntries = properties.ingestion() != null ? properties.ingestion().effectiveMaxZipEntries() : 10_000;
-        this.maxEntryBytes = properties.ingestion() != null ? properties.ingestion().effectiveMaxEntryBytes() : 200L * 1024 * 1024;
         this.defaultCollection = properties.chromadb() != null
                 ? properties.chromadb().effectiveCollection()
                 : DEFAULT_COLLECTION;

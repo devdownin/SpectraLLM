@@ -119,8 +119,14 @@ public class ChunkingService {
 
             if (end >= text.length()) break;
 
-            offset = end - overlapChars;
-            if (offset <= 0 || offset >= end) offset = end;
+            // Avance avec chevauchement, mais garantit une progression STRICTE.
+            // Sans cette garde, un texte sans espaces (URL, base64, JSON minifié, CJK…)
+            // peut figer `end` sur le même espace et boucler indéfiniment → OOM.
+            int nextOffset = end - overlapChars;
+            if (nextOffset <= offset) {
+                nextOffset = end;
+            }
+            offset = nextOffset;
         }
 
         return chunks;
