@@ -5,6 +5,7 @@ import { queryApi, configApi, fineTuningApi } from '../services/api';
 import type { StreamDoneMeta } from '../services/api';
 import Tooltip from '../components/Tooltip';
 import RagAdvisor from '../components/RagAdvisor';
+import ChatMarkdown from '../components/ChatMarkdown';
 
 interface Source {
   preview?: string;
@@ -74,6 +75,36 @@ const RagBadges: FC<{ meta: RagMeta }> = ({ meta }) => {
   );
 };
 
+/** Source de réponse dépliable : nom de fichier + pertinence + passage récupéré. */
+const SourceItem: FC<{ src: Source }> = ({ src }) => {
+  const [open, setOpen] = useState(false);
+  const snippet = src.preview ?? src.text ?? '';
+  const pct = typeof src.distance === 'number' ? Math.max(0, Math.min(100, Math.round((1 - src.distance) * 100))) : null;
+  return (
+    <div className="border-b border-outline-variant/10 last:border-0">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
+        className="w-full flex items-center gap-2 py-1 text-left hover:text-primary transition-colors"
+      >
+        <span aria-hidden="true" className="material-symbols-outlined text-[12px] text-primary shrink-0">article</span>
+        <span className="font-mono text-[9px] text-on-surface-variant truncate flex-1">{src.sourceFile}</span>
+        {pct !== null && <span className="text-[8px] font-bold text-primary shrink-0" title="Relevance">{pct}%</span>}
+        <span aria-hidden="true" className={`material-symbols-outlined text-[12px] text-outline shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}>expand_more</span>
+      </button>
+      {open && (
+        <div className="pl-5 pb-2 space-y-1">
+          {snippet
+            ? <p className="text-[10px] text-on-surface-variant leading-relaxed whitespace-pre-wrap">{snippet}</p>
+            : <p className="text-[10px] text-outline italic">No preview available.</p>}
+          <span className="text-[8px] font-mono text-outline">distance: {typeof src.distance === 'number' ? src.distance.toFixed(3) : '—'}</span>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const Playground: FC = () => {
   const defaultWelcome: Message = { role: 'assistant', content: 'Welcome to the Spectra Playground. I am ready to answer questions based on your ingested documents. How can I help you today?', status: 'SENT' };
   const [messages, setMessages] = useState<Message[]>(() => {
@@ -103,6 +134,7 @@ const Playground: FC = () => {
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const MAX_HISTORY = 50;
   useEffect(() => {
@@ -168,21 +200,38 @@ const Playground: FC = () => {
       .map(m => ({ role: m.role, content: m.content }));
   };
 
-  const handleSend = async () => {
-    if (!input.trim() || isTyping) return;
+  /**
+   * Envoie une requête en streaming.
+   * @param text       la question
+   * @param regenerate si vrai, ré-utilise le dernier message user (retire l'ancienne
+   *                   réponse) au lieu d'ajouter un nouveau message user.
+   */
+  const submitQuery = async (text: string, regenerate = false) => {
+    if (!text.trim() || isTyping) return;
 
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
     const guardTimer = setTimeout(() => controller.abort(new Error('timeout')), 120_000);
 
-    const currentInput = input;
+    const currentInput = text;
     const history = buildHistory();
 
-    setMessages(prev => [...prev, { role: 'user', content: currentInput, status: 'PENDING' }]);
-    setInput('');
     setIsTyping(true);
-    setMessages(prev => [...prev, { role: 'assistant', content: '', status: 'STREAMING' }]);
+    setMessages(prev => {
+      let base = prev;
+      if (regenerate) {
+        // Retire uniquement la réponse assistant du DERNIER tour (après le dernier
+        // message user) et réactive ce message user — sans toucher aux tours précédents.
+        const lastUserIdx = base.findLastIndex(m => m.role === 'user');
+        base = base.filter((m, i) => !(m.role === 'assistant' && i > lastUserIdx));
+        const u = base.findLastIndex(m => m.role === 'user');
+        if (u >= 0) base = base.map((m, i) => i === u ? { ...m, status: 'PENDING' } : m);
+      } else {
+        base = [...base, { role: 'user', content: currentInput, status: 'PENDING' }];
+      }
+      return [...base, { role: 'assistant', content: '', status: 'STREAMING' }];
+    });
 
     try {
       let sources: Source[] = [];
@@ -256,6 +305,36 @@ const Playground: FC = () => {
       setIsTyping(false);
     }
   };
+
+  const handleSend = () => {
+    const text = input;
+    setInput('');
+    if (textareaRef.current) textareaRef.current.style.height = 'auto';
+    submitQuery(text);
+  };
+
+  /** Régénère la dernière réponse (ou relance un tour en échec). */
+  const regenerateLast = () => {
+    const lastUser = [...messages].reverse().find(m => m.role === 'user');
+    if (lastUser) submitQuery(lastUser.content, true);
+  };
+
+  /** Charge un message user dans la saisie et tronque la conversation pour le réécrire. */
+  const editMessage = (index: number) => {
+    const msg = messages[index];
+    if (!msg || msg.role !== 'user') return;
+    setInput(msg.content);
+    setMessages(prev => prev.slice(0, index));
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  };
+
+  const stopGeneration = () => abortRef.current?.abort();
+
+  const copyAnswer = (text: string) => {
+    navigator.clipboard.writeText(text).then(() => toast.success('Answer copied')).catch(() => {});
+  };
+
+  const lastAssistantIdx = messages.findLastIndex(m => m.role === 'assistant');
 
   return (
     <div className="h-[calc(100vh-12rem)] flex gap-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
@@ -440,29 +519,56 @@ const Playground: FC = () => {
                 <p className="font-label text-[10px] uppercase tracking-[0.1em] text-on-surface-variant mb-3">
                   {msg.role === 'user' ? 'Architect' : 'Spectra Core'}
                 </p>
-                <p className="text-sm font-body leading-relaxed whitespace-pre-wrap">
-                  {msg.content}
-                  {msg.status === 'STREAMING' && (
-                    <span className="inline-block w-1.5 h-3.5 bg-primary ml-0.5 animate-pulse align-middle" />
-                  )}
-                </p>
+                {msg.role === 'assistant' ? (
+                  <div className="text-sm">
+                    {msg.content && <ChatMarkdown content={msg.content} />}
+                    {msg.status === 'STREAMING' && (
+                      <span className="inline-block w-1.5 h-3.5 bg-primary ml-0.5 animate-pulse align-middle" />
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm font-body leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                )}
 
                 {msg.sources && msg.sources.length > 0 && (
-                  <div className="mt-4 pt-4 border-t border-outline-variant/20 space-y-1">
-                    <p className="font-label text-[9px] uppercase tracking-widest text-outline mb-2">Sources</p>
-                    {msg.sources.map((src, j) => (
-                      <div key={j} className="flex items-start gap-2">
-                        <span className="material-symbols-outlined text-[12px] text-primary mt-0.5 shrink-0">article</span>
-                        <span className="font-mono text-[9px] text-on-surface-variant truncate" title={src.preview ?? src.text}>
-                          {src.sourceFile}
-                        </span>
-                      </div>
-                    ))}
+                  <div className="mt-4 pt-4 border-t border-outline-variant/20">
+                    <p className="font-label text-[9px] uppercase tracking-widest text-outline mb-1">Sources ({msg.sources.length})</p>
+                    {msg.sources.map((src, j) => <SourceItem key={j} src={src} />)}
                   </div>
                 )}
 
                 {msg.ragMeta && msg.status === 'SENT' && msg.role === 'assistant' && (
                   <RagBadges meta={msg.ragMeta} />
+                )}
+
+                {/* Actions (apparaissent au survol / focus) */}
+                {msg.role === 'assistant' && msg.status === 'SENT' && msg.content && (
+                  <div className="mt-3 flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                    <button type="button" onClick={() => copyAnswer(msg.content)} aria-label="Copy answer"
+                      className="flex items-center gap-1 text-[9px] uppercase tracking-widest text-outline hover:text-primary transition-colors px-1.5 py-0.5">
+                      <span aria-hidden="true" className="material-symbols-outlined text-[13px]">content_copy</span>Copy
+                    </button>
+                    {i === lastAssistantIdx && (
+                      <button type="button" onClick={regenerateLast} disabled={isTyping} aria-label="Regenerate"
+                        className="flex items-center gap-1 text-[9px] uppercase tracking-widest text-outline hover:text-primary transition-colors px-1.5 py-0.5 disabled:opacity-40">
+                        <span aria-hidden="true" className="material-symbols-outlined text-[13px]">refresh</span>Regenerate
+                      </button>
+                    )}
+                  </div>
+                )}
+                {msg.role === 'user' && (
+                  <div className="mt-2 flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                    <button type="button" onClick={() => editMessage(i)} disabled={isTyping} aria-label="Edit message"
+                      className="flex items-center gap-1 text-[9px] uppercase tracking-widest text-outline hover:text-secondary transition-colors px-1.5 py-0.5 disabled:opacity-40">
+                      <span aria-hidden="true" className="material-symbols-outlined text-[13px]">edit</span>Edit
+                    </button>
+                    {msg.status === 'ERROR' && (
+                      <button type="button" onClick={regenerateLast} disabled={isTyping} aria-label="Retry"
+                        className="flex items-center gap-1 text-[9px] uppercase tracking-widest text-error hover:text-error/80 transition-colors px-1.5 py-0.5 disabled:opacity-40">
+                        <span aria-hidden="true" className="material-symbols-outlined text-[13px]">replay</span>Retry
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
@@ -489,27 +595,48 @@ const Playground: FC = () => {
               Conversational — {messages.filter(m => m.status === 'SENT').length} messages in history
             </p>
           )}
-          <div className="flex items-center gap-4 bg-surface-container-lowest border border-outline-variant/20 p-2">
-            <input
-              type="text"
-              className="flex-1 bg-transparent border-none focus:ring-0 text-sm font-body px-4"
-              placeholder={isTyping ? "Spectra is thinking..." : "Inject query (Cmd+Enter)..."}
+          <div className="flex items-end gap-3 bg-surface-container-lowest border border-outline-variant/20 p-2">
+            <label htmlFor="chat-input" className="sr-only">Message</label>
+            <textarea
+              id="chat-input"
+              ref={textareaRef}
+              rows={1}
+              className="flex-1 bg-transparent border-none focus:ring-0 focus:outline-none text-sm font-body px-4 py-2 resize-none max-h-40 custom-scrollbar"
+              placeholder="Ask a question…  (Enter to send · Shift+Enter for a new line)"
               value={input}
-              disabled={isTyping}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => {
+                setInput(e.target.value);
+                const el = e.target;
+                el.style.height = 'auto';
+                el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+              }}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                  handleSend();
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  if (!isTyping) handleSend();
                 }
               }}
             />
-            <button
-              className={`bg-primary text-on-primary-fixed p-2 transition-all ${isTyping ? 'opacity-50 grayscale' : 'hover:opacity-90'}`}
-              onClick={handleSend}
-              disabled={isTyping}
-            >
-              <span className="material-symbols-outlined">send</span>
-            </button>
+            {isTyping ? (
+              <button
+                type="button"
+                onClick={stopGeneration}
+                aria-label="Stop generation"
+                className="bg-error/90 text-on-error p-2 transition-all hover:bg-error flex items-center justify-center"
+              >
+                <span aria-hidden="true" className="material-symbols-outlined">stop</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleSend}
+                disabled={!input.trim()}
+                aria-label="Send message"
+                className="bg-primary text-on-primary-fixed p-2 transition-all hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center"
+              >
+                <span aria-hidden="true" className="material-symbols-outlined">send</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
