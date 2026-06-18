@@ -48,29 +48,36 @@ class GlobalExceptionHandlerTest {
     // ── Exception générique → 500 ─────────────────────────────────────────────
 
     @Test
-    void handleGeneric_returns500() {
-        ProblemDetail problem = handler.handleGeneric(new RuntimeException("crash"));
+    void handleThrowable_returns500() {
+        ProblemDetail problem = handler.handleThrowable(new RuntimeException("crash"));
         assertThat(problem.getStatus()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR.value());
     }
 
     @Test
-    void handleGeneric_titleIsSet() {
-        ProblemDetail problem = handler.handleGeneric(new RuntimeException("crash"));
-        assertThat(problem.getTitle()).isEqualTo("Erreur interne");
+    void handleThrowable_titleIsSet() {
+        ProblemDetail problem = handler.handleThrowable(new RuntimeException("crash"));
+        assertThat(problem.getTitle()).isEqualTo("Erreur interne critique");
     }
 
     @Test
-    void handleGeneric_detailContainsMessage() {
-        ProblemDetail problem = handler.handleGeneric(
+    void handleThrowable_detailContainsMessage() {
+        ProblemDetail problem = handler.handleThrowable(
                 new IllegalStateException("État invalide"));
         assertThat(problem.getStatus()).isEqualTo(500);
-        assertThat(problem.getDetail()).isEqualTo("Une erreur interne est survenue.");
+        assertThat(problem.getDetail()).isEqualTo("Une erreur critique est survenue.");
     }
 
     @Test
-    void handleGeneric_nullMessage_noException() {
+    void handleThrowable_nullMessage_noException() {
         // NullPointerException avec message null ne doit pas planter le handler
-        ProblemDetail problem = handler.handleGeneric(new NullPointerException());
+        ProblemDetail problem = handler.handleThrowable(new NullPointerException());
         assertThat(problem.getStatus()).isEqualTo(500);
+    }
+
+    @Test
+    void handleThrowable_oom_returns503() {
+        ProblemDetail problem = handler.handleThrowable(new OutOfMemoryError("Java heap space"));
+        assertThat(problem.getStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE.value());
+        assertThat(problem.getTitle()).isEqualTo("Serveur surchargé (Mémoire)");
     }
 }

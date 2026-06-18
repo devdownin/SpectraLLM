@@ -83,30 +83,33 @@ case "$PROFILE" in
         EMBEDDING_BATCH_SIZE=5
         EMBEDDING_TIMEOUT=60
         GENERATION_TIMEOUT=180
-        CONCURRENT_INGESTIONS=2
+        CONCURRENT_INGESTIONS=1
         JVM_HEAP=$((TOTAL_RAM_MB / 4))
         ;;
     medium)
         CHUNK_MAX_TOKENS=512
         CHUNK_OVERLAP_TOKENS=64
-        EMBEDDING_BATCH_SIZE=10
+        EMBEDDING_BATCH_SIZE=5
         EMBEDDING_TIMEOUT=30
         GENERATION_TIMEOUT=120
-        CONCURRENT_INGESTIONS=4
+        CONCURRENT_INGESTIONS=1
         JVM_HEAP=$((TOTAL_RAM_MB / 4))
         ;;
     large)
         CHUNK_MAX_TOKENS=512
         CHUNK_OVERLAP_TOKENS=64
-        EMBEDDING_BATCH_SIZE=20
+        EMBEDDING_BATCH_SIZE=5
         EMBEDDING_TIMEOUT=30
         GENERATION_TIMEOUT=120
-        CONCURRENT_INGESTIONS=8
+        CONCURRENT_INGESTIONS=1
         JVM_HEAP=$((TOTAL_RAM_MB / 3))
         ;;
 esac
 
-# Plafonner le heap JVM à 4 Go
+# Plafonner le heap JVM à 4 Go et garantir un minimum de 2 Go
+if (( JVM_HEAP < 2048 )); then
+    JVM_HEAP=2048
+fi
 if (( JVM_HEAP > 4096 )); then
     JVM_HEAP=4096
 fi

@@ -52,7 +52,11 @@ spectra:
   pipeline:
     chunk-max-tokens: ${SPECTRA_CHUNK_MAX_TOKENS:512}
     chunk-overlap-tokens: ${SPECTRA_CHUNK_OVERLAP_TOKENS:64}
+<<<<<<< Updated upstream
     embedding-batch-size: ${SPECTRA_EMBEDDING_BATCH_SIZE:10}
+=======
+    embedding-batch-size: ${SPECTRA_EMBEDDING_BATCH_SIZE:5}
+>>>>>>> Stashed changes
     # Taille décompressée max par fichier / entrée ZIP (Mo). Borne la mémoire
     # d'ingestion. 0 = auto : calculé selon le heap JVM et la concurrence.
     max-uncompressed-mb: ${SPECTRA_MAX_UNCOMPRESSED_MB:0}

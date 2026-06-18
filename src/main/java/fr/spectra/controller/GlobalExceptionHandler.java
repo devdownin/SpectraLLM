@@ -85,12 +85,25 @@ public class GlobalExceptionHandler {
         return problem;
     }
 
-    @ExceptionHandler(Exception.class)
-    public ProblemDetail handleGeneric(Exception e) {
-        log.error("Erreur interne: {}", e.getMessage(), e);
+    @ExceptionHandler(Throwable.class)
+    public ProblemDetail handleThrowable(Throwable e) {
+        boolean isOom = e instanceof OutOfMemoryError || 
+                       (e.getCause() != null && e.getCause() instanceof OutOfMemoryError) ||
+                       (e.getMessage() != null && e.getMessage().contains("OutOfMemoryError"));
+
+        if (isOom) {
+            log.error("ERREUR CRITIQUE : Mémoire saturée (OOM) détectée. Tentative de récupération GC.");
+            System.gc();
+            ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.SERVICE_UNAVAILABLE);
+            problem.setTitle("Serveur surchargé (Mémoire)");
+            problem.setDetail("Le serveur est temporairement à court de mémoire. Veuillez réessayer dans quelques instants.");
+            return problem;
+        }
+
+        log.error("Erreur non gérée: {}", e.getMessage(), e);
         ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.INTERNAL_SERVER_ERROR);
-        problem.setTitle("Erreur interne");
-        problem.setDetail("Une erreur interne est survenue.");
+        problem.setTitle("Erreur interne critique");
+        problem.setDetail("Une erreur critique est survenue.");
         return problem;
     }
 }

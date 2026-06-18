@@ -185,6 +185,12 @@ const Datasets: FC = () => {
         const res = await ingestApi.getTaskStatus(taskId);
         failures = 0;
         const t = res.data;
+        if (t.status === 'FAILED' && t.error?.includes('OOM')) {
+          toast.error(`Critical Memory Error: ${taskId.slice(0, 8)}`, {
+            description: 'The document is too large for the current memory configuration.',
+            duration: 10000,
+          });
+        }
         setIngestEntries(prev => {
           if (entryId === taskId) {
             return prev.map(e => e.taskId === taskId

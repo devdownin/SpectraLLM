@@ -95,6 +95,10 @@ services:
       args:
         USE_DOCLING: ${USE_DOCLING:-false}
     container_name: spectra-docparser
+    deploy:
+      resources:
+        limits:
+          memory: 2gb
     ports:
       - "8003:8001"
     environment:

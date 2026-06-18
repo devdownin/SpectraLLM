@@ -55,6 +55,11 @@ public class IngestionService {
     private final int embeddingBatchSize;
     /** Taille décompressée maximale par fichier/entrée ZIP (mémoire + anti-ZIP-bomb). */
     private final long maxUncompressedBytes;
+<<<<<<< Updated upstream
+=======
+    private final int maxZipEntries;
+    private final long maxEntryBytes;
+>>>>>>> Stashed changes
 
     // Async + dedup deps (used by submit())
     private final IngestionTaskExecutor executor;

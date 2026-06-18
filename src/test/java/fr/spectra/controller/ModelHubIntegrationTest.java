@@ -209,6 +209,33 @@ class ModelHubIntegrationTest {
     }
 
     @Test
+    void getInstallationProgress_withModelName_callsServiceAndReturnsFlux() throws Exception {
+        when(llmFitService.getInstallationProgress("llama3.2:3b"))
+                .thenReturn(reactor.core.publisher.Flux.just(10, 50, 100));
+
+        mockMvc.perform(get("/api/models/hub/install/progress")
+                        .param("modelName", "llama3.2:3b"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM));
+
+        verify(llmFitService).getInstallationProgress("llama3.2:3b");
+    }
+
+    @Test
+    void getInstallationProgress_withSlashInName_succeedsViaQueryParam() throws Exception {
+        String modelName = "deepseek-ai/DeepSeek-OCR-2";
+        when(llmFitService.getInstallationProgress(modelName))
+                .thenReturn(reactor.core.publisher.Flux.just(10));
+
+        mockMvc.perform(get("/api/models/hub/install/progress")
+                        .param("modelName", modelName))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM));
+
+        verify(llmFitService).getInstallationProgress(modelName);
+    }
+
+    @Test
     void recommendThenInstall_noFittingModels_clientReceivesEmptyListNot5xx() throws Exception {
         when(llmFitService.getRecommendations(anyInt(), eq("2048"), any(), any()))
                 .thenReturn(new LlmFitRecommendation(List.of(), null));

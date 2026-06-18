@@ -67,6 +67,10 @@ class ZipIngestionExecutorTest {
                 chromaDb,
                 ftsService,
                 new SimpleMeterRegistry(),
+<<<<<<< Updated upstream
+=======
+                props,
+>>>>>>> Stashed changes
                 10,
                 50,
                 4);
@@ -77,7 +81,7 @@ class ZipIngestionExecutorTest {
     @Test
     void ingestZip_singleJsonEntry_producesAtLeastOneChunk() throws Exception {
         byte[] zip = buildZip(Map.of("sample.json", SAMPLE_JSON.getBytes()));
-        int chunks = executor.ingestZip(stream(zip), "sample.zip", "test-col", "test");
+        int chunks = executor.ingestZip(stream(zip), "sample.zip", "test-col", "test", 0, n -> {});
         assertThat(chunks).isGreaterThanOrEqualTo(1);
     }
 
@@ -88,7 +92,7 @@ class ZipIngestionExecutorTest {
                 "b.json", SAMPLE_JSON.replace("value", "other").getBytes(),
                 "c.json", SAMPLE_JSON.replace("value", "third").getBytes()
         ));
-        int chunks = executor.ingestZip(stream(zip), "multi.zip", "test-col", "test");
+        int chunks = executor.ingestZip(stream(zip), "multi.zip", "test-col", "test", 0, n -> {});
         assertThat(chunks).isGreaterThanOrEqualTo(3);
     }
 
@@ -97,7 +101,7 @@ class ZipIngestionExecutorTest {
     @Test
     void ingestZip_singleXmlEntry_producesAtLeastOneChunk() throws Exception {
         byte[] zip = buildZip(Map.of("sample.xml", SAMPLE_XML.getBytes()));
-        int chunks = executor.ingestZip(stream(zip), "sample.zip", "test-col", "test");
+        int chunks = executor.ingestZip(stream(zip), "sample.zip", "test-col", "test", 0, n -> {});
         assertThat(chunks).isGreaterThanOrEqualTo(1);
     }
 
@@ -109,7 +113,7 @@ class ZipIngestionExecutorTest {
                 "data.json", SAMPLE_JSON.getBytes(),
                 "data.xml",  SAMPLE_XML.getBytes()
         ));
-        int chunks = executor.ingestZip(stream(zip), "mixed.zip", "test-col", "test");
+        int chunks = executor.ingestZip(stream(zip), "mixed.zip", "test-col", "test", 0, n -> {});
         assertThat(chunks).isGreaterThanOrEqualTo(2);
     }
 
@@ -119,7 +123,7 @@ class ZipIngestionExecutorTest {
     void ingestZip_nestedZip_isRecursivelyProcessed() throws Exception {
         byte[] innerZip = buildZip(Map.of("inner.json", SAMPLE_JSON.getBytes()));
         byte[] outerZip = buildZip(Map.of("archive.zip", innerZip));
-        int chunks = executor.ingestZip(stream(outerZip), "outer.zip", "test-col", "test");
+        int chunks = executor.ingestZip(stream(outerZip), "outer.zip", "test-col", "test", 0, n -> {});
         assertThat(chunks).isGreaterThanOrEqualTo(1);
     }
 
@@ -128,7 +132,7 @@ class ZipIngestionExecutorTest {
     @Test
     void ingestZip_emptyZip_returnsZero() throws Exception {
         byte[] zip = buildZip(Map.of());
-        int chunks = executor.ingestZip(stream(zip), "empty.zip", "test-col", "test");
+        int chunks = executor.ingestZip(stream(zip), "empty.zip", "test-col", "test", 0, n -> {});
         assertThat(chunks).isZero();
     }
 
@@ -138,7 +142,7 @@ class ZipIngestionExecutorTest {
                 "image.png", new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47},
                 "archive.tar", new byte[]{1, 2, 3}
         ));
-        int chunks = executor.ingestZip(stream(zip), "unsupported.zip", "test-col", "test");
+        int chunks = executor.ingestZip(stream(zip), "unsupported.zip", "test-col", "test", 0, n -> {});
         assertThat(chunks).isZero();
     }
 
@@ -150,7 +154,7 @@ class ZipIngestionExecutorTest {
             zos.write(SAMPLE_JSON.getBytes());
             zos.closeEntry();
         }
-        int chunks = executor.ingestZip(stream(baos.toByteArray()), "mac.zip", "test-col", "test");
+        int chunks = executor.ingestZip(stream(baos.toByteArray()), "mac.zip", "test-col", "test", 0, n -> {});
         assertThat(chunks).isZero();
     }
 
@@ -164,7 +168,7 @@ class ZipIngestionExecutorTest {
             zos.write(SAMPLE_JSON.getBytes());
             zos.closeEntry();
         }
-        int chunks = executor.ingestZip(stream(baos.toByteArray()), "nested.zip", "test-col", "test");
+        int chunks = executor.ingestZip(stream(baos.toByteArray()), "nested.zip", "test-col", "test", 0, n -> {});
         assertThat(chunks).isGreaterThanOrEqualTo(1);
     }
 
@@ -175,7 +179,7 @@ class ZipIngestionExecutorTest {
                 "skip.bin",  new byte[]{1, 2, 3},
                 "keep.xml",  SAMPLE_XML.getBytes()
         ));
-        int chunks = executor.ingestZip(stream(zip), "partial.zip", "test-col", "test");
+        int chunks = executor.ingestZip(stream(zip), "partial.zip", "test-col", "test", 0, n -> {});
         assertThat(chunks).isGreaterThanOrEqualTo(2);
     }
 

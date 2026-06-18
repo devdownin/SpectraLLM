@@ -71,29 +71,30 @@ if "%PROFILE%"=="small" (
     set EMBEDDING_BATCH_SIZE=5
     set EMBEDDING_TIMEOUT=60
     set GENERATION_TIMEOUT=180
-    set CONCURRENT_INGESTIONS=2
+    set CONCURRENT_INGESTIONS=1
     set /a JVM_HEAP=%TOTAL_RAM_MB% / 4
 )
 if "%PROFILE%"=="medium" (
     set CHUNK_MAX_TOKENS=512
     set CHUNK_OVERLAP_TOKENS=64
-    set EMBEDDING_BATCH_SIZE=10
+    set EMBEDDING_BATCH_SIZE=5
     set EMBEDDING_TIMEOUT=30
     set GENERATION_TIMEOUT=120
-    set CONCURRENT_INGESTIONS=4
+    set CONCURRENT_INGESTIONS=1
     set /a JVM_HEAP=%TOTAL_RAM_MB% / 4
 )
 if "%PROFILE%"=="large" (
     set CHUNK_MAX_TOKENS=512
     set CHUNK_OVERLAP_TOKENS=64
-    set EMBEDDING_BATCH_SIZE=20
+    set EMBEDDING_BATCH_SIZE=5
     set EMBEDDING_TIMEOUT=30
     set GENERATION_TIMEOUT=120
-    set CONCURRENT_INGESTIONS=8
+    set CONCURRENT_INGESTIONS=1
     set /a JVM_HEAP=%TOTAL_RAM_MB% / 3
 )
 
-REM  Plafonner le heap JVM a 4 Go
+REM  Plafonner le heap JVM a 4 Go et garantir un minimum de 2 Go
+if %JVM_HEAP% LSS 2048 set JVM_HEAP=2048
 if %JVM_HEAP% GTR 4096 set JVM_HEAP=4096
 
 REM  Serveur LLM : nombre de requetes paralleles (min 1, max 8)

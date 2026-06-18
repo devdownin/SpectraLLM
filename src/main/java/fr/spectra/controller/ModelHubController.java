@@ -48,13 +48,12 @@ public class ModelHubController {
 
     /**
      * SSE stream of download progress (0–100) for a model being installed.
-     * The endpoint is deliberately mapped under /api/sse/ so that nginx
-     * applies proxy_buffering off without requiring a separate location block.
+     * Uses a query parameter for the model name to safely handle names with slashes.
      */
-    @GetMapping(value = "/install/{modelName}/progress",
+    @GetMapping(value = "/install/progress",
                 produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @Operation(summary = "Flux SSE de progression du téléchargement (0–100)")
-    public Flux<Integer> getInstallationProgress(@PathVariable String modelName) {
+    public Flux<Integer> getInstallationProgress(@RequestParam String modelName) {
         return llmFitService.getInstallationProgress(modelName);
     }
 }

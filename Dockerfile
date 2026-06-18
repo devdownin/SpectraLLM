@@ -24,7 +24,7 @@ COPY --from=build --chown=spectra:spectra /app/target/*.jar app.jar
 # Use the non-root user
 USER spectra
 
-ENV JAVA_OPTS="-Xms256m -Xmx1024m -XX:+UseZGC"
+ENV JAVA_OPTS="-Xms256m -Xmx2048m -XX:+UseZGC"
 
 EXPOSE 8080
 

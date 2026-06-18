@@ -220,7 +220,7 @@ export const modelsHubApi = {
   installModel: (modelName: string, quant?: string, autoActivate = false) =>
     api.post(`/models/hub/install?modelName=${encodeURIComponent(modelName)}${quant ? `&quant=${quant}` : ''}&autoActivate=${autoActivate}`),
   getProgressSource: (modelName: string) =>
-    new EventSource(`/api/models/hub/install/${encodeURIComponent(modelName)}/progress`),
+    new EventSource(`/api/models/hub/install/progress?modelName=${encodeURIComponent(modelName)}`),
 };
 
 export default api;
