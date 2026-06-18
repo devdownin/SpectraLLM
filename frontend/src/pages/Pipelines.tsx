@@ -1,5 +1,6 @@
 import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import type { FC } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import Skeleton from '../components/Skeleton';
@@ -104,6 +105,17 @@ const Pipelines: FC = () => {
   const deferredSearch = useDeferredValue(search);
 
   useEffect(() => { setPage(0); }, [deferredSearch, selectedLifecycle, selectedFormats, qualityMin, groupBy, sortMode]);
+
+  // Deep-link : ?doc=<sha256> (ex. depuis une source du Playground) ouvre la fiche.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const doc = searchParams.get('doc');
+    if (doc) {
+      setSelectedSha(doc);
+      searchParams.delete('doc');
+      setSearchParams(searchParams, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   // Piège de focus + fermeture Échap + restauration du focus sur la fiche document.
   const sheetRef = useFocusTrap<HTMLDivElement>(Boolean(selectedSha), () => setSelectedSha(null));
