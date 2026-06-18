@@ -28,12 +28,20 @@ interface RagMeta {
   longContextApplied: boolean;
 }
 
+interface MessageMetrics {
+  ttftMs: number;   // time to first token
+  totalMs: number;  // total generation time
+  tokens: number;   // approximate token count
+}
+
 interface Message {
   role: 'user' | 'assistant';
   content: string;
   sources?: Source[];
   ragMeta?: RagMeta;
   status?: 'PENDING' | 'SENT' | 'ERROR' | 'STREAMING';
+  metrics?: MessageMetrics;
+  feedback?: 'UP' | 'DOWN';
 }
 
 const STRATEGY_COLORS: Record<string, string> = {
@@ -260,6 +268,9 @@ const Playground: FC = () => {
 
     try {
       let sources: Source[] = [];
+      const startTs = Date.now();
+      let firstTokenTs: number | null = null;
+      let tokenCount = 0;
 
       for await (const event of queryApi.queryStream(
         currentInput, ragEnabled, controller.signal, topCandidates, history
@@ -267,6 +278,8 @@ const Playground: FC = () => {
         if (event.type === 'sources') {
           try { sources = JSON.parse(event.data); } catch { /* ignore */ }
         } else if (event.type === 'token') {
+          if (firstTokenTs === null) firstTokenTs = Date.now();
+          tokenCount++;
           setMessages(prev => {
             const lastIdx = prev.findLastIndex(m => m.role === 'assistant');
             if (lastIdx < 0) return prev;
@@ -275,6 +288,11 @@ const Playground: FC = () => {
             );
           });
         } else if (event.type === 'done') {
+          const metrics: MessageMetrics = {
+            ttftMs: firstTokenTs ? firstTokenTs - startTs : 0,
+            totalMs: Date.now() - startTs,
+            tokens: tokenCount,
+          };
           let meta: RagMeta | undefined;
           try {
             const parsed = JSON.parse(event.data) as StreamDoneMeta;
@@ -297,7 +315,7 @@ const Playground: FC = () => {
             const lastAsstIdx = prev.findLastIndex(m => m.role === 'assistant');
             return prev.map((m, i) => {
               if (i === lastUserIdx) return { ...m, status: 'SENT' };
-              if (i === lastAsstIdx) return { ...m, status: 'SENT', sources, ragMeta: meta };
+              if (i === lastAsstIdx) return { ...m, status: 'SENT', sources, ragMeta: meta, metrics };
               return m;
             });
           });
@@ -357,6 +375,19 @@ const Playground: FC = () => {
 
   const copyAnswer = (text: string) => {
     navigator.clipboard.writeText(text).then(() => toast.success('Answer copied')).catch(() => {});
+  };
+
+  /** Note une réponse (👍/👎) — toggle + envoi au backend (signal de préférence DPO). */
+  const sendFeedback = (index: number, rating: 'UP' | 'DOWN') => {
+    const msg = messages[index];
+    if (!msg || msg.role !== 'assistant') return;
+    const question = messages.slice(0, index).reverse().find(m => m.role === 'user')?.content ?? '';
+    const next = msg.feedback === rating ? undefined : rating;
+    setMessages(prev => prev.map((m, i) => i === index ? { ...m, feedback: next } : m));
+    if (next) {
+      queryApi.feedback(question, msg.content, next).catch(() => { /* non bloquant */ });
+      toast.success(next === 'UP' ? 'Thanks — 👍 recorded' : 'Feedback noted — 👎');
+    }
   };
 
   const handleScroll = () => {
@@ -535,6 +566,7 @@ const Playground: FC = () => {
           onScroll={handleScroll}
           role="log"
           aria-live="polite"
+          aria-busy={isTyping}
           aria-label="Conversation"
           className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar"
         >
@@ -579,19 +611,38 @@ const Playground: FC = () => {
                   <RagBadges meta={msg.ragMeta} />
                 )}
 
-                {/* Actions (apparaissent au survol / focus) */}
+                {/* Pied de bulle : métriques + feedback (toujours) + copy/regenerate (survol) */}
                 {msg.role === 'assistant' && msg.status === 'SENT' && msg.content && (
-                  <div className="mt-3 flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-                    <button type="button" onClick={() => copyAnswer(msg.content)} aria-label="Copy answer"
-                      className="flex items-center gap-1 text-[9px] uppercase tracking-widest text-outline hover:text-primary transition-colors px-1.5 py-0.5">
-                      <span aria-hidden="true" className="material-symbols-outlined text-[13px]">content_copy</span>Copy
-                    </button>
-                    {i === lastAssistantIdx && (
-                      <button type="button" onClick={regenerateLast} disabled={isTyping} aria-label="Regenerate"
-                        className="flex items-center gap-1 text-[9px] uppercase tracking-widest text-outline hover:text-primary transition-colors px-1.5 py-0.5 disabled:opacity-40">
-                        <span aria-hidden="true" className="material-symbols-outlined text-[13px]">refresh</span>Regenerate
-                      </button>
-                    )}
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    {msg.metrics ? (
+                      <div className="flex items-center gap-3 text-[8px] font-mono text-outline">
+                        <span title="Time to first token">TTFT {(msg.metrics.ttftMs / 1000).toFixed(1)}s</span>
+                        <span title="Total time">{(msg.metrics.totalMs / 1000).toFixed(1)}s</span>
+                        <span title="Tokens (approx.)">{msg.metrics.tokens} tok</span>
+                      </div>
+                    ) : <span />}
+
+                    <div className="flex items-center gap-1">
+                      <button type="button" onClick={() => sendFeedback(i, 'UP')}
+                        aria-label="Good answer" aria-pressed={msg.feedback === 'UP'}
+                        className={`material-symbols-outlined text-[14px] px-1 transition-colors ${msg.feedback === 'UP' ? 'text-primary' : 'text-outline hover:text-primary'}`}>thumb_up</button>
+                      <button type="button" onClick={() => sendFeedback(i, 'DOWN')}
+                        aria-label="Bad answer" aria-pressed={msg.feedback === 'DOWN'}
+                        className={`material-symbols-outlined text-[14px] px-1 transition-colors ${msg.feedback === 'DOWN' ? 'text-error' : 'text-outline hover:text-error'}`}>thumb_down</button>
+
+                      <span className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                        <button type="button" onClick={() => copyAnswer(msg.content)} aria-label="Copy answer"
+                          className="flex items-center gap-1 text-[9px] uppercase tracking-widest text-outline hover:text-primary transition-colors px-1.5 py-0.5">
+                          <span aria-hidden="true" className="material-symbols-outlined text-[13px]">content_copy</span>Copy
+                        </button>
+                        {i === lastAssistantIdx && (
+                          <button type="button" onClick={regenerateLast} disabled={isTyping} aria-label="Regenerate"
+                            className="flex items-center gap-1 text-[9px] uppercase tracking-widest text-outline hover:text-primary transition-colors px-1.5 py-0.5 disabled:opacity-40">
+                            <span aria-hidden="true" className="material-symbols-outlined text-[13px]">refresh</span>Regenerate
+                          </button>
+                        )}
+                      </span>
+                    </div>
                   </div>
                 )}
                 {msg.role === 'user' && (

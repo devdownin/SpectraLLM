@@ -32,6 +32,7 @@ class QueryControllerTest {
     private final ObjectMapper json = new ObjectMapper();
 
     @Mock  private RagService ragService;
+    @Mock  private fr.spectra.service.FeedbackService feedbackService;
     @InjectMocks private QueryController controller;
 
     @BeforeEach
