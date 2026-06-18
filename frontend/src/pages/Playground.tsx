@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import type { FC } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { queryApi, configApi, fineTuningApi } from '../services/api';
+import { queryApi, configApi, fineTuningApi, ingestApi } from '../services/api';
 import type { StreamDoneMeta } from '../services/api';
 import Tooltip from '../components/Tooltip';
 import RagAdvisor from '../components/RagAdvisor';
@@ -77,9 +78,23 @@ const RagBadges: FC<{ meta: RagMeta }> = ({ meta }) => {
 
 /** Source de réponse dépliable : nom de fichier + pertinence + passage récupéré. */
 const SourceItem: FC<{ src: Source }> = ({ src }) => {
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const snippet = src.preview ?? src.text ?? '';
   const pct = typeof src.distance === 'number' ? Math.max(0, Math.min(100, Math.round((1 - src.distance) * 100))) : null;
+
+  const openInDatabase = async () => {
+    try {
+      const res = await ingestApi.getHistory({ q: src.sourceFile, size: 5 });
+      const items: any[] = res.data?.content ?? res.data ?? [];
+      const match = items.find(d => d.fileName === src.sourceFile) ?? items[0];
+      if (match?.sha256) navigate(`/pipelines?doc=${encodeURIComponent(match.sha256)}`);
+      else toast.error('Document not found in the Database');
+    } catch {
+      toast.error('Could not open the document');
+    }
+  };
+
   return (
     <div className="border-b border-outline-variant/10 last:border-0">
       <button
@@ -94,11 +109,20 @@ const SourceItem: FC<{ src: Source }> = ({ src }) => {
         <span aria-hidden="true" className={`material-symbols-outlined text-[12px] text-outline shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}>expand_more</span>
       </button>
       {open && (
-        <div className="pl-5 pb-2 space-y-1">
+        <div className="pl-5 pb-2 space-y-1.5">
           {snippet
             ? <p className="text-[10px] text-on-surface-variant leading-relaxed whitespace-pre-wrap">{snippet}</p>
             : <p className="text-[10px] text-outline italic">No preview available.</p>}
-          <span className="text-[8px] font-mono text-outline">distance: {typeof src.distance === 'number' ? src.distance.toFixed(3) : '—'}</span>
+          <div className="flex items-center justify-between">
+            <span className="text-[8px] font-mono text-outline">distance: {typeof src.distance === 'number' ? src.distance.toFixed(3) : '—'}</span>
+            <button
+              type="button"
+              onClick={openInDatabase}
+              className="flex items-center gap-1 text-[8px] uppercase tracking-widest text-primary hover:text-primary/70 transition-colors"
+            >
+              <span aria-hidden="true" className="material-symbols-outlined text-[11px]">open_in_new</span>Open in Database
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -127,6 +151,7 @@ const Playground: FC = () => {
     localStorage.getItem('spectra_conv') !== 'false');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [advisorOpen, setAdvisorOpen] = useState(false);
+  const [atBottom, setAtBottom] = useState(true);
 
   const [activeModel, setActiveModel] = useState<string>('');
   const [availableModels, setAvailableModels] = useState<Array<{ name: string; provenance?: string }>>([]);
@@ -334,6 +359,12 @@ const Playground: FC = () => {
     navigator.clipboard.writeText(text).then(() => toast.success('Answer copied')).catch(() => {});
   };
 
+  const handleScroll = () => {
+    const c = scrollContainerRef.current;
+    if (c) setAtBottom(c.scrollHeight - c.scrollTop - c.clientHeight < 80);
+  };
+  const scrollToBottom = () => bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+
   const lastAssistantIdx = messages.findLastIndex(m => m.role === 'assistant');
 
   return (
@@ -498,8 +529,15 @@ const Playground: FC = () => {
         </div>
       </aside>
 
-      <div className="flex-1 flex flex-col bg-surface-container overflow-hidden">
-        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar">
+      <div className="flex-1 flex flex-col bg-surface-container overflow-hidden relative">
+        <div
+          ref={scrollContainerRef}
+          onScroll={handleScroll}
+          role="log"
+          aria-live="polite"
+          aria-label="Conversation"
+          className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar"
+        >
           {messages.map((msg, i) => (
             <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
               <div className={`max-w-[80%] p-6 group relative ${
@@ -587,6 +625,19 @@ const Playground: FC = () => {
           )}
           <div ref={bottomRef} />
         </div>
+
+        {/* Bouton « descendre en bas » quand on a scrollé vers le haut */}
+        {!atBottom && (
+          <button
+            type="button"
+            onClick={scrollToBottom}
+            aria-label="Scroll to latest message"
+            className="absolute bottom-28 right-6 z-10 flex items-center gap-1 bg-surface-container-high border border-outline-variant/30 text-on-surface-variant hover:text-primary px-2.5 py-1.5 shadow-lg text-[9px] uppercase tracking-widest transition-colors animate-in fade-in slide-in-from-bottom-2"
+          >
+            <span aria-hidden="true" className={`material-symbols-outlined text-[14px] ${isTyping ? 'text-primary animate-bounce' : ''}`}>arrow_downward</span>
+            {isTyping ? 'New' : 'Latest'}
+          </button>
+        )}
 
         <div className="p-8 border-t border-outline-variant/10">
           {convEnabled && messages.filter(m => m.status === 'SENT').length > 1 && (
