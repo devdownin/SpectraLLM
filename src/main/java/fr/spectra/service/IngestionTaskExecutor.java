@@ -238,18 +238,47 @@ public class IngestionTaskExecutor {
 
         // Embed + envoie à ChromaDB par lot : on n'accumule jamais toutes les
         // embeddings ni un gros payload d'ajout en mémoire (réduit le pic mémoire).
+        // On compte les chunks RÉELLEMENT indexés : en cas d'échec d'un lot tardif
+        // (embedding/ChromaDB indisponible), le document est tout de même enregistré
+        // pour ce qui a réussi, et le compteur final reste cohérent avec la
+        // progression live (pas de retour à 0 en fin d'ingestion).
+        int embedded = embedAndStore(chunks, collectionId, collectionName, fileName, progress);
+
+        if (embedded == 0) {
+            log.warn("Aucun chunk indexé pour: {}", fileName);
+            return new IngestOneResult(0, parserUsed, 0);
+        }
+
+        log.info("Fichier {} traité: {} chunks{}, parser={}",
+                fileName, embedded, embedded < chunks.size() ? "/" + chunks.size() + " (partiel)" : "", parserUsed);
+        return new IngestOneResult(embedded, parserUsed, layoutAware ? embedded : 0);
+    }
+
+    /**
+     * Embarque et stocke les chunks par lot. Indexe chaque lot dans ChromaDB + FTS au
+     * fur et à mesure et retourne le nombre de chunks effectivement indexés. Un échec de
+     * lot interrompt le traitement du fichier mais conserve les chunks déjà indexés.
+     */
+    private int embedAndStore(List<TextChunk> chunks, String collectionId, String collectionName,
+                              String fileName, IntConsumer progress) {
+        int embedded = 0;
         for (int i = 0; i < chunks.size(); i += embeddingBatchSize) {
             int end = Math.min(i + embeddingBatchSize, chunks.size());
             List<TextChunk> batch = chunks.subList(i, end);
-            List<List<Float>> batchEmbeddings = embeddingService.embedBatch(
-                    batch.stream().map(TextChunk::text).toList());
-            chromaDbClient.addDocuments(collectionId, batch, batchEmbeddings);
-            progress.accept(batch.size());
+            try {
+                List<List<Float>> batchEmbeddings = embeddingService.embedBatch(
+                        batch.stream().map(TextChunk::text).toList());
+                chromaDbClient.addDocuments(collectionId, batch, batchEmbeddings);
+                ftsService.indexChunks(batch, collectionName);
+                embedded += batch.size();
+                progress.accept(batch.size());
+            } catch (Exception e) {
+                log.error("Échec du lot d'embedding [{}-{}] pour '{}' : {}. {} chunk(s) déjà indexé(s) conservé(s).",
+                        i, end, fileName, e.getMessage(), embedded);
+                break;
+            }
         }
-
-        ftsService.indexChunks(chunks, collectionName);
-        log.info("Fichier {} traité: {} chunks, parser={}", fileName, chunks.size(), parserUsed);
-        return new IngestOneResult(chunks.size(), parserUsed, layoutAware ? chunks.size() : 0);
+        return embedded;
     }
 
     /** Package-visible for testing. */
@@ -333,18 +362,10 @@ public class IngestionTaskExecutor {
             return 0;
         }
 
-        for (int i = 0; i < chunks.size(); i += embeddingBatchSize) {
-            int end = Math.min(i + embeddingBatchSize, chunks.size());
-            List<TextChunk> batch = chunks.subList(i, end);
-            List<List<Float>> batchEmbeddings = embeddingService.embedBatch(
-                    batch.stream().map(TextChunk::text).toList());
-            chromaDbClient.addDocuments(collectionId, batch, batchEmbeddings);
-            progress.accept(batch.size());
-        }
-
-        ftsService.indexChunks(chunks, collectionName);
-        log.info("Entrée ZIP {} traitée: {} chunks", fileName, chunks.size());
-        return chunks.size();
+        int embedded = embedAndStore(chunks, collectionId, collectionName, fileName, progress);
+        log.info("Entrée ZIP {} traitée: {} chunks{}", fileName, embedded,
+                embedded < chunks.size() ? "/" + chunks.size() + " (partiel)" : "");
+        return embedded;
     }
 
     private boolean isSupportedFile(String fileName) {
