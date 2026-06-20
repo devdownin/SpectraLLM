@@ -41,6 +41,7 @@ public class DocumentExtractorFactory {
         if (lower.endsWith(".html") || lower.endsWith(".htm")) return "text/html";
         if (lower.endsWith(".avro")) return "application/avro";
         if (lower.endsWith(".txt")) return "text/plain";
+        if (lower.endsWith(".zip")) return "application/zip";
         throw new ExtractionException("Extension de fichier non supportée: " + fileName);
     }
 }

@@ -57,7 +57,7 @@ public class JsonExtractor implements DocumentExtractor {
                 flattenJson(node.get(i), prefix + "[" + i + "]", sb);
             }
         } else {
-            sb.append(prefix).append(": ").append(node.asText()).append("\n");
+            sb.append(prefix).append(": ").append(node.asText()).append("\n\n");
         }
     }
 }

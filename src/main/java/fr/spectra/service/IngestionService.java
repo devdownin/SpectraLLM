@@ -404,7 +404,9 @@ public class IngestionService {
                     totalChunks += processZip(nonClosing, archiveName + "/" + entryName, collectionId, depth + 1);
                     continue;
                 }
-                if (!isSupportedFile(fileName)) continue;
+                if (!isSupportedFile(fileName)) {
+                    continue;
+                }
 
                 String qualifiedName = archiveName + "/" + entryName;
                 try {
@@ -453,6 +455,9 @@ public class IngestionService {
 
     private boolean isSupportedFile(String fileName) {
         try {
+            if (fileName != null && fileName.toLowerCase().endsWith(".zip")) {
+                return true;
+            }
             extractorFactory.resolveContentType(fileName);
             return true;
         } catch (ExtractionException e) {

@@ -218,6 +218,8 @@ public class GedService {
             case "PDF"  -> 0.2;
             case "DOCX" -> 0.15;
             case "HTML" -> 0.1;
+            case "JSON" -> 0.1;
+            case "XML" -> 0.1;
             default     -> 0.0;
         };
         return Math.min(1.0, chunkScore * 0.7 + formatBonus * 0.3 + (chunksCreated > 0 ? 0.1 : 0.0));

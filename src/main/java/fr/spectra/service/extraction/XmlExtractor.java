@@ -64,7 +64,7 @@ public class XmlExtractor implements DocumentExtractor {
         if (!hasChildElements) {
             String textContent = element.getTextContent().trim();
             if (!textContent.isEmpty()) {
-                sb.append(path).append(": ").append(textContent).append("\n");
+                sb.append(path).append(": ").append(textContent).append("\n\n");
             }
         }
     }
