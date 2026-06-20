@@ -139,7 +139,7 @@
              (clé API requise) et ralentirait/casserait chaque `mvn package`.
              Activée par le workflow dependency-scan via `-Psecurity`. -->
         <profile>
-            <id>security</id>
+            <id>dep-check</id>
             <build>
                 <plugins>
                     <plugin>
@@ -151,16 +151,9 @@
                                 <suppressionFile>dependency-suppression.xml</suppressionFile>
                             </suppressionFiles>
                             <nvdApiKey>${env.NVD_API_KEY}</nvdApiKey>
-                            <ossindexAnalyzerEnabled>false</ossindexAnalyzerEnabled>
+                            <ossIndexAnalyzerEnabled>false</ossIndexAnalyzerEnabled>
                         </configuration>
                         <executions>
-                            <execution>
-                                <id>nvd-update</id>
-                                <goals>
-                                    <goal>update-only</goal>
-                                </goals>
-                                <phase>validate</phase>
-                            </execution>
                             <execution>
                                 <goals>
                                     <goal>check</goal>
