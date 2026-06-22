@@ -1,0 +1,53 @@
+# ── ConfigMap chat : offload toutes les couches sur GPU (override du défaut CPU "0") ──
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: llama-chat-config
+data:
+  LLAMA_NGL: "-1"   # -1 = toutes les couches sur GPU
+---
+# ── Déploiement chat : demande 1 GPU + toleration des nœuds GPU ──────────────
+# (strategic merge : n'ajoute que nvidia.com/gpu, conserve cpu/memory existants)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llama-cpp-chat
+spec:
+  template:
+    spec:
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: llama-cpp-chat
+          resources:
+            limits:
+              nvidia.com/gpu: "1"
+
+# ── Embedding sur GPU (optionnel — nécessite un 2ᵉ GPU) ──────────────────────
+# Décommenter ce bloc ET le patch ConfigMap correspondant pour activer.
+# ---
+# apiVersion: v1
+# kind: ConfigMap
+# metadata:
+#   name: llama-embed-config
+# data:
+#   LLAMA_NGL: "-1"
+# ---
+# apiVersion: apps/v1
+# kind: Deployment
+# metadata:
+#   name: llama-cpp-embed
+# spec:
+#   template:
+#     spec:
+#       tolerations:
+#         - key: nvidia.com/gpu
+#           operator: Exists
+#           effect: NoSchedule
+#       containers:
+#         - name: llama-cpp-embed
+#           resources:
+#             limits:
+#               nvidia.com/gpu: "1"

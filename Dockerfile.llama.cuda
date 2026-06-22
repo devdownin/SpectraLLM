@@ -1,0 +1,23 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Dockerfile.llama.cuda — image llama.cpp avec accélération GPU NVIDIA (CUDA)
+#
+# Variante GPU de Dockerfile.llama : même entrypoint intelligent
+# (scripts/llama-autostart.sh), mais sur l'image amont compilée avec CUDA.
+# llama-autostart.sh détecte nvidia-smi au runtime et offload toutes les
+# couches sur le GPU (NGL=-1).
+#
+#   docker build -f Dockerfile.llama.cuda -t spectra-llama-cpp:latest .
+#
+# À utiliser avec l'overlay k8s/overlays/gpu (qui demande nvidia.com/gpu)
+# sur un node pool GKE équipé de GPU. Voir docs/DEPLOY_GKE.md §GPU.
+# ─────────────────────────────────────────────────────────────────────────────
+FROM ghcr.io/ggml-org/llama.cpp:server-cuda
+
+# Le binaire `llama-server` de l'image amont vit dans /app ; on l'ajoute au PATH
+# pour que llama-autostart.sh puisse l'invoquer par son nom.
+ENV PATH="/app:${PATH}"
+
+COPY scripts/llama-autostart.sh /scripts/llama-autostart.sh
+RUN chmod +x /scripts/llama-autostart.sh
+
+ENTRYPOINT ["/bin/bash", "/scripts/llama-autostart.sh"]
