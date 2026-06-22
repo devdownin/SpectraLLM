@@ -4,13 +4,17 @@ name: Deploy to GKE
 #
 # Authentification : Workload Identity Federation (OIDC, sans clé JSON).
 #
-# ── Secrets requis (Settings → Environments → Cloud → Secrets) ─────
+# Tout est scopé à l'environnement GitHub "Cloud".
+#
+# ── Secrets (Settings → Environments → Cloud → Secrets) ───────────
 #   GCP_WIF_PROVIDER    Nom complet du provider WIF :
 #                       projects/<N>/locations/global/workloadIdentityPools/<pool>/providers/<provider>
 #   GCP_SERVICE_ACCOUNT Email du service account déployeur :
 #                       deployer@<project>.iam.gserviceaccount.com
+#
+# ── Variables (Settings → Environments → Cloud → Variables) ───────
 #   GCP_PROJECT_ID, GCP_REGION, GAR_REPOSITORY, GKE_CLUSTER, GKE_LOCATION
-#     (ces valeurs peuvent aussi être stockées comme secrets dans l'environnement "Cloud")
+#     (valeurs non sensibles → variables, pas secrets)
 #
 # Voir docs/DEPLOY_GKE.md pour la procédure complète de configuration GCP.
 
@@ -31,13 +35,15 @@ jobs:
     # Require the environment so that environment-scoped secrets are injected
     environment: Cloud
 
-    # Job-level env must read from environment secrets (they are not available at workflow root env)
+    # Non-sensitive config comes from environment variables (vars.*),
+    # auth secrets from secrets.* — both are injected because the job uses
+    # the "Cloud" environment.
     env:
-      PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-      GAR_LOCATION: ${{ secrets.GCP_REGION }}
-      REPOSITORY: ${{ secrets.GAR_REPOSITORY }}
-      GKE_CLUSTER: ${{ secrets.GKE_CLUSTER }}
-      GKE_LOCATION: ${{ secrets.GKE_LOCATION }}
+      PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GAR_LOCATION: ${{ vars.GCP_REGION }}
+      REPOSITORY: ${{ vars.GAR_REPOSITORY }}
+      GKE_CLUSTER: ${{ vars.GKE_CLUSTER }}
+      GKE_LOCATION: ${{ vars.GKE_LOCATION }}
 
     steps:
       - name: Checkout

@@ -97,7 +97,8 @@ echo "projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/github/p
 
 ## 3. Secrets & variables GitHub
 
-`Settings → Secrets and variables → Actions`.
+Le workflow utilise l'environnement GitHub **`Cloud`** : tout est scopé à cet
+environnement (`Settings → Environments → Cloud`), pas au niveau du dépôt.
 
 ### Secrets
 
@@ -116,9 +117,10 @@ echo "projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/github/p
 | `GKE_CLUSTER` | `spectra-cluster` |
 | `GKE_LOCATION` | `europe-west1` |
 
-> Le workflow lit les secrets via `secrets.*` et la configuration non sensible
-> via `vars.*`. Si vous avez créé vos secrets sous d'autres noms, ajustez le
-> bloc `env:` en tête de `.github/workflows/deploy-gke.yml`.
+> Le workflow lit les secrets via `secrets.*` et les variables via `vars.*`,
+> tous deux injectés car le job déclare `environment: Cloud`. Si vous utilisez
+> d'autres noms, ajustez le bloc `env:` en tête de
+> `.github/workflows/deploy-gke.yml`.
 
 ---
 
