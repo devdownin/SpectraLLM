@@ -84,14 +84,6 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
-      # Authenticate using Service Account JSON (fallback)
-      - name: Authenticate to Google Cloud (Service Account JSON)
-        if: steps.gcp-validate.outputs.auth_method == 'creds'
-        id: auth-creds
-        uses: google-github-actions/auth@v2
-        with:
-          credentials_json: ${{ secrets.GCP_CREDENTIALS_JSON }}
-
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
