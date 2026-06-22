@@ -12,6 +12,11 @@
 
 > **Turn your business documents into a specialized, production-ready AI assistant. 100% local. No cloud. No subscriptions.**
 
+📖 **Want to understand the ideas and algorithms behind Spectra?** Read the
+**[Pedagogical Mini-Book (FR)](./DOCUMENTATION_PEDAGOGIQUE.fr.md)** — embeddings,
+HNSW, BM25 + RRF, the six RAG strategies, DPO/QLoRA, and more, each with a
+concrete usage example.
+
 ---
 
 ## What Is Spectra?

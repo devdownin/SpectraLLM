@@ -41,7 +41,7 @@ graph LR
 ---
 
 ## 📚 Documentation Pédagogique
-Pour comprendre en détail le fonctionnement de Spectra, les algorithmes utilisés (RAG, BM25, RRF, Fine-tuning, etc.) et la philosophie du projet, consultez notre **[Guide Pédagogique et Technique](./DOCUMENTATION_PEDAGOGIQUE.fr.md)**.
+Pour comprendre les idées et les algorithmes de Spectra (embeddings, HNSW, BM25 + RRF, les 6 stratégies de RAG, DPO/QLoRA, résilience, déploiement…), chacun illustré d'un exemple d'usage concret, consultez notre **[Mini-Livre Pédagogique](./DOCUMENTATION_PEDAGOGIQUE.fr.md)**.
 
 ---
 
