@@ -134,7 +134,59 @@ Les pods `llama-cpp-*` mettent 1–5 min à charger les modèles — c'est norma
 
 ---
 
-## 5. Dépannage
+## 5. Accélération GPU (optionnel)
+
+L'inférence de chat est nettement plus rapide sur GPU. L'activation repose sur
+trois éléments qui doivent être alignés : **image CUDA**, **demande de ressource
+GPU**, et **node pool GPU**. Par défaut, le déploiement reste en CPU.
+
+### 5.1 Node pool GPU
+
+```bash
+gcloud container node-pools create gpu-pool \
+  --cluster="$CLUSTER" --location="$GKE_LOCATION" \
+  --machine-type=n1-standard-4 \
+  --accelerator=type=nvidia-tesla-t4,count=1,gpu-driver-version=default \
+  --num-nodes=1 --min-nodes=0 --max-nodes=1 --enable-autoscaling
+```
+
+`gpu-driver-version=default` laisse GKE installer automatiquement les drivers
+NVIDIA (pas de DaemonSet manuel). GKE applique le taint
+`nvidia.com/gpu=present:NoSchedule` sur ces nœuds ; l'overlay GPU porte la
+toleration correspondante.
+
+> 💰 Un nœud T4 coûte sensiblement plus qu'un nœud CPU. L'autoscaling
+> `min-nodes=0` permet de retomber à zéro nœud GPU hors charge.
+
+### 5.2 Image CUDA
+
+Construire `spectra-llama-cpp` depuis `Dockerfile.llama.cuda` (variante CUDA) au
+lieu de `Dockerfile.llama`. En CI, adapter l'étape *Build & push spectra-llama-cpp*
+de `deploy-gke.yml` : `file: Dockerfile.llama.cuda`.
+
+### 5.3 Déployer l'overlay GPU
+
+L'overlay [`k8s/overlays/gpu`](../k8s/overlays/gpu) patche le ConfigMap
+(`LLAMA_NGL: "-1"`) et ajoute `nvidia.com/gpu: 1` + la toleration au déploiement
+`llama-cpp-chat` :
+
+```bash
+kubectl apply -k k8s/overlays/gpu
+```
+
+Pour un déploiement automatisé en GPU, remplacer dans `deploy-gke.yml` le
+`kubectl apply -k .` (dans `k8s/`) par un apply de l'overlay.
+
+> Par défaut seul le chat passe sur GPU. Pour aussi mettre l'embedding sur GPU
+> (2ᵉ GPU requis), décommenter le bloc embed dans
+> `k8s/overlays/gpu/patches.yaml`.
+
+Vérifier que le GPU est bien utilisé : les logs de `llama-cpp-chat` doivent
+mentionner l'offload des couches (`ngl=-1`) et un device CUDA.
+
+---
+
+## 6. Dépannage
 
 | Symptôme | Cause probable |
 |----------|----------------|
@@ -142,3 +194,5 @@ Les pods `llama-cpp-*` mettent 1–5 min à charger les modèles — c'est norma
 | `could not get cluster credentials` | `GKE_CLUSTER` / `GKE_LOCATION` incorrects, ou rôle `container.developer` manquant |
 | `unauthorized_client` à l'étape auth | `attribute-condition` du provider ≠ dépôt, ou binding `workloadIdentityUser` absent |
 | Pods llama en `CrashLoopBackOff` | fichier GGUF absent du PVC (voir `k8s/README.md` §2) |
+| Pod GPU `Pending` (Insufficient nvidia.com/gpu) | node pool GPU absent / à 0 nœud, ou drivers non installés |
+| Chat tourne en CPU malgré l'overlay | image construite depuis `Dockerfile.llama` (CPU) au lieu de `Dockerfile.llama.cuda` |

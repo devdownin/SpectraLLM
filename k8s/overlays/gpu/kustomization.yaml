@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Overlay GPU — active l'accélération NVIDIA pour l'inférence de chat.
+#
+#   kubectl apply -k k8s/overlays/gpu
+#
+# Prérequis :
+#   - node pool GKE avec GPU (voir docs/DEPLOY_GKE.md §GPU)
+#   - image spectra-llama-cpp construite depuis Dockerfile.llama.cuda
+#
+# Par défaut, seul llama-cpp-chat passe sur GPU (1 GPU). L'embedding reste en
+# CPU — léger et peu sensible à la latence. Pour mettre aussi l'embedding sur
+# GPU (nécessite un 2ᵉ GPU), décommenter le bloc embed dans patches.yaml.
+# ─────────────────────────────────────────────────────────────────────────────
+
+namespace: spectra
+
+resources:
+  - ../..
+
+patches:
+  - path: patches.yaml

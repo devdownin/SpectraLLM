@@ -56,6 +56,10 @@ data:
   LLAMA_FLASH_ATTN: "0"
   LLAMA_CACHE_TYPE_K: "f16"
   LLAMA_CACHE_TYPE_V: "f16"
+  # Slots parallèles côté serveur d'embedding : accélère l'ingestion (les lots
+  # d'embeddings sont traités en parallèle au lieu d'être sérialisés). Aligné sur
+  # docker-compose (--parallel 4). Bénéfique même en CPU.
+  LLAMA_PARALLELISM: "4"
 
 ---
 # Secret pour les valeurs sensibles
