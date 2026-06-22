@@ -1,0 +1,127 @@
+name: Deploy to GKE
+
+# Déploiement automatique de la stack Spectra sur Google Kubernetes Engine.
+#
+# Authentification : Workload Identity Federation (sans clé JSON).
+#
+# ── Secrets requis (Settings → Secrets and variables → Actions → Secrets) ─────
+#   GCP_WIF_PROVIDER    Nom complet du provider WIF :
+#                       projects/<N>/locations/global/workloadIdentityPools/<pool>/providers/<provider>
+#   GCP_SERVICE_ACCOUNT Email du service account déployeur :
+#                       deployer@<project>.iam.gserviceaccount.com
+#
+# ── Variables requises (… → Variables) ────────────────────────────────────────
+#   GCP_PROJECT_ID      ID du projet GCP
+#   GCP_REGION          Région Artifact Registry (ex: europe-west1)
+#   GAR_REPOSITORY      Nom du dépôt Artifact Registry Docker (ex: spectra)
+#   GKE_CLUSTER         Nom du cluster GKE
+#   GKE_LOCATION        Zone ou région du cluster (ex: europe-west1)
+#
+# Voir docs/DEPLOY_GKE.md pour la procédure complète de configuration GCP.
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write   # requis pour l'échange de jeton OIDC (Workload Identity Federation)
+
+env:
+  PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  GAR_LOCATION: ${{ vars.GCP_REGION }}
+  REPOSITORY: ${{ vars.GAR_REPOSITORY }}
+  GKE_CLUSTER: ${{ vars.GKE_CLUSTER }}
+  GKE_LOCATION: ${{ vars.GKE_LOCATION }}
+
+jobs:
+  deploy:
+    name: Build images & deploy to GKE
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Compute image tag
+        id: tag
+        run: echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      # ── Authentification GCP via Workload Identity Federation ───────────────
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "${GAR_LOCATION}-docker.pkg.dev" --quiet
+
+      # ── Build & push des images (api, frontend, llama.cpp) ──────────────────
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & push spectra-api
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: |
+            ${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/spectra-api:${{ steps.tag.outputs.sha }}
+            ${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/spectra-api:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build & push spectra-frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/spectra-frontend:${{ steps.tag.outputs.sha }}
+            ${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/spectra-frontend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build & push spectra-llama-cpp
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.llama
+          push: true
+          tags: |
+            ${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/spectra-llama-cpp:${{ steps.tag.outputs.sha }}
+            ${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/spectra-llama-cpp:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ── Déploiement sur GKE ─────────────────────────────────────────────────
+      - name: Get GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ env.GKE_CLUSTER }}
+          location: ${{ env.GKE_LOCATION }}
+
+      - name: Set images & apply manifests
+        run: |
+          set -euo pipefail
+          IMG="${GAR_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}"
+          TAG="${{ steps.tag.outputs.sha }}"
+          cd k8s
+          kustomize edit set image \
+            "spectra-api=${IMG}/spectra-api:${TAG}" \
+            "spectra-frontend=${IMG}/spectra-frontend:${TAG}" \
+            "spectra-llama-cpp=${IMG}/spectra-llama-cpp:${TAG}"
+          kubectl apply -k .
+
+      - name: Wait for rollouts
+        run: |
+          set -euo pipefail
+          kubectl -n spectra rollout status deployment/spectra-api      --timeout=600s
+          kubectl -n spectra rollout status deployment/spectra-frontend --timeout=300s

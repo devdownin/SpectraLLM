@@ -34,7 +34,7 @@ spec:
           # (le script llama-autostart.sh est intégré à l'image)
           image: spectra-llama-cpp:latest
           imagePullPolicy: IfNotPresent
-          entrypoint: ["/bin/bash", "/scripts/llama-autostart.sh"]
+          command: ["/bin/bash", "/scripts/llama-autostart.sh"]
           ports:
             - containerPort: 8080
           envFrom:
