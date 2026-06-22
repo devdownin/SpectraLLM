@@ -1,0 +1,22 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Dockerfile.llama — image llama.cpp avec entrypoint intelligent (autostart)
+#
+# Construit l'image `spectra-llama-cpp` utilisée par les déploiements
+# k8s/05-llama-embed.yaml et k8s/06-llama-chat.yaml.
+#
+# Elle embarque le script scripts/llama-autostart.sh, qui détecte les
+# ressources (CPU/RAM/GPU) et calcule les paramètres optimaux de llama-server.
+#
+#   docker build -f Dockerfile.llama -t spectra-llama-cpp:latest .
+# ─────────────────────────────────────────────────────────────────────────────
+FROM ghcr.io/ggml-org/llama.cpp:server
+
+# Le binaire `llama-server` de l'image amont vit dans /app ; on l'ajoute au PATH
+# pour que llama-autostart.sh puisse l'invoquer par son nom.
+ENV PATH="/app:${PATH}"
+
+# Script d'autostart intégré à l'image (les manifests le lancent via `command`).
+COPY scripts/llama-autostart.sh /scripts/llama-autostart.sh
+RUN chmod +x /scripts/llama-autostart.sh
+
+ENTRYPOINT ["/bin/bash", "/scripts/llama-autostart.sh"]

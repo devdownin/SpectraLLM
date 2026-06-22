@@ -16,6 +16,10 @@ spectra-api (:8080)
    └──→ browserless     (:3000)
 ```
 
+> 🤖 **Déploiement automatisé (GKE)** : un workflow CI construit les images,
+> les pousse sur Artifact Registry et applique ces manifests à chaque push sur
+> `main`. Voir [`docs/DEPLOY_GKE.md`](../docs/DEPLOY_GKE.md).
+
 Tous les services sont en `ClusterIP` — seul le frontend est exposé.  
 Le proxy nginx du frontend (`/api/ → spectra-api:8080`) fonctionne sans modification car les noms de services K8s dans le même namespace sont résolus directement.
 
@@ -34,7 +38,7 @@ Le proxy nginx du frontend (`/api/ → spectra-api:8080`) fonctionne sans modifi
 
 ```bash
 # Construire les 3 images (depuis la racine du repo)
-docker build --target llama_cpp_runtime -t spectra-llama-cpp:latest .
+docker build -f Dockerfile.llama -t spectra-llama-cpp:latest .
 docker build -t spectra-api:latest .
 docker build -t spectra-frontend:latest ./frontend
 
