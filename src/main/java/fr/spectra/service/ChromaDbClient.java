@@ -90,7 +90,25 @@ public class ChromaDbClient {
         String cached = collectionIdCache.get(name);
         if (cached != null) return cached;
 
-        Map<String, Object> body = Map.of("name", name, "get_or_create", true);
+        // Configuration HNSW explicite (sinon ChromaDB applique L2 par défaut) :
+        //  - space=cosine : convention RAG, scores de similarité interprétables [0,1]
+        //    (les vecteurs de llama.cpp /v1/embeddings sont normalisés)
+        //  - ef_search relevé : meilleur recall qu'avec le défaut (~10), un reranker
+        //    affine ensuite le top-K
+        //  - ef_construction relevé : index plus précis à la construction
+        // NB : l'espace de distance est figé à la création ; une collection déjà
+        // existante conserve sa configuration (get_or_create ne la modifie pas).
+        Map<String, Object> body = Map.of(
+                "name", name,
+                "get_or_create", true,
+                "configuration", Map.of(
+                        "hnsw", Map.of(
+                                "space", "cosine",
+                                "ef_search", 100,
+                                "ef_construction", 200
+                        )
+                )
+        );
 
         Map<String, Object> response = webClient.post()
                 .uri(COLLECTIONS_BASE)
