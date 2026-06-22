@@ -2,16 +2,19 @@ name: Deploy to GKE
 
 # Déploiement automatique de la stack Spectra sur Google Kubernetes Engine.
 #
-# Authentification : Workload Identity Federation (sans clé JSON) ou fallback via clé JSON.
+# Authentification : Workload Identity Federation (OIDC, sans clé JSON).
 #
-# ── Secrets requis (Settings → Environments → Cloud → Secrets) ─────
+# Tout est scopé à l'environnement GitHub "Cloud".
+#
+# ── Secrets (Settings → Environments → Cloud → Secrets) ───────────
 #   GCP_WIF_PROVIDER    Nom complet du provider WIF :
 #                       projects/<N>/locations/global/workloadIdentityPools/<pool>/providers/<provider>
 #   GCP_SERVICE_ACCOUNT Email du service account déployeur :
 #                       deployer@<project>.iam.gserviceaccount.com
-#   GCP_CREDENTIALS_JSON  (optional fallback) JSON key of the service account
+#
+# ── Variables (Settings → Environments → Cloud → Variables) ───────
 #   GCP_PROJECT_ID, GCP_REGION, GAR_REPOSITORY, GKE_CLUSTER, GKE_LOCATION
-#     (ces valeurs peuvent aussi être stockées comme secrets dans l'environnement "Cloud")
+#     (valeurs non sensibles → variables, pas secrets)
 #
 # Voir docs/DEPLOY_GKE.md pour la procédure complète de configuration GCP.
 
@@ -32,13 +35,15 @@ jobs:
     # Require the environment so that environment-scoped secrets are injected
     environment: Cloud
 
-    # Job-level env must read from environment secrets (they are not available at workflow root env)
+    # Non-sensitive config comes from environment variables (vars.*),
+    # auth secrets from secrets.* — both are injected because the job uses
+    # the "Cloud" environment.
     env:
-      PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-      GAR_LOCATION: ${{ secrets.GCP_REGION }}
-      REPOSITORY: ${{ secrets.GAR_REPOSITORY }}
-      GKE_CLUSTER: ${{ secrets.GKE_CLUSTER }}
-      GKE_LOCATION: ${{ secrets.GKE_LOCATION }}
+      PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GAR_LOCATION: ${{ vars.GCP_REGION }}
+      REPOSITORY: ${{ vars.GAR_REPOSITORY }}
+      GKE_CLUSTER: ${{ vars.GKE_CLUSTER }}
+      GKE_LOCATION: ${{ vars.GKE_LOCATION }}
 
     steps:
       - name: Checkout
@@ -48,36 +53,23 @@ jobs:
         id: tag
         run: echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
-      # Validate GCP secrets and choose auth method (wif preferred, else credentials_json)
+      # Validate required Workload Identity Federation secrets
       - name: Validate GCP secrets
-        id: gcp-validate
         run: |
           set -euo pipefail
           # Secrets are injected by Actions when the job uses the environment
           WIF="${{ secrets.GCP_WIF_PROVIDER }}"
-          CRED="${{ secrets.GCP_CREDENTIALS_JSON }}"
           SA="${{ secrets.GCP_SERVICE_ACCOUNT }}"
 
-          if [ -n "$WIF" ]; then
-            if [ -z "$SA" ]; then
-              echo "ERROR: GCP_WIF_PROVIDER is set but GCP_SERVICE_ACCOUNT is missing." >&2
-              exit 1
-            fi
-            echo "auth_method=wif" >> "$GITHUB_OUTPUT"
-            echo "Using Workload Identity Federation (WIF) for GCP authentication."
-          elif [ -n "$CRED" ]; then
-            echo "auth_method=creds" >> "$GITHUB_OUTPUT"
-            echo "Using credentials_json fallback for GCP authentication."
-          else
-            echo "ERROR: No GCP authentication secrets found. Set either:" >&2
-            echo "  - GCP_WIF_PROVIDER and GCP_SERVICE_ACCOUNT (recommended), or" >&2
-            echo "  - GCP_CREDENTIALS_JSON (service account JSON key)" >&2
+          if [ -z "$WIF" ] || [ -z "$SA" ]; then
+            echo "ERROR: Workload Identity Federation secrets missing." >&2
+            echo "  Set GCP_WIF_PROVIDER and GCP_SERVICE_ACCOUNT in the 'Cloud' environment." >&2
             exit 1
           fi
+          echo "Using Workload Identity Federation (WIF) for GCP authentication."
 
-      # Authenticate using Workload Identity Federation (runs only if chosen)
+      # Authenticate using Workload Identity Federation (OIDC, no JSON key)
       - name: Authenticate to Google Cloud (Workload Identity)
-        if: steps.gcp-validate.outputs.auth_method == 'wif'
         id: auth-wif
         uses: google-github-actions/auth@v2
         with:
