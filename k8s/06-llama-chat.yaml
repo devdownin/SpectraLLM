@@ -32,9 +32,12 @@ spec:
               mountPath: /fine-tuning
               readOnly: true
           resources:
+            # QoS Guaranteed : requests == limits → réservation stable, pas de
+            # throttling CPU sous contention, et l'auto-réglage (cgroup) voit la
+            # bonne taille.
             requests:
-              cpu: "2000m"
-              memory: "5Gi"
+              cpu: "4000m"
+              memory: "8Gi"
             limits:
               cpu: "4000m"
               memory: "8Gi"

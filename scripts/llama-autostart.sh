@@ -25,20 +25,32 @@ set -euo pipefail
 
 log() { echo "[autostart] $*"; }
 
-# ── Détection CPU ─────────────────────────────────────────────────────────────
+# ── Détection CPU (cgroup v2, puis v1, sinon nœud) ────────────────────────────
 
 CPU_CORES=$(nproc 2>/dev/null || echo 2)
 
-# cgroups v2 : quota CPU container (ex. --cpus=4.0 → 400000/100000)
-CPU_QUOTA=$(cat /sys/fs/cgroup/cpu.max 2>/dev/null || echo "max 100000")
-CPU_QUOTA_US=$(echo "$CPU_QUOTA" | awk '{print $1}')
-CPU_PERIOD_US=$(echo "$CPU_QUOTA" | awk '{print $2}')
-if [ "$CPU_QUOTA_US" != "max" ] && [ -n "$CPU_QUOTA_US" ]; then
-  CGROUP_CPUS=$(( CPU_QUOTA_US / CPU_PERIOD_US ))
-  [ $CGROUP_CPUS -lt $CPU_CORES ] && CPU_CORES=$CGROUP_CPUS
+# Plafonne au quota CPU du conteneur (Kubernetes limits.cpu / docker --cpus).
+CGROUP_CPUS=""
+if [ -r /sys/fs/cgroup/cpu.max ]; then
+  # cgroup v2 : "<quota> <période>" (quota = "max" si illimité)
+  read -r Q P < /sys/fs/cgroup/cpu.max 2>/dev/null || true
+  if [ "${Q:-max}" != "max" ] && [ "${P:-0}" -gt 0 ] 2>/dev/null; then
+    CGROUP_CPUS=$(( Q / P ))
+  fi
+elif [ -r /sys/fs/cgroup/cpu/cpu.cfs_quota_us ]; then
+  # cgroup v1 : quota = -1 si illimité ; période par défaut 100000 µs
+  Q=$(cat /sys/fs/cgroup/cpu/cpu.cfs_quota_us 2>/dev/null || echo -1)
+  P=$(cat /sys/fs/cgroup/cpu/cpu.cfs_period_us 2>/dev/null || echo 100000)
+  if [ "${Q:--1}" -gt 0 ] 2>/dev/null && [ "${P:-0}" -gt 0 ] 2>/dev/null; then
+    CGROUP_CPUS=$(( Q / P ))
+  fi
+fi
+if [ -n "$CGROUP_CPUS" ]; then
+  [ "$CGROUP_CPUS" -lt 1 ] 2>/dev/null && CGROUP_CPUS=1
+  [ "$CGROUP_CPUS" -lt "$CPU_CORES" ] && CPU_CORES=$CGROUP_CPUS
 fi
 
-# ── Détection RAM ─────────────────────────────────────────────────────────────
+# ── Détection RAM (cgroup v2, puis v1, sinon nœud) ────────────────────────────
 
 RAM_MB=0
 if [ -f /proc/meminfo ]; then
@@ -46,11 +58,21 @@ if [ -f /proc/meminfo ]; then
   RAM_MB=$((RAM_KB / 1024))
 fi
 
-# cgroups v2 : limite mémoire container
-CGROUP_MEM=$(cat /sys/fs/cgroup/memory.max 2>/dev/null || echo "max")
-if [ "$CGROUP_MEM" != "max" ] && [ -n "$CGROUP_MEM" ]; then
-  CGROUP_MEM_MB=$((CGROUP_MEM / 1024 / 1024))
-  [ $CGROUP_MEM_MB -lt $RAM_MB ] && RAM_MB=$CGROUP_MEM_MB
+# Plafonne à la limite mémoire du conteneur (Kubernetes limits.memory).
+CGROUP_MEM_BYTES=""
+if [ -r /sys/fs/cgroup/memory.max ]; then
+  M=$(cat /sys/fs/cgroup/memory.max 2>/dev/null || echo max)                  # v2
+  [ "$M" != "max" ] && CGROUP_MEM_BYTES=$M
+elif [ -r /sys/fs/cgroup/memory/memory.limit_in_bytes ]; then
+  M=$(cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null || echo 0)  # v1
+  # v1 "illimité" = valeur proche de LLONG_MAX → on l'ignore
+  if [ "${M:-0}" -gt 0 ] 2>/dev/null && [ "$M" -lt 9223372036854000000 ] 2>/dev/null; then
+    CGROUP_MEM_BYTES=$M
+  fi
+fi
+if [ -n "$CGROUP_MEM_BYTES" ]; then
+  CGROUP_MEM_MB=$(( CGROUP_MEM_BYTES / 1024 / 1024 ))
+  [ "$CGROUP_MEM_MB" -gt 0 ] && [ "$CGROUP_MEM_MB" -lt "$RAM_MB" ] && RAM_MB=$CGROUP_MEM_MB
 fi
 
 # ── Détection GPU ─────────────────────────────────────────────────────────────
