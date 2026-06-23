@@ -27,6 +27,11 @@ permissions:
   contents: read
   id-token: write   # requis pour l'échange de jeton OIDC (Workload Identity Federation)
 
+# Un seul déploiement à la fois ; un nouveau push annule le run en cours.
+concurrency:
+  group: deploy-gke-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   deploy:
     name: Build images & deploy to GKE
@@ -144,5 +149,8 @@ jobs:
       - name: Wait for rollouts
         run: |
           set -euo pipefail
+          # Les serveurs llama chargent le modèle GGUF (1–5 min) → timeout généreux.
+          kubectl -n spectra rollout status deployment/llama-cpp-embed  --timeout=600s
+          kubectl -n spectra rollout status deployment/llama-cpp-chat   --timeout=900s
           kubectl -n spectra rollout status deployment/spectra-api      --timeout=600s
           kubectl -n spectra rollout status deployment/spectra-frontend --timeout=300s

@@ -307,3 +307,11 @@
 ::-webkit-scrollbar-thumb:hover {
   @apply bg-primary/30;
 }
+
+/* Rendu paresseux natif des longues listes (effet "virtualisation" sans JS) :
+   le navigateur saute la mise en page/peinture des lignes hors écran.
+   contain-intrinsic-size ≈ hauteur d'une ligne → barre de défilement stable. */
+.cv-auto {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 76px;
+}

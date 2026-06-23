@@ -356,7 +356,7 @@ const Pipelines: FC = () => {
       <div
         key={doc.sha256}
         onClick={() => setSelectedSha(doc.sha256)}
-        className={`group grid grid-cols-1 lg:grid-cols-[32px_minmax(0,1.5fr)_100px_140px_120px_100px_80px] gap-4 items-center px-4 py-4 bg-surface-container-low hover:bg-surface-container-high transition-all cursor-pointer border-l-2 ${isActive ? 'border-primary bg-surface-container-high' : 'border-transparent'}`}
+        className={`cv-auto group grid grid-cols-1 lg:grid-cols-[32px_minmax(0,1.5fr)_100px_140px_120px_100px_80px] gap-4 items-center px-4 py-4 bg-surface-container-low hover:bg-surface-container-high transition-all cursor-pointer border-l-2 ${isActive ? 'border-primary bg-surface-container-high' : 'border-transparent'}`}
       >
         <button
           type="button"
@@ -617,7 +617,7 @@ const Pipelines: FC = () => {
       {/* Document List */}
       <section className="space-y-1">
         {/* Column headers */}
-        <div className="hidden lg:grid lg:grid-cols-[32px_minmax(0,1.5fr)_100px_140px_120px_100px_80px] gap-4 px-4 py-3 border-b border-outline-variant/10 text-[9px] font-label uppercase tracking-widest text-outline">
+        <div className="hidden lg:grid sticky top-0 z-10 bg-background lg:grid-cols-[32px_minmax(0,1.5fr)_100px_140px_120px_100px_80px] gap-4 px-4 py-3 border-b border-outline-variant/10 text-[9px] font-label uppercase tracking-widest text-outline">
           <div className="flex justify-center">
             <button
               type="button"
@@ -639,7 +639,7 @@ const Pipelines: FC = () => {
           <span className="text-right">Actions</span>
         </div>
 
-        <div className="space-y-1">
+        <div className="max-h-[70vh] overflow-y-auto custom-scrollbar space-y-1 pr-1">
           {groupBy === 'none' ? (
             <>
               {paginatedItems.map(renderRow)}
