@@ -1,0 +1,48 @@
+name: Validate k8s manifests
+
+# Valide que les manifestes Kubernetes (base + overlays) se construisent avec
+# kustomize et respectent les schémas Kubernetes (kubeconform). Purement
+# statique : ne se connecte à aucun cluster.
+
+on:
+  pull_request:
+    paths:
+      - 'k8s/**'
+      - '.github/workflows/k8s-validate.yml'
+  push:
+    branches: [ "main", "master" ]
+    paths:
+      - 'k8s/**'
+
+jobs:
+  validate:
+    name: kustomize build + kubeconform
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install kustomize (si absent) et kubeconform
+        run: |
+          set -euo pipefail
+          if ! command -v kustomize >/dev/null 2>&1; then
+            curl -sSL "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+            sudo mv kustomize /usr/local/bin/
+          fi
+          kustomize version
+          curl -sSLo kubeconform.tar.gz \
+            https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
+          tar xzf kubeconform.tar.gz
+          sudo mv kubeconform /usr/local/bin/
+          kubeconform -v
+
+      - name: Build & validate base (k8s/)
+        run: |
+          set -euo pipefail
+          kustomize build k8s/ > /tmp/base.yaml
+          kubeconform -strict -summary -ignore-missing-schemas /tmp/base.yaml
+
+      - name: Build & validate GPU overlay (k8s/overlays/gpu)
+        run: |
+          set -euo pipefail
+          kustomize build k8s/overlays/gpu/ > /tmp/gpu.yaml
+          kubeconform -strict -summary -ignore-missing-schemas /tmp/gpu.yaml

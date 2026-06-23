@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import java.time.Duration;
 import java.util.List;
@@ -90,26 +91,57 @@ public class ChromaDbClient {
         String cached = collectionIdCache.get(name);
         if (cached != null) return cached;
 
-        // Configuration HNSW explicite (sinon ChromaDB applique L2 par défaut) :
+        // Création avec espace cosinus + réglages HNSW (sinon ChromaDB applique L2
+        // par défaut) :
         //  - space=cosine : convention RAG, scores de similarité interprétables [0,1]
         //    (les vecteurs de llama.cpp /v1/embeddings sont normalisés)
         //  - ef_search relevé : meilleur recall qu'avec le défaut (~10), un reranker
         //    affine ensuite le top-K
         //  - ef_construction relevé : index plus précis à la construction
+        // Le SCHÉMA de configuration dépend de la version de ChromaDB : on tente
+        // l'API 1.x (configuration.hnsw), puis on retombe sur les métadonnées
+        // hnsw:* (versions plus anciennes), enfin sur une création simple — afin
+        // que le cosinus soit appliqué quelle que soit la version sans jamais
+        // casser la création.
         // NB : l'espace de distance est figé à la création ; une collection déjà
         // existante conserve sa configuration (get_or_create ne la modifie pas).
-        Map<String, Object> body = Map.of(
-                "name", name,
-                "get_or_create", true,
-                "configuration", Map.of(
-                        "hnsw", Map.of(
-                                "space", "cosine",
-                                "ef_search", 100,
-                                "ef_construction", 200
-                        )
-                )
-        );
+        String id = createCollectionWithCosine(name);
+        collectionIdCache.put(name, id);
+        return id;
+    }
 
+    /** Crée la collection en cosinus selon plusieurs schémas, du plus récent au plus ancien. */
+    private String createCollectionWithCosine(String name) {
+        // ChromaDB 1.x : objet `configuration.hnsw`
+        Map<String, Object> modern = Map.of(
+                "name", name, "get_or_create", true,
+                "configuration", Map.of("hnsw", Map.of(
+                        "space", "cosine", "ef_search", 100, "ef_construction", 200)));
+        try {
+            return postCreateCollection(name, modern);
+        } catch (WebClientResponseException e) {
+            if (!e.getStatusCode().is4xxClientError()) throw e;
+            log.warn("ChromaDB: 'configuration.hnsw' refusé ({}), repli sur métadonnées hnsw:*",
+                    e.getStatusCode());
+        }
+        // Versions plus anciennes : métadonnées `hnsw:*`
+        Map<String, Object> legacy = Map.of(
+                "name", name, "get_or_create", true,
+                "metadata", Map.of(
+                        "hnsw:space", "cosine", "hnsw:search_ef", 100, "hnsw:construction_ef", 200));
+        try {
+            return postCreateCollection(name, legacy);
+        } catch (WebClientResponseException e) {
+            if (!e.getStatusCode().is4xxClientError()) throw e;
+            log.warn("ChromaDB: métadonnées hnsw:* refusées ({}), création sans réglage HNSW "
+                    + "(distance par défaut)", e.getStatusCode());
+        }
+        // Dernier recours : création simple (laisse la distance par défaut)
+        return postCreateCollection(name, Map.of("name", name, "get_or_create", true));
+    }
+
+    @SuppressWarnings("unchecked")
+    private String postCreateCollection(String name, Map<String, Object> body) {
         Map<String, Object> response = webClient.post()
                 .uri(COLLECTIONS_BASE)
                 .bodyValue(body)
@@ -121,13 +153,10 @@ public class ChromaDbClient {
         if (response == null) {
             throw new IllegalStateException("ChromaDB: réponse vide lors de getOrCreateCollection('" + name + "')");
         }
-
         String id = (String) response.get("id");
         if (id == null) {
             throw new IllegalStateException("ChromaDB: champ 'id' absent de la réponse pour la collection '" + name + "'");
         }
-
-        collectionIdCache.put(name, id);
         return id;
     }
 
