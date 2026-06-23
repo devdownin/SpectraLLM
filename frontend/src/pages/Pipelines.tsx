@@ -639,7 +639,7 @@ const Pipelines: FC = () => {
           <span className="text-right">Actions</span>
         </div>
 
-        <div className="space-y-1">
+        <div className="max-h-[70vh] overflow-y-auto custom-scrollbar space-y-1 pr-1">
           {groupBy === 'none' ? (
             <>
               {paginatedItems.map(renderRow)}
