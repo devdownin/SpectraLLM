@@ -169,7 +169,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,prometheus
+        include: health,info,prometheus,metrics
   endpoint:
     health:
       show-details: always
@@ -177,6 +177,15 @@ management:
       # externes/diskSpace (évite les redémarrages en cascade).
       probes:
         enabled: true
+  metrics:
+    distribution:
+      # Histogrammes (percentiles calculés côté Prometheus via histogram_quantile)
+      # pour les requêtes HTTP et les requêtes RAG → tableaux de bord latence + SLO.
+      percentiles-histogram:
+        http.server.requests: true
+        spectra.rag.query: true
+      slo:
+        http.server.requests: 50ms, 100ms, 250ms, 500ms, 1s, 2s, 5s
 
 # OpenAPI
 springdoc:

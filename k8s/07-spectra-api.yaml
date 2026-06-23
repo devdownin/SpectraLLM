@@ -16,18 +16,45 @@ spec:
     metadata:
       labels:
         app: spectra-api
+      annotations:
+        # Découverte/scraping par Prometheus (annotations sur les pods)
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/actuator/prometheus"
     spec:
       # ── Init containers : attendre que les dépendances soient prêtes ───
       initContainers:
+        # requests == limits sur CHAQUE conteneur (init compris) → QoS Guaranteed.
         - name: wait-for-chromadb
           image: busybox:1.36
           command: ['sh', '-c', 'until wget -qO- http://chromadb:8000/api/v2/heartbeat 2>/dev/null | grep -q heartbeat; do echo "Attente ChromaDB..."; sleep 5; done']
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "32Mi"
+            limits:
+              cpu: "50m"
+              memory: "32Mi"
         - name: wait-for-llama-embed
           image: busybox:1.36
           command: ['sh', '-c', 'until wget -qO- http://llama-cpp-embed:8080/health 2>/dev/null | grep -q ok; do echo "Attente llama-embed..."; sleep 5; done']
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "32Mi"
+            limits:
+              cpu: "50m"
+              memory: "32Mi"
         - name: wait-for-llama-chat
           image: busybox:1.36
           command: ['sh', '-c', 'until wget -qO- http://llama-cpp-chat:8080/health 2>/dev/null | grep -q ok; do echo "Attente llama-chat..."; sleep 5; done']
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "32Mi"
+            limits:
+              cpu: "50m"
+              memory: "32Mi"
 
       containers:
         - name: spectra-api
@@ -49,10 +76,12 @@ spec:
               mountPath: /app/data/fine-tuning
             - name: models
               mountPath: /app/data/models
+          # QoS Guaranteed : requests == limits → réservation stable, pas de
+          # throttling CPU sous contention (même garantie que les pods llama).
           resources:
             requests:
-              cpu: "250m"
-              memory: "512Mi"
+              cpu: "1000m"
+              memory: "2Gi"
             limits:
               cpu: "1000m"
               memory: "2Gi"
