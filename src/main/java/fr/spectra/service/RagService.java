@@ -3,6 +3,7 @@ package fr.spectra.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import fr.spectra.config.SpectraProperties;
+import io.micrometer.core.annotation.Timed;
 import fr.spectra.dto.QueryRequest;
 import fr.spectra.dto.QueryResponse;
 import org.slf4j.Logger;
@@ -145,6 +146,7 @@ public class RagService {
         this.streamTimeout = Duration.ofSeconds(timeoutSecs);
     }
 
+    @Timed(value = "spectra.rag.query", description = "Latence du traitement d'une requête RAG (hors I/O HTTP)")
     public QueryResponse query(QueryRequest request) {
         long start = System.currentTimeMillis();
 

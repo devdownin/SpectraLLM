@@ -16,6 +16,11 @@ spec:
     metadata:
       labels:
         app: spectra-api
+      annotations:
+        # Découverte/scraping par Prometheus (annotations sur les pods)
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/actuator/prometheus"
     spec:
       # ── Init containers : attendre que les dépendances soient prêtes ───
       initContainers:
