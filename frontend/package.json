@@ -29,7 +29,7 @@
     "lucide-react": "1.21.0",
     "material-symbols": "^0.45.1",
     "react": "^19.2.7",
-    "react-dom": "^19.2.6",
+    "react-dom": "^19.2.7",
     "react-hook-form": "7.75.0",
     "react-markdown": "^10.1.0",
     "react-router-dom": "7.18.0",

@@ -159,6 +159,7 @@ public class LlamaCppChatClient implements LlmChatClient {
         Map<String, Object> request = Map.of(
                 "model", activeModel.get(),
                 "stream", false,
+                "max_tokens", 2048,
                 "messages", List.of(
                         Map.of("role", "system", "content", systemPrompt),
                         Map.of("role", "user", "content", userMessage)
@@ -227,6 +228,7 @@ public class LlamaCppChatClient implements LlmChatClient {
         Map<String, Object> request = Map.of(
                 "model",       activeModel.get(),
                 "stream",      true,
+                "max_tokens",  2048,
                 "temperature", temperature,
                 "top_p",       topP,
                 "messages",    List.of(

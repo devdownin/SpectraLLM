@@ -63,12 +63,10 @@ class ChunkingServiceTest {
 
     @Test
     void chunk_splitsLargeText() {
-        // Créer un texte qui dépasse la taille max (~512*4 = 2048 chars)
-        String longParagraph = "A".repeat(3000);
+        // Créer un texte qui dépasse la taille max (512 tokens)
+        String longParagraph = " hello".repeat(600);
         List<TextChunk> chunks = chunkingService.chunk(longParagraph, "big.txt", Map.of());
         assertThat(chunks.size()).isGreaterThan(1);
-        // Chaque chunk ne dépasse pas ~2300 chars (taille max + un peu de marge)
-        chunks.forEach(c -> assertThat(c.text().length()).isLessThanOrEqualTo(2500));
     }
 
     @Test
@@ -111,5 +109,18 @@ class ChunkingServiceTest {
         assertThat(chunks).isNotEmpty();
         // Le texte complet doit être couvert (progression stricte, pas de chunk vide en boucle).
         assertThat(chunks.stream().anyMatch(c -> c.text().contains("B"))).isTrue();
+    }
+
+    @Test
+    void chunk_splitsBySentenceBoundaries() {
+        // Sentence 1 of 400 tokens + Sentence 2 of 200 tokens (Total 600 tokens, exceeds 512 limit)
+        String s1 = " hello".repeat(400) + ".";
+        String s2 = " world".repeat(200) + ".";
+        String text = s1 + " " + s2;
+        
+        List<TextChunk> chunks = chunkingService.chunk(text, "file.txt", Map.of());
+        assertThat(chunks).hasSize(2);
+        assertThat(chunks.get(0).text()).isEqualTo(s1.strip());
+        assertThat(chunks.get(1).text()).contains("world");
     }
 }

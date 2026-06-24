@@ -5,6 +5,8 @@ import fr.spectra.dto.FineTuningJob;
 import fr.spectra.dto.FineTuningJob.Status;
 import fr.spectra.dto.FineTuningRequest;
 import fr.spectra.model.TrainingPair;
+import fr.spectra.persistence.FineTuningJobEntity;
+import fr.spectra.persistence.FineTuningJobRepository;
 import fr.spectra.service.dataset.DatasetGeneratorService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,20 +42,23 @@ public class FineTuningService {
 
     private final DatasetGeneratorService datasetGenerator;
     private final LlmChatClient llmClient;
+    private final FineTuningJobRepository repository;
     private final Path workDir;
     private final String trainingScript;
 
-    private final Map<String, FineTuningJob> jobs = new ConcurrentHashMap<>();
+    private final Map<String, Process> activeProcesses = new ConcurrentHashMap<>();
     private final Set<String> cancelledJobs = ConcurrentHashMap.newKeySet();
 
     public FineTuningService(DatasetGeneratorService datasetGenerator,
                              LlmChatClient llmClient,
+                             FineTuningJobRepository repository,
                              @Value("${spectra.fine-tuning.work-dir:./data/fine-tuning}") String workDir,
                              @Value("${spectra.fine-tuning.script:./scripts/train.sh}") String trainingScript) {
-        this.datasetGenerator = datasetGenerator;
-        this.llmClient = llmClient;
-        this.workDir = Path.of(workDir);
-        this.trainingScript = trainingScript;
+         this.datasetGenerator = datasetGenerator;
+         this.llmClient = llmClient;
+         this.repository = repository;
+         this.workDir = Path.of(workDir);
+         this.trainingScript = trainingScript;
     }
 
     /**
@@ -75,37 +80,50 @@ public class FineTuningService {
                 request.dpoEnabled()
         );
 
-        jobs.put(jobId, FineTuningJob.pending(jobId, resolved));
+        FineTuningJob job = FineTuningJob.pending(jobId, resolved);
+        repository.save(FineTuningJobEntity.fromDto(job));
         runAsync(jobId, resolved);
         return jobId;
     }
 
     public FineTuningJob getJob(String jobId) {
-        return jobs.get(jobId);
+        return repository.findById(jobId).map(FineTuningJobEntity::toDto).orElse(null);
     }
 
     public List<FineTuningJob> getAllJobs() {
-        return new ArrayList<>(jobs.values());
+        return repository.findAll().stream().map(FineTuningJobEntity::toDto).toList();
     }
 
     public boolean cancelJob(String jobId) {
-        FineTuningJob job = jobs.get(jobId);
-        if (job == null) return false;
+        FineTuningJobEntity entity = repository.findById(jobId).orElse(null);
+        if (entity == null) return false;
+        FineTuningJob job = entity.toDto();
         if (job.status() == Status.COMPLETED || job.status() == Status.FAILED) return false;
+        
         cancelledJobs.add(jobId);
-        updateJob(jobId, j -> j.failed("Annulé par l'utilisateur"));
+        
+        Process process = activeProcesses.remove(jobId);
+        if (process != null) {
+            log.info("Job {}: interruption forcée du processus OS d'entraînement.", jobId);
+            process.destroyForcibly();
+        }
+        
+        repository.save(FineTuningJobEntity.fromDto(job.failed("Annulé par l'utilisateur")));
         return true;
     }
 
     @Scheduled(fixedDelay = 3_600_000)
     public void cleanupOldJobs() {
         Instant cutoff = Instant.now().minusSeconds(3600);
-        jobs.entrySet().removeIf(e -> {
-            FineTuningJob j = e.getValue();
-            return (j.status() == Status.COMPLETED || j.status() == Status.FAILED)
-                    && j.completedAt() != null && j.completedAt().isBefore(cutoff);
-        });
-        cancelledJobs.removeIf(id -> !jobs.containsKey(id));
+        List<FineTuningJobEntity> toDelete = repository.findAll().stream()
+                .filter(e -> {
+                    FineTuningJob j = e.toDto();
+                    return (j.status() == Status.COMPLETED || j.status() == Status.FAILED)
+                            && j.completedAt() != null && j.completedAt().isBefore(cutoff);
+                })
+                .toList();
+        repository.deleteAll(toDelete);
+        cancelledJobs.removeIf(id -> repository.findById(id).isEmpty());
     }
 
     @Async
@@ -135,6 +153,11 @@ public class FineTuningService {
 
             int exitCode = runTrainingProcess(jobId, request, datasetFile, adapterPath);
 
+            if (cancelledJobs.contains(jobId)) {
+                log.info("Job {} annulé par l'utilisateur, arrêt de la tâche asynchrone.", jobId);
+                return;
+            }
+
             if (exitCode != 0) {
                 updateJob(jobId, j -> j.failed("Le script d'entraînement a retourné le code " + exitCode));
                 return;
@@ -148,14 +171,19 @@ public class FineTuningService {
             log.info("Job {}: entraînement terminé, adaptateur: {}", jobId, adapterPath);
 
             // ── Étape 3 : Modèle prêt ──
-            // Le fichier GGUF produit doit être placé dans ./data/models/ puis le serveur LLM redémarré.
             log.info("Job {}: modèle '{}' prêt → {}", jobId, request.modelName(), adapterPath);
 
             updateJob(jobId, j -> j.completed(adapterPath.toString()));
 
         } catch (Exception e) {
+            if (cancelledJobs.contains(jobId)) {
+                log.info("Job {} annulé par l'utilisateur (interruption de flux), arrêt propre.", jobId);
+                return;
+            }
             log.error("Job {} échoué: {}", jobId, e.getMessage(), e);
             updateJob(jobId, j -> j.failed(e.getMessage()));
+        } finally {
+            cancelledJobs.remove(jobId);
         }
     }
 
@@ -201,17 +229,25 @@ public class FineTuningService {
                 .redirectErrorStream(true);
 
         Process process = pb.start();
+        activeProcesses.put(jobId, process);
 
-        // Lire la sortie du process pour détecter la progression
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                log.info("Job {} [train]: {}", jobId, line);
-                parseTrainingOutput(jobId, line);
+        try {
+            // Lire la sortie du process pour détecter la progression
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (cancelledJobs.contains(jobId)) {
+                        process.destroyForcibly();
+                        break;
+                    }
+                    log.info("Job {} [train]: {}", jobId, line);
+                    parseTrainingOutput(jobId, line);
+                }
             }
+            return process.waitFor();
+        } finally {
+            activeProcesses.remove(jobId);
         }
-
-        return process.waitFor();
     }
 
     /**
@@ -250,6 +286,9 @@ public class FineTuningService {
     }
 
     private void updateJob(String jobId, java.util.function.UnaryOperator<FineTuningJob> updater) {
-        jobs.computeIfPresent(jobId, (k, v) -> updater.apply(v));
+        repository.findById(jobId).ifPresent(entity -> {
+            FineTuningJob updated = updater.apply(entity.toDto());
+            repository.save(FineTuningJobEntity.fromDto(updated));
+        });
     }
 }

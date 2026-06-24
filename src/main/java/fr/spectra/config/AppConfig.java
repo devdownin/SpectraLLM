@@ -57,7 +57,11 @@ public class AppConfig {
         String baseUrl = props.chromadb() != null && props.chromadb().baseUrl() != null
                 ? props.chromadb().baseUrl()
                 : "http://chromadb:8000";
-        return WebClient.builder().baseUrl(baseUrl).clientConnector(connector(Duration.ofSeconds(60))).build();
+        return WebClient.builder()
+                .baseUrl(baseUrl)
+                .clientConnector(connector(Duration.ofSeconds(60)))
+                .codecs(c -> c.defaultCodecs().maxInMemorySize(-1))
+                .build();
     }
 
     @Bean

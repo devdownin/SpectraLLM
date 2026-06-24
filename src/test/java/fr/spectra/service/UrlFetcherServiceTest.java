@@ -36,12 +36,12 @@ class UrlFetcherServiceTest {
 
     // Mocks de la chaîne fluide WebClient
     private WebClient mockWebClient;
-    private WebClient.RequestHeadersUriSpec<?> headUriSpec;
-    private WebClient.RequestHeadersSpec<?> headReqSpec;
+    private WebClient.RequestHeadersUriSpec headUriSpec;
+    private WebClient.RequestHeadersSpec headReqSpec;
     private WebClient.ResponseSpec headResponseSpec;
 
-    private WebClient.RequestHeadersUriSpec<?> getUriSpec;
-    private WebClient.RequestHeadersSpec<?> getReqSpec;
+    private WebClient.RequestHeadersUriSpec getUriSpec;
+    private WebClient.RequestHeadersSpec getReqSpec;
     private WebClient.ResponseSpec getResponseSpec;
 
     private UrlFetcherService fetcher;
@@ -57,13 +57,13 @@ class UrlFetcherServiceTest {
         getResponseSpec  = mock(WebClient.ResponseSpec.class);
 
         // Branchement de la chaîne HEAD
-        when(mockWebClient.head()).thenReturn((WebClient.RequestHeadersUriSpec) headUriSpec);
-        when(headUriSpec.uri(any(java.net.URI.class))).thenReturn((WebClient.RequestHeadersSpec) headReqSpec);
+        when(mockWebClient.head()).thenReturn(headUriSpec);
+        when(headUriSpec.uri(any(java.net.URI.class))).thenReturn(headReqSpec);
         when(headReqSpec.retrieve()).thenReturn(headResponseSpec);
 
         // Branchement de la chaîne GET
-        when(mockWebClient.get()).thenReturn((WebClient.RequestHeadersUriSpec) getUriSpec);
-        when(getUriSpec.uri(any(java.net.URI.class))).thenReturn((WebClient.RequestHeadersSpec) getReqSpec);
+        when(mockWebClient.get()).thenReturn(getUriSpec);
+        when(getUriSpec.uri(any(java.net.URI.class))).thenReturn(getReqSpec);
         when(getReqSpec.retrieve()).thenReturn(getResponseSpec);
 
         // Builder → retourne notre mockWebClient
@@ -249,7 +249,7 @@ class UrlFetcherServiceTest {
     private void stubBrowserlessGet(byte[] bytes) {
         // browserless est appelé via GET sur ${browserlessUrl}/content?url=...
         // L'URI contiendra "browserless" dans notre config de test
-        when(getUriSpec.uri(any(java.net.URI.class))).thenReturn((WebClient.RequestHeadersSpec) getReqSpec);
+        when(getUriSpec.uri(any(java.net.URI.class))).thenReturn(getReqSpec);
         when(getReqSpec.retrieve()).thenReturn(getResponseSpec);
         when(getResponseSpec.bodyToMono(byte[].class)).thenReturn(Mono.just(bytes));
     }

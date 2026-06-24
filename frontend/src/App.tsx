@@ -35,9 +35,9 @@ const LoadingState: FC = () => (
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <ErrorBoundary>
-        <Router basename={import.meta.env.BASE_URL}>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <Router basename="/">
           <Layout>
             <Suspense fallback={<LoadingState />}>
               <Routes>
@@ -54,8 +54,8 @@ function App() {
             </Suspense>
           </Layout>
         </Router>
-      </ErrorBoundary>
-    </QueryClientProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
 

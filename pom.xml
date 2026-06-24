@@ -104,6 +104,13 @@
             <version>2.21.3</version>
         </dependency>
 
+        <!-- Tokenizer -->
+        <dependency>
+            <groupId>com.knuddels</groupId>
+            <artifactId>jtokkit</artifactId>
+            <version>1.1.0</version>
+        </dependency>
+
         <!-- Test -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

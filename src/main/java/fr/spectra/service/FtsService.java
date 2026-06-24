@@ -8,6 +8,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -19,7 +22,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *
  * <p>Index lifecycle:
  * <ul>
- *   <li>Rebuilt asynchronously from ChromaDB at startup for the default collection.</li>
+ *   <li>Rebuilt asynchronously from disk (or fallback to ChromaDB) at startup for the default collection.</li>
  *   <li>Kept in sync via {@link #indexChunks} (called by IngestionTaskExecutor) and
  *       {@link #removeBySource} (called by DocumentController).</li>
  * </ul>
@@ -28,6 +31,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class FtsService {
 
     private static final Logger log = LoggerFactory.getLogger(FtsService.class);
+    private static final Path INDEX_DIR = Path.of("./data/fts-index");
 
     private final ChromaDbClient chromaDbClient;
     private final SpectraProperties props;
@@ -85,6 +89,15 @@ public class FtsService {
         }
         log.info("FTS: rebuilding index for collection '{}'", collectionName);
         try {
+            // Tentative de chargement depuis le disque d'abord
+            BM25Index diskIndex = loadIndexFromDisk(collectionName);
+            if (diskIndex != null) {
+                indices.put(collectionName, diskIndex);
+                log.info("FTS: index '{}' loaded from disk ({} chunks)", collectionName, diskIndex.size());
+                return;
+            }
+
+            // Fallback : reconstruction depuis ChromaDB
             String collectionId = chromaDbClient.getOrCreateCollection(collectionName);
             BM25Index index = new BM25Index();
             int offset = 0;
@@ -117,6 +130,7 @@ public class FtsService {
             }
 
             indices.put(collectionName, index);
+            saveIndexToDisk(collectionName, index);
             log.info("FTS: index '{}' rebuilt — {} chunks indexed", collectionName, total);
         } catch (Exception e) {
             log.warn("FTS: could not rebuild index for '{}': {}", collectionName, e.getMessage());
@@ -132,6 +146,7 @@ public class FtsService {
             for (TextChunk chunk : chunks) {
                 index.add(chunk.id(), chunk.text(), chunk.sourceFile());
             }
+            saveIndexToDisk(collectionName, index);
             return index;
         });
         log.debug("FTS: indexed {} chunks into '{}'", chunks.size(), collectionName);
@@ -140,10 +155,38 @@ public class FtsService {
     /** Remove all chunks belonging to a source file. Called from DocumentController. */
     public void removeBySource(String sourceFile, String collectionName) {
         indices.compute(collectionName, (k, existing) -> {
-            if (existing != null) existing.removeBySource(sourceFile);
+            if (existing != null) {
+                existing.removeBySource(sourceFile);
+                saveIndexToDisk(collectionName, existing);
+            }
             return existing;
         });
         log.debug("FTS: removed '{}' from index '{}'", sourceFile, collectionName);
+    }
+
+    private BM25Index loadIndexFromDisk(String collectionName) {
+        Path file = INDEX_DIR.resolve(collectionName + ".bin");
+        if (!Files.exists(file)) {
+            return null;
+        }
+        try (ObjectInputStream ois = new ObjectInputStream(Files.newInputStream(file))) {
+            return (BM25Index) ois.readObject();
+        } catch (Exception e) {
+            log.warn("FTS: failed to deserialize index for '{}' from disk, rebuilding: {}", collectionName, e.getMessage());
+            return null;
+        }
+    }
+
+    private void saveIndexToDisk(String collectionName, BM25Index index) {
+        try {
+            Files.createDirectories(INDEX_DIR);
+            Path file = INDEX_DIR.resolve(collectionName + ".bin");
+            try (ObjectOutputStream oos = new ObjectOutputStream(Files.newOutputStream(file))) {
+                oos.writeObject(index);
+            }
+        } catch (Exception e) {
+            log.warn("FTS: failed to serialize index for '{}' to disk: {}", collectionName, e.getMessage());
+        }
     }
 
     /**

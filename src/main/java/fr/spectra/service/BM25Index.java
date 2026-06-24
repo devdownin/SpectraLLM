@@ -1,5 +1,7 @@
 package fr.spectra.service;
 
+import java.io.IOException;
+import java.io.Serializable;
 import java.util.*;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -13,13 +15,20 @@ import java.util.stream.Collectors;
  * IDF(t) = ln((N − df(t) + 0.5) / (df(t) + 0.5) + 1)
  * k1=1.5, b=0.75 (standard Okapi defaults)
  */
-public class BM25Index {
+public class BM25Index implements Serializable {
+
+    private static final long serialVersionUID = 1L;
 
     private static final float K1 = 1.5f;
     private static final float B  = 0.75f;
     private static final int   MIN_TOKEN_LEN = 2;
 
-    private final ReadWriteLock lock = new ReentrantReadWriteLock();
+    private transient ReadWriteLock lock = new ReentrantReadWriteLock();
+
+    private void readObject(java.io.ObjectInputStream in) throws IOException, ClassNotFoundException {
+        in.defaultReadObject();
+        this.lock = new ReentrantReadWriteLock();
+    }
 
     // docId → token frequency map
     private final Map<String, Map<String, Integer>> docTermFreq = new HashMap<>();

@@ -10,7 +10,7 @@ OK=1
 echo "=== Spectra — Vérification des modèles ==="
 
 # ── Chat model ──────────────────────────────────────────────────────────────
-SIZE_CHAT=$(wc -c < "/models/${CHAT}" 2>/dev/null || echo 0)
+SIZE_CHAT=$(stat -c %s "/models/${CHAT}" 2>/dev/null || echo 0)
 if [ ! -f "/models/${CHAT}" ] || [ "${SIZE_CHAT}" -lt 1048576 ]; then
   echo ""
   echo "[MANQUANT] Modèle de chat : ${CHAT}"
@@ -29,7 +29,7 @@ else
 fi
 
 # ── Embedding model ─────────────────────────────────────────────────────────
-SIZE_EMBED=$(wc -c < "/models/${EMBED}" 2>/dev/null || echo 0)
+SIZE_EMBED=$(stat -c %s "/models/${EMBED}" 2>/dev/null || echo 0)
 if [ ! -f "/models/${EMBED}" ] || [ "${SIZE_EMBED}" -lt 1048576 ]; then
   echo ""
   echo "[MANQUANT] Modèle d'embedding : ${EMBED}"
