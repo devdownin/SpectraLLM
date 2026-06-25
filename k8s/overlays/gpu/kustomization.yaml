@@ -18,7 +18,7 @@ kind: Kustomization
 namespace: spectra
 
 resources:
-  - ../..
+  - ../../base
 
 patches:
   - path: patches.yaml

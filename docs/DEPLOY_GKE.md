@@ -18,7 +18,7 @@ push main ─▶ GitHub Actions
               ├─ auth OIDC (Workload Identity Federation)
               ├─ docker build/push  spectra-api · spectra-frontend · spectra-llama-cpp
               │     └─▶ Artifact Registry (<region>-docker.pkg.dev/<projet>/<repo>)
-              └─ kubectl apply -k k8s/  ─▶  cluster GKE (namespace `spectra`)
+              └─ kubectl apply -k k8s/base/  ─▶  cluster GKE (namespace `spectra`)
 ```
 
 Le workflow déploie les manifests de [`k8s/`](../k8s/). Les modèles GGUF et les
