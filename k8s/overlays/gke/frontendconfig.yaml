@@ -1,0 +1,11 @@
+# Redirection HTTP → HTTPS au niveau du load balancer GKE.
+# Référencé par l'Ingress via l'annotation networking.gke.io/v1beta1.FrontendConfig.
+apiVersion: networking.gke.io/v1beta1
+kind: FrontendConfig
+metadata:
+  name: spectra-frontend-config
+  namespace: spectra
+spec:
+  redirectToHttps:
+    enabled: true
+    responseCodeName: MOVED_PERMANENTLY_DEFAULT

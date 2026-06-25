@@ -1,0 +1,64 @@
+# Règles d'alerte Prometheus pour spectra-api.
+# Métriques exposées par Micrometer (tag commun application="spectrallm") :
+#   http_server_requests_seconds_*   — latence/volume HTTP (+ histogramme → quantiles)
+#   spectra_rag_query_seconds_*      — latence du traitement RAG (@Timed, histogramme)
+#   jvm_memory_used_bytes / max      — heap JVM
+#
+# Le label `release` doit matcher le ruleSelector de votre Prometheus Operator.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: spectra-api
+  namespace: spectra
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: spectra-api.rules
+      rules:
+        - alert: SpectraApiDown
+          expr: up{job="spectra-api"} == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "spectra-api injoignable"
+            description: "La cible spectra-api ne répond plus au scrape depuis 2 min."
+
+        - alert: SpectraHighHttp5xxRate
+          expr: |
+            sum(rate(http_server_requests_seconds_count{application="spectrallm", status=~"5.."}[5m]))
+            /
+            sum(rate(http_server_requests_seconds_count{application="spectrallm"}[5m]))
+            > 0.05
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Taux d'erreurs 5xx élevé (>5%)"
+            description: "Plus de 5% des requêtes HTTP renvoient un statut 5xx sur 5 min."
+
+        - alert: SpectraHighRagLatencyP95
+          expr: |
+            histogram_quantile(0.95,
+              sum(rate(spectra_rag_query_seconds_bucket{application="spectrallm"}[5m])) by (le)
+            ) > 10
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Latence RAG p95 élevée (>10s)"
+            description: "Le 95e percentile du traitement RAG dépasse 10s sur 10 min."
+
+        - alert: SpectraJvmHeapHigh
+          expr: |
+            sum(jvm_memory_used_bytes{application="spectrallm", area="heap"})
+            /
+            sum(jvm_memory_max_bytes{application="spectrallm", area="heap"})
+            > 0.9
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Heap JVM > 90%"
+            description: "La heap JVM de spectra-api dépasse 90% de sa taille max depuis 10 min (risque d'OOM / GC pressure)."

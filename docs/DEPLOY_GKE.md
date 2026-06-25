@@ -151,7 +151,7 @@ environnement (`Settings → Environments → Cloud`), pas au niveau du dépôt.
 ## 4. Première exécution
 
 1. Vérifiez que le cluster GKE existe et que les PVC / modèles GGUF sont
-   préparés (voir `k8s/README.md`).
+   préparés — voir `k8s/README.md`, ou utilisez le seeding automatique (§7).
 2. Déclenchez le workflow : onglet **Actions → Deploy to GKE → Run workflow**,
    ou poussez un commit sur `main`.
 3. Suivez le rollout : `kubectl get pods -n spectra -w`.
@@ -219,6 +219,82 @@ mentionner l'offload des couches (`ngl=-1`) et un device CUDA.
 | `Permission denied` sur Artifact Registry | rôle `artifactregistry.writer` manquant sur le SA |
 | `could not get cluster credentials` | `GKE_CLUSTER` / `GKE_LOCATION` incorrects, ou rôle `container.developer` manquant |
 | `unauthorized_client` à l'étape auth | `attribute-condition` du provider ≠ dépôt, ou binding `workloadIdentityUser` absent |
-| Pods llama en `CrashLoopBackOff` | fichier GGUF absent du PVC (voir `k8s/README.md` §2) |
+| Pods llama en `CrashLoopBackOff` | fichier GGUF absent du PVC (voir §7 seeding) |
 | Pod GPU `Pending` (Insufficient nvidia.com/gpu) | node pool GPU absent / à 0 nœud, ou drivers non installés |
 | Chat tourne en CPU malgré l'overlay | image construite depuis `Dockerfile.llama` (CPU) au lieu de `Dockerfile.llama.cuda` |
+| Job `seed-models` en `Pending` | un pod llama-cpp détient déjà le PVC RWO — lancer le seeding **avant** `kubectl apply -k k8s/base` |
+| Certificat managé bloqué en `Provisioning` | DNS du domaine ne résout pas encore vers l'IP de l'Ingress (peut prendre 15–60 min après propagation DNS) |
+
+---
+
+## 7. Seeding automatique des modèles GGUF
+
+Plutôt que la copie manuelle `kubectl cp` (k8s/README §2), un Job télécharge les
+modèles directement sur les PVC, côté cluster. **Idempotent** : un modèle déjà
+présent n'est pas re-téléchargé.
+
+```bash
+./scripts/gke-seed-models.sh         # applique ns + PVC + Job, attend la fin
+kubectl apply -k k8s/base            # puis déploie la stack
+```
+
+> ⚠️ Les PVC sont `ReadWriteOnce` : le seeding doit tourner **avant** le déploiement
+> des pods llama-cpp (sinon ils détiennent déjà les volumes et le Job reste `Pending`).
+
+Modèles par défaut (surchargeables dans `k8s/seed/seed-models.yaml`, ConfigMap
+`model-seed-config`) : chat Phi-4-mini → `spectra-fine-tuning-pvc:/merged/model.gguf`,
+embedding nomic-embed-text → `spectra-models-pvc:/embed.gguf`.
+
+---
+
+## 8. Ingress HTTPS avec TLS managé (GKE natif)
+
+L'overlay [`k8s/overlays/gke`](../k8s/overlays/gke) remplace l'Ingress nginx et le
+LoadBalancer du frontend par un **Ingress GKE natif** avec **certificat TLS managé
+par Google** (provision et renouvellement automatiques) :
+
+- `ManagedCertificate` — TLS sans cert-manager.
+- `FrontendConfig` — redirection HTTP → HTTPS.
+- `BackendConfig` — `timeoutSec: 3600` pour ne pas couper les flux **SSE**
+  (le défaut GKE de 30 s tuerait `/api/query/stream`).
+- Service frontend en `ClusterIP` + NEG (load balancing container-native).
+
+```bash
+# 1. Réserver une IP statique globale (recommandé) et créer le DNS A vers elle
+gcloud compute addresses create spectra-ip --global
+
+# 2. Remplacer spectra.example.com par votre domaine dans :
+#    k8s/overlays/gke/ingress-gke.yaml  et  managed-certificate.yaml
+#    (et décommenter l'annotation global-static-ip-name dans ingress-gke.yaml)
+
+# 3. Déployer
+kubectl apply -k k8s/overlays/gke
+
+# 4. Suivre la provision du certificat (15–60 min après que le DNS résout)
+kubectl -n spectra describe managedcertificate spectra-cert
+```
+
+---
+
+## 9. Observabilité (Prometheus + Grafana)
+
+Les métriques sont déjà exposées sur `/actuator/prometheus` (tag commun
+`application=spectrallm`, histogrammes HTTP et RAG). Avec un **Prometheus Operator**
+(kube-prometheus-stack), l'overlay [`k8s/monitoring`](../k8s/monitoring) ajoute :
+
+- `ServiceMonitor` — scrape de spectra-api.
+- `PrometheusRule` — alertes (API down, taux 5xx, latence RAG p95, heap JVM).
+- Dashboard Grafana (importé via le label `grafana_dashboard`).
+
+```bash
+# Ajuster le label `release` des ServiceMonitor/PrometheusRule au selector de
+# votre Prometheus, puis :
+kubectl apply -k k8s/monitoring
+```
+
+> **Note — pas d'autoscaling (HPA) de `spectra-api`.** Le backend est *stateful*
+> (H2 en fichier, index BM25 en mémoire, PVC `ReadWriteOnce` en écriture,
+> `strategy: Recreate`) : il doit rester à **1 réplica**. Un HPA corromprait les
+> données. L'autoscaling horizontal nécessiterait d'externaliser l'état (Postgres,
+> stockage RWX/objet, index partagé) — hors périmètre actuel. L'autoscaling se fait
+> donc au niveau des **nœuds** (node pool GKE, §2.3 / script de création de cluster).

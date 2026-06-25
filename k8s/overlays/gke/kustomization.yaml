@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Overlay GKE : Ingress HTTP(S) natif + TLS managé Google.
+#   kubectl apply -k k8s/overlays/gke
+#
+# Avant d'appliquer : remplacer spectra.example.com par votre domaine dans
+# ingress-gke.yaml et managed-certificate.yaml, et faire pointer le DNS vers
+# l'IP de l'Ingress (ou une IP statique réservée — voir ingress-gke.yaml).
+
+namespace: spectra
+
+resources:
+  - ../../base
+  - managed-certificate.yaml
+  - frontendconfig.yaml
+  - backendconfig.yaml
+  - ingress-gke.yaml
+
+patches:
+  - path: frontend-patch.yaml
+    target:
+      kind: Service
+      name: spectra-frontend

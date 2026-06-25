@@ -1,0 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Observabilité (nécessite le Prometheus Operator / kube-prometheus-stack pour
+# ServiceMonitor + PrometheusRule ; le dashboard Grafana est importé par le
+# sidecar via le label grafana_dashboard).
+#
+#   kubectl apply -k k8s/monitoring
+#
+# Ajustez le label `release` des ServiceMonitor/PrometheusRule au selector de
+# votre Prometheus avant d'appliquer.
+namespace: spectra
+
+resources:
+  - servicemonitor.yaml
+  - prometheus-rules.yaml
+  - grafana-dashboard.yaml
