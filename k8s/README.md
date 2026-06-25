@@ -109,6 +109,16 @@ kubectl get pods -n spectra -w
 # Attendre que tous les pods soient Running/Ready
 ```
 
+### Variantes (overlays kustomize)
+
+| Cible | Effet |
+|-------|-------|
+| `kubectl apply -k k8s/overlays/gpu` | Accélération GPU NVIDIA (image CUDA + `nvidia.com/gpu`) — voir §5 |
+| `kubectl apply -k k8s/overlays/gke` | Ingress GKE natif + **TLS managé** Google (HTTP→HTTPS, timeouts SSE) — voir `docs/DEPLOY_GKE.md` §8 |
+| `kubectl apply -k k8s/monitoring` | **Observabilité** : `ServiceMonitor` + alertes Prometheus + dashboard Grafana — voir `docs/DEPLOY_GKE.md` §9 |
+
+Les overlays incluent la base ; appliquer **soit** `k8s/base`, **soit** un overlay (qui le contient), pas les deux.
+
 ---
 
 ## 4. Accéder à l'application
