@@ -25,6 +25,20 @@ import java.util.regex.Pattern;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Sinks;
 
+/**
+ * Conseiller de modèles — « quel LLM tiendra sur ma machine ? ».
+ *
+ * <p><b>Pourquoi.</b> Un modèle GGUF trop gros pour la RAM/VRAM disponible ne se charge pas
+ * (ou swappe et devient inutilisable). Plutôt que de laisser l'utilisateur deviner, ce service
+ * délègue à l'outil externe {@code llmfit} qui, à partir des contraintes matérielles (mémoire,
+ * RAM, cœurs CPU), recommande des modèles compatibles et pilote leur téléchargement.</p>
+ *
+ * <p><b>Comment.</b> {@code llmfit} est invoqué en sous-processus (mode {@code --json}). Le
+ * téléchargement émet une progression en pourcentage, capturée via {@code PROGRESS_PATTERN} et
+ * rediffusée en temps réel aux clients par un {@link reactor.core.publisher.Sinks.Many} (SSE).
+ * Les modèles atterrissent dans {@code models-dir}, qui <b>doit</b> correspondre au volume monté
+ * par le conteneur llm-chat pour qu'ils soient immédiatement servables.</p>
+ */
 @Service
 public class LlmFitService {
 

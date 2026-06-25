@@ -29,6 +29,28 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.UUID;
 
+/**
+ * Génération de dataset synthétique — le carburant du fine-tuning.
+ *
+ * <p><b>Pourquoi générer un dataset ?</b> Pour spécialiser un modèle par fine-tuning, il faut
+ * des milliers d'exemples question/réponse de votre domaine. Les annoter à la main est hors de
+ * portée. L'astuce de Spectra : <i>réutiliser vos propres documents</i> déjà ingérés. On
+ * présente chaque chunk au LLM en lui demandant de fabriquer des paires Q/R ancrées dans ce
+ * texte — c'est l'approche « auto-instruct » / distillation : le modèle génère les données qui
+ * serviront ensuite à l'entraîner. Cela ferme la boucle <b>RAG → dataset → fine-tuning</b>.</p>
+ *
+ * <p><b>Comment.</b> Pour chaque chunk tiré de ChromaDB ({@link ChromaDbClient}), le
+ * {@link LlmChatClient} produit des {@link TrainingPair} (question, réponse, catégorie, type,
+ * score de confiance). Les paires sont accumulées en mémoire et <b>persistées au fil de l'eau</b>
+ * en JSONL ({@code sft_pairs.jsonl}) — donc rechargées au redémarrage ({@code @PostConstruct}),
+ * pour ne jamais reperdre une génération longue.</p>
+ *
+ * <p><b>Exécution.</b> La génération est asynchrone ({@code @Async}) avec suivi de progression
+ * par tâche, annulation ({@code cancelledTasks}) et un verrou {@code generationRunning} qui
+ * empêche deux générations simultanées. Le champ {@code self} (auto-référence {@code @Lazy})
+ * permet d'invoquer la méthode {@code @Async} à travers le proxy Spring sans dépendance
+ * circulaire.</p>
+ */
 @Service
 public class DatasetGeneratorService {
 

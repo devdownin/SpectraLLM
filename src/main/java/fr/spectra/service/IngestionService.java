@@ -36,6 +36,41 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
+/**
+ * Service d'ingestion — transforme un fichier brut en chunks vectorisés interrogeables.
+ *
+ * <p><b>Pourquoi cette étape ?</b> Un LLM ne « connaît » pas vos documents. Pour qu'il
+ * puisse répondre à partir de leur contenu (RAG), il faut d'abord découper chaque document
+ * en petits passages (chunks), calculer une représentation numérique (embedding) de chacun,
+ * puis stocker ces vecteurs dans une base vectorielle. C'est exactement ce que fait ce service ;
+ * la recherche au moment de la question est ensuite assurée par {@link RagService}.</p>
+ *
+ * <p><b>Pipeline d'ingestion (par fichier) :</b></p>
+ * <ol>
+ *   <li><b>Déduplication SHA-256</b> — on hashe le flux d'octets ; un fichier déjà ingéré
+ *       est ignoré (sauf {@code force=true}). Évite de gonfler l'index avec des doublons.</li>
+ *   <li><b>Extraction</b> — un {@link DocumentExtractorFactory extracteur} dédié au format
+ *       (PDF, DOCX, HTML, XLSX, JSON, Avro…) produit du texte brut. Les archives ZIP sont
+ *       parcourues récursivement (profondeur max {@value #MAX_ZIP_DEPTH}).</li>
+ *   <li><b>Nettoyage</b> — {@link TextCleanerService} normalise le texte (espaces, césures,
+ *       artefacts d'OCR…) pour améliorer la qualité des embeddings.</li>
+ *   <li><b>Chunking</b> — {@link ChunkingService} découpe en passages avec chevauchement.</li>
+ *   <li><b>Embedding</b> — {@link EmbeddingService} vectorise les chunks par lots
+ *       ({@code embeddingBatchSize}) pour limiter les allers-retours réseau.</li>
+ *   <li><b>Indexation</b> — les vecteurs partent dans {@link ChromaDbClient} (recherche
+ *       sémantique) et le texte dans {@link FtsService} (recherche lexicale BM25), ce qui
+ *       rend possible la recherche hybride.</li>
+ *   <li><b>Traçabilité GED</b> — {@link GedService} enregistre le document dans la gestion
+ *       documentaire (audit, qualification automatique au-delà d'un seuil de score).</li>
+ * </ol>
+ *
+ * <p><b>Robustesse mémoire & sécurité :</b> les gros fichiers et les « ZIP bombs » (archives
+ * minuscules qui se décompressent en téraoctets) sont bornés par {@code maxUncompressedBytes}
+ * — auto-calculé à partir du heap JVM et de la concurrence d'ingestion — et par
+ * {@value #MAX_ZIP_ENTRIES} entrées max par archive. L'ingestion lourde tourne de façon
+ * asynchrone via {@link IngestionTaskExecutor}, avec suivi de progression, annulation
+ * ({@code cancelledTaskIds}) et purge mémoire planifiée des tâches terminées.</p>
+ */
 @Service
 public class IngestionService {
 

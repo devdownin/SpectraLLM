@@ -18,9 +18,22 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Découpage sémantique du texte en chunks avec chevauchement.
- * Utilise la tokenization exacte via la bibliothèque jtokkit.
- * Découpe préférentiellement sur les limites de phrases via BreakIterator.
+ * Découpage du texte en chunks — l'unité de base que le RAG retrouve et cite.
+ *
+ * <p><b>Pourquoi découper ?</b> On ne peut pas vectoriser un document entier : la fenêtre de
+ * contexte du modèle d'embedding est limitée, et un vecteur unique pour 50 pages dilue le sens
+ * (tout se ressemble, la recherche perd en précision). On découpe donc en passages courts et
+ * cohérents ; chaque chunk reçoit son propre embedding et devient retrouvable indépendamment.</p>
+ *
+ * <p><b>Pourquoi le chevauchement (overlap) ?</b> Une coupe « sèche » risque de séparer une
+ * idée de son contexte (une réponse de sa question, un pronom de son référent). En faisant se
+ * recouvrir les chunks de quelques tokens, on garantit qu'une information à cheval sur une
+ * frontière reste présente, entière, dans au moins un chunk.</p>
+ *
+ * <p><b>Comment.</b> La taille est mesurée en <i>tokens</i> (et non en caractères) via une
+ * tokenization exacte (jtokkit), pour coller à la vraie limite du modèle. Les coupes sont
+ * placées de préférence sur des limites de phrases ({@link java.text.BreakIterator}) afin de
+ * ne pas trancher au milieu d'une phrase.</p>
  */
 @Service
 public class ChunkingService {
