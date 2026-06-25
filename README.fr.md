@@ -128,6 +128,17 @@ Pour l'accélération GPU : `./start.sh --detach --gpu`
 *   **Interface Web** : `http://localhost:80`
 *   **Docs API** : `http://localhost:8080/swagger-ui.html`
 *   **Serveur LLM** : `http://localhost:8081`
+*   **Métriques Prometheus** : `http://localhost:8080/actuator/prometheus`
+
+### Déploiement Kubernetes / GKE (optionnel)
+Spectra fournit des manifestes Kubernetes complets (`k8s/`, kustomize) et un pipeline CI/CD pour **Google Kubernetes Engine** :
+
+```bash
+kubectl apply -k k8s/                 # cluster local (minikube, kind, k3s…)
+kubectl apply -k k8s/overlays/gpu     # overlay GPU NVIDIA (opt-in)
+```
+
+Le workflow `.github/workflows/deploy-gke.yml` build, push et déploie sur GKE à chaque push sur `main` (authentification **Workload Identity Federation**, sans clé JSON). Guide complet : **[docs/DEPLOY_GKE.md](docs/DEPLOY_GKE.md)**.
 
 ---
 

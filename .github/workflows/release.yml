@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'Tag name (e.g. v0.5)'
+        description: 'Tag name (e.g. v0.6)'
         required: true
         type: string
       commit_sha:

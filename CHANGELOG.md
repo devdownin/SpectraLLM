@@ -6,6 +6,60 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ---
 
+## [1.11.0] — 2026-06-25
+
+### Nouvelles fonctionnalités — Déploiement Cloud (GKE)
+
+- **Déploiement automatisé sur Google Kubernetes Engine** : workflow `.github/workflows/deploy-gke.yml` — authentification **Workload Identity Federation** (OIDC, sans clé JSON de compte de service), build & push des images `spectra-api` / `spectra-frontend` / `spectra-llama-cpp` vers Artifact Registry, puis `kustomize`-apply de `k8s/` sur push vers `main`. `concurrency` annule le run précédent sur le même ref ; l'étape de rollout attend `llama-cpp-embed` / `llama-cpp-chat` (timeouts généreux pour le chargement du modèle).
+- **`docs/DEPLOY_GKE.md`** : guide complet de mise en place GCP (Artifact Registry, compte de service deployer, Workload Identity Federation) et liste exacte des secrets/variables à créer.
+- **`Dockerfile.llama`** : nouvelle image `spectra-llama-cpp` avec l'entrypoint `llama-autostart.sh` intégré (l'ancien `--target llama_cpp_runtime` n'existait plus dans le `Dockerfile` racine).
+
+### Nouvelles fonctionnalités — Accélération GPU (opt-in)
+
+- **`Dockerfile.llama.cuda`** : variante CUDA de l'image llama (base `ghcr.io/ggml-org/llama.cpp:server-cuda`) avec le même entrypoint autostart.
+- **Overlay kustomize `k8s/overlays/gpu/`** : patche le ConfigMap (`LLAMA_NGL=-1`) et ajoute `nvidia.com/gpu: 1` + toleration au déploiement `llama-cpp-chat`. Appliqué via `kubectl apply -k k8s/overlays/gpu`. Le déploiement reste **CPU par défaut** ; l'embedding GPU est laissé en option commentée (2ᵉ GPU requis). Section GPU ajoutée à `docs/DEPLOY_GKE.md` (création du node pool GPU, build de l'image CUDA, dépannage).
+
+### Nouvelles fonctionnalités — Observabilité
+
+- **Scrape Prometheus réel** : annotations `prometheus.io/scrape|port|path` sur les pods `spectra-api` (`k8s/07-spectra-api`) — `/actuator/prometheus` est désormais effectivement collecté.
+- **`ObservabilityConfig`** : bean `TimedAspect` (active `@Timed` sur les beans) + `MeterRegistryCustomizer` ajoutant le tag commun `application=spectrallm` à toutes les métriques (robuste au changement de package Spring Boot 4).
+- **Histogrammes** : `http.server.requests` et `spectra.rag.query` exposent des percentiles (SLO HTTP 50 ms…5 s) côté Prometheus/Grafana ; `RagService.query` annoté `@Timed("spectra.rag.query")` isole la latence RAG de l'overhead HTTP, métrique unifiée pour toutes les stratégies.
+
+### Fiabilité — ChromaDB cosinus
+
+- **Création de collection robuste à la version** : `ChromaDbClient.getOrCreateCollection()` crée les collections avec une configuration HNSW explicite (`space=cosine`, `ef_search=100`, `ef_construction=200`) au lieu du défaut L2 de ChromaDB. Le cosinus rend les scores de similarité interprétables sur `[0,1]` (vecteurs normalisés de llama.cpp), cohérent avec la métrique par message. Tente l'API 1.x (`configuration.hnsw`), repli sur métadonnées `hnsw:*` (versions antérieures), puis création simple — le cosinus est appliqué quelle que soit la version sans jamais casser la création (4xx → repli, autres erreurs → propagées au circuit breaker/retry). *La distance est figée à la création : les collections existantes conservent leur config (ré-ingestion requise pour basculer en cosinus).*
+
+### Fiabilité — Kubernetes / auto-réglage
+
+- **Fallback cgroup v1** : `llama-autostart.sh` détecte CPU et RAM en cgroup v2 *puis* v1 (`cpu.cfs_quota_us`/`cfs_period_us`, `memory.limit_in_bytes`), avec garde sur la valeur « illimité » (~`LLONG_MAX`). Couvre les node pools non-COS où l'ancien code retombait sur les ressources du nœud entier (sur-threading / contexte trop grand).
+- **QoS Guaranteed** : pods `llama-cpp-embed`, `llama-cpp-chat` et `spectra-api` en `requests == limits` (init containers compris) → réservation stable, pas de throttling CPU sous contention, et l'auto-réglage voit la taille réellement allouée.
+
+### Performance
+
+- **`LLAMA_PARALLELISM=4`** sur `llama-embed-config` (`k8s/01-configmap`) : le serveur d'embedding démarrait avec 1 slot (vs 4 en docker-compose), sérialisant les batches et bridant l'ingestion. Gain même sur CPU.
+
+### Améliorations frontend — GED
+
+- **Liste de documents scrollable** : la vue groupée et la vue plate de la GED (Pipelines) sont enveloppées dans un conteneur `max-h-[70vh] overflow-y-auto` ; en-têtes de colonnes et pagination restent hors zone de défilement (en-têtes visibles).
+- **Rendu paresseux natif** : `content-visibility: auto` (`.cv-auto`) sur les lignes — effet « virtualisation » sans dépendance ni refactor — et en-têtes de colonnes collants (sticky) pour les longues listes.
+
+### CI / Tests
+
+- **Workflow `k8s-validate`** (PR + push) : `kustomize build` de la base et de l'overlay GPU, validés par `kubeconform`. Attrape un manifeste cassé avant le merge.
+- **`ChromaDbClientTest`** : via MockWebServer, vérifie que le payload de création de collection contient `configuration.hnsw.space=cosine` — verrou anti-régression (tout retrait silencieux du cosinus casse le test). Dépendance de test `okhttp3 mockwebserver` ajoutée.
+- **CI GKE durcie** : authentification WIF-only (suppression du chemin `credentials_json`), variables d'environnement pour la config GCP non sensible, Node.js 22 → 24.
+
+### Correctifs
+
+- **k8s 05/06** : champ `entrypoint:` invalide remplacé par `command:` — le spec de conteneur était rejeté par l'API Kubernetes.
+- **Comptage de chunks** : correction de cohérence du compte de chunks en fin d'ingestion.
+
+### Documentation
+
+- **Guide pédagogique réécrit** : `DOCUMENTATION_PEDAGOGIQUE.fr.md` réorganisé en « mini-livre » des idées et algorithmes ; cross-links EN/FR ajoutés depuis le README.
+
+---
+
 ## [1.10.0] — 2026-06-12
 
 ### Correctifs — Chat / RAG streaming
