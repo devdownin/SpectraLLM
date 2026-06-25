@@ -252,6 +252,21 @@ docker compose --profile layout-parser --profile reranker up -d
 | **System status** | `http://localhost:8080/api/status` |
 | **llama.cpp chat** | `http://localhost:8081` |
 | **llama.cpp embed** | `http://localhost:8082` |
+| **Prometheus metrics** | `http://localhost:8080/actuator/prometheus` |
+
+### 5. Deploy to Kubernetes / GKE (optional)
+
+Spectra ships complete Kubernetes manifests (`k8s/`, kustomize) and a one-push CI/CD pipeline for **Google Kubernetes Engine**:
+
+```bash
+# Local cluster (minikube, kind, k3s…)
+kubectl apply -k k8s/
+
+# GPU acceleration overlay (NVIDIA, opt-in)
+kubectl apply -k k8s/overlays/gpu
+```
+
+A GitHub Actions workflow (`.github/workflows/deploy-gke.yml`) builds and pushes the images and rolls out to GKE on every push to `main`, authenticated via **Workload Identity Federation** (no JSON keys). See **[docs/DEPLOY_GKE.md](docs/DEPLOY_GKE.md)** for the full GCP setup.
 
 ---
 
@@ -861,6 +876,9 @@ GET /api/status/fts?collection=spectra_documents
 
 # Spring Boot health (used by Docker healthcheck)
 GET /actuator/health
+
+# Prometheus metrics (HTTP + RAG latency histograms, tag application=spectrallm)
+GET /actuator/prometheus
 
 # Hardware profile and recommended llama-server params
 GET /api/config/resources
