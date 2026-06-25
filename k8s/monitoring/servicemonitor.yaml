@@ -1,0 +1,28 @@
+# ServiceMonitor — fait scraper /actuator/prometheus de spectra-api par un
+# Prometheus géré par le Prometheus Operator (kube-prometheus-stack).
+#
+# Le label `release` doit correspondre au serviceMonitorSelector de votre
+# Prometheus (souvent le nom de la release Helm). Ajustez-le si besoin :
+#   kubectl -n <ns-prometheus> get prometheus -o yaml | grep -A3 serviceMonitorSelector
+#
+# Sans Prometheus Operator, ce manifeste est inutile : utilisez plutôt les
+# annotations prometheus.io/scrape déjà présentes sur les pods spectra-api
+# (k8s/base/07-spectra-api.yaml) avec un Prometheus en scrape par annotations.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: spectra-api
+  namespace: spectra
+  labels:
+    release: kube-prometheus-stack
+spec:
+  namespaceSelector:
+    matchNames:
+      - spectra
+  selector:
+    matchLabels:
+      app: spectra-api
+  endpoints:
+    - port: http
+      path: /actuator/prometheus
+      interval: 30s
