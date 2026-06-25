@@ -4,7 +4,7 @@
 [![CodeQL](https://github.com/devdownin/SpectraLLM/actions/workflows/codeql.yml/badge.svg)](https://github.com/devdownin/SpectraLLM/actions/workflows/codeql.yml)
 [![Dependency Check](https://github.com/devdownin/SpectraLLM/actions/workflows/dependency-scan.yml/badge.svg)](https://github.com/devdownin/SpectraLLM/actions/workflows/dependency-scan.yml)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
-[![Java 21](https://img.shields.io/badge/Java-21-orange.svg)](https://adoptium.net/)
+[![Java 25](https://img.shields.io/badge/Java-25-orange.svg)](https://adoptium.net/)
 [![Spring Boot 4](https://img.shields.io/badge/Spring%20Boot-4.0-6DB33F.svg)](https://spring.io/projects/spring-boot)
 [![React 19](https://img.shields.io/badge/React-19-61DAFB.svg)](https://react.dev/)
 
@@ -93,7 +93,7 @@ Pointez simplement vos données, activez `spectra.batch.enabled=true`, et révei
 
 | Composant | Technologie |
 | :--- | :--- |
-| **Backend** | Java 21 / Spring Boot 3.4 (Virtual Threads / Loom) |
+| **Backend** | Java 25 / Spring Boot 4.1 (Virtual Threads / Loom) |
 | **Frontend** | React 19 / Vite / Tailwind CSS v4 |
 | **Inférence** | llama.cpp (GGUF, API compatible OpenAI) |
 | **Base Vectorielle** | ChromaDB (API v2) |

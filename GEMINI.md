@@ -13,7 +13,7 @@ The platform handles the entire lifecycle:
 
 ## Architecture
 The system follows a microservices architecture orchestrated by Docker Compose:
-- **`spectra-api`**: Core Spring Boot backend (Java 21, Virtual Threads).
+- **`spectra-api`**: Core Spring Boot backend (Java 25, Virtual Threads).
 - **`llm-chat`**: Chat inference engine (llama.cpp server).
 - **`llm-embed`**: Dedicated embedding engine (llama.cpp server).
 - **`chromadb`**: Vector database for document embeddings.
@@ -22,7 +22,7 @@ The system follows a microservices architecture orchestrated by Docker Compose:
 - **`reranker`** (Optional): Cross-encoder re-ranking service (Python).
 
 ## Tech Stack
-- **Backend**: Java 21, Spring Boot 4.0, Project Loom (Virtual Threads), JPA/H2, Resilience4j.
+- **Backend**: Java 25, Spring Boot 4.1, Project Loom (Virtual Threads), JPA/H2, Resilience4j.
 - **Frontend**: React 19, Vite, Tailwind CSS 4, TanStack Query, Recharts.
 - **Inference**: llama.cpp (GGUF format).
 - **Vector DB**: ChromaDB (API v2).
@@ -33,7 +33,7 @@ The system follows a microservices architecture orchestrated by Docker Compose:
 
 ### Prerequisites
 - Docker & Docker Compose v2.
-- Java 21 (for local backend development).
+- Java 25 (for local backend development).
 - Node.js 22+ (for local frontend development).
 
 ### Key Commands

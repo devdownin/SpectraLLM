@@ -120,7 +120,7 @@ Chaque exemple suit le format conversation multi-tour :
 
 ──────────────────────────────────────────────────────── 6. ARCHITECTURE TECHNIQUE ────────────────────────────────────────────────────────
 6.1 — Stack technique
-- **Java 21** (LTS) avec virtual threads (Project Loom)
+- **Java 25** (LTS) avec virtual threads (Project Loom)
 - **Spring Boot 3.x** (Spring 6, Jakarta EE 10)
 - **Maven** pour la gestion de build et dépendances
 - **Spring WebClient** / RestClient pour les appels HTTP vers le serveur LLM et ChromaDB
@@ -213,7 +213,7 @@ GET /api/status
 
 ──────────────────────────────────────────────────────── 9. PHASES DU PROJET ────────────────────────────────────────────────────────
 Phase 1 — Infrastructure
-  → Projet Maven Spring Boot 3.x / Java 21
+  → Projet Maven Spring Boot 4.x / Java 25
   → Docker Compose : services serveur LLM + ChromaDB + spectra-api (GPU optionnel)
   → API de base (status, health check)
 
