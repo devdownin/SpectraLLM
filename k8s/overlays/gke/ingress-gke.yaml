@@ -1,0 +1,29 @@
+# Ingress GKE natif (load balancer HTTP(S) externe Google) — alternative à
+# l'Ingress nginx (k8s/base/09-ingress.yaml) et au LoadBalancer du frontend.
+#
+# Tout le trafic passe par le frontend nginx, qui proxifie /api/ vers spectra-api.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: spectra-ingress
+  namespace: spectra
+  annotations:
+    kubernetes.io/ingress.class: "gce"
+    networking.gke.io/managed-certificates: "spectra-cert"
+    networking.gke.io/v1beta1.FrontendConfig: "spectra-frontend-config"
+    # IP statique globale réservée (recommandé pour stabiliser le DNS) :
+    #   gcloud compute addresses create spectra-ip --global
+    # puis décommenter (et pointer le DNS du domaine sur cette IP) :
+    # kubernetes.io/ingress.global-static-ip-name: "spectra-ip"
+spec:
+  rules:
+    - host: spectra.example.com   # ← Remplacer par votre domaine réel
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: spectra-frontend
+                port:
+                  number: 80

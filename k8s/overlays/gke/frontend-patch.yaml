@@ -1,0 +1,14 @@
+# Patch du Service frontend pour l'Ingress GKE natif :
+#  - ClusterIP : l'Ingress GCE gère l'exposition (plus de LoadBalancer dédié).
+#  - NEG : load balancing container-native (le LB route vers les pods, pas les nœuds).
+#  - backend-config : applique le timeout SSE (BackendConfig).
+apiVersion: v1
+kind: Service
+metadata:
+  name: spectra-frontend
+  namespace: spectra
+  annotations:
+    cloud.google.com/neg: '{"ingress": true}'
+    cloud.google.com/backend-config: '{"default": "spectra-backend-config"}'
+spec:
+  type: ClusterIP

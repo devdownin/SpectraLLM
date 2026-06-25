@@ -1,0 +1,11 @@
+# Certificat TLS managé par Google — provisionné et renouvelé automatiquement.
+# Le domaine doit pointer (A/AAAA) vers l'IP de l'Ingress. La provision prend
+# 15–60 min après que le DNS résout (état : kubectl describe managedcertificate).
+apiVersion: networking.gke.io/v1
+kind: ManagedCertificate
+metadata:
+  name: spectra-cert
+  namespace: spectra
+spec:
+  domains:
+    - spectra.example.com   # ← Remplacer par votre domaine réel

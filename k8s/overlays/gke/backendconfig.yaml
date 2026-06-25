@@ -1,0 +1,19 @@
+# Réglages du backend GKE pour le service frontend.
+# Référencé par le Service via l'annotation cloud.google.com/backend-config.
+#
+# timeoutSec : le défaut GKE (30 s) coupe les flux SSE (/api/query/stream,
+# métriques de fine-tuning, system-load). On le relève à 1 h pour ne pas tuer
+# les streams temps réel.
+apiVersion: cloud.google.com/v1
+kind: BackendConfig
+metadata:
+  name: spectra-backend-config
+  namespace: spectra
+spec:
+  timeoutSec: 3600
+  connectionDraining:
+    drainingTimeoutSec: 60
+  healthCheck:
+    type: HTTP
+    requestPath: /
+    port: 80
