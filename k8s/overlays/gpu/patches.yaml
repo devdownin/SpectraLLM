@@ -3,6 +3,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: llama-chat-config
+  namespace: spectra
 data:
   LLAMA_NGL: "-1"   # -1 = toutes les couches sur GPU
 ---
@@ -12,6 +13,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: llama-cpp-chat
+  namespace: spectra
 spec:
   template:
     spec:

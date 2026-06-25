@@ -139,7 +139,7 @@ jobs:
           set -euo pipefail
           IMG="${GAR_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}"
           TAG="${{ steps.tag.outputs.sha }}"
-          cd k8s
+          cd k8s/base
           kustomize edit set image \
             "spectra-api=${IMG}/spectra-api:${TAG}" \
             "spectra-frontend=${IMG}/spectra-frontend:${TAG}" \

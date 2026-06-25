@@ -62,7 +62,7 @@ Les PVCs seront créés vides. Vous devez y copier les modèles GGUF **avant** d
 
 ```bash
 # Créer les PVCs d'abord
-kubectl apply -f k8s/00-namespace.yaml -f k8s/02-pvc.yaml
+kubectl apply -f k8s/base/00-namespace.yaml -f k8s/base/02-pvc.yaml
 
 # Copier embed.gguf via un pod temporaire
 kubectl run -n spectra copy-models --image=busybox --restart=Never \
@@ -88,7 +88,7 @@ kubectl delete pod -n spectra copy-ft
 
 ```bash
 # Déploiement complet via kustomize
-kubectl apply -k k8s/
+kubectl apply -k k8s/base/
 
 # Vérifier la progression
 kubectl get pods -n spectra -w
@@ -113,7 +113,7 @@ kubectl get svc -n spectra spectra-frontend
 # 1. Décommenter 09-ingress.yaml dans kustomization.yaml
 # 2. Remplacer spectra.example.com par votre domaine
 # 3. Passer spectra-frontend en ClusterIP dans 08-spectra-frontend.yaml
-kubectl apply -k k8s/
+kubectl apply -k k8s/base/
 
 # ── Port-forward (test local sans LoadBalancer) ───────────────────────────
 kubectl port-forward -n spectra svc/spectra-frontend 8888:80
@@ -135,7 +135,7 @@ kubectl apply -f https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/v0.1
 #      LLAMA_NGL: "-1"   # toutes les couches sur GPU
 
 # 3. Redéployer
-kubectl apply -k k8s/
+kubectl apply -k k8s/base/
 ```
 
 ---
@@ -161,7 +161,7 @@ kubectl port-forward -n spectra svc/spectra-api 8080:8080
 curl http://localhost:8080/api/status
 
 # Supprimer complètement (conserve les PVCs = données préservées)
-kubectl delete -k k8s/
+kubectl delete -k k8s/base/
 
 # Supprimer tout y compris les données
 kubectl delete namespace spectra
