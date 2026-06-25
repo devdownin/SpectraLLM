@@ -47,3 +47,21 @@ jobs:
           set -euo pipefail
           kustomize build k8s/overlays/gpu/ > /tmp/gpu.yaml
           kubeconform -strict -summary -ignore-missing-schemas /tmp/gpu.yaml
+
+      - name: Build & validate GKE ingress overlay (k8s/overlays/gke)
+        run: |
+          set -euo pipefail
+          kustomize build k8s/overlays/gke/ > /tmp/gke.yaml
+          kubeconform -strict -summary -ignore-missing-schemas /tmp/gke.yaml
+
+      - name: Build & validate model-seed (k8s/seed)
+        run: |
+          set -euo pipefail
+          kustomize build k8s/seed/ > /tmp/seed.yaml
+          kubeconform -strict -summary -ignore-missing-schemas /tmp/seed.yaml
+
+      - name: Build & validate monitoring (k8s/monitoring)
+        run: |
+          set -euo pipefail
+          kustomize build k8s/monitoring/ > /tmp/monitoring.yaml
+          kubeconform -strict -summary -ignore-missing-schemas /tmp/monitoring.yaml
