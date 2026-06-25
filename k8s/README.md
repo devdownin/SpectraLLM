@@ -58,7 +58,19 @@ docker push registry.example.com/spectra/api:1.2.0
 
 ## 2. Préparer les données
 
-Les PVCs seront créés vides. Vous devez y copier les modèles GGUF **avant** de démarrer les pods llama-cpp.
+Les PVCs seront créés vides. Vous devez y placer les modèles GGUF **avant** de démarrer les pods llama-cpp.
+
+### Option A — seeding automatique (recommandé)
+
+Un Job télécharge les modèles directement sur les PVC (idempotent, pas de copie locale) :
+
+```bash
+./scripts/gke-seed-models.sh     # applique ns + PVC + Job, attend la fin
+```
+
+URLs/chemins surchargeables dans `k8s/seed/seed-models.yaml` (ConfigMap `model-seed-config`).
+
+### Option B — copie manuelle
 
 ```bash
 # Créer les PVCs d'abord

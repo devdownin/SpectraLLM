@@ -1,0 +1,93 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Seeding automatique des modèles GGUF sur les PVC.
+#
+# Remplace la copie manuelle `kubectl cp` (k8s/README §2) : un Job télécharge les
+# modèles directement sur les volumes, côté cluster. Idempotent — un modèle déjà
+# présent (et > MIN_BYTES) n'est pas re-téléchargé.
+#
+# ⚠️ Les PVC étant ReadWriteOnce, ce Job doit s'exécuter AVANT que les pods
+#    llama-cpp ne montent les volumes. Utilisez scripts/gke-seed-models.sh, qui
+#    applique namespace + PVC + ce Job puis attend sa complétion, avant le
+#    `kubectl apply -k k8s/base`.
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: model-seed-config
+  namespace: spectra
+data:
+  # Modèle de chat → PVC fine-tuning, à l'emplacement attendu par llama-chat-config
+  # (MODEL_PATH=/fine-tuning/merged/model.gguf). Par défaut : Phi-4-mini (≈1,1 Go).
+  CHAT_URL: "https://huggingface.co/unsloth/Phi-4-mini-reasoning-GGUF/resolve/main/Phi-4-mini-reasoning-UD-IQ1_S.gguf"
+  CHAT_DEST: "/fine-tuning/merged/model.gguf"
+  # Modèle d'embedding → PVC models (MODEL_PATH=/models/embed.gguf). nomic-embed-text.
+  EMBED_URL: "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_0.gguf"
+  EMBED_DEST: "/models/embed.gguf"
+  # Taille plancher (octets) sous laquelle un fichier est considéré incomplet → re-téléchargé.
+  MIN_BYTES: "1048576"
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: seed-models
+  namespace: spectra
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 600   # le Job se supprime 10 min après succès
+  template:
+    metadata:
+      labels:
+        app: seed-models
+    spec:
+      restartPolicy: OnFailure
+      # Écrit sur des PVC possédés par root (comme les pods llama/api) → uid 0.
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+        fsGroup: 0
+      containers:
+        - name: seed
+          image: curlimages/curl:8.11.1
+          envFrom:
+            - configMapRef:
+                name: model-seed-config
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              fetch() {            # $1=url  $2=dest
+                url="$1"; dest="$2"
+                mkdir -p "$(dirname "$dest")"
+                size=$(stat -c %s "$dest" 2>/dev/null || echo 0)
+                if [ -f "$dest" ] && [ "$size" -ge "$MIN_BYTES" ]; then
+                  echo "[OK] présent : $dest ($((size / 1048576)) Mo) — skip"
+                  return 0
+                fi
+                echo "[TÉLÉCHARGEMENT] $url → $dest"
+                # -L suit les redirections HF ; -f échoue sur HTTP >=400 ; fichier temp + rename atomique
+                curl -fL --retry 5 --retry-delay 5 -o "${dest}.part" "$url"
+                mv "${dest}.part" "$dest"
+                echo "[FAIT] $dest ($(($(stat -c %s "$dest") / 1048576)) Mo)"
+              }
+              fetch "$EMBED_URL" "$EMBED_DEST"
+              fetch "$CHAT_URL"  "$CHAT_DEST"
+              echo "=> Modèles prêts."
+          volumeMounts:
+            - name: models
+              mountPath: /models
+            - name: fine-tuning
+              mountPath: /fine-tuning
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: spectra-models-pvc
+        - name: fine-tuning
+          persistentVolumeClaim:
+            claimName: spectra-fine-tuning-pvc
