@@ -29,6 +29,20 @@ import java.util.Set;
 /**
  * Service RAG principal — orchestre le pipeline de retrieval et de génération.
  *
+ * <p><b>Qu'est-ce que le RAG (Retrieval-Augmented Generation) ?</b> Plutôt que de demander
+ * au LLM de répondre « de mémoire » (au risque d'halluciner ou d'ignorer vos documents), on
+ * procède en deux temps : <i>retrieval</i> — retrouver dans la base vectorielle les passages
+ * les plus proches de la question — puis <i>generation</i> — injecter ces passages dans le
+ * prompt et demander au LLM de répondre <b>uniquement</b> à partir d'eux. Le modèle reste
+ * générique ; c'est le contexte fourni qui le rend expert de votre domaine, avec des réponses
+ * sourçables et à jour sans ré-entraînement.</p>
+ *
+ * <p>Ce service est le chef d'orchestre : la phase retrieval est isolée dans
+ * {@code retrieveContext()} (réutilisée par {@code query()} et par le streaming SSE
+ * {@code queryStream()}), puis chaque module optionnel ci-dessous l'enrichit. Tous sont
+ * activables indépendamment par configuration — un déploiement minimal n'active que le
+ * retrieval vectoriel + la génération.</p>
+ *
  * <p>Pipeline complet (modules optionnels entre crochets) :</p>
  * <ol>
  *   <li>[Adaptive RAG] Classifie la requête → DIRECT | STANDARD | AGENTIC.</li>

@@ -19,12 +19,27 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
 /**
- * Client ChromaDB — API v2.
+ * Client ChromaDB — la base vectorielle qui rend la recherche sémantique possible.
  *
- * Toutes les requêtes passent par :
- *   /api/v2/tenants/{tenant}/databases/{database}/collections/…
+ * <p><b>Idée clé.</b> Chaque chunk de document est stocké non pas comme du texte, mais comme
+ * un <i>embedding</i> : un vecteur de plusieurs centaines de dimensions où la <i>proximité
+ * géométrique</i> reflète la <i>proximité de sens</i>. Chercher devient alors un calcul de
+ * distance : on encode la question dans le même espace, et ChromaDB renvoie les vecteurs les
+ * plus proches via un index ANN (HNSW). On retrouve ainsi des passages pertinents même quand
+ * ils ne partagent <b>aucun mot</b> avec la question — ce qu'une recherche par mots-clés
+ * (BM25) ne sait pas faire.</p>
  *
- * L'API v1 (/api/v1/) a été supprimée (HTTP 410) à partir de ChromaDB 1.x.
+ * <p><b>Pourquoi le cosinus.</b> Les collections sont créées avec une configuration HNSW
+ * explicite ({@code space=cosine}) plutôt que la distance L2 par défaut. Les embeddings de
+ * llama.cpp étant normalisés, la similarité cosinus donne des scores interprétables sur
+ * {@code [0,1]} — exploités pour afficher un score par source et pour le re-ranking.
+ * <b>Attention :</b> l'espace de distance est figé à la création de la collection ; basculer
+ * une collection existante en cosinus impose une ré-ingestion. La création est rendue robuste
+ * à la version de ChromaDB (API 1.x → repli métadonnées {@code hnsw:*} → création simple).</p>
+ *
+ * <p><b>Note d'implémentation.</b> Toutes les requêtes passent par l'API v2 :
+ * {@code /api/v2/tenants/{tenant}/databases/{database}/collections/…}.
+ * L'API v1 ({@code /api/v1/}) a été supprimée (HTTP 410) à partir de ChromaDB 1.x.</p>
  */
 @Service
 public class ChromaDbClient {
