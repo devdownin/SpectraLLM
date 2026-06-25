@@ -196,7 +196,7 @@ C4Container
 
         Container(frontend, "spectra-frontend", "nginx 1.27 + React 19 / Vite", "Sert l'application SPA.\nProxy /api/* vers spectra-api.\nSSE sans buffering sur /api/sse/*.")
 
-        Container(api, "spectra-api", "Spring Boot 3.4 / Java 21\nVirtual Threads (Loom)", "Orchestre le pipeline complet :\ningestion → dataset → fine-tuning → RAG.\nExpose l'API REST et les flux SSE.")
+        Container(api, "spectra-api", "Spring Boot 4.1 / Java 25\nVirtual Threads (Loom)", "Orchestre le pipeline complet :\ningestion → dataset → fine-tuning → RAG.\nExpose l'API REST et les flux SSE.")
 
         Container(ollama, "spectra-ollama", "Ollama 0.18+", "Inférence LLM (chat, génération).\nCalcul d'embeddings.\nCréation de modèles via /api/create.")
 

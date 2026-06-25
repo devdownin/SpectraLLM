@@ -4,7 +4,7 @@
 [![CodeQL](https://github.com/devdownin/SpectraLLM/actions/workflows/codeql.yml/badge.svg)](https://github.com/devdownin/SpectraLLM/actions/workflows/codeql.yml)
 [![Dependency Check](https://github.com/devdownin/SpectraLLM/actions/workflows/dependency-scan.yml/badge.svg)](https://github.com/devdownin/SpectraLLM/actions/workflows/dependency-scan.yml)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
-[![Java 21](https://img.shields.io/badge/Java-21-orange.svg)](https://adoptium.net/)
+[![Java 25](https://img.shields.io/badge/Java-25-orange.svg)](https://adoptium.net/)
 [![Spring Boot 4](https://img.shields.io/badge/Spring%20Boot-4.1-6DB33F.svg)](https://spring.io/projects/spring-boot)
 [![React 19](https://img.shields.io/badge/React-19-61DAFB.svg)](https://react.dev/)
 
@@ -154,7 +154,7 @@ Spectra detects your hardware at startup (CPU cores, RAM, VRAM, GPU vendor) and 
                             │ HTTP + SSE
 ┌───────────────────────────▼──────────────────────────────┐
 │           Spring Boot API  :8080                         │
-│  Java 21 · Virtual Threads · OpenAI-compatible REST      │
+│  Java 25 · Virtual Threads · OpenAI-compatible REST      │
 │                                                          │
 │  ┌─────────────┐  ┌────────────┐  ┌──────────────────┐  │
 │  │  Ingestion  │  │    RAG     │  │   Fine-Tuning    │  │
@@ -274,7 +274,7 @@ A GitHub Actions workflow (`.github/workflows/deploy-gke.yml`) builds and pushes
 
 ### `spectra-api` — The Backend
 
-The core of Spectra. A Spring Boot 4.1 application running on Java 21 with **virtual threads** (Project Loom) enabled. Every blocking I/O operation (embedding calls, ChromaDB queries, LLM generation, file reads) runs on a virtual thread, giving you thousands of concurrent operations without the overhead of a traditional thread pool.
+The core of Spectra. A Spring Boot 4.1 application running on Java 25 with **virtual threads** (Project Loom) enabled. Every blocking I/O operation (embedding calls, ChromaDB queries, LLM generation, file reads) runs on a virtual thread, giving you thousands of concurrent operations without the overhead of a traditional thread pool.
 
 **Key responsibilities:**
 - Document ingestion pipeline (extraction → cleaning → chunking → embedding → indexing)
@@ -850,7 +850,7 @@ All settings have environment variable overrides. The table below shows the most
 
 | Layer | Technology | Why |
 |---|---|---|
-| **Backend** | Java 21 + Spring Boot 4.1 | Virtual threads, mature ecosystem, strong typing |
+| **Backend** | Java 25 + Spring Boot 4.1 | Virtual threads, mature ecosystem, strong typing |
 | **Frontend** | React 19 + Vite + Tailwind CSS v4 | Fast builds, component model, utility CSS |
 | **Inference** | llama.cpp (GGUF) | CPU+GPU, quantization support, OpenAI-compatible |
 | **Vector DB** | ChromaDB | Embedded or standalone, simple HTTP API |

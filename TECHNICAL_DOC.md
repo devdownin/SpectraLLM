@@ -12,7 +12,7 @@ L'inférence repose sur [llama-cpp-turboquant](https://github.com/TheTom/llama-c
 
 | Couche | Technologie | Version | Notes |
 |--------|-------------|---------|-------|
-| Backend | Java 21 / Spring Boot | 3.4.3 | Virtual Threads (Project Loom) |
+| Backend | Java 25 / Spring Boot | 4.1.0 | Virtual Threads (Project Loom) |
 | Frontend | React 19 / Vite / Tailwind CSS | — | Servi par nginx dans Docker |
 | Inférence LLM (chat) | llama-cpp-turboquant (`llama-server`) | master | API OpenAI-compatible `/v1/chat/completions` |
 | Inférence LLM (embeddings) | llama-cpp-turboquant (`llama-server`) | master | API OpenAI-compatible `/v1/embeddings` |
@@ -34,7 +34,7 @@ L'inférence repose sur [llama-cpp-turboquant](https://github.com/TheTom/llama-c
 │  ┌─────────────┐      ┌──────────────────┐                      │
 │  │  spectra-   │:80   │   spectra-api    │:8080                 │
 │  │  frontend   │─────▶│  Spring Boot     │                      │
-│  │  (nginx)    │      │  Java 21 + Loom  │                      │
+│  │  (nginx)    │      │  Java 25 + Loom  │                      │
 │  └─────────────┘      └────────┬─────────┘                      │
 │                                │                                  │
 │              ┌─────────────────┼───────────────┬──────────┐     │
@@ -1512,7 +1512,7 @@ GET /api/metrics/personalization
 
 ```dockerfile
 # Stage 1 : compilation Java
-FROM maven:3.9-eclipse-temurin-21 AS build
+FROM maven:3.9-eclipse-temurin-25 AS build
 RUN mvn package -DskipTests -B
 
 # Stage 2 : compilation llama-server depuis les sources
@@ -1531,7 +1531,7 @@ COPY --from=llama_cpp_build /src/llama-cpp/build/bin/lib*.so*     /usr/local/lib
 RUN ldconfig   # ← indispensable pour que llama-server trouve libmtmd.so.0 et consorts
 
 # Stage 4 : image runtime Spring Boot
-FROM eclipse-temurin:21-jre
+FROM eclipse-temurin:25-jre
 COPY --from=build /app/target/*.jar app.jar
 COPY --from=llama_cpp_build /src/llama-cpp/build/bin/llama-server /usr/local/bin/
 # (binaire embarqué dans spectra-api pour le mode runtime.enabled=true)
