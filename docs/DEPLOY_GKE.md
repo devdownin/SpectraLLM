@@ -93,6 +93,30 @@ gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" \
 echo "projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/github/providers/github"
 ```
 
+### 2.3 Cluster GKE
+
+Le workflow déploie sur un cluster **existant** : il faut donc le créer une fois.
+Le script [`scripts/gke-create-cluster.sh`](../scripts/gke-create-cluster.sh) s'en
+charge (idempotent — sans danger à relancer) : il active les APIs, crée le cluster
+puis récupère les credentials `kubectl`.
+
+```bash
+export GCP_PROJECT_ID="$PROJECT_ID"
+export GKE_CLUSTER="$CLUSTER"          # défaut : spectra-cluster
+export GKE_LOCATION="europe-west1-b"   # zone (zonal, moins cher) ou région (régional)
+
+./scripts/gke-create-cluster.sh
+
+# Variante avec node pool GPU T4 (voir §5) :
+GKE_ENABLE_GPU=true ./scripts/gke-create-cluster.sh
+```
+
+Le node pool par défaut est dimensionné pour l'empreinte des manifests
+(`llama-cpp-chat` exige à lui seul 4 vCPU / 8 Gi en QoS Guaranteed, soit ~7,7 vCPU
+/ ~15 Gi de *requests* au total) : `e2-standard-8` avec autoscaling 1→3 nœuds.
+Toutes les valeurs (machine, autoscaling, zone, GPU) sont surchargeables par
+variables d'environnement — voir l'en-tête du script.
+
 ---
 
 ## 3. Secrets & variables GitHub
