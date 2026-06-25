@@ -17,6 +17,18 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Export du dataset au format attendu par les outils d'entraînement.
+ *
+ * <p><b>Rôle.</b> {@link DatasetGeneratorService} produit et stocke les paires Q/R ; ce service
+ * les met en forme pour la consommation : statistiques agrégées (répartition par catégorie /
+ * type, confiance moyenne, couverture des chunks) affichées dans l'UI, et export <b>JSONL</b>
+ * — un objet JSON par ligne, le format <i>de facto</i> des frameworks de fine-tuning (Unsloth,
+ * Axolotl, TRL…). Chaque ligne devient un exemple d'entraînement.</p>
+ *
+ * <p>Séparer génération et export suit le principe de responsabilité unique : on peut
+ * ré-exporter ou recalculer les stats sans relancer la génération (coûteuse en appels LLM).</p>
+ */
 @Service
 public class DatasetExportService {
 

@@ -6,7 +6,19 @@ import java.text.Normalizer;
 import java.util.regex.Pattern;
 
 /**
- * Nettoyage et normalisation du texte extrait.
+ * Nettoyage et normalisation du texte extrait — « garbage in, garbage out ».
+ *
+ * <p><b>Pourquoi.</b> Le texte sorti d'un PDF ou d'un OCR est sale : numéros de page, en-têtes
+ * et pieds répétés, ligatures (« ﬁ » au lieu de « fi »), césures, espaces multiples, puces
+ * exotiques. Ces artefacts polluent les embeddings (deux passages identiques au bruit près
+ * obtiennent des vecteurs différents) et gaspillent des tokens. Nettoyer en amont améliore donc
+ * directement la qualité du retrieval et des datasets générés.</p>
+ *
+ * <p><b>Comment.</b> Une passe déterministe : normalisation Unicode NFC, remplacement des
+ * ligatures OCR, suppression des marqueurs de page / en-têtes / pieds, compactage des espaces et
+ * sauts de ligne. Subtilité : on <b>préserve</b> les tableaux Markdown (détectés via
+ * {@code MARKDOWN_TABLE_SEP}) pour ne pas casser la structure produite par l'extraction
+ * layout-aware.</p>
  */
 @Service
 public class TextCleanerService {

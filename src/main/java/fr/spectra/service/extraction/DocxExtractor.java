@@ -13,6 +13,14 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * Extracteur DOCX (Word) — via Apache POI ({@code XWPF}).
+ *
+ * <p>Parcourt paragraphes et tableaux du document pour reconstituer le texte. Les cellules de
+ * tableau sont aplaties en lignes lisibles afin de préserver l'information tabulaire dans les
+ * chunks. Gère le format Office Open XML ({@code .docx}) ; l'ancien format binaire {@code .doc}
+ * est pris en charge par {@link DocExtractor}.</p>
+ */
 @Component
 public class DocxExtractor implements DocumentExtractor {
 

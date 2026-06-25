@@ -14,6 +14,13 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * Extracteur XML — via le parseur DOM standard du JDK ({@code javax.xml.parsers}).
+ *
+ * <p>Parcourt l'arbre DOM pour récupérer le contenu textuel des nœuds, en ignorant le balisage.
+ * Le parseur est configuré de façon sûre (désactivation des entités externes / DOCTYPE) pour
+ * neutraliser les attaques XXE sur des fichiers non fiables.</p>
+ */
 @Component
 public class XmlExtractor implements DocumentExtractor {
 

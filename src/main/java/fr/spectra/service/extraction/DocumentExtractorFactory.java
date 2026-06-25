@@ -7,7 +7,18 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * Résout le bon extracteur à partir du content-type d'un fichier.
+ * Aiguilleur des extracteurs — du fichier vers la bonne {@link DocumentExtractor}.
+ *
+ * <p>Au démarrage, Spring injecte <b>toutes</b> les implémentations de {@link DocumentExtractor}
+ * (par {@code List<DocumentExtractor>}). La factory construit alors une table
+ * {@code content-type → extracteur} en demandant à chacune les types qu'elle gère. À l'exécution,
+ * {@link #resolveContentType(String)} déduit le type MIME depuis l'extension, puis
+ * {@link #getExtractor(String)} renvoie l'extracteur correspondant (ou une
+ * {@link ExtractionException} si le format est inconnu).</p>
+ *
+ * <p>Conséquence pratique : ce code n'a <b>aucune liste codée en dur</b> d'extracteurs. Un
+ * nouveau format devient disponible dès qu'on déclare son extracteur comme bean — aucune
+ * modification ici.</p>
  */
 @Component
 public class DocumentExtractorFactory {

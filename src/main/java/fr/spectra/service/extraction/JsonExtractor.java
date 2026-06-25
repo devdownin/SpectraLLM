@@ -11,6 +11,14 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * Extracteur JSON — via Jackson ({@code ObjectMapper} / {@code JsonNode}).
+ *
+ * <p>Un JSON n'est pas de la prose : on parcourt récursivement l'arbre pour en extraire les
+ * valeurs textuelles (en aplatissant objets et tableaux), ce qui donne un texte indexable tout
+ * en préservant le contenu utile. Ainsi un fichier de données structurées devient interrogeable
+ * par le RAG comme n'importe quel document.</p>
+ */
 @Component
 public class JsonExtractor implements DocumentExtractor {
 
