@@ -134,11 +134,16 @@ Pour l'accélération GPU : `./start.sh --detach --gpu`
 Spectra fournit des manifestes Kubernetes complets (`k8s/`, kustomize) et un pipeline CI/CD pour **Google Kubernetes Engine** :
 
 ```bash
-kubectl apply -k k8s/                 # cluster local (minikube, kind, k3s…)
-kubectl apply -k k8s/overlays/gpu     # overlay GPU NVIDIA (opt-in)
+./scripts/gke-seed-models.sh          # 1. seed des modèles GGUF sur les PVC (idempotent)
+kubectl apply -k k8s/base             # 2. déploiement (minikube, kind, k3s, GKE…)
+
+# Variantes (overlays kustomize)
+kubectl apply -k k8s/overlays/gpu     # accélération GPU NVIDIA (opt-in)
+kubectl apply -k k8s/overlays/gke     # Ingress GKE natif + TLS managé Google
+kubectl apply -k k8s/monitoring       # alertes Prometheus + dashboard Grafana
 ```
 
-Le workflow `.github/workflows/deploy-gke.yml` build, push et déploie sur GKE à chaque push sur `main` (authentification **Workload Identity Federation**, sans clé JSON). Guide complet : **[docs/DEPLOY_GKE.md](docs/DEPLOY_GKE.md)**.
+Le workflow `.github/workflows/deploy-gke.yml` build, push et déploie sur GKE à chaque push sur `main` (authentification **Workload Identity Federation**, sans clé JSON). Points forts : **seeding des modèles en une commande**, **HTTPS managé** (certificat Google, timeouts compatibles SSE), **observabilité** (Prometheus/Grafana). Guide complet : **[docs/DEPLOY_GKE.md](docs/DEPLOY_GKE.md)**.
 
 ---
 

@@ -6,6 +6,32 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ---
 
+## [1.12.0] — 2026-06-25
+
+### Infrastructure & déploiement
+
+- **Migration Java 25 (LTS)** : niveau de compilation et JDK de build passés de 21 à 25 (le runtime était déjà `eclipse-temurin:25-jre`). Spring Boot 4.1 supporte le JDK 25.
+- **Script de création du cluster GKE** : `scripts/gke-create-cluster.sh` — idempotent (active les APIs, crée le cluster, récupère les credentials), node pool dimensionné pour l'empreinte des manifests, node pool GPU optionnel.
+- **Seeding automatique des modèles GGUF** : `k8s/seed/` + `scripts/gke-seed-models.sh` — un Job télécharge les modèles directement sur les PVC (idempotent), à la place de la copie manuelle `kubectl cp`.
+- **Ingress GKE natif + TLS managé** : overlay `k8s/overlays/gke/` — `ManagedCertificate` (TLS auto, sans cert-manager), redirection HTTP→HTTPS (`FrontendConfig`), `BackendConfig` avec `timeoutSec: 3600` pour ne pas couper les flux SSE, frontend en NEG/ClusterIP.
+
+### Observabilité
+
+- **Alertes Prometheus + dashboard Grafana** : overlay `k8s/monitoring/` — `ServiceMonitor`, `PrometheusRule` (API down, taux 5xx, latence RAG p95, heap JVM), dashboard Grafana auto-importé. Exploite les métriques `/actuator/prometheus` (tag `application=spectrallm`) de la v0.6.
+- **Pas d'HPA sur `spectra-api`** (volontaire) : le backend est *stateful* (H2 fichier, BM25 en mémoire, PVC RWO en écriture, `Recreate`) et doit rester à 1 réplica ; l'autoscaling se fait au niveau des nœuds. Rationale dans `docs/DEPLOY_GKE.md` §9.
+
+### Documentation
+
+- `DEPLOY_GKE.md` : nouvelles sections seeding (§7), TLS managé (§8), observabilité (§9).
+- README (EN/FR) + `k8s/README.md` : section déploiement enrichie (seeding, overlays GPU/GKE/monitoring) ; correction du chemin `kubectl apply -k k8s/base`.
+- Commentaires pédagogiques (Javadoc) sur les classes cœur du backend (ingestion, RAG, ChromaDB, chunking, dataset, extraction…).
+
+### CI
+
+- `k8s-validate` : `kustomize build` + `kubeconform` étendus aux overlays `gke`, `seed` et `monitoring`.
+
+---
+
 ## [1.11.0] — 2026-06-25
 
 ### Nouvelles fonctionnalités — Déploiement Cloud (GKE)
