@@ -37,11 +37,13 @@ if "%~3"=="" ( set MODEL_NAME=%BASE_MODEL%-autoroute ) else ( set MODEL_NAME=%~3
 set RESET_ADAPTER=0
 set PACKING_FLAG=
 set DPO_FLAG=
+set ORPO_FLAG=
 
 for %%A in (%*) do (
     if "%%A"=="--reset"   set RESET_ADAPTER=1
     if "%%A"=="--packing" set PACKING_FLAG=--packing
     if "%%A"=="--dpo"     set DPO_FLAG=--dpo
+    if "%%A"=="--orpo"    set ORPO_FLAG=--orpo
 )
 
 set DATASET_FILE=data\fine-tuning\pipeline-export.jsonl
@@ -262,27 +264,30 @@ echo.
 echo ^> [4/5] Fine-tuning du modele %BASE_MODEL% sur l'hote...
 echo   Cette etape peut durer plusieurs minutes (CPU) ou quelques minutes (GPU).
 
-:: Verification DPO : s'assurer que des paires DPO existent si --dpo est demande
+:: Verification preference (DPO/ORPO) : s'assurer que des paires existent
 set TRAIN_DATASET=%DATASET_FILE%
-if "!DPO_FLAG!"=="--dpo" (
+set PREF_FLAG=
+if "!DPO_FLAG!"=="--dpo"   set PREF_FLAG=1
+if "!ORPO_FLAG!"=="--orpo" set PREF_FLAG=1
+if defined PREF_FLAG (
     for /f "delims=" %%N in ('powershell -Command "try { $j=(Invoke-WebRequest -Uri '%API_URL%/api/dataset/dpo/stats' -UseBasicParsing -TimeoutSec 5).Content|ConvertFrom-Json; Write-Host $j.totalPairs } catch { Write-Host 0 }"') do set DPO_PAIRS=%%N
     set DPO_PAIRS=!DPO_PAIRS: =!
     if "!DPO_PAIRS!"=="0" (
-        echo   [ERREUR] --dpo demande mais aucune paire DPO trouvee.
-        echo   Lancez d'abord la generation DPO :
+        echo   [ERREUR] alignement demande mais aucune paire de preference trouvee.
+        echo   Lancez d'abord la generation :
         echo     curl -X POST %API_URL%/api/dataset/dpo/generate
         exit /b 1
     )
-    echo   [OK] !DPO_PAIRS! paires DPO disponibles
+    echo   [OK] !DPO_PAIRS! paires de preference disponibles
 
-    :: L'entrainement DPO consomme le format {prompt, chosen, rejected}, PAS l'export SFT.
+    :: DPO et ORPO consomment le format {prompt, chosen, rejected}, PAS l'export SFT.
     curl -sf --max-time 30 -X POST "%API_URL%/api/dataset/dpo/export" -o "%DPO_DATASET_FILE%"
     if errorlevel 1 (
-        echo   [ERREUR] Export DPO echoue.
+        echo   [ERREUR] Export des paires de preference echoue.
         exit /b 1
     )
     set TRAIN_DATASET=%DPO_DATASET_FILE%
-    echo   [OK] Dataset DPO exporte : %DPO_DATASET_FILE%
+    echo   [OK] Dataset de preference exporte : %DPO_DATASET_FILE%
 )
 
 set RESUME_FLAG=
@@ -308,7 +313,8 @@ python scripts\train_host.py ^
     --lr %LR% ^
     --val-split %VAL_SPLIT% ^
     %PACKING_FLAG% ^
-    %DPO_FLAG%
+    %DPO_FLAG% ^
+    %ORPO_FLAG%
 
 if errorlevel 1 (
     echo   [ECHEC] Fine-tuning echoue.

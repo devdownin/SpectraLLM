@@ -37,7 +37,10 @@ public record FineTuningRequest(
         Boolean packingEnabled,
 
         /** Activer l'entraînement DPO (Direct Preference Optimization). */
-        Boolean dpoEnabled
+        Boolean dpoEnabled,
+
+        /** Activer l'entraînement ORPO (SFT + préférence en une passe, sans modèle de référence). */
+        Boolean orpoEnabled
 ) {
     public FineTuningRequest {
         if (loraRank == null) loraRank = 64;
@@ -47,5 +50,8 @@ public record FineTuningRequest(
         if (minConfidence == null) minConfidence = 0.8;
         if (packingEnabled == null) packingEnabled = false;
         if (dpoEnabled == null) dpoEnabled = false;
+        if (orpoEnabled == null) orpoEnabled = false;
+        // DPO et ORPO sont mutuellement exclusifs : ORPO a priorité.
+        if (orpoEnabled && dpoEnabled) dpoEnabled = false;
     }
 }

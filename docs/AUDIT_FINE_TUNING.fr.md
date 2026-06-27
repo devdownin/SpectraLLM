@@ -235,6 +235,27 @@ associée à un refus varié. Cadence réglable (`spectra.dataset.refusal-every-
 du dataset). C'est le levier le plus direct contre l'hallucination dans un assistant RAG, et la
 catégorie `negative` était déjà anticipée par le code (filtrée en DPO, agrégée en évaluation).
 
+### D3 — Stratégie fine-tuning vs RAG (levier d'exclusion) — *ajouté*
+Le fine-tuning encode mal les **faits volatils** (événements, nomenclatures qui changent) et
+vieillit ; ces faits sont mieux servis par le RAG. Le SFT doit se concentrer sur le
+**style / format / procédure**.
+- Levier `spectra.fine-tuning.sft-excluded-categories` (CSV, comparé à `category` ET `type`) :
+  exclut certaines paires de l'export d'entraînement. Vide par défaut (aucune exclusion) ;
+  exemple recommandé : `evenements,nomenclatures`.
+- Appliqué dans `FineTuningService.exportFilteredDataset` en complément du filtre `minConfidence`.
+
+### D4 — ORPO en alternative au DPO — *ajouté*
+La génération de `rejected` (réponses fausses fabriquées) donne un signal de préférence parfois
+faible, et SFT→DPO nécessite un modèle de référence. **ORPO** combine SFT + préférence
+(odds-ratio) en **une seule passe, sans modèle de référence** : plus simple, plus léger, souvent
+meilleur sur petits modèles.
+- `train_host.py --orpo` (`ORPOTrainer`), même dataset `{prompt, chosen, rejected}` que DPO.
+- Plomberie complète : `FineTuningRequest.orpoEnabled`, `FineTuningService` (export préférence +
+  flag), `train.sh` (`$10`), `pipeline.sh/.bat` (`--orpo`), recette `orpo-alignement.yml`.
+- **Bug corrigé au passage** : le dataset SFT était construit (et `sys.exit(1)` sur dataset vide)
+  **avant** la branche DPO — ce qui faisait avorter tout run DPO (fichier sans `conversations`).
+  Le chargement SFT est désormais sauté en mode préférence (DPO/ORPO).
+
 ## Reste à faire (non bloquant)
 
 - Éventuel early-stopping / checkpointing du meilleur modèle (volontairement écarté ici

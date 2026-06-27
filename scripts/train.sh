@@ -10,8 +10,9 @@
 #   $5 = LoRA alpha
 #   $6 = nombre d'epochs
 #   $7 = learning rate
-#   $8 = packing ("true"/"false")   — optionnel, défaut false
-#   $9 = dpo     ("true"/"false")   — optionnel, défaut false
+#   $8  = packing ("true"/"false")  — optionnel, défaut false
+#   $9  = dpo     ("true"/"false")  — optionnel, défaut false
+#   $10 = orpo    ("true"/"false")  — optionnel, défaut false
 #
 # Ce script est un simple adaptateur : il délègue à train_host.py, qui gère à la fois
 # le backend GPU (Unsloth) et CPU (HuggingFace PEFT), le masquage du prompt, le packing
@@ -29,6 +30,7 @@ EPOCHS="$6"
 LEARNING_RATE="$7"
 PACKING="${8:-false}"
 DPO="${9:-false}"
+ORPO="${10:-false}"
 
 # train_host.py écrit un répertoire d'adaptateur ; on tolère un chemin ".gguf" hérité.
 OUTPUT_DIR="${OUTPUT_PATH%.gguf}"
@@ -47,10 +49,12 @@ echo "Epochs:        $EPOCHS"
 echo "Learning rate: $LEARNING_RATE"
 echo "Packing:       $PACKING"
 echo "DPO:           $DPO"
+echo "ORPO:          $ORPO"
 
 EXTRA_ARGS=()
 [ "$PACKING" = "true" ] && EXTRA_ARGS+=(--packing)
 [ "$DPO" = "true" ]     && EXTRA_ARGS+=(--dpo)
+[ "$ORPO" = "true" ]    && EXTRA_ARGS+=(--orpo)
 
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 

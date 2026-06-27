@@ -107,6 +107,7 @@ public class RecipeController {
             doc.put("minConfidence", request.minConfidence());
             doc.put("packingEnabled", request.packingEnabled());
             doc.put("dpoEnabled", request.dpoEnabled());
+            doc.put("orpoEnabled", request.orpoEnabled());
 
             DumperOptions opts = new DumperOptions();
             opts.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);

@@ -109,6 +109,12 @@ spectra:
   fine-tuning:
     work-dir: ./data/fine-tuning
     script: ./scripts/train.sh
+    # Catégories/types exclus du SFT (séparés par des virgules ; comparés à 'category' ET 'type').
+    # Stratégie « fine-tuning vs RAG » : le fine-tuning encode mal les faits volatils et vieillit ;
+    # laissez les faits changeants au RAG et réservez le SFT au style/format/procédure.
+    # Exemple recommandé pour des faits volatils : "evenements,nomenclatures".
+    # Vide = aucune exclusion (comportement par défaut).
+    sft-excluded-categories: ""
   benchmark:
     # Fichier JSONL du benchmark qualité tenu à l'écart. Vide = ressource embarquée
     # (benchmarks/highway_benchmark.jsonl). À pointer vers un fichier curé pour votre corpus.

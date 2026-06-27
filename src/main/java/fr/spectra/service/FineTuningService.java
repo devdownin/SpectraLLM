@@ -48,6 +48,13 @@ public class FineTuningService {
     private final FineTuningJobRepository repository;
     private final Path workDir;
     private final String trainingScript;
+    /**
+     * Catégories/types exclus du SFT (jetons comparés à {@code category} ET {@code type}).
+     * Levier « fine-tuning vs RAG » : le fine-tuning encode mal les faits volatils (événements,
+     * nomenclatures qui changent) et vieillit ; mieux vaut les laisser au RAG et réserver le SFT
+     * au style/format/procédure. Vide par défaut (aucune exclusion).
+     */
+    private final Set<String> sftExcludedCategories;
 
     private final Map<String, Process> activeProcesses = new ConcurrentHashMap<>();
     private final Set<String> cancelledJobs = ConcurrentHashMap.newKeySet();
@@ -57,7 +64,8 @@ public class FineTuningService {
                              LlmChatClient llmClient,
                              FineTuningJobRepository repository,
                              @Value("${spectra.fine-tuning.work-dir:./data/fine-tuning}") String workDir,
-                             @Value("${spectra.fine-tuning.script:./scripts/train.sh}") String trainingScript) {
+                             @Value("${spectra.fine-tuning.script:./scripts/train.sh}") String trainingScript,
+                             @Value("${spectra.fine-tuning.sft-excluded-categories:}") String sftExcludedCsv) {
          this.datasetGenerator = datasetGenerator;
          this.dpoGenerator = dpoGenerator;
          this.llmClient = llmClient;
@@ -66,6 +74,17 @@ public class FineTuningService {
          // Chemin absolu : le process d'entraînement s'exécute avec workDir comme répertoire
          // courant, donc un chemin relatif ne serait pas résolu correctement.
          this.trainingScript = Path.of(trainingScript).toAbsolutePath().toString();
+         this.sftExcludedCategories = parseCsvLower(sftExcludedCsv);
+    }
+
+    private static Set<String> parseCsvLower(String csv) {
+        if (csv == null || csv.isBlank()) return Set.of();
+        Set<String> out = new java.util.HashSet<>();
+        for (String token : csv.split(",")) {
+            String t = token.strip().toLowerCase();
+            if (!t.isEmpty()) out.add(t);
+        }
+        return out;
     }
 
     /**
@@ -84,7 +103,8 @@ public class FineTuningService {
                 request.learningRate(),
                 request.minConfidence(),
                 request.packingEnabled(),
-                request.dpoEnabled()
+                request.dpoEnabled(),
+                request.orpoEnabled()
         );
 
         FineTuningJob job = FineTuningJob.pending(jobId, resolved);
@@ -167,22 +187,25 @@ public class FineTuningService {
             Path jobDir = workDir.resolve(jobId);
             Files.createDirectories(jobDir);
 
-            Path datasetFile = request.dpoEnabled()
+            // DPO comme ORPO consomment le même dataset de préférence {prompt, chosen, rejected}.
+            boolean preference = request.dpoEnabled() || request.orpoEnabled();
+
+            Path datasetFile = preference
                     ? exportDpoDataset(jobDir)
                     : exportFilteredDataset(jobDir, request.minConfidence());
             int datasetSize = countLines(datasetFile);
             updateJob(jobId, j -> j.withDatasetSize(datasetSize));
 
             if (datasetSize == 0) {
-                String reason = request.dpoEnabled()
-                        ? "Aucune paire DPO disponible — lancez d'abord POST /api/dataset/dpo/generate"
+                String reason = preference
+                        ? "Aucune paire de préférence disponible — lancez d'abord POST /api/dataset/dpo/generate"
                         : "Dataset vide après filtrage (minConfidence=" + request.minConfidence() + ")";
                 updateJob(jobId, j -> j.failed(reason));
                 return;
             }
 
             log.info("Job {}: dataset exporté ({} {})", jobId, datasetSize,
-                    request.dpoEnabled() ? "paires DPO" : "paires SFT");
+                    preference ? "paires de préférence" : "paires SFT");
 
             // ── Étape 2 : Lancement de l'entraînement externe ──
             updateJob(jobId, j -> j.withStatus(Status.TRAINING, "Lancement de l'entraînement..."));
@@ -234,6 +257,7 @@ public class FineTuningService {
     private Path exportFilteredDataset(Path dir, double minConfidence) throws Exception {
         List<TrainingPair> pairs = datasetGenerator.getAllPairs().stream()
                 .filter(p -> p.metadata().confidence() >= minConfidence)
+                .filter(p -> !isExcludedFromSft(p))
                 .toList();
 
         Path file = dir.resolve("dataset.jsonl");
@@ -244,6 +268,15 @@ public class FineTuningService {
             }
         }
         return file;
+    }
+
+    /** Vrai si la paire relève d'une catégorie/type exclu du SFT (laissé au RAG). */
+    private boolean isExcludedFromSft(TrainingPair p) {
+        if (sftExcludedCategories.isEmpty()) return false;
+        String category = p.metadata().category();
+        String type = p.metadata().type();
+        return (category != null && sftExcludedCategories.contains(category.toLowerCase()))
+                || (type != null && sftExcludedCategories.contains(type.toLowerCase()));
     }
 
     /**
@@ -279,7 +312,8 @@ public class FineTuningService {
                 String.valueOf(request.epochs()),
                 String.valueOf(request.learningRate()),
                 String.valueOf(request.packingEnabled()),
-                String.valueOf(request.dpoEnabled())
+                String.valueOf(request.dpoEnabled()),
+                String.valueOf(request.orpoEnabled())
         );
 
         log.info("Job {}: commande = {}", jobId, String.join(" ", command));
