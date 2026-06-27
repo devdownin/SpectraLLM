@@ -52,11 +52,14 @@ set ADAPTER_DIR=data\fine-tuning\pipeline-adapter
 set MERGED_DIR=data\fine-tuning\pipeline-merged
 
 :: Hyperparametres surchargeables par variable d'environnement (sinon valeurs CPU rapides).
-if not defined EPOCHS     set EPOCHS=1
-if not defined LORA_RANK  set LORA_RANK=8
-if not defined LORA_ALPHA set LORA_ALPHA=16
-if not defined LR         set LR=2e-4
-if not defined VAL_SPLIT  set VAL_SPLIT=0
+if not defined EPOCHS       set EPOCHS=1
+if not defined LORA_RANK    set LORA_RANK=8
+if not defined LORA_ALPHA   set LORA_ALPHA=16
+if not defined LR           set LR=2e-4
+if not defined VAL_SPLIT    set VAL_SPLIT=0
+if not defined LORA_TARGET  set LORA_TARGET=attention
+if not defined NEFTUNE_ALPHA set NEFTUNE_ALPHA=0
+if not defined WARMUP_RATIO set WARMUP_RATIO=0.03
 
 echo ======================================
 echo   Spectra — Pipeline complet
@@ -312,6 +315,9 @@ python scripts\train_host.py ^
     --lora-alpha %LORA_ALPHA% ^
     --lr %LR% ^
     --val-split %VAL_SPLIT% ^
+    --lora-target %LORA_TARGET% ^
+    --neftune-alpha %NEFTUNE_ALPHA% ^
+    --warmup-ratio %WARMUP_RATIO% ^
     %PACKING_FLAG% ^
     %DPO_FLAG% ^
     %ORPO_FLAG%

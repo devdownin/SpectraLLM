@@ -66,6 +66,9 @@ LORA_RANK="${LORA_RANK:-8}"
 LORA_ALPHA="${LORA_ALPHA:-16}"
 LR="${LR:-2e-4}"
 VAL_SPLIT="${VAL_SPLIT:-0}"
+LORA_TARGET="${LORA_TARGET:-attention}"   # attention | all (+ MLP)
+NEFTUNE_ALPHA="${NEFTUNE_ALPHA:-0}"        # 0 = off ; 5 = valeur courante
+WARMUP_RATIO="${WARMUP_RATIO:-0.03}"
 
 echo "======================================"
 echo "  Spectra — Pipeline complet"
@@ -278,6 +281,9 @@ python3 scripts/train_host.py \
   --lora-alpha "$LORA_ALPHA" \
   --lr "$LR" \
   --val-split "$VAL_SPLIT" \
+  --lora-target "$LORA_TARGET" \
+  --neftune-alpha "$NEFTUNE_ALPHA" \
+  --warmup-ratio "$WARMUP_RATIO" \
   $PACKING_FLAG \
   $DPO_FLAG \
   $ORPO_FLAG \

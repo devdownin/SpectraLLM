@@ -33,6 +33,15 @@ parser.add_argument("--orpo",           action="store_true", default=False,
 parser.add_argument("--val-split",      type=float, default=0.0,
                     help="Fraction du dataset (0..1) tenue à l'écart pour mesurer l'eval_loss "
                          "par époque et détecter le sur-apprentissage (0 = désactivé, SFT uniquement)")
+parser.add_argument("--lora-target",    choices=["attention", "all"], default="attention",
+                    help="Portée de LoRA : 'attention' (q/k/v/o) ou 'all' (+ projections MLP) "
+                         "pour plus de capacité sur les gros modèles")
+parser.add_argument("--neftune-alpha",  type=float, default=0.0,
+                    help="NEFTune : amplitude du bruit ajouté aux embeddings en SFT (0 = désactivé ; "
+                         "5 est une valeur courante qui améliore souvent la robustesse, gratuitement)")
+parser.add_argument("--warmup-ratio",   type=float, default=0.03,
+                    help="Fraction des étapes en warm-up du learning rate (plus robuste qu'un nombre "
+                         "fixe d'étapes sur de petits datasets)")
 args = parser.parse_args()
 
 # Alias honnêtes : chaque clé pointe vers le modèle réellement chargé.
@@ -66,15 +75,20 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments,
 import json
 
 
-def find_target_modules(model):
+def find_target_modules(model, scope="attention"):
     """
-    Détecte les projections d'attention à cibler par LoRA selon l'architecture réelle.
+    Détecte les modules à cibler par LoRA selon l'architecture réelle.
 
     Les modules cibles étaient codés en dur en q_proj/k_proj/v_proj/o_proj (style Llama),
     ce qui plantait sur des architectures à attention fusionnée comme Phi-3 (qkv_proj).
     On inspecte les modules présents et on retombe sur le style Llama si rien n'est trouvé.
+
+    scope="all" ajoute les projections MLP (gate/up/down_proj, gate_up_proj) pour plus de
+    capacité — utile sur les gros modèles, au prix de davantage de paramètres entraînables.
     """
     candidates = {"q_proj", "k_proj", "v_proj", "o_proj", "qkv_proj"}
+    if scope == "all":
+        candidates |= {"gate_proj", "up_proj", "down_proj", "gate_up_proj"}
     found = set()
     for name, _ in model.named_modules():
         leaf = name.split(".")[-1]
@@ -292,8 +306,8 @@ if USE_UNSLOTH:
     if args.resume_adapter:
         model = PeftModel.from_pretrained(model, args.resume_adapter, is_trainable=True)
     else:
-        target_modules = find_target_modules(model)
-        print(f"  Modules LoRA ciblés : {target_modules}")
+        target_modules = find_target_modules(model, args.lora_target)
+        print(f"  Modules LoRA ciblés ({args.lora_target}) : {target_modules}")
         model = FastLanguageModel.get_peft_model(
             model,
             r=args.lora_rank,
@@ -321,8 +335,8 @@ else:
         # Charge l'adaptateur existant en mode entraînable (is_trainable=True)
         model = PeftModel.from_pretrained(model, args.resume_adapter, is_trainable=True)
     else:
-        target_modules = find_target_modules(model)
-        print(f"  Modules LoRA ciblés : {target_modules}")
+        target_modules = find_target_modules(model, args.lora_target)
+        print(f"  Modules LoRA ciblés ({args.lora_target}) : {target_modules}")
         peft_config = LoraConfig(
             task_type=TaskType.CAUSAL_LM,
             r=args.lora_rank,
@@ -375,6 +389,8 @@ class ProgressLogger(TrainerCallback):
 
 method_label = "ORPO" if args.orpo else ("DPO" if args.dpo else "SFT")
 print(f"\nDébut de l'entraînement ({args.epochs} époque(s), LoRA rank={args.lora_rank}"
+      + f", cible={args.lora_target}"
+      + (f", NEFTune α={args.neftune_alpha}" if args.neftune_alpha > 0 else "")
       + (", packing=on" if args.packing else "")
       + (f", {method_label}=on" if PREFERENCE else "") + ")...")
 print("  Sur CPU, chaque étape peut prendre plusieurs minutes — c'est normal.\n")
@@ -482,7 +498,7 @@ if not PREFERENCE:
         args=TrainingArguments(
             per_device_train_batch_size=1,
             gradient_accumulation_steps=4,
-            warmup_steps=5,
+            warmup_ratio=args.warmup_ratio,
             num_train_epochs=args.epochs,
             learning_rate=args.lr,
             fp16=has_gpu,
@@ -493,6 +509,7 @@ if not PREFERENCE:
             save_strategy="no",
             eval_strategy="epoch" if eval_dataset is not None else "no",
             gradient_checkpointing=has_gpu and not USE_UNSLOTH,
+            neftune_noise_alpha=args.neftune_alpha if args.neftune_alpha > 0 else None,
             report_to="none",
             remove_unused_columns=False,
         ),

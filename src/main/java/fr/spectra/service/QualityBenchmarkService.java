@@ -44,8 +44,7 @@ public class QualityBenchmarkService {
     private static final Logger log = LoggerFactory.getLogger(QualityBenchmarkService.class);
     private static final ObjectMapper mapper = new ObjectMapper();
 
-    private static final String SYSTEM_PROMPT =
-            "Tu es un assistant spécialisé dans l'exploitation autoroutière.";
+    private static final String SYSTEM_PROMPT = fr.spectra.model.AssistantPersona.SYSTEM_PROMPT;
 
     private static final String SCORE_JUDGE_PROMPT = """
             Tu es un évaluateur expert. Compare la réponse évaluée à la réponse de référence :

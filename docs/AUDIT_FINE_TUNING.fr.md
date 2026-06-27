@@ -256,6 +256,24 @@ meilleur sur petits modèles.
   **avant** la branche DPO — ce qui faisait avorter tout run DPO (fichier sans `conversations`).
   Le chargement SFT est désormais sauté en mode préférence (DPO/ORPO).
 
+### D5 — Réglages d'entraînement à faible coût — *ajouté*
+Trois leviers gratuits dans `train_host.py` (exposés aussi via variables d'env des pipelines) :
+- `--lora-target attention|all` : `all` étend LoRA aux projections MLP (`gate/up/down_proj`,
+  `gate_up_proj`) pour plus de capacité sur les gros modèles. Défaut `attention` (inchangé).
+- `--neftune-alpha` : bruit NEFTune sur les embeddings en SFT (défaut 0 = off ; 5 courant),
+  améliore souvent la robustesse sans coût.
+- `--warmup-ratio` (défaut 0.03) remplace `warmup_steps=5` fixe — plus robuste sur petits datasets.
+
+### D6 — Cohérence du system prompt entraînement ↔ service — *corrigé*
+Le modèle était entraîné sous une persona (« assistant spécialisé dans l'exploitation
+autoroutière ») mais **servi sous des prompts différents** (`RagService` mode direct « assistant
+utile », enregistrement `export_gguf.py` « assistant spécialisé… professionnelle »), ce qui dégrade
+l'apport du fine-tuning.
+**Correctif** : source de vérité unique `fr.spectra.model.AssistantPersona.SYSTEM_PROMPT`, partagée
+par `TrainingPair.of`, `RagService` (mode direct + préfixe du prompt contextuel),
+`QualityBenchmarkService`, le repli d'`EvaluationService` et l'exemple d'enregistrement
+`export_gguf.py`.
+
 ## Reste à faire (non bloquant)
 
 - Éventuel early-stopping / checkpointing du meilleur modèle (volontairement écarté ici

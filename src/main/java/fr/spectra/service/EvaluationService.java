@@ -228,7 +228,7 @@ public class EvaluationService {
             String reference = extractRole(pair, "assistant");
             if (question == null || reference == null) return null;
 
-            String sysPrompt = system != null ? system : "Tu es un assistant spécialisé.";
+            String sysPrompt = system != null ? system : fr.spectra.model.AssistantPersona.SYSTEM_PROMPT;
 
             String modelAnswer;
             try {

@@ -107,6 +107,8 @@ print("=== Étape 3 : Enregistrement du modèle ===")
 gguf_abs = os.path.abspath(gguf_path)
 
 print(f"\n  GGUF prêt : {gguf_abs}")
+# Le systemPrompt d'enregistrement DOIT correspondre à la persona d'entraînement
+# (fr.spectra.model.AssistantPersona.SYSTEM_PROMPT) pour ne pas dégrader le fine-tuning.
 print("\n  Enregistrez le modèle via l'API Spectra :")
 print(f"""
     curl -X POST http://localhost:8080/api/fine-tuning/models/register \\
@@ -115,7 +117,7 @@ print(f"""
         "name":         "{args.model_name}",
         "type":         "chat",
         "source":       "{gguf_abs}",
-        "systemPrompt": "Tu es un assistant spécialisé. Tu réponds de manière précise et professionnelle.",
+        "systemPrompt": "Tu es un assistant spécialisé dans l'exploitation autoroutière.",
         "activate":     true
       }}'
 """)
