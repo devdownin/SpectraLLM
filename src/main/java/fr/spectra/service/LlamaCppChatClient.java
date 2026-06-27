@@ -154,12 +154,23 @@ public class LlamaCppChatClient implements LlmChatClient {
 
     @Override
     @CircuitBreaker(name = "llm-chat", fallbackMethod = "chatFallback")
-    @SuppressWarnings("unchecked")
     public String chat(String systemPrompt, String userMessage) {
+        // Délègue à la variante paramétrée avec les valeurs par défaut. Le circuit
+        // breaker reste porté ici : l'appel interne vers chat(…, temp, topP) est une
+        // self-invocation (non proxifiée) et ne re-déclenche donc pas un second CB.
+        return chat(systemPrompt, userMessage, 0.7f, 0.9f);
+    }
+
+    @Override
+    @CircuitBreaker(name = "llm-chat", fallbackMethod = "chatFallbackParams")
+    @SuppressWarnings("unchecked")
+    public String chat(String systemPrompt, String userMessage, float temperature, float topP) {
         Map<String, Object> request = Map.of(
                 "model", activeModel.get(),
                 "stream", false,
                 "max_tokens", 2048,
+                "temperature", temperature,
+                "top_p", topP,
                 "messages", List.of(
                         Map.of("role", "system", "content", systemPrompt),
                         Map.of("role", "user", "content", userMessage)
@@ -205,6 +216,12 @@ public class LlamaCppChatClient implements LlmChatClient {
         throw new LlmUnavailableException(
                 "Le modèle de langage est temporairement indisponible. "
                 + "Réessayez dans quelques instants.", cause);
+    }
+
+    /** Fallback de la variante paramétrée {@link #chat(String, String, float, float)}. */
+    String chatFallbackParams(String systemPrompt, String userMessage,
+                              float temperature, float topP, Throwable cause) {
+        return chatFallback(systemPrompt, userMessage, cause);
     }
 
     /**

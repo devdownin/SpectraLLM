@@ -24,6 +24,14 @@ public interface LlmChatClient {
     String chat(String systemPrompt, String userMessage);
 
     /**
+     * Génère une réponse complète avec paramètres de génération explicites (temperature, top_p).
+     * L'implémentation par défaut ignore les paramètres et délègue à {@link #chat(String, String)}.
+     */
+    default String chat(String systemPrompt, String userMessage, float temperature, float topP) {
+        return chat(systemPrompt, userMessage);
+    }
+
+    /**
      * Génère une réponse en streaming, token par token.
      * L'implémentation par défaut délègue à {@link #chat} et émet la réponse complète en un seul élément.
      */

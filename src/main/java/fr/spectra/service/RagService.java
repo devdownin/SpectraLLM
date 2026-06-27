@@ -171,7 +171,8 @@ public class RagService {
 
         // ── 0. Direct LLM mode (RAG désactivé) ────────────────────────────
         if (Boolean.FALSE.equals(request.useRag())) {
-            String answer = llmClient.chat(DIRECT_SYSTEM_PROMPT, request.question());
+            String answer = llmClient.chat(DIRECT_SYSTEM_PROMPT, request.question(),
+                    request.temperature(), request.topP());
             long duration = System.currentTimeMillis() - start;
             return new QueryResponse(answer, List.of(), duration,
                     false, false, false, 0, null,
@@ -188,7 +189,8 @@ public class RagService {
             ragStrategy = strategy.name();
 
             if (strategy == AdaptiveRagService.RagStrategy.DIRECT) {
-                String answer = llmClient.chat(DIRECT_SYSTEM_PROMPT, request.question());
+                String answer = llmClient.chat(DIRECT_SYSTEM_PROMPT, request.question(),
+                        request.temperature(), request.topP());
                 long duration = System.currentTimeMillis() - start;
                 log.info("Adaptive RAG DIRECT en {}ms", duration);
                 return new QueryResponse(answer, List.of(), duration,
@@ -295,7 +297,8 @@ public class RagService {
                 answer = result.answer();
                 selfRagApplied = result.reflectionApplied();
             } else {
-                answer = llmClient.chat(systemPrompt, userMessage);
+                answer = llmClient.chat(systemPrompt, userMessage,
+                        request.temperature(), request.topP());
             }
         }
 
