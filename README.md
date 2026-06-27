@@ -193,8 +193,22 @@ Spectra detects your hardware at startup (CPU cores, RAM, VRAM, GPU vendor) and 
 
 ## Getting Started
 
+### Development Environment
+
+Spectra requires **Java 25 (LTS)**. To set up your local development environment, you can use one of the following methods:
+
+- **SDKMAN!**: A `.sdkmanrc` file is provided at the root. Run `sdk env install` then `sdk env use` to automatically switch to the correct Java version.
+- **VS Code DevContainer**: A pre-configured `.devcontainer` is available. When opening the project in VS Code, click "Reopen in Container".
+- **Manual**: Install **Eclipse Temurin 25 (LTS)** from [Adoptium](https://adoptium.net/).
+
+You can verify your environment by running:
+```bash
+bash scripts/setup-java.sh
+```
+
 ### Prerequisites
 
+- **Java 25 (LTS)** — for local compilation
 - **Docker Desktop** (or Docker Engine + Compose v2)
 - **16 GB RAM** minimum (32 GB recommended for 7B models)
 - A `.gguf` model file placed in `data/models/`

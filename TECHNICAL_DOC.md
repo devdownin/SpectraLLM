@@ -12,7 +12,7 @@ L'inférence repose sur [llama-cpp-turboquant](https://github.com/TheTom/llama-c
 
 | Couche | Technologie | Version | Notes |
 |--------|-------------|---------|-------|
-| Backend | Java 25 / Spring Boot | 4.1.0 | Virtual Threads (Project Loom) |
+| Backend | Java 25 (LTS) / Spring Boot | 4.1.0 | Virtual Threads (Project Loom) |
 | Frontend | React 19 / Vite / Tailwind CSS | — | Servi par nginx dans Docker |
 | Inférence LLM (chat) | llama-cpp-turboquant (`llama-server`) | master | API OpenAI-compatible `/v1/chat/completions` |
 | Inférence LLM (embeddings) | llama-cpp-turboquant (`llama-server`) | master | API OpenAI-compatible `/v1/embeddings` |

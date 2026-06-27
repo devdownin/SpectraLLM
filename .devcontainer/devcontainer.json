@@ -1,0 +1,26 @@
+{
+  "name": "Spectra Dev Environment",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "vscjava.vscode-java-pack",
+        "vmware.vscode-spring-boot-dashboard",
+        "vscjava.vscode-spring-boot-runtime",
+        "bradlc.vscode-tailwindcss",
+        "esbenp.prettier-vscode",
+        "dbaeumer.vscode-eslint"
+      ]
+    }
+  },
+  "remoteUser": "vscode",
+  "features": {
+    "ghcr.io/devcontainers/features/node-js:1": {
+      "version": "22"
+    }
+  },
+  "forwardPorts": [8080, 5173, 8000, 8081, 8082],
+  "postCreateCommand": "npm install --prefix frontend"
+}

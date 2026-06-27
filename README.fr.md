@@ -105,7 +105,21 @@ Pointez simplement vos données, activez `spectra.batch.enabled=true`, et révei
 
 ## 🚀 Démarrage Rapide
 
+### Environnement de Développement
+
+Spectra nécessite **Java 25 (LTS)**. Pour configurer votre environnement local :
+
+- **SDKMAN!** : Un fichier `.sdkmanrc` est présent à la racine. Lancez `sdk env install` puis `sdk env use`.
+- **VS Code DevContainer** : Un `.devcontainer` est disponible pour ouvrir le projet dans un environnement prêt à l'emploi.
+- **Manuel** : Installez **Eclipse Temurin 25 (LTS)** depuis [Adoptium](https://adoptium.net/).
+
+Vérifiez votre environnement avec :
+```bash
+bash scripts/setup-java.sh
+```
+
 ### Prérequis
+*   **Java 25 (LTS)** — pour la compilation locale
 *   **Docker Desktop** (ou Docker Engine + Compose v2)
 *   **16 Go+ de RAM** (32 Go recommandés pour les gros datasets)
 *   **GPU (Optionnel)** : Accélère l'inférence et l'entraînement (NVIDIA recommandé).
