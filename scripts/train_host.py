@@ -32,9 +32,13 @@ parser.add_argument("--val-split",      type=float, default=0.0,
                          "par époque et détecter le sur-apprentissage (0 = désactivé, SFT uniquement)")
 args = parser.parse_args()
 
+# Alias honnêtes : chaque clé pointe vers le modèle réellement chargé.
+# "tinyllama" est le défaut léger pour CPU ; "phi3" charge bien Phi-3 (les target_modules
+# LoRA sont auto-détectés plus bas, donc l'attention fusionnée qkv_proj de Phi-3 est gérée).
+# Ce mapping doit rester IDENTIQUE à celui de export_gguf.py (sinon la fusion LoRA échoue).
 MODEL_MAP = {
-    "phi3":     "TinyLlama/TinyLlama-1.1B-Chat-v1.0",   # CPU: ~4.4 Go (phi3 → TinyLlama sur CPU)
-    "tinyllama":"TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+    "tinyllama":"TinyLlama/TinyLlama-1.1B-Chat-v1.0",   # CPU léger (~1.1B)
+    "phi3":     "microsoft/Phi-3-mini-4k-instruct",     # ~3.8B (GPU recommandé)
     "mistral":  "mistralai/Mistral-7B-Instruct-v0.3",
     "llama3":   "meta-llama/Meta-Llama-3-8B-Instruct",
 }
@@ -57,6 +61,23 @@ else:
 
 from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments, Trainer, TrainerCallback
 import json
+
+
+def find_target_modules(model):
+    """
+    Détecte les projections d'attention à cibler par LoRA selon l'architecture réelle.
+
+    Les modules cibles étaient codés en dur en q_proj/k_proj/v_proj/o_proj (style Llama),
+    ce qui plantait sur des architectures à attention fusionnée comme Phi-3 (qkv_proj).
+    On inspecte les modules présents et on retombe sur le style Llama si rien n'est trouvé.
+    """
+    candidates = {"q_proj", "k_proj", "v_proj", "o_proj", "qkv_proj"}
+    found = set()
+    for name, _ in model.named_modules():
+        leaf = name.split(".")[-1]
+        if leaf in candidates:
+            found.add(leaf)
+    return sorted(found) if found else ["q_proj", "k_proj", "v_proj", "o_proj"]
 import torch
 from torch.utils.data import Dataset as TorchDataset
 
@@ -268,12 +289,14 @@ if USE_UNSLOTH:
     if args.resume_adapter:
         model = PeftModel.from_pretrained(model, args.resume_adapter, is_trainable=True)
     else:
+        target_modules = find_target_modules(model)
+        print(f"  Modules LoRA ciblés : {target_modules}")
         model = FastLanguageModel.get_peft_model(
             model,
             r=args.lora_rank,
             lora_alpha=args.lora_alpha,
             lora_dropout=0.05,
-            target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
+            target_modules=target_modules,
         )
 else:
     tokenizer = AutoTokenizer.from_pretrained(hf_model)
@@ -295,12 +318,14 @@ else:
         # Charge l'adaptateur existant en mode entraînable (is_trainable=True)
         model = PeftModel.from_pretrained(model, args.resume_adapter, is_trainable=True)
     else:
+        target_modules = find_target_modules(model)
+        print(f"  Modules LoRA ciblés : {target_modules}")
         peft_config = LoraConfig(
             task_type=TaskType.CAUSAL_LM,
             r=args.lora_rank,
             lora_alpha=args.lora_alpha,
             lora_dropout=0.05,
-            target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
+            target_modules=target_modules,
         )
         model = get_peft_model(model, peft_config)
     model.print_trainable_parameters()

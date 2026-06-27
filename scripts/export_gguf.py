@@ -24,10 +24,9 @@ args = parser.parse_args()
 # IMPORTANT : ce mapping doit rester IDENTIQUE à celui de train_host.py.
 # L'adaptateur LoRA est entraîné sur un modèle de base précis ; le fusionner sur un
 # modèle différent (dimensions/architecture incompatibles) fait échouer merge_and_unload.
-# En particulier "phi3" est un alias CPU vers TinyLlama (cf. train_host.py).
 MODEL_MAP = {
-    "phi3":     "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
     "tinyllama":"TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+    "phi3":     "microsoft/Phi-3-mini-4k-instruct",
     "mistral":  "mistralai/Mistral-7B-Instruct-v0.3",
     "llama3":   "meta-llama/Meta-Llama-3-8B-Instruct",
 }

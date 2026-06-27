@@ -184,15 +184,30 @@ les exemples dont la réponse disparaît entièrement sont ignorés.
 Le mode packing supervise toute la séquence concaténée (prompts inclus). C'est un
 compromis débit/qualité assumé pour un mode optionnel ; documenté ici pour mémoire.
 
+### C10 — Alias `phi3` trompeur + `target_modules` LoRA codés en dur — *corrigé*
+`phi3` pointait en réalité vers TinyLlama, et les `target_modules`
+(`q_proj/k_proj/v_proj/o_proj`, style Llama) étaient codés en dur — ce qui aurait fait
+**échouer** LoRA sur l'attention fusionnée `qkv_proj` de Phi-3 (bug latent que la
+substitution TinyLlama masquait).
+**Correctif** :
+- `MODEL_MAP` honnête (identique dans `train_host.py` et `export_gguf.py`) :
+  `tinyllama` = défaut CPU léger (1.1B), `phi3` = vrai Phi-3-mini (3.8B).
+- `find_target_modules()` auto-détecte les projections d'attention présentes
+  (Llama → `q/k/v/o_proj`, Phi-3 → `qkv_proj/o_proj`), avec repli style Llama.
+- Recette `cpu-rapide` bascule sur `tinyllama` (comportement préservé : c'est le
+  modèle qui était réellement chargé) ; `gpu-qualite` / `dpo-alignement` gardent `phi3`,
+  désormais honnête.
+
 ---
 
 ## Récapitulatif des fichiers modifiés
 
 | Fichier | Nature du correctif |
 |---|---|
-| `scripts/train_host.py` | Masquage du prompt (B2), collator par défaut (B1), `ref_model=None` + validation DPO (B4, A6), padding dynamique (C3), troncature préservant la réponse (C8), SDPA (C6), gradient checkpointing GPU (C7), `--val-split` (C5) |
+| `scripts/train_host.py` | Masquage du prompt (B2), collator par défaut (B1), `ref_model=None` + validation DPO (B4, A6), padding dynamique (C3), troncature préservant la réponse (C8), SDPA (C6), gradient checkpointing GPU (C7), `--val-split` (C5), `MODEL_MAP` honnête + `find_target_modules` (C10) |
 | `scripts/train.sh` | Réécrit en adaptateur de `train_host.py` (A1, A2, A4, B3, A5) |
-| `scripts/export_gguf.py` | `MODEL_MAP` aligné sur `train_host.py` (B5) |
+| `scripts/export_gguf.py` | `MODEL_MAP` aligné et honnête (B5, C10) |
+| `src/.../recipes/cpu-rapide.yml` | `baseModel: tinyllama` (C10) |
 | `src/.../FineTuningService.java` | Flags packing/dpo (A5), artefact répertoire (A3), export DPO (A6), chemin script absolu, cleanup disque (C2) |
 | `src/.../DpoGenerationService.java` | `exportJsonl()` (A6) |
 | `src/.../dataset/DatasetGeneratorService.java` | Confiance ancrée (C4), déduplication (C5) |
@@ -201,7 +216,7 @@ compromis débit/qualité assumé pour un mode optionnel ; documenté ici pour m
 
 ## Reste à faire (non bloquant)
 
-- Renommer l'alias `phi3` (qui pointe en réalité vers TinyLlama sur CPU) pour lever
-  l'ambiguïté côté utilisateur.
 - Éventuel early-stopping / checkpointing du meilleur modèle (volontairement écarté ici
   pour éviter le churn disque sur de petits datasets CPU).
+- Étendre LoRA aux projections MLP (`gate/up/down_proj`) pour les gros modèles si la
+  qualité le justifie (actuellement attention seule, conforme à l'existant).
