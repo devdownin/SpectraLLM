@@ -1,8 +1,8 @@
 name: cpu-rapide
 displayName: "CPU Rapide"
-description: "Entraînement léger sur CPU (TinyLlama / Phi-3, 1 époque). Idéal pour valider rapidement le pipeline."
+description: "Entraînement léger sur CPU (TinyLlama 1.1B, 1 époque). Idéal pour valider rapidement le pipeline."
 
-baseModel: phi3
+baseModel: tinyllama
 loraRank: 8
 loraAlpha: 16
 epochs: 1

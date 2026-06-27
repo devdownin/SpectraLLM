@@ -52,8 +52,17 @@ for arg in "$@"; do
 done
 
 DATASET_FILE="data/fine-tuning/pipeline-export.jsonl"
+DPO_DATASET_FILE="data/fine-tuning/pipeline-dpo.jsonl"
 ADAPTER_DIR="data/fine-tuning/pipeline-adapter"
 MERGED_DIR="data/fine-tuning/pipeline-merged"
+
+# Hyperparamètres surchargeables par variable d'environnement (sinon valeurs CPU rapides).
+# Permet d'appliquer une recette (ex: EPOCHS=3 LORA_RANK=64 LORA_ALPHA=128 ./pipeline.sh ...).
+EPOCHS="${EPOCHS:-1}"
+LORA_RANK="${LORA_RANK:-8}"
+LORA_ALPHA="${LORA_ALPHA:-16}"
+LR="${LR:-2e-4}"
+VAL_SPLIT="${VAL_SPLIT:-0}"
 
 echo "======================================"
 echo "  Spectra — Pipeline complet"
@@ -222,7 +231,8 @@ echo
 echo "> [4/5] Fine-tuning du modele $BASE_MODEL sur l'hote..."
 echo "  Cette etape peut durer plusieurs minutes (CPU) ou quelques minutes (GPU)."
 
-# Verification DPO
+# Verification DPO + export du BON fichier (format {prompt, chosen, rejected})
+TRAIN_DATASET="$DATASET_FILE"
 if [ -n "$DPO_FLAG" ]; then
   DPO_JSON=$(curl -sf --max-time 5 "$API_URL/api/dataset/dpo/stats" 2>/dev/null || echo '{"totalPairs":0}')
   DPO_PAIRS=$(echo "$DPO_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('totalPairs',0))" 2>/dev/null || echo 0)
@@ -230,6 +240,13 @@ if [ -n "$DPO_FLAG" ]; then
   Lancez d'abord la generation DPO :
     curl -X POST $API_URL/api/dataset/dpo/generate"
   green "$DPO_PAIRS paires DPO disponibles"
+
+  # L'entrainement DPO consomme le format {prompt, chosen, rejected}, PAS l'export SFT.
+  curl -sf --max-time 30 -X POST "$API_URL/api/dataset/dpo/export" -o "$DPO_DATASET_FILE" \
+    || die "Export DPO echoue"
+  [ -s "$DPO_DATASET_FILE" ] || die "Fichier DPO vide apres export : $DPO_DATASET_FILE"
+  TRAIN_DATASET="$DPO_DATASET_FILE"
+  green "Dataset DPO exporte : $DPO_DATASET_FILE"
 fi
 
 # Adaptateur incremental ou reset
@@ -247,12 +264,15 @@ fi
 
 # shellcheck disable=SC2086
 python3 scripts/train_host.py \
-  --dataset "$DATASET_FILE" \
+  --dataset "$TRAIN_DATASET" \
   --output  "$ADAPTER_DIR" \
   --base-model "$BASE_MODEL" \
   $RESUME_FLAG \
-  --epochs 1 \
-  --lora-rank 8 \
+  --epochs "$EPOCHS" \
+  --lora-rank "$LORA_RANK" \
+  --lora-alpha "$LORA_ALPHA" \
+  --lr "$LR" \
+  --val-split "$VAL_SPLIT" \
   $PACKING_FLAG \
   $DPO_FLAG \
   || die "Fine-tuning echoue"

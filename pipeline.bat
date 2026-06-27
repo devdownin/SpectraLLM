@@ -45,8 +45,16 @@ for %%A in (%*) do (
 )
 
 set DATASET_FILE=data\fine-tuning\pipeline-export.jsonl
+set DPO_DATASET_FILE=data\fine-tuning\pipeline-dpo.jsonl
 set ADAPTER_DIR=data\fine-tuning\pipeline-adapter
 set MERGED_DIR=data\fine-tuning\pipeline-merged
+
+:: Hyperparametres surchargeables par variable d'environnement (sinon valeurs CPU rapides).
+if not defined EPOCHS     set EPOCHS=1
+if not defined LORA_RANK  set LORA_RANK=8
+if not defined LORA_ALPHA set LORA_ALPHA=16
+if not defined LR         set LR=2e-4
+if not defined VAL_SPLIT  set VAL_SPLIT=0
 
 echo ======================================
 echo   Spectra — Pipeline complet
@@ -255,6 +263,7 @@ echo ^> [4/5] Fine-tuning du modele %BASE_MODEL% sur l'hote...
 echo   Cette etape peut durer plusieurs minutes (CPU) ou quelques minutes (GPU).
 
 :: Verification DPO : s'assurer que des paires DPO existent si --dpo est demande
+set TRAIN_DATASET=%DATASET_FILE%
 if "!DPO_FLAG!"=="--dpo" (
     for /f "delims=" %%N in ('powershell -Command "try { $j=(Invoke-WebRequest -Uri '%API_URL%/api/dataset/dpo/stats' -UseBasicParsing -TimeoutSec 5).Content|ConvertFrom-Json; Write-Host $j.totalPairs } catch { Write-Host 0 }"') do set DPO_PAIRS=%%N
     set DPO_PAIRS=!DPO_PAIRS: =!
@@ -265,6 +274,15 @@ if "!DPO_FLAG!"=="--dpo" (
         exit /b 1
     )
     echo   [OK] !DPO_PAIRS! paires DPO disponibles
+
+    :: L'entrainement DPO consomme le format {prompt, chosen, rejected}, PAS l'export SFT.
+    curl -sf --max-time 30 -X POST "%API_URL%/api/dataset/dpo/export" -o "%DPO_DATASET_FILE%"
+    if errorlevel 1 (
+        echo   [ERREUR] Export DPO echoue.
+        exit /b 1
+    )
+    set TRAIN_DATASET=%DPO_DATASET_FILE%
+    echo   [OK] Dataset DPO exporte : %DPO_DATASET_FILE%
 )
 
 set RESUME_FLAG=
@@ -280,12 +298,15 @@ if !RESET_ADAPTER!==1 (
 )
 
 python scripts\train_host.py ^
-    --dataset "%DATASET_FILE%" ^
+    --dataset "!TRAIN_DATASET!" ^
     --output  "%ADAPTER_DIR%" ^
     --base-model %BASE_MODEL% ^
     %RESUME_FLAG% ^
-    --epochs 1 ^
-    --lora-rank 8 ^
+    --epochs %EPOCHS% ^
+    --lora-rank %LORA_RANK% ^
+    --lora-alpha %LORA_ALPHA% ^
+    --lr %LR% ^
+    --val-split %VAL_SPLIT% ^
     %PACKING_FLAG% ^
     %DPO_FLAG%
 
