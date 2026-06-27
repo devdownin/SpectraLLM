@@ -31,8 +31,17 @@ echo "  Spectra — Configuration initiale"
 echo "======================================"
 echo
 
-# ── 1. Docker ─────────────────────────────────────────────────────────────
-echo "> [1/5] Vérification de Docker..."
+# ── 1. Java ───────────────────────────────────────────────────────────────
+echo "> [1/6] Vérification de Java 25..."
+if [ -f "./scripts/setup-java.sh" ]; then
+  if ! ./scripts/setup-java.sh; then
+    ERRORS=$((ERRORS + 1))
+  fi
+fi
+
+# ── 2. Docker ─────────────────────────────────────────────────────────────
+echo
+echo "> [2/6] Vérification de Docker..."
 if ! docker info > /dev/null 2>&1; then
   red "  [ERREUR] Docker n'est pas démarré ou n'est pas installé."
   echo "  Installez Docker Desktop : https://www.docker.com/products/docker-desktop"
@@ -41,9 +50,9 @@ else
   green "  [OK] $(docker --version)"
 fi
 
-# ── 2. Répertoires de données ──────────────────────────────────────────────
+# ── 3. Répertoires de données ──────────────────────────────────────────────
 echo
-echo "> [2/5] Création des répertoires de données..."
+echo "> [3/6] Création des répertoires de données..."
 for dir in data/documents data/dataset data/fine-tuning data/fine-tuning/merged data/models data/source; do
   if [ ! -d "$dir" ]; then
     mkdir -p "$dir"
@@ -53,9 +62,9 @@ for dir in data/documents data/dataset data/fine-tuning data/fine-tuning/merged 
   fi
 done
 
-# ── 3. Fichier .env ────────────────────────────────────────────────────────
+# ── 4. Fichier .env ────────────────────────────────────────────────────────
 echo
-echo "> [3/5] Fichier de configuration .env..."
+echo "> [4/6] Fichier de configuration .env..."
 if [ ! -f ".env" ]; then
   if [ -f ".env.example" ]; then
     cp .env.example .env
@@ -68,9 +77,9 @@ else
   green "  [OK] .env existe déjà"
 fi
 
-# ── 4. Modèle d'embedding ─────────────────────────────────────────────────
+# ── 5. Modèle d'embedding ─────────────────────────────────────────────────
 echo
-echo "> [4/5] Modèle d'embedding (data/models/embed.gguf)..."
+echo "> [5/6] Modèle d'embedding (data/models/embed.gguf)..."
 if [ -f "data/models/embed.gguf" ]; then
   SIZE=$(du -sh data/models/embed.gguf | cut -f1)
   green "  [OK] embed.gguf présent — $SIZE"
@@ -93,9 +102,9 @@ else
   fi
 fi
 
-# ── 5. Modèle de chat ─────────────────────────────────────────────────────
+# ── 6. Modèle de chat ─────────────────────────────────────────────────────
 echo
-echo "> [5/5] Modèle de chat (data/fine-tuning/merged/model.gguf)..."
+echo "> [6/6] Modèle de chat (data/fine-tuning/merged/model.gguf)..."
 if [ -f "data/fine-tuning/merged/model.gguf" ]; then
   SIZE=$(du -sh data/fine-tuning/merged/model.gguf | cut -f1)
   green "  [OK] model.gguf présent — $SIZE"
@@ -124,6 +133,9 @@ echo
 echo "======================================"
 if [ "$ERRORS" -eq 0 ]; then
   green "  [OK] Configuration terminée — tout est en place !"
+  echo
+  echo "  Pour compiler (nécessite Java 25 local) :"
+  echo "    ./build.sh"
   echo
   echo "  Pour démarrer Spectra :"
   echo "    docker compose up -d"
