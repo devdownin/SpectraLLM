@@ -623,7 +623,7 @@ const Playground: FC = () => {
               ))}
               {availableModels.length > 1 && (
                 <p className="text-[9px] text-outline uppercase tracking-widest leading-relaxed">
-                  Effectif au prochain redémarrage du service de chat.
+                  Effective on the next chat service restart.
                 </p>
               )}
             </div>
@@ -711,7 +711,7 @@ const Playground: FC = () => {
             className="w-full py-3 px-4 border border-primary/30 text-primary text-[10px] font-headline uppercase tracking-widest hover:bg-primary/5 transition-colors flex items-center justify-center gap-2"
           >
             <span className="material-symbols-outlined text-sm">psychology</span>
-            Conseiller RAG
+            RAG Advisor
           </button>
           <div className="relative">
             <button
