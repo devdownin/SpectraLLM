@@ -174,6 +174,7 @@ const Playground: FC = () => {
   const [advisorOpen, setAdvisorOpen] = useState(false);
   const [atBottom, setAtBottom] = useState(true);
   const [regenMenuOpen, setRegenMenuOpen] = useState(false);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
 
   const [activeModel, setActiveModel] = useState<string>('');
   const [availableModels, setAvailableModels] = useState<Array<{ name: string; provenance?: string }>>([]);
@@ -251,6 +252,66 @@ const Playground: FC = () => {
   const clearChat = () => {
     setMessages([{ role: 'assistant', content: 'Discussion cleared. System ready.', status: 'SENT' }]);
     toast.info('Chat history cleared');
+  };
+
+  /** Déclenche le téléchargement d'un blob texte côté navigateur. */
+  const downloadFile = (filename: string, mime: string, content: string) => {
+    const url = URL.createObjectURL(new Blob([content], { type: mime }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  /** Sérialise la conversation en Markdown lisible (question, réponse, sources, pipeline, métriques). */
+  const conversationToMarkdown = (): string => {
+    const lines: string[] = [
+      '# Spectra Playground — Conversation',
+      `_Exported ${new Date().toISOString()}${activeModel ? ` · model: ${activeModel}` : ''}_`,
+      '',
+    ];
+    for (const m of messages) {
+      if (!m.content?.trim()) continue;
+      lines.push(m.role === 'user' ? '## 🧑 Architect' : '## 🤖 Spectra Core', '', m.content.trim(), '');
+      if (m.role === 'assistant') {
+        if (m.sources?.length) {
+          lines.push('**Sources:**');
+          for (const s of m.sources) {
+            const pct = typeof s.distance === 'number' ? ` (${Math.max(0, Math.min(100, Math.round((1 - s.distance) * 100)))}%)` : '';
+            lines.push(`- ${s.sourceFile}${pct}`);
+          }
+          lines.push('');
+        }
+        if (m.ragMeta) {
+          const flags = Object.entries(m.ragMeta)
+            .filter(([k, v]) => v === true && k.endsWith('Applied'))
+            .map(([k]) => k.replace('Applied', ''));
+          lines.push(`**Pipeline:** ${m.ragMeta.ragStrategy}${flags.length ? ` · ${flags.join(', ')}` : ''}`, '');
+        }
+        if (m.metrics) {
+          lines.push(`_TTFT ${(m.metrics.ttftMs / 1000).toFixed(1)}s · ${(m.metrics.totalMs / 1000).toFixed(1)}s · ${m.metrics.tokens} tok${m.stopped ? ' · stopped' : ''}_`, '');
+        }
+      }
+      lines.push('---', '');
+    }
+    return lines.join('\n');
+  };
+
+  /** Exporte la conversation courante (Markdown ou JSON). */
+  const exportConversation = (format: 'md' | 'json') => {
+    setExportMenuOpen(false);
+    const real = messages.filter(m => m.content?.trim());
+    if (real.length <= 1) { toast.info('Nothing to export yet'); return; }
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    if (format === 'md') {
+      downloadFile(`spectra-chat-${stamp}.md`, 'text/markdown', conversationToMarkdown());
+    } else {
+      downloadFile(`spectra-chat-${stamp}.json`, 'application/json', JSON.stringify(messages, null, 2));
+    }
+    toast.success(`Conversation exported (${format.toUpperCase()})`);
   };
 
   /** Builds the conversation history from SENT messages to send to the backend. */
@@ -652,6 +713,33 @@ const Playground: FC = () => {
             <span className="material-symbols-outlined text-sm">psychology</span>
             Conseiller RAG
           </button>
+          <div className="relative">
+            <button
+              onClick={() => setExportMenuOpen(o => !o)}
+              aria-haspopup="menu" aria-expanded={exportMenuOpen}
+              className="w-full py-3 px-4 border border-outline-variant/40 text-on-surface-variant text-[10px] font-headline uppercase tracking-widest hover:border-primary/40 hover:text-primary transition-colors flex items-center justify-center gap-2"
+            >
+              <span className="material-symbols-outlined text-sm">download</span>
+              Export Conversation
+            </button>
+            {exportMenuOpen && (
+              <>
+                <button type="button" aria-hidden="true" tabIndex={-1}
+                  className="fixed inset-0 z-10 cursor-default" onClick={() => setExportMenuOpen(false)} />
+                <div role="menu"
+                  className="absolute left-0 right-0 bottom-full mb-1 z-20 bg-surface-container-high border border-outline-variant/30 shadow-lg py-1 animate-in fade-in slide-in-from-bottom-1">
+                  <button type="button" role="menuitem" onClick={() => exportConversation('md')}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-left text-[10px] uppercase tracking-widest text-on-surface-variant hover:bg-primary/10 hover:text-primary transition-colors">
+                    <span aria-hidden="true" className="material-symbols-outlined text-[14px]">description</span>As Markdown
+                  </button>
+                  <button type="button" role="menuitem" onClick={() => exportConversation('json')}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-left text-[10px] uppercase tracking-widest text-on-surface-variant hover:bg-primary/10 hover:text-primary transition-colors">
+                    <span aria-hidden="true" className="material-symbols-outlined text-[14px]">data_object</span>As JSON
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
           <button
             onClick={clearChat}
             className="w-full py-3 px-4 border border-error/30 text-error text-[10px] font-headline uppercase tracking-widest hover:bg-error/5 transition-colors flex items-center justify-center gap-2"
