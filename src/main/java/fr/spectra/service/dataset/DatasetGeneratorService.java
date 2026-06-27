@@ -230,9 +230,11 @@ public class DatasetGeneratorService {
                         taskId, GenerationTask.Status.PROCESSING, fp, i + 1, total, null, Instant.now()));
             }
 
+            int uniqueCount = deduplicate();
             tasks.put(taskId, new GenerationTask(
-                    taskId, GenerationTask.Status.COMPLETED, pairsCount, total, total, null, Instant.now()));
-            log.info("Génération terminée: {} paires depuis {} chunks", pairsCount, total);
+                    taskId, GenerationTask.Status.COMPLETED, uniqueCount, total, total, null, Instant.now()));
+            log.info("Génération terminée: {} paires uniques (sur {} générées) depuis {} chunks",
+                    uniqueCount, pairsCount, total);
             persistPairs();
 
         } catch (Exception e) {
@@ -268,7 +270,7 @@ public class DatasetGeneratorService {
                 %s""".formatted(chunkText);
 
         String qaJson = llmChatClient.chat("Tu génères des paires d'entraînement pour un LLM.", qaPrompt);
-        TrainingPair qaPair = parseQaPair(qaJson, sourceFile);
+        TrainingPair qaPair = parseQaPair(qaJson, chunkText, sourceFile);
         if (qaPair != null) pairs.add(qaPair);
 
         // 2. Paire Résumé
@@ -282,7 +284,7 @@ public class DatasetGeneratorService {
                 %s""".formatted(chunkText);
 
         String summaryJson = llmChatClient.chat("Tu génères des paires d'entraînement pour un LLM.", summaryPrompt);
-        TrainingPair summaryPair = parseSummaryPair(summaryJson, sourceFile);
+        TrainingPair summaryPair = parseSummaryPair(summaryJson, chunkText, sourceFile);
         if (summaryPair != null) pairs.add(summaryPair);
 
         // 3. Paire Classification
@@ -305,12 +307,13 @@ public class DatasetGeneratorService {
         return pairs;
     }
 
-    private TrainingPair parseQaPair(String json, String source) {
+    private TrainingPair parseQaPair(String json, String chunkText, String source) {
         try {
             JsonNode node = mapper.readTree(extractJson(json));
             String question = node.get("question").asText();
             String answer = node.get("answer").asText();
-            double confidence = (question.length() >= 10 && answer.length() >= 20) ? 0.9 : 0.4;
+            boolean wellFormed = question.length() >= 10 && answer.length() >= 20;
+            double confidence = wellFormed ? groundedConfidence(answer, chunkText) : 0.4;
             return TrainingPair.of(question, answer, source, "qa", "question_answer", confidence);
         } catch (Exception e) {
             log.debug("Parsing QA échoué: {}", e.getMessage());
@@ -318,17 +321,50 @@ public class DatasetGeneratorService {
         }
     }
 
-    private TrainingPair parseSummaryPair(String json, String source) {
+    private TrainingPair parseSummaryPair(String json, String chunkText, String source) {
         try {
             JsonNode node = mapper.readTree(extractJson(json));
             String instruction = node.get("instruction").asText();
             String summary = node.get("summary").asText();
-            double confidence = (instruction.length() >= 10 && summary.length() >= 30) ? 0.85 : 0.4;
+            boolean wellFormed = instruction.length() >= 10 && summary.length() >= 30;
+            double confidence = wellFormed ? groundedConfidence(summary, chunkText) : 0.4;
             return TrainingPair.of(instruction, summary, source, "summary", "summarization", confidence);
         } catch (Exception e) {
             log.debug("Parsing résumé échoué: {}", e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * Score de confiance <b>ancré dans la source</b> plutôt qu'un simple test de longueur.
+     *
+     * <p>Mesure la part des mots de contenu de la réponse présents dans le chunk d'origine
+     * (proxy d'ancrage / anti-hallucination), puis la combine à une base : une réponse bien
+     * formée et fortement ancrée tend vers 1.0 ; bien formée mais peu ancrée (donc potentiellement
+     * inventée) reste vers 0.6, et passe sous les seuils stricts (0.85 / 0.9) des recettes.</p>
+     */
+    private double groundedConfidence(String answer, String chunkText) {
+        double grounding = grounding(answer, chunkText);   // 0..1
+        double score = 0.6 + 0.4 * grounding;
+        return Math.max(0.0, Math.min(1.0, score));
+    }
+
+    /** Fraction des mots de contenu (>3 lettres) de {@code text} qui apparaissent dans {@code source}. */
+    private double grounding(String text, String source) {
+        Set<String> textWords = contentWords(text);
+        if (textWords.isEmpty()) return 0.0;
+        Set<String> sourceWords = contentWords(source);
+        if (sourceWords.isEmpty()) return 0.0;
+        long hits = textWords.stream().filter(sourceWords::contains).count();
+        return (double) hits / textWords.size();
+    }
+
+    private Set<String> contentWords(String text) {
+        Set<String> words = new java.util.HashSet<>();
+        for (String w : text.toLowerCase().split("[^\\p{L}\\p{Nd}]+")) {
+            if (w.length() > 3) words.add(w);
+        }
+        return words;
     }
 
     private TrainingPair parseClassificationPair(String json, String chunkText, String source) {
@@ -343,6 +379,33 @@ public class DatasetGeneratorService {
             log.debug("Parsing classification échoué: {}", e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * Supprime les paires en double (même instruction + même réponse) accumulées dans
+     * {@link #generatedPairs}, en conservant la première occurrence. Renvoie le nombre de
+     * paires uniques restantes. Évite de sur-pondérer un contenu répété lors du fine-tuning.
+     */
+    private int deduplicate() {
+        Set<String> seen = new java.util.HashSet<>();
+        List<TrainingPair> unique = new ArrayList<>();
+        for (TrainingPair pair : generatedPairs) {
+            String user = pair.conversations().stream()
+                    .filter(m -> "user".equals(m.role())).map(TrainingPair.Message::content)
+                    .findFirst().orElse("");
+            String assistant = pair.conversations().stream()
+                    .filter(m -> "assistant".equals(m.role())).map(TrainingPair.Message::content)
+                    .findFirst().orElse("");
+            String key = (user + " " + assistant).toLowerCase().strip();
+            if (seen.add(key)) {
+                unique.add(pair);
+            }
+        }
+        if (unique.size() != generatedPairs.size()) {
+            generatedPairs.clear();
+            generatedPairs.addAll(unique);
+        }
+        return unique.size();
     }
 
     private void persistPairs() {

@@ -141,32 +141,44 @@ référence `outputPath`) mais ne nettoyait jamais les répertoires sur disque (
 est supprimé ; les jobs COMPLETED (qui contiennent l'adaptateur produit) sont
 conservés.
 
-### C3 — Padding statique à 512 — *non corrigé (noté)*
-`ConversationDataset` rembourre chaque exemple à `max_length` (`padding` fixe). Sur
-CPU, beaucoup de calcul est gaspillé sur du padding. Le mode `--packing` atténue le
-problème. Piste : padding dynamique au niveau du collator.
+### C3 — Padding statique à 512 — *corrigé*
+`ConversationDataset` rembourrait chaque exemple à `max_length`. Désormais les datasets
+renvoient des séquences de **longueur variable** et un collator à **padding dynamique**
+(`make_pad_collator`) rembourre au plus long du batch. À `batch_size=1`, il n'y a plus
+aucun padding — gain de calcul important sur CPU. `PackedDataset` ne pré-rembourre plus
+non plus.
 
-### C4 — La « confiance » du dataset est un simple test de longueur — *noté*
-`parseQaPair`/`parseSummaryPair` fixent `confidence=0.9` si la question/réponse
-dépasse un seuil de caractères, sinon `0.4`. Avec `minConfidence=0.8` par défaut,
-toute paire courte est jetée, sans mesure réelle de qualité. Pistes : score basé sur
-la cohérence LLM-juge, l'ancrage dans le chunk, ou un filtrage de redondance.
+### C4 — Confiance ancrée dans la source — *corrigé*
+`parseQaPair`/`parseSummaryPair` ne se contentent plus d'un test de longueur :
+`groundedConfidence` mesure la part des mots de contenu de la réponse présents dans le
+chunk d'origine (proxy d'ancrage / anti-hallucination) et la combine à une base
+(`0.6 + 0.4·ancrage`). Une réponse bien formée et bien ancrée tend vers `1.0` ; bien
+formée mais peu ancrée (donc potentiellement inventée) reste vers `0.6` et passe sous
+les seuils stricts (0.85 / 0.9) des recettes.
 
-### C5 — Pas de déduplication ni de split train/val — *noté*
-La génération ne déduplique pas les paires et n'isole pas de jeu de validation ;
-`save_strategy="no"` interdit tout checkpoint/early-stopping. Pistes : split
-train/val, `EarlyStoppingCallback`, déduplication par similarité.
+### C5 — Déduplication + split validation — *corrigé*
+- **Déduplication** : `DatasetGeneratorService.deduplicate()` retire les paires en
+  double (même instruction + réponse) avant persistance, pour ne pas sur-pondérer un
+  contenu répété.
+- **Split validation** : `train_host.py --val-split <fraction>` tient un jeu à l'écart et
+  active `eval_strategy="epoch"` ; l'`eval_loss` est journalisée par époque pour détecter
+  le sur-apprentissage (`VAL_SPLIT` exposé par les pipelines, défaut 0 = désactivé).
+  Le checkpointing/early-stopping reste désactivé volontairement (datasets CPU petits,
+  pas de churn disque).
 
-### C6 — `attn_implementation="eager"` — *noté*
-`sdpa` est plus rapide quand disponible (voie CPU non-Unsloth).
+### C6 — Attention SDPA — *corrigé*
+`attn_implementation="sdpa"` (plus rapide) avec repli automatique sur `eager` pour les
+architectures non supportées (voie CPU non-Unsloth).
 
-### C7 — `gradient_checkpointing` désactivé — *noté*
-À activer pour les modèles 7-8B (Mistral/Llama3) afin de réduire l'empreinte mémoire.
+### C7 — `gradient_checkpointing` — *corrigé*
+Activé **uniquement sur GPU non-Unsloth** (`gradient_checkpointing=has_gpu and not
+USE_UNSLOTH`, `use_cache=False`, `enable_input_require_grads()`), pour réduire la
+mémoire des modèles 7-8B. Désactivé sur CPU où il ne ferait que ralentir.
 
-### C8 — Troncature pouvant supprimer toute la réponse — *noté*
-Pour un prompt très long, la troncature à `max_length` peut retirer l'intégralité de
-la réponse de l'assistant, produisant un exemple entièrement masqué. Piste :
-tronquer en priorité le prompt, ou ignorer ces exemples après troncature.
+### C8 — Troncature préservant la réponse — *corrigé*
+`ConversationDataset._fit` supprime d'abord les tokens de prompt (non supervisés) en
+tête lorsqu'une séquence dépasse `max_length`, préservant la réponse de l'assistant ;
+les exemples dont la réponse disparaît entièrement sont ignorés.
 
 ### C9 — `PackedDataset` : loss pleine séquence — *par conception*
 Le mode packing supervise toute la séquence concaténée (prompts inclus). C'est un
@@ -178,17 +190,18 @@ compromis débit/qualité assumé pour un mode optionnel ; documenté ici pour m
 
 | Fichier | Nature du correctif |
 |---|---|
-| `scripts/train_host.py` | Masquage du prompt (B2), collator par défaut (B1), `ref_model=None` + validation DPO (B4, A6) |
+| `scripts/train_host.py` | Masquage du prompt (B2), collator par défaut (B1), `ref_model=None` + validation DPO (B4, A6), padding dynamique (C3), troncature préservant la réponse (C8), SDPA (C6), gradient checkpointing GPU (C7), `--val-split` (C5) |
 | `scripts/train.sh` | Réécrit en adaptateur de `train_host.py` (A1, A2, A4, B3, A5) |
 | `scripts/export_gguf.py` | `MODEL_MAP` aligné sur `train_host.py` (B5) |
 | `src/.../FineTuningService.java` | Flags packing/dpo (A5), artefact répertoire (A3), export DPO (A6), chemin script absolu, cleanup disque (C2) |
 | `src/.../DpoGenerationService.java` | `exportJsonl()` (A6) |
+| `src/.../dataset/DatasetGeneratorService.java` | Confiance ancrée (C4), déduplication (C5) |
 | `src/.../controller/DatasetController.java` | Endpoint `POST /api/dataset/dpo/export` (A6) |
-| `pipeline.sh` / `pipeline.bat` | Hyperparamètres surchargeables (C1), bon fichier DPO (A6) |
+| `pipeline.sh` / `pipeline.bat` | Hyperparamètres surchargeables `EPOCHS/LORA_RANK/LORA_ALPHA/LR/VAL_SPLIT` (C1, C5), bon fichier DPO (A6) |
 
 ## Reste à faire (non bloquant)
 
-- C3 (padding dynamique), C4 (scoring de confiance réel), C5 (split val + checkpoints),
-  C6 (`sdpa`), C7 (`gradient_checkpointing`), C8 (troncature côté prompt).
 - Renommer l'alias `phi3` (qui pointe en réalité vers TinyLlama sur CPU) pour lever
   l'ambiguïté côté utilisateur.
+- Éventuel early-stopping / checkpointing du meilleur modèle (volontairement écarté ici
+  pour éviter le churn disque sur de petits datasets CPU).

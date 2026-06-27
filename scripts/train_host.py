@@ -27,6 +27,9 @@ parser.add_argument("--packing",        action="store_true", default=False,
                     help="Active le multipacking : concatène les exemples courts pour remplir max_length tokens")
 parser.add_argument("--dpo",            action="store_true", default=False,
                     help="Active l'entraînement DPO : dataset au format {prompt, chosen, rejected}")
+parser.add_argument("--val-split",      type=float, default=0.0,
+                    help="Fraction du dataset (0..1) tenue à l'écart pour mesurer l'eval_loss "
+                         "par époque et détecter le sur-apprentissage (0 = désactivé, SFT uniquement)")
 args = parser.parse_args()
 
 MODEL_MAP = {
@@ -52,7 +55,7 @@ if has_gpu:
 else:
     print("Backend : HuggingFace PEFT (CPU)")
 
-from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments, Trainer, TrainerCallback, default_data_collator
+from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments, Trainer, TrainerCallback
 import json
 import torch
 from torch.utils.data import Dataset as TorchDataset
@@ -68,35 +71,32 @@ class ConversationDataset(TorchDataset):
 
     def __init__(self, path, tokenizer, max_length=512):
         self.samples = []
-        pad_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else 0
         with open(path, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:
                     continue
                 record = json.loads(line)
-                input_ids, labels = self._encode(record, tokenizer, max_length)
+                input_ids, labels = self._encode(record, tokenizer)
                 if not input_ids or all(l == -100 for l in labels):
                     # Aucun token supervisé (pas de réponse assistant) → exemple inutile
                     continue
 
-                input_ids = input_ids[:max_length]
-                labels    = labels[:max_length]
-                attn      = [1] * len(input_ids)
-                pad_len   = max_length - len(input_ids)
-                if pad_len > 0:
-                    input_ids = input_ids + [pad_id]  * pad_len
-                    labels    = labels    + [-100]    * pad_len
-                    attn      = attn      + [0]       * pad_len
+                input_ids, labels = self._fit(input_ids, labels, max_length)
+                if all(l == -100 for l in labels):
+                    # La réponse a entièrement disparu à la troncature → on saute
+                    continue
 
+                # Pas de padding ici : le collator rembourre dynamiquement au plus long
+                # du batch (économie majeure sur CPU, surtout avec batch_size=1).
                 self.samples.append({
                     "input_ids":      torch.tensor(input_ids, dtype=torch.long),
-                    "attention_mask": torch.tensor(attn,      dtype=torch.long),
+                    "attention_mask": torch.tensor([1] * len(input_ids), dtype=torch.long),
                     "labels":         torch.tensor(labels,    dtype=torch.long),
                 })
 
     @staticmethod
-    def _encode(example, tokenizer, max_length):
+    def _encode(example, tokenizer):
         """Tokenise tour par tour ; renvoie (input_ids, labels) avec prompt masqué."""
         input_ids, labels = [], []
         for msg in example.get("conversations", []):
@@ -113,6 +113,28 @@ class ConversationDataset(TorchDataset):
             ids = tokenizer.encode(seg, add_special_tokens=False)
             input_ids.extend(ids)
             labels.extend(ids if supervised else [-100] * len(ids))
+        return input_ids, labels
+
+    @staticmethod
+    def _fit(input_ids, labels, max_length):
+        """
+        Tronque à max_length en **préservant la réponse de l'assistant** : on supprime
+        d'abord les tokens de prompt (non supervisés, labels == -100) en tête. Sinon une
+        séquence prompt+réponse trop longue perdait toute la réponse (exemple inutile).
+        """
+        if len(input_ids) <= max_length:
+            return input_ids, labels
+        overflow = len(input_ids) - max_length
+        lead = 0
+        while lead < len(labels) and labels[lead] == -100:
+            lead += 1
+        drop = min(overflow, lead)
+        input_ids = input_ids[drop:]
+        labels = labels[drop:]
+        if len(input_ids) > max_length:
+            # La réponse seule dépasse max_length → troncature à droite en dernier recours
+            input_ids = input_ids[:max_length]
+            labels = labels[:max_length]
         return input_ids, labels
 
     def __len__(self):
@@ -171,11 +193,12 @@ class PackedDataset(TorchDataset):
               f"économie de padding: {(1 - 1/ratio)*100:.0f}%)")
 
     def _flush(self, buffer, max_length):
-        pad_len = max_length - len(buffer)
+        # Séquences de longueur variable (<= max_length) : le collator rembourre au
+        # plus long du batch. Inutile de pré-rembourrer chaque séquence à max_length.
         self.packed.append({
-            "input_ids":      torch.tensor(buffer + [0] * pad_len, dtype=torch.long),
-            "attention_mask": torch.tensor([1] * len(buffer) + [0] * pad_len, dtype=torch.long),
-            "labels":         torch.tensor(buffer + [-100] * pad_len, dtype=torch.long),
+            "input_ids":      torch.tensor(buffer, dtype=torch.long),
+            "attention_mask": torch.tensor([1] * len(buffer), dtype=torch.long),
+            "labels":         torch.tensor(list(buffer), dtype=torch.long),
         })
 
     @staticmethod
@@ -197,6 +220,32 @@ class PackedDataset(TorchDataset):
 
     def __getitem__(self, idx):
         return self.packed[idx]
+
+
+def make_pad_collator(pad_id):
+    """
+    Collator à padding dynamique : rembourre chaque batch à la longueur de sa plus
+    longue séquence (et non à un MAX_SEQ_LENGTH fixe). Les labels de padding sont à
+    -100, le masque d'attention à 0. À batch_size=1, il n'y a tout simplement aucun
+    padding — gain de calcul important sur CPU.
+    """
+    def collate(features):
+        maxlen = max(len(f["input_ids"]) for f in features)
+        input_ids, attention, labels = [], [], []
+        for f in features:
+            ids = f["input_ids"].tolist()
+            att = f["attention_mask"].tolist()
+            lab = f["labels"].tolist()
+            pad = maxlen - len(ids)
+            input_ids.append(ids + [pad_id] * pad)
+            attention.append(att + [0] * pad)
+            labels.append(lab + [-100] * pad)
+        return {
+            "input_ids":      torch.tensor(input_ids, dtype=torch.long),
+            "attention_mask": torch.tensor(attention, dtype=torch.long),
+            "labels":         torch.tensor(labels, dtype=torch.long),
+        }
+    return collate
 
 
 # ── Modèle ─────────────────────────────────────────────────────
@@ -231,11 +280,16 @@ else:
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    model = AutoModelForCausalLM.from_pretrained(
-        hf_model,
-        dtype=torch.float32,
-        attn_implementation="eager",
-    )
+    # SDPA (scaled-dot-product attention) est plus rapide qu'eager quand il est supporté ;
+    # repli sur eager pour les architectures qui ne l'implémentent pas.
+    try:
+        model = AutoModelForCausalLM.from_pretrained(
+            hf_model, dtype=torch.float32, attn_implementation="sdpa",
+        )
+    except (ValueError, ImportError, RuntimeError):
+        model = AutoModelForCausalLM.from_pretrained(
+            hf_model, dtype=torch.float32, attn_implementation="eager",
+        )
 
     if args.resume_adapter:
         # Charge l'adaptateur existant en mode entraînable (is_trainable=True)
@@ -250,6 +304,12 @@ else:
         )
         model = get_peft_model(model, peft_config)
     model.print_trainable_parameters()
+
+    # Gradient checkpointing : économise la mémoire (utile pour Mistral/Llama3 7-8B sur GPU)
+    # au prix d'un peu de calcul. Sur CPU il ralentit sans bénéfice → activé seulement sur GPU.
+    if has_gpu:
+        model.config.use_cache = False
+        model.enable_input_require_grads()
 
 # ── Chargement dataset (PyTorch natif — compatible Python 3.14) ────────────────
 MAX_SEQ_LENGTH = 512
@@ -268,9 +328,13 @@ if len(dataset) == 0:
 # ── Entraînement ───────────────────────────────────────────────
 class ProgressLogger(TrainerCallback):
     def on_log(self, args, state, control, logs=None, **kwargs):
-        if logs and "loss" in logs:
+        if not logs:
+            return
+        if "loss" in logs:
             print(f"  epoch={state.epoch:.2f}  loss={logs['loss']:.4f}")
-            sys.stdout.flush()
+        if "eval_loss" in logs:
+            print(f"  epoch={state.epoch:.2f}  eval_loss={logs['eval_loss']:.4f}")
+        sys.stdout.flush()
 
 print(f"\nDébut de l'entraînement ({args.epochs} époque(s), LoRA rank={args.lora_rank}"
       + (", packing=on" if args.packing else "")
@@ -329,14 +393,30 @@ if args.dpo:
         args.dpo = False
 
 if not args.dpo:
-    # PackedDataset et ConversationDataset fournissent déjà input_ids / attention_mask / labels
-    # (labels = -100 sur le prompt et le padding). On utilise le collator par défaut qui se
-    # contente d'empiler les tenseurs SANS recalculer les labels — au contraire de
-    # DataCollatorForLanguageModeling qui écraserait le masquage et supprimerait la
-    # supervision de l'EOS (pad_token == eos_token).
+    # Split train/validation optionnel pour suivre l'eval_loss (détection du sur-apprentissage).
+    train_dataset, eval_dataset = dataset, None
+    if args.val_split and args.val_split > 0 and len(dataset) >= 4:
+        import random
+        from torch.utils.data import Subset
+        indices = list(range(len(dataset)))
+        random.Random(42).shuffle(indices)
+        n_val = max(1, int(len(dataset) * args.val_split))
+        val_idx = sorted(indices[:n_val])
+        train_idx = sorted(indices[n_val:])
+        eval_dataset = Subset(dataset, val_idx)
+        train_dataset = Subset(dataset, train_idx)
+        print(f"  Split validation : {len(train_idx)} entraînement / {len(val_idx)} validation")
+
+    pad_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else 0
+
+    # PackedDataset et ConversationDataset fournissent input_ids / attention_mask / labels
+    # (labels = -100 sur le prompt). Le collator à padding dynamique empile et rembourre les
+    # tenseurs SANS recalculer les labels — au contraire de DataCollatorForLanguageModeling
+    # qui écraserait le masquage et supprimerait la supervision de l'EOS (pad_token == eos_token).
     trainer = Trainer(
         model=model,
-        train_dataset=dataset,
+        train_dataset=train_dataset,
+        eval_dataset=eval_dataset,
         args=TrainingArguments(
             per_device_train_batch_size=1,
             gradient_accumulation_steps=4,
@@ -349,10 +429,12 @@ if not args.dpo:
             output_dir="./training_output",
             use_cpu=not has_gpu,
             save_strategy="no",
+            eval_strategy="epoch" if eval_dataset is not None else "no",
+            gradient_checkpointing=has_gpu and not USE_UNSLOTH,
             report_to="none",
             remove_unused_columns=False,
         ),
-        data_collator=default_data_collator,
+        data_collator=make_pad_collator(pad_id),
     )
     trainer.add_callback(ProgressLogger())
     trainer.train()

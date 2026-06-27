@@ -54,6 +54,7 @@ if not defined EPOCHS     set EPOCHS=1
 if not defined LORA_RANK  set LORA_RANK=8
 if not defined LORA_ALPHA set LORA_ALPHA=16
 if not defined LR         set LR=2e-4
+if not defined VAL_SPLIT  set VAL_SPLIT=0
 
 echo ======================================
 echo   Spectra — Pipeline complet
@@ -305,6 +306,7 @@ python scripts\train_host.py ^
     --lora-rank %LORA_RANK% ^
     --lora-alpha %LORA_ALPHA% ^
     --lr %LR% ^
+    --val-split %VAL_SPLIT% ^
     %PACKING_FLAG% ^
     %DPO_FLAG%
 

@@ -62,6 +62,7 @@ EPOCHS="${EPOCHS:-1}"
 LORA_RANK="${LORA_RANK:-8}"
 LORA_ALPHA="${LORA_ALPHA:-16}"
 LR="${LR:-2e-4}"
+VAL_SPLIT="${VAL_SPLIT:-0}"
 
 echo "======================================"
 echo "  Spectra — Pipeline complet"
@@ -271,6 +272,7 @@ python3 scripts/train_host.py \
   --lora-rank "$LORA_RANK" \
   --lora-alpha "$LORA_ALPHA" \
   --lr "$LR" \
+  --val-split "$VAL_SPLIT" \
   $PACKING_FLAG \
   $DPO_FLAG \
   || die "Fine-tuning echoue"
