@@ -163,9 +163,13 @@ export const queryApi = {
     signal?: AbortSignal,
     topCandidates?: number,
     conversationHistory?: { role: string; content: string }[],
+    temperature?: number,
+    topP?: number,
   ): AsyncGenerator<StreamEvent> {
     const body: Record<string, unknown> = { question, useRag };
     if (topCandidates !== undefined) body.topCandidates = topCandidates;
+    if (temperature !== undefined) body.temperature = temperature;
+    if (topP !== undefined) body.topP = topP;
     if (conversationHistory && conversationHistory.length > 0) {
       body.conversationHistory = conversationHistory;
     }
@@ -180,27 +184,54 @@ export const queryApi = {
       throw new Error(`HTTP ${response.status}`);
     }
 
+    // ── Parser SSE ───────────────────────────────────────────────────────────
+    // Le writer SSE de Spring émet les champs SANS espace après le « : »
+    // (`event:token\ndata:hello\n\n`). On découpe donc sur le « : » et on prend
+    // la valeur brute. On NE retire PAS l'espace optionnel de tête de la spec SSE :
+    // Spring n'en ajoute pas, et un token de génération peut légitimement commencer
+    // par une espace (« world ») qu'il faut préserver telle quelle.
+    // Les données multi-lignes (token contenant un « \n ») sont ré-assemblées :
+    // un événement est délimité par une ligne vide.
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
-    let pendingEvent = '';
+    let currentEvent = '';
+    let dataLines: string[] = [];
 
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
 
       buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() ?? '';
 
-      for (const line of lines) {
-        if (line.startsWith('event: ')) {
-          pendingEvent = line.slice(7).trim();
-        } else if (line.startsWith('data: ') && pendingEvent) {
-          yield { type: pendingEvent as StreamEvent['type'], data: line.slice(6) };
-          pendingEvent = '';
+      let nl: number;
+      while ((nl = buffer.indexOf('\n')) >= 0) {
+        let line = buffer.slice(0, nl);
+        buffer = buffer.slice(nl + 1);
+        if (line.endsWith('\r')) line = line.slice(0, -1); // tolère CRLF
+
+        if (line === '') {
+          // Ligne vide → fin de l'événement courant : on l'émet.
+          if (currentEvent && dataLines.length > 0) {
+            yield { type: currentEvent as StreamEvent['type'], data: dataLines.join('\n') };
+          }
+          currentEvent = '';
+          dataLines = [];
+          continue;
         }
+        if (line.startsWith(':')) continue; // commentaire SSE
+
+        const colon = line.indexOf(':');
+        const field = colon === -1 ? line : line.slice(0, colon);
+        const val = colon === -1 ? '' : line.slice(colon + 1);
+        if (field === 'event') currentEvent = val.trim();
+        else if (field === 'data') dataLines.push(val);
       }
+    }
+
+    // Flush d'un éventuel dernier événement non terminé par une ligne vide.
+    if (currentEvent && dataLines.length > 0) {
+      yield { type: currentEvent as StreamEvent['type'], data: dataLines.join('\n') };
     }
   },
 };

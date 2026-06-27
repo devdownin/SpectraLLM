@@ -273,7 +273,7 @@ const Playground: FC = () => {
       let tokenCount = 0;
 
       for await (const event of queryApi.queryStream(
-        currentInput, ragEnabled, controller.signal, topCandidates, history
+        currentInput, ragEnabled, controller.signal, topCandidates, history, temperature, topP
       )) {
         if (event.type === 'sources') {
           try { sources = JSON.parse(event.data); } catch { /* ignore */ }
