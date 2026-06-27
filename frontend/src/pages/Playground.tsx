@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import type { FC } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { queryApi, configApi, fineTuningApi, ingestApi } from '../services/api';
+import { queryApi, configApi, fineTuningApi, ingestApi, healthApi } from '../services/api';
 import type { StreamDoneMeta } from '../services/api';
+import type { ServiceStatus } from '../types/api';
 import Tooltip from '../components/Tooltip';
 import RagAdvisor from '../components/RagAdvisor';
 import ChatMarkdown from '../components/ChatMarkdown';
@@ -42,6 +44,8 @@ interface Message {
   status?: 'PENDING' | 'SENT' | 'ERROR' | 'STREAMING';
   metrics?: MessageMetrics;
   feedback?: 'UP' | 'DOWN';
+  /** Réponse interrompue par l'utilisateur (Stop) — donc potentiellement incomplète. */
+  stopped?: boolean;
 }
 
 const STRATEGY_COLORS: Record<string, string> = {
@@ -142,7 +146,16 @@ const Playground: FC = () => {
   const [messages, setMessages] = useState<Message[]>(() => {
     const saved = localStorage.getItem('spectra_chat_history');
     if (!saved) return [defaultWelcome];
-    try { return JSON.parse(saved); } catch { return [defaultWelcome]; }
+    try {
+      const parsed = JSON.parse(saved) as Message[];
+      // Assainit les statuts transitoires persistés lors d'un reload en plein
+      // streaming : sans ça, une réponse restaurée en STREAMING garderait un curseur
+      // clignotant à vie et un message user en PENDING. Les sources/ragMeta/métriques
+      // sont préservés tels quels par le round-trip JSON.
+      return parsed
+        .filter(m => !(m.role === 'assistant' && m.status === 'STREAMING' && !m.content?.trim()))
+        .map(m => (m.status === 'STREAMING' || m.status === 'PENDING') ? { ...m, status: 'SENT' as const } : m);
+    } catch { return [defaultWelcome]; }
   });
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -160,9 +173,26 @@ const Playground: FC = () => {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [advisorOpen, setAdvisorOpen] = useState(false);
   const [atBottom, setAtBottom] = useState(true);
+  const [regenMenuOpen, setRegenMenuOpen] = useState(false);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
 
   const [activeModel, setActiveModel] = useState<string>('');
   const [availableModels, setAvailableModels] = useState<Array<{ name: string; provenance?: string }>>([]);
+
+  // Santé des services (polling 20 s) — pour signaler une panne et bloquer l'envoi
+  // quand le LLM de chat est down, plutôt que de laisser la requête échouer en timeout.
+  const { data: services } = useQuery<ServiceStatus[]>({
+    queryKey: ['playground-health'],
+    queryFn: async () => (await healthApi.getServices()).data,
+    refetchInterval: 20_000,
+    retry: 1,
+    staleTime: 10_000,
+  });
+  const chatService = services?.find(s => s.name === 'llama-cpp') ?? services?.[0];
+  const chromaService = services?.find(s => s.name === 'chromadb');
+  // `undefined` avant le premier poll → on n'empêche pas l'envoi (optimiste).
+  const llmDown = chatService ? !chatService.available : false;
+  const ragDegraded = ragEnabled && chromaService ? !chromaService.available : false;
 
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -224,6 +254,66 @@ const Playground: FC = () => {
     toast.info('Chat history cleared');
   };
 
+  /** Déclenche le téléchargement d'un blob texte côté navigateur. */
+  const downloadFile = (filename: string, mime: string, content: string) => {
+    const url = URL.createObjectURL(new Blob([content], { type: mime }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  /** Sérialise la conversation en Markdown lisible (question, réponse, sources, pipeline, métriques). */
+  const conversationToMarkdown = (): string => {
+    const lines: string[] = [
+      '# Spectra Playground — Conversation',
+      `_Exported ${new Date().toISOString()}${activeModel ? ` · model: ${activeModel}` : ''}_`,
+      '',
+    ];
+    for (const m of messages) {
+      if (!m.content?.trim()) continue;
+      lines.push(m.role === 'user' ? '## 🧑 Architect' : '## 🤖 Spectra Core', '', m.content.trim(), '');
+      if (m.role === 'assistant') {
+        if (m.sources?.length) {
+          lines.push('**Sources:**');
+          for (const s of m.sources) {
+            const pct = typeof s.distance === 'number' ? ` (${Math.max(0, Math.min(100, Math.round((1 - s.distance) * 100)))}%)` : '';
+            lines.push(`- ${s.sourceFile}${pct}`);
+          }
+          lines.push('');
+        }
+        if (m.ragMeta) {
+          const flags = Object.entries(m.ragMeta)
+            .filter(([k, v]) => v === true && k.endsWith('Applied'))
+            .map(([k]) => k.replace('Applied', ''));
+          lines.push(`**Pipeline:** ${m.ragMeta.ragStrategy}${flags.length ? ` · ${flags.join(', ')}` : ''}`, '');
+        }
+        if (m.metrics) {
+          lines.push(`_TTFT ${(m.metrics.ttftMs / 1000).toFixed(1)}s · ${(m.metrics.totalMs / 1000).toFixed(1)}s · ${m.metrics.tokens} tok${m.stopped ? ' · stopped' : ''}_`, '');
+        }
+      }
+      lines.push('---', '');
+    }
+    return lines.join('\n');
+  };
+
+  /** Exporte la conversation courante (Markdown ou JSON). */
+  const exportConversation = (format: 'md' | 'json') => {
+    setExportMenuOpen(false);
+    const real = messages.filter(m => m.content?.trim());
+    if (real.length <= 1) { toast.info('Nothing to export yet'); return; }
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    if (format === 'md') {
+      downloadFile(`spectra-chat-${stamp}.md`, 'text/markdown', conversationToMarkdown());
+    } else {
+      downloadFile(`spectra-chat-${stamp}.json`, 'application/json', JSON.stringify(messages, null, 2));
+    }
+    toast.success(`Conversation exported (${format.toUpperCase()})`);
+  };
+
   /** Builds the conversation history from SENT messages to send to the backend. */
   const buildHistory = (): { role: string; content: string }[] => {
     if (!convEnabled) return [];
@@ -235,12 +325,19 @@ const Playground: FC = () => {
 
   /**
    * Envoie une requête en streaming.
-   * @param text       la question
-   * @param regenerate si vrai, ré-utilise le dernier message user (retire l'ancienne
-   *                   réponse) au lieu d'ajouter un nouveau message user.
+   * @param text         la question
+   * @param regenerate   si vrai, ré-utilise le dernier message user (retire l'ancienne
+   *                     réponse) au lieu d'ajouter un nouveau message user.
+   * @param tempOverride température à utiliser pour CET appel uniquement (régénération
+   *                     « plus factuel / plus créatif ») sans modifier le slider global.
    */
-  const submitQuery = async (text: string, regenerate = false) => {
+  const submitQuery = async (text: string, regenerate = false, tempOverride?: number) => {
     if (!text.trim() || isTyping) return;
+    if (llmDown) {
+      toast.error('Model offline', { description: 'The chat model service is unreachable. Check llama-cpp-chat.' });
+      return;
+    }
+    const effTemperature = tempOverride ?? temperature;
 
     abortRef.current?.abort();
     const controller = new AbortController();
@@ -266,14 +363,16 @@ const Playground: FC = () => {
       return [...base, { role: 'assistant', content: '', status: 'STREAMING' }];
     });
 
-    try {
-      let sources: Source[] = [];
-      const startTs = Date.now();
-      let firstTokenTs: number | null = null;
-      let tokenCount = 0;
+    // Hoisté hors du try : le catch (stop manuel) doit pouvoir figer la réponse
+    // partielle avec ses sources et métriques déjà reçues.
+    let sources: Source[] = [];
+    const startTs = Date.now();
+    let firstTokenTs: number | null = null;
+    let tokenCount = 0;
 
+    try {
       for await (const event of queryApi.queryStream(
-        currentInput, ragEnabled, controller.signal, topCandidates, history, temperature, topP
+        currentInput, ragEnabled, controller.signal, topCandidates, history, effTemperature, topP
       )) {
         if (event.type === 'sources') {
           try { sources = JSON.parse(event.data); } catch { /* ignore */ }
@@ -330,7 +429,30 @@ const Playground: FC = () => {
         }
       }
     } catch (err: unknown) {
-      if (err instanceof Error && err.name === 'AbortError') return;
+      if (err instanceof Error && err.name === 'AbortError') {
+        // Stop manuel : on fige la réponse partielle (SENT) au lieu de la laisser
+        // en STREAMING indéfiniment. Si rien n'a été reçu, on retire la bulle vide.
+        const metrics: MessageMetrics = {
+          ttftMs: firstTokenTs ? firstTokenTs - startTs : 0,
+          totalMs: Date.now() - startTs,
+          tokens: tokenCount,
+        };
+        setMessages(prev => {
+          const lastUserIdx = prev.findLastIndex(m => m.role === 'user' && m.content === currentInput);
+          const lastAsstIdx = prev.findLastIndex(m => m.role === 'assistant');
+          const removeEmpty = lastAsstIdx >= 0 && prev[lastAsstIdx].content === '';
+          return prev
+            .filter((_, i) => !(removeEmpty && i === lastAsstIdx))
+            .map((m, i) => {
+              if (i === lastUserIdx) return { ...m, status: 'SENT' as const };
+              if (i === lastAsstIdx && !removeEmpty)
+                return { ...m, status: 'SENT' as const, sources, metrics, stopped: true };
+              return m;
+            });
+        });
+        toast.info('Generation stopped');
+        return;
+      }
       toast.error('Query Uplink Failed', {
         description: 'Spectra core is currently unreachable or timed out.'
       });
@@ -356,11 +478,23 @@ const Playground: FC = () => {
     submitQuery(text);
   };
 
-  /** Régénère la dernière réponse (ou relance un tour en échec). */
-  const regenerateLast = () => {
+  /**
+   * Régénère la dernière réponse (ou relance un tour en échec).
+   * @param tempOverride température pour cette régénération (cf. menu « plus factuel/créatif »).
+   */
+  const regenerateLast = (tempOverride?: number) => {
+    setRegenMenuOpen(false);
     const lastUser = [...messages].reverse().find(m => m.role === 'user');
-    if (lastUser) submitQuery(lastUser.content, true);
+    if (lastUser) submitQuery(lastUser.content, true, tempOverride);
   };
+
+  const clamp = (t: number) => Math.max(0, Math.min(2, Math.round(t * 10) / 10));
+  /** Variantes de régénération : décale la température autour du réglage courant. */
+  const regenVariants = [
+    { label: 'Same temperature', icon: 'refresh',     temp: undefined as number | undefined },
+    { label: 'More factual',     icon: 'target',      temp: clamp(temperature - 0.4) },
+    { label: 'More creative',    icon: 'auto_awesome', temp: clamp(temperature + 0.4) },
+  ];
 
   /** Charge un message user dans la saisie et tronque la conversation pour le réécrire. */
   const editMessage = (index: number) => {
@@ -401,6 +535,35 @@ const Playground: FC = () => {
   return (
     <div className="h-[calc(100vh-12rem)] flex gap-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
       <aside className="w-80 bg-surface-container p-6 space-y-8 overflow-y-auto custom-scrollbar">
+        {services && (
+          <div>
+            <h3 className="font-headline text-sm font-bold tracking-tight mb-4 uppercase">System</h3>
+            <div className="space-y-2">
+              {[
+                { label: 'Chat Model', svc: chatService, warn: llmDown },
+                ...(ragEnabled ? [{ label: 'Knowledge Base', svc: chromaService, warn: ragDegraded }] : []),
+              ].map(({ label, svc, warn }) => (
+                <div key={label} className="flex items-center justify-between">
+                  <span className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">{label}</span>
+                  <span className={`flex items-center gap-1.5 text-[9px] font-mono uppercase tracking-wider ${warn ? 'text-error' : 'text-primary'}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${warn ? 'bg-error animate-pulse' : 'bg-primary'}`} />
+                    {svc?.available ? 'online' : 'offline'}
+                  </span>
+                </div>
+              ))}
+              {llmDown && (
+                <p className="text-[9px] text-error leading-relaxed pt-1">
+                  Chat model unreachable — start <span className="font-mono">llama-cpp-chat</span> to send messages.
+                </p>
+              )}
+              {ragDegraded && !llmDown && (
+                <p className="text-[9px] text-error leading-relaxed pt-1">
+                  Vector DB unreachable — retrieval may fail. Disable the Knowledge Base for a direct answer.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
         <div>
           <h3 className="font-headline text-sm font-bold tracking-tight mb-4 uppercase">Model Parameters</h3>
           <div className="space-y-6">
@@ -460,7 +623,7 @@ const Playground: FC = () => {
               ))}
               {availableModels.length > 1 && (
                 <p className="text-[9px] text-outline uppercase tracking-widest leading-relaxed">
-                  Effectif au prochain redémarrage du service de chat.
+                  Effective on the next chat service restart.
                 </p>
               )}
             </div>
@@ -548,8 +711,35 @@ const Playground: FC = () => {
             className="w-full py-3 px-4 border border-primary/30 text-primary text-[10px] font-headline uppercase tracking-widest hover:bg-primary/5 transition-colors flex items-center justify-center gap-2"
           >
             <span className="material-symbols-outlined text-sm">psychology</span>
-            Conseiller RAG
+            RAG Advisor
           </button>
+          <div className="relative">
+            <button
+              onClick={() => setExportMenuOpen(o => !o)}
+              aria-haspopup="menu" aria-expanded={exportMenuOpen}
+              className="w-full py-3 px-4 border border-outline-variant/40 text-on-surface-variant text-[10px] font-headline uppercase tracking-widest hover:border-primary/40 hover:text-primary transition-colors flex items-center justify-center gap-2"
+            >
+              <span className="material-symbols-outlined text-sm">download</span>
+              Export Conversation
+            </button>
+            {exportMenuOpen && (
+              <>
+                <button type="button" aria-hidden="true" tabIndex={-1}
+                  className="fixed inset-0 z-10 cursor-default" onClick={() => setExportMenuOpen(false)} />
+                <div role="menu"
+                  className="absolute left-0 right-0 bottom-full mb-1 z-20 bg-surface-container-high border border-outline-variant/30 shadow-lg py-1 animate-in fade-in slide-in-from-bottom-1">
+                  <button type="button" role="menuitem" onClick={() => exportConversation('md')}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-left text-[10px] uppercase tracking-widest text-on-surface-variant hover:bg-primary/10 hover:text-primary transition-colors">
+                    <span aria-hidden="true" className="material-symbols-outlined text-[14px]">description</span>As Markdown
+                  </button>
+                  <button type="button" role="menuitem" onClick={() => exportConversation('json')}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-left text-[10px] uppercase tracking-widest text-on-surface-variant hover:bg-primary/10 hover:text-primary transition-colors">
+                    <span aria-hidden="true" className="material-symbols-outlined text-[14px]">data_object</span>As JSON
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
           <button
             onClick={clearChat}
             className="w-full py-3 px-4 border border-error/30 text-error text-[10px] font-headline uppercase tracking-widest hover:bg-error/5 transition-colors flex items-center justify-center gap-2"
@@ -619,6 +809,11 @@ const Playground: FC = () => {
                         <span title="Time to first token">TTFT {(msg.metrics.ttftMs / 1000).toFixed(1)}s</span>
                         <span title="Total time">{(msg.metrics.totalMs / 1000).toFixed(1)}s</span>
                         <span title="Tokens (approx.)">{msg.metrics.tokens} tok</span>
+                        {msg.stopped && (
+                          <span className="text-error font-bold uppercase tracking-wider" title="Generation stopped — answer may be incomplete">
+                            stopped
+                          </span>
+                        )}
                       </div>
                     ) : <span />}
 
@@ -636,10 +831,33 @@ const Playground: FC = () => {
                           <span aria-hidden="true" className="material-symbols-outlined text-[13px]">content_copy</span>Copy
                         </button>
                         {i === lastAssistantIdx && (
-                          <button type="button" onClick={regenerateLast} disabled={isTyping} aria-label="Regenerate"
-                            className="flex items-center gap-1 text-[9px] uppercase tracking-widest text-outline hover:text-primary transition-colors px-1.5 py-0.5 disabled:opacity-40">
-                            <span aria-hidden="true" className="material-symbols-outlined text-[13px]">refresh</span>Regenerate
-                          </button>
+                          <div className="relative">
+                            <button type="button" onClick={() => setRegenMenuOpen(o => !o)} disabled={isTyping}
+                              aria-label="Regenerate" aria-haspopup="menu" aria-expanded={regenMenuOpen}
+                              className="flex items-center gap-1 text-[9px] uppercase tracking-widest text-outline hover:text-primary transition-colors px-1.5 py-0.5 disabled:opacity-40">
+                              <span aria-hidden="true" className="material-symbols-outlined text-[13px]">refresh</span>Regenerate
+                              <span aria-hidden="true" className={`material-symbols-outlined text-[12px] transition-transform ${regenMenuOpen ? 'rotate-180' : ''}`}>expand_more</span>
+                            </button>
+                            {regenMenuOpen && (
+                              <>
+                                {/* Couche de fermeture au clic extérieur. */}
+                                <button type="button" aria-hidden="true" tabIndex={-1}
+                                  className="fixed inset-0 z-10 cursor-default" onClick={() => setRegenMenuOpen(false)} />
+                                <div role="menu"
+                                  className="absolute right-0 bottom-full mb-1 z-20 w-44 bg-surface-container-high border border-outline-variant/30 shadow-lg py-1 animate-in fade-in slide-in-from-bottom-1">
+                                  {regenVariants.map(v => (
+                                    <button key={v.label} type="button" role="menuitem"
+                                      onClick={() => regenerateLast(v.temp)}
+                                      className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-[10px] uppercase tracking-widest text-on-surface-variant hover:bg-primary/10 hover:text-primary transition-colors">
+                                      <span aria-hidden="true" className="material-symbols-outlined text-[13px]">{v.icon}</span>
+                                      <span className="flex-1">{v.label}</span>
+                                      {v.temp !== undefined && <span className="font-mono text-[8px] text-outline">{v.temp.toFixed(1)}</span>}
+                                    </button>
+                                  ))}
+                                </div>
+                              </>
+                            )}
+                          </div>
                         )}
                       </span>
                     </div>
@@ -652,7 +870,7 @@ const Playground: FC = () => {
                       <span aria-hidden="true" className="material-symbols-outlined text-[13px]">edit</span>Edit
                     </button>
                     {msg.status === 'ERROR' && (
-                      <button type="button" onClick={regenerateLast} disabled={isTyping} aria-label="Retry"
+                      <button type="button" onClick={() => regenerateLast()} disabled={isTyping} aria-label="Retry"
                         className="flex items-center gap-1 text-[9px] uppercase tracking-widest text-error hover:text-error/80 transition-colors px-1.5 py-0.5 disabled:opacity-40">
                         <span aria-hidden="true" className="material-symbols-outlined text-[13px]">replay</span>Retry
                       </button>
@@ -704,7 +922,7 @@ const Playground: FC = () => {
               ref={textareaRef}
               rows={1}
               className="flex-1 bg-transparent border-none focus:ring-0 focus:outline-none text-sm font-body px-4 py-2 resize-none max-h-40 custom-scrollbar"
-              placeholder="Ask a question…  (Enter to send · Shift+Enter for a new line)"
+              placeholder={llmDown ? 'Chat model offline — start llama-cpp-chat to send messages' : 'Ask a question…  (Enter to send · Shift+Enter for a new line)'}
               value={input}
               onChange={(e) => {
                 setInput(e.target.value);
@@ -732,7 +950,7 @@ const Playground: FC = () => {
               <button
                 type="button"
                 onClick={handleSend}
-                disabled={!input.trim()}
+                disabled={!input.trim() || llmDown}
                 aria-label="Send message"
                 className="bg-primary text-on-primary-fixed p-2 transition-all hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center"
               >
