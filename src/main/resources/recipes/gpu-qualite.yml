@@ -10,3 +10,4 @@ learningRate: 0.0002
 minConfidence: 0.85
 packingEnabled: true
 dpoEnabled: false
+orpoEnabled: false

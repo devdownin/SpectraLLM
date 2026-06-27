@@ -88,7 +88,7 @@ public class BatchService {
             }
 
             // 4. Fine-tuning
-            FineTuningRequest request = new FineTuningRequest(defaultModelName, null, null, null, null, null, null, null, null);
+            FineTuningRequest request = new FineTuningRequest(defaultModelName, null, null, null, null, null, null, null, null, null);
             String jobId = fineTuningService.submit(request);
             log.info("Lancement du fine-tuning (Job ID: {})...", jobId);
 

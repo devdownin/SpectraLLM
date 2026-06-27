@@ -1,0 +1,13 @@
+name: orpo-alignement
+displayName: "ORPO Alignement"
+description: "Alignement ORPO (SFT + préférence en une passe, sans modèle de référence). Plus simple et plus léger que SFT puis DPO ; souvent meilleur sur petits modèles. Requiert une génération de paires de préférence préalable via POST /api/dataset/dpo/generate."
+
+baseModel: phi3
+loraRank: 32
+loraAlpha: 64
+epochs: 2
+learningRate: 0.00005
+minConfidence: 0.9
+packingEnabled: false
+dpoEnabled: false
+orpoEnabled: true

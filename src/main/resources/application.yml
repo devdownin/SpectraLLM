@@ -103,9 +103,22 @@ spectra:
     max-collection-chunks: ${SPECTRA_LONG_CONTEXT_MAX_CHUNKS:100}
   dataset:
     dir: ./data/dataset
+    # Génère un exemple de refus (« je ne sais pas ») toutes les N portions (0 = désactivé).
+    # ~1 négatif pour 3 chunks ≈ 10 % du dataset, pour apprendre l'abstention (anti-hallucination).
+    refusal-every-n: 3
   fine-tuning:
     work-dir: ./data/fine-tuning
     script: ./scripts/train.sh
+    # Catégories/types exclus du SFT (séparés par des virgules ; comparés à 'category' ET 'type').
+    # Stratégie « fine-tuning vs RAG » : le fine-tuning encode mal les faits volatils et vieillit ;
+    # laissez les faits changeants au RAG et réservez le SFT au style/format/procédure.
+    # Exemple recommandé pour des faits volatils : "evenements,nomenclatures".
+    # Vide = aucune exclusion (comportement par défaut).
+    sft-excluded-categories: ""
+  benchmark:
+    # Fichier JSONL du benchmark qualité tenu à l'écart. Vide = ressource embarquée
+    # (benchmarks/highway_benchmark.jsonl). À pointer vers un fichier curé pour votre corpus.
+    quality-file:
   ged:
     archive-dir: ${SPECTRA_GED_ARCHIVE_DIR:./data/archive}
     auto-qualify-threshold: ${SPECTRA_GED_AUTO_QUALIFY_THRESHOLD:0.0}

@@ -65,8 +65,11 @@ public class RagService {
     private static final Logger log = LoggerFactory.getLogger(RagService.class);
     private static final String COLLECTION_NAME = "spectra_documents";
 
-    private static final String SYSTEM_PROMPT_TEMPLATE = """
-            Tu es un assistant spécialisé dans l'exploitation autoroutière française.
+    // Persona canonique (cf. AssistantPersona) — identique à celle du fine-tuning — suivie des
+    // consignes RAG. Servir le modèle fine-tuné sous une autre persona dégraderait son apport.
+    private static final String SYSTEM_PROMPT_TEMPLATE =
+            fr.spectra.model.AssistantPersona.SYSTEM_PROMPT + "\n"
+            + """
             Réponds de manière précise et concise en te basant UNIQUEMENT sur le contexte fourni ci-dessous.
             Si le contexte ne contient pas l'information demandée, dis-le clairement.
             Ne fabrique pas d'information.
@@ -75,8 +78,10 @@ public class RagService {
             %s
             === FIN DU CONTEXTE ===""";
 
+    // Mode direct (sans contexte récupéré) : on conserve la même persona que l'entraînement.
     private static final String DIRECT_SYSTEM_PROMPT =
-            "Tu es un assistant utile. Réponds de manière concise et précise.";
+            fr.spectra.model.AssistantPersona.SYSTEM_PROMPT
+            + " Réponds de manière concise et précise.";
 
     /** Résultat de la phase retrieval (avant génération LLM). */
     public record RagContext(

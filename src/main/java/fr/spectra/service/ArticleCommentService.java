@@ -194,7 +194,7 @@ public class ArticleCommentService {
             }
             String modelName = "auto-dpo-" + Instant.now().toEpochMilli();
             FineTuningRequest request = new FineTuningRequest(
-                    modelName, null, null, null, null, null, null, null, true);
+                    modelName, null, null, null, null, null, null, null, true, null);
             String jobId = fineTuningService.submit(request);
             log.info("Re-entraînement DPO automatique soumis : {} paires, {} approuvés, jobId={}",
                     pairs, approvedCount, jobId);

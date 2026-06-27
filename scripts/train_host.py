@@ -27,9 +27,21 @@ parser.add_argument("--packing",        action="store_true", default=False,
                     help="Active le multipacking : concatène les exemples courts pour remplir max_length tokens")
 parser.add_argument("--dpo",            action="store_true", default=False,
                     help="Active l'entraînement DPO : dataset au format {prompt, chosen, rejected}")
+parser.add_argument("--orpo",           action="store_true", default=False,
+                    help="Active l'entraînement ORPO (SFT + préférence en une passe, sans modèle de "
+                         "référence) ; même format de dataset que DPO {prompt, chosen, rejected}")
 parser.add_argument("--val-split",      type=float, default=0.0,
                     help="Fraction du dataset (0..1) tenue à l'écart pour mesurer l'eval_loss "
                          "par époque et détecter le sur-apprentissage (0 = désactivé, SFT uniquement)")
+parser.add_argument("--lora-target",    choices=["attention", "all"], default="attention",
+                    help="Portée de LoRA : 'attention' (q/k/v/o) ou 'all' (+ projections MLP) "
+                         "pour plus de capacité sur les gros modèles")
+parser.add_argument("--neftune-alpha",  type=float, default=0.0,
+                    help="NEFTune : amplitude du bruit ajouté aux embeddings en SFT (0 = désactivé ; "
+                         "5 est une valeur courante qui améliore souvent la robustesse, gratuitement)")
+parser.add_argument("--warmup-ratio",   type=float, default=0.03,
+                    help="Fraction des étapes en warm-up du learning rate (plus robuste qu'un nombre "
+                         "fixe d'étapes sur de petits datasets)")
 args = parser.parse_args()
 
 # Alias honnêtes : chaque clé pointe vers le modèle réellement chargé.
@@ -63,15 +75,20 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments,
 import json
 
 
-def find_target_modules(model):
+def find_target_modules(model, scope="attention"):
     """
-    Détecte les projections d'attention à cibler par LoRA selon l'architecture réelle.
+    Détecte les modules à cibler par LoRA selon l'architecture réelle.
 
     Les modules cibles étaient codés en dur en q_proj/k_proj/v_proj/o_proj (style Llama),
     ce qui plantait sur des architectures à attention fusionnée comme Phi-3 (qkv_proj).
     On inspecte les modules présents et on retombe sur le style Llama si rien n'est trouvé.
+
+    scope="all" ajoute les projections MLP (gate/up/down_proj, gate_up_proj) pour plus de
+    capacité — utile sur les gros modèles, au prix de davantage de paramètres entraînables.
     """
     candidates = {"q_proj", "k_proj", "v_proj", "o_proj", "qkv_proj"}
+    if scope == "all":
+        candidates |= {"gate_proj", "up_proj", "down_proj", "gate_up_proj"}
     found = set()
     for name, _ in model.named_modules():
         leaf = name.split(".")[-1]
@@ -289,8 +306,8 @@ if USE_UNSLOTH:
     if args.resume_adapter:
         model = PeftModel.from_pretrained(model, args.resume_adapter, is_trainable=True)
     else:
-        target_modules = find_target_modules(model)
-        print(f"  Modules LoRA ciblés : {target_modules}")
+        target_modules = find_target_modules(model, args.lora_target)
+        print(f"  Modules LoRA ciblés ({args.lora_target}) : {target_modules}")
         model = FastLanguageModel.get_peft_model(
             model,
             r=args.lora_rank,
@@ -318,8 +335,8 @@ else:
         # Charge l'adaptateur existant en mode entraînable (is_trainable=True)
         model = PeftModel.from_pretrained(model, args.resume_adapter, is_trainable=True)
     else:
-        target_modules = find_target_modules(model)
-        print(f"  Modules LoRA ciblés : {target_modules}")
+        target_modules = find_target_modules(model, args.lora_target)
+        print(f"  Modules LoRA ciblés ({args.lora_target}) : {target_modules}")
         peft_config = LoraConfig(
             task_type=TaskType.CAUSAL_LM,
             r=args.lora_rank,
@@ -336,19 +353,28 @@ else:
         model.config.use_cache = False
         model.enable_input_require_grads()
 
+# Préférence (DPO/ORPO) : dataset au format {prompt, chosen, rejected}, chargé plus bas.
+# Les deux sont mutuellement exclusifs ; ORPO a priorité si les deux sont demandés.
+PREFERENCE = args.dpo or args.orpo
+if args.dpo and args.orpo:
+    print("INFO: --dpo et --orpo demandés simultanément → ORPO retenu.")
+    args.dpo = False
+
 # ── Chargement dataset (PyTorch natif — compatible Python 3.14) ────────────────
 MAX_SEQ_LENGTH = 512
-print(f"\nChargement du dataset : {args.dataset}")
-if args.packing:
-    print("  Mode multipacking activé")
-    dataset = PackedDataset(args.dataset, tokenizer, max_length=MAX_SEQ_LENGTH)
-else:
-    dataset = ConversationDataset(args.dataset, tokenizer, max_length=MAX_SEQ_LENGTH)
-print(f"  {len(dataset)} séquences d'entraînement")
+dataset = None
+if not PREFERENCE:
+    print(f"\nChargement du dataset : {args.dataset}")
+    if args.packing:
+        print("  Mode multipacking activé")
+        dataset = PackedDataset(args.dataset, tokenizer, max_length=MAX_SEQ_LENGTH)
+    else:
+        dataset = ConversationDataset(args.dataset, tokenizer, max_length=MAX_SEQ_LENGTH)
+    print(f"  {len(dataset)} séquences d'entraînement")
 
-if len(dataset) == 0:
-    print("ERREUR: dataset vide — vérifiez le fichier JSONL et le champ 'conversations'")
-    sys.exit(1)
+    if len(dataset) == 0:
+        print("ERREUR: dataset vide — vérifiez le fichier JSONL et le champ 'conversations'")
+        sys.exit(1)
 
 # ── Entraînement ───────────────────────────────────────────────
 class ProgressLogger(TrainerCallback):
@@ -361,63 +387,90 @@ class ProgressLogger(TrainerCallback):
             print(f"  epoch={state.epoch:.2f}  eval_loss={logs['eval_loss']:.4f}")
         sys.stdout.flush()
 
+method_label = "ORPO" if args.orpo else ("DPO" if args.dpo else "SFT")
 print(f"\nDébut de l'entraînement ({args.epochs} époque(s), LoRA rank={args.lora_rank}"
+      + f", cible={args.lora_target}"
+      + (f", NEFTune α={args.neftune_alpha}" if args.neftune_alpha > 0 else "")
       + (", packing=on" if args.packing else "")
-      + (", DPO=on" if args.dpo else "") + ")...")
+      + (f", {method_label}=on" if PREFERENCE else "") + ")...")
 print("  Sur CPU, chaque étape peut prendre plusieurs minutes — c'est normal.\n")
 
-if args.dpo:
-    print("Mode DPO activé — chargement des paires chosen/rejected")
+if PREFERENCE:
+    print(f"Mode {method_label} activé — chargement des paires chosen/rejected")
+    import json as _json
+
+    pref_data = [_json.loads(l) for l in open(args.dataset) if l.strip()]
+    print(f"  {len(pref_data)} paires de préférence chargées")
+    if pref_data and not all(k in pref_data[0] for k in ("prompt", "chosen", "rejected")):
+        print("ERREUR: le fichier de préférence doit contenir des objets {prompt, chosen, rejected}. "
+              "Passez dpo_pairs.jsonl (et non l'export SFT 'conversations').")
+        sys.exit(1)
+
     try:
-        from trl import DPOTrainer, DPOConfig
-        import json as _json
+        from datasets import Dataset as HFDataset
+        hf_dataset = HFDataset.from_list(pref_data)
+    except ImportError:
+        hf_dataset = pref_data  # certains TRL acceptent une liste de dicts
 
-        dpo_data = [_json.loads(l) for l in open(args.dataset) if l.strip()]
-        print(f"  {len(dpo_data)} paires DPO chargées")
-        if dpo_data and not all(k in dpo_data[0] for k in ("prompt", "chosen", "rejected")):
-            raise ValueError(
-                "Le fichier DPO doit contenir des objets {prompt, chosen, rejected}. "
-                "Passez le fichier dpo_pairs.jsonl (et non l'export SFT 'conversations').")
-
-        try:
-            from datasets import Dataset as HFDataset
-            hf_dataset = HFDataset.from_list(dpo_data)
-        except ImportError:
-            # Fallback: simple dict list (trl may accept it)
-            hf_dataset = dpo_data
-
-        # ref_model=None : pour un modèle PEFT, DPOTrainer désactive l'adaptateur pour
-        # obtenir la référence (modèle de base figé) — inutile et coûteux de dupliquer
-        # toute la politique avec copy.deepcopy (doublait l'empreinte mémoire).
-        dpo_trainer = DPOTrainer(
-            model=model,
-            ref_model=None,
-            args=DPOConfig(
-                max_length=MAX_SEQ_LENGTH,
-                max_prompt_length=MAX_SEQ_LENGTH // 2,
-                beta=0.1,
-                output_dir="./training_output",
-                per_device_train_batch_size=1,
-                gradient_accumulation_steps=4,
-                num_train_epochs=args.epochs,
-                learning_rate=args.lr,
-                fp16=has_gpu,
-                use_cpu=not has_gpu,
-                logging_steps=1,
-                save_strategy="no",
-                report_to="none",
-            ),
-            train_dataset=hf_dataset,
-            processing_class=tokenizer,
-        )
-        dpo_trainer.add_callback(ProgressLogger())
-        dpo_trainer.train()
-
+    try:
+        if args.orpo:
+            # ORPO : SFT + odds-ratio de préférence en UNE passe, SANS modèle de référence.
+            # Plus simple et plus léger que SFT→DPO, souvent meilleur sur petits modèles.
+            from trl import ORPOTrainer, ORPOConfig
+            pref_trainer = ORPOTrainer(
+                model=model,
+                args=ORPOConfig(
+                    max_length=MAX_SEQ_LENGTH,
+                    max_prompt_length=MAX_SEQ_LENGTH // 2,
+                    beta=0.1,                       # lambda de la pénalité odds-ratio
+                    output_dir="./training_output",
+                    per_device_train_batch_size=1,
+                    gradient_accumulation_steps=4,
+                    num_train_epochs=args.epochs,
+                    learning_rate=args.lr,
+                    fp16=has_gpu,
+                    use_cpu=not has_gpu,
+                    logging_steps=1,
+                    save_strategy="no",
+                    report_to="none",
+                ),
+                train_dataset=hf_dataset,
+                processing_class=tokenizer,
+            )
+        else:
+            # ref_model=None : pour un modèle PEFT, DPOTrainer désactive l'adaptateur pour
+            # obtenir la référence (modèle de base figé) — inutile et coûteux de dupliquer
+            # toute la politique avec copy.deepcopy (doublait l'empreinte mémoire).
+            from trl import DPOTrainer, DPOConfig
+            pref_trainer = DPOTrainer(
+                model=model,
+                ref_model=None,
+                args=DPOConfig(
+                    max_length=MAX_SEQ_LENGTH,
+                    max_prompt_length=MAX_SEQ_LENGTH // 2,
+                    beta=0.1,
+                    output_dir="./training_output",
+                    per_device_train_batch_size=1,
+                    gradient_accumulation_steps=4,
+                    num_train_epochs=args.epochs,
+                    learning_rate=args.lr,
+                    fp16=has_gpu,
+                    use_cpu=not has_gpu,
+                    logging_steps=1,
+                    save_strategy="no",
+                    report_to="none",
+                ),
+                train_dataset=hf_dataset,
+                processing_class=tokenizer,
+            )
     except ImportError as e:
-        print(f"WARN: DPOTrainer non disponible ({e}) — repli sur SFT avec réponses 'chosen'")
-        args.dpo = False
+        print(f"ERREUR: TRL ({method_label}) indisponible ({e}). Installez-le : pip install trl")
+        sys.exit(1)
 
-if not args.dpo:
+    pref_trainer.add_callback(ProgressLogger())
+    pref_trainer.train()
+
+if not PREFERENCE:
     # Split train/validation optionnel pour suivre l'eval_loss (détection du sur-apprentissage).
     train_dataset, eval_dataset = dataset, None
     if args.val_split and args.val_split > 0 and len(dataset) >= 4:
@@ -445,7 +498,7 @@ if not args.dpo:
         args=TrainingArguments(
             per_device_train_batch_size=1,
             gradient_accumulation_steps=4,
-            warmup_steps=5,
+            warmup_ratio=args.warmup_ratio,
             num_train_epochs=args.epochs,
             learning_rate=args.lr,
             fp16=has_gpu,
@@ -456,6 +509,7 @@ if not args.dpo:
             save_strategy="no",
             eval_strategy="epoch" if eval_dataset is not None else "no",
             gradient_checkpointing=has_gpu and not USE_UNSLOTH,
+            neftune_noise_alpha=args.neftune_alpha if args.neftune_alpha > 0 else None,
             report_to="none",
             remove_unused_columns=False,
         ),

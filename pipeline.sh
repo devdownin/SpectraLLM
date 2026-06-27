@@ -2,7 +2,7 @@
 # ────────────────────────────────────────────────────────────────────────────
 # Spectra — Pipeline complet : Ingest → Dataset → Fine-tuning
 #
-# Usage  : ./pipeline.sh [repertoire] [modele-base] [nom-modele] [--reset] [--packing] [--dpo]
+# Usage  : ./pipeline.sh [repertoire] [modele-base] [nom-modele] [--reset] [--packing] [--dpo|--orpo]
 # Exemples :
 #   ./pipeline.sh data/documents phi3
 #   ./pipeline.sh data/documents phi3 spectra-autoroute
@@ -18,6 +18,7 @@
 #   --reset        Supprime l'adaptateur existant et repart d'un entrainement initial
 #   --packing      Active le multipacking (concatenation des sequences courtes)
 #   --dpo          Active l'alignement DPO (requiert une generation DPO prealable)
+#   --orpo         Active l'alignement ORPO (SFT+preference en une passe, sans ref ; meme prerequis)
 # ────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail
@@ -42,12 +43,14 @@ MODEL_NAME="${3:-${BASE_MODEL}-autoroute}"
 RESET_ADAPTER=0
 PACKING_FLAG=""
 DPO_FLAG=""
+ORPO_FLAG=""
 
 for arg in "$@"; do
   case "$arg" in
     --reset)   RESET_ADAPTER=1      ;;
     --packing) PACKING_FLAG="--packing" ;;
     --dpo)     DPO_FLAG="--dpo"     ;;
+    --orpo)    ORPO_FLAG="--orpo"   ;;
   esac
 done
 
@@ -63,6 +66,9 @@ LORA_RANK="${LORA_RANK:-8}"
 LORA_ALPHA="${LORA_ALPHA:-16}"
 LR="${LR:-2e-4}"
 VAL_SPLIT="${VAL_SPLIT:-0}"
+LORA_TARGET="${LORA_TARGET:-attention}"   # attention | all (+ MLP)
+NEFTUNE_ALPHA="${NEFTUNE_ALPHA:-0}"        # 0 = off ; 5 = valeur courante
+WARMUP_RATIO="${WARMUP_RATIO:-0.03}"
 
 echo "======================================"
 echo "  Spectra — Pipeline complet"
@@ -73,6 +79,7 @@ echo "  Modele base  : $BASE_MODEL"
 echo "  Modele final : $MODEL_NAME"
 echo "  Multipacking : ${PACKING_FLAG:-(desactive)}"
 echo "  DPO          : ${DPO_FLAG:-(desactive)}"
+echo "  ORPO         : ${ORPO_FLAG:-(desactive)}"
 echo "  API          : $API_URL"
 echo
 
@@ -231,22 +238,23 @@ echo
 echo "> [4/5] Fine-tuning du modele $BASE_MODEL sur l'hote..."
 echo "  Cette etape peut durer plusieurs minutes (CPU) ou quelques minutes (GPU)."
 
-# Verification DPO + export du BON fichier (format {prompt, chosen, rejected})
+# Verification preference (DPO/ORPO) + export du BON fichier (format {prompt, chosen, rejected})
 TRAIN_DATASET="$DATASET_FILE"
-if [ -n "$DPO_FLAG" ]; then
+if [ -n "$DPO_FLAG" ] || [ -n "$ORPO_FLAG" ]; then
+  PREF_LABEL="DPO"; [ -n "$ORPO_FLAG" ] && PREF_LABEL="ORPO"
   DPO_JSON=$(curl -sf --max-time 5 "$API_URL/api/dataset/dpo/stats" 2>/dev/null || echo '{"totalPairs":0}')
   DPO_PAIRS=$(echo "$DPO_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('totalPairs',0))" 2>/dev/null || echo 0)
-  [ "$DPO_PAIRS" -gt 0 ] || die "--dpo demande mais aucune paire DPO trouvee.
-  Lancez d'abord la generation DPO :
+  [ "$DPO_PAIRS" -gt 0 ] || die "--${PREF_LABEL,,} demande mais aucune paire de preference trouvee.
+  Lancez d'abord la generation :
     curl -X POST $API_URL/api/dataset/dpo/generate"
-  green "$DPO_PAIRS paires DPO disponibles"
+  green "$DPO_PAIRS paires de preference disponibles"
 
-  # L'entrainement DPO consomme le format {prompt, chosen, rejected}, PAS l'export SFT.
+  # DPO et ORPO consomment le format {prompt, chosen, rejected}, PAS l'export SFT.
   curl -sf --max-time 30 -X POST "$API_URL/api/dataset/dpo/export" -o "$DPO_DATASET_FILE" \
-    || die "Export DPO echoue"
-  [ -s "$DPO_DATASET_FILE" ] || die "Fichier DPO vide apres export : $DPO_DATASET_FILE"
+    || die "Export des paires de preference echoue"
+  [ -s "$DPO_DATASET_FILE" ] || die "Fichier de preference vide apres export : $DPO_DATASET_FILE"
   TRAIN_DATASET="$DPO_DATASET_FILE"
-  green "Dataset DPO exporte : $DPO_DATASET_FILE"
+  green "Dataset de preference exporte : $DPO_DATASET_FILE"
 fi
 
 # Adaptateur incremental ou reset
@@ -273,8 +281,12 @@ python3 scripts/train_host.py \
   --lora-alpha "$LORA_ALPHA" \
   --lr "$LR" \
   --val-split "$VAL_SPLIT" \
+  --lora-target "$LORA_TARGET" \
+  --neftune-alpha "$NEFTUNE_ALPHA" \
+  --warmup-ratio "$WARMUP_RATIO" \
   $PACKING_FLAG \
   $DPO_FLAG \
+  $ORPO_FLAG \
   || die "Fine-tuning echoue"
 
 green "Fine-tuning termine — adaptateur : $ADAPTER_DIR"

@@ -214,9 +214,85 @@ substitution TinyLlama masquait).
 | `src/.../controller/DatasetController.java` | Endpoint `POST /api/dataset/dpo/export` (A6) |
 | `pipeline.sh` / `pipeline.bat` | Hyperparamètres surchargeables `EPOCHS/LORA_RANK/LORA_ALPHA/LR/VAL_SPLIT` (C1, C5), bon fichier DPO (A6) |
 
+## Améliorations qualité (au-delà des correctifs)
+
+### D1 — Harnais d'évaluation tenu à l'écart — *ajouté*
+`EvaluationService` échantillonnait le **dataset généré** (fuite de données pour un modèle
+fine-tuné dessus). Ajout d'un benchmark **doré, versionné, jamais entraîné** :
+- `benchmarks/highway_benchmark.jsonl` (ressource embarquée, à curer pour le corpus réel ;
+  surchargeable via `spectra.benchmark.quality-file`).
+- `QualityBenchmarkService` / `QualityBenchmarkController` :
+  `POST /api/quality-benchmark?model=…` mesure l'**exactitude** (score LLM-juge 1-10 sur les
+  questions *answerable*) et le **taux d'hallucination** (questions sans réponse dans le corpus :
+  le modèle doit s'abstenir).
+- `POST /api/quality-benchmark/compare?baseline=…&candidate=…` : comparaison **base vs
+  fine-tuné** (bascule temporaire du modèle actif, puis restauration).
+
+### D2 — Exemples de refus « je ne sais pas » — *ajouté*
+`DatasetGeneratorService` génère désormais des paires **négatives** (catégorie `negative`,
+type `refusal`) : une question plausible du domaine dont la réponse est absente du chunk,
+associée à un refus varié. Cadence réglable (`spectra.dataset.refusal-every-n`, défaut 3 ≈ 10 %
+du dataset). C'est le levier le plus direct contre l'hallucination dans un assistant RAG, et la
+catégorie `negative` était déjà anticipée par le code (filtrée en DPO, agrégée en évaluation).
+
+### D3 — Stratégie fine-tuning vs RAG (levier d'exclusion) — *ajouté*
+Le fine-tuning encode mal les **faits volatils** (événements, nomenclatures qui changent) et
+vieillit ; ces faits sont mieux servis par le RAG. Le SFT doit se concentrer sur le
+**style / format / procédure**.
+- Levier `spectra.fine-tuning.sft-excluded-categories` (CSV, comparé à `category` ET `type`) :
+  exclut certaines paires de l'export d'entraînement. Vide par défaut (aucune exclusion) ;
+  exemple recommandé : `evenements,nomenclatures`.
+- Appliqué dans `FineTuningService.exportFilteredDataset` en complément du filtre `minConfidence`.
+
+### D4 — ORPO en alternative au DPO — *ajouté*
+La génération de `rejected` (réponses fausses fabriquées) donne un signal de préférence parfois
+faible, et SFT→DPO nécessite un modèle de référence. **ORPO** combine SFT + préférence
+(odds-ratio) en **une seule passe, sans modèle de référence** : plus simple, plus léger, souvent
+meilleur sur petits modèles.
+- `train_host.py --orpo` (`ORPOTrainer`), même dataset `{prompt, chosen, rejected}` que DPO.
+- Plomberie complète : `FineTuningRequest.orpoEnabled`, `FineTuningService` (export préférence +
+  flag), `train.sh` (`$10`), `pipeline.sh/.bat` (`--orpo`), recette `orpo-alignement.yml`.
+- **Bug corrigé au passage** : le dataset SFT était construit (et `sys.exit(1)` sur dataset vide)
+  **avant** la branche DPO — ce qui faisait avorter tout run DPO (fichier sans `conversations`).
+  Le chargement SFT est désormais sauté en mode préférence (DPO/ORPO).
+
+### D5 — Réglages d'entraînement à faible coût — *ajouté*
+Trois leviers gratuits dans `train_host.py` (exposés aussi via variables d'env des pipelines) :
+- `--lora-target attention|all` : `all` étend LoRA aux projections MLP (`gate/up/down_proj`,
+  `gate_up_proj`) pour plus de capacité sur les gros modèles. Défaut `attention` (inchangé).
+- `--neftune-alpha` : bruit NEFTune sur les embeddings en SFT (défaut 0 = off ; 5 courant),
+  améliore souvent la robustesse sans coût.
+- `--warmup-ratio` (défaut 0.03) remplace `warmup_steps=5` fixe — plus robuste sur petits datasets.
+
+### D6 — Cohérence du system prompt entraînement ↔ service — *corrigé*
+Le modèle était entraîné sous une persona (« assistant spécialisé dans l'exploitation
+autoroutière ») mais **servi sous des prompts différents** (`RagService` mode direct « assistant
+utile », enregistrement `export_gguf.py` « assistant spécialisé… professionnelle »), ce qui dégrade
+l'apport du fine-tuning.
+**Correctif** : source de vérité unique `fr.spectra.model.AssistantPersona.SYSTEM_PROMPT`, partagée
+par `TrainingPair.of`, `RagService` (mode direct + préfixe du prompt contextuel),
+`QualityBenchmarkService`, le repli d'`EvaluationService` et l'exemple d'enregistrement
+`export_gguf.py`.
+
+### D7 — Adaptateur LoRA à chaud (sans fusion) — *ajouté*
+La fusion+quantization (`export_gguf.py`) produit un GGUF autonome par modèle. Alternative :
+- `scripts/export_lora_gguf.py` convertit **l'adaptateur seul** en GGUF (quelques Mo).
+- `scripts/llama-autostart.sh` accepte `LLAMA_LORA` / `LLAMA_LORA_SCALE` et lance
+  `llama-server --lora-scaled …` : l'adaptateur est appliqué **par-dessus** le modèle de base.
+- Avantages : pas de duplication du modèle de base, permutation d'adaptateurs **à chaud**
+  (endpoint `/lora-adapters`, scale 0→1) sans redémarrage ni re-quantization.
+
+## Documentation
+
+- `DOCUMENTATION_PEDAGOGIQUE.fr.md` (§ 8-10) : sections étendues pour **expliquer et justifier**
+  les choix et algorithmes — score de confiance ancré, exemples de refus, masquage du prompt,
+  packing/padding dynamique, auto-détection des `target_modules`, SFT vs DPO vs ORPO,
+  NEFTune/warmup/validation, fusion vs LoRA à chaud, cohérence persona, benchmark tenu à l'écart
+  + taux d'hallucination, et stratégie fine-tuning vs RAG.
+- `USER_MANUAL.md` : recette ORPO, exemples d'API (ORPO, quality-benchmark), leviers CLI
+  (`LORA_TARGET`/`NEFTUNE_ALPHA`/`WARMUP_RATIO`/`VAL_SPLIT`), config serveur, LoRA à chaud.
+
 ## Reste à faire (non bloquant)
 
 - Éventuel early-stopping / checkpointing du meilleur modèle (volontairement écarté ici
   pour éviter le churn disque sur de petits datasets CPU).
-- Étendre LoRA aux projections MLP (`gate/up/down_proj`) pour les gros modèles si la
-  qualité le justifie (actuellement attention seule, conforme à l'existant).

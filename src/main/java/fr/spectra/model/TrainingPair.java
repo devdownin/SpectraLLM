@@ -24,7 +24,7 @@ public record TrainingPair(
     public static TrainingPair of(String instruction, String response, String source, String category, String type, double confidence) {
         return new TrainingPair(
                 List.of(
-                        new Message("system", "Tu es un assistant spécialisé dans l'exploitation autoroutière."),
+                        new Message("system", AssistantPersona.SYSTEM_PROMPT),
                         new Message("user", instruction),
                         new Message("assistant", response)
                 ),

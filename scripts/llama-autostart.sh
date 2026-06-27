@@ -176,6 +176,14 @@ CMD=(llama-server
 [ "$MODE" = "embed" ]   && CMD+=(--embeddings)
 [ "$NGL" != "0" ]       && CMD+=(--n-gpu-layers "$NGL")
 
+# Adaptateur LoRA chargé À CHAUD par-dessus le modèle de base (sans fusion).
+# LLAMA_LORA = chemin d'un GGUF d'adaptateur (cf. scripts/export_lora_gguf.py).
+# LLAMA_LORA_SCALE = poids d'application (défaut 1.0 ; 0 = neutre). Permet de servir
+# le modèle fine-tuné sans dupliquer ni re-quantifier le modèle de base.
+if [ -n "${LLAMA_LORA:-}" ] && [ "$MODE" != "embed" ]; then
+  CMD+=(--lora-scaled "$LLAMA_LORA" "${LLAMA_LORA_SCALE:-1.0}")
+fi
+
 # Arguments supplémentaires (passés tels quels)
 if [ -n "${LLAMA_EXTRA:-}" ]; then
   # shellcheck disable=SC2086
@@ -198,6 +206,7 @@ log "  parallelism : $PARALLELISM"
 log "  flash-attn  : $FLASH_ATTN"
 log "  KV cache    : K=$CACHE_TYPE_K  V=$CACHE_TYPE_V"
 log "  modèle      : ${MODEL_PATH}"
+[ -n "${LLAMA_LORA:-}" ] && log "  LoRA        : ${LLAMA_LORA} (scale=${LLAMA_LORA_SCALE:-1.0})"
 log "══════════════════════════════════════════════"
 log "Commande : ${CMD[*]}"
 
