@@ -61,9 +61,22 @@ public class DatasetGeneratorService {
     private static final Set<String> VALID_CATEGORIES =
             Set.of("procedures", "evenements", "nomenclatures", "reglementation");
 
+    /**
+     * Réponses de refus pour les exemples « négatifs » : on apprend au modèle à
+     * <b>s'abstenir</b> quand l'information n'est pas dans les documents, plutôt que d'halluciner.
+     * Plusieurs formulations pour éviter la mémorisation d'une chaîne unique.
+     */
+    private static final List<String> REFUSAL_ANSWERS = List.of(
+            "Je ne dispose pas de cette information dans les documents fournis.",
+            "Cette information n'apparaît pas dans la documentation disponible ; je préfère ne pas répondre plutôt que de risquer une erreur.",
+            "Les documents d'exploitation à ma disposition ne couvrent pas ce point, je ne peux donc pas répondre avec certitude.",
+            "Je n'ai pas d'élément fiable sur ce sujet dans le corpus fourni.");
+
     private final LlmChatClient llmChatClient;
     private final ChromaDbClient chromaDbClient;
     private final Path pairsFile;
+    /** Fréquence des exemples de refus : un toutes les N portions (0 = désactivé). */
+    private final int refusalEveryN;
 
     /** Self-reference for @Async proxy — injected lazily to avoid circular dependency. */
     @Lazy @Autowired(required = false)
@@ -76,10 +89,12 @@ public class DatasetGeneratorService {
 
     public DatasetGeneratorService(LlmChatClient llmChatClient,
                                    ChromaDbClient chromaDbClient,
-                                   @Value("${spectra.dataset.dir:./data/dataset}") String datasetDir) {
+                                   @Value("${spectra.dataset.dir:./data/dataset}") String datasetDir,
+                                   @Value("${spectra.dataset.refusal-every-n:3}") int refusalEveryN) {
         this.llmChatClient = llmChatClient;
         this.chromaDbClient = chromaDbClient;
         this.pairsFile = Path.of(datasetDir).resolve("sft_pairs.jsonl");
+        this.refusalEveryN = refusalEveryN;
     }
 
     @PostConstruct
@@ -221,6 +236,15 @@ public class DatasetGeneratorService {
                     List<TrainingPair> pairs = generatePairsFromChunk(chunkText, sourceFile);
                     generatedPairs.addAll(pairs);
                     pairsCount += pairs.size();
+
+                    // Exemple de refus périodique : apprend l'abstention (anti-hallucination).
+                    if (refusalEveryN > 0 && i % refusalEveryN == 0) {
+                        TrainingPair refusal = generateRefusalPair(chunkText, sourceFile, i / refusalEveryN);
+                        if (refusal != null) {
+                            generatedPairs.add(refusal);
+                            pairsCount++;
+                        }
+                    }
                 } catch (Exception e) {
                     log.warn("Erreur sur chunk {}: {}", ids.get(i), e.getMessage());
                 }
@@ -365,6 +389,33 @@ public class DatasetGeneratorService {
             if (w.length() > 3) words.add(w);
         }
         return words;
+    }
+
+    /**
+     * Génère un exemple « négatif » : une question plausible du domaine dont la réponse
+     * n'est PAS dans le chunk, associée à un refus. Entraîne le modèle à dire « je ne sais pas »
+     * au lieu d'inventer — le levier le plus efficace contre l'hallucination dans un assistant RAG.
+     */
+    private TrainingPair generateRefusalPair(String chunkText, String source, int rotation) {
+        String prompt = """
+                À partir du texte suivant (document d'exploitation autoroutière), génère UNE question
+                plausible du même domaine dont la réponse N'EST PAS contenue dans ce texte.
+                La question doit paraître naturelle mais porter sur un détail absent du texte.
+                Réponds UNIQUEMENT en JSON valide avec la clé "question". Aucun texte autour.
+
+                Texte:
+                %s""".formatted(chunkText);
+        try {
+            String json = llmChatClient.chat("Tu génères des questions de test pour un assistant.", prompt);
+            JsonNode node = mapper.readTree(extractJson(json));
+            String question = node.get("question").asText();
+            if (question == null || question.strip().length() < 10) return null;
+            String refusal = REFUSAL_ANSWERS.get(Math.floorMod(rotation, REFUSAL_ANSWERS.size()));
+            return TrainingPair.of(question.strip(), refusal, source, "negative", "refusal", 0.9);
+        } catch (Exception e) {
+            log.debug("Génération refus échouée: {}", e.getMessage());
+            return null;
+        }
     }
 
     private TrainingPair parseClassificationPair(String json, String chunkText, String source) {

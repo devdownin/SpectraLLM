@@ -214,6 +214,27 @@ substitution TinyLlama masquait).
 | `src/.../controller/DatasetController.java` | Endpoint `POST /api/dataset/dpo/export` (A6) |
 | `pipeline.sh` / `pipeline.bat` | Hyperparamètres surchargeables `EPOCHS/LORA_RANK/LORA_ALPHA/LR/VAL_SPLIT` (C1, C5), bon fichier DPO (A6) |
 
+## Améliorations qualité (au-delà des correctifs)
+
+### D1 — Harnais d'évaluation tenu à l'écart — *ajouté*
+`EvaluationService` échantillonnait le **dataset généré** (fuite de données pour un modèle
+fine-tuné dessus). Ajout d'un benchmark **doré, versionné, jamais entraîné** :
+- `benchmarks/highway_benchmark.jsonl` (ressource embarquée, à curer pour le corpus réel ;
+  surchargeable via `spectra.benchmark.quality-file`).
+- `QualityBenchmarkService` / `QualityBenchmarkController` :
+  `POST /api/quality-benchmark?model=…` mesure l'**exactitude** (score LLM-juge 1-10 sur les
+  questions *answerable*) et le **taux d'hallucination** (questions sans réponse dans le corpus :
+  le modèle doit s'abstenir).
+- `POST /api/quality-benchmark/compare?baseline=…&candidate=…` : comparaison **base vs
+  fine-tuné** (bascule temporaire du modèle actif, puis restauration).
+
+### D2 — Exemples de refus « je ne sais pas » — *ajouté*
+`DatasetGeneratorService` génère désormais des paires **négatives** (catégorie `negative`,
+type `refusal`) : une question plausible du domaine dont la réponse est absente du chunk,
+associée à un refus varié. Cadence réglable (`spectra.dataset.refusal-every-n`, défaut 3 ≈ 10 %
+du dataset). C'est le levier le plus direct contre l'hallucination dans un assistant RAG, et la
+catégorie `negative` était déjà anticipée par le code (filtrée en DPO, agrégée en évaluation).
+
 ## Reste à faire (non bloquant)
 
 - Éventuel early-stopping / checkpointing du meilleur modèle (volontairement écarté ici
