@@ -93,6 +93,24 @@ public class DpoGenerationService {
         return List.copyOf(dpoPairs);
     }
 
+    /**
+     * Exporte les paires DPO au format JSONL {@code {prompt, chosen, rejected, ...}} et
+     * renvoie le chemin du fichier. C'est le format attendu par {@code trl.DPOTrainer} —
+     * à ne pas confondre avec l'export SFT au format {@code conversations}.
+     */
+    public Path exportJsonl() throws java.io.IOException {
+        Files.createDirectories(pairsFile.getParent());
+        Path file = pairsFile.getParent().resolve("dpo_export_" + System.currentTimeMillis() + ".jsonl");
+        try (BufferedWriter writer = Files.newBufferedWriter(file)) {
+            for (DpoPair pair : dpoPairs) {
+                writer.write(mapper.writeValueAsString(pair));
+                writer.newLine();
+            }
+        }
+        log.info("Paires DPO exportées: {} → {}", dpoPairs.size(), file);
+        return file;
+    }
+
     public DpoTask getTask(String taskId) {
         return tasks.get(taskId);
     }

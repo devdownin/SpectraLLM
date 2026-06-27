@@ -5,9 +5,11 @@ import fr.spectra.dto.FineTuningJob;
 import fr.spectra.dto.FineTuningJob.Status;
 import fr.spectra.dto.FineTuningRequest;
 import fr.spectra.model.TrainingPair;
+import fr.spectra.model.DpoPair;
 import fr.spectra.persistence.FineTuningJobEntity;
 import fr.spectra.persistence.FineTuningJobRepository;
 import fr.spectra.service.dataset.DatasetGeneratorService;
+import fr.spectra.service.dataset.DpoGenerationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -18,10 +20,10 @@ import org.springframework.stereotype.Service;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.InputStreamReader;
+import java.util.Comparator;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -41,6 +43,7 @@ public class FineTuningService {
     private static final ObjectMapper mapper = new ObjectMapper();
 
     private final DatasetGeneratorService datasetGenerator;
+    private final DpoGenerationService dpoGenerator;
     private final LlmChatClient llmClient;
     private final FineTuningJobRepository repository;
     private final Path workDir;
@@ -50,15 +53,19 @@ public class FineTuningService {
     private final Set<String> cancelledJobs = ConcurrentHashMap.newKeySet();
 
     public FineTuningService(DatasetGeneratorService datasetGenerator,
+                             DpoGenerationService dpoGenerator,
                              LlmChatClient llmClient,
                              FineTuningJobRepository repository,
                              @Value("${spectra.fine-tuning.work-dir:./data/fine-tuning}") String workDir,
                              @Value("${spectra.fine-tuning.script:./scripts/train.sh}") String trainingScript) {
          this.datasetGenerator = datasetGenerator;
+         this.dpoGenerator = dpoGenerator;
          this.llmClient = llmClient;
          this.repository = repository;
          this.workDir = Path.of(workDir);
-         this.trainingScript = trainingScript;
+         // Chemin absolu : le process d'entraînement s'exécute avec workDir comme répertoire
+         // courant, donc un chemin relatif ne serait pas résolu correctement.
+         this.trainingScript = Path.of(trainingScript).toAbsolutePath().toString();
     }
 
     /**
@@ -112,18 +119,43 @@ public class FineTuningService {
         return true;
     }
 
+    /**
+     * Purge les jobs <b>échoués</b> de plus d'une heure et <b>supprime leur répertoire de travail</b>
+     * (dataset + sorties partielles) pour éviter une fuite disque.
+     *
+     * <p>Les jobs {@code COMPLETED} sont conservés : leur répertoire contient l'adaptateur entraîné
+     * (le modèle produit) et leur entrée en base porte le {@code outputPath} référencé ailleurs.
+     * Les supprimer automatiquement détruirait le résultat du fine-tuning.</p>
+     */
     @Scheduled(fixedDelay = 3_600_000)
     public void cleanupOldJobs() {
         Instant cutoff = Instant.now().minusSeconds(3600);
         List<FineTuningJobEntity> toDelete = repository.findAll().stream()
                 .filter(e -> {
                     FineTuningJob j = e.toDto();
-                    return (j.status() == Status.COMPLETED || j.status() == Status.FAILED)
+                    return j.status() == Status.FAILED
                             && j.completedAt() != null && j.completedAt().isBefore(cutoff);
                 })
                 .toList();
+        for (FineTuningJobEntity e : toDelete) {
+            deleteWorkDir(e.toDto().jobId());
+        }
         repository.deleteAll(toDelete);
         cancelledJobs.removeIf(id -> repository.findById(id).isEmpty());
+    }
+
+    /** Supprime récursivement le répertoire de travail d'un job (best-effort). */
+    private void deleteWorkDir(String jobId) {
+        Path jobDir = workDir.resolve(jobId);
+        if (!Files.exists(jobDir)) return;
+        try (var paths = Files.walk(jobDir)) {
+            paths.sorted(Comparator.reverseOrder()).forEach(p -> {
+                try { Files.deleteIfExists(p); }
+                catch (Exception ex) { log.warn("Suppression impossible: {} ({})", p, ex.getMessage()); }
+            });
+        } catch (Exception ex) {
+            log.warn("Nettoyage du répertoire {} impossible: {}", jobDir, ex.getMessage());
+        }
     }
 
     @Async
@@ -135,21 +167,29 @@ public class FineTuningService {
             Path jobDir = workDir.resolve(jobId);
             Files.createDirectories(jobDir);
 
-            Path datasetFile = exportFilteredDataset(jobDir, request.minConfidence());
+            Path datasetFile = request.dpoEnabled()
+                    ? exportDpoDataset(jobDir)
+                    : exportFilteredDataset(jobDir, request.minConfidence());
             int datasetSize = countLines(datasetFile);
             updateJob(jobId, j -> j.withDatasetSize(datasetSize));
 
             if (datasetSize == 0) {
-                updateJob(jobId, j -> j.failed("Dataset vide après filtrage (minConfidence=" + request.minConfidence() + ")"));
+                String reason = request.dpoEnabled()
+                        ? "Aucune paire DPO disponible — lancez d'abord POST /api/dataset/dpo/generate"
+                        : "Dataset vide après filtrage (minConfidence=" + request.minConfidence() + ")";
+                updateJob(jobId, j -> j.failed(reason));
                 return;
             }
 
-            log.info("Job {}: dataset exporté ({} paires)", jobId, datasetSize);
+            log.info("Job {}: dataset exporté ({} {})", jobId, datasetSize,
+                    request.dpoEnabled() ? "paires DPO" : "paires SFT");
 
             // ── Étape 2 : Lancement de l'entraînement externe ──
             updateJob(jobId, j -> j.withStatus(Status.TRAINING, "Lancement de l'entraînement..."));
 
-            Path adapterPath = jobDir.resolve("adapter.gguf");
+            // train_host.py produit un répertoire d'adaptateur LoRA (format HuggingFace/PEFT),
+            // pas un fichier .gguf — la conversion GGUF est une étape distincte (export_gguf.py).
+            Path adapterPath = jobDir.resolve("adapter");
 
             int exitCode = runTrainingProcess(jobId, request, datasetFile, adapterPath);
 
@@ -163,8 +203,9 @@ public class FineTuningService {
                 return;
             }
 
-            if (!Files.exists(adapterPath)) {
-                updateJob(jobId, j -> j.failed("Adaptateur non trouvé: " + adapterPath));
+            // L'artefact d'un entraînement PEFT réussi est adapter_config.json dans le dossier.
+            if (!Files.exists(adapterPath.resolve("adapter_config.json"))) {
+                updateJob(jobId, j -> j.failed("Adaptateur non trouvé: " + adapterPath.resolve("adapter_config.json")));
                 return;
             }
 
@@ -206,6 +247,23 @@ public class FineTuningService {
     }
 
     /**
+     * Exporte les paires DPO ({@code {prompt, chosen, rejected}}) pour l'entraînement DPO.
+     * Sans cet export, le mode DPO recevait à tort le dataset SFT au format {@code conversations}.
+     */
+    private Path exportDpoDataset(Path dir) throws Exception {
+        List<DpoPair> pairs = dpoGenerator.getAllPairs();
+
+        Path file = dir.resolve("dataset.jsonl");
+        try (BufferedWriter writer = Files.newBufferedWriter(file)) {
+            for (DpoPair pair : pairs) {
+                writer.write(mapper.writeValueAsString(pair));
+                writer.newLine();
+            }
+        }
+        return file;
+    }
+
+    /**
      * Lance le script d'entraînement externe avec les paramètres LoRA.
      * Le script reçoit les arguments : dataset_path output_path base_model lora_rank lora_alpha epochs lr
      */
@@ -219,7 +277,9 @@ public class FineTuningService {
                 String.valueOf(request.loraRank()),
                 String.valueOf(request.loraAlpha()),
                 String.valueOf(request.epochs()),
-                String.valueOf(request.learningRate())
+                String.valueOf(request.learningRate()),
+                String.valueOf(request.packingEnabled()),
+                String.valueOf(request.dpoEnabled())
         );
 
         log.info("Job {}: commande = {}", jobId, String.join(" ", command));

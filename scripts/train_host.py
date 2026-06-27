@@ -52,50 +52,68 @@ if has_gpu:
 else:
     print("Backend : HuggingFace PEFT (CPU)")
 
-from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments, Trainer, TrainerCallback, DataCollatorForLanguageModeling
+from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments, Trainer, TrainerCallback, default_data_collator
 import json
 import torch
 from torch.utils.data import Dataset as TorchDataset
 
 # ── Dataset PyTorch natif (sans lib datasets — incompatible Python 3.14) ──────
 class ConversationDataset(TorchDataset):
+    """
+    SFT au format conversation avec **masquage du prompt** : seuls les tokens de la
+    réponse de l'assistant (EOS compris) contribuent à la loss. Les tokens système,
+    utilisateur et marqueurs de rôle sont masqués à -100 — sinon le modèle apprend à
+    régénérer la question/le prompt au lieu de seulement répondre.
+    """
+
     def __init__(self, path, tokenizer, max_length=512):
         self.samples = []
+        pad_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else 0
         with open(path, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:
                     continue
                 record = json.loads(line)
-                text = self._format(record)
-                if not text.strip():
+                input_ids, labels = self._encode(record, tokenizer, max_length)
+                if not input_ids or all(l == -100 for l in labels):
+                    # Aucun token supervisé (pas de réponse assistant) → exemple inutile
                     continue
-                enc = tokenizer(
-                    text,
-                    truncation=True,
-                    max_length=max_length,
-                    padding="max_length",
-                    return_tensors="pt",
-                )
+
+                input_ids = input_ids[:max_length]
+                labels    = labels[:max_length]
+                attn      = [1] * len(input_ids)
+                pad_len   = max_length - len(input_ids)
+                if pad_len > 0:
+                    input_ids = input_ids + [pad_id]  * pad_len
+                    labels    = labels    + [-100]    * pad_len
+                    attn      = attn      + [0]       * pad_len
+
                 self.samples.append({
-                    "input_ids":      enc["input_ids"].squeeze(0),
-                    "attention_mask": enc["attention_mask"].squeeze(0),
-                    "labels":         enc["input_ids"].squeeze(0).clone(),
+                    "input_ids":      torch.tensor(input_ids, dtype=torch.long),
+                    "attention_mask": torch.tensor(attn,      dtype=torch.long),
+                    "labels":         torch.tensor(labels,    dtype=torch.long),
                 })
 
-    def _format(self, example):
-        # Format TinyLlama/Phi chat template
-        text = ""
+    @staticmethod
+    def _encode(example, tokenizer, max_length):
+        """Tokenise tour par tour ; renvoie (input_ids, labels) avec prompt masqué."""
+        input_ids, labels = [], []
         for msg in example.get("conversations", []):
             role    = msg.get("role", "")
             content = msg.get("content", "")
             if role == "system":
-                text += f"<|system|>\n{content}</s>\n"
+                seg, supervised = f"<|system|>\n{content}</s>\n", False
             elif role == "user":
-                text += f"<|user|>\n{content}</s>\n<|assistant|>\n"
+                seg, supervised = f"<|user|>\n{content}</s>\n<|assistant|>\n", False
             elif role == "assistant":
-                text += f"{content}</s>\n"
-        return text
+                seg, supervised = f"{content}</s>\n", True
+            else:
+                continue
+            ids = tokenizer.encode(seg, add_special_tokens=False)
+            input_ids.extend(ids)
+            labels.extend(ids if supervised else [-100] * len(ids))
+        return input_ids, labels
 
     def __len__(self):
         return len(self.samples)
@@ -264,10 +282,13 @@ if args.dpo:
     try:
         from trl import DPOTrainer, DPOConfig
         import json as _json
-        import copy
 
         dpo_data = [_json.loads(l) for l in open(args.dataset) if l.strip()]
         print(f"  {len(dpo_data)} paires DPO chargées")
+        if dpo_data and not all(k in dpo_data[0] for k in ("prompt", "chosen", "rejected")):
+            raise ValueError(
+                "Le fichier DPO doit contenir des objets {prompt, chosen, rejected}. "
+                "Passez le fichier dpo_pairs.jsonl (et non l'export SFT 'conversations').")
 
         try:
             from datasets import Dataset as HFDataset
@@ -276,12 +297,12 @@ if args.dpo:
             # Fallback: simple dict list (trl may accept it)
             hf_dataset = dpo_data
 
-        ref_model = copy.deepcopy(model)
-        ref_model.eval()
-
+        # ref_model=None : pour un modèle PEFT, DPOTrainer désactive l'adaptateur pour
+        # obtenir la référence (modèle de base figé) — inutile et coûteux de dupliquer
+        # toute la politique avec copy.deepcopy (doublait l'empreinte mémoire).
         dpo_trainer = DPOTrainer(
             model=model,
-            ref_model=ref_model,
+            ref_model=None,
             args=DPOConfig(
                 max_length=MAX_SEQ_LENGTH,
                 max_prompt_length=MAX_SEQ_LENGTH // 2,
@@ -308,7 +329,11 @@ if args.dpo:
         args.dpo = False
 
 if not args.dpo:
-    # Le PackedDataset et ConversationDataset fournissent tous deux les labels.
+    # PackedDataset et ConversationDataset fournissent déjà input_ids / attention_mask / labels
+    # (labels = -100 sur le prompt et le padding). On utilise le collator par défaut qui se
+    # contente d'empiler les tenseurs SANS recalculer les labels — au contraire de
+    # DataCollatorForLanguageModeling qui écraserait le masquage et supprimerait la
+    # supervision de l'EOS (pad_token == eos_token).
     trainer = Trainer(
         model=model,
         train_dataset=dataset,
@@ -327,7 +352,7 @@ if not args.dpo:
             report_to="none",
             remove_unused_columns=False,
         ),
-        data_collator=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False),
+        data_collator=default_data_collator,
     )
     trainer.add_callback(ProgressLogger())
     trainer.train()

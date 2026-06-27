@@ -121,6 +121,21 @@ public class DatasetController {
         return Map.of("totalPairs", total, "status", total > 0 ? "READY" : "EMPTY");
     }
 
+    @PostMapping("/dpo/export")
+    @Operation(summary = "Exporter les paires DPO au format JSONL {prompt, chosen, rejected}")
+    public ResponseEntity<Resource> exportDpo() throws IOException {
+        if (dpoService.getAllPairs().isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Aucune paire DPO. Lancez d'abord POST /api/dataset/dpo/generate");
+        }
+        Path file = dpoService.exportJsonl();
+        Resource resource = new FileSystemResource(file);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + file.getFileName() + "\"")
+                .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                .body(resource);
+    }
+
     @GetMapping("/stats")
     @Operation(summary = "Statistiques du dataset (paires, catégories, qualité)")
     public DatasetStats getStats() {
