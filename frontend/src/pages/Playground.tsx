@@ -42,6 +42,8 @@ interface Message {
   status?: 'PENDING' | 'SENT' | 'ERROR' | 'STREAMING';
   metrics?: MessageMetrics;
   feedback?: 'UP' | 'DOWN';
+  /** Réponse interrompue par l'utilisateur (Stop) — donc potentiellement incomplète. */
+  stopped?: boolean;
 }
 
 const STRATEGY_COLORS: Record<string, string> = {
@@ -266,12 +268,14 @@ const Playground: FC = () => {
       return [...base, { role: 'assistant', content: '', status: 'STREAMING' }];
     });
 
-    try {
-      let sources: Source[] = [];
-      const startTs = Date.now();
-      let firstTokenTs: number | null = null;
-      let tokenCount = 0;
+    // Hoisté hors du try : le catch (stop manuel) doit pouvoir figer la réponse
+    // partielle avec ses sources et métriques déjà reçues.
+    let sources: Source[] = [];
+    const startTs = Date.now();
+    let firstTokenTs: number | null = null;
+    let tokenCount = 0;
 
+    try {
       for await (const event of queryApi.queryStream(
         currentInput, ragEnabled, controller.signal, topCandidates, history, temperature, topP
       )) {
@@ -330,7 +334,30 @@ const Playground: FC = () => {
         }
       }
     } catch (err: unknown) {
-      if (err instanceof Error && err.name === 'AbortError') return;
+      if (err instanceof Error && err.name === 'AbortError') {
+        // Stop manuel : on fige la réponse partielle (SENT) au lieu de la laisser
+        // en STREAMING indéfiniment. Si rien n'a été reçu, on retire la bulle vide.
+        const metrics: MessageMetrics = {
+          ttftMs: firstTokenTs ? firstTokenTs - startTs : 0,
+          totalMs: Date.now() - startTs,
+          tokens: tokenCount,
+        };
+        setMessages(prev => {
+          const lastUserIdx = prev.findLastIndex(m => m.role === 'user' && m.content === currentInput);
+          const lastAsstIdx = prev.findLastIndex(m => m.role === 'assistant');
+          const removeEmpty = lastAsstIdx >= 0 && prev[lastAsstIdx].content === '';
+          return prev
+            .filter((_, i) => !(removeEmpty && i === lastAsstIdx))
+            .map((m, i) => {
+              if (i === lastUserIdx) return { ...m, status: 'SENT' as const };
+              if (i === lastAsstIdx && !removeEmpty)
+                return { ...m, status: 'SENT' as const, sources, metrics, stopped: true };
+              return m;
+            });
+        });
+        toast.info('Generation stopped');
+        return;
+      }
       toast.error('Query Uplink Failed', {
         description: 'Spectra core is currently unreachable or timed out.'
       });
@@ -619,6 +646,11 @@ const Playground: FC = () => {
                         <span title="Time to first token">TTFT {(msg.metrics.ttftMs / 1000).toFixed(1)}s</span>
                         <span title="Total time">{(msg.metrics.totalMs / 1000).toFixed(1)}s</span>
                         <span title="Tokens (approx.)">{msg.metrics.tokens} tok</span>
+                        {msg.stopped && (
+                          <span className="text-error font-bold uppercase tracking-wider" title="Generation stopped — answer may be incomplete">
+                            stopped
+                          </span>
+                        )}
                       </div>
                     ) : <span />}
 
