@@ -438,9 +438,10 @@ Puis, lors du lancement du fine-tuning (étape 3), cochez **Alignement DPO** pou
 1. Cliquez sur **Fine-Tuning Command** dans le menu gauche.
 2. Cliquez sur **New Training Job** (bouton en haut à droite).
 3. (Optionnel) Sélectionnez une **recette prédéfinie** en haut du formulaire :
-   - **CPU Rapide** : LoRA rank 8, 1 époque, multipacking activé — idéal pour un premier test
-   - **GPU Qualité** : LoRA rank 64, 3 époques — pour un modèle de production
+   - **CPU Rapide** : TinyLlama, LoRA rank 8, 1 époque, multipacking activé — idéal pour un premier test
+   - **GPU Qualité** : Phi-3, LoRA rank 64, 3 époques — pour un modèle de production
    - **DPO Alignement** : alignement DPO, rank 32, 2 époques — pour réduire les hallucinations
+   - **ORPO Alignement** : alignement ORPO (SFT + préférence en une passe, sans modèle de référence) — alternative plus simple/légère au DPO
 4. Remplissez (ou ajustez) le formulaire :
    - **Model Name** : nom du modèle à créer dans le registre local (ex. `spectra-domain`)
    - **Base Model** : modèle de base (ex. `phi3`, `mistral`)
@@ -449,6 +450,7 @@ Puis, lors du lancement du fine-tuning (étape 3), cochez **Alignement DPO** pou
    - **Min Confidence** : seuil de qualité des paires utilisées (0.8 par défaut)
    - **Multipacking** : cochez pour concaténer les exemples courts — accélère l'entraînement de 20–30 %
    - **Alignement DPO** : cochez si vous avez généré des paires DPO (étape 2b) — entraîne par préférence plutôt que par SFT
+   - **Alignement ORPO** : alternative au DPO en une seule passe, sans modèle de référence (mêmes paires de préférence). DPO et ORPO sont exclusifs ; ORPO a priorité si les deux sont cochés.
 5. Cliquez sur **Launch Training**.
 6. Suivez la progression via la **barre d'étapes** :
 
@@ -476,6 +478,11 @@ curl -X POST http://localhost:8080/api/fine-tuning \
   -H "Content-Type: application/json" \
   -d '{"modelName": "spectra-aligned", "baseModel": "phi3", "dpoEnabled": true}'
 
+# Avec ORPO (mêmes paires de préférence ; une passe, sans modèle de référence)
+curl -X POST http://localhost:8080/api/fine-tuning \
+  -H "Content-Type: application/json" \
+  -d '{"modelName": "spectra-orpo", "baseModel": "phi3", "orpoEnabled": true}'
+
 # Suivi
 curl http://localhost:8080/api/fine-tuning/ghi-789
 # → {"status": "COMPLETED", "modelName": "spectra-domain", ...}
@@ -498,6 +505,58 @@ curl -X POST http://localhost:8080/api/fine-tuning/recipe/export \
   -d '{"modelName": "mon-modele", "baseModel": "phi3", "epochs": 2, "loraRank": 16, "packingEnabled": true}' \
   -o ma-recette.yml
 ```
+
+#### Réglages avancés (CLI `pipeline.sh` / variables d'environnement)
+
+Le pipeline hors-API expose des leviers supplémentaires via variables d'environnement :
+
+```bash
+# Cibler aussi les couches MLP (plus de capacité), NEFTune, warm-up en ratio, split validation
+LORA_TARGET=all NEFTUNE_ALPHA=5 WARMUP_RATIO=0.05 VAL_SPLIT=0.1 \
+  EPOCHS=3 LORA_RANK=32 LORA_ALPHA=64 \
+  ./pipeline.sh data/documents phi3 mon-modele
+
+# Alignement ORPO (alternative à --dpo)
+./pipeline.sh data/documents phi3 mon-modele-orpo --orpo
+```
+
+| Levier | Effet | Défaut |
+|---|---|---|
+| `LORA_TARGET` | `attention` ou `all` (ajoute les projections MLP) | `attention` |
+| `NEFTUNE_ALPHA` | bruit NEFTune sur les embeddings (0 = off, 5 courant) | `0` |
+| `WARMUP_RATIO` | fraction d'étapes en warm-up | `0.03` |
+| `VAL_SPLIT` | fraction tenue à l'écart pour l'`eval_loss` | `0` |
+
+**Config serveur** (`application.yml`) :
+- `spectra.dataset.refusal-every-n` — fréquence des exemples de refus « je ne sais pas » (anti-hallucination).
+- `spectra.fine-tuning.sft-excluded-categories` — catégories/types exclus du SFT (faits volatils laissés au RAG, ex. `evenements,nomenclatures`).
+
+#### Mesurer la qualité (exactitude + hallucination)
+
+Évaluez sur le **jeu de référence tenu à l'écart** (jamais entraîné), et comparez base vs fine-tuné :
+
+```bash
+# Benchmark qualité du modèle actif (ou ?model=<nom>)
+curl -X POST "http://localhost:8080/api/quality-benchmark"
+# → { "avgScore": 8.1, "hallucinationRate": 0.05, "refusalAccuracy": 0.95, ... }
+
+# Comparer deux modèles (avant/après fine-tuning)
+curl -X POST "http://localhost:8080/api/quality-benchmark/compare?baseline=phi3&candidate=spectra-domain"
+```
+
+#### Servir l'adaptateur à chaud (sans fusion)
+
+Au lieu de fusionner+quantifier (`export_gguf.py`), exportez l'adaptateur seul et chargez-le par-dessus le modèle de base :
+
+```bash
+python scripts/export_lora_gguf.py --adapter data/fine-tuning/adapter \
+  --output data/fine-tuning/adapter-lora.gguf --base-model phi3
+
+# Au lancement de llama-server (cf. scripts/llama-autostart.sh)
+LLAMA_LORA=data/fine-tuning/adapter-lora.gguf LLAMA_LORA_SCALE=1.0 ...
+```
+
+Avantage : pas de duplication du modèle de base, et permutation d'adaptateurs à chaud via l'endpoint `/lora-adapters` (scale 0→1) sans redémarrage.
 
 **Ce que fait Spectra selon votre configuration matérielle :**
 

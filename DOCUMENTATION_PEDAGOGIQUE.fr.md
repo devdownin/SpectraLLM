@@ -418,14 +418,47 @@ données à partir de vos chunks.
 ### A. Paires Question/Réponse
 ⚙️ Pour chaque chunk : `LLM("Rédige des questions dont la réponse est dans ce
 texte, puis réponds‑y")`. On obtient des couples (question, réponse) ancrés dans
-**vos** documents.
+**vos** documents. Spectra produit aussi, par chunk, une paire **résumé** et une
+paire **classification** (catégorie du texte).
 
-### B. Paires de préférence (DPO)
+⚙️ **Score de confiance ancré (et non une simple longueur).** Chaque paire reçoit
+un score qui sert ensuite à filtrer (`minConfidence`). Plutôt que de se fier à la
+seule longueur de la réponse, on mesure l'**ancrage** : la part des mots de contenu
+de la réponse réellement présents dans le chunk source.
+```
+ancrage = |mots_contenu(réponse) ∩ mots(chunk)| / |mots_contenu(réponse)|
+confiance = 0,6 + 0,4 · ancrage        (réponse bien formée)
+```
+🧠 **Pourquoi ce choix ?** Une réponse dont tous les mots proviennent de la source
+est *peu susceptible d'être inventée*. Une réponse bien formée mais peu ancrée
+(potentielle hallucination) plafonne vers 0,6 et passe **sous** les seuils stricts
+des recettes (0,85 / 0,9) : on n'entraîne le modèle que sur des exemples fiables.
+
+### B. Apprendre à dire « je ne sais pas » (exemples négatifs)
+💡 La cause n°1 d'hallucination dans un assistant RAG : répondre alors que
+l'information **n'est pas** dans les documents. On l'attaque à la source en
+**entraînant l'abstention**.
+
+⚙️ Périodiquement (1 chunk sur N, réglable via `spectra.dataset.refusal-every-n`),
+on demande au LLM une question plausible du domaine **dont la réponse est absente**
+du chunk, et on l'associe à une réponse de **refus** variée (« Je ne dispose pas de
+cette information dans les documents fournis. »). Catégorie `negative`, type `refusal`.
+
+🧠 **Pourquoi c'est plus efficace que de corriger après coup ?** Le comportement
+d'abstention devient une *propriété apprise* du modèle, pas un garde‑fou fragile
+ajouté au prompt. C'est complémentaire du refus déjà demandé par le prompt RAG.
+
+⚙️ **Déduplication.** Avant persistance, les paires identiques (même instruction +
+réponse) sont supprimées : un contenu répété ne doit pas être sur‑pondéré pendant
+l'entraînement.
+
+### C. Paires de préférence (DPO / ORPO)
 💡 Le **DPO (Direct Preference Optimization)** apprend au modèle ce qui est
 **préférable**. Pour chaque exemple on fournit une **bonne** réponse (*chosen*)
 et une **moins bonne** (*rejected*, p. ex. une hallucination plausible). Le
 modèle apprend à rapprocher ses sorties des *chosen* et à s'éloigner des
-*rejected*.
+*rejected*. Ces mêmes triplets `{prompt, chosen, rejected}` alimentent aussi
+l'**ORPO** (cf. § 9.D).
 
 ⚙️ **Garde de qualité Jaccard.** Une paire n'est instructive que si *chosen* et
 *rejected* **diffèrent vraiment** :
@@ -438,6 +471,22 @@ Sinon, le « signal de préférence » est nul et bruite l'entraînement.
 *chosen* = « Porter des gants nitrile et des lunettes » ; *rejected* = « Aucun
 EPI requis ». La différence est nette (Jaccard faible) → paire conservée, le
 modèle apprend à ne pas minimiser les consignes.
+
+### D. Fine‑tuning ou RAG ? Le bon outil par type de connaissance
+💡 Le fine‑tuning **encode mal les faits** et **vieillit** : un événement trafic ou
+une nomenclature qui change ne doit pas être « gravé » dans les poids. À l'inverse,
+le RAG va chercher le fait à jour à chaque requête.
+
+🧠 **Règle de partage adoptée par Spectra :**
+| Type de connaissance | Outil recommandé |
+|---|---|
+| Faits volatils (événements, nomenclatures qui évoluent) | **RAG** |
+| Style, ton, format, procédures stables, comportement (abstention) | **Fine‑tuning (SFT)** |
+| Préférences / réduction d'hallucination | **DPO / ORPO** |
+
+⚙️ Levier `spectra.fine-tuning.sft-excluded-categories` : exclut du jeu de
+fine‑tuning les catégories/types jugés volatils (ex. `evenements,nomenclatures`),
+laissés au RAG. Vide par défaut.
 
 ---
 
@@ -460,7 +509,61 @@ W_effectif = W_gelé + (α/r) · B·A
 On n'entraîne que `A` et `B` : **2× plus rapide**, **bien moins de VRAM**, et on
 peut **empiler/retirer** ces modules comme des « cartouches » de savoir.
 
-### B. La boucle de feedback (👍/👎 → DPO → ré‑entraînement)
+⚙️ **Quels modules cibler ? Auto‑détection.** Les `target_modules` étaient codés en
+dur en style Llama (`q_proj/k_proj/v_proj/o_proj`). Problème : Phi‑3 fusionne
+l'attention en `qkv_proj` → LoRA aurait échoué. Spectra **inspecte l'architecture
+réelle** et cible les projections présentes ; `--lora-target all` ajoute les
+projections MLP (`gate/up/down_proj`) pour plus de capacité sur les gros modèles.
+🧠 **Pourquoi auto‑détecter ?** Un seul code marche pour TinyLlama, Mistral, Llama‑3
+et Phi‑3, sans liste à maintenir par modèle.
+
+### A bis. SFT : n'apprendre que la réponse (masquage du prompt)
+💡 En supervision (SFT), on ne veut pas que le modèle apprenne à **régénérer la
+question** ou le prompt système — seulement à **produire la bonne réponse**.
+
+⚙️ **Algorithme de masquage.** On construit les `labels` token par token : tout ce
+qui précède la réponse de l'assistant est masqué à `-100` (ignoré par la perte) ;
+seuls les tokens de la réponse (EOS compris) sont supervisés.
+```
+[système][question]  → labels = -100  (non appris)
+[réponse assistant + EOS] → labels = tokens  (appris)
+```
+🧠 **Pièges évités.** (1) Sans masquage, la perte couvre le prompt → le modèle se
+disperse. (2) Comme `pad_token == eos_token`, un collator naïf masquait **tous les
+EOS** → le modèle n'apprenait jamais à **s'arrêter**. On supervise donc explicitement
+l'EOS de la réponse.
+
+### A ter. Débit : packing et padding dynamique
+⚙️ **Padding dynamique.** On ne rembourre plus chaque exemple à 512 tokens : le
+collator rembourre au plus long **du batch**. À `batch_size=1`, il n'y a donc
+**aucun** padding → calcul économisé, précieux sur CPU.
+⚙️ **Multipacking (option).** On concatène plusieurs exemples courts en une séquence
+de longueur `max` séparés par EOS, pour éliminer le padding résiduel (20‑40 % d'étapes
+en moins sur des Q/R courtes).
+
+### A quater. Réglages à faible coût
+- **NEFTune** (`--neftune-alpha`, ex. 5) : un léger **bruit sur les embeddings** en
+  SFT améliore souvent la robustesse… gratuitement.
+- **Warmup en ratio** (`--warmup-ratio 0.03`) plutôt qu'un nombre d'étapes fixe :
+  plus sain quand le dataset est petit.
+- **Gradient checkpointing** activé **uniquement sur GPU** (échange calcul↔mémoire) :
+  inutile et ralentissant sur CPU.
+- **Split validation** (`--val-split`) : tient un échantillon à l'écart pour suivre
+  l'`eval_loss` par époque et **détecter le sur‑apprentissage**.
+
+### A quinquies. SFT, DPO ou ORPO ? (et pourquoi ORPO)
+| Méthode | Ce qu'elle fait | Coût | Quand |
+|---|---|---|---|
+| **SFT** | imite les bonnes réponses | faible | format, ton, procédures, abstention |
+| **DPO** | éloigne des *rejected*, après un SFT | moyen (modèle de référence) | corriger des préférences fines |
+| **ORPO** | SFT **+** préférence en **une passe**, **sans** modèle de référence | faible | alternative simple/efficace au couple SFT→DPO |
+
+🧠 **Pourquoi proposer ORPO ?** DPO nécessite un **modèle de référence** figé (mémoire
+doublée) et suppose un bon SFT préalable. **ORPO** combine l'imitation et la pénalité
+de préférence (odds‑ratio) en **une seule passe sans référence** : plus léger, souvent
+meilleur sur petits modèles. Même dataset `{prompt, chosen, rejected}` que DPO.
+
+### B. La boucle de feedback (👍/👎 → DPO/ORPO → ré‑entraînement)
 ```
 utilisateur note une réponse (👍 / 👎)
    → 👍 devient un "chosen", 👎 un "rejected"
@@ -475,6 +578,22 @@ Le modèle s'améliore **chaque jour** grâce à l'expertise de vos utilisateurs
 générés et en corrigent (👎) 10. Au seuil atteint, Spectra relance un fine‑tuning
 QLoRA pendant la nuit ; le lendemain, le style des commentaires colle davantage à
 votre charte éditoriale.
+
+### C. Servir le modèle : fusion vs adaptateur à chaud
+Deux façons de mettre l'adaptateur en production :
+- **Fusion** (`export_gguf.py`) : on fond l'adaptateur dans le modèle de base puis on
+  quantifie le tout → un GGUF autonome. Simple, mais **un fichier par modèle**.
+- **Adaptateur à chaud** (`export_lora_gguf.py`) : on convertit *seulement* l'adaptateur
+  (quelques Mo) en GGUF, chargé par `llama-server --lora-scaled adapter.gguf 1.0`
+  **par‑dessus** le modèle de base. 🧠 **Avantage :** pas de duplication du modèle de
+  base, et on **permute les adaptateurs à chaud** (endpoint `/lora-adapters`, scale 0→1)
+  sans redémarrage ni re‑quantization.
+
+⚠️ **Cohérence entraînement ↔ service.** Le modèle a appris à répondre sous une
+**persona précise**. Le servir sous un autre system prompt **dégrade** le gain du
+fine‑tuning. Spectra centralise donc la persona dans une source unique
+(`AssistantPersona.SYSTEM_PROMPT`), réutilisée à l'entraînement, au service (RAG) et à
+l'enregistrement du modèle.
 
 ---
 
@@ -492,6 +611,27 @@ note, justification = LLM_juge(
      et des sources ; explique ta note.", question, réponse, sources)
 ```
 On suit l'évolution de la **note moyenne** entre deux versions du modèle.
+
+### A bis. Benchmark **tenu à l'écart** + taux d'hallucination
+⚠️ **Piège évité.** Évaluer en échantillonnant le **dataset d'entraînement** est
+trompeur : un modèle fine‑tuné a *déjà vu* ces exemples (fuite de données) → notes
+artificiellement hautes. Spectra ajoute donc un **jeu de référence versionné, jamais
+entraîné** (`benchmarks/highway_benchmark.jsonl`).
+
+⚙️ **Deux mesures complémentaires** (`/api/quality-benchmark`) :
+```
+questions answerable   → note d'exactitude 1‑10 (vs réponse de référence)
+questions non‑answerable (réponse absente du corpus)
+        → le modèle DOIT s'abstenir
+        → taux d'hallucination = part de réponses inventées au lieu d'un refus
+```
+🧠 **Pourquoi mesurer l'hallucination séparément ?** C'est l'indicateur direct de
+fiabilité d'un assistant RAG ; il valide l'effet des exemples de refus (§ 8.B) et de
+l'alignement DPO/ORPO.
+
+⚙️ **Comparaison base vs fine‑tuné** (`/api/quality-benchmark/compare`) : on rejoue le
+benchmark sur les deux modèles pour **chiffrer** l'apport du fine‑tuning (exactitude **et**
+hallucination, avant/après).
 
 ### B. Métriques de personnalisation
 Tableau de bord : volume de documents ingérés, taille du dataset, paires DPO

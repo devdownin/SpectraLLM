@@ -274,9 +274,25 @@ par `TrainingPair.of`, `RagService` (mode direct + préfixe du prompt contextuel
 `QualityBenchmarkService`, le repli d'`EvaluationService` et l'exemple d'enregistrement
 `export_gguf.py`.
 
+### D7 — Adaptateur LoRA à chaud (sans fusion) — *ajouté*
+La fusion+quantization (`export_gguf.py`) produit un GGUF autonome par modèle. Alternative :
+- `scripts/export_lora_gguf.py` convertit **l'adaptateur seul** en GGUF (quelques Mo).
+- `scripts/llama-autostart.sh` accepte `LLAMA_LORA` / `LLAMA_LORA_SCALE` et lance
+  `llama-server --lora-scaled …` : l'adaptateur est appliqué **par-dessus** le modèle de base.
+- Avantages : pas de duplication du modèle de base, permutation d'adaptateurs **à chaud**
+  (endpoint `/lora-adapters`, scale 0→1) sans redémarrage ni re-quantization.
+
+## Documentation
+
+- `DOCUMENTATION_PEDAGOGIQUE.fr.md` (§ 8-10) : sections étendues pour **expliquer et justifier**
+  les choix et algorithmes — score de confiance ancré, exemples de refus, masquage du prompt,
+  packing/padding dynamique, auto-détection des `target_modules`, SFT vs DPO vs ORPO,
+  NEFTune/warmup/validation, fusion vs LoRA à chaud, cohérence persona, benchmark tenu à l'écart
+  + taux d'hallucination, et stratégie fine-tuning vs RAG.
+- `USER_MANUAL.md` : recette ORPO, exemples d'API (ORPO, quality-benchmark), leviers CLI
+  (`LORA_TARGET`/`NEFTUNE_ALPHA`/`WARMUP_RATIO`/`VAL_SPLIT`), config serveur, LoRA à chaud.
+
 ## Reste à faire (non bloquant)
 
 - Éventuel early-stopping / checkpointing du meilleur modèle (volontairement écarté ici
   pour éviter le churn disque sur de petits datasets CPU).
-- Étendre LoRA aux projections MLP (`gate/up/down_proj`) pour les gros modèles si la
-  qualité le justifie (actuellement attention seule, conforme à l'existant).
