@@ -58,6 +58,13 @@ La plupart des outils se concentrent sur un seul maillon de la chaîne (uniqueme
 ### 📊 Mesurer le gain de chaque option (Ablation A/B)
 Spectra ne se contente pas d'activer des modules : il **quantifie leur apport**. L'écran **Optimisation** (`POST /api/ablation`) compare plusieurs configurations (*bras*) sur un benchmark tenu à l'écart — le **delta** entre deux bras est le gain marginal d'une option (RAG vs fine-tuning, et module par module). Trois familles de métriques : génération (exactitude, hallucination), retrieval (Hit@k / MRR / Recall@k), coût (tokens, latence) ; avec **moyenne ± écart-type** sur plusieurs répétitions pour distinguer un gain réel du bruit.
 
+### 🕵️ Traçabilité des Algorithmes (Mode Trace)
+
+Le Playground intègre un mode **Trace** pour démythifier le pipeline. Pour chaque réponse, un simple clic permet de visualiser exactement ce qui s'est passé :
+- La **stratégie RAG** appliquée (Agentique, Standard, ou Directe) et le nombre d'itérations.
+- Les **optimisations déclenchées** (Recherche Hybride, Multi-Query, Compression de Contexte...).
+- Le **texte exact** des sources qui a été injecté dans le contexte du LLM après toutes les étapes de filtrage.
+
 ### 📄 Ingestion Respectueuse de la Mise en Page (Layout-Aware)
 Spectra comprend que les documents ne sont pas que des suites de texte. En utilisant **PyMuPDF4LLM** et **IBM Docling**, il préserve la structure des tableaux, des en-têtes et des listes, convertissant les PDF complexes en Markdown propre pour une meilleure récupération.
 
@@ -97,7 +104,7 @@ Pointez simplement vos données, activez `spectra.batch.enabled=true`, et révei
 | Composant | Technologie |
 | :--- | :--- |
 | **Backend** | Java 25 / Spring Boot 4.1 (Virtual Threads / Loom) |
-| **Frontend** | React 19 / Vite / Tailwind CSS v4 |
+| **Frontend** | React 19 / Vite / Tailwind CSS v4 / Recharts |
 | **Inférence** | llama.cpp (GGUF, API compatible OpenAI) |
 | **Base Vectorielle** | ChromaDB (API v2) |
 | **Fine-Tuning** | Unsloth / PEFT (QLoRA) |
