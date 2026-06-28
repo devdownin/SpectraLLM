@@ -55,6 +55,9 @@ La plupart des outils se concentrent sur un seul maillon de la chaîne (uniqueme
 *   **Re-ranking Cross-Encoder** : Utilise un modèle spécialisé pour réévaluer les meilleurs candidats, garantissant que seul le contexte le plus pertinent atteint le LLM.
 *   **RAG Agentique (ReAct)** : Le LLM peut "réfléchir" et effectuer plusieurs itérations de recherche (PENSÉE -> ACTION -> RECHERCHE) pour répondre à des requêtes complexes impossibles à résoudre en une seule passe.
 
+### 📊 Mesurer le gain de chaque option (Ablation A/B)
+Spectra ne se contente pas d'activer des modules : il **quantifie leur apport**. L'écran **Optimisation** (`POST /api/ablation`) compare plusieurs configurations (*bras*) sur un benchmark tenu à l'écart — le **delta** entre deux bras est le gain marginal d'une option (RAG vs fine-tuning, et module par module). Trois familles de métriques : génération (exactitude, hallucination), retrieval (Hit@k / MRR / Recall@k), coût (tokens, latence) ; avec **moyenne ± écart-type** sur plusieurs répétitions pour distinguer un gain réel du bruit.
+
 ### 📄 Ingestion Respectueuse de la Mise en Page (Layout-Aware)
 Spectra comprend que les documents ne sont pas que des suites de texte. En utilisant **PyMuPDF4LLM** et **IBM Docling**, il préserve la structure des tableaux, des en-têtes et des listes, convertissant les PDF complexes en Markdown propre pour une meilleure récupération.
 

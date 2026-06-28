@@ -1139,6 +1139,8 @@ const sectionBenchmark = () => (
         <p className="text-foreground">GET /api/benchmark/embedding?iterations=10</p>
         <p className="text-foreground">GET /api/benchmark/llm?iterations=3</p>
         <p className="text-foreground">GET /api/benchmark/rag?iterations=5&maxChunks=2</p>
+        <p className="text-green-400 mt-3"># A/B ablation — marginal gain of each option (Optimization screen)</p>
+        <p className="text-foreground">POST /api/ablation</p>
       </div>
     </div>
   </div>
@@ -1181,6 +1183,10 @@ const sectionTips = () => (
         {
           title: 'Improvement Cycles',
           body: 'After each DPO fine-tuning, run an Evaluation (LLM-as-judge) to quantify the gain. Compare the before/after scores in the Comparison page and the Dashboard.',
+        },
+        {
+          title: 'Measuring Each Option (Optimization)',
+          body: 'Use the Optimization screen to A/B-ablate RAG modules and fine-tuned models on the held-out benchmark: the delta between two arms is the marginal gain of one option. Read it against its cost (context tokens, latency), and set runs ≥ 3 so non-significant deltas (within noise) get flagged.',
         },
       ].map(tip => (
         <div key={tip.title} className="space-y-3">

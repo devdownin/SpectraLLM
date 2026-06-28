@@ -732,6 +732,43 @@ Scores are aggregated by category: `qa`, `summary`, `classification`, `negative`
 
 ---
 
+### `RagAblationService` — A/B Ablation (measure the gain of every option)
+
+Where `EvaluationService` scores the **raw model**, the ablation runs each benchmark question through the **full RAG pipeline** and compares several configurations (*arms*) on the same held-out set. The delta between two arms is the **marginal gain** of one option — read against its cost.
+
+Each arm reports three families of metrics:
+
+| Family | Metrics |
+|---|---|
+| **Generation** | exactitude (LLM-judge /10), hallucination rate, refusal accuracy |
+| **Retrieval** (deterministic) | Hit@k, MRR, Recall@k — computed from returned sources vs. the benchmark's `expectedSources` |
+| **Cost** | context tokens (deterministic) + p50/avg latency |
+
+- **Per-module ablation**: each arm can force any RAG module on/off via `overrides` (tri-state) — `rerank`, `hybrid`, `multiQuery`, `corrective`, `compression`, `selfRag`, `adaptive`, `conversational`. `appliedCounts` confirms a module actually fired.
+- **Two axes**: RAG gain (`useRag` false vs. true) and fine-tuning gain (`model` base vs. fine-tuned).
+- **Confidence**: set `runs` (1–10) to repeat each arm → mean ± std per metric; non-significant deltas (≤ combined σ) are flagged.
+
+```bash
+# Default matrix: LLM-only vs RAG on the active model
+curl -X POST http://localhost:8080/api/ablation
+
+# Cumulative ablation with 3 repetitions for confidence
+curl -X POST http://localhost:8080/api/ablation -H 'Content-Type: application/json' -d '{
+  "runs": 3,
+  "arms": [
+    {"label": "vector-only", "useRag": true, "overrides": {"hybrid": false, "rerank": false}},
+    {"label": "+ hybrid",    "useRag": true, "overrides": {"hybrid": true,  "rerank": false}},
+    {"label": "+ rerank",    "useRag": true, "overrides": {"hybrid": true,  "rerank": true}}
+  ]
+}'
+```
+
+The annotated benchmark `highway_benchmark.jsonl` + aligned corpus `examples/highway/` activate the retrieval metrics out of the box (ingest the corpus, see `examples/README.md`).
+
+**Endpoint:** `POST /api/ablation` · **UI:** the **Optimization** screen (pedagogical option cards, presets, colored delta table with ±σ, cost/quality & marginal-gain charts, CSV export)
+
+---
+
 ### `BenchmarkService` — Performance Measurement
 
 Three built-in benchmarks to measure and compare configurations:
