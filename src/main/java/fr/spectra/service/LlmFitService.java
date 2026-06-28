@@ -15,6 +15,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -44,9 +45,12 @@ public class LlmFitService {
 
     private static final Logger log = LoggerFactory.getLogger(LlmFitService.class);
     private static final Pattern PROGRESS_PATTERN = Pattern.compile("(\\d+(\\.\\d+)?)%");
+    /** Extrait un chemin/fichier GGUF d'une ligne de log (tolère du texte avant/après). */
+    private static final Pattern GGUF_PATTERN = Pattern.compile("(\\S+\\.gguf)");
 
     private final ObjectMapper objectMapper;
     private final ModelRegistryService modelRegistryService;
+    private final LlmChatClient chatClient;
     private final Map<String, Sinks.Many<Integer>> progressSinks = new ConcurrentHashMap<>();
 
     @Value("${llmfit.path:llmfit}")
@@ -60,9 +64,11 @@ public class LlmFitService {
     @Value("${llmfit.models-dir:./data/models}")
     private String modelsDirPath;
 
-    public LlmFitService(ObjectMapper objectMapper, ModelRegistryService modelRegistryService) {
+    public LlmFitService(ObjectMapper objectMapper, ModelRegistryService modelRegistryService,
+                         LlmChatClient chatClient) {
         this.objectMapper = objectMapper;
         this.modelRegistryService = modelRegistryService;
+        this.chatClient = chatClient;
     }
 
     public LlmFitRecommendation getRecommendations(int limit, String memory, String ram, Integer cpuCores) {
@@ -100,8 +106,13 @@ public class LlmFitService {
     }
 
     public CompletableFuture<Boolean> installModel(String modelName, String quant, boolean autoActivate) {
-        Sinks.Many<Integer> sink = progressSinks.computeIfAbsent(modelName,
-                k -> Sinks.many().replay().latest());
+        // Sink neuf à chaque install (remplace un éventuel sink terminé d'un run précédent
+        // pour ce modèle). On le CONSERVE après complétion : le navigateur ne s'abonne au
+        // flux SSE qu'après le retour du POST, donc un téléchargement rapide ou en cache
+        // termine avant l'abonnement — `replay().latest()` rejoue alors l'état terminal
+        // (100 % + complete / erreur) à l'abonné tardif au lieu de laisser la barre bloquée.
+        Sinks.Many<Integer> sink = Sinks.many().replay().latest();
+        progressSinks.put(modelName, sink);
 
         return CompletableFuture.supplyAsync(() -> {
             try {
@@ -133,9 +144,15 @@ public class LlmFitService {
                             } catch (Exception ignored) {}
                         }
 
-                        if (line.contains("Downloaded") && line.contains(".gguf")) {
-                             int start = line.lastIndexOf(" ") + 1;
-                             downloadedFile = line.substring(start).trim();
+                        // Capture le chemin du GGUF produit. On déclenche sur les libellés
+                        // usuels (download/saved/complete) et on extrait le token *.gguf par
+                        // regex — robuste aux variations de formulation et au texte annexe.
+                        if (line.contains(".gguf")) {
+                            String lower = line.toLowerCase(Locale.ROOT);
+                            if (lower.contains("download") || lower.contains("saved") || lower.contains("complete")) {
+                                Matcher gm = GGUF_PATTERN.matcher(line);
+                                if (gm.find()) downloadedFile = gm.group(1);
+                            }
                         }
                     }
                 }
@@ -183,9 +200,21 @@ public class LlmFitService {
                         log.info("Modèle enregistré dans Spectra sous l'alias '{}' → {}", alias, registeredPath);
 
                         if (autoActivate) {
-                            modelRegistryService.setActiveChatModel(alias);
-                            log.info("Modèle '{}' activé automatiquement. Redémarrez llm-chat pour le charger.", alias);
+                            // Route via le chat client (et non le registre seul) pour aligner
+                            // l'activation sur le reste : registre + orchestrateur runtime
+                            // (hot-reload en mode embarqué) + modèle actif en mémoire + vérif.
+                            // En mode conteneur séparé, un redémarrage de llm-chat reste requis.
+                            chatClient.setActiveModel(alias);
+                            log.info("Modèle '{}' activé automatiquement (en mode conteneur séparé, "
+                                    + "redémarrez llm-chat pour le charger).", alias);
                         }
+                    } else {
+                        // Téléchargement réussi mais chemin GGUF non détecté dans la sortie llmfit :
+                        // le modèle n'a pu être ni copié dans le volume partagé ni enregistré.
+                        // On le signale explicitement plutôt que de laisser un faux succès silencieux.
+                        log.warn("Modèle '{}' téléchargé (exit 0) mais aucun chemin .gguf détecté dans la sortie "
+                                + "llmfit — enregistrement/activation ignorés. Vérifiez le format de sortie de llmfit "
+                                + "ou enregistrez le modèle manuellement.", modelName);
                     }
 
                     return true;
@@ -198,9 +227,10 @@ public class LlmFitService {
                 log.error("Erreur lors de l'installation du modèle " + modelName, e);
                 sink.tryEmitError(e);
                 return false;
-            } finally {
-                progressSinks.remove(modelName);
             }
+            // Le sink n'est volontairement pas retiré ici (cf. note à la création) :
+            // il est conservé pour rejouer l'état terminal aux abonnés tardifs et sera
+            // remplacé au prochain install du même modèle.
         });
     }
 }
