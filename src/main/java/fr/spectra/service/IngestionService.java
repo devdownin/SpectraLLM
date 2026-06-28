@@ -157,26 +157,46 @@ public class IngestionService {
             return taskId;
         }
 
+        // Record all items to check in bulk
+        List<Path> allTempFiles = new ArrayList<>();
+        List<String> allHashes = new ArrayList<>();
+        List<String> allFileNamesOrdered = new ArrayList<>();
+
         for (MultipartFile file : files) {
             String fileName = file.getOriginalFilename();
             Path tempFile = tempDir.resolve(UUID.randomUUID() + "_" + (fileName != null ? fileName : "unknown"));
             try {
                 String hash = copyAndHash(file.getInputStream(), tempFile);
 
-                if (!force && repository.existsById(hash)) {
-                    log.info("Fichier ignoré (déjà ingéré, sha256={}): {}", hash, fileName);
-                    Files.deleteIfExists(tempFile);
-                    continue;
-                }
-
-                tempFiles.add(tempFile);
-                tempFileToHash.put(tempFile, hash);
-                toProcessNames.add(fileName);
-
+                allTempFiles.add(tempFile);
+                allHashes.add(hash);
+                allFileNamesOrdered.add(fileName);
             } catch (Exception e) {
                 log.warn("Erreur préparation fichier {}: {}", fileName, e.getMessage());
                 try { Files.deleteIfExists(tempFile); } catch (Exception ignored) {}
             }
+        }
+
+        // Bulk check for existing files
+        Set<String> existingHashes = new java.util.HashSet<>();
+        if (!force && !allHashes.isEmpty()) {
+            repository.findAllById(allHashes).forEach(entity -> existingHashes.add(entity.getSha256()));
+        }
+
+        for (int i = 0; i < allTempFiles.size(); i++) {
+            Path tempFile = allTempFiles.get(i);
+            String hash = allHashes.get(i);
+            String fileName = allFileNamesOrdered.get(i);
+
+            if (!force && existingHashes.contains(hash)) {
+                log.info("Fichier ignoré (déjà ingéré, sha256={}): {}", hash, fileName);
+                try { Files.deleteIfExists(tempFile); } catch (Exception ignored) {}
+                continue;
+            }
+
+            tempFiles.add(tempFile);
+            tempFileToHash.put(tempFile, hash);
+            toProcessNames.add(fileName);
         }
 
         if (tempFiles.isEmpty()) {
