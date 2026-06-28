@@ -11,6 +11,7 @@ const Playground = lazy(() => import('./pages/Playground'));
 const Datasets = lazy(() => import('./pages/Datasets'));
 const FineTuning = lazy(() => import('./pages/FineTuning'));
 const Comparison = lazy(() => import('./pages/Comparison'));
+const Optimization = lazy(() => import('./pages/Optimization'));
 const Documentation = lazy(() => import('./pages/Documentation'));
 const Pipelines = lazy(() => import('./pages/Pipelines'));
 const ModelHub = lazy(() => import('./pages/ModelHub'));
@@ -47,6 +48,7 @@ function App() {
                 <Route path="/fine-tuning" element={<FineTuning />} />
                 <Route path="/playground" element={<Playground />} />
                 <Route path="/comparison" element={<Comparison />} />
+                <Route path="/optimization" element={<Optimization />} />
                 <Route path="/model-hub" element={<ModelHub />} />
                 <Route path="/documentation" element={<Documentation />} />
                 <Route path="*" element={<Navigate to="/" replace />} />

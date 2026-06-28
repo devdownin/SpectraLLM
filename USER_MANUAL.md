@@ -558,6 +558,10 @@ métriques par bras :
 
 Règle d'or : **un seul changement par bras**, pour lire le gain marginal (delta) de chaque enrichissement.
 
+> **Écran dédié** : tout cela est piloté sans `curl` depuis la page **Optimisation** de l'interface
+> (presets « Gain du RAG », « Ablation cumulative », « Leave-one-out », « Gain du fine-tuning »),
+> avec tableau de deltas couleur, validation des modules réellement déclenchés et légende pédagogique.
+
 ```bash
 # Matrice par défaut : LLM seul (sans RAG) vs RAG, sur le modèle actif → gain brut du RAG
 curl -X POST "http://localhost:8080/api/ablation"
@@ -572,6 +576,23 @@ curl -X POST "http://localhost:8080/api/ablation" -H "Content-Type: application/
   ]
 }'
 # → arms[].quality.avgScore, arms[].retrieval.hitRate, arms[].p50LatencyMs …
+```
+
+**Ablation module par module.** Chaque bras peut surcharger les modules d'optimisation RAG via
+`overrides` (tri-état : `true` force actif *si disponible*, `false` force inactif, absent = défaut de
+déploiement). On mesure ainsi l'apport marginal de chaque option (rerank, hybride, multi-query,
+corrective, compression, self-RAG, adaptive, conversational) en n'en changeant qu'une à la fois :
+
+```bash
+# Ablation cumulative : RAG nu, puis +hybride, puis +rerank…
+curl -X POST "http://localhost:8080/api/ablation" -H "Content-Type: application/json" -d '{
+  "arms": [
+    {"label": "rag nu",      "useRag": true, "overrides": {"hybrid": false, "rerank": false, "multiQuery": false, "corrective": false, "compression": false, "selfRag": false}},
+    {"label": "+ hybride",   "useRag": true, "overrides": {"hybrid": true,  "rerank": false, "multiQuery": false, "corrective": false, "compression": false, "selfRag": false}},
+    {"label": "+ rerank",    "useRag": true, "overrides": {"hybrid": true,  "rerank": true,  "multiQuery": false, "corrective": false, "compression": false, "selfRag": false}}
+  ]
+}'
+# Chaque bras renvoie aussi appliedCounts (nb de requêtes où chaque module a réellement agi).
 ```
 
 > **Métriques de retrieval** : `hitRate`/`mrr`/`recallAtK` ne sont calculées que pour les questions

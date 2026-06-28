@@ -37,6 +37,7 @@ const Sidebar: FC<SidebarProps> = ({ isCollapsed, onToggle, mobileOpen = false, 
     { name: 'Fine-Tuning',icon: 'history',         path: '/fine-tuning'  },
     { name: 'Playground', icon: 'chat_bubble',     path: '/playground'   },
     { name: 'Comparison', icon: 'compare_arrows',  path: '/comparison'   },
+    { name: 'Optimisation',icon: 'tune',           path: '/optimization' },
   ];
 
   return (

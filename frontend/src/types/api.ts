@@ -135,6 +135,72 @@ export interface EvaluationReport {
   completedAt: string | null;
 }
 
+// ── Ablation / optimisation des réponses ──────────────────────────────────────
+
+/** Surcharges tri-état des modules d'optimisation RAG (null = défaut de déploiement). */
+export interface RagOverrides {
+  adaptive?: boolean | null;
+  conversational?: boolean | null;
+  multiQuery?: boolean | null;
+  hybrid?: boolean | null;
+  rerank?: boolean | null;
+  corrective?: boolean | null;
+  compression?: boolean | null;
+  selfRag?: boolean | null;
+}
+
+export interface AblationArmConfig {
+  label: string;
+  model?: string | null;
+  useRag?: boolean;
+  overrides?: RagOverrides | null;
+}
+
+export interface AblationRequestBody {
+  arms: AblationArmConfig[];
+  maxContextChunks?: number;
+}
+
+export interface RetrievalMetrics {
+  evaluatedQuestions: number;
+  k: number;
+  hitRate: number;
+  mrr: number;
+  recallAtK: number;
+}
+
+export interface AblationQualityReport {
+  model: string;
+  total: number;
+  answerableCount: number;
+  unanswerableCount: number;
+  avgScore: number;
+  hallucinationRate: number;
+  refusalAccuracy: number;
+  scoresByCategory: Record<string, number>;
+  startedAt: string;
+  completedAt: string;
+}
+
+export interface AblationArmReport {
+  label: string;
+  model: string;
+  useRag: boolean;
+  overrides: RagOverrides | null;
+  quality: AblationQualityReport;
+  retrieval: RetrievalMetrics;
+  avgLatencyMs: number;
+  p50LatencyMs: number;
+  appliedCounts: Record<string, number>;
+}
+
+export interface AblationReport {
+  arms: AblationArmReport[];
+  benchmarkSize: number;
+  startedAt: string;
+  completedAt: string;
+}
+
 export type CommentType = 'HUMAN' | 'AI_GENERATED';
 export type CommentRating = 'NONE' | 'APPROVED' | 'REJECTED';
 

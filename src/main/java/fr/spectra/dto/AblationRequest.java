@@ -15,12 +15,14 @@ public record AblationRequest(
     /**
      * Un bras d'ablation : une configuration à mesurer.
      *
-     * @param label  nom lisible affiché dans le rapport (ex. « baseline », « + rag », « + fine-tuning »)
-     * @param model  modèle à utiliser ; {@code null}/vide = modèle actif (basculé temporairement
-     *               puis restauré pour comparer base vs fine-tuné)
-     * @param useRag {@code true} = pipeline RAG complet ; {@code false} = LLM seul (sans retrieval)
+     * @param label     nom lisible affiché dans le rapport (ex. « baseline », « + rerank », « + fine-tuning »)
+     * @param model     modèle à utiliser ; {@code null}/vide = modèle actif (basculé temporairement
+     *                  puis restauré pour comparer base vs fine-tuné)
+     * @param useRag    {@code true} = pipeline RAG complet ; {@code false} = LLM seul (sans retrieval)
+     * @param overrides surcharges des modules d'optimisation (rerank, hybride, multi-query…) ;
+     *                  {@code null} = configuration de déploiement par défaut
      */
-    public record Arm(String label, String model, Boolean useRag) {
+    public record Arm(String label, String model, Boolean useRag, RagOverrides overrides) {
         public Arm {
             if (useRag == null) useRag = true;
         }

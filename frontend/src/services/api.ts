@@ -240,6 +240,12 @@ export const metricsApi = {
   getPersonalization: () => api.get('/metrics/personalization'),
 };
 
+export const ablationApi = {
+  // Passage bloquant et lent (plusieurs appels LLM par question × bras) : timeout large.
+  run: (body?: import('../types/api').AblationRequestBody) =>
+    api.post('/ablation', body ?? {}, { timeout: 30 * 60 * 1000 }),
+};
+
 export const configApi = {
   getModelConfig: () => api.get('/config/model'),
   setModelConfig: (config: any) => api.post('/config/model', config),

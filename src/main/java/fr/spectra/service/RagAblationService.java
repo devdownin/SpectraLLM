@@ -17,8 +17,10 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -89,8 +91,8 @@ public class RagAblationService {
     /** Matrice par défaut : LLM seul vs RAG, sur le modèle actif. */
     private List<AblationRequest.Arm> defaultArms() {
         return List.of(
-                new AblationRequest.Arm("llm-seul (sans RAG)", null, false),
-                new AblationRequest.Arm("rag", null, true));
+                new AblationRequest.Arm("llm-seul (sans RAG)", null, false, null),
+                new AblationRequest.Arm("rag", null, true, null));
     }
 
     private AblationArmReport runArm(AblationRequest.Arm arm, List<JsonNode> entries,
@@ -108,6 +110,7 @@ public class RagAblationService {
             List<Long> latencies = new ArrayList<>();
             int retrievalEvaluated = 0;
             double hitSum = 0, rrSum = 0, recallSum = 0;
+            Map<String, Integer> applied = new LinkedHashMap<>();
 
             for (JsonNode entry : entries) {
                 String question   = entry.path("question").asText("");
@@ -120,7 +123,8 @@ public class RagAblationService {
                 try {
                     // Température 0 / top-p 1 : génération déterministe pour des deltas comparables.
                     resp = ragService.query(new QueryRequest(
-                            question, maxChunks, null, null, 0.0f, 1.0f, null, arm.useRag()));
+                            question, maxChunks, null, null, 0.0f, 1.0f, null, arm.useRag()),
+                            arm.overrides());
                 } catch (Exception e) {
                     log.warn("Ablation '{}' : échec requête « {} » : {}", arm.label(), question, e.getMessage());
                     items.add(new QualityBenchmarkItem(question, category, answerable, reference,
@@ -129,6 +133,7 @@ public class RagAblationService {
                 }
 
                 latencies.add(resp.durationMs());
+                tallyApplied(applied, resp);
                 items.add(qualityBenchmarkService.judgeAnswer(
                         question, category, answerable, reference, resp.answer()));
 
@@ -159,14 +164,28 @@ public class RagAblationService {
                     maxChunks, String.format(Locale.ROOT, "%.2f", retrieval.hitRate()),
                     String.format(Locale.ROOT, "%.0f", p50));
 
-            return new AblationArmReport(arm.label(), evaluatedModel, arm.useRag(),
-                    quality, retrieval, avgLatency, p50);
+            return new AblationArmReport(arm.label(), evaluatedModel, arm.useRag(), arm.overrides(),
+                    quality, retrieval, avgLatency, p50, applied);
         } finally {
             if (switched) {
                 chatClient.setActiveModel(previous);
                 log.info("Ablation '{}' : modèle actif restauré → {}", arm.label(), previous);
             }
         }
+    }
+
+    /** Incrémente les compteurs des modules effectivement déclenchés par cette réponse. */
+    private void tallyApplied(Map<String, Integer> applied, QueryResponse resp) {
+        if (resp.rerankApplied())         applied.merge("rerank", 1, Integer::sum);
+        if (resp.hybridSearchApplied())   applied.merge("hybrid", 1, Integer::sum);
+        if (resp.multiQueryApplied())     applied.merge("multiQuery", 1, Integer::sum);
+        if (resp.correctiveApplied())     applied.merge("corrective", 1, Integer::sum);
+        if (resp.compressionApplied())    applied.merge("compression", 1, Integer::sum);
+        if (resp.selfRagApplied())        applied.merge("selfRag", 1, Integer::sum);
+        if (resp.conversationalApplied()) applied.merge("conversational", 1, Integer::sum);
+        if (resp.agenticApplied())        applied.merge("agentic", 1, Integer::sum);
+        if (resp.semanticDedupApplied())  applied.merge("semanticDedup", 1, Integer::sum);
+        if (resp.longContextApplied())    applied.merge("longContext", 1, Integer::sum);
     }
 
     /** Issue du scoring de retrieval pour une question annotée. */
