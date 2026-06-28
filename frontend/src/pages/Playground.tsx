@@ -28,6 +28,7 @@ interface RagMeta {
   compressionApplied: boolean;
   semanticDedupApplied: boolean;
   longContextApplied: boolean;
+  agenticIterations?: number;
 }
 
 interface MessageMetrics {
@@ -54,7 +55,7 @@ const STRATEGY_COLORS: Record<string, string> = {
   AGENTIC:  'border-primary/40 text-primary bg-primary/5',
 };
 
-const RagBadges: FC<{ meta: RagMeta }> = ({ meta }) => {
+const RagBadges: FC<{ meta: RagMeta; onShowTrace?: () => void }> = ({ meta, onShowTrace }) => {
   const badges: { label: string; active: boolean; tooltip: string }[] = [
     { label: 'CONV',  active: meta.conversationalApplied, tooltip: 'Conversational RAG — question rephrased using conversation history' },
     { label: 'CORR',  active: meta.correctiveApplied,     tooltip: 'Corrective RAG — irrelevant chunks filtered out' },
@@ -71,19 +72,32 @@ const RagBadges: FC<{ meta: RagMeta }> = ({ meta }) => {
   if (activeBadges.length === 0 && meta.ragStrategy === 'STANDARD') return null;
 
   return (
-    <div className="mt-3 pt-3 border-t border-outline-variant/20 flex flex-wrap items-center gap-1.5">
-      <Tooltip content={`Strategy: ${meta.ragStrategy}`}>
-        <span className={`text-[8px] font-bold px-1.5 py-0.5 border uppercase tracking-wider cursor-help ${STRATEGY_COLORS[meta.ragStrategy] ?? STRATEGY_COLORS.STANDARD}`}>
-          {meta.ragStrategy}
-        </span>
-      </Tooltip>
-      {activeBadges.map(b => (
-        <Tooltip key={b.label} content={b.tooltip}>
-          <span className="text-[8px] font-bold px-1.5 py-0.5 border border-primary/30 text-primary bg-primary/5 uppercase tracking-wider cursor-help">
-            {b.label}
+    <div className="mt-3 pt-3 border-t border-outline-variant/20 flex flex-wrap items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Tooltip content={`Strategy: ${meta.ragStrategy}`}>
+          <span className={`text-[8px] font-bold px-1.5 py-0.5 border uppercase tracking-wider cursor-help ${STRATEGY_COLORS[meta.ragStrategy] ?? STRATEGY_COLORS.STANDARD}`}>
+            {meta.ragStrategy}
           </span>
         </Tooltip>
-      ))}
+        {activeBadges.map(b => (
+          <Tooltip key={b.label} content={b.tooltip}>
+            <span className="text-[8px] font-bold px-1.5 py-0.5 border border-primary/30 text-primary bg-primary/5 uppercase tracking-wider cursor-help">
+              {b.label}
+            </span>
+          </Tooltip>
+        ))}
+      </div>
+      {onShowTrace && (
+        <button
+          type="button"
+          onClick={onShowTrace}
+          className="flex items-center gap-1 text-[9px] uppercase tracking-widest text-outline hover:text-primary transition-colors px-1.5 py-0.5"
+          aria-label="View algorithm trace details"
+        >
+          <span className="material-symbols-outlined text-[13px]">insights</span>
+          Trace
+        </button>
+      )}
     </div>
   );
 };
@@ -143,6 +157,7 @@ const SourceItem: FC<{ src: Source }> = ({ src }) => {
 
 const Playground: FC = () => {
   const defaultWelcome: Message = { role: 'assistant', content: 'Welcome to the Spectra Playground. I am ready to answer questions based on your ingested documents. How can I help you today?', status: 'SENT' };
+  const [traceMsg, setTraceMsg] = useState<Message | null>(null);
   const [messages, setMessages] = useState<Message[]>(() => {
     const saved = localStorage.getItem('spectra_chat_history');
     if (!saved) return [defaultWelcome];
@@ -798,7 +813,7 @@ const Playground: FC = () => {
                 )}
 
                 {msg.ragMeta && msg.status === 'SENT' && msg.role === 'assistant' && (
-                  <RagBadges meta={msg.ragMeta} />
+                  <RagBadges meta={msg.ragMeta} onShowTrace={() => setTraceMsg(msg)} />
                 )}
 
                 {/* Pied de bulle : métriques + feedback (toujours) + copy/regenerate (survol) */}
@@ -961,6 +976,109 @@ const Playground: FC = () => {
         </div>
       </div>
       <RagAdvisor open={advisorOpen} onClose={() => setAdvisorOpen(false)} />
+      {traceMsg && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-surface-container border border-outline-variant/30 shadow-2xl w-full max-w-4xl max-h-full flex flex-col rounded-xl overflow-hidden animate-in zoom-in-95 duration-300">
+            <header className="px-6 py-4 border-b border-outline-variant/10 flex items-center justify-between bg-surface-container-high shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-primary/20 text-primary flex items-center justify-center">
+                  <span className="material-symbols-outlined text-sm">insights</span>
+                </div>
+                <div>
+                  <h2 className="font-headline font-bold text-lg text-on-surface">Algorithm Trace</h2>
+                  <p className="text-[10px] uppercase tracking-widest text-on-surface-variant">Execution details for the selected response</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setTraceMsg(null)}
+                className="w-8 h-8 flex items-center justify-center text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest transition-colors rounded-full"
+                aria-label="Close trace panel"
+              >
+                <span className="material-symbols-outlined text-sm">close</span>
+              </button>
+            </header>
+
+            <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
+              <div className="space-y-3">
+                <h3 className="font-headline font-bold text-sm text-primary uppercase tracking-widest flex items-center gap-2">
+                  <span className="material-symbols-outlined text-base">route</span>
+                  Strategy Applied
+                </h3>
+                <div className="bg-surface-container-low border border-outline-variant/10 rounded-lg p-4">
+                  <div className="flex flex-col md:flex-row gap-6 md:items-center justify-between">
+                    <div>
+                       <p className="text-xl font-headline font-bold text-on-surface">{traceMsg.ragMeta?.ragStrategy}</p>
+                       <p className="text-xs text-on-surface-variant mt-1">
+                         {traceMsg.ragMeta?.ragStrategy === 'AGENTIC' ? "The LLM actively reasoned and queried the index in a loop to answer the question." :
+                          traceMsg.ragMeta?.ragStrategy === 'STANDARD' ? "Standard retrieve-and-generate pipeline." :
+                          "The question bypassed the index."}
+                       </p>
+                    </div>
+                    {traceMsg.ragMeta?.ragStrategy === 'AGENTIC' && traceMsg.ragMeta?.agenticIterations && (
+                      <div className="text-right">
+                        <p className="text-2xl font-mono text-primary">{traceMsg.ragMeta?.agenticIterations}</p>
+                        <p className="text-[10px] uppercase tracking-widest text-on-surface-variant mt-1">Iterations</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <h3 className="font-headline font-bold text-sm text-secondary uppercase tracking-widest flex items-center gap-2">
+                  <span className="material-symbols-outlined text-base">filter_alt</span>
+                  Optimizations Triggered
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                   {[
+                      { active: traceMsg.ragMeta?.hybridSearchApplied, label: 'Hybrid Search', desc: 'Merged BM25 (exact text) + ChromaDB (semantic vectors) via Reciprocal Rank Fusion.' },
+                      { active: traceMsg.ragMeta?.rerankApplied, label: 'Cross-Encoder', desc: 'Candidates rescored jointly with the query by a Cross-Encoder for higher accuracy.' },
+                      { active: traceMsg.ragMeta?.multiQueryApplied, label: 'Multi-Query', desc: 'LLM generated query variations to broaden the search net.' },
+                      { active: traceMsg.ragMeta?.compressionApplied, label: 'Context Compression', desc: 'Extracted only the relevant sentences from large chunks.' },
+                      { active: traceMsg.ragMeta?.semanticDedupApplied, label: 'Semantic Dedup', desc: 'Filtered out near-duplicate chunks via Jaccard similarity.' },
+                      { active: traceMsg.ragMeta?.correctiveApplied, label: 'Corrective RAG', desc: 'LLM graded retrieved chunks and discarded irrelevant ones.' },
+                   ].map(opt => (
+                     <div key={opt.label} className={`p-4 rounded-lg border ${opt.active ? 'bg-secondary/10 border-secondary/30' : 'bg-surface-container-low border-outline-variant/10 opacity-50'}`}>
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className={`material-symbols-outlined text-sm ${opt.active ? 'text-secondary' : 'text-on-surface-variant'}`}>
+                            {opt.active ? 'check_circle' : 'cancel'}
+                          </span>
+                          <span className={`font-bold text-xs ${opt.active ? 'text-secondary' : 'text-on-surface-variant'}`}>{opt.label}</span>
+                        </div>
+                        <p className="text-[10px] text-on-surface-variant leading-relaxed">{opt.desc}</p>
+                     </div>
+                   ))}
+                </div>
+              </div>
+
+              {traceMsg.sources && traceMsg.sources.length > 0 && (
+                <div className="space-y-3">
+                  <h3 className="font-headline font-bold text-sm text-primary uppercase tracking-widest flex items-center gap-2">
+                    <span className="material-symbols-outlined text-base">format_list_numbered</span>
+                    Final Context Rendered to LLM
+                  </h3>
+                  <div className="space-y-2">
+                     {traceMsg.sources.map((src, i) => {
+                       const pct = typeof src.distance === 'number' ? Math.max(0, Math.min(100, Math.round((1 - src.distance) * 100))) : null;
+                       return (
+                        <div key={i} className="bg-surface-container-low border border-outline-variant/10 p-3 rounded text-xs space-y-1">
+                           <div className="flex items-center justify-between">
+                             <span className="font-bold text-on-surface break-all">{src.sourceFile}</span>
+                             {pct !== null && (
+                               <span className="text-[10px] bg-primary/20 text-primary px-1.5 rounded">{pct}% relevance</span>
+                             )}
+                           </div>
+                           <p className="text-on-surface-variant line-clamp-2" title={src.text || src.preview}>{src.text || src.preview}</p>
+                        </div>
+                       );
+                     })}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

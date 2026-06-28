@@ -409,8 +409,11 @@ const Optimization: FC = () => {
                 <tr className="bg-surface-container-low text-on-surface-variant">
                   <th className="text-left font-label text-[10px] uppercase tracking-widest px-3 py-2">Bras</th>
                   {METRICS.map(m => (
-                    <th key={m.key} className="text-right font-label text-[10px] uppercase tracking-widest px-3 py-2" title={m.help}>
-                      {m.label}
+                    <th key={m.key} className="text-right font-label text-[10px] uppercase tracking-widest px-3 py-2 relative group">
+                      <span className="cursor-help border-b border-dotted border-on-surface-variant/50">{m.label}</span>
+                      <div className="absolute bottom-full right-0 mb-2 hidden group-hover:block w-48 p-2 bg-surface-container-high border border-outline-variant/30 shadow-lg text-[10px] text-on-surface normal-case tracking-normal rounded z-10 font-sans text-left">
+                        {m.help}
+                      </div>
                     </th>
                   ))}
                 </tr>

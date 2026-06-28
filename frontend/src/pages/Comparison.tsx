@@ -59,6 +59,8 @@ function ScoreDetail({ score }: { score: EvaluationScore }) {
       <button
         onClick={() => setOpen(o => !o)}
         className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-surface-container-high/40 transition-colors"
+        aria-expanded={open}
+        aria-label={`Toggle details for score ${score.score.toFixed(0)} out of 10 in category ${CATEGORY_LABEL[score.category] ?? score.category}`}
       >
         <span className="font-headline text-xs font-bold w-8 shrink-0"
               style={{ color: score.score >= 7 ? 'var(--color-primary)' : score.score >= 4 ? 'var(--color-secondary)' : 'var(--color-error)' }}>
@@ -72,15 +74,17 @@ function ScoreDetail({ score }: { score: EvaluationScore }) {
       </button>
       {open && (
         <div className="px-4 pb-4 space-y-3 bg-surface-container-low/20">
-          <div>
-            <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-1">Reference answer</p>
-            <p className="text-xs text-on-surface-variant leading-relaxed">{score.referenceAnswer}</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-surface-container-low p-3 rounded border border-outline-variant/10">
+              <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-2">Reference answer</p>
+              <p className="text-xs text-on-surface-variant leading-relaxed">{score.referenceAnswer}</p>
+            </div>
+            <div className={`p-3 rounded border ${score.score >= 7 ? 'bg-primary/5 border-primary/20' : score.score >= 4 ? 'bg-secondary/5 border-secondary/20' : 'bg-error/5 border-error/20'}`}>
+              <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-2">Model answer</p>
+              <p className="text-xs text-on-surface leading-relaxed">{score.modelAnswer}</p>
+            </div>
           </div>
-          <div>
-            <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-1">Model answer</p>
-            <p className="text-xs text-on-surface leading-relaxed">{score.modelAnswer}</p>
-          </div>
-          <div>
+          <div className="bg-surface-container-low p-3 rounded border border-outline-variant/10 mt-3">
             <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-1">Judge justification</p>
             <p className="text-xs italic text-on-surface-variant">{score.justification}</p>
           </div>
@@ -108,6 +112,8 @@ const Comparison: FC = () => {
     },
   });
 
+  const [searchTerm, setSearchTerm] = useState('');
+
   // Synchronise la sélection quand la liste change (préserve le rapport choisi).
   useEffect(() => {
     setSelected(prev =>
@@ -120,14 +126,27 @@ const Comparison: FC = () => {
     try {
       await evaluationApi.submit();
       await queryClient.invalidateQueries({ queryKey: ['evaluation-reports'] });
-    } catch {
-      // ignore
+    } catch (err) {
+      alert("Failed to start a new evaluation. Make sure the backend is reachable.");
     } finally {
       setIsTriggering(false);
     }
   };
 
   const categories = selected ? Object.entries(selected.scoresByCategory) : [];
+
+  const filteredReports = reports.filter(r => r.modelName.toLowerCase().includes(searchTerm.toLowerCase()));
+
+  const handleExportSelected = () => {
+    if (!selected) return;
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(selected, null, 2));
+    const downloadAnchorNode = document.createElement('a');
+    downloadAnchorNode.setAttribute("href", dataStr);
+    downloadAnchorNode.setAttribute("download", `evaluation_${selected.modelName}_${selected.evalId}.json`);
+    document.body.appendChild(downloadAnchorNode);
+    downloadAnchorNode.click();
+    downloadAnchorNode.remove();
+  };
 
   return (
     <div className="space-y-8 animate-in fade-in duration-700">
@@ -144,6 +163,7 @@ const Comparison: FC = () => {
           disabled={isTriggering}
           className="px-4 py-2 bg-primary text-on-primary font-label text-[11px] uppercase tracking-widest
                      hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+          aria-label="Launch a new model evaluation"
         >
           {isTriggering ? 'Launching...' : '+ New evaluation'}
         </button>
@@ -166,13 +186,25 @@ const Comparison: FC = () => {
         <div className="grid grid-cols-[260px_1fr] gap-6 items-start">
           {/* Evaluation list */}
           <div className="bg-surface-container divide-y divide-outline-variant/10">
-            <p className="px-4 py-3 font-label text-[10px] uppercase tracking-widest text-on-surface-variant bg-surface-container-high">History</p>
-            {reports.map(r => (
+            <div className="px-4 py-3 bg-surface-container-high flex flex-col gap-2">
+               <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">History</p>
+               <input
+                 type="text"
+                 placeholder="Filter by model..."
+                 value={searchTerm}
+                 onChange={e => setSearchTerm(e.target.value)}
+                 className="bg-surface-container-low text-xs text-on-surface px-2 py-1 outline-none border border-outline-variant/20 focus:border-primary/50"
+                 aria-label="Filter evaluation history by model name"
+               />
+            </div>
+            {filteredReports.map(r => (
               <button
                 key={r.evalId}
                 onClick={() => setSelected(r)}
                 className={`w-full text-left px-4 py-3 transition-colors hover:bg-surface-container-high/60
                   ${selected?.evalId === r.evalId ? 'bg-surface-container-high' : ''}`}
+                aria-label={`Select report for model ${r.modelName} completed at ${new Date(r.startedAt).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' })}`}
+                aria-current={selected?.evalId === r.evalId ? 'true' : 'false'}
               >
                 <div className="flex items-center justify-between mb-0.5">
                   <span className="font-headline font-bold text-xs truncate pr-2">{r.modelName}</span>
@@ -181,7 +213,7 @@ const Comparison: FC = () => {
                   </span>
                 </div>
                 <p className="font-label text-[9px] text-on-surface-variant">
-                  {new Date(r.startedAt).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}
+                  {new Date(r.startedAt).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' })}
                 </p>
                 {r.status === 'COMPLETED' && (
                   <p className="font-headline text-sm font-bold mt-1">
@@ -205,16 +237,27 @@ const Comparison: FC = () => {
                     <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Evaluated model</p>
                     <p className="font-headline font-bold text-lg">{selected.modelName}</p>
                   </div>
-                  <span className={`font-label text-[11px] uppercase tracking-widest px-3 py-1 border ${STATUS_COLOR[selected.status]}
-                    ${selected.status === 'COMPLETED' ? 'border-primary/30' : 'border-outline-variant/30'}`}>
-                    {STATUS_LABEL[selected.status]}
-                  </span>
+                  <div className="flex items-center gap-3">
+                    {selected.status === 'COMPLETED' && (
+                      <button
+                        onClick={handleExportSelected}
+                        className="px-3 py-1 text-[11px] font-label uppercase tracking-widest border border-outline-variant/30 text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors"
+                        aria-label="Export report as JSON"
+                      >
+                        Export JSON
+                      </button>
+                    )}
+                    <span className={`font-label text-[11px] uppercase tracking-widest px-3 py-1 border ${STATUS_COLOR[selected.status]}
+                      ${selected.status === 'COMPLETED' ? 'border-primary/30' : 'border-outline-variant/30'}`}>
+                      {STATUS_LABEL[selected.status]}
+                    </span>
+                  </div>
                 </div>
 
                 {(selected.status === 'RUNNING' || selected.status === 'PENDING') && (
                   <div>
                     <div className="flex items-center justify-between mb-1">
-                      <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Progression</p>
+                      <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Progress</p>
                       <span className="flex items-center gap-1 text-[9px] font-label uppercase tracking-widest text-secondary">
                         <span className="w-1.5 h-1.5 bg-secondary rounded-full animate-pulse inline-block" />
                         {selected.status === 'PENDING' ? 'Pending…' : 'Running'}
@@ -234,7 +277,7 @@ const Comparison: FC = () => {
                     </div>
                     {selected.testSetSize > 0 && (
                       <p className="font-label text-[9px] text-on-surface-variant mt-0.5 text-right">
-                        {selected.processed} / {selected.testSetSize} paires
+                        {selected.processed} / {selected.testSetSize} pairs
                       </p>
                     )}
                   </div>
@@ -247,12 +290,12 @@ const Comparison: FC = () => {
                 {(selected.status === 'COMPLETED' || selected.status === 'RUNNING') && selected.processed > 0 && (
                   <>
                     <div>
-                      <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">Score global</p>
+                      <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">Global score</p>
                       <div className="flex items-baseline gap-2">
                         <span className="font-headline text-4xl font-bold">{selected.averageScore.toFixed(2)}</span>
                         <span className="text-on-surface-variant">/10</span>
                         <span className="font-label text-[10px] text-on-surface-variant ml-2">
-                          sur {selected.processed} paire{selected.processed > 1 ? 's' : ''}
+                          on {selected.processed} pair{selected.processed > 1 ? 's' : ''}
                         </span>
                       </div>
                     </div>
@@ -290,8 +333,8 @@ const Comparison: FC = () => {
               {/* Per-pair details */}
               {selected.scores.length > 0 && (
                 <div className="bg-surface-container">
-                  <p className="px-4 py-3 font-label text-[10px] uppercase tracking-widest text-on-surface-variant bg-surface-container-high border-b border-outline-variant/10">
-                    Détail des paires ({selected.scores.length})
+                  <p className="px-4 py-3 font-label text-[10px] uppercase tracking-widest text-on-surface-variant bg-surface-container-high border-b border-outline-variant/10 flex items-center justify-between">
+                    <span>Pair details ({selected.scores.length})</span>
                   </p>
                   {selected.scores.map((s, i) => (
                     <ScoreDetail key={i} score={s} />
