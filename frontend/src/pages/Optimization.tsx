@@ -130,6 +130,53 @@ function fmtDelta(metric: MetricDef, base: AblationArmReport, arm: AblationArmRe
   return `${sign}${d.toFixed(2)}`;
 }
 
+// ── Export CSV ────────────────────────────────────────────────────────────────
+
+/** Échappe un champ CSV (séparateur virgule, décimales point — lisible tableur). */
+function csvCell(v: string | number): string {
+  const s = String(v);
+  return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+function buildCsv(report: AblationReport): string {
+  const headers = [
+    'bras', 'modele', 'rag',
+    'exactitude_sur_10', 'hallucination_taux', 'abstention_juste_taux',
+    'hit_at_k', 'mrr', 'recall_at_k', 'retrieval_questions_evaluees',
+    'latence_p50_ms', 'latence_moyenne_ms', 'modules_declenches',
+  ];
+  const num = (n: number, d = 4) => Number(n.toFixed(d));
+  const rows = report.arms.map(a => {
+    const hasRetrieval = a.retrieval.evaluatedQuestions > 0;
+    const modules = Object.entries(a.appliedCounts || {})
+      .map(([k, n]) => `${MODULE_NAME[k] ?? k} x${n}`).join('; ');
+    return [
+      a.label, a.model, a.useRag ? 'oui' : 'non',
+      num(a.quality.avgScore, 2), num(a.quality.hallucinationRate), num(a.quality.refusalAccuracy),
+      hasRetrieval ? num(a.retrieval.hitRate) : '',
+      hasRetrieval ? num(a.retrieval.mrr) : '',
+      hasRetrieval ? num(a.retrieval.recallAtK) : '',
+      a.retrieval.evaluatedQuestions,
+      Math.round(a.p50LatencyMs), Math.round(a.avgLatencyMs), modules,
+    ].map(csvCell).join(',');
+  });
+  // BOM pour qu'Excel lise l'UTF-8 (accents) correctement.
+  return '﻿' + [headers.join(','), ...rows].join('\r\n') + '\r\n';
+}
+
+function downloadCsv(report: AblationReport): void {
+  const blob = new Blob([buildCsv(report)], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+  a.href = url;
+  a.download = `ablation-${stamp}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 const Optimization: FC = () => {
   const [preset, setPreset] = useState<PresetKey>('rag');
   const [models, setModels] = useState<string[]>([]);
@@ -303,6 +350,12 @@ const Optimization: FC = () => {
             <h3 className="font-headline text-xs uppercase tracking-widest text-on-surface-variant">
               Résultats · {report.benchmarkSize} questions · deltas vs « {baseArm.label} »
             </h3>
+            <button
+              onClick={() => downloadCsv(report)}
+              className="px-3 py-1.5 border border-outline-variant/30 text-on-surface-variant font-headline text-[10px] uppercase tracking-widest hover:border-primary hover:text-on-surface transition-colors"
+            >
+              Exporter CSV
+            </button>
           </div>
 
           {noRetrieval && (
