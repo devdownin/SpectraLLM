@@ -595,6 +595,12 @@ curl -X POST "http://localhost:8080/api/ablation" -H "Content-Type: application/
 # Chaque bras renvoie aussi appliedCounts (nb de requêtes où chaque module a réellement agi).
 ```
 
+**Fiabiliser les deltas (`runs`).** Sur un petit benchmark, un écart de +0.3/10 peut être du bruit.
+Passez `"runs": 3` (1–10) pour répéter chaque bras : les champs scalaires deviennent des **moyennes**,
+`stdDev` donne l'**écart-type** par métrique, et l'écran grise les deltas **non significatifs** (≤ σ combiné).
+Chaque bras renvoie aussi `avgContextTokens` — un **coût en tokens déterministe** (contrairement à la
+latence, bruitée sur matériel partagé) à mettre en regard du gain de qualité.
+
 > **Métriques de retrieval** : `hitRate`/`mrr`/`recallAtK` ne sont calculées que pour les questions
 > du benchmark annotées d'un champ `expectedSources` — la liste des fichiers sources attendus (un
 > match = `sourceFile` contient le libellé, insensible à la casse). Le benchmark fourni

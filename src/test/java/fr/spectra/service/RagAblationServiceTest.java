@@ -105,4 +105,29 @@ class RagAblationServiceTest {
         RagAblationService svc = newService();
         assertThat(svc.percentile(List.of(), 50)).isZero();
     }
+
+    // ── Statistiques (confiance) ────────────────────────────────────────────────
+
+    @Test
+    void mean_averagesValues() {
+        assertThat(RagAblationService.mean(List.of(2.0, 4.0, 6.0))).isEqualTo(4.0);
+        assertThat(RagAblationService.mean(List.of())).isZero();
+    }
+
+    @Test
+    void std_singleRun_isZero() {
+        // Une seule répétition : pas d'estimation de bruit possible.
+        assertThat(RagAblationService.std(List.of(7.0))).isZero();
+    }
+
+    @Test
+    void std_sampleStandardDeviation_usesNMinusOne() {
+        // {2,4,6} : moyenne 4, variance échantillon = (4+0+4)/2 = 4, σ = 2.
+        assertThat(RagAblationService.std(List.of(2.0, 4.0, 6.0))).isEqualTo(2.0);
+    }
+
+    @Test
+    void std_identicalValues_isZero() {
+        assertThat(RagAblationService.std(List.of(5.0, 5.0, 5.0))).isZero();
+    }
 }

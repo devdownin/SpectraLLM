@@ -10,7 +10,9 @@ import java.util.List;
  */
 public record AblationRequest(
         List<Arm> arms,
-        Integer maxContextChunks
+        Integer maxContextChunks,
+        /** Nombre de répétitions par bras pour estimer la dispersion (moyenne ± écart-type). Défaut 1. */
+        Integer runs
 ) {
     /**
      * Un bras d'ablation : une configuration à mesurer.

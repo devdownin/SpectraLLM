@@ -159,6 +159,7 @@ export interface AblationArmConfig {
 export interface AblationRequestBody {
   arms: AblationArmConfig[];
   maxContextChunks?: number;
+  runs?: number;
 }
 
 export interface RetrievalMetrics {
@@ -191,6 +192,9 @@ export interface AblationArmReport {
   retrieval: RetrievalMetrics;
   avgLatencyMs: number;
   p50LatencyMs: number;
+  avgContextTokens: number;
+  runs: number;
+  stdDev: Record<string, number>;
   appliedCounts: Record<string, number>;
 }
 

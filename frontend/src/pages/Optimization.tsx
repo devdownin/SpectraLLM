@@ -3,6 +3,7 @@ import type { FC } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ablationApi, fineTuningApi } from '../services/api';
+import AblationCharts from '../components/charts/AblationCharts';
 import type {
   AblationArmConfig,
   AblationArmReport,
@@ -52,18 +53,48 @@ interface MetricDef {
   higherIsBetter: boolean;
   format: (arm: AblationArmReport) => string;
   value: (arm: AblationArmReport) => number;
-  pct?: boolean; // delta exprimé en points de %
+  pct?: boolean;      // delta exprimé en points de %
+  stdKey?: string;    // clé dans arm.stdDev pour l'écart-type
+  retrieval?: boolean; // métrique de retrieval (delta masqué si non évaluée)
 }
 
 const METRICS: MetricDef[] = [
-  { key: 'avgScore', label: 'Exactitude /10', help: 'Note moyenne d’exactitude attribuée par le LLM-juge sur les questions répondables.', higherIsBetter: true, value: a => a.quality.avgScore, format: a => a.quality.avgScore.toFixed(2) },
-  { key: 'halluc', label: 'Hallucination', help: 'Part des questions SANS réponse dans le corpus où le modèle a tout de même inventé une réponse (plus bas = mieux).', higherIsBetter: false, pct: true, value: a => a.quality.hallucinationRate, format: a => `${(a.quality.hallucinationRate * 100).toFixed(0)}%` },
-  { key: 'refusal', label: 'Abstention juste', help: 'Part des questions sans réponse correctement refusées (« je ne sais pas »).', higherIsBetter: true, pct: true, value: a => a.quality.refusalAccuracy, format: a => `${(a.quality.refusalAccuracy * 100).toFixed(0)}%` },
-  { key: 'hit', label: 'Hit@k', help: 'Retrieval : part des questions dont une source attendue figure dans le top-k (nécessite expectedSources dans le benchmark).', higherIsBetter: true, value: a => a.retrieval.hitRate, format: a => a.retrieval.evaluatedQuestions ? a.retrieval.hitRate.toFixed(2) : '—' },
-  { key: 'mrr', label: 'MRR', help: 'Retrieval : moyenne de 1/rang de la première source pertinente.', higherIsBetter: true, value: a => a.retrieval.mrr, format: a => a.retrieval.evaluatedQuestions ? a.retrieval.mrr.toFixed(2) : '—' },
-  { key: 'recall', label: 'Recall@k', help: 'Retrieval : part moyenne des sources attendues retrouvées dans le top-k.', higherIsBetter: true, value: a => a.retrieval.recallAtK, format: a => a.retrieval.evaluatedQuestions ? a.retrieval.recallAtK.toFixed(2) : '—' },
-  { key: 'p50', label: 'Latence p50', help: 'Coût : latence médiane bout en bout d’une requête (ms). Toujours à mettre en regard du gain qualité.', higherIsBetter: false, value: a => a.p50LatencyMs, format: a => `${Math.round(a.p50LatencyMs)}ms` },
+  { key: 'avgScore', label: 'Exactitude /10', stdKey: 'avgScore', help: 'Note moyenne d’exactitude attribuée par le LLM-juge sur les questions répondables.', higherIsBetter: true, value: a => a.quality.avgScore, format: a => a.quality.avgScore.toFixed(2) },
+  { key: 'halluc', label: 'Hallucination', stdKey: 'hallucinationRate', help: 'Part des questions SANS réponse dans le corpus où le modèle a tout de même inventé une réponse (plus bas = mieux).', higherIsBetter: false, pct: true, value: a => a.quality.hallucinationRate, format: a => `${(a.quality.hallucinationRate * 100).toFixed(0)}%` },
+  { key: 'refusal', label: 'Abstention juste', stdKey: 'refusalAccuracy', help: 'Part des questions sans réponse correctement refusées (« je ne sais pas »).', higherIsBetter: true, pct: true, value: a => a.quality.refusalAccuracy, format: a => `${(a.quality.refusalAccuracy * 100).toFixed(0)}%` },
+  { key: 'hit', label: 'Hit@k', stdKey: 'hitRate', retrieval: true, help: 'Retrieval : part des questions dont une source attendue figure dans le top-k (nécessite expectedSources dans le benchmark).', higherIsBetter: true, value: a => a.retrieval.hitRate, format: a => a.retrieval.evaluatedQuestions ? a.retrieval.hitRate.toFixed(2) : '—' },
+  { key: 'mrr', label: 'MRR', stdKey: 'mrr', retrieval: true, help: 'Retrieval : moyenne de 1/rang de la première source pertinente.', higherIsBetter: true, value: a => a.retrieval.mrr, format: a => a.retrieval.evaluatedQuestions ? a.retrieval.mrr.toFixed(2) : '—' },
+  { key: 'recall', label: 'Recall@k', stdKey: 'recallAtK', retrieval: true, help: 'Retrieval : part moyenne des sources attendues retrouvées dans le top-k.', higherIsBetter: true, value: a => a.retrieval.recallAtK, format: a => a.retrieval.evaluatedQuestions ? a.retrieval.recallAtK.toFixed(2) : '—' },
+  { key: 'tokens', label: 'Tokens contexte', stdKey: 'avgContextTokens', help: 'Coût déterministe : nombre moyen de tokens de contexte injectés dans le LLM (estimé). Plus bas = moins cher, contrairement à la latence (bruitée).', higherIsBetter: false, value: a => a.avgContextTokens, format: a => Math.round(a.avgContextTokens).toString() },
+  { key: 'p50', label: 'Latence p50', stdKey: 'p50LatencyMs', help: 'Coût : latence médiane bout en bout d’une requête (ms). Bruitée sur matériel partagé → à recouper avec les tokens.', higherIsBetter: false, value: a => a.p50LatencyMs, format: a => `${Math.round(a.p50LatencyMs)}ms` },
 ];
+
+// ── Statistiques d'affichage ──────────────────────────────────────────────────
+
+/** Écart-type de la métrique pour un bras (0 si indisponible). */
+function metricStd(metric: MetricDef, arm: AblationArmReport): number {
+  return (metric.stdKey && arm.stdDev?.[metric.stdKey]) || 0;
+}
+
+/** ±σ formaté pour affichage sous la valeur (unité cohérente avec la métrique). */
+function fmtStd(metric: MetricDef, arm: AblationArmReport): string {
+  const s = metricStd(metric, arm);
+  if (s <= 1e-9) return '';
+  if (metric.pct) return `±${(s * 100).toFixed(1)}`;
+  if (metric.key === 'p50' || metric.key === 'tokens') return `±${Math.round(s)}`;
+  return `±${s.toFixed(2)}`;
+}
+
+/**
+ * Un delta est « significatif » s'il dépasse le bruit combiné des deux bras
+ * (√(σ_arm² + σ_base²)). Avec une seule répétition (σ=0) on ne peut pas trancher → on
+ * considère le delta comme affichable normalement (non grisé).
+ */
+function isSignificant(metric: MetricDef, base: AblationArmReport, arm: AblationArmReport): boolean {
+  const combined = Math.hypot(metricStd(metric, base), metricStd(metric, arm));
+  if (combined <= 1e-9) return true;
+  return Math.abs(metric.value(arm) - metric.value(base)) > combined;
+}
 
 // ── Construction des bras (presets) ───────────────────────────────────────────
 
@@ -119,14 +150,13 @@ function deltaColor(delta: number, higherIsBetter: boolean): string {
 }
 
 function fmtDelta(metric: MetricDef, base: AblationArmReport, arm: AblationArmReport): string {
-  if (metric.key === 'hit' || metric.key === 'mrr' || metric.key === 'recall') {
-    if (!base.retrieval.evaluatedQuestions || !arm.retrieval.evaluatedQuestions) return '';
-  }
+  if (metric.retrieval && (!base.retrieval.evaluatedQuestions || !arm.retrieval.evaluatedQuestions)) return '';
   const d = metric.value(arm) - metric.value(base);
   if (Math.abs(d) < 1e-9) return '±0';
   const sign = d > 0 ? '+' : '';
   if (metric.pct) return `${sign}${(d * 100).toFixed(0)} pts`;
   if (metric.key === 'p50') return `${sign}${Math.round(d)}ms`;
+  if (metric.key === 'tokens') return `${sign}${Math.round(d)}`;
   return `${sign}${d.toFixed(2)}`;
 }
 
@@ -140,10 +170,10 @@ function csvCell(v: string | number): string {
 
 function buildCsv(report: AblationReport): string {
   const headers = [
-    'bras', 'modele', 'rag',
-    'exactitude_sur_10', 'hallucination_taux', 'abstention_juste_taux',
+    'bras', 'modele', 'rag', 'runs',
+    'exactitude_sur_10', 'exactitude_std', 'hallucination_taux', 'abstention_juste_taux',
     'hit_at_k', 'mrr', 'recall_at_k', 'retrieval_questions_evaluees',
-    'latence_p50_ms', 'latence_moyenne_ms', 'modules_declenches',
+    'tokens_contexte', 'latence_p50_ms', 'latence_moyenne_ms', 'modules_declenches',
   ];
   const num = (n: number, d = 4) => Number(n.toFixed(d));
   const rows = report.arms.map(a => {
@@ -151,13 +181,14 @@ function buildCsv(report: AblationReport): string {
     const modules = Object.entries(a.appliedCounts || {})
       .map(([k, n]) => `${MODULE_NAME[k] ?? k} x${n}`).join('; ');
     return [
-      a.label, a.model, a.useRag ? 'oui' : 'non',
-      num(a.quality.avgScore, 2), num(a.quality.hallucinationRate), num(a.quality.refusalAccuracy),
+      a.label, a.model, a.useRag ? 'oui' : 'non', a.runs ?? 1,
+      num(a.quality.avgScore, 2), num(a.stdDev?.avgScore ?? 0, 3),
+      num(a.quality.hallucinationRate), num(a.quality.refusalAccuracy),
       hasRetrieval ? num(a.retrieval.hitRate) : '',
       hasRetrieval ? num(a.retrieval.mrr) : '',
       hasRetrieval ? num(a.retrieval.recallAtK) : '',
       a.retrieval.evaluatedQuestions,
-      Math.round(a.p50LatencyMs), Math.round(a.avgLatencyMs), modules,
+      Math.round(a.avgContextTokens), Math.round(a.p50LatencyMs), Math.round(a.avgLatencyMs), modules,
     ].map(csvCell).join(',');
   });
   // BOM pour qu'Excel lise l'UTF-8 (accents) correctement.
@@ -183,6 +214,7 @@ const Optimization: FC = () => {
   const [baseModel, setBaseModel] = useState<string>('');
   const [tunedModel, setTunedModel] = useState<string>('');
   const [maxChunks, setMaxChunks] = useState<number>(5);
+  const [runs, setRuns] = useState<number>(1);
   const [report, setReport] = useState<AblationReport | null>(null);
 
   useEffect(() => {
@@ -213,7 +245,7 @@ const Optimization: FC = () => {
 
   const mutation = useMutation({
     mutationFn: async (): Promise<AblationReport> => {
-      const res = await ablationApi.run({ arms, maxContextChunks: maxChunks });
+      const res = await ablationApi.run({ arms, maxContextChunks: maxChunks, runs });
       return res.data as AblationReport;
     },
     onSuccess: (data) => { setReport(data); toast.success('Ablation terminée'); },
@@ -319,6 +351,12 @@ const Optimization: FC = () => {
               onChange={e => setMaxChunks(Math.max(1, Math.min(20, Number(e.target.value) || 5)))}
               className="w-16 bg-surface-container border border-outline-variant/20 px-2 py-1 text-on-surface text-xs" />
           </label>
+          <label className="text-xs text-on-surface-variant flex items-center gap-2" title="Répétitions par bras pour estimer le bruit (moyenne ± écart-type). ≥3 pour fiabiliser les deltas.">
+            répétitions
+            <input type="number" min={1} max={10} value={runs}
+              onChange={e => setRuns(Math.max(1, Math.min(10, Number(e.target.value) || 1)))}
+              className="w-16 bg-surface-container border border-outline-variant/20 px-2 py-1 text-on-surface text-xs" />
+          </label>
           <button
             onClick={() => mutation.mutate()}
             disabled={mutation.isPending}
@@ -327,7 +365,7 @@ const Optimization: FC = () => {
             {mutation.isPending ? 'Ablation en cours…' : 'Lancer l’ablation'}
           </button>
           <span className="text-[10px] text-on-surface-variant">
-            Bloquant et lent sur CPU : {arms.length} bras × benchmark, plusieurs appels LLM par question.
+            Bloquant et lent sur CPU : {arms.length} bras × {runs} run(s) × benchmark, plusieurs appels LLM par question.
           </span>
         </div>
       </section>
@@ -386,21 +424,41 @@ const Optimization: FC = () => {
                         {arm.model}{arm.useRag ? '' : ' · sans RAG'}
                       </span>
                     </td>
-                    {METRICS.map(m => (
-                      <td key={m.key} className="px-3 py-2 text-right tabular-nums">
-                        <span className="text-on-surface">{m.format(arm)}</span>
-                        {i > 0 && (
-                          <span className={`block text-[10px] ${deltaColor(m.value(arm) - m.value(baseArm), m.higherIsBetter)}`}>
-                            {fmtDelta(m, baseArm, arm)}
-                          </span>
-                        )}
-                      </td>
-                    ))}
+                    {METRICS.map(m => {
+                      const std = fmtStd(m, arm);
+                      const sig = isSignificant(m, baseArm, arm);
+                      return (
+                        <td key={m.key} className="px-3 py-2 text-right tabular-nums">
+                          <span className="text-on-surface">{m.format(arm)}</span>
+                          {std && <span className="text-[9px] text-on-surface-variant ml-1">{std}</span>}
+                          {i > 0 && (
+                            <span
+                              className={`block text-[10px] ${sig ? deltaColor(m.value(arm) - m.value(baseArm), m.higherIsBetter) : 'text-on-surface-variant/50'}`}
+                              title={sig ? '' : 'Delta dans le bruit (≤ σ combiné) — non significatif'}
+                            >
+                              {!sig && fmtDelta(m, baseArm, arm) ? '≈ ' : ''}{fmtDelta(m, baseArm, arm)}
+                            </span>
+                          )}
+                        </td>
+                      );
+                    })}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+
+          {report.arms.some(a => a.runs > 1)
+            ? <p className="text-[10px] text-on-surface-variant">
+                Valeurs = moyenne sur {report.arms[0]?.runs} répétitions (±σ). Un delta grisé « ≈ » est dans le bruit
+                (≤ σ combiné) : non significatif.
+              </p>
+            : <p className="text-[10px] text-on-surface-variant">
+                1 seule répétition : les deltas ne sont pas testés contre le bruit. Augmentez « répétitions » (≥3) pour fiabiliser.
+              </p>}
+
+          {/* Graphiques */}
+          <AblationCharts arms={report.arms} />
 
           {/* Modules effectivement déclenchés (validation) */}
           <div className="space-y-2">

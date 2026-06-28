@@ -19,6 +19,12 @@ import java.util.Map;
  * {@code conversational}, {@code agentic}, {@code semanticDedup}, {@code longContext}) — ce qui
  * permet de <b>valider</b> que l'option a bien pris effet.</p>
  *
+ * <p>Quand {@code runs > 1}, les champs scalaires portent la <b>moyenne</b> sur les répétitions et
+ * {@code stdDev} l'<b>écart-type</b> par métrique (clés : {@code avgScore}, {@code hallucinationRate},
+ * {@code refusalAccuracy}, {@code hitRate}, {@code mrr}, {@code recallAtK}, {@code p50LatencyMs},
+ * {@code avgContextTokens}) — pour juger si un delta dépasse le bruit. {@code avgContextTokens} estime
+ * le coût en tokens du contexte injecté (déterministe, contrairement à la latence).</p>
+ *
  * <p>Le gain marginal d'un enrichissement se lit en comparant deux bras (delta des champs).</p>
  */
 public record AblationArmReport(
@@ -30,5 +36,8 @@ public record AblationArmReport(
         RetrievalMetrics retrieval,
         double avgLatencyMs,
         double p50LatencyMs,
+        double avgContextTokens,
+        int runs,
+        Map<String, Double> stdDev,
         Map<String, Integer> appliedCounts
 ) {}

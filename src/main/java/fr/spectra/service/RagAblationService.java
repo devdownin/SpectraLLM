@@ -80,10 +80,12 @@ public class RagAblationService {
                         : defaultArms();
         int maxChunks = (request != null && request.maxContextChunks() != null)
                 ? request.maxContextChunks() : 5;
+        int runs = (request != null && request.runs() != null)
+                ? Math.max(1, Math.min(10, request.runs())) : 1;
 
         List<AblationArmReport> armReports = new ArrayList<>();
         for (AblationRequest.Arm arm : arms) {
-            armReports.add(runArm(arm, entries, maxChunks, started));
+            armReports.add(runArm(arm, entries, maxChunks, runs, started));
         }
         return new AblationReport(armReports, entries.size(), started, Instant.now());
     }
@@ -95,8 +97,17 @@ public class RagAblationService {
                 new AblationRequest.Arm("rag", null, true, null));
     }
 
+    /** Résultat d'une exécution unique du benchmark pour un bras. */
+    private record RunResult(
+            QualityBenchmarkReport quality,
+            RetrievalMetrics retrieval,
+            double avgLatency,
+            double p50,
+            double avgContextTokens,
+            Map<String, Integer> applied) {}
+
     private AblationArmReport runArm(AblationRequest.Arm arm, List<JsonNode> entries,
-                                     int maxChunks, Instant started) {
+                                     int maxChunks, int runs, Instant started) {
         String previous = chatClient.getActiveModel();
         boolean switched = arm.model() != null && !arm.model().isBlank() && !arm.model().equals(previous);
         if (switched) {
@@ -106,72 +117,171 @@ public class RagAblationService {
         String evaluatedModel = (arm.model() != null && !arm.model().isBlank()) ? arm.model() : previous;
 
         try {
-            List<QualityBenchmarkItem> items = new ArrayList<>();
-            List<Long> latencies = new ArrayList<>();
-            int retrievalEvaluated = 0;
-            double hitSum = 0, rrSum = 0, recallSum = 0;
-            Map<String, Integer> applied = new LinkedHashMap<>();
-
-            for (JsonNode entry : entries) {
-                String question   = entry.path("question").asText("");
-                String category   = entry.path("category").asText("inconnu");
-                boolean answerable = entry.path("answerable").asBoolean(true);
-                String reference  = entry.hasNonNull("reference") ? entry.get("reference").asText() : null;
-                List<String> expected = readExpectedSources(entry);
-
-                QueryResponse resp;
-                try {
-                    // Température 0 / top-p 1 : génération déterministe pour des deltas comparables.
-                    resp = ragService.query(new QueryRequest(
-                            question, maxChunks, null, null, 0.0f, 1.0f, null, arm.useRag()),
-                            arm.overrides());
-                } catch (Exception e) {
-                    log.warn("Ablation '{}' : échec requête « {} » : {}", arm.label(), question, e.getMessage());
-                    items.add(new QualityBenchmarkItem(question, category, answerable, reference,
-                            null, null, null, null, "Échec requête RAG: " + e.getMessage()));
-                    continue;
-                }
-
-                latencies.add(resp.durationMs());
-                tallyApplied(applied, resp);
-                items.add(qualityBenchmarkService.judgeAnswer(
-                        question, category, answerable, reference, resp.answer()));
-
-                if (arm.useRag() && !expected.isEmpty()) {
-                    RetrievalHit hit = scoreRetrieval(resp.sources(), expected, maxChunks);
-                    retrievalEvaluated++;
-                    hitSum    += hit.hit() ? 1.0 : 0.0;
-                    rrSum     += hit.reciprocalRank();
-                    recallSum += hit.recall();
-                }
+            List<RunResult> rr = new ArrayList<>();
+            for (int i = 0; i < runs; i++) {
+                rr.add(runOnce(arm, entries, maxChunks, evaluatedModel, started));
             }
 
-            QualityBenchmarkReport quality =
-                    qualityBenchmarkService.aggregate(evaluatedModel, items, started);
+            // Moyennes (et écarts-types) sur les répétitions.
+            List<Double> avgScores  = map(rr, r -> r.quality().avgScore());
+            List<Double> hallucs    = map(rr, r -> r.quality().hallucinationRate());
+            List<Double> refusals   = map(rr, r -> r.quality().refusalAccuracy());
+            List<Double> hits       = map(rr, r -> r.retrieval().hitRate());
+            List<Double> mrrs       = map(rr, r -> r.retrieval().mrr());
+            List<Double> recalls    = map(rr, r -> r.retrieval().recallAtK());
+            List<Double> p50s       = map(rr, RunResult::p50);
+            List<Double> tokens     = map(rr, RunResult::avgContextTokens);
+            double avgLatency       = mean(map(rr, RunResult::avgLatency));
+
+            RunResult first = rr.getFirst();
+            QualityBenchmarkReport q0 = first.quality();
+            QualityBenchmarkReport quality = new QualityBenchmarkReport(
+                    evaluatedModel, q0.total(), q0.answerableCount(), q0.unanswerableCount(),
+                    mean(avgScores), mean(hallucs), mean(refusals),
+                    meanScoresByCategory(rr), q0.items(), started, Instant.now());
             RetrievalMetrics retrieval = new RetrievalMetrics(
-                    retrievalEvaluated, maxChunks,
-                    retrievalEvaluated > 0 ? hitSum / retrievalEvaluated : 0.0,
-                    retrievalEvaluated > 0 ? rrSum / retrievalEvaluated : 0.0,
-                    retrievalEvaluated > 0 ? recallSum / retrievalEvaluated : 0.0);
+                    first.retrieval().evaluatedQuestions(), maxChunks,
+                    mean(hits), mean(mrrs), mean(recalls));
 
-            double avgLatency = latencies.stream().mapToLong(Long::longValue).average().orElse(0.0);
-            double p50 = percentile(latencies, 50);
+            Map<String, Double> stdDev = new LinkedHashMap<>();
+            stdDev.put("avgScore", std(avgScores));
+            stdDev.put("hallucinationRate", std(hallucs));
+            stdDev.put("refusalAccuracy", std(refusals));
+            stdDev.put("hitRate", std(hits));
+            stdDev.put("mrr", std(mrrs));
+            stdDev.put("recallAtK", std(recalls));
+            stdDev.put("p50LatencyMs", std(p50s));
+            stdDev.put("avgContextTokens", std(tokens));
 
-            log.info("Ablation '{}' (modèle={}, rag={}) : score {}/10, halluc {}%, hit@{}={}, latence p50={}ms",
-                    arm.label(), evaluatedModel, arm.useRag(),
+            log.info("Ablation '{}' (modèle={}, rag={}, runs={}) : score {}±{}/10, halluc {}%, hit@{}={}, "
+                    + "tokens≈{}, latence p50={}ms",
+                    arm.label(), evaluatedModel, arm.useRag(), runs,
                     String.format(Locale.ROOT, "%.2f", quality.avgScore()),
+                    String.format(Locale.ROOT, "%.2f", std(avgScores)),
                     String.format(Locale.ROOT, "%.0f", quality.hallucinationRate() * 100),
                     maxChunks, String.format(Locale.ROOT, "%.2f", retrieval.hitRate()),
-                    String.format(Locale.ROOT, "%.0f", p50));
+                    String.format(Locale.ROOT, "%.0f", mean(tokens)),
+                    String.format(Locale.ROOT, "%.0f", mean(p50s)));
 
             return new AblationArmReport(arm.label(), evaluatedModel, arm.useRag(), arm.overrides(),
-                    quality, retrieval, avgLatency, p50, applied);
+                    quality, retrieval, avgLatency, mean(p50s), mean(tokens), runs,
+                    stdDev, first.applied());
         } finally {
             if (switched) {
                 chatClient.setActiveModel(previous);
                 log.info("Ablation '{}' : modèle actif restauré → {}", arm.label(), previous);
             }
         }
+    }
+
+    /** Une passe du benchmark : interroge le pipeline, juge, score le retrieval et le coût. */
+    private RunResult runOnce(AblationRequest.Arm arm, List<JsonNode> entries,
+                              int maxChunks, String evaluatedModel, Instant started) {
+        List<QualityBenchmarkItem> items = new ArrayList<>();
+        List<Long> latencies = new ArrayList<>();
+        int retrievalEvaluated = 0;
+        double hitSum = 0, rrSum = 0, recallSum = 0;
+        long tokenSum = 0;
+        int answered = 0;
+        Map<String, Integer> applied = new LinkedHashMap<>();
+
+        for (JsonNode entry : entries) {
+            String question   = entry.path("question").asText("");
+            String category   = entry.path("category").asText("inconnu");
+            boolean answerable = entry.path("answerable").asBoolean(true);
+            String reference  = entry.hasNonNull("reference") ? entry.get("reference").asText() : null;
+            List<String> expected = readExpectedSources(entry);
+
+            QueryResponse resp;
+            try {
+                // Température 0 / top-p 1 : génération déterministe pour des deltas comparables.
+                resp = ragService.query(new QueryRequest(
+                        question, maxChunks, null, null, 0.0f, 1.0f, null, arm.useRag()),
+                        arm.overrides());
+            } catch (Exception e) {
+                log.warn("Ablation '{}' : échec requête « {} » : {}", arm.label(), question, e.getMessage());
+                items.add(new QualityBenchmarkItem(question, category, answerable, reference,
+                        null, null, null, null, "Échec requête RAG: " + e.getMessage()));
+                continue;
+            }
+
+            latencies.add(resp.durationMs());
+            tokenSum += estimateContextTokens(resp.sources());
+            answered++;
+            tallyApplied(applied, resp);
+            items.add(qualityBenchmarkService.judgeAnswer(
+                    question, category, answerable, reference, resp.answer()));
+
+            if (arm.useRag() && !expected.isEmpty()) {
+                RetrievalHit hit = scoreRetrieval(resp.sources(), expected, maxChunks);
+                retrievalEvaluated++;
+                hitSum    += hit.hit() ? 1.0 : 0.0;
+                rrSum     += hit.reciprocalRank();
+                recallSum += hit.recall();
+            }
+        }
+
+        QualityBenchmarkReport quality =
+                qualityBenchmarkService.aggregate(evaluatedModel, items, started);
+        RetrievalMetrics retrieval = new RetrievalMetrics(
+                retrievalEvaluated, maxChunks,
+                retrievalEvaluated > 0 ? hitSum / retrievalEvaluated : 0.0,
+                retrievalEvaluated > 0 ? rrSum / retrievalEvaluated : 0.0,
+                retrievalEvaluated > 0 ? recallSum / retrievalEvaluated : 0.0);
+
+        double avgLatency = latencies.stream().mapToLong(Long::longValue).average().orElse(0.0);
+        double p50 = percentile(latencies, 50);
+        double avgTokens = answered > 0 ? (double) tokenSum / answered : 0.0;
+
+        return new RunResult(quality, retrieval, avgLatency, p50, avgTokens, applied);
+    }
+
+    /**
+     * Estime le nombre de tokens du contexte injecté (somme des chunks sources).
+     * Approximation usuelle ~4 caractères par token — déterministe, contrairement à la latence.
+     */
+    private long estimateContextTokens(List<QueryResponse.Source> sources) {
+        if (sources == null) return 0;
+        long chars = 0;
+        for (QueryResponse.Source s : sources) {
+            if (s.text() != null) chars += s.text().length();
+        }
+        return Math.round(chars / 4.0);
+    }
+
+    // ── Stats ─────────────────────────────────────────────────────────────────
+
+    private static List<Double> map(List<RunResult> rr, java.util.function.ToDoubleFunction<RunResult> f) {
+        List<Double> out = new ArrayList<>(rr.size());
+        for (RunResult r : rr) out.add(f.applyAsDouble(r));
+        return out;
+    }
+
+    static double mean(List<Double> xs) {
+        return xs.isEmpty() ? 0.0 : xs.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
+    }
+
+    /** Écart-type d'échantillon (N-1) ; 0 si moins de 2 répétitions. */
+    static double std(List<Double> xs) {
+        int n = xs.size();
+        if (n < 2) return 0.0;
+        double m = mean(xs);
+        double s = xs.stream().mapToDouble(d -> (d - m) * (d - m)).sum();
+        return Math.sqrt(s / (n - 1));
+    }
+
+    /** Moyenne des scores par catégorie sur les répétitions. */
+    private static Map<String, Double> meanScoresByCategory(List<RunResult> rr) {
+        Map<String, double[]> agg = new java.util.TreeMap<>();   // cat → [somme, n]
+        for (RunResult r : rr) {
+            r.quality().scoresByCategory().forEach((cat, v) -> {
+                double[] a = agg.computeIfAbsent(cat, k -> new double[2]);
+                a[0] += v; a[1] += 1;
+            });
+        }
+        Map<String, Double> out = new java.util.TreeMap<>();
+        agg.forEach((cat, a) -> out.put(cat, a[1] > 0 ? a[0] / a[1] : 0.0));
+        return out;
     }
 
     /** Incrémente les compteurs des modules effectivement déclenchés par cette réponse. */
