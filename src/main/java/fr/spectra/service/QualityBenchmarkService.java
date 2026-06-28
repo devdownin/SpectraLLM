@@ -130,6 +130,24 @@ public class QualityBenchmarkService {
                     null, null, null, null, "Échec appel modèle: " + e.getMessage());
         }
 
+        return judgeAnswer(question, category, answerable, reference, modelAnswer);
+    }
+
+    /**
+     * Juge une réponse <b>déjà produite</b> — par le modèle brut (cf. {@link #evaluateEntry}) ou
+     * par un pipeline RAG (cf. {@code RagAblationService}) — afin de découpler la production de la
+     * réponse de sa notation. Pour une question answerable : score d'exactitude 1-10 vs référence ;
+     * pour une question non-answerable : abstention correcte (refus) vs hallucination.
+     *
+     * @param question    la question posée
+     * @param category    catégorie pour l'agrégation par thème
+     * @param answerable  {@code true} si la réponse existe dans le corpus
+     * @param reference   réponse de référence (peut être {@code null} pour les non-answerable)
+     * @param modelAnswer réponse à évaluer
+     * @return l'item de benchmark noté
+     */
+    public QualityBenchmarkItem judgeAnswer(String question, String category, boolean answerable,
+                                            String reference, String modelAnswer) {
         if (answerable) {
             JsonNode verdict = judge(SCORE_JUDGE_PROMPT,
                     "Question : " + question
@@ -162,7 +180,11 @@ public class QualityBenchmarkService {
         }
     }
 
-    private QualityBenchmarkReport aggregate(String model, List<QualityBenchmarkItem> items, Instant started) {
+    /**
+     * Agrège une liste d'items en rapport qualité (score moyen, hallucination, refus, par catégorie).
+     * Exposé pour réutilisation par {@code RagAblationService}.
+     */
+    public QualityBenchmarkReport aggregate(String model, List<QualityBenchmarkItem> items, Instant started) {
         int answerable = 0, unanswerable = 0, hallucinated = 0, refused = 0;
         double scoreSum = 0;
         Map<String, double[]> catAgg = new TreeMap<>();   // catégorie → [somme, n]
@@ -201,7 +223,11 @@ public class QualityBenchmarkService {
         );
     }
 
-    private List<JsonNode> loadBenchmark() {
+    /**
+     * Charge le benchmark JSONL (chemin {@code spectra.benchmark.quality-file} ou ressource par
+     * défaut). Exposé pour réutilisation par {@code RagAblationService}.
+     */
+    public List<JsonNode> loadBenchmark() {
         List<JsonNode> entries = new ArrayList<>();
         try {
             Resource resource = (benchmarkPath != null && !benchmarkPath.isBlank())

@@ -544,6 +544,46 @@ curl -X POST "http://localhost:8080/api/quality-benchmark"
 curl -X POST "http://localhost:8080/api/quality-benchmark/compare?baseline=phi3&candidate=spectra-domain"
 ```
 
+#### Mesurer le gain de chaque enrichissement (ablation A/B)
+
+`/api/quality-benchmark` évalue le **modèle brut**. Pour mesurer ce qu'apportent les
+enrichissements *de bout en bout* — RAG **et** fine-tuning — utilisez l'**ablation**
+(`/api/ablation`) : chaque question du benchmark passe dans le **pipeline RAG complet**, et l'on
+compare plusieurs configurations (**bras**) sur le même jeu tenu à l'écart. Trois familles de
+métriques par bras :
+
+- **Génération** : `avgScore` (exactitude LLM-juge /10), `hallucinationRate`, `refusalAccuracy`.
+- **Retrieval** (déterministe, sans LLM) : `hitRate` (Hit@k), `mrr`, `recallAtK`.
+- **Coût** : `avgLatencyMs`, `p50LatencyMs`.
+
+Règle d'or : **un seul changement par bras**, pour lire le gain marginal (delta) de chaque enrichissement.
+
+```bash
+# Matrice par défaut : LLM seul (sans RAG) vs RAG, sur le modèle actif → gain brut du RAG
+curl -X POST "http://localhost:8080/api/ablation"
+
+# Matrice explicite : isoler le gain du RAG puis celui du fine-tuning
+curl -X POST "http://localhost:8080/api/ablation" -H "Content-Type: application/json" -d '{
+  "maxContextChunks": 5,
+  "arms": [
+    {"label": "base sans rag",  "model": "phi3",           "useRag": false},
+    {"label": "base + rag",     "model": "phi3",           "useRag": true},
+    {"label": "fine-tuné + rag","model": "spectra-domain", "useRag": true}
+  ]
+}'
+# → arms[].quality.avgScore, arms[].retrieval.hitRate, arms[].p50LatencyMs …
+```
+
+> **Métriques de retrieval** : `hitRate`/`mrr`/`recallAtK` ne sont calculées que pour les questions
+> du benchmark annotées d'un champ `expectedSources` — la liste des fichiers sources attendus (un
+> match = `sourceFile` contient le libellé, insensible à la casse). Exemple de ligne JSONL :
+>
+> ```json
+> {"question": "...", "reference": "...", "category": "procedures", "answerable": true, "expectedSources": ["guide_securite", "procedure_intervention.pdf"]}
+> ```
+>
+> Sans annotation, seules les métriques de génération et de latence sont remontées (`evaluatedQuestions = 0`).
+
 #### Servir l'adaptateur à chaud (sans fusion)
 
 Au lieu de fusionner+quantifier (`export_gguf.py`), exportez l'adaptateur seul et chargez-le par-dessus le modèle de base :
