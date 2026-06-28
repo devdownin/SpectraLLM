@@ -6,6 +6,7 @@ import fr.spectra.config.SpectraProperties;
 import io.micrometer.core.annotation.Timed;
 import fr.spectra.dto.QueryRequest;
 import fr.spectra.dto.QueryResponse;
+import fr.spectra.dto.RagOverrides;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.codec.ServerSentEvent;
@@ -167,6 +168,16 @@ public class RagService {
 
     @Timed(value = "spectra.rag.query", description = "Latence du traitement d'une requête RAG (hors I/O HTTP)")
     public QueryResponse query(QueryRequest request) {
+        return query(request, RagOverrides.NONE);
+    }
+
+    /**
+     * Variante avec <b>surcharges par requête</b> : chaque module optionnel peut être forcé
+     * actif/inactif (utilisée par l'ablation pour mesurer l'apport de chaque option). Un override
+     * à {@code true} n'a d'effet que si le module est disponible ; {@code null} = défaut de config.
+     */
+    public QueryResponse query(QueryRequest request, RagOverrides overrides) {
+        RagOverrides ov = overrides != null ? overrides : RagOverrides.NONE;
         long start = System.currentTimeMillis();
 
         // ── 0. Direct LLM mode (RAG désactivé) ────────────────────────────
@@ -184,7 +195,7 @@ public class RagService {
         String ragStrategy = "STANDARD";
         boolean forceAgentic = false;
 
-        if (adaptiveRagService.isPresent()) {
+        if (RagOverrides.resolve(ov.adaptive(), adaptiveRagService.isPresent())) {
             AdaptiveRagService.RagStrategy strategy = adaptiveRagService.get().classifyQuery(request.question());
             ragStrategy = strategy.name();
 
@@ -207,7 +218,7 @@ public class RagService {
         String retrievalQuestion = request.question();
         boolean conversationalApplied = false;
 
-        if (conversationalRagService.isPresent()
+        if (RagOverrides.resolve(ov.conversational(), conversationalRagService.isPresent())
                 && request.conversationHistory() != null
                 && !request.conversationHistory().isEmpty()) {
             String standalone = conversationalRagService.get()
@@ -219,12 +230,12 @@ public class RagService {
         }
 
         // ── 3. Retrieval ───────────────────────────────────────────────────
-        RagContext ctx = retrieveContext(request, retrievalQuestion);
+        RagContext ctx = retrieveContext(request, retrievalQuestion, ov);
 
         // ── 4. Corrective RAG : filtrage des chunks non pertinents ─────────
         boolean correctiveApplied = false;
 
-        if (correctiveRagService.isPresent() && !ctx.contextChunks().isEmpty()) {
+        if (RagOverrides.resolve(ov.corrective(), correctiveRagService.isPresent()) && !ctx.contextChunks().isEmpty()) {
             List<Integer> keptIndices = correctiveRagService.get()
                     .gradeChunks(request.question(), ctx.contextChunks());
 
@@ -242,7 +253,7 @@ public class RagService {
         // ── 4.5. Context Compression : extraction des passages pertinents ──
         boolean compressionApplied = false;
 
-        if (contextCompressionService.isPresent() && !ctx.contextChunks().isEmpty()) {
+        if (RagOverrides.resolve(ov.compression(), contextCompressionService.isPresent()) && !ctx.contextChunks().isEmpty()) {
             ContextCompressionService.CompressionResult cr =
                     contextCompressionService.get().compress(request.question(), ctx.contextChunks());
             if (!cr.keptIndices().isEmpty()) {
@@ -291,7 +302,7 @@ public class RagService {
             String systemPrompt = ctx.systemPrompt();
             String userMessage  = buildUserMessage(request, conversationalApplied);
 
-            if (selfRagService.isPresent()) {
+            if (RagOverrides.resolve(ov.selfRag(), selfRagService.isPresent())) {
                 SelfRagService.SelfRagResult result = selfRagService.get()
                         .reflect(request.question(), ctx.contextChunks(), systemPrompt, userMessage);
                 answer = result.answer();
@@ -472,7 +483,15 @@ public class RagService {
      * (ex. par le Conversational RAG ou l'Agentic RAG).
      */
     public RagContext retrieveContext(QueryRequest request, String retrievalQuestion) {
-        boolean useReranker = rerankerClient.isPresent();
+        return retrieveContext(request, retrievalQuestion, RagOverrides.NONE);
+    }
+
+    /** Retrieval avec surcharges par requête (cf. {@link #query(QueryRequest, RagOverrides)}). */
+    public RagContext retrieveContext(QueryRequest request, String retrievalQuestion, RagOverrides overrides) {
+        RagOverrides ov = overrides != null ? overrides : RagOverrides.NONE;
+        boolean useReranker   = RagOverrides.resolve(ov.rerank(), rerankerClient.isPresent());
+        boolean useHybrid     = RagOverrides.resolve(ov.hybrid(), hybridSearchService.isPresent());
+        boolean useMultiQuery = RagOverrides.resolve(ov.multiQuery(), multiQueryService.isPresent());
 
         String collectionName = request.collection() != null ? request.collection()
                 : (props.chromadb() != null ? props.chromadb().effectiveCollection() : COLLECTION_NAME);
@@ -505,12 +524,12 @@ public class RagService {
         boolean hybridApplied = false;
         boolean multiQueryApplied = false;
 
-        if (multiQueryService.isPresent()) {
+        if (useMultiQuery) {
             try {
                 List<String> queries = multiQueryService.get().generateQueries(retrievalQuestion);
                 if (queries.size() > 1) {
                     MultiQueryMerge merged = executeMultiQueryRetrieval(
-                            queries, collectionId, collectionName, retrieveCount);
+                            queries, collectionId, collectionName, retrieveCount, useHybrid);
                     allChunks      = merged.chunks();
                     allMetadatas   = merged.metadatas();
                     allDistances   = merged.distances();
@@ -518,20 +537,20 @@ public class RagService {
                     hybridApplied  = merged.hybridApplied();
                     multiQueryApplied = true;
                 } else {
-                    SingleQueryResult r = executeSingleQuery(retrievalQuestion, collectionId, collectionName, retrieveCount);
+                    SingleQueryResult r = executeSingleQuery(retrievalQuestion, collectionId, collectionName, retrieveCount, useHybrid);
                     allChunks = r.chunks(); allMetadatas = r.metadatas();
                     allDistances = r.distances(); allBm25Scores = r.bm25Scores();
                     hybridApplied = r.hybridApplied();
                 }
             } catch (Exception e) {
                 log.warn("Multi-query échoué, fallback retrieval simple: {}", e.getMessage());
-                SingleQueryResult r = executeSingleQuery(retrievalQuestion, collectionId, collectionName, retrieveCount);
+                SingleQueryResult r = executeSingleQuery(retrievalQuestion, collectionId, collectionName, retrieveCount, useHybrid);
                 allChunks = r.chunks(); allMetadatas = r.metadatas();
                 allDistances = r.distances(); allBm25Scores = r.bm25Scores();
                 hybridApplied = r.hybridApplied();
             }
         } else {
-            SingleQueryResult r = executeSingleQuery(retrievalQuestion, collectionId, collectionName, retrieveCount);
+            SingleQueryResult r = executeSingleQuery(retrievalQuestion, collectionId, collectionName, retrieveCount, useHybrid);
             allChunks = r.chunks(); allMetadatas = r.metadatas();
             allDistances = r.distances(); allBm25Scores = r.bm25Scores();
             hybridApplied = r.hybridApplied();
@@ -672,10 +691,10 @@ public class RagService {
      */
     @SuppressWarnings("unchecked")
     private SingleQueryResult executeSingleQuery(String question, String collectionId,
-                                                  String collectionName, int retrieveCount) {
+                                                  String collectionName, int retrieveCount, boolean useHybrid) {
         List<Float> embedding = embeddingService.embed(question);
 
-        if (hybridSearchService.isPresent()) {
+        if (useHybrid) {
             List<HybridSearchService.HybridChunk> results =
                     hybridSearchService.get().search(question, embedding, collectionId, collectionName, retrieveCount);
             List<String>              chunks    = new ArrayList<>(results.size());
@@ -708,7 +727,7 @@ public class RagService {
      * Le résultat est limité à {@code retrieveCount} chunks triés par distance croissante.
      */
     private MultiQueryMerge executeMultiQueryRetrieval(List<String> queries, String collectionId,
-                                                        String collectionName, int retrieveCount) {
+                                                        String collectionName, int retrieveCount, boolean useHybrid) {
         // LinkedHashMap pour conserver l'ordre d'insertion (question originale en premier)
         Map<String, Integer> indexByText = new LinkedHashMap<>();
         List<String>              mergedChunks    = new ArrayList<>();
@@ -719,7 +738,7 @@ public class RagService {
         boolean trackBm25 = true; // désactivé si un résultat n'a pas de scores BM25
 
         for (String query : queries) {
-            SingleQueryResult r = executeSingleQuery(query, collectionId, collectionName, retrieveCount);
+            SingleQueryResult r = executeSingleQuery(query, collectionId, collectionName, retrieveCount, useHybrid);
             hybridApplied = hybridApplied || r.hybridApplied();
             if (r.bm25Scores() == null) trackBm25 = false;
 

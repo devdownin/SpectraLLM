@@ -35,6 +35,38 @@ Après `adddoc.bat examples` + génération de dataset, vous devriez obtenir :
 - ~25–40 paires d'entraînement (selon les paramètres)
 - Des questions du type : "Quelle est la fréquence recommandée pour la lubrification des roulements ?" ou "Quels EPI sont obligatoires lors d'une opération de soudage ?"
 
+## Corpus autoroutier pour l'écran « Optimisation » (Hit@k / MRR)
+
+Le sous-dossier `examples/highway/` est le corpus **aligné sur le benchmark
+d'évaluation** `benchmarks/highway_benchmark.jsonl`. Il sert à activer les
+métriques de *retrieval* (Hit@k, MRR, Recall@k) de l'ablation : chaque question
+répondable du benchmark est annotée d'`expectedSources` pointant vers ces
+fichiers, et le score de retrieval vérifie que la bonne source remonte dans le top-k.
+
+```bash
+# Windows
+adddoc.bat examples\highway
+
+# Via l'API directement (Linux / macOS / Windows)
+curl -X POST http://localhost:8080/api/ingest \
+  -F "files=@examples/highway/procedures-intervention-autoroute.txt" \
+  -F "files=@examples/highway/evenements-trafic-pmv.txt" \
+  -F "files=@examples/highway/nomenclature-exploitation-autoroute.txt" \
+  -F "files=@examples/highway/reglementation-securite-autoroute.txt"
+```
+
+| Fichier | Couvre (catégorie benchmark) |
+|---------|------------------------------|
+| `procedures-intervention-autoroute.txt` | panne BAU, accident corporel, animal errant, viabilité hivernale (`procedures`) |
+| `evenements-trafic-pmv.txt` | limitation PMV, diffusion message, brouillard (`evenements`) |
+| `nomenclature-exploitation-autoroute.txt` | PR, BAU, tronçon, PMV (`nomenclatures`) |
+| `reglementation-securite-autoroute.txt` | arrêt BAU, EPI, conformité maintenance (`reglementation`) |
+
+Une fois ce corpus ingéré, lancez l'ablation depuis la page **Optimisation** (ou
+`POST /api/ablation`) : les colonnes Hit@k / MRR / Recall@k se renseignent
+automatiquement. Les 6 questions non-répondables du benchmark restent sans
+`expectedSources` (elles servent à mesurer le taux d'hallucination, pas le retrieval).
+
 ## Remplacer par vos propres documents
 
 Ces exemples sont conçus pour la démonstration. Pour un usage réel, remplacez-les par vos propres documents métier (manuels techniques, procédures internes, nomenclatures, réglementations, fiches incidents...).

@@ -544,6 +544,76 @@ curl -X POST "http://localhost:8080/api/quality-benchmark"
 curl -X POST "http://localhost:8080/api/quality-benchmark/compare?baseline=phi3&candidate=spectra-domain"
 ```
 
+#### Mesurer le gain de chaque enrichissement (ablation A/B)
+
+`/api/quality-benchmark` évalue le **modèle brut**. Pour mesurer ce qu'apportent les
+enrichissements *de bout en bout* — RAG **et** fine-tuning — utilisez l'**ablation**
+(`/api/ablation`) : chaque question du benchmark passe dans le **pipeline RAG complet**, et l'on
+compare plusieurs configurations (**bras**) sur le même jeu tenu à l'écart. Trois familles de
+métriques par bras :
+
+- **Génération** : `avgScore` (exactitude LLM-juge /10), `hallucinationRate`, `refusalAccuracy`.
+- **Retrieval** (déterministe, sans LLM) : `hitRate` (Hit@k), `mrr`, `recallAtK`.
+- **Coût** : `avgLatencyMs`, `p50LatencyMs`.
+
+Règle d'or : **un seul changement par bras**, pour lire le gain marginal (delta) de chaque enrichissement.
+
+> **Écran dédié** : tout cela est piloté sans `curl` depuis la page **Optimisation** de l'interface
+> (presets « Gain du RAG », « Ablation cumulative », « Leave-one-out », « Gain du fine-tuning »),
+> avec tableau de deltas couleur, validation des modules réellement déclenchés et légende pédagogique.
+
+```bash
+# Matrice par défaut : LLM seul (sans RAG) vs RAG, sur le modèle actif → gain brut du RAG
+curl -X POST "http://localhost:8080/api/ablation"
+
+# Matrice explicite : isoler le gain du RAG puis celui du fine-tuning
+curl -X POST "http://localhost:8080/api/ablation" -H "Content-Type: application/json" -d '{
+  "maxContextChunks": 5,
+  "arms": [
+    {"label": "base sans rag",  "model": "phi3",           "useRag": false},
+    {"label": "base + rag",     "model": "phi3",           "useRag": true},
+    {"label": "fine-tuné + rag","model": "spectra-domain", "useRag": true}
+  ]
+}'
+# → arms[].quality.avgScore, arms[].retrieval.hitRate, arms[].p50LatencyMs …
+```
+
+**Ablation module par module.** Chaque bras peut surcharger les modules d'optimisation RAG via
+`overrides` (tri-état : `true` force actif *si disponible*, `false` force inactif, absent = défaut de
+déploiement). On mesure ainsi l'apport marginal de chaque option (rerank, hybride, multi-query,
+corrective, compression, self-RAG, adaptive, conversational) en n'en changeant qu'une à la fois :
+
+```bash
+# Ablation cumulative : RAG nu, puis +hybride, puis +rerank…
+curl -X POST "http://localhost:8080/api/ablation" -H "Content-Type: application/json" -d '{
+  "arms": [
+    {"label": "rag nu",      "useRag": true, "overrides": {"hybrid": false, "rerank": false, "multiQuery": false, "corrective": false, "compression": false, "selfRag": false}},
+    {"label": "+ hybride",   "useRag": true, "overrides": {"hybrid": true,  "rerank": false, "multiQuery": false, "corrective": false, "compression": false, "selfRag": false}},
+    {"label": "+ rerank",    "useRag": true, "overrides": {"hybrid": true,  "rerank": true,  "multiQuery": false, "corrective": false, "compression": false, "selfRag": false}}
+  ]
+}'
+# Chaque bras renvoie aussi appliedCounts (nb de requêtes où chaque module a réellement agi).
+```
+
+**Fiabiliser les deltas (`runs`).** Sur un petit benchmark, un écart de +0.3/10 peut être du bruit.
+Passez `"runs": 3` (1–10) pour répéter chaque bras : les champs scalaires deviennent des **moyennes**,
+`stdDev` donne l'**écart-type** par métrique, et l'écran grise les deltas **non significatifs** (≤ σ combiné).
+Chaque bras renvoie aussi `avgContextTokens` — un **coût en tokens déterministe** (contrairement à la
+latence, bruitée sur matériel partagé) à mettre en regard du gain de qualité.
+
+> **Métriques de retrieval** : `hitRate`/`mrr`/`recallAtK` ne sont calculées que pour les questions
+> du benchmark annotées d'un champ `expectedSources` — la liste des fichiers sources attendus (un
+> match = `sourceFile` contient le libellé, insensible à la casse). Le benchmark fourni
+> `highway_benchmark.jsonl` est **déjà annoté** et aligné sur le corpus `examples/highway/` : ingérez
+> ce corpus (cf. `examples/README.md`) pour activer ces métriques sans configuration. Exemple
+> de ligne JSONL :
+>
+> ```json
+> {"question": "...", "reference": "...", "category": "procedures", "answerable": true, "expectedSources": ["guide_securite", "procedure_intervention.pdf"]}
+> ```
+>
+> Sans annotation, seules les métriques de génération et de latence sont remontées (`evaluatedQuestions = 0`).
+
 #### Servir l'adaptateur à chaud (sans fusion)
 
 Au lieu de fusionner+quantifier (`export_gguf.py`), exportez l'adaptateur seul et chargez-le par-dessus le modèle de base :

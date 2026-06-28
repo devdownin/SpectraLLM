@@ -6,6 +6,24 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ---
 
+## [Non publié]
+
+### Évaluation — mesure des gains des enrichissements LLM
+
+- **Ablation A/B des enrichissements** (`POST /api/ablation`, `RagAblationService`) : mesure le gain marginal du **RAG** et du **fine-tuning** de bout en bout. Contrairement à `/api/quality-benchmark` (modèle brut), chaque question du benchmark tenu à l'écart passe dans le **pipeline RAG complet**, et plusieurs configurations (**bras**) sont comparées sur le même jeu. Chaque bras reporte trois familles de métriques : génération (exactitude LLM-juge, hallucination, refus), retrieval et latence (`avgLatencyMs`, `p50LatencyMs`). Corps vide = matrice par défaut « LLM seul vs RAG » ; chaque bras peut fixer un `model` (base vs fine-tuné) et `useRag`.
+- **Ablation module par module** : surcharges par requête (`RagOverrides`, tri-état) threadées dans `RagService.query`/`retrieveContext` — chaque module d'optimisation (rerank, hybride, multi-query, corrective, compression, self-RAG, adaptive, conversational) peut être forcé actif/inactif par bras pour mesurer son apport marginal. Presets `cumulative` et `leave-one-out`.
+- **Métriques de retrieval déterministes** (`RetrievalMetrics`) : **Hit@k**, **MRR** et **Recall@k**, calculées sans LLM à partir des sources renvoyées et d'un champ optionnel `expectedSources` dans le benchmark JSONL. Isolent la qualité de la *récupération* de celle de la *génération*.
+- **Validation** des options : chaque bras renvoie `appliedCounts` (nombre de requêtes où chaque module a réellement agi), pour confirmer que la surcharge a pris effet.
+- **Écran « Optimisation »** (frontend) : page dédiée et pédagogique — explication de chaque option, presets (gain du RAG, ablation cumulative, leave-one-out, gain du fine-tuning), tableau de deltas couleur, badges des modules déclenchés et légende des métriques. **Export CSV** du tableau (valeurs brutes, BOM UTF-8 pour Excel).
+- **Confiance statistique** : paramètre `runs` (répétitions par bras) → moyenne ± écart-type par métrique (`stdDev`), et **deltas non significatifs grisés** dans l'UI (≤ σ combiné) pour ne pas sur-interpréter le bruit sur un petit benchmark.
+- **Coût en tokens** : `avgContextTokens` par bras (estimation déterministe du contexte injecté), en complément de la latence (bruitée) — colonne dédiée + axe du nuage coût/qualité.
+- **Graphiques** (recharts) : barres d'exactitude avec barres d'erreur (±σ), nuage coût/qualité (tokens vs exactitude, frontière de Pareto), waterfall du gain marginal par module.
+- Requêtes d'ablation émises à température 0 pour des deltas reproductibles.
+- `QualityBenchmarkService` : extraction de `judgeAnswer`, `aggregate` et `loadBenchmark` (réutilisés par l'ablation, découplage production/notation de la réponse).
+- **Benchmark annoté + corpus aligné** : `highway_benchmark.jsonl` enrichi d'`expectedSources` sur les 14 questions répondables, et nouveau corpus `examples/highway/` (4 documents : procédures, événements, nomenclature, réglementation) qui répond à ces questions — ingérez-le pour activer Hit@k/MRR/Recall@k sans configuration.
+
+---
+
 ## [1.12.0] — 2026-06-25
 
 ### Infrastructure & déploiement

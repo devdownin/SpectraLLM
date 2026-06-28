@@ -1,0 +1,32 @@
+GESTION DES ÉVÉNEMENTS TRAFIC ET PANNEAUX À MESSAGES VARIABLES
+==============================================================
+
+Ce document décrit la gestion des événements trafic et la diffusion de
+l'information aux usagers via les dispositifs d'exploitation.
+
+1. PANNEAUX À MESSAGES VARIABLES (PMV) ET LIMITATIONS
+-----------------------------------------------------
+Un message affichant une limitation à 90 km/h sur un panneau à messages
+variables est une consigne de réduction de vitesse imposée aux usagers. Elle
+est généralement liée à un événement situé en aval (travaux, accident,
+conditions météorologiques) et doit être respectée impérativement. La
+limitation affichée prévaut sur la limitation habituelle de la section tant que
+le message est actif.
+
+2. DIFFUSION D'UN MESSAGE D'ÉVÉNEMENT TRAFIC
+--------------------------------------------
+Un message d'événement trafic est diffusé aux usagers :
+- via les panneaux à messages variables (PMV) implantés sur le réseau ;
+- via la radio autoroutière ;
+- via les services d'information trafic (sites, applications, partenaires).
+La diffusion s'effectue à partir d'une saisie validée au PC trafic, qui
+centralise la qualification de l'événement et le choix des messages.
+
+3. CONDUITE EN CAS DE FORT BROUILLARD
+-------------------------------------
+En cas de fort brouillard signalé sur une section, la conduite à tenir est :
+- activer les messages d'alerte sur les PMV ;
+- abaisser les limitations de vitesse adaptées à la visibilité ;
+- renforcer la surveillance de la section concernée ;
+- informer les usagers du danger réduisant la visibilité.
+L'objectif est de prévenir les sur-accidents liés à la perte de visibilité.
