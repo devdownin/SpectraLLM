@@ -597,7 +597,10 @@ curl -X POST "http://localhost:8080/api/ablation" -H "Content-Type: application/
 
 > **Métriques de retrieval** : `hitRate`/`mrr`/`recallAtK` ne sont calculées que pour les questions
 > du benchmark annotées d'un champ `expectedSources` — la liste des fichiers sources attendus (un
-> match = `sourceFile` contient le libellé, insensible à la casse). Exemple de ligne JSONL :
+> match = `sourceFile` contient le libellé, insensible à la casse). Le benchmark fourni
+> `highway_benchmark.jsonl` est **déjà annoté** et aligné sur le corpus `examples/highway/` : ingérez
+> ce corpus (cf. `examples/README.md`) pour activer ces métriques sans configuration. Exemple
+> de ligne JSONL :
 >
 > ```json
 > {"question": "...", "reference": "...", "category": "procedures", "answerable": true, "expectedSources": ["guide_securite", "procedure_intervention.pdf"]}

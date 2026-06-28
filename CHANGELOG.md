@@ -17,6 +17,7 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 - **Écran « Optimisation »** (frontend) : page dédiée et pédagogique — explication de chaque option, presets (gain du RAG, ablation cumulative, leave-one-out, gain du fine-tuning), tableau de deltas couleur, badges des modules déclenchés et légende des métriques.
 - Requêtes d'ablation émises à température 0 pour des deltas reproductibles.
 - `QualityBenchmarkService` : extraction de `judgeAnswer`, `aggregate` et `loadBenchmark` (réutilisés par l'ablation, découplage production/notation de la réponse).
+- **Benchmark annoté + corpus aligné** : `highway_benchmark.jsonl` enrichi d'`expectedSources` sur les 14 questions répondables, et nouveau corpus `examples/highway/` (4 documents : procédures, événements, nomenclature, réglementation) qui répond à ces questions — ingérez-le pour activer Hit@k/MRR/Recall@k sans configuration.
 
 ---
 
