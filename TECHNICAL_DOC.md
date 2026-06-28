@@ -985,7 +985,9 @@ frontend/
 │   │   ├── FineTuning.tsx    ← formulaire + step bar + historique API
 │   │   ├── Playground.tsx    ← chat RAG · sélecteur de modèle · sliders temp/top-p
 │   │   ├── Dashboard.tsx     ← 3 cartes (Chat · Embed · ChromaDB) + modèle actif
-│   │   └── Comparison.tsx    ← tableau comparatif modèles
+│   │   ├── Comparison.tsx    ← tableau comparatif modèles
+│   │   └── Optimization.tsx  ← ablation A/B (gain RAG/fine-tuning) + graphes recharts
+│   ├── components/charts/AblationCharts.tsx  ← barres ±σ, Pareto coût/qualité, waterfall
 │   ├── services/api.ts       ← client Axios /api/*
 │   ├── hooks/
 │   │   ├── useSse.ts         ← EventSource SSE
@@ -1014,6 +1016,13 @@ frontend/
 - Historique localStorage plafonné à 50 messages. `QuotaExceededError` → tentative à 25 messages, puis abandon silencieux.
 - Streaming via `POST /api/query/stream` (SSE) avec `AbortController` + `guardTimer` de 120 s.
 - Sliders temperature [0.0–2.0] et top-p [0.0–1.0] transmis dans le corps de la requête.
+
+**Optimization — ablation A/B des options :**
+- Presets : gain du RAG (LLM seul vs RAG), ablation cumulative, leave-one-out, gain du fine-tuning.
+- Appelle `POST /api/ablation` (`ablationApi.run`) avec timeout large (passage bloquant).
+- Tableau de deltas vs premier bras : couleur selon le sens d'amélioration, `±σ` par métrique, deltas non significatifs grisés (« ≈ ») quand `runs > 1`.
+- Colonne **Tokens contexte** (coût déterministe) en plus de la latence p50.
+- 3 graphes recharts (`AblationCharts`) + badges des modules déclenchés + export CSV.
 
 **Datasets / Comparison — fiabilité des polling :**
 - Compteur de failures par intervalle : arrêt automatique après 5 erreurs consécutives.
@@ -1099,6 +1108,44 @@ POST /api/fine-tuning/models/{name}/pull
   → Non supporté avec llama-cpp (lève UnsupportedOperationException)
     Les modèles doivent être gérés localement sous forme de GGUF
 ```
+
+### Évaluation, qualité et ablation
+
+```
+POST /api/evaluation/run
+  Évaluation LLM-as-a-judge sur un échantillon du dataset généré (5 %).
+
+POST /api/quality-benchmark            (?model=<nom> optionnel)
+POST /api/quality-benchmark/compare?baseline=<m1>&candidate=<m2>
+  Benchmark qualité du modèle BRUT sur le jeu tenu à l'écart
+  (exactitude + taux d'hallucination). Bascule temporaire du modèle actif.
+
+POST /api/benchmark/{rag|embedding|llm}   (?iterations=N&maxChunks=N)
+  Mesures de performance/latence des composants.
+
+POST /api/ablation
+  Corps (optionnel) :
+    {"runs": 3, "maxContextChunks": 5,
+     "arms": [
+       {"label": "...", "model": "phi3"|null, "useRag": true|false,
+        "overrides": {"rerank": true|false|null, "hybrid": ..., "multiQuery": ...,
+                      "corrective": ..., "compression": ..., "selfRag": ...,
+                      "adaptive": ..., "conversational": ...}}
+     ]}
+  Corps vide = matrice par défaut (LLM seul vs RAG sur le modèle actif).
+  Chaque question passe dans le PIPELINE RAG COMPLET (≠ /api/quality-benchmark
+  qui interroge le modèle brut). Réponse : un AblationArmReport par bras avec
+  quality (exactitude/hallucination/refus), retrieval (Hit@k/MRR/Recall@k vs
+  expectedSources), avgContextTokens, p50/avgLatencyMs, runs, stdDev (±σ par
+  métrique) et appliedCounts (modules réellement déclenchés).
+  overrides tri-état : null = défaut config, true = actif si dispo, false = inactif.
+```
+
+`RagAblationService` réutilise `QualityBenchmarkService` (`judgeAnswer`, `aggregate`,
+`loadBenchmark`) et `RagService.query(request, overrides)`. Les requêtes sont émises à
+température 0 ; avec `runs > 1`, les scalaires sont des moyennes et `stdDev` l'écart-type
+(échantillon N-1) pour distinguer un gain réel du bruit. Benchmark annoté + corpus aligné :
+`benchmarks/highway_benchmark.jsonl` ↔ `examples/highway/`.
 
 ### Commentaires d'articles (Article Commenting)
 
