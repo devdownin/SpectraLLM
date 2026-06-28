@@ -9,6 +9,7 @@ const Documentation: React.FC = () => {
     { id: 'pipeline',          title: 'Pipeline' },
     { id: 'commenting',        title: 'AI Comments' },
     { id: 'personalisation',   title: 'Personalization' },
+    { id: 'algorithms',        title: 'Theory & Algo' },
     { id: 'interface',         title: 'Interface' },
     { id: 'benchmark',         title: 'Benchmark' },
     { id: 'tips',              title: 'Tips' },
@@ -52,10 +53,106 @@ const Documentation: React.FC = () => {
         {activeTab === 'benchmark'       && sectionBenchmark()}
         {activeTab === 'tips'            && sectionTips()}
         {activeTab === 'troubleshooting' && sectionTroubleshooting()}
+        {activeTab === 'algorithms'      && sectionAlgorithms()}
       </div>
     </div>
   );
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+const sectionAlgorithms = () => (
+  <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-500">
+    <div className="bg-primary/10 border border-primary/30 rounded-xl p-8 space-y-4">
+      <div className="flex items-center gap-3 mb-2">
+        <span className="material-symbols-outlined text-2xl text-primary">school</span>
+        <h2 className="text-2xl font-headline font-bold text-foreground">Theory & Algorithms</h2>
+      </div>
+      <p className="text-sm text-foreground/80 leading-relaxed max-w-3xl">
+        A quick pedagogical overview of the algorithms powering Spectra.
+        <strong> No AI background required.</strong>
+      </p>
+    </div>
+
+    <div className="space-y-6">
+      {/* RAG vs Fine-Tuning */}
+      <div className="bg-card/50 border border-border/40 rounded-xl p-8 space-y-4">
+        <h3 className="text-lg font-headline font-bold text-foreground">1. RAG vs Fine-Tuning: The Virtuous Loop</h3>
+        <p className="text-sm text-muted-foreground leading-relaxed">
+          <strong className="text-foreground">RAG (Retrieval-Augmented Generation):</strong> Answering <em>now</em> by fetching the right excerpts. No re-training needed; knowledge stays external and instantly updatable.
+        </p>
+        <p className="text-sm text-muted-foreground leading-relaxed">
+          <strong className="text-foreground">Fine-tuning:</strong> Baking knowledge and style permanently into the model's weights.
+        </p>
+        <div className="bg-black/30 p-4 rounded-lg font-mono text-xs text-secondary leading-loose border border-border/20">
+          <p>Spectra uses RAG to <em>generate</em> a high-quality dataset, then uses that dataset to <em>fine-tune</em> the model, and then the fine-tuned model does <em>better RAG</em>.</p>
+        </div>
+      </div>
+
+      {/* Embeddings */}
+      <div className="bg-card/50 border border-border/40 rounded-xl p-8 space-y-4">
+        <h3 className="text-lg font-headline font-bold text-foreground">2. Representing Meaning: Embeddings</h3>
+        <p className="text-sm text-muted-foreground leading-relaxed">
+          An <strong className="text-foreground">embedding</strong> translates text into a list of numbers (a vector) so that <em>texts with similar meanings have similar vectors</em>. "The engine overheats" and "The motor temperature rises" end up close together, even with no words in common.
+        </p>
+      </div>
+
+      {/* Hybrid Search */}
+      <div className="bg-card/50 border border-border/40 rounded-xl p-8 space-y-4">
+        <h3 className="text-lg font-headline font-bold text-foreground">3. Hybrid Search (Vector + BM25)</h3>
+        <p className="text-sm text-muted-foreground leading-relaxed mb-3">
+          Vector search is great for meaning, but bad for exact technical terms (e.g. "Valve X-42"). <strong className="text-foreground">BM25</strong> is a keyword-matching algorithm (like traditional search engines). Spectra combines both.
+        </p>
+        <div className="bg-black/40 rounded-lg p-5 border border-border/20">
+          <p className="text-[10px] font-headline uppercase tracking-widest text-primary mb-3">Algorithm: Reciprocal Rank Fusion (RRF)</p>
+          <p className="text-xs text-muted-foreground leading-relaxed mb-3">
+            RRF merges the two ranked lists mathematically, rewarding documents that rank high in both without needing to balance arbitrary scores.
+          </p>
+          <code className="block bg-black/50 p-3 rounded font-mono text-xs text-foreground/80">
+            RRF_Score = 1 / (60 + rank_in_vectors) + 1 / (60 + rank_in_BM25)
+          </code>
+        </div>
+      </div>
+
+      {/* Jaccard & DPO */}
+      <div className="bg-card/50 border border-border/40 rounded-xl p-8 space-y-4">
+        <h3 className="text-lg font-headline font-bold text-foreground">4. Jaccard Filter (DPO Loop)</h3>
+        <p className="text-sm text-muted-foreground leading-relaxed mb-3">
+          For Direct Preference Optimization (DPO), we need a <em>chosen</em> (good) and a <em>rejected</em> (bad) answer. But if the bad answer is almost identical to the good one, the model learns nothing.
+        </p>
+        <div className="bg-black/40 rounded-lg p-5 border border-border/20">
+          <p className="text-[10px] font-headline uppercase tracking-widest text-primary mb-3">Algorithm: Jaccard Similarity</p>
+          <code className="block bg-black/50 p-3 rounded font-mono text-xs text-foreground/80 mb-3">
+            J(A, B) = |A ∩ B| / |A ∪ B|
+          </code>
+          <p className="text-xs text-muted-foreground">If the word overlap is greater than 85%, Spectra discards the pair.</p>
+        </div>
+      </div>
+
+      {/* RAG Strategies */}
+      <div className="bg-card/50 border border-border/40 rounded-xl p-8 space-y-4">
+        <h3 className="text-lg font-headline font-bold text-foreground">5. Advanced RAG Capabilities</h3>
+        <ul className="space-y-4">
+          <li className="flex gap-3">
+            <span className="material-symbols-outlined text-secondary shrink-0">psychology</span>
+            <div>
+              <p className="font-bold text-sm text-foreground">Agentic ReAct</p>
+              <p className="text-xs text-muted-foreground mt-1">Instead of fetching once, the LLM reasons in a loop: "I need X. I'll search. Ok, now I have X but need Y. I'll search again."</p>
+            </div>
+          </li>
+          <li className="flex gap-3">
+            <span className="material-symbols-outlined text-secondary shrink-0">compress</span>
+            <div>
+              <p className="font-bold text-sm text-foreground">Context Compression</p>
+              <p className="text-xs text-muted-foreground mt-1">Large chunks dilute the LLM's attention. Compression asks a fast LLM to extract <em>only</em> the sentences relevant to the question from each retrieved chunk before sending them to the main LLM.</p>
+            </div>
+          </li>
+        </ul>
+      </div>
+
+    </div>
+  </div>
+);
 
 // ─────────────────────────────────────────────────────────────────────────────
 

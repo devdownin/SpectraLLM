@@ -144,6 +144,11 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 #### Pipeline chat / RAG
 
+- **Interface Utilisateur : Améliorations Pédagogiques**
+  - **Playground (Mode Trace)** : Ajout d'une fenêtre modale permettant de visualiser la stratégie RAG utilisée, les optimisations déclenchées, et les extraits sources finaux envoyés au LLM.
+  - **Dashboard** : Remplacement de la simple liste des évaluations récentes par un graphique d'évolution (`recharts`) permettant d'apprécier la progression de la qualité du modèle au fil des cycles de fine-tuning.
+  - **Optimisation** : Remplacement des info-bulles basiques par des info-bulles riches expliquant de manière pédagogique le sens des métriques (Hit@k, MRR, Taux d'hallucination).
+  - **Documentation** : Ajout d'un onglet "Théorie & Algorithmes" dans l'UI reprenant les éléments clés de la documentation pédagogique (RAG, Embeddings, Recherche Hybride, filtre Jaccard).
 - **`POST /api/query/stream`** : nouvel endpoint SSE manquant — le Playground était entièrement cassé (404 à chaque message)
   - `RagService.retrieveContext()` extrait la phase retrieval (embed → ChromaDB → re-rank → build sources) ; `query()` et `queryStream()` s'appuient dessus
   - `queryStream()` émet les events SSE `sources → token* → done | error` via `LlmChatClient.chatStream()`

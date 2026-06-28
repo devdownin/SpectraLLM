@@ -745,6 +745,14 @@ Each arm reports three families of metrics:
 | **Cost** | context tokens (deterministic) + p50/avg latency |
 
 - **Per-module ablation**: each arm can force any RAG module on/off via `overrides` (tri-state) — `rerank`, `hybrid`, `multiQuery`, `corrective`, `compression`, `selfRag`, `adaptive`, `conversational`. `appliedCounts` confirms a module actually fired.
+
+### Algorithm Trace (Playground)
+
+To demystify the retrieval pipeline, the Playground features a **Trace** mode. For every generated answer, you can click "Trace" to inspect exactly how the AI reached its conclusion:
+- Which **RAG strategy** was used (e.g., Agentic loop, Standard, Direct).
+- How many iterations the agentic loop took.
+- Which **optimizations** were triggered (Hybrid Search, Multi-Query, Context Compression, etc.).
+- The **exact source passages** that were fed into the prompt after filtering and reranking.
 - **Two axes**: RAG gain (`useRag` false vs. true) and fine-tuning gain (`model` base vs. fine-tuned).
 - **Confidence**: set `runs` (1–10) to repeat each arm → mean ± std per metric; non-significant deltas (≤ combined σ) are flagged.
 
@@ -913,7 +921,7 @@ All settings have environment variable overrides. The table below shows the most
 | Layer | Technology | Why |
 |---|---|---|
 | **Backend** | Java 25 + Spring Boot 4.1 | Virtual threads, mature ecosystem, strong typing |
-| **Frontend** | React 19 + Vite + Tailwind CSS v4 | Fast builds, component model, utility CSS |
+| **Frontend** | React 19 + Vite + Tailwind CSS v4 + Recharts | Fast builds, component model, utility CSS, rich visualizations |
 | **Inference** | llama.cpp (GGUF) | CPU+GPU, quantization support, OpenAI-compatible |
 | **Vector DB** | ChromaDB | Embedded or standalone, simple HTTP API |
 | **Full-text** | BM25Okapi (custom Java) | No external dependency, same JVM, thread-safe |

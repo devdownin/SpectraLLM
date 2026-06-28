@@ -1,6 +1,7 @@
 import type { FC } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import { LineChart, Line, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from 'recharts';
 import { useStatus } from '../hooks/useStatus';
 import { datasetApi, gedApi, commentApi, metricsApi } from '../services/api';
 import Skeleton from '../components/Skeleton';
@@ -765,57 +766,41 @@ const Dashboard: FC = () => {
               </div>
             )}
 
-            {/* Recent evaluations */}
-            {(personalizationMetrics?.evaluations.length ?? 0) > 0 && (
-              <div className="bg-surface-container p-4 space-y-3">
-                <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant">
-                  Recent evaluations
+            {/* Evaluations trend chart */}
+            {(personalizationMetrics?.evaluations.filter(e => e.status === 'COMPLETED').length ?? 0) > 0 && (
+              <div className="bg-surface-container p-4 space-y-3 flex flex-col h-full">
+                <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant flex items-center justify-between">
+                  <span>Score Evolution</span>
+                  <button type="button" onClick={() => navigate('/comparison')} className="hover:text-primary transition-colors flex items-center gap-1">
+                     <span className="material-symbols-outlined text-[11px]">open_in_new</span> Details
+                  </button>
                 </p>
-                <div className="space-y-2">
-                  {(personalizationMetrics!.evaluations)
-                    .filter(e => e.status === 'COMPLETED')
-                    .slice()
-                    .reverse()
-                    .slice(0, 4)
-                    .map((ev, i, arr) => {
-                      const prev = arr[i + 1];
-                      const delta = prev ? ev.averageScore - prev.averageScore : null;
-                      const scoreColor = ev.averageScore >= 7 ? 'text-primary' : ev.averageScore >= 4 ? 'text-secondary' : 'text-error';
-                      return (
-                        <div key={i} className="flex items-center justify-between gap-2 py-1.5 border-b border-outline-variant/10 last:border-0">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className="material-symbols-outlined text-[11px] text-outline shrink-0">analytics</span>
-                            <div className="w-24 bg-surface-container-high h-1">
-                              <div
-                                className={`h-1 ${scoreColor.replace('text-', 'bg-')} transition-all`}
-                                style={{ width: `${(ev.averageScore / 10) * 100}%` }}
-                              />
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <span className={`font-headline font-bold text-xs ${scoreColor}`}>
-                              {ev.averageScore.toFixed(1)}
-                            </span>
-                            {delta !== null && (
-                              <span className={`text-[8px] font-bold ${delta >= 0 ? 'text-primary' : 'text-error'}`}>
-                                {delta >= 0 ? '▲' : '▼'}{Math.abs(delta).toFixed(1)}
-                              </span>
-                            )}
-                            <span className="text-[8px] text-outline w-6 text-right">
-                              {relativeTime(ev.completedAt)}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
+                <div className="flex-1 w-full mt-2 min-h-[140px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart
+                      data={personalizationMetrics!.evaluations
+                        .filter(e => e.status === 'COMPLETED')
+                        // Keep oldest to newest for the chart (left to right)
+                        .map((ev, i) => ({
+                          name: `Eval ${i + 1}`,
+                          score: Number(ev.averageScore.toFixed(2)),
+                          date: ev.completedAt ? new Date(ev.completedAt).toLocaleDateString() : 'N/A',
+                        }))}
+                      margin={{ top: 15, right: 10, left: -25, bottom: 0 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--color-outline-variant)" opacity={0.2} vertical={false} />
+                      <XAxis dataKey="name" tick={{ fontSize: 9, fill: 'var(--color-on-surface-variant)' }} axisLine={false} tickLine={false} />
+                      <YAxis domain={[0, 10]} tick={{ fontSize: 9, fill: 'var(--color-on-surface-variant)' }} axisLine={false} tickLine={false} tickCount={6} />
+                      <RechartsTooltip
+                        contentStyle={{ backgroundColor: 'var(--color-surface-container-high)', border: '1px solid var(--color-outline-variant)', borderRadius: '4px', fontSize: '11px', color: 'var(--color-on-surface)' }}
+                        itemStyle={{ color: 'var(--color-primary)' }}
+                        labelStyle={{ color: 'var(--color-on-surface-variant)', marginBottom: '4px' }}
+                      />
+                      <ReferenceLine y={7} stroke="var(--color-secondary)" strokeDasharray="3 3" opacity={0.3} label={{ position: 'insideTopLeft', value: 'Good', fill: 'var(--color-secondary)', fontSize: 9, opacity: 0.5 }} />
+                      <Line type="monotone" dataKey="score" stroke="var(--color-primary)" strokeWidth={2} dot={{ r: 3, fill: 'var(--color-primary)' }} activeDot={{ r: 5, fill: 'var(--color-primary)', stroke: 'var(--color-surface)', strokeWidth: 2 }} />
+                    </LineChart>
+                  </ResponsiveContainer>
                 </div>
-                <button
-                  onClick={() => navigate('/comparison')}
-                  className="text-[9px] font-label font-bold uppercase tracking-widest text-primary hover:text-primary/70 transition-colors flex items-center gap-1"
-                >
-                  <span className="material-symbols-outlined text-[11px]">arrow_forward</span>
-                  View all evaluations
-                </button>
               </div>
             )}
 
