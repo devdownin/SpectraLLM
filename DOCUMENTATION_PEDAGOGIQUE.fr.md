@@ -32,7 +32,8 @@
 11. [L'auto‑réglage matériel](#11)
 12. [Tenir en production : résilience et concurrence](#12)
 13. [Déployer : de Docker à GKE](#13)
-14. [Glossaire et pour aller plus loin](#14)
+14. [Comparer les algorithmes : forces, faiblesses et lecture des résultats](#14)
+15. [Glossaire et pour aller plus loin](#15)
 
 ---
 
@@ -739,7 +740,249 @@ avez un nœud GPU, l'overlay dédié bascule l'inférence chat sur GPU.
 ---
 
 <a name="14"></a>
-## 14. Glossaire et pour aller plus loin
+## 14. Comparer les algorithmes : forces, faiblesses et lecture des résultats
+
+Les chapitres précédents ont présenté chaque brique **isolément**. Mais dans la
+vraie vie, on ne choisit pas « le » bon algorithme dans l'absolu : on arbitre,
+pour **un besoin donné**, entre des familles concurrentes. Ce chapitre fait la
+**synthèse comparative** que les autres laissaient implicite. Il répond à trois
+questions pratiques :
+
+1. **Quand** privilégier tel algorithme plutôt qu'un autre ? (forces / faiblesses)
+2. **Que coûte** ce choix ? (latence, mémoire, complexité)
+3. **Comment lire** les chiffres pour décider, sans se faire piéger ?
+
+> 🧭 **Fil rouge.** Presque tous les arbitrages de Spectra sont une variante du
+> même compromis : **rappel ↔ précision ↔ coût**. Élargir la recherche augmente
+> le rappel mais fait entrer du bruit ; affiner augmente la précision mais coûte
+> du temps ou de la mémoire. Garder ce triangle en tête suffit à comprendre 90 %
+> des décisions ci‑dessous.
+
+---
+
+### 14.1 Comparer les moteurs de recherche (retrieval)
+
+Quatre approches se superposent dans Spectra. Elles ne sont **pas
+interchangeables** : chacune rattrape une faiblesse de la précédente.
+
+| Approche | Force principale | Faiblesse principale | Coût | Échelle de score |
+|---|---|---|---|---|
+| **Vectoriel (cosinus)** | comprend le **sens**, gère synonymes et paraphrases | « dilue » les termes exacts (réf., acronymes, chiffres) ; dépend de la qualité de l'embedding | moyen (index HNSW) | `[0,1]` continu |
+| **Lexical (BM25)** | verrouille le **mot exact**, rare et discriminant ; explicable | aveugle aux synonymes ; sensible à l'orthographe | faible | non borné, dépend du corpus |
+| **Hybride + RRF** | cumule sens **et** exactitude ; robuste | ne crée pas d'information : si les deux ratent, RRF rate aussi | faible (fusion de rangs) | rang, pas score |
+| **+ Cross‑encodeur (rerank)** | **précision** maximale sur le top‑k | coûteux ; ne s'applique qu'à une présélection (ne « rattrape » pas un bon doc absent du top‑n) | élevé | score de paire |
+
+💡 **Comment les lire ensemble.** Le pipeline n'est pas « choisir l'un », mais
+**enchaîner** : vectoriel + BM25 ratissent large (haut **rappel**), RRF
+réconcilie, le cross‑encodeur trie fin (haute **précision**). Chaque étage
+corrige le défaut du précédent.
+
+⚙️ **Le piège à comprendre : on ne peut pas re‑ranker ce qu'on n'a pas
+récupéré.** Le cross‑encodeur ne voit que les `n` candidats (ex. 20) que la
+recherche hybride lui passe. Si le bon chunk est au rang 35, **aucun** re‑ranking
+ne le fera remonter. Conséquence pratique :
+
+```
+si une réponse correcte existe mais n'apparaît jamais → problème de RAPPEL
+    → augmenter n (présélection), ef_search, ou activer BM25
+si le bon chunk est présent mais mal classé → problème de PRÉCISION
+    → renforcer le re‑ranking (cross‑encodeur), réduire le top‑k final
+```
+
+🎯 **Diagnostic type.** Une question sur « roulement 6204‑ZZ » échoue. Vous
+inspectez les candidats : la référence exacte n'est dans **aucun** des 20 → c'est
+le **rappel** qui pèche (le vectoriel a dilué « 6204‑ZZ »). Solution : s'assurer
+que BM25 est bien dans la fusion, pas pousser le re‑ranking.
+
+---
+
+### 14.2 Comparer les six stratégies RAG
+
+Le chapitre 6 les listait ; voici **pourquoi** et **quand** chacune gagne — et ce
+qu'elle peut **casser**.
+
+| Stratégie | Gagne quand… | Faiblesse / risque | Coût (appels LLM) | Latence |
+|---|---|---|---|---|
+| **Standard** | la question est factuelle et bien posée | rate les questions vagues ou multi‑étapes | 1 | ⚡ faible |
+| **Multi‑Query** | la question est vague/polysémique | génère du bruit si les reformulations dérivent | 1 + N (reformulations) | moyenne |
+| **Agentic / ReAct** | question multi‑étapes, comparaison | peut **boucler** ou sur‑raisonner ; non déterministe | plusieurs tours | 🐢 élevée |
+| **Adaptive** | trafic mixte (court + complexe) | dépend de la qualité du **classifieur** de routage | 1 (routage) + coût de la branche | variable |
+| **Corrective (CRAG)** | corpus incomplet, anti‑hallucination | l'évaluation de pertinence ajoute un appel ; peut sur‑filtrer | 2+ | moyenne |
+| **Self‑RAG** | exigence de **traçabilité** | l'auto‑critique peut être complaisante (le modèle se juge lui‑même) | 2+ | moyenne |
+
+🧠 **La vraie question n'est pas « laquelle est la meilleure »** mais « quel est le
+**profil de mes questions** ? ». Sur un trafic homogène et factuel, **Standard**
+bat tout le monde au rapport qualité/coût ; **Adaptive** n'a d'intérêt que si le
+trafic est **hétérogène** (sinon on paie un classifieur pour rien). Agentic ne se
+justifie que si une part réelle des questions est **composée** — autrement, on
+dépense 3× le calcul pour le même résultat.
+
+⚙️ **Comment décider par la mesure.** Faites tourner le **même** jeu de questions
+sur deux stratégies et comparez trois colonnes :
+
+```
+              note LLM‑juge   taux d'hallucination   latence p50
+Standard          7,9               6 %                 0,8 s
+Agentic           8,1              4 %                 3,4 s
+```
+
+Ici Agentic gagne +0,2 point pour **4×** la latence : sur un trafic factuel, ce
+n'est **pas** rentable. La décision se lit dans l'écart de note **rapporté** au
+surcoût, jamais sur la note seule.
+
+---
+
+### 14.3 Comparer les méthodes d'apprentissage
+
+Deux décisions distinctes, souvent confondues : **(A)** faut‑il fine‑tuner ou
+faire du RAG ? **(B)** si fine‑tuning, quelle méthode ?
+
+#### A. RAG vs Fine‑tuning — ce sont des outils différents, pas des rivaux
+
+| Critère | **RAG** | **Fine‑tuning** |
+|---|---|---|
+| Type de savoir | **faits** volatils, qui changent | **comportement** : style, ton, format, abstention |
+| Mise à jour | instantanée (ré‑indexer) | lente (ré‑entraîner) |
+| Fraîcheur | toujours à jour | « gravé », vieillit |
+| Coût marginal | par requête (recherche) | en amont (entraînement), puis quasi nul |
+| Traçabilité | excellente (sources citées) | faible (savoir dilué dans les poids) |
+| Risque | docs hors‑sujet → mauvaise réponse | sur‑apprentissage, oubli catastrophique |
+
+🧠 **Règle de Spectra.** Un fait qui peut changer demain (nomenclature, événement)
+**ne doit jamais** être fine‑tuné — il serait figé et faux. Il reste au RAG. À
+l'inverse, « répondre dans le style maison » ou « savoir s'abstenir » sont des
+**comportements** : le RAG ne les apprend pas, le fine‑tuning oui. Le levier
+`spectra.fine-tuning.sft-excluded-categories` matérialise exactement cette
+frontière.
+
+#### B. SFT vs DPO vs ORPO
+
+| Méthode | Apprend | Besoin d'un modèle de référence | Données | Coût | Choisir quand |
+|---|---|---|---|---|---|
+| **SFT** | à **imiter** les bonnes réponses | non | `{prompt, réponse}` | faible | poser le format, le ton, l'abstention |
+| **DPO** | à **préférer** *chosen* à *rejected* | **oui** (mémoire doublée) | `{prompt, chosen, rejected}` | moyen | affiner des préférences **après** un bon SFT |
+| **ORPO** | imitation **+** préférence en **une passe** | **non** | `{prompt, chosen, rejected}` | faible | alternative légère au couple SFT→DPO |
+
+💡 **L'arbitrage clé.** DPO suppose un SFT préalable réussi **et** charge un
+second modèle figé en mémoire. ORPO fait les deux en un, **sans** référence :
+plus léger, souvent meilleur sur petits modèles. D'où le choix de Spectra de
+**proposer ORPO** comme voie par défaut quand la VRAM est comptée.
+
+⚠️ **Faiblesse commune à DPO/ORPO.** Le signal de préférence n'existe que si
+*chosen* et *rejected* **diffèrent vraiment** (garde Jaccard > 0,85 → paire
+rejetée). Deux réponses quasi identiques n'apprennent **rien** et bruitent
+l'entraînement.
+
+---
+
+### 14.4 Comment interpréter les résultats (sans se faire piéger)
+
+Comparer des algorithmes ne vaut que si l'on **lit les bons chiffres correctement**.
+Voici les métriques de Spectra, ce qu'elles disent — et leurs pièges.
+
+#### A. Métriques de recherche
+
+| Métrique | Question à laquelle elle répond | Se dégrade quand… |
+|---|---|---|
+| **Recall@k** | « le bon doc est‑il dans les `k` premiers ? » | présélection trop étroite, `ef_search` trop bas |
+| **Precision@k** | « parmi les `k`, combien sont pertinents ? » | re‑ranking absent ou faible |
+| **MRR** | « à quel **rang** arrive le premier bon doc ? » | bon doc présent mais mal classé |
+| **nDCG** | « les meilleurs sont‑ils **en haut** ? » (rang pondéré) | ordre imparfait du top‑k |
+
+🧠 **Le couple qui ment si on le lit seul.** Le **rappel** seul se maximise en
+renvoyant *tout* (rappel = 100 %, précision ridicule). La **précision** seule se
+maximise en ne renvoyant qu'un doc ultra‑sûr (précision = 100 %, rappel
+catastrophique). **Toujours les lire ensemble** : on cherche un rappel élevé en
+présélection **puis** une précision élevée après re‑ranking.
+
+#### B. Métriques de génération / modèle
+
+```
+note LLM‑juge (1‑10)   → qualité perçue d'une réponse vs question + sources
+taux d'hallucination   → % de réponses inventées là où le modèle DEVAIT s'abstenir
+eval_loss (par époque) → suit le sur‑apprentissage pendant le fine‑tuning
+latence p50 / p95      → temps de réponse typique / pire cas
+```
+
+⚠️ **Piège n°1 — la fuite de données (le plus grave).** Évaluer un modèle
+fine‑tuné sur des exemples **issus de son dataset d'entraînement** donne des notes
+artificiellement hautes : il les a *déjà vus*. C'est pourquoi Spectra mesure sur
+un **benchmark tenu à l'écart, jamais entraîné** (`benchmarks/highway_benchmark.jsonl`).
+**Toute comparaison de modèles doit utiliser ce jeu, pas un échantillon du
+dataset.**
+
+⚠️ **Piège n°2 — la note moyenne qui cache l'hallucination.** Un modèle peut
+gagner +1 point de note moyenne **tout en hallucinant davantage** (il répond avec
+assurance là où il devrait se taire). C'est pourquoi note **et** taux
+d'hallucination se lisent **ensemble** : une hausse de note accompagnée d'une
+hausse d'hallucination est un **mauvais** échange pour un assistant RAG.
+
+⚠️ **Piège n°3 — le juge est un LLM.** Le LLM‑juge a des biais (préférence pour
+les réponses longues, complaisance). Il est fiable pour **comparer deux versions
+sur le même jeu** (les biais s'annulent), beaucoup moins pour donner une note
+« absolue ». Lisez‑le toujours en **différentiel** (avant/après), pas en valeur
+nue.
+
+⚠️ **Piège n°4 — `eval_loss` qui remonte.** Si la perte de validation **remonte**
+pendant que la perte d'entraînement baisse, c'est le signe classique du
+**sur‑apprentissage** : le modèle mémorise au lieu de généraliser. Arrêtez plus
+tôt (early stopping) ou réduisez le nombre d'époques. C'est précisément ce que le
+`--val-split` permet de surveiller (§ 9).
+
+#### C. Lire une comparaison « base vs fine‑tuné »
+
+L'endpoint `/api/quality-benchmark/compare` rejoue le **même** benchmark sur les
+deux modèles. La bonne lecture tient en une grille de décision :
+
+```
+exactitude ↑  ET  hallucination ↓   → PROMOUVOIR (gain net, sans contrepartie)
+exactitude ↑  ET  hallucination ↑   → PRUDENCE : il répond mieux mais ment plus
+exactitude ≈  ET  hallucination ↓   → PROMOUVOIR si la fiabilité prime
+exactitude ↓                        → NE PAS PROMOUVOIR (régression)
+latence ↑↑ sans gain de qualité     → NE PAS PROMOUVOIR (coût pur)
+```
+
+🎯 **Exemple d'usage complet.** Vous comparez le modèle de base et un fine‑tuné
+sur les 50 questions du benchmark tenu à l'écart :
+
+| Mesure | Base | Fine‑tuné | Lecture |
+|---|---|---|---|
+| Note LLM‑juge (différentiel) | 6,8 | 8,1 | **+1,3** : nette amélioration |
+| Taux d'hallucination | 18 % | 7 % | **−11 pts** : les exemples de refus paient |
+| Latence p50 | 0,9 s | 0,9 s | stable |
+
+→ Les deux indicateurs de qualité s'améliorent **sans** coût de latence :
+décision claire, on **promeut** le modèle fine‑tuné. Si l'hallucination était au
+contraire **montée** à 25 %, on aurait gardé la base malgré la meilleure note —
+parce que pour un assistant RAG, **mentir avec assurance est pire que répondre
+modestement**.
+
+---
+
+### 14.5 Mémo de décision (à garder sous la main)
+
+| Vous voulez… | Levier le plus efficace |
+|---|---|
+| Retrouver un terme exact (réf., code) | activer/renforcer **BM25** dans la fusion |
+| Capter les synonymes, le sens | **vectoriel** + bon embedding |
+| Moins de bruit dans le top‑k final | **cross‑encodeur** (rerank), réduire le top‑k |
+| Récupérer des bons docs « oubliés » | ↑ `n` présélection, ↑ `ef_search` |
+| Répondre vite à du factuel | RAG **Standard** |
+| Traiter des questions composées | **Agentic/ReAct** (si le trafic le justifie) |
+| Réduire les hallucinations | exemples de **refus** (§8.B) + **CRAG** + alignement **ORPO** |
+| Injecter un savoir **volatil** | **RAG** (jamais le fine‑tuning) |
+| Imposer un **style/comportement** | **SFT**, puis **ORPO** si VRAM comptée |
+| Décider de promouvoir un modèle | benchmark **tenu à l'écart** : note **et** hallucination |
+
+> 🧭 **À retenir.** Il n'y a pas d'algorithme « meilleur » dans l'absolu — il y a
+> un compromis **rappel ↔ précision ↔ coût** adapté à *votre* trafic et *vos*
+> données. Et un chiffre ne se lit jamais seul : rappel **avec** précision, note
+> **avec** hallucination, gain **rapporté** au surcoût.
+
+---
+
+<a name="15"></a>
+## 15. Glossaire et pour aller plus loin
 
 | Terme | En une phrase |
 |-------|---------------|
@@ -758,6 +1001,13 @@ avez un nœud GPU, l'overlay dédié bascule l'inférence chat sur GPU.
 | **DPO** | Apprentissage par préférences (bonne vs mauvaise réponse). |
 | **LoRA / QLoRA** | Affinage léger via petites matrices (+ quantization 4 bits). |
 | **LLM‑as‑a‑Judge** | Un LLM note la qualité d'une réponse. |
+| **ORPO** | Imitation + préférence en une passe, sans modèle de référence. |
+| **Recall@k** | Le bon document est‑il dans les `k` premiers résultats ? |
+| **Precision@k** | Parmi les `k` résultats, quelle part est pertinente ? |
+| **MRR** | Rang moyen (inverse) du premier bon résultat. |
+| **nDCG** | Qualité du **classement** : les meilleurs sont‑ils en haut ? |
+| **Sur‑apprentissage** | Le modèle mémorise au lieu de généraliser (`eval_loss` remonte). |
+| **Fuite de données** | Évaluer sur des exemples déjà vus à l'entraînement → notes faussées. |
 | **Circuit breaker** | Coupe‑circuit qui isole un service défaillant. |
 | **Thread virtuel** | Fil d'exécution ultra‑léger, idéal pour l'attente réseau. |
 
@@ -767,8 +1017,9 @@ avez un nœud GPU, l'overlay dédié bascule l'inférence chat sur GPU.
 - *Fusion de classements* — **Reciprocal Rank Fusion**.
 - *Raisonnement‑action* — **ReAct**.
 - *RAG robuste* — **Corrective RAG (CRAG)** et **Self‑RAG**.
-- *Préférences* — **Direct Preference Optimization (DPO)**.
+- *Préférences* — **Direct Preference Optimization (DPO)** et **ORPO** (odds‑ratio).
 - *Affinage efficace* — **LoRA** et **QLoRA**.
+- *Évaluation du retrieval* — **Recall@k**, **Precision@k**, **MRR**, **nDCG**.
 
 ---
 
