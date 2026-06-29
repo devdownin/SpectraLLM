@@ -925,6 +925,56 @@ GPU, batch moyen. Sur un serveur avec un GPU 24 Go : toutes les couches sur GPU,
 grande fenêtre de contexte, gros batch — **sans changer un seul fichier de
 configuration**.
 
+### Choisir le bon modèle de base : le conseiller `llmfit` et l'écran *Model Hub*
+💡 **Intuition.** L'auto‑réglage règle les *paramètres* d'un modèle… encore faut‑il
+avoir choisi **un modèle qui tient sur la machine**. Un GGUF trop gros pour la
+RAM/VRAM ne se charge pas (ou *swappe* et devient inutilisable). Plutôt que de
+laisser l'utilisateur deviner, Spectra propose un **conseiller de modèles** : « quel
+LLM tournera bien chez moi ? »
+
+⚙️ **Comment ça marche (`llmfit` + écran *Model Hub*).** L'API délègue à l'outil
+externe **`llmfit`**, invoqué en sous‑processus (mode `--json`). À partir des
+**contraintes matérielles détectées** (VRAM GPU, RAM système, cœurs CPU), il renvoie
+une liste de modèles compatibles, chacun **noté** :
+- un **score de fit** (0–100) et un **niveau** (`Perfect` / `Good` / `Marginal` /
+  `Too Tight`) ;
+- la **meilleure quantization** (`best_quant`), le **mode d'exécution** (`GPU`/`CPU`),
+  la **vitesse estimée** (tokens/s) et la **mémoire requise** (Go) ;
+- des **composantes de score** (fit, qualité, vitesse) affichées en barres.
+
+```text
+recommandations = llmfit recommend --json --limit N [--memory VRAM] [--ram RAM] [--cpu-cores K]
+pour chaque modèle :  score, fit_level, best_quant, estimated_tps, memory_required_gb
+```
+
+L'écran **Model Hub** (frontend) présente ces recommandations sous forme de cartes,
+avec trois leviers :
+- **Filtre** par niveau (`Perfect`…`Marginal`, ou « exécutables » = tout sauf
+  `Too Tight`) et nombre de résultats ;
+- **Simulateur matériel** : saisir une VRAM / RAM / nb de cœurs **hypothétiques**
+  pour répondre à « et si j'achetais un GPU 24 Go ? » sans changer de machine ;
+- **Installer** : `llmfit download <modèle> --quant <best_quant>` télécharge le GGUF
+  avec une **barre de progression en temps réel** (flux SSE), le **copie dans le
+  volume partagé** `data/models/`, l'**enregistre au registre** et — si
+  *auto‑activation* est cochée — le désigne comme modèle actif.
+
+🧠 **Pourquoi un outil dédié plutôt qu'une simple liste ?** Le « bon » modèle dépend
+du matériel **réel** : un 8 B q4 est `Perfect` sur un GPU 12 Go mais `Too Tight` sur
+un portable 8 Go. En croisant taille, quantization et ressources, `llmfit` évite
+l'essai‑erreur (télécharger plusieurs Go pour découvrir que ça ne charge pas) et
+relie le choix au **dimensionnement** ci‑dessous.
+
+⚠️ **Cohérence des volumes.** Le modèle est copié dans `data/models/`, qui **doit**
+être le volume monté par le conteneur `llm-chat`. En mode conteneurs séparés,
+servir un modèle fraîchement installé demande un `docker compose restart llm-chat`
+(l'écran le rappelle après chaque installation).
+
+🎯 **Exemple d'usage.** Sur un portable 16 Go sans GPU, *Model Hub* classe en tête
+un 3‑4 B en q4 (`Good`, ~12 tok/s, ~3 Go requis) et grise les 13 B (`Too Tight`).
+L'utilisateur clique **Installer** ; la barre progresse jusqu'à 100 %, le GGUF
+atterrit dans `data/models/`, est enregistré, et après un redémarrage de `llm-chat`
+il est servi — **sans avoir tâtonné** entre plusieurs téléchargements.
+
 ### Dimensionner : combien de mémoire pour combien de documents ?
 💡 L'auto‑réglage choisit les paramètres, mais c'est à vous de provisionner la
 machine. Trois postes de mémoire sont à distinguer — ils ne vivent pas au même
@@ -1434,6 +1484,9 @@ l'hallucination doivent progresser — ou au moins ne pas régresser — **ensem
 | **nDCG** | Qualité du **classement** : les meilleurs sont‑ils en haut ? |
 | **Sur‑apprentissage** | Le modèle mémorise au lieu de généraliser (`eval_loss` remonte). |
 | **Fuite de données** | Évaluer sur des exemples déjà vus à l'entraînement → notes faussées. |
+| **`llmfit`** | Conseiller qui recommande/installe les modèles adaptés au matériel. |
+| **Score de fit** | Note (0–100) d'adéquation d'un modèle au matériel ; niveau `Perfect`…`Too Tight`. |
+| **Model Hub** | Écran de choix/installation du modèle de base (propulsé par `llmfit`). |
 | **Circuit breaker** | Coupe‑circuit qui isole un service défaillant. |
 | **Thread virtuel** | Fil d'exécution ultra‑léger, idéal pour l'attente réseau. |
 
