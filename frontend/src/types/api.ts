@@ -135,6 +135,29 @@ export interface EvaluationReport {
   completedAt: string | null;
 }
 
+// ── Comparaison multi-modèles ────────────────────────────────────────────────
+
+export interface ModelComparisonEntry {
+  evalId: string;
+  modelName: string;
+  status: string;
+  processed: number;
+  averageScore: number;
+  scoresByCategory: Record<string, number>;
+  completedAt: string | null;
+  trainedOnDocs: number;
+  evaluatedOnDocs: number;
+  baseline: boolean;
+  deltaVsBaseline: number;
+  deltaByCategory: Record<string, number>;
+}
+
+export interface ModelComparisonReport {
+  baselineModel: string;
+  categories: string[];
+  models: ModelComparisonEntry[];
+}
+
 // ── Ablation / optimisation des réponses ──────────────────────────────────────
 
 /** Surcharges tri-état des modules d'optimisation RAG (null = défaut de déploiement). */

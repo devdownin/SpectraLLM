@@ -6,7 +6,11 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import fr.spectra.dto.EvaluationReport;
 import fr.spectra.dto.EvaluationRequest;
 import fr.spectra.dto.EvaluationScore;
+import fr.spectra.dto.ModelComparisonReport;
+import fr.spectra.dto.ModelComparisonReport.ModelComparisonEntry;
 import fr.spectra.model.TrainingPair;
+import fr.spectra.persistence.DocumentModelLinkEntity;
+import fr.spectra.persistence.DocumentModelLinkRepository;
 import fr.spectra.service.dataset.DatasetGeneratorService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,6 +63,7 @@ public class EvaluationService {
 
     private final DatasetGeneratorService datasetGenerator;
     private final LlmChatClient chatClient;
+    private final DocumentModelLinkRepository linkRepository;
     private final Path workDir;
     private final Map<String, EvaluationReport> reports = new ConcurrentHashMap<>();
     private final Set<String> cancelledEvals = ConcurrentHashMap.newKeySet();
@@ -69,14 +74,16 @@ public class EvaluationService {
 
     public EvaluationService(DatasetGeneratorService datasetGenerator,
                               LlmChatClient chatClient,
+                              DocumentModelLinkRepository linkRepository,
                               @Value("${spectra.fine-tuning.work-dir:./data/fine-tuning}") String workDir) {
         this.datasetGenerator = datasetGenerator;
         this.chatClient = chatClient;
+        this.linkRepository = linkRepository;
         this.workDir = Path.of(workDir);
     }
 
     @PostConstruct
-    private void init() {
+    void init() {
         reportsFile = workDir.resolve("evaluations.json");
         if (Files.exists(reportsFile)) {
             try {
@@ -118,6 +125,91 @@ public class EvaluationService {
 
     public List<EvaluationReport> getAllReports() {
         return new ArrayList<>(reports.values());
+    }
+
+    /**
+     * Compare plusieurs rapports d'évaluation pour mesurer les gains et différences
+     * de performance entre modèles personnalisés.
+     *
+     * <p>Calcule, pour chaque modèle, le delta de score (global et par catégorie) par
+     * rapport à un modèle de référence, et y rattache le nombre de documents qui ont
+     * nourri le modèle (liens GED {@code TRAINED_ON} / {@code EVALUATED_ON}).
+     *
+     * @param evalIds    identifiants des évaluations à comparer (≥ 1)
+     * @param baselineId évaluation de référence pour les deltas ; si absente de la
+     *                   sélection, le modèle ayant le meilleur score global est retenu
+     * @return rapport de comparaison, entrées triées par score global décroissant
+     * @throws IllegalArgumentException si {@code evalIds} est vide
+     * @throws NoSuchElementException   si un identifiant est inconnu
+     */
+    public ModelComparisonReport compareReports(List<String> evalIds, String baselineId) {
+        if (evalIds == null || evalIds.isEmpty()) {
+            throw new IllegalArgumentException("Au moins un evalId est requis pour comparer.");
+        }
+
+        List<EvaluationReport> selected = new ArrayList<>();
+        for (String id : evalIds) {
+            EvaluationReport report = reports.get(id);
+            if (report == null) {
+                throw new NoSuchElementException("Évaluation inconnue : " + id);
+            }
+            selected.add(report);
+        }
+
+        EvaluationReport baseline = selected.stream()
+                .filter(r -> r.evalId().equals(baselineId))
+                .findFirst()
+                .orElseGet(() -> selected.stream()
+                        .max(Comparator.comparingDouble(EvaluationReport::averageScore))
+                        .orElse(selected.get(0)));
+
+        // Union ordonnée des catégories rencontrées (préserve l'ordre d'apparition).
+        Set<String> categories = new LinkedHashSet<>();
+        selected.forEach(r -> categories.addAll(r.scoresByCategory().keySet()));
+
+        List<ModelComparisonEntry> entries = new ArrayList<>();
+        for (EvaluationReport report : selected) {
+            Map<String, Double> deltaByCategory = new LinkedHashMap<>();
+            for (String category : categories) {
+                Double mine = report.scoresByCategory().get(category);
+                Double base = baseline.scoresByCategory().get(category);
+                if (mine != null && base != null) {
+                    deltaByCategory.put(category, round(mine - base));
+                }
+            }
+
+            entries.add(new ModelComparisonEntry(
+                    report.evalId(),
+                    report.modelName(),
+                    report.status(),
+                    report.processed(),
+                    round(report.averageScore()),
+                    report.scoresByCategory(),
+                    report.completedAt(),
+                    countLinks(report.modelName(), DocumentModelLinkEntity.LinkType.TRAINED_ON),
+                    countLinks(report.modelName(), DocumentModelLinkEntity.LinkType.EVALUATED_ON),
+                    report.evalId().equals(baseline.evalId()),
+                    round(report.averageScore() - baseline.averageScore()),
+                    deltaByCategory
+            ));
+        }
+
+        entries.sort(Comparator.comparingDouble(ModelComparisonEntry::averageScore).reversed());
+        return new ModelComparisonReport(baseline.modelName(), new ArrayList<>(categories), entries);
+    }
+
+    /** Compte les documents liés à un modèle pour un type de lien GED donné. */
+    private long countLinks(String modelName, DocumentModelLinkEntity.LinkType type) {
+        if (linkRepository == null || modelName == null) {
+            return 0L;
+        }
+        return linkRepository.findByModelName(modelName).stream()
+                .filter(link -> link.getLinkType() == type)
+                .count();
+    }
+
+    private static double round(double value) {
+        return Math.round(value * 100.0) / 100.0;
     }
 
     public boolean cancelEvaluation(String evalId) {

@@ -2,6 +2,7 @@ package fr.spectra.controller;
 
 import fr.spectra.dto.EvaluationReport;
 import fr.spectra.dto.EvaluationRequest;
+import fr.spectra.dto.ModelComparisonReport;
 import fr.spectra.service.EvaluationService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.HttpStatus;
@@ -10,6 +11,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 
 /**
  * Endpoints d'évaluation LLM-as-a-judge.
@@ -47,6 +49,29 @@ public class EvaluationController {
     @GetMapping
     public List<EvaluationReport> getAllReports() {
         return evaluationService.getAllReports();
+    }
+
+    /**
+     * Compare plusieurs évaluations pour mesurer les gains et différences de
+     * performance entre modèles personnalisés.
+     *
+     * <pre>GET /api/evaluation/compare?evalIds=id1,id2,id3&amp;baseline=id1</pre>
+     *
+     * @param evalIds  identifiants des évaluations à comparer (séparés par des virgules)
+     * @param baseline identifiant de l'évaluation de référence (optionnel ; à défaut,
+     *                 le meilleur score global est pris comme référence)
+     */
+    @GetMapping("/compare")
+    public ResponseEntity<ModelComparisonReport> compare(
+            @RequestParam List<String> evalIds,
+            @RequestParam(required = false) String baseline) {
+        try {
+            return ResponseEntity.ok(evaluationService.compareReports(evalIds, baseline));
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
+        } catch (NoSuchElementException e) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage());
+        }
     }
 
     @DeleteMapping("/{evalId}")
