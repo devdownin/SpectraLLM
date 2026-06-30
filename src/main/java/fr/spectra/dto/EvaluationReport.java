@@ -18,6 +18,10 @@ public record EvaluationReport(
         double averageScore,
         Map<String, Double> scoresByCategory,
         List<EvaluationScore> scores,
+        /** Latence moyenne de génération par réponse, en millisecondes (modèle évalué). */
+        double avgLatencyMs,
+        /** Débit moyen estimé en tokens/seconde (estimation ~ longueur/4). */
+        double avgTokensPerSec,
         String error,
         Instant startedAt,
         Instant completedAt
@@ -25,7 +29,7 @@ public record EvaluationReport(
     public static EvaluationReport pending(String evalId, String modelName, String jobId) {
         return new EvaluationReport(
                 evalId, "PENDING", modelName, jobId,
-                0, 0, 0.0, Map.of(), List.of(), null,
+                0, 0, 0.0, Map.of(), List.of(), 0.0, 0.0, null,
                 Instant.now(), null
         );
     }

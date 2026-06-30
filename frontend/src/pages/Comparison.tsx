@@ -424,6 +424,20 @@ const Comparison: FC = () => {
                           on {selected.processed} pair{selected.processed > 1 ? 's' : ''}
                         </span>
                       </div>
+                      {(selected.avgLatencyMs > 0 || selected.avgTokensPerSec > 0) && (
+                        <div className="flex items-center gap-4 mt-2">
+                          {selected.avgLatencyMs > 0 && (
+                            <span className="font-label text-[10px] text-on-surface-variant">
+                              Latency <span className="text-on-surface font-bold">{(selected.avgLatencyMs / 1000).toFixed(2)}s</span> / answer
+                            </span>
+                          )}
+                          {selected.avgTokensPerSec > 0 && (
+                            <span className="font-label text-[10px] text-on-surface-variant">
+                              ~<span className="text-on-surface font-bold">{selected.avgTokensPerSec.toFixed(1)}</span> tok/s (est.)
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     {categories.length > 0 && (

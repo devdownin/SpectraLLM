@@ -130,6 +130,8 @@ export interface EvaluationReport {
   averageScore: number;
   scoresByCategory: Record<string, number>;
   scores: EvaluationScore[];
+  avgLatencyMs: number;
+  avgTokensPerSec: number;
   error: string | null;
   startedAt: string;
   completedAt: string | null;
@@ -145,6 +147,8 @@ export interface ModelComparisonEntry {
   averageScore: number;
   scoresByCategory: Record<string, number>;
   completedAt: string | null;
+  avgLatencyMs: number;
+  avgTokensPerSec: number;
   trainedOnDocs: number;
   evaluatedOnDocs: number;
   baseline: boolean;

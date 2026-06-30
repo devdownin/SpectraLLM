@@ -85,6 +85,8 @@ const ModelComparisonPanel: FC<Props> = ({ report, baselineId, onBaselineChange,
                 <th className="text-left py-2 pr-3 font-medium">Model</th>
                 <th className="text-right py-2 px-3 font-medium">Score</th>
                 <th className="text-right py-2 px-3 font-medium">Δ vs base</th>
+                <th className="text-right py-2 px-3 font-medium" title="Average generation latency per answer">Latency</th>
+                <th className="text-right py-2 px-3 font-medium" title="Estimated throughput (~length/4 tokens)">tok/s (est.)</th>
                 <th className="text-right py-2 px-3 font-medium">Pairs</th>
                 <th className="text-right py-2 px-3 font-medium" title="Documents trained on (GED TRAINED_ON)">Trained docs</th>
                 <th className="text-right py-2 pl-3 font-medium" title="Documents evaluated on (GED EVALUATED_ON)">Eval docs</th>
@@ -107,6 +109,12 @@ const ModelComparisonPanel: FC<Props> = ({ report, baselineId, onBaselineChange,
                   </td>
                   <td className="py-2.5 px-3 text-right font-headline font-bold">{m.averageScore.toFixed(2)}</td>
                   <td className="py-2.5 px-3 text-right"><Delta value={m.deltaVsBaseline} /></td>
+                  <td className="py-2.5 px-3 text-right text-on-surface-variant">
+                    {m.avgLatencyMs > 0 ? `${(m.avgLatencyMs / 1000).toFixed(2)}s` : '—'}
+                  </td>
+                  <td className="py-2.5 px-3 text-right text-on-surface-variant">
+                    {m.avgTokensPerSec > 0 ? m.avgTokensPerSec.toFixed(1) : '—'}
+                  </td>
                   <td className="py-2.5 px-3 text-right text-on-surface-variant">{m.processed}</td>
                   <td className="py-2.5 px-3 text-right text-on-surface-variant">{m.trainedOnDocs}</td>
                   <td className="py-2.5 pl-3 text-right text-on-surface-variant">{m.evaluatedOnDocs}</td>

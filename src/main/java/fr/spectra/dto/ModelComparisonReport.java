@@ -34,6 +34,10 @@ public record ModelComparisonReport(
             double averageScore,
             Map<String, Double> scoresByCategory,
             Instant completedAt,
+            /** Latence moyenne de génération par réponse (ms). */
+            double avgLatencyMs,
+            /** Débit moyen estimé (tokens/seconde). */
+            double avgTokensPerSec,
             /** Nombre de documents ayant entraîné ce modèle (lien GED TRAINED_ON). */
             long trainedOnDocs,
             /** Nombre de documents ayant servi à évaluer ce modèle (lien GED EVALUATED_ON). */

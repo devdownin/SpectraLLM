@@ -86,6 +86,9 @@ class EvaluationServiceComparisonTest {
         assertThat(tuned.deltaByCategory()).containsEntry("qa", 2.0).containsEntry("summary", 2.0);
         assertThat(tuned.trainedOnDocs()).isEqualTo(2L);
         assertThat(tuned.evaluatedOnDocs()).isEqualTo(1L);
+        // Métriques de performance propagées depuis le rapport.
+        assertThat(tuned.avgLatencyMs()).isEqualTo(120.0);
+        assertThat(tuned.avgTokensPerSec()).isEqualTo(25.0);
 
         assertThat(base.baseline()).isTrue();
         assertThat(base.deltaVsBaseline()).isZero();
@@ -119,7 +122,8 @@ class EvaluationServiceComparisonTest {
         return new EvaluationReport(
                 evalId, "COMPLETED", modelName, null,
                 byCategory.size(), byCategory.size(), avg, byCategory, List.of(),
-                null, Instant.parse("2026-01-01T00:00:00Z"), Instant.parse("2026-01-01T00:05:00Z"));
+                120.0, 25.0, null,
+                Instant.parse("2026-01-01T00:00:00Z"), Instant.parse("2026-01-01T00:05:00Z"));
     }
 
     private static DocumentModelLinkEntity link(String modelName, LinkType type) {

@@ -155,13 +155,13 @@ class EvaluationServiceBatchTest {
 
     private static EvaluationReport completed(String id, Instant completedAt) {
         return new EvaluationReport(id, "COMPLETED", "m-" + id, null,
-                5, 5, 8.0, Map.of("qa", 8.0), List.of(), null,
+                5, 5, 8.0, Map.of("qa", 8.0), List.of(), 100.0, 20.0, null,
                 completedAt.minusSeconds(60), completedAt);
     }
 
     private static EvaluationReport failed(String id, Instant completedAt) {
         return new EvaluationReport(id, "FAILED", "m-" + id, null,
-                0, 0, 0.0, Map.of(), List.of(), "boom",
+                0, 0, 0.0, Map.of(), List.of(), 0.0, 0.0, "boom",
                 completedAt.minusSeconds(60), completedAt);
     }
 }

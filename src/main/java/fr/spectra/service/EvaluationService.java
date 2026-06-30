@@ -228,6 +228,8 @@ public class EvaluationService {
                     round(report.averageScore()),
                     report.scoresByCategory(),
                     report.completedAt(),
+                    round(report.avgLatencyMs()),
+                    round(report.avgTokensPerSec()),
                     countLinks(report.modelName(), DocumentModelLinkEntity.LinkType.TRAINED_ON),
                     countLinks(report.modelName(), DocumentModelLinkEntity.LinkType.EVALUATED_ON),
                     report.evalId().equals(baseline.evalId()),
@@ -263,8 +265,8 @@ public class EvaluationService {
         updateReport(evalId, r -> new EvaluationReport(
                 r.evalId(), "CANCELLED", r.modelName(), r.jobId(),
                 r.testSetSize(), r.processed(), r.averageScore(),
-                r.scoresByCategory(), r.scores(), "Annulé par l'utilisateur",
-                r.startedAt(), Instant.now()
+                r.scoresByCategory(), r.scores(), r.avgLatencyMs(), r.avgTokensPerSec(),
+                "Annulé par l'utilisateur", r.startedAt(), Instant.now()
         ));
         persistReports();
         return true;
@@ -388,50 +390,57 @@ public class EvaluationService {
 
         updateReport(evalId, r -> new EvaluationReport(
                 r.evalId(), "RUNNING", r.modelName(), r.jobId(),
-                testPairs.size(), 0, 0.0, Map.of(), List.of(), null, r.startedAt(), null
+                testPairs.size(), 0, 0.0, Map.of(), List.of(), 0.0, 0.0, null, r.startedAt(), null
         ));
 
         String evaluatedModel = chatClient.getActiveModel();
         boolean useNeutralJudge = !judgeModel.isEmpty() && !judgeModel.equals(evaluatedModel);
 
-        List<EvaluationScore> scores = useNeutralJudge
+        RunResult result = useNeutralJudge
                 ? scoreWithNeutralJudge(evalId, testPairs, evaluatedModel)
                 : scoreSelfJudge(evalId, testPairs);
-        if (scores == null) {
+        if (result == null) {
             return; // annulée ou échec — rapport déjà mis à jour
         }
 
-        List<EvaluationScore> finalScores = List.copyOf(scores);
+        List<EvaluationScore> finalScores = List.copyOf(result.scores());
         double finalAvg = averageScore(finalScores);
         Map<String, Double> finalByCat = scoresByCategory(finalScores);
-        log.info("Évaluation {} terminée — score moyen: {}/10 ({} paires)",
-                evalId, String.format("%.2f", finalAvg), finalScores.size());
+        double latency = round(result.perf().avgLatencyMs());
+        double tps = round(result.perf().avgTokensPerSec());
+        log.info("Évaluation {} terminée — score {}/10, latence {} ms, ~{} tok/s ({} paires)",
+                evalId, String.format("%.2f", finalAvg), String.format("%.0f", latency),
+                String.format("%.1f", tps), finalScores.size());
 
         updateReport(evalId, r -> new EvaluationReport(
                 r.evalId(), "COMPLETED", r.modelName(), r.jobId(),
                 r.testSetSize(), finalScores.size(), finalAvg,
-                finalByCat, finalScores, null, r.startedAt(), Instant.now()
+                finalByCat, finalScores, latency, tps, null, r.startedAt(), Instant.now()
         ));
     }
 
     /**
      * Notation où le modèle évalué se juge lui-même (comportement par défaut) :
      * génération + jugement avec le modèle actif, paire par paire.
-     * @return scores accumulés, ou {@code null} si l'évaluation a été annulée
+     * @return scores + métriques de perf, ou {@code null} si l'évaluation a été annulée
      */
-    private List<EvaluationScore> scoreSelfJudge(String evalId, List<TrainingPair> testPairs) {
+    private RunResult scoreSelfJudge(String evalId, List<TrainingPair> testPairs) {
         List<EvaluationScore> scores = new ArrayList<>();
+        PerfAccumulator perf = new PerfAccumulator();
         for (int i = 0; i < testPairs.size(); i++) {
             if (cancelledEvals.contains(evalId)) {
                 log.info("Évaluation {} annulée à l'itération {}", evalId, i);
                 return null;
             }
             Generated generated = generateAnswer(testPairs.get(i));
+            if (generated != null) {
+                perf.add(generated.latencyMs(), generated.approxTokens());
+            }
             EvaluationScore score = generated != null ? judge(generated) : null;
             if (score != null) scores.add(score);
-            publishRunning(evalId, i + 1, scores);
+            publishRunning(evalId, i + 1, scores, perf);
         }
-        return scores;
+        return new RunResult(scores, perf);
     }
 
     /**
@@ -441,22 +450,27 @@ public class EvaluationService {
      *   <li>génère toutes les réponses avec le modèle évalué (actif) ;</li>
      *   <li>bascule une seule fois vers le modèle-juge et note chaque réponse.</li>
      * </ol>
-     * @return scores accumulés, ou {@code null} si annulée / échec d'activation du juge
+     * Les métriques de perf reflètent la phase de génération (modèle évalué).
+     * @return scores + métriques de perf, ou {@code null} si annulée / échec d'activation du juge
      */
-    private List<EvaluationScore> scoreWithNeutralJudge(String evalId, List<TrainingPair> testPairs,
-                                                        String evaluatedModel) {
+    private RunResult scoreWithNeutralJudge(String evalId, List<TrainingPair> testPairs,
+                                            String evaluatedModel) {
         log.info("Évaluation {} : juge neutre '{}' (modèle évalué '{}')",
                 evalId, judgeModel, evaluatedModel);
 
-        // Phase 1 — génération des réponses avec le modèle évalué.
+        // Phase 1 — génération des réponses avec le modèle évalué (mesure de perf).
         List<Generated> generated = new ArrayList<>();
+        PerfAccumulator perf = new PerfAccumulator();
         for (int i = 0; i < testPairs.size(); i++) {
             if (cancelledEvals.contains(evalId)) {
                 log.info("Évaluation {} annulée (génération) à l'itération {}", evalId, i);
                 return null;
             }
             Generated g = generateAnswer(testPairs.get(i));
-            if (g != null) generated.add(g);
+            if (g != null) {
+                generated.add(g);
+                perf.add(g.latencyMs(), g.approxTokens());
+            }
         }
 
         // Phase 2 — bascule vers le juge neutre puis notation.
@@ -471,21 +485,47 @@ public class EvaluationService {
             }
             EvaluationScore score = judge(generated.get(i));
             if (score != null) scores.add(score);
-            publishRunning(evalId, i + 1, scores);
+            publishRunning(evalId, i + 1, scores, perf);
         }
         // Le modèle évalué/initial est restauré par l'appelant (runEvaluation / runBatchAsync).
-        return scores;
+        return new RunResult(scores, perf);
     }
 
-    /** Publie un instantané RUNNING (progression + moyenne courante). */
-    private void publishRunning(String evalId, int done, List<EvaluationScore> scores) {
+    /** Publie un instantané RUNNING (progression + moyenne courante + perf). */
+    private void publishRunning(String evalId, int done, List<EvaluationScore> scores, PerfAccumulator perf) {
         List<EvaluationScore> snapshot = List.copyOf(scores);
         double avg = averageScore(snapshot);
         Map<String, Double> byCat = scoresByCategory(snapshot);
+        double latency = round(perf.avgLatencyMs());
+        double tps = round(perf.avgTokensPerSec());
         updateReport(evalId, r -> new EvaluationReport(
                 r.evalId(), "RUNNING", r.modelName(), r.jobId(),
-                r.testSetSize(), done, avg, byCat, snapshot, null, r.startedAt(), null
+                r.testSetSize(), done, avg, byCat, snapshot, latency, tps, null, r.startedAt(), null
         ));
+    }
+
+    /** Résultat d'une passe d'évaluation : scores + métriques de performance. */
+    private record RunResult(List<EvaluationScore> scores, PerfAccumulator perf) {}
+
+    /** Accumulateur de latence/débit de génération. */
+    private static final class PerfAccumulator {
+        private long latencySumMs;
+        private long tokenSum;
+        private int count;
+
+        void add(long latencyMs, int tokens) {
+            latencySumMs += Math.max(0, latencyMs);
+            tokenSum += Math.max(0, tokens);
+            count++;
+        }
+
+        double avgLatencyMs() {
+            return count == 0 ? 0.0 : (double) latencySumMs / count;
+        }
+
+        double avgTokensPerSec() {
+            return latencySumMs <= 0 ? 0.0 : tokenSum * 1000.0 / latencySumMs;
+        }
     }
 
     /** Nom du modèle ciblé par un rapport (sinon modèle actif). */
@@ -528,13 +568,15 @@ public class EvaluationService {
         updateReport(evalId, r -> new EvaluationReport(
                 r.evalId(), "FAILED", r.modelName(), r.jobId(),
                 r.testSetSize(), r.processed(), r.averageScore(),
-                r.scoresByCategory(), r.scores(), message, r.startedAt(), Instant.now()
+                r.scoresByCategory(), r.scores(), r.avgLatencyMs(), r.avgTokensPerSec(),
+                message, r.startedAt(), Instant.now()
         ));
     }
 
-    /** Réponse générée par le modèle évalué pour une paire, avant notation. */
+    /** Réponse générée par le modèle évalué pour une paire, avant notation (avec mesure de perf). */
     private record Generated(String question, String reference, String modelAnswer,
-                             String category, String source) {}
+                             String category, String source,
+                             long latencyMs, int approxTokens) {}
 
     /** Interroge le modèle actif (évalué) pour produire une réponse à la question de la paire. */
     private Generated generateAnswer(TrainingPair pair) {
@@ -547,18 +589,27 @@ public class EvaluationService {
             String sysPrompt = system != null ? system : fr.spectra.model.AssistantPersona.SYSTEM_PROMPT;
 
             String modelAnswer;
+            long startNanos = System.nanoTime();
             try {
                 modelAnswer = chatClient.chat(sysPrompt, question);
             } catch (Exception e) {
                 log.warn("Échec appel modèle évalué: {}", e.getMessage());
                 return null;
             }
+            long latencyMs = (System.nanoTime() - startNanos) / 1_000_000;
             return new Generated(question, reference, modelAnswer,
-                    pair.metadata().category(), pair.metadata().source());
+                    pair.metadata().category(), pair.metadata().source(),
+                    latencyMs, estimateTokens(modelAnswer));
         } catch (Exception e) {
             log.warn("Erreur inattendue génération réponse: {}", e.getMessage());
             return null;
         }
+    }
+
+    /** Estimation grossière du nombre de tokens (~ 4 caractères par token). */
+    private static int estimateTokens(String text) {
+        if (text == null || text.isBlank()) return 0;
+        return Math.max(1, text.length() / 4);
     }
 
     /** Note une réponse générée via le modèle-juge actif (LLM-as-a-judge). */
