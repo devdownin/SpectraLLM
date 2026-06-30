@@ -130,6 +130,69 @@ export interface EvaluationReport {
   averageScore: number;
   scoresByCategory: Record<string, number>;
   scores: EvaluationScore[];
+  avgLatencyMs: number;
+  avgTokensPerSec: number;
+  error: string | null;
+  startedAt: string;
+  completedAt: string | null;
+}
+
+// ── Comparaison multi-modèles ────────────────────────────────────────────────
+
+export interface ModelComparisonEntry {
+  evalId: string;
+  modelName: string;
+  status: string;
+  processed: number;
+  averageScore: number;
+  scoresByCategory: Record<string, number>;
+  completedAt: string | null;
+  avgLatencyMs: number;
+  avgTokensPerSec: number;
+  stdDev: number;
+  ci95: number;
+  trainedOnDocs: number;
+  evaluatedOnDocs: number;
+  baseline: boolean;
+  deltaVsBaseline: number;
+  significantVsBaseline: boolean;
+  deltaByCategory: Record<string, number>;
+}
+
+export interface ModelComparisonReport {
+  baselineModel: string;
+  categories: string[];
+  models: ModelComparisonEntry[];
+}
+
+// ── Comparaison directe A/B (head-to-head) ───────────────────────────────────
+
+export interface AbItem {
+  question: string;
+  reference: string;
+  answerA: string;
+  answerB: string;
+  winner: 'A' | 'B' | 'TIE';
+  justification: string | null;
+  category: string;
+  source: string;
+}
+
+export interface AbComparisonReport {
+  abId: string;
+  status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+  modelA: string;
+  modelB: string;
+  judgeModel: string;
+  testSetSize: number;
+  processed: number;
+  aWins: number;
+  bWins: number;
+  ties: number;
+  winRateA: number;
+  winRateB: number;
+  tieRate: number;
+  items: AbItem[];
   error: string | null;
   startedAt: string;
   completedAt: string | null;

@@ -2,8 +2,11 @@ import { useState, useEffect } from 'react';
 import type { FC } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { evaluationApi } from '../services/api';
-import type { EvaluationReport, EvaluationScore } from '../types/api';
+import type { EvaluationReport, EvaluationScore, ModelComparisonReport } from '../types/api';
 import ScoreRadar from '../components/charts/ScoreRadar';
+import ModelComparisonPanel from '../components/ModelComparisonPanel';
+import BatchEvaluateDialog from '../components/BatchEvaluateDialog';
+import AbComparisonView from '../components/AbComparisonView';
 import Skeleton from '../components/Skeleton';
 
 const STATUS_LABEL: Record<string, string> = {
@@ -114,12 +117,70 @@ const Comparison: FC = () => {
 
   const [searchTerm, setSearchTerm] = useState('');
 
+  // ── Mode comparaison multi-modèles ──────────────────────────────────────────
+  const [compareIds, setCompareIds] = useState<string[]>([]);
+  const [compareMode, setCompareMode] = useState(false);
+  const [baselineId, setBaselineId] = useState<string | undefined>(undefined);
+  const [batchOpen, setBatchOpen] = useState(false);
+  const [abMode, setAbMode] = useState(false);
+
+  // Pré-sélectionne les évaluations issues d'un batch dès qu'elles sont complétées.
+  const handleBatchSubmitted = (evalIds: string[]) => {
+    if (evalIds.length >= 2) {
+      setCompareIds(evalIds);
+      setCompareMode(true);
+      setBaselineId(undefined);
+    }
+  };
+
+  const toggleCompare = (evalId: string) => {
+    setCompareIds(prev =>
+      prev.includes(evalId) ? prev.filter(id => id !== evalId) : [...prev, evalId]
+    );
+  };
+
+  // Clés stables pour le cache : ordre des ids indifférent.
+  const sortedCompareIds = [...compareIds].sort();
+  // Repoll tant qu'une évaluation sélectionnée est encore en cours.
+  const comparingRunning = reports.some(
+    r => compareIds.includes(r.evalId) && (r.status === 'RUNNING' || r.status === 'PENDING')
+  );
+  const { data: comparison, isLoading: isComparing, error: compareError } =
+    useQuery<ModelComparisonReport>({
+      queryKey: ['evaluation-compare', sortedCompareIds, baselineId],
+      queryFn: async () =>
+        (await evaluationApi.compare(compareIds, baselineId)).data as ModelComparisonReport,
+      enabled: compareMode && compareIds.length >= 2,
+      refetchInterval: comparingRunning ? 5000 : false,
+    });
+
   // Synchronise la sélection quand la liste change (préserve le rapport choisi).
   useEffect(() => {
     setSelected(prev =>
       prev ? (reports.find(r => r.evalId === prev.evalId) ?? reports[0] ?? null) : (reports[0] ?? null)
     );
   }, [reports]);
+
+  // Purge uniquement les sélections de comparaison qui n'existent plus (supprimées).
+  // Les évaluations en cours sont conservées : la comparaison se met à jour à leur achèvement.
+  useEffect(() => {
+    const knownIds = new Set(reports.map(r => r.evalId));
+    setCompareIds(prev => {
+      const next = prev.filter(id => knownIds.has(id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [reports]);
+
+  const handleExportComparison = () => {
+    if (!comparison) return;
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(comparison, null, 2));
+    const a = document.createElement('a');
+    a.setAttribute("href", dataStr);
+    a.setAttribute("download", `comparison_${comparison.models.length}models.json`);
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
 
   const handleNewEvaluation = async () => {
     setIsTriggering(true);
@@ -150,6 +211,11 @@ const Comparison: FC = () => {
 
   return (
     <div className="space-y-8 animate-in fade-in duration-700">
+      <BatchEvaluateDialog
+        open={batchOpen}
+        onClose={() => setBatchOpen(false)}
+        onSubmitted={handleBatchSubmitted}
+      />
       {/* Header */}
       <header className="flex items-end justify-between">
         <div>
@@ -158,18 +224,60 @@ const Comparison: FC = () => {
           </p>
           <h2 className="font-headline text-3xl font-bold tracking-tighter">MODEL EVALUATION</h2>
         </div>
-        <button
-          onClick={handleNewEvaluation}
-          disabled={isTriggering}
-          className="px-4 py-2 bg-primary text-on-primary font-label text-[11px] uppercase tracking-widest
-                     hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
-          aria-label="Launch a new model evaluation"
-        >
-          {isTriggering ? 'Launching...' : '+ New evaluation'}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setAbMode(m => !m)}
+            className={`px-4 py-2 font-label text-[11px] uppercase tracking-widest transition-colors border
+                       ${abMode
+                          ? 'bg-secondary text-on-secondary border-secondary'
+                          : 'bg-transparent text-on-surface-variant border-outline-variant/30 hover:text-on-surface hover:bg-surface-container-high'}`}
+            aria-pressed={abMode}
+            title="Direct head-to-head comparison between two models"
+          >
+            {abMode ? 'Exit A/B' : 'A/B head-to-head'}
+          </button>
+          {!abMode && (
+            <>
+              <button
+                onClick={() => setBatchOpen(true)}
+                className="px-4 py-2 bg-transparent text-on-surface-variant font-label text-[11px] uppercase tracking-widest
+                           border border-outline-variant/30 hover:text-on-surface hover:bg-surface-container-high transition-colors"
+                aria-label="Evaluate several models at once on a shared test set"
+                title="Evaluate several models on a shared test set, then compare"
+              >
+                Batch evaluate
+              </button>
+              <button
+                onClick={() => setCompareMode(m => !m)}
+                disabled={compareIds.length < 2}
+                className={`px-4 py-2 font-label text-[11px] uppercase tracking-widest transition-colors border
+                           disabled:opacity-40 disabled:cursor-not-allowed
+                           ${compareMode
+                              ? 'bg-secondary text-on-secondary border-secondary'
+                              : 'bg-transparent text-on-surface-variant border-outline-variant/30 hover:text-on-surface hover:bg-surface-container-high'}`}
+                aria-pressed={compareMode}
+                aria-label="Toggle multi-model comparison"
+                title={compareIds.length < 2 ? 'Select at least 2 completed evaluations to compare' : 'Compare selected models'}
+              >
+                {compareMode ? 'Exit comparison' : `Compare (${compareIds.length})`}
+              </button>
+              <button
+                onClick={handleNewEvaluation}
+                disabled={isTriggering}
+                className="px-4 py-2 bg-primary text-on-primary font-label text-[11px] uppercase tracking-widest
+                           hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+                aria-label="Launch a new model evaluation"
+              >
+                {isTriggering ? 'Launching...' : '+ New evaluation'}
+              </button>
+            </>
+          )}
+        </div>
       </header>
 
-      {isLoading ? (
+      {abMode && <AbComparisonView />}
+
+      {!abMode && (isLoading ? (
         <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-6 items-start">
           <Skeleton className="h-64" />
           <Skeleton className="h-80" />
@@ -198,10 +306,24 @@ const Comparison: FC = () => {
                />
             </div>
             {filteredReports.map(r => (
+              <div key={r.evalId} className="flex items-stretch">
+              {r.status === 'COMPLETED' && (
+                <label
+                  className="flex items-center px-3 cursor-pointer hover:bg-surface-container-high/60"
+                  title="Select for multi-model comparison"
+                >
+                  <input
+                    type="checkbox"
+                    checked={compareIds.includes(r.evalId)}
+                    onChange={() => toggleCompare(r.evalId)}
+                    className="accent-secondary"
+                    aria-label={`Select ${r.modelName} for comparison`}
+                  />
+                </label>
+              )}
               <button
-                key={r.evalId}
                 onClick={() => setSelected(r)}
-                className={`w-full text-left px-4 py-3 transition-colors hover:bg-surface-container-high/60
+                className={`flex-1 min-w-0 text-left px-4 py-3 transition-colors hover:bg-surface-container-high/60
                   ${selected?.evalId === r.evalId ? 'bg-surface-container-high' : ''}`}
                 aria-label={`Select report for model ${r.modelName} completed at ${new Date(r.startedAt).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' })}`}
                 aria-current={selected?.evalId === r.evalId ? 'true' : 'false'}
@@ -224,11 +346,34 @@ const Comparison: FC = () => {
                   <ProgressBar value={r.processed} max={r.testSetSize} />
                 )}
               </button>
+              </div>
             ))}
           </div>
 
+          {/* Comparison panel (multi-model) */}
+          {compareMode && (
+            compareIds.length < 2 ? (
+              <div className="bg-surface-container p-8 text-center text-sm text-on-surface-variant">
+                Select at least 2 completed evaluations (checkboxes on the left) to compare.
+              </div>
+            ) : isComparing ? (
+              <Skeleton className="h-80" />
+            ) : compareError ? (
+              <div className="bg-error/10 text-error text-sm p-6">
+                Comparison failed. Make sure the selected evaluations are still available.
+              </div>
+            ) : comparison ? (
+              <ModelComparisonPanel
+                report={comparison}
+                baselineId={baselineId ?? comparison.models.find(m => m.baseline)?.evalId ?? comparison.models[0]?.evalId ?? ''}
+                onBaselineChange={setBaselineId}
+                onExport={handleExportComparison}
+              />
+            ) : null
+          )}
+
           {/* Detail panel */}
-          {selected && (
+          {!compareMode && selected && (
             <div className="space-y-6">
               {/* Overview */}
               <div className="bg-surface-container p-6 space-y-4">
@@ -298,6 +443,20 @@ const Comparison: FC = () => {
                           on {selected.processed} pair{selected.processed > 1 ? 's' : ''}
                         </span>
                       </div>
+                      {(selected.avgLatencyMs > 0 || selected.avgTokensPerSec > 0) && (
+                        <div className="flex items-center gap-4 mt-2">
+                          {selected.avgLatencyMs > 0 && (
+                            <span className="font-label text-[10px] text-on-surface-variant">
+                              Latency <span className="text-on-surface font-bold">{(selected.avgLatencyMs / 1000).toFixed(2)}s</span> / answer
+                            </span>
+                          )}
+                          {selected.avgTokensPerSec > 0 && (
+                            <span className="font-label text-[10px] text-on-surface-variant">
+                              ~<span className="text-on-surface font-bold">{selected.avgTokensPerSec.toFixed(1)}</span> tok/s (est.)
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     {categories.length > 0 && (
@@ -344,7 +503,7 @@ const Comparison: FC = () => {
             </div>
           )}
         </div>
-      )}
+      ))}
     </div>
   );
 };

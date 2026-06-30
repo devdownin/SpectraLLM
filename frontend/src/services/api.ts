@@ -96,6 +96,16 @@ export const evaluationApi = {
   get: (evalId: string) => api.get(`/evaluation/${evalId}`),
   submit: (request?: { modelName?: string; testSetSize?: number; jobId?: string }) =>
     api.post('/evaluation', request ?? {}),
+  submitBatch: (modelNames: string[], testSetSize?: number) =>
+    api.post('/evaluation/batch', { modelNames, testSetSize }),
+  compare: (evalIds: string[], baseline?: string) =>
+    api.get('/evaluation/compare', {
+      params: { evalIds: evalIds.join(','), ...(baseline ? { baseline } : {}) },
+    }),
+  submitAb: (modelA: string, modelB: string, testSetSize?: number) =>
+    api.post('/evaluation/ab', { modelA, modelB, testSetSize }),
+  getAllAb: () => api.get('/evaluation/ab'),
+  getAb: (abId: string) => api.get(`/evaluation/ab/${abId}`),
 };
 
 export const recipeApi = {
@@ -249,6 +259,7 @@ export const ablationApi = {
 export const configApi = {
   getModelConfig: () => api.get('/config/model'),
   setModelConfig: (config: any) => api.post('/config/model', config),
+  getModels: () => api.get('/config/models'),
 };
 
 export const modelsHubApi = {
