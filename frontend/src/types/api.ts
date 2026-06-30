@@ -165,6 +165,39 @@ export interface ModelComparisonReport {
   models: ModelComparisonEntry[];
 }
 
+// ── Comparaison directe A/B (head-to-head) ───────────────────────────────────
+
+export interface AbItem {
+  question: string;
+  reference: string;
+  answerA: string;
+  answerB: string;
+  winner: 'A' | 'B' | 'TIE';
+  justification: string | null;
+  category: string;
+  source: string;
+}
+
+export interface AbComparisonReport {
+  abId: string;
+  status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+  modelA: string;
+  modelB: string;
+  judgeModel: string;
+  testSetSize: number;
+  processed: number;
+  aWins: number;
+  bWins: number;
+  ties: number;
+  winRateA: number;
+  winRateB: number;
+  tieRate: number;
+  items: AbItem[];
+  error: string | null;
+  startedAt: string;
+  completedAt: string | null;
+}
+
 // ── Ablation / optimisation des réponses ──────────────────────────────────────
 
 /** Surcharges tri-état des modules d'optimisation RAG (null = défaut de déploiement). */

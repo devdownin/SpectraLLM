@@ -3,6 +3,8 @@ package fr.spectra.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import fr.spectra.dto.AbComparisonReport;
+import fr.spectra.dto.AbComparisonReport.AbItem;
 import fr.spectra.dto.EvaluationReport;
 import fr.spectra.dto.EvaluationRequest;
 import fr.spectra.dto.EvaluationScore;
@@ -61,6 +63,16 @@ public class EvaluationService {
             {"score": <entier 1-10>, "justification": "<une phrase courte en français>"}
             """;
 
+    private static final String AB_JUDGE_SYSTEM_PROMPT = """
+            Tu es un évaluateur expert. On te donne une question, une réponse de référence,
+            puis deux réponses candidates (Réponse 1 et Réponse 2). Détermine laquelle est
+            la meilleure par rapport à la référence (exactitude, complétude, clarté).
+            Ne te laisse pas influencer par l'ordre ni la longueur des réponses.
+
+            Réponds UNIQUEMENT avec ce JSON (rien d'autre) :
+            {"winner": <1 si Réponse 1, 2 si Réponse 2, 0 si égalité>, "justification": "<une phrase courte en français>"}
+            """;
+
     private final DatasetGeneratorService datasetGenerator;
     private final LlmChatClient chatClient;
     private final DocumentModelLinkRepository linkRepository;
@@ -70,8 +82,10 @@ public class EvaluationService {
     /** Modèle-juge neutre (vide = le modèle évalué se juge lui-même, comportement par défaut). */
     private final String judgeModel;
     private final Map<String, EvaluationReport> reports = new ConcurrentHashMap<>();
+    private final Map<String, AbComparisonReport> abReports = new ConcurrentHashMap<>();
     private final Set<String> cancelledEvals = ConcurrentHashMap.newKeySet();
     private Path reportsFile;
+    private Path abReportsFile;
 
     @Autowired @Lazy
     private EvaluationService self;
@@ -104,6 +118,19 @@ public class EvaluationService {
                 log.warn("Impossible de charger les évaluations persistées: {}", e.getMessage());
             }
         }
+
+        abReportsFile = workDir.resolve("ab-comparisons.json");
+        if (Files.exists(abReportsFile)) {
+            try {
+                var type = mapper.getTypeFactory()
+                        .constructMapType(Map.class, String.class, AbComparisonReport.class);
+                Map<String, AbComparisonReport> loaded = mapper.readValue(abReportsFile.toFile(), type);
+                abReports.putAll(loaded);
+                log.info("Comparaisons A/B restaurées: {} rapports", loaded.size());
+            } catch (Exception e) {
+                log.warn("Impossible de charger les comparaisons A/B persistées: {}", e.getMessage());
+            }
+        }
     }
 
     private void persistReports() {
@@ -113,6 +140,16 @@ public class EvaluationService {
             mapper.writerWithDefaultPrettyPrinter().writeValue(reportsFile.toFile(), reports);
         } catch (Exception e) {
             log.warn("Échec persistance évaluations: {}", e.getMessage());
+        }
+    }
+
+    private void persistAbReports() {
+        if (abReportsFile == null) return;
+        try {
+            Files.createDirectories(workDir);
+            mapper.writerWithDefaultPrettyPrinter().writeValue(abReportsFile.toFile(), abReports);
+        } catch (Exception e) {
+            log.warn("Échec persistance comparaisons A/B: {}", e.getMessage());
         }
     }
 
@@ -301,6 +338,230 @@ public class EvaluationService {
         return Math.round(value * 100.0) / 100.0;
     }
 
+    // ── Comparaison directe A/B (head-to-head) ───────────────────────────────────
+
+    public AbComparisonReport getAbReport(String abId) {
+        return abReports.get(abId);
+    }
+
+    public List<AbComparisonReport> getAllAbReports() {
+        return new ArrayList<>(abReports.values());
+    }
+
+    /**
+     * Lance une comparaison directe A/B entre deux modèles sur un même jeu de test.
+     * Le juge utilisé est le modèle-juge neutre s'il est configuré, sinon {@code modelA}.
+     *
+     * @throws IllegalArgumentException si un modèle manque ou si les deux sont identiques
+     */
+    public String submitAb(String modelA, String modelB, Integer testSetSize) {
+        if (modelA == null || modelA.isBlank() || modelB == null || modelB.isBlank()) {
+            throw new IllegalArgumentException("modelA et modelB sont requis.");
+        }
+        if (modelA.equals(modelB)) {
+            throw new IllegalArgumentException("modelA et modelB doivent être différents.");
+        }
+        String judge = !judgeModel.isEmpty() ? judgeModel : modelA;
+        String abId = UUID.randomUUID().toString();
+        abReports.put(abId, AbComparisonReport.pending(abId, modelA, modelB, judge));
+        persistAbReports();
+        (self != null ? self : this).runAbAsync(abId, testSetSize);
+        return abId;
+    }
+
+    public boolean cancelAb(String abId) {
+        AbComparisonReport report = abReports.get(abId);
+        if (report == null) return false;
+        if ("COMPLETED".equals(report.status()) || "FAILED".equals(report.status())
+                || "CANCELLED".equals(report.status())) return false;
+        cancelledEvals.add(abId);
+        updateAb(abId, r -> withStatus(r, "CANCELLED", "Annulé par l'utilisateur"));
+        persistAbReports();
+        return true;
+    }
+
+    @Async
+    protected void runAbAsync(String abId, Integer testSetSize) {
+        try {
+            runAbComparison(abId, testSetSize);
+        } catch (Exception e) {
+            log.error("Comparaison A/B {} échouée: {}", abId, e.getMessage(), e);
+            updateAb(abId, r -> withStatus(r, "FAILED", e.getMessage()));
+        }
+    }
+
+    private void runAbComparison(String abId, Integer testSetSize) {
+        AbComparisonReport report = abReports.get(abId);
+        if (report == null) return;
+        String modelA = report.modelA();
+        String modelB = report.modelB();
+        String judge = report.judgeModel();
+
+        List<TrainingPair> testPairs = sampleTestSet(testSetSize);
+        if (testPairs.isEmpty()) {
+            updateAb(abId, r -> withStatus(r, "FAILED",
+                    "Dataset vide — générez d'abord des paires via POST /api/dataset/generate."));
+            return;
+        }
+
+        updateAb(abId, r -> new AbComparisonReport(
+                r.abId(), "RUNNING", r.modelA(), r.modelB(), r.judgeModel(),
+                testPairs.size(), 0, 0, 0, 0, 0.0, 0.0, 0.0,
+                List.of(), null, r.startedAt(), null));
+
+        String original = chatClient.getActiveModel();
+        try {
+            // Phase A — réponses du modèle A.
+            if (!activateAbModel(abId, modelA, chatClient.getActiveModel())) return;
+            String[] answersA = generateAllAnswers(abId, testPairs);
+            if (answersA == null) return; // annulée
+
+            // Phase B — réponses du modèle B.
+            if (!activateAbModel(abId, modelB, chatClient.getActiveModel())) return;
+            String[] answersB = generateAllAnswers(abId, testPairs);
+            if (answersB == null) return;
+
+            // Phase juge — comparaison directe (ordre tiré au hasard par paire).
+            if (!activateAbModel(abId, judge, chatClient.getActiveModel())) return;
+            Random orderRng = new Random(42);
+            List<AbItem> items = new ArrayList<>();
+            int aWins = 0, bWins = 0, ties = 0;
+            for (int i = 0; i < testPairs.size(); i++) {
+                if (cancelledEvals.contains(abId)) {
+                    log.info("Comparaison A/B {} annulée à l'itération {}", abId, i);
+                    return;
+                }
+                String qa = answersA[i];
+                String qb = answersB[i];
+                if (qa == null || qb == null) continue;
+
+                String[] qr = extractQuestionReference(testPairs.get(i));
+                if (qr == null) continue;
+
+                boolean aFirst = orderRng.nextBoolean();
+                String winner = judgeAb(qr[0], qr[1], aFirst ? qa : qb, aFirst ? qb : qa, aFirst);
+                if (winner == null) continue;
+
+                switch (winner) {
+                    case "A" -> aWins++;
+                    case "B" -> bWins++;
+                    default  -> ties++;
+                }
+                items.add(new AbItem(qr[0], qr[1], qa, qb, winner, null,
+                        testPairs.get(i).metadata().category(), testPairs.get(i).metadata().source()));
+
+                int processed = aWins + bWins + ties;
+                int fa = aWins, fb = bWins, ft = ties;
+                List<AbItem> snapshot = List.copyOf(items);
+                updateAb(abId, r -> new AbComparisonReport(
+                        r.abId(), "RUNNING", r.modelA(), r.modelB(), r.judgeModel(),
+                        r.testSetSize(), processed, fa, fb, ft,
+                        rate(fa, processed), rate(fb, processed), rate(ft, processed),
+                        snapshot, null, r.startedAt(), null));
+            }
+
+            int processed = aWins + bWins + ties;
+            int fa = aWins, fb = bWins, ft = ties;
+            List<AbItem> finalItems = List.copyOf(items);
+            log.info("Comparaison A/B {} terminée — {} vs {} : {}-{}-{} (A-B-égalités) sur {} paires",
+                    abId, modelA, modelB, fa, fb, ft, processed);
+            updateAb(abId, r -> new AbComparisonReport(
+                    r.abId(), "COMPLETED", r.modelA(), r.modelB(), r.judgeModel(),
+                    r.testSetSize(), processed, fa, fb, ft,
+                    rate(fa, processed), rate(fb, processed), rate(ft, processed),
+                    finalItems, null, r.startedAt(), Instant.now()));
+        } finally {
+            restoreModel(original);
+        }
+    }
+
+    /** Active un modèle pour la comparaison A/B ; marque le rapport FAILED en cas d'échec. */
+    private boolean activateAbModel(String abId, String modelName, String current) {
+        if (modelName == null || modelName.equals(current)) return true;
+        try {
+            chatClient.setActiveModel(modelName);
+            return true;
+        } catch (Exception e) {
+            log.warn("Comparaison A/B {} : impossible d'activer '{}' : {}", abId, modelName, e.getMessage());
+            updateAb(abId, r -> withStatus(r, "FAILED",
+                    "Impossible de charger le modèle '" + modelName + "' : " + e.getMessage()));
+            return false;
+        }
+    }
+
+    /** Génère les réponses du modèle actif pour toutes les paires (null si annulée). */
+    private String[] generateAllAnswers(String abId, List<TrainingPair> testPairs) {
+        String[] answers = new String[testPairs.size()];
+        for (int i = 0; i < testPairs.size(); i++) {
+            if (cancelledEvals.contains(abId)) {
+                log.info("Comparaison A/B {} annulée (génération) à l'itération {}", abId, i);
+                return null;
+            }
+            Generated g = generateAnswer(testPairs.get(i));
+            answers[i] = g != null ? g.modelAnswer() : null;
+        }
+        return answers;
+    }
+
+    /**
+     * Demande au juge laquelle de deux réponses est la meilleure.
+     * @param first  réponse présentée en premier (Réponse 1)
+     * @param second réponse présentée en second (Réponse 2)
+     * @param aFirst vrai si A est présenté en premier (pour re-mapper le verdict)
+     * @return "A", "B", "TIE", ou {@code null} si le juge est illisible
+     */
+    private String judgeAb(String question, String reference, String first, String second, boolean aFirst) {
+        try {
+            String prompt = "Question : " + question
+                    + "\n\nRéponse de référence : " + reference
+                    + "\n\nRéponse 1 : " + first
+                    + "\n\nRéponse 2 : " + second;
+            String response;
+            try {
+                response = chatClient.chat(AB_JUDGE_SYSTEM_PROMPT, prompt);
+            } catch (Exception e) {
+                log.warn("Échec appel juge A/B: {}", e.getMessage());
+                return null;
+            }
+            String json = extractJson(response);
+            if (json == null) return null;
+            @SuppressWarnings("unchecked")
+            Map<String, Object> parsed = mapper.readValue(json, Map.class);
+            Object w = parsed.get("winner");
+            int winner = w instanceof Number n ? n.intValue() : 0;
+            if (winner == 1) return aFirst ? "A" : "B";
+            if (winner == 2) return aFirst ? "B" : "A";
+            return "TIE";
+        } catch (Exception e) {
+            log.warn("Erreur inattendue jugement A/B: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private String[] extractQuestionReference(TrainingPair pair) {
+        String question = extractRole(pair, "user");
+        String reference = extractRole(pair, "assistant");
+        if (question == null || reference == null) return null;
+        return new String[]{question, reference};
+    }
+
+    private static double rate(int count, int total) {
+        return total <= 0 ? 0.0 : round((double) count / total);
+    }
+
+    private AbComparisonReport withStatus(AbComparisonReport r, String status, String error) {
+        return new AbComparisonReport(
+                r.abId(), status, r.modelA(), r.modelB(), r.judgeModel(),
+                r.testSetSize(), r.processed(), r.aWins(), r.bWins(), r.ties(),
+                r.winRateA(), r.winRateB(), r.tieRate(), r.items(), error,
+                r.startedAt(), Instant.now());
+    }
+
+    private void updateAb(String abId, UnaryOperator<AbComparisonReport> updater) {
+        abReports.computeIfPresent(abId, (k, v) -> updater.apply(v));
+        persistAbReports();
+    }
+
     public boolean cancelEvaluation(String evalId) {
         EvaluationReport report = reports.get(evalId);
         if (report == null) return false;
@@ -328,8 +589,18 @@ public class EvaluationService {
                     && r.completedAt() != null && r.completedAt().isBefore(cutoff);
         });
         removed |= evictExcessCompleted();
-        cancelledEvals.removeIf(id -> !reports.containsKey(id));
         if (removed) persistReports();
+
+        // Même politique de rétention pour les comparaisons A/B.
+        boolean abRemoved = abReports.entrySet().removeIf(e -> {
+            AbComparisonReport r = e.getValue();
+            return ("FAILED".equals(r.status()) || "CANCELLED".equals(r.status()))
+                    && r.completedAt() != null && r.completedAt().isBefore(cutoff);
+        });
+        abRemoved |= evictExcessCompletedAb();
+        if (abRemoved) persistAbReports();
+
+        cancelledEvals.removeIf(id -> !reports.containsKey(id) && !abReports.containsKey(id));
     }
 
     /**
@@ -345,6 +616,19 @@ public class EvaluationService {
         if (excess <= 0) return false;
         for (int i = 0; i < excess; i++) {
             reports.remove(completed.get(i).evalId());
+        }
+        return true;
+    }
+
+    private boolean evictExcessCompletedAb() {
+        List<AbComparisonReport> completed = abReports.values().stream()
+                .filter(r -> "COMPLETED".equals(r.status()))
+                .sorted(Comparator.comparing(r -> r.completedAt() != null ? r.completedAt() : Instant.EPOCH))
+                .toList();
+        int excess = completed.size() - maxCompletedReports;
+        if (excess <= 0) return false;
+        for (int i = 0; i < excess; i++) {
+            abReports.remove(completed.get(i).abId());
         }
         return true;
     }

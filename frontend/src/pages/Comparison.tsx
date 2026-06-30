@@ -6,6 +6,7 @@ import type { EvaluationReport, EvaluationScore, ModelComparisonReport } from '.
 import ScoreRadar from '../components/charts/ScoreRadar';
 import ModelComparisonPanel from '../components/ModelComparisonPanel';
 import BatchEvaluateDialog from '../components/BatchEvaluateDialog';
+import AbComparisonView from '../components/AbComparisonView';
 import Skeleton from '../components/Skeleton';
 
 const STATUS_LABEL: Record<string, string> = {
@@ -121,6 +122,7 @@ const Comparison: FC = () => {
   const [compareMode, setCompareMode] = useState(false);
   const [baselineId, setBaselineId] = useState<string | undefined>(undefined);
   const [batchOpen, setBatchOpen] = useState(false);
+  const [abMode, setAbMode] = useState(false);
 
   // Pré-sélectionne les évaluations issues d'un batch dès qu'elles sont complétées.
   const handleBatchSubmitted = (evalIds: string[]) => {
@@ -224,41 +226,58 @@ const Comparison: FC = () => {
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={() => setBatchOpen(true)}
-            className="px-4 py-2 bg-transparent text-on-surface-variant font-label text-[11px] uppercase tracking-widest
-                       border border-outline-variant/30 hover:text-on-surface hover:bg-surface-container-high transition-colors"
-            aria-label="Evaluate several models at once on a shared test set"
-            title="Evaluate several models on a shared test set, then compare"
-          >
-            Batch evaluate
-          </button>
-          <button
-            onClick={() => setCompareMode(m => !m)}
-            disabled={compareIds.length < 2}
+            onClick={() => setAbMode(m => !m)}
             className={`px-4 py-2 font-label text-[11px] uppercase tracking-widest transition-colors border
-                       disabled:opacity-40 disabled:cursor-not-allowed
-                       ${compareMode
+                       ${abMode
                           ? 'bg-secondary text-on-secondary border-secondary'
                           : 'bg-transparent text-on-surface-variant border-outline-variant/30 hover:text-on-surface hover:bg-surface-container-high'}`}
-            aria-pressed={compareMode}
-            aria-label="Toggle multi-model comparison"
-            title={compareIds.length < 2 ? 'Select at least 2 completed evaluations to compare' : 'Compare selected models'}
+            aria-pressed={abMode}
+            title="Direct head-to-head comparison between two models"
           >
-            {compareMode ? 'Exit comparison' : `Compare (${compareIds.length})`}
+            {abMode ? 'Exit A/B' : 'A/B head-to-head'}
           </button>
-          <button
-            onClick={handleNewEvaluation}
-            disabled={isTriggering}
-            className="px-4 py-2 bg-primary text-on-primary font-label text-[11px] uppercase tracking-widest
-                       hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
-            aria-label="Launch a new model evaluation"
-          >
-            {isTriggering ? 'Launching...' : '+ New evaluation'}
-          </button>
+          {!abMode && (
+            <>
+              <button
+                onClick={() => setBatchOpen(true)}
+                className="px-4 py-2 bg-transparent text-on-surface-variant font-label text-[11px] uppercase tracking-widest
+                           border border-outline-variant/30 hover:text-on-surface hover:bg-surface-container-high transition-colors"
+                aria-label="Evaluate several models at once on a shared test set"
+                title="Evaluate several models on a shared test set, then compare"
+              >
+                Batch evaluate
+              </button>
+              <button
+                onClick={() => setCompareMode(m => !m)}
+                disabled={compareIds.length < 2}
+                className={`px-4 py-2 font-label text-[11px] uppercase tracking-widest transition-colors border
+                           disabled:opacity-40 disabled:cursor-not-allowed
+                           ${compareMode
+                              ? 'bg-secondary text-on-secondary border-secondary'
+                              : 'bg-transparent text-on-surface-variant border-outline-variant/30 hover:text-on-surface hover:bg-surface-container-high'}`}
+                aria-pressed={compareMode}
+                aria-label="Toggle multi-model comparison"
+                title={compareIds.length < 2 ? 'Select at least 2 completed evaluations to compare' : 'Compare selected models'}
+              >
+                {compareMode ? 'Exit comparison' : `Compare (${compareIds.length})`}
+              </button>
+              <button
+                onClick={handleNewEvaluation}
+                disabled={isTriggering}
+                className="px-4 py-2 bg-primary text-on-primary font-label text-[11px] uppercase tracking-widest
+                           hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
+                aria-label="Launch a new model evaluation"
+              >
+                {isTriggering ? 'Launching...' : '+ New evaluation'}
+              </button>
+            </>
+          )}
         </div>
       </header>
 
-      {isLoading ? (
+      {abMode && <AbComparisonView />}
+
+      {!abMode && (isLoading ? (
         <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-6 items-start">
           <Skeleton className="h-64" />
           <Skeleton className="h-80" />
@@ -484,7 +503,7 @@ const Comparison: FC = () => {
             </div>
           )}
         </div>
-      )}
+      ))}
     </div>
   );
 };

@@ -1,5 +1,7 @@
 package fr.spectra.controller;
 
+import fr.spectra.dto.AbComparisonReport;
+import fr.spectra.dto.AbComparisonRequest;
 import fr.spectra.dto.BatchEvaluationRequest;
 import fr.spectra.dto.EvaluationReport;
 import fr.spectra.dto.EvaluationRequest;
@@ -56,6 +58,46 @@ public class EvaluationController {
         } catch (IllegalArgumentException e) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
         }
+    }
+
+    /**
+     * Comparaison directe A/B (head-to-head) entre deux modèles : un juge désigne
+     * la meilleure des deux réponses à chaque paire.
+     *
+     * <pre>POST /api/evaluation/ab  body: {"modelA":"a","modelB":"b","testSetSize":20}</pre>
+     */
+    @PostMapping("/ab")
+    public ResponseEntity<Map<String, String>> submitAb(@RequestBody AbComparisonRequest request) {
+        try {
+            String abId = evaluationService.submitAb(
+                    request.modelA(), request.modelB(), request.testSetSize());
+            return ResponseEntity.accepted().body(Map.of("abId", abId, "status", "PENDING"));
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
+        }
+    }
+
+    @GetMapping("/ab")
+    public List<AbComparisonReport> getAllAbReports() {
+        return evaluationService.getAllAbReports();
+    }
+
+    @GetMapping("/ab/{abId}")
+    public ResponseEntity<AbComparisonReport> getAbReport(@PathVariable String abId) {
+        AbComparisonReport report = evaluationService.getAbReport(abId);
+        return report != null ? ResponseEntity.ok(report) : ResponseEntity.notFound().build();
+    }
+
+    @DeleteMapping("/ab/{abId}")
+    public ResponseEntity<Map<String, String>> cancelAb(@PathVariable String abId) {
+        boolean cancelled = evaluationService.cancelAb(abId);
+        if (!cancelled) {
+            AbComparisonReport report = evaluationService.getAbReport(abId);
+            if (report == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Comparaison A/B inconnue: " + abId);
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Impossible d'annuler (status=" + report.status() + ")");
+        }
+        return ResponseEntity.ok(Map.of("abId", abId, "status", "CANCELLED"));
     }
 
     @GetMapping("/{evalId}")

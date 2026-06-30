@@ -102,6 +102,10 @@ export const evaluationApi = {
     api.get('/evaluation/compare', {
       params: { evalIds: evalIds.join(','), ...(baseline ? { baseline } : {}) },
     }),
+  submitAb: (modelA: string, modelB: string, testSetSize?: number) =>
+    api.post('/evaluation/ab', { modelA, modelB, testSetSize }),
+  getAllAb: () => api.get('/evaluation/ab'),
+  getAb: (abId: string) => api.get(`/evaluation/ab/${abId}`),
 };
 
 export const recipeApi = {
