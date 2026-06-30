@@ -38,6 +38,10 @@ public record ModelComparisonReport(
             double avgLatencyMs,
             /** Débit moyen estimé (tokens/seconde). */
             double avgTokensPerSec,
+            /** Écart-type des scores par paire (dispersion). */
+            double stdDev,
+            /** Demi-largeur de l'intervalle de confiance à 95 % du score moyen. */
+            double ci95,
             /** Nombre de documents ayant entraîné ce modèle (lien GED TRAINED_ON). */
             long trainedOnDocs,
             /** Nombre de documents ayant servi à évaluer ce modèle (lien GED EVALUATED_ON). */
@@ -46,6 +50,8 @@ public record ModelComparisonReport(
             boolean baseline,
             /** Écart de score global vs la baseline (positif = gain). */
             double deltaVsBaseline,
+            /** Vrai si l'écart vs la baseline est statistiquement significatif (≈ 95 %). */
+            boolean significantVsBaseline,
             /** Écart de score par catégorie vs la baseline (catégories communes uniquement). */
             Map<String, Double> deltaByCategory
     ) {}

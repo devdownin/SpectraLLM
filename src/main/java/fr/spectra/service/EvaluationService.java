@@ -209,6 +209,8 @@ public class EvaluationService {
         Set<String> categories = new LinkedHashSet<>();
         selected.forEach(r -> categories.addAll(r.scoresByCategory().keySet()));
 
+        ScoreStats baselineStats = computeStats(baseline);
+
         List<ModelComparisonEntry> entries = new ArrayList<>();
         for (EvaluationReport report : selected) {
             Map<String, Double> deltaByCategory = new LinkedHashMap<>();
@@ -220,6 +222,9 @@ public class EvaluationService {
                 }
             }
 
+            ScoreStats stats = computeStats(report);
+            boolean isBaseline = report.evalId().equals(baseline.evalId());
+            double delta = report.averageScore() - baseline.averageScore();
             entries.add(new ModelComparisonEntry(
                     report.evalId(),
                     report.modelName(),
@@ -230,16 +235,56 @@ public class EvaluationService {
                     report.completedAt(),
                     round(report.avgLatencyMs()),
                     round(report.avgTokensPerSec()),
+                    round(stats.stdDev()),
+                    round(1.96 * stats.sem()),
                     countLinks(report.modelName(), DocumentModelLinkEntity.LinkType.TRAINED_ON),
                     countLinks(report.modelName(), DocumentModelLinkEntity.LinkType.EVALUATED_ON),
-                    report.evalId().equals(baseline.evalId()),
-                    round(report.averageScore() - baseline.averageScore()),
+                    isBaseline,
+                    round(delta),
+                    isSignificant(delta, stats, baselineStats, isBaseline),
                     deltaByCategory
             ));
         }
 
         entries.sort(Comparator.comparingDouble(ModelComparisonEntry::averageScore).reversed());
         return new ModelComparisonReport(baseline.modelName(), new ArrayList<>(categories), entries);
+    }
+
+    /** Statistiques de dispersion des scores par paire d'un rapport. */
+    private record ScoreStats(double mean, double stdDev, double sem, int n) {}
+
+    private ScoreStats computeStats(EvaluationReport report) {
+        List<EvaluationScore> s = report.scores();
+        int n = s != null ? s.size() : 0;
+        if (n == 0) {
+            return new ScoreStats(report.averageScore(), 0.0, 0.0, 0);
+        }
+        double mean = s.stream().mapToDouble(EvaluationScore::score).average().orElse(report.averageScore());
+        if (n < 2) {
+            return new ScoreStats(mean, 0.0, 0.0, n);
+        }
+        double variance = s.stream()
+                .mapToDouble(x -> { double d = x.score() - mean; return d * d; })
+                .sum() / (n - 1);
+        double stdDev = Math.sqrt(variance);
+        return new ScoreStats(mean, stdDev, stdDev / Math.sqrt(n), n);
+    }
+
+    /**
+     * Significativité approximative (≈ 95 %) de l'écart vs la baseline : test non
+     * apparié à deux échantillons, |Δ| &gt; 1,96 × √(SEM² + SEM_baseline²).
+     * Requiert au moins 2 paires notées de chaque côté.
+     */
+    private boolean isSignificant(double delta, ScoreStats stats, ScoreStats baselineStats, boolean isBaseline) {
+        if (isBaseline || stats.n() < 2 || baselineStats.n() < 2) {
+            return false;
+        }
+        double combinedSem = Math.sqrt(stats.sem() * stats.sem() + baselineStats.sem() * baselineStats.sem());
+        // Variance nulle des deux côtés : tout écart non nul est certain (pas de chevauchement).
+        if (combinedSem == 0.0) {
+            return Math.abs(delta) > 1e-9;
+        }
+        return Math.abs(delta) > 1.96 * combinedSem;
     }
 
     /** Compte les documents liés à un modèle pour un type de lien GED donné. */

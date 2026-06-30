@@ -149,10 +149,13 @@ export interface ModelComparisonEntry {
   completedAt: string | null;
   avgLatencyMs: number;
   avgTokensPerSec: number;
+  stdDev: number;
+  ci95: number;
   trainedOnDocs: number;
   evaluatedOnDocs: number;
   baseline: boolean;
   deltaVsBaseline: number;
+  significantVsBaseline: boolean;
   deltaByCategory: Record<string, number>;
 }
 

@@ -107,8 +107,22 @@ const ModelComparisonPanel: FC<Props> = ({ report, baselineId, onBaselineChange,
                       )}
                     </div>
                   </td>
-                  <td className="py-2.5 px-3 text-right font-headline font-bold">{m.averageScore.toFixed(2)}</td>
-                  <td className="py-2.5 px-3 text-right"><Delta value={m.deltaVsBaseline} /></td>
+                  <td className="py-2.5 px-3 text-right font-headline font-bold whitespace-nowrap">
+                    {m.averageScore.toFixed(2)}
+                    {m.ci95 > 0 && (
+                      <span className="font-label text-[9px] font-normal text-on-surface-variant ml-1">±{m.ci95.toFixed(2)}</span>
+                    )}
+                  </td>
+                  <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                    <Delta value={m.deltaVsBaseline} />
+                    {!m.baseline && Math.abs(m.deltaVsBaseline) >= 0.005 && (
+                      m.significantVsBaseline ? (
+                        <span className="font-label text-[8px] uppercase tracking-widest text-primary ml-1" title="Statistically significant (≈95%)">sig</span>
+                      ) : (
+                        <span className="font-label text-[8px] uppercase tracking-widest text-on-surface-variant/60 ml-1" title="Not statistically significant — likely within noise">ns</span>
+                      )
+                    )}
+                  </td>
                   <td className="py-2.5 px-3 text-right text-on-surface-variant">
                     {m.avgLatencyMs > 0 ? `${(m.avgLatencyMs / 1000).toFixed(2)}s` : '—'}
                   </td>
@@ -123,6 +137,11 @@ const ModelComparisonPanel: FC<Props> = ({ report, baselineId, onBaselineChange,
             </tbody>
           </table>
         </div>
+        <p className="font-label text-[9px] text-on-surface-variant/70 leading-relaxed">
+          Score shown as mean ±95% CI. <span className="text-primary">sig</span> = delta vs baseline is
+          statistically significant (≈95%); <span className="text-on-surface-variant">ns</span> = within noise.
+          tok/s is estimated (~length/4) — indicative, not a benchmark.
+        </p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import fr.spectra.dto.EvaluationReport;
+import fr.spectra.dto.EvaluationScore;
 import fr.spectra.dto.ModelComparisonReport;
 import fr.spectra.persistence.DocumentModelLinkEntity;
 import fr.spectra.persistence.DocumentModelLinkEntity.LinkType;
@@ -16,12 +17,15 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -115,6 +119,53 @@ class EvaluationServiceComparisonTest {
     void rejectsEmptySelection() {
         assertThatThrownBy(() -> service.compareReports(List.of(), null))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void flagsStatisticalSignificanceOfDeltas() throws Exception {
+        // baseline ~5.0, "strong" ~8.0 (écart net), "noisy" ~5.5 (bruité, écart non significatif).
+        Map<String, EvaluationReport> seed = new LinkedHashMap<>();
+        seed.put("base",   scored("base",   "m-base",   new double[]{5, 5, 6, 4, 5, 5}));
+        seed.put("strong", scored("strong", "m-strong", new double[]{8, 8, 9, 7, 8, 8}));
+        seed.put("noisy",  scored("noisy",  "m-noisy",  new double[]{2, 8, 3, 9, 4, 7}));
+
+        EvaluationService svc = serviceWith(seed);
+        ModelComparisonReport report = svc.compareReports(List.of("base", "strong", "noisy"), "base");
+
+        var strong = report.models().stream().filter(m -> m.evalId().equals("strong")).findFirst().orElseThrow();
+        var noisy  = report.models().stream().filter(m -> m.evalId().equals("noisy")).findFirst().orElseThrow();
+        var base   = report.models().stream().filter(m -> m.evalId().equals("base")).findFirst().orElseThrow();
+
+        assertThat(strong.significantVsBaseline()).isTrue();
+        assertThat(strong.stdDev()).isGreaterThan(0.0);
+        assertThat(strong.ci95()).isGreaterThan(0.0);
+
+        assertThat(noisy.significantVsBaseline()).isFalse();
+        assertThat(base.significantVsBaseline()).isFalse(); // la baseline n'est jamais "significative vs elle-même"
+    }
+
+    private EvaluationService serviceWith(Map<String, EvaluationReport> seed) throws Exception {
+        Path dir = Files.createTempDirectory(tempDir, "eval");
+        MAPPER.writerWithDefaultPrettyPrinter().writeValue(dir.resolve("evaluations.json").toFile(), seed);
+        DocumentModelLinkRepository links = mock(DocumentModelLinkRepository.class);
+        when(links.findByModelName(anyString())).thenReturn(List.of());
+        EvaluationService svc = new EvaluationService(
+                mock(DatasetGeneratorService.class), mock(LlmChatClient.class), links, dir.toString(), 200, "");
+        svc.init();
+        return svc;
+    }
+
+    private static EvaluationReport scored(String evalId, String modelName, double[] values) {
+        List<EvaluationScore> scores = new ArrayList<>();
+        for (double v : values) {
+            scores.add(new EvaluationScore("q", "ref", "ans", v, "j", "qa", "doc"));
+        }
+        double mean = java.util.Arrays.stream(values).average().orElse(0.0);
+        return new EvaluationReport(
+                evalId, "COMPLETED", modelName, null,
+                values.length, values.length, mean, Map.of("qa", mean), scores,
+                100.0, 20.0, null,
+                Instant.parse("2026-01-01T00:00:00Z"), Instant.parse("2026-01-01T00:05:00Z"));
     }
 
     private static EvaluationReport completed(String evalId, String modelName,
