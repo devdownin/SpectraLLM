@@ -63,7 +63,7 @@ class EvaluationServiceComparisonTest {
                 link("model-tuned", LinkType.EVALUATED_ON)
         ));
 
-        service = new EvaluationService(datasetGenerator, chatClient, linkRepository, tempDir.toString(), 200);
+        service = new EvaluationService(datasetGenerator, chatClient, linkRepository, tempDir.toString(), 200, "");
         service.init();
     }
 

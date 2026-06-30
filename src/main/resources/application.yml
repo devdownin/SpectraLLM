@@ -43,6 +43,15 @@ spectra:
       base-url: ${SPECTRA_LLM_CHAT_BASE_URL:http://llm-chat:8081}
     embedding:
       base-url: ${SPECTRA_LLM_EMBEDDING_BASE_URL:http://llm-embed:8082}
+  evaluation:
+    # Modèle-juge neutre pour l'évaluation LLM-as-a-judge. Vide = le modèle évalué
+    # se juge lui-même (biais possible). Renseigner un modèle distinct et fixe rend
+    # la comparaison multi-modèles plus équitable (évaluation en 2 phases :
+    # génération avec le modèle évalué, puis notation avec le juge).
+    judge-model: ${SPECTRA_EVALUATION_JUDGE_MODEL:}
+    # Nombre maximal de rapports d'évaluation COMPLETED conservés (les plus anciens
+    # sont évincés). Les rapports sont nécessaires aux comparaisons.
+    max-completed-reports: ${SPECTRA_EVALUATION_MAX_COMPLETED_REPORTS:200}
   chromadb:
     base-url: ${CHROMADB_URL:http://chromadb:8000}
   ingestion:

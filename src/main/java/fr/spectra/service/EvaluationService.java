@@ -67,6 +67,8 @@ public class EvaluationService {
     private final Path workDir;
     /** Nombre maximal de rapports COMPLETED conservés (les plus anciens sont évincés). */
     private final int maxCompletedReports;
+    /** Modèle-juge neutre (vide = le modèle évalué se juge lui-même, comportement par défaut). */
+    private final String judgeModel;
     private final Map<String, EvaluationReport> reports = new ConcurrentHashMap<>();
     private final Set<String> cancelledEvals = ConcurrentHashMap.newKeySet();
     private Path reportsFile;
@@ -78,12 +80,14 @@ public class EvaluationService {
                               LlmChatClient chatClient,
                               DocumentModelLinkRepository linkRepository,
                               @Value("${spectra.fine-tuning.work-dir:./data/fine-tuning}") String workDir,
-                              @Value("${spectra.evaluation.max-completed-reports:200}") int maxCompletedReports) {
+                              @Value("${spectra.evaluation.max-completed-reports:200}") int maxCompletedReports,
+                              @Value("${spectra.evaluation.judge-model:}") String judgeModel) {
         this.datasetGenerator = datasetGenerator;
         this.chatClient = chatClient;
         this.linkRepository = linkRepository;
         this.workDir = Path.of(workDir);
         this.maxCompletedReports = maxCompletedReports > 0 ? maxCompletedReports : 200;
+        this.judgeModel = judgeModel != null ? judgeModel.trim() : "";
     }
 
     @PostConstruct
@@ -387,23 +391,14 @@ public class EvaluationService {
                 testPairs.size(), 0, 0.0, Map.of(), List.of(), null, r.startedAt(), null
         ));
 
-        List<EvaluationScore> scores = new ArrayList<>();
-        for (int i = 0; i < testPairs.size(); i++) {
-            if (cancelledEvals.contains(evalId)) {
-                log.info("Évaluation {} annulée à l'itération {}", evalId, i);
-                return;
-            }
-            EvaluationScore score = evaluatePair(testPairs.get(i));
-            if (score != null) scores.add(score);
+        String evaluatedModel = chatClient.getActiveModel();
+        boolean useNeutralJudge = !judgeModel.isEmpty() && !judgeModel.equals(evaluatedModel);
 
-            int done = i + 1;
-            List<EvaluationScore> snapshot = List.copyOf(scores);
-            double avg = averageScore(snapshot);
-            Map<String, Double> byCat = scoresByCategory(snapshot);
-            updateReport(evalId, r -> new EvaluationReport(
-                    r.evalId(), "RUNNING", r.modelName(), r.jobId(),
-                    r.testSetSize(), done, avg, byCat, snapshot, null, r.startedAt(), null
-            ));
+        List<EvaluationScore> scores = useNeutralJudge
+                ? scoreWithNeutralJudge(evalId, testPairs, evaluatedModel)
+                : scoreSelfJudge(evalId, testPairs);
+        if (scores == null) {
+            return; // annulée ou échec — rapport déjà mis à jour
         }
 
         List<EvaluationScore> finalScores = List.copyOf(scores);
@@ -416,6 +411,80 @@ public class EvaluationService {
                 r.evalId(), "COMPLETED", r.modelName(), r.jobId(),
                 r.testSetSize(), finalScores.size(), finalAvg,
                 finalByCat, finalScores, null, r.startedAt(), Instant.now()
+        ));
+    }
+
+    /**
+     * Notation où le modèle évalué se juge lui-même (comportement par défaut) :
+     * génération + jugement avec le modèle actif, paire par paire.
+     * @return scores accumulés, ou {@code null} si l'évaluation a été annulée
+     */
+    private List<EvaluationScore> scoreSelfJudge(String evalId, List<TrainingPair> testPairs) {
+        List<EvaluationScore> scores = new ArrayList<>();
+        for (int i = 0; i < testPairs.size(); i++) {
+            if (cancelledEvals.contains(evalId)) {
+                log.info("Évaluation {} annulée à l'itération {}", evalId, i);
+                return null;
+            }
+            Generated generated = generateAnswer(testPairs.get(i));
+            EvaluationScore score = generated != null ? judge(generated) : null;
+            if (score != null) scores.add(score);
+            publishRunning(evalId, i + 1, scores);
+        }
+        return scores;
+    }
+
+    /**
+     * Notation par un modèle-juge neutre, en deux phases pour éviter de recharger le
+     * serveur à chaque paire :
+     * <ol>
+     *   <li>génère toutes les réponses avec le modèle évalué (actif) ;</li>
+     *   <li>bascule une seule fois vers le modèle-juge et note chaque réponse.</li>
+     * </ol>
+     * @return scores accumulés, ou {@code null} si annulée / échec d'activation du juge
+     */
+    private List<EvaluationScore> scoreWithNeutralJudge(String evalId, List<TrainingPair> testPairs,
+                                                        String evaluatedModel) {
+        log.info("Évaluation {} : juge neutre '{}' (modèle évalué '{}')",
+                evalId, judgeModel, evaluatedModel);
+
+        // Phase 1 — génération des réponses avec le modèle évalué.
+        List<Generated> generated = new ArrayList<>();
+        for (int i = 0; i < testPairs.size(); i++) {
+            if (cancelledEvals.contains(evalId)) {
+                log.info("Évaluation {} annulée (génération) à l'itération {}", evalId, i);
+                return null;
+            }
+            Generated g = generateAnswer(testPairs.get(i));
+            if (g != null) generated.add(g);
+        }
+
+        // Phase 2 — bascule vers le juge neutre puis notation.
+        if (!activateTargetModel(evalId, judgeModel, evaluatedModel)) {
+            return null; // rapport déjà marqué FAILED
+        }
+        List<EvaluationScore> scores = new ArrayList<>();
+        for (int i = 0; i < generated.size(); i++) {
+            if (cancelledEvals.contains(evalId)) {
+                log.info("Évaluation {} annulée (notation) à l'itération {}", evalId, i);
+                return null;
+            }
+            EvaluationScore score = judge(generated.get(i));
+            if (score != null) scores.add(score);
+            publishRunning(evalId, i + 1, scores);
+        }
+        // Le modèle évalué/initial est restauré par l'appelant (runEvaluation / runBatchAsync).
+        return scores;
+    }
+
+    /** Publie un instantané RUNNING (progression + moyenne courante). */
+    private void publishRunning(String evalId, int done, List<EvaluationScore> scores) {
+        List<EvaluationScore> snapshot = List.copyOf(scores);
+        double avg = averageScore(snapshot);
+        Map<String, Double> byCat = scoresByCategory(snapshot);
+        updateReport(evalId, r -> new EvaluationReport(
+                r.evalId(), "RUNNING", r.modelName(), r.jobId(),
+                r.testSetSize(), done, avg, byCat, snapshot, null, r.startedAt(), null
         ));
     }
 
@@ -463,7 +532,12 @@ public class EvaluationService {
         ));
     }
 
-    private EvaluationScore evaluatePair(TrainingPair pair) {
+    /** Réponse générée par le modèle évalué pour une paire, avant notation. */
+    private record Generated(String question, String reference, String modelAnswer,
+                             String category, String source) {}
+
+    /** Interroge le modèle actif (évalué) pour produire une réponse à la question de la paire. */
+    private Generated generateAnswer(TrainingPair pair) {
         try {
             String system    = extractRole(pair, "system");
             String question  = extractRole(pair, "user");
@@ -479,10 +553,20 @@ public class EvaluationService {
                 log.warn("Échec appel modèle évalué: {}", e.getMessage());
                 return null;
             }
+            return new Generated(question, reference, modelAnswer,
+                    pair.metadata().category(), pair.metadata().source());
+        } catch (Exception e) {
+            log.warn("Erreur inattendue génération réponse: {}", e.getMessage());
+            return null;
+        }
+    }
 
-            String judgePrompt = "Question : " + question
-                    + "\n\nRéponse de référence : " + reference
-                    + "\n\nRéponse évaluée : " + modelAnswer;
+    /** Note une réponse générée via le modèle-juge actif (LLM-as-a-judge). */
+    private EvaluationScore judge(Generated g) {
+        try {
+            String judgePrompt = "Question : " + g.question()
+                    + "\n\nRéponse de référence : " + g.reference()
+                    + "\n\nRéponse évaluée : " + g.modelAnswer();
 
             String judgeResponse;
             try {
@@ -506,13 +590,11 @@ public class EvaluationService {
             score = Math.max(1.0, Math.min(10.0, score));
 
             return new EvaluationScore(
-                    question, reference, modelAnswer,
-                    score, justification,
-                    pair.metadata().category(),
-                    pair.metadata().source()
+                    g.question(), g.reference(), g.modelAnswer(),
+                    score, justification, g.category(), g.source()
             );
         } catch (Exception e) {
-            log.warn("Erreur inattendue évaluation paire: {}", e.getMessage());
+            log.warn("Erreur inattendue notation paire: {}", e.getMessage());
             return null;
         }
     }

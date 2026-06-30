@@ -64,7 +64,7 @@ class EvaluationServiceBatchTest {
 
         EvaluationService service = new EvaluationService(
                 datasetGenerator, chatClient, mock(DocumentModelLinkRepository.class),
-                tempDir.toString(), 200);
+                tempDir.toString(), 200, "");
         service.init();
 
         List<String> evalIds = service.submitBatch(List.of("model-a", "model-b"), 5);
@@ -92,6 +92,34 @@ class EvaluationServiceBatchTest {
     }
 
     @Test
+    void neutralJudgeRunsTwoPhasesAndRestoresEvaluatedModel() {
+        List<TrainingPair> pairs = new ArrayList<>();
+        for (int i = 0; i < 6; i++) {
+            pairs.add(TrainingPair.of("q" + i, "a" + i, "doc.pdf", "qa", "qa", 1.0));
+        }
+        when(datasetGenerator.getAllPairs()).thenReturn(pairs);
+
+        EvaluationService service = new EvaluationService(
+                datasetGenerator, chatClient, mock(DocumentModelLinkRepository.class),
+                tempDir.toString(), 200, "judge-x");   // juge neutre configuré
+        service.init();
+
+        String evalId = service.submit(new fr.spectra.dto.EvaluationRequest("model-a", 4, null));
+
+        EvaluationReport report = service.getReport(evalId);
+        assertThat(report.status()).isEqualTo("COMPLETED");
+        assertThat(report.modelName()).isEqualTo("model-a");
+        assertThat(report.averageScore()).isEqualTo(8.0);
+
+        // Modèle évalué activé, puis bascule vers le juge neutre, puis restauration.
+        InOrder order = inOrder(chatClient);
+        order.verify(chatClient).setActiveModel("model-a");
+        order.verify(chatClient).setActiveModel("judge-x");
+        order.verify(chatClient).setActiveModel("orig");
+        assertThat(activeModel.get()).isEqualTo("orig");
+    }
+
+    @Test
     void retentionKeepsCompletedAndPurgesOldFailures() throws Exception {
         // Aucune paire nécessaire pour ce test — on amorce des rapports persistés.
         Instant old = Instant.now().minusSeconds(7200);   // avant le cutoff (1 h)
@@ -110,7 +138,7 @@ class EvaluationServiceBatchTest {
         when(datasetGenerator.getAllPairs()).thenReturn(List.of());
         EvaluationService service = new EvaluationService(
                 datasetGenerator, chatClient, mock(DocumentModelLinkRepository.class),
-                tempDir.toString(), 2);   // cap COMPLETED à 2
+                tempDir.toString(), 2, "");   // cap COMPLETED à 2
         service.init();
 
         service.cleanupOldReports();
