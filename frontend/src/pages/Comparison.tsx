@@ -5,6 +5,7 @@ import { evaluationApi } from '../services/api';
 import type { EvaluationReport, EvaluationScore, ModelComparisonReport } from '../types/api';
 import ScoreRadar from '../components/charts/ScoreRadar';
 import ModelComparisonPanel from '../components/ModelComparisonPanel';
+import BatchEvaluateDialog from '../components/BatchEvaluateDialog';
 import Skeleton from '../components/Skeleton';
 
 const STATUS_LABEL: Record<string, string> = {
@@ -119,6 +120,16 @@ const Comparison: FC = () => {
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [compareMode, setCompareMode] = useState(false);
   const [baselineId, setBaselineId] = useState<string | undefined>(undefined);
+  const [batchOpen, setBatchOpen] = useState(false);
+
+  // Pré-sélectionne les évaluations issues d'un batch dès qu'elles sont complétées.
+  const handleBatchSubmitted = (evalIds: string[]) => {
+    if (evalIds.length >= 2) {
+      setCompareIds(evalIds);
+      setCompareMode(true);
+      setBaselineId(undefined);
+    }
+  };
 
   const toggleCompare = (evalId: string) => {
     setCompareIds(prev =>
@@ -128,12 +139,17 @@ const Comparison: FC = () => {
 
   // Clés stables pour le cache : ordre des ids indifférent.
   const sortedCompareIds = [...compareIds].sort();
+  // Repoll tant qu'une évaluation sélectionnée est encore en cours.
+  const comparingRunning = reports.some(
+    r => compareIds.includes(r.evalId) && (r.status === 'RUNNING' || r.status === 'PENDING')
+  );
   const { data: comparison, isLoading: isComparing, error: compareError } =
     useQuery<ModelComparisonReport>({
       queryKey: ['evaluation-compare', sortedCompareIds, baselineId],
       queryFn: async () =>
         (await evaluationApi.compare(compareIds, baselineId)).data as ModelComparisonReport,
       enabled: compareMode && compareIds.length >= 2,
+      refetchInterval: comparingRunning ? 5000 : false,
     });
 
   // Synchronise la sélection quand la liste change (préserve le rapport choisi).
@@ -143,11 +159,12 @@ const Comparison: FC = () => {
     );
   }, [reports]);
 
-  // Purge les sélections de comparaison qui ne sont plus disponibles/complétées.
+  // Purge uniquement les sélections de comparaison qui n'existent plus (supprimées).
+  // Les évaluations en cours sont conservées : la comparaison se met à jour à leur achèvement.
   useEffect(() => {
-    const completedIds = new Set(reports.filter(r => r.status === 'COMPLETED').map(r => r.evalId));
+    const knownIds = new Set(reports.map(r => r.evalId));
     setCompareIds(prev => {
-      const next = prev.filter(id => completedIds.has(id));
+      const next = prev.filter(id => knownIds.has(id));
       return next.length === prev.length ? prev : next;
     });
   }, [reports]);
@@ -192,6 +209,11 @@ const Comparison: FC = () => {
 
   return (
     <div className="space-y-8 animate-in fade-in duration-700">
+      <BatchEvaluateDialog
+        open={batchOpen}
+        onClose={() => setBatchOpen(false)}
+        onSubmitted={handleBatchSubmitted}
+      />
       {/* Header */}
       <header className="flex items-end justify-between">
         <div>
@@ -201,6 +223,15 @@ const Comparison: FC = () => {
           <h2 className="font-headline text-3xl font-bold tracking-tighter">MODEL EVALUATION</h2>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => setBatchOpen(true)}
+            className="px-4 py-2 bg-transparent text-on-surface-variant font-label text-[11px] uppercase tracking-widest
+                       border border-outline-variant/30 hover:text-on-surface hover:bg-surface-container-high transition-colors"
+            aria-label="Evaluate several models at once on a shared test set"
+            title="Evaluate several models on a shared test set, then compare"
+          >
+            Batch evaluate
+          </button>
           <button
             onClick={() => setCompareMode(m => !m)}
             disabled={compareIds.length < 2}

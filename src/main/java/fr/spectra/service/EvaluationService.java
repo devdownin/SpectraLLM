@@ -65,6 +65,8 @@ public class EvaluationService {
     private final LlmChatClient chatClient;
     private final DocumentModelLinkRepository linkRepository;
     private final Path workDir;
+    /** Nombre maximal de rapports COMPLETED conservés (les plus anciens sont évincés). */
+    private final int maxCompletedReports;
     private final Map<String, EvaluationReport> reports = new ConcurrentHashMap<>();
     private final Set<String> cancelledEvals = ConcurrentHashMap.newKeySet();
     private Path reportsFile;
@@ -75,11 +77,13 @@ public class EvaluationService {
     public EvaluationService(DatasetGeneratorService datasetGenerator,
                               LlmChatClient chatClient,
                               DocumentModelLinkRepository linkRepository,
-                              @Value("${spectra.fine-tuning.work-dir:./data/fine-tuning}") String workDir) {
+                              @Value("${spectra.fine-tuning.work-dir:./data/fine-tuning}") String workDir,
+                              @Value("${spectra.evaluation.max-completed-reports:200}") int maxCompletedReports) {
         this.datasetGenerator = datasetGenerator;
         this.chatClient = chatClient;
         this.linkRepository = linkRepository;
         this.workDir = Path.of(workDir);
+        this.maxCompletedReports = maxCompletedReports > 0 ? maxCompletedReports : 200;
     }
 
     @PostConstruct
@@ -117,6 +121,40 @@ public class EvaluationService {
         persistReports();
         (self != null ? self : this).runAsync(evalId, request, modelName);
         return evalId;
+    }
+
+    /**
+     * Lance l'évaluation d'une liste de modèles sur un <strong>même jeu de test</strong>,
+     * de façon séquentielle, pour permettre une comparaison équitable de leurs gains.
+     *
+     * <p>Chaque modèle est chargé tour à tour (bascule du modèle actif), évalué, puis
+     * le modèle initialement actif est restauré à la fin. La bascule n'est réellement
+     * effective que si l'orchestrateur runtime llama.cpp est activé.
+     *
+     * @param modelNames modèles à évaluer (les doublons sont ignorés, l'ordre est conservé)
+     * @param testSetSize taille du jeu de test commun (défaut : 5 % du dataset)
+     * @return identifiants des évaluations créées, dans l'ordre des modèles
+     * @throws IllegalArgumentException si {@code modelNames} est vide
+     */
+    public List<String> submitBatch(List<String> modelNames, Integer testSetSize) {
+        if (modelNames == null || modelNames.isEmpty()) {
+            throw new IllegalArgumentException("Au moins un modèle est requis pour une évaluation par lot.");
+        }
+        LinkedHashMap<String, String> evalIdByModel = new LinkedHashMap<>();
+        List<String> evalIds = new ArrayList<>();
+        for (String model : new LinkedHashSet<>(modelNames)) {
+            if (model == null || model.isBlank()) continue;
+            String evalId = UUID.randomUUID().toString();
+            reports.put(evalId, EvaluationReport.pending(evalId, model, null));
+            evalIds.add(evalId);
+            evalIdByModel.put(evalId, model);
+        }
+        if (evalIds.isEmpty()) {
+            throw new IllegalArgumentException("Aucun nom de modèle valide fourni.");
+        }
+        persistReports();
+        (self != null ? self : this).runBatchAsync(evalIdByModel, testSetSize);
+        return evalIds;
     }
 
     public EvaluationReport getReport(String evalId) {
@@ -231,12 +269,33 @@ public class EvaluationService {
     @Scheduled(fixedDelay = 3_600_000)
     public void cleanupOldReports() {
         Instant cutoff = Instant.now().minusSeconds(3600);
-        reports.entrySet().removeIf(e -> {
+        // Les rapports COMPLETED sont conservés (nécessaires aux comparaisons) ; on ne
+        // purge que les échecs/annulations anciens, puis on borne le nombre de COMPLETED.
+        boolean removed = reports.entrySet().removeIf(e -> {
             EvaluationReport r = e.getValue();
-            return ("COMPLETED".equals(r.status()) || "FAILED".equals(r.status()) || "CANCELLED".equals(r.status()))
+            return ("FAILED".equals(r.status()) || "CANCELLED".equals(r.status()))
                     && r.completedAt() != null && r.completedAt().isBefore(cutoff);
         });
+        removed |= evictExcessCompleted();
         cancelledEvals.removeIf(id -> !reports.containsKey(id));
+        if (removed) persistReports();
+    }
+
+    /**
+     * Évince les rapports COMPLETED les plus anciens au-delà de {@link #maxCompletedReports}.
+     * @return vrai si au moins un rapport a été supprimé
+     */
+    private boolean evictExcessCompleted() {
+        List<EvaluationReport> completed = reports.values().stream()
+                .filter(r -> "COMPLETED".equals(r.status()))
+                .sorted(Comparator.comparing(r -> r.completedAt() != null ? r.completedAt() : Instant.EPOCH))
+                .toList();
+        int excess = completed.size() - maxCompletedReports;
+        if (excess <= 0) return false;
+        for (int i = 0; i < excess; i++) {
+            reports.remove(completed.get(i).evalId());
+        }
+        return true;
     }
 
     @Async
@@ -245,36 +304,83 @@ public class EvaluationService {
             runEvaluation(evalId, request);
         } catch (Exception e) {
             log.error("Évaluation {} échouée: {}", evalId, e.getMessage(), e);
-            updateReport(evalId, r -> new EvaluationReport(
-                    r.evalId(), "FAILED", r.modelName(), r.jobId(),
-                    r.testSetSize(), r.processed(), r.averageScore(),
-                    r.scoresByCategory(), r.scores(), e.getMessage(),
-                    r.startedAt(), Instant.now()
-            ));
+            failReport(evalId, e.getMessage());
+        }
+    }
+
+    @Async
+    protected void runBatchAsync(LinkedHashMap<String, String> evalIdByModel, Integer testSetSize) {
+        List<TrainingPair> testPairs = sampleTestSet(testSetSize);
+        if (testPairs.isEmpty()) {
+            evalIdByModel.keySet().forEach(id -> failReport(id,
+                    "Dataset vide — générez d'abord des paires via POST /api/dataset/generate."));
+            return;
+        }
+
+        String original = chatClient.getActiveModel();
+        log.info("Évaluation par lot : {} modèles sur {} paires de test partagées",
+                evalIdByModel.size(), testPairs.size());
+        try {
+            for (Map.Entry<String, String> entry : evalIdByModel.entrySet()) {
+                String evalId = entry.getKey();
+                String model = entry.getValue();
+                if (cancelledEvals.contains(evalId)) {
+                    continue;
+                }
+                if (!activateTargetModel(evalId, model, chatClient.getActiveModel())) {
+                    continue;
+                }
+                try {
+                    runEvaluationOnPairs(evalId, testPairs);
+                } catch (Exception e) {
+                    log.error("Évaluation batch {} échouée: {}", evalId, e.getMessage(), e);
+                    failReport(evalId, e.getMessage());
+                }
+            }
+        } finally {
+            restoreModel(original);
         }
     }
 
     private void runEvaluation(String evalId, EvaluationRequest request) {
-        List<TrainingPair> allPairs = datasetGenerator.getAllPairs();
-        if (allPairs.isEmpty()) {
-            updateReport(evalId, r -> new EvaluationReport(
-                    r.evalId(), "FAILED", r.modelName(), r.jobId(),
-                    0, 0, 0.0, Map.of(), List.of(),
-                    "Dataset vide — générez d'abord des paires via POST /api/dataset/generate.",
-                    r.startedAt(), Instant.now()
-            ));
+        List<TrainingPair> testPairs = sampleTestSet(request.testSetSize());
+        if (testPairs.isEmpty()) {
+            failReport(evalId, "Dataset vide — générez d'abord des paires via POST /api/dataset/generate.");
             return;
         }
 
-        int testSize = request.testSetSize() != null
-                ? Math.max(1, request.testSetSize())
-                : Math.min(50, Math.max(5, allPairs.size() / 20));
+        String modelName = reportModelName(evalId);
+        String original = chatClient.getActiveModel();
+        if (!activateTargetModel(evalId, modelName, original)) {
+            return;
+        }
+        try {
+            runEvaluationOnPairs(evalId, testPairs);
+        } finally {
+            restoreModel(original);
+        }
+    }
 
+    /**
+     * Échantillonne un jeu de test reproductible (seed fixe) sur le dataset courant.
+     * @return liste indépendante (réutilisable), vide si le dataset est vide
+     */
+    private List<TrainingPair> sampleTestSet(Integer requestedSize) {
+        List<TrainingPair> allPairs = datasetGenerator.getAllPairs();
+        if (allPairs.isEmpty()) {
+            return List.of();
+        }
+        int testSize = requestedSize != null
+                ? Math.max(1, requestedSize)
+                : Math.min(50, Math.max(5, allPairs.size() / 20));
         List<TrainingPair> shuffled = new ArrayList<>(allPairs);
         Collections.shuffle(shuffled, new Random(42));
-        List<TrainingPair> testPairs = shuffled.subList(0, Math.min(testSize, shuffled.size()));
+        return new ArrayList<>(shuffled.subList(0, Math.min(testSize, shuffled.size())));
+    }
 
-        log.info("Évaluation {}: {} paires de test / {} total", evalId, testPairs.size(), allPairs.size());
+    /** Exécute la boucle d'évaluation sur un jeu de test, avec le modèle actuellement actif. */
+    private void runEvaluationOnPairs(String evalId, List<TrainingPair> testPairs) {
+        log.info("Évaluation {}: {} paires de test", evalId, testPairs.size());
 
         updateReport(evalId, r -> new EvaluationReport(
                 r.evalId(), "RUNNING", r.modelName(), r.jobId(),
@@ -310,6 +416,50 @@ public class EvaluationService {
                 r.evalId(), "COMPLETED", r.modelName(), r.jobId(),
                 r.testSetSize(), finalScores.size(), finalAvg,
                 finalByCat, finalScores, null, r.startedAt(), Instant.now()
+        ));
+    }
+
+    /** Nom du modèle ciblé par un rapport (sinon modèle actif). */
+    private String reportModelName(String evalId) {
+        EvaluationReport r = reports.get(evalId);
+        return r != null ? r.modelName() : chatClient.getActiveModel();
+    }
+
+    /**
+     * Bascule le modèle servi vers {@code modelName} s'il diffère du modèle courant.
+     * @return vrai si le modèle est prêt à être évalué ; faux en cas d'échec (rapport marqué FAILED)
+     */
+    private boolean activateTargetModel(String evalId, String modelName, String current) {
+        if (modelName == null || modelName.equals(current)) {
+            return true;
+        }
+        try {
+            chatClient.setActiveModel(modelName);
+            return true;
+        } catch (Exception e) {
+            log.warn("Évaluation {} : impossible d'activer le modèle '{}' : {}", evalId, modelName, e.getMessage());
+            failReport(evalId, "Impossible de charger le modèle '" + modelName + "' : " + e.getMessage());
+            return false;
+        }
+    }
+
+    /** Restaure le modèle initialement actif (best-effort). */
+    private void restoreModel(String original) {
+        try {
+            if (original != null && !original.equals(chatClient.getActiveModel())) {
+                chatClient.setActiveModel(original);
+            }
+        } catch (Exception e) {
+            log.warn("Impossible de restaurer le modèle actif '{}' : {}", original, e.getMessage());
+        }
+    }
+
+    /** Marque un rapport comme FAILED avec un message d'erreur. */
+    private void failReport(String evalId, String message) {
+        updateReport(evalId, r -> new EvaluationReport(
+                r.evalId(), "FAILED", r.modelName(), r.jobId(),
+                r.testSetSize(), r.processed(), r.averageScore(),
+                r.scoresByCategory(), r.scores(), message, r.startedAt(), Instant.now()
         ));
     }
 

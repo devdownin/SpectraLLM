@@ -96,6 +96,8 @@ export const evaluationApi = {
   get: (evalId: string) => api.get(`/evaluation/${evalId}`),
   submit: (request?: { modelName?: string; testSetSize?: number; jobId?: string }) =>
     api.post('/evaluation', request ?? {}),
+  submitBatch: (modelNames: string[], testSetSize?: number) =>
+    api.post('/evaluation/batch', { modelNames, testSetSize }),
   compare: (evalIds: string[], baseline?: string) =>
     api.get('/evaluation/compare', {
       params: { evalIds: evalIds.join(','), ...(baseline ? { baseline } : {}) },
@@ -253,6 +255,7 @@ export const ablationApi = {
 export const configApi = {
   getModelConfig: () => api.get('/config/model'),
   setModelConfig: (config: any) => api.post('/config/model', config),
+  getModels: () => api.get('/config/models'),
 };
 
 export const modelsHubApi = {

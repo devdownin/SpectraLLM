@@ -1,5 +1,6 @@
 package fr.spectra.controller;
 
+import fr.spectra.dto.BatchEvaluationRequest;
 import fr.spectra.dto.EvaluationReport;
 import fr.spectra.dto.EvaluationRequest;
 import fr.spectra.dto.ModelComparisonReport;
@@ -38,6 +39,23 @@ public class EvaluationController {
         EvaluationRequest req = request != null ? request : new EvaluationRequest(null, null, null);
         String evalId = evaluationService.submit(req);
         return ResponseEntity.accepted().body(Map.of("evalId", evalId, "status", "PENDING"));
+    }
+
+    /**
+     * Évalue plusieurs modèles sur un même jeu de test, séquentiellement, pour
+     * comparer équitablement leurs gains.
+     *
+     * <pre>POST /api/evaluation/batch  body: {"modelNames":["a","b"],"testSetSize":20}</pre>
+     */
+    @PostMapping("/batch")
+    public ResponseEntity<Map<String, Object>> submitBatch(@RequestBody BatchEvaluationRequest request) {
+        try {
+            List<String> evalIds = evaluationService.submitBatch(
+                    request.modelNames(), request.testSetSize());
+            return ResponseEntity.accepted().body(Map.of("evalIds", evalIds, "status", "PENDING"));
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
+        }
     }
 
     @GetMapping("/{evalId}")

@@ -8,6 +8,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -31,6 +32,12 @@ public class ConfigController {
     @GetMapping("/model")
     public ResponseEntity<Map<String, String>> getModel() {
         return ResponseEntity.ok(Map.of("model", chatClient.getActiveModel()));
+    }
+
+    @Operation(summary = "Liste les modèles de chat enregistrés (registre local)")
+    @GetMapping("/models")
+    public ResponseEntity<List<Map<String, Object>>> listModels() {
+        return ResponseEntity.ok(chatClient.listModels());
     }
 
     @Operation(summary = "Change le modèle LLM actif (chat, RAG, génération dataset)")
