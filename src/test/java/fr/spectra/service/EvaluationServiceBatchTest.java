@@ -52,6 +52,10 @@ class EvaluationServiceBatchTest {
         // Réponse du modèle ET du juge : JSON parseable → score 8.
         when(chatClient.chat(anyString(), anyString()))
                 .thenReturn("{\"score\": 8, \"justification\": \"ok\"}");
+        // chatWithStats est une méthode default : la déléguer à chat() sur le mock.
+        when(chatClient.chatWithStats(anyString(), anyString()))
+                .thenAnswer(i -> new LlmChatClient.ChatResult(
+                        chatClient.chat(i.getArgument(0), i.getArgument(1)), 0, 0.0));
     }
 
     @Test
@@ -156,12 +160,12 @@ class EvaluationServiceBatchTest {
     private static EvaluationReport completed(String id, Instant completedAt) {
         return new EvaluationReport(id, "COMPLETED", "m-" + id, null,
                 5, 5, 8.0, Map.of("qa", 8.0), List.of(), 100.0, 20.0, null,
-                completedAt.minusSeconds(60), completedAt);
+                completedAt.minusSeconds(60), completedAt, "m-" + id);
     }
 
     private static EvaluationReport failed(String id, Instant completedAt) {
         return new EvaluationReport(id, "FAILED", "m-" + id, null,
                 0, 0, 0.0, Map.of(), List.of(), 0.0, 0.0, "boom",
-                completedAt.minusSeconds(60), completedAt);
+                completedAt.minusSeconds(60), completedAt, "m-" + id);
     }
 }

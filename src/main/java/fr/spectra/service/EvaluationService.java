@@ -158,10 +158,15 @@ public class EvaluationService {
         String modelName = (request.modelName() != null && !request.modelName().isBlank())
                 ? request.modelName()
                 : chatClient.getActiveModel();
-        reports.put(evalId, EvaluationReport.pending(evalId, modelName, request.jobId()));
+        reports.put(evalId, EvaluationReport.pending(evalId, modelName, request.jobId(), resolveJudge(modelName)));
         persistReports();
         (self != null ? self : this).runAsync(evalId, request, modelName);
         return evalId;
+    }
+
+    /** Modèle qui jugera un modèle donné : juge neutre si configuré et distinct, sinon auto-jugement. */
+    private String resolveJudge(String evaluatedModel) {
+        return (!judgeModel.isEmpty() && !judgeModel.equals(evaluatedModel)) ? judgeModel : evaluatedModel;
     }
 
     /**
@@ -186,7 +191,7 @@ public class EvaluationService {
         for (String model : new LinkedHashSet<>(modelNames)) {
             if (model == null || model.isBlank()) continue;
             String evalId = UUID.randomUUID().toString();
-            reports.put(evalId, EvaluationReport.pending(evalId, model, null));
+            reports.put(evalId, EvaluationReport.pending(evalId, model, null, resolveJudge(model)));
             evalIds.add(evalId);
             evalIdByModel.put(evalId, model);
         }
@@ -572,7 +577,7 @@ public class EvaluationService {
                 r.evalId(), "CANCELLED", r.modelName(), r.jobId(),
                 r.testSetSize(), r.processed(), r.averageScore(),
                 r.scoresByCategory(), r.scores(), r.avgLatencyMs(), r.avgTokensPerSec(),
-                "Annulé par l'utilisateur", r.startedAt(), Instant.now()
+                "Annulé par l'utilisateur", r.startedAt(), Instant.now(), r.judgeModel()
         ));
         persistReports();
         return true;
@@ -719,7 +724,7 @@ public class EvaluationService {
 
         updateReport(evalId, r -> new EvaluationReport(
                 r.evalId(), "RUNNING", r.modelName(), r.jobId(),
-                testPairs.size(), 0, 0.0, Map.of(), List.of(), 0.0, 0.0, null, r.startedAt(), null
+                testPairs.size(), 0, 0.0, Map.of(), List.of(), 0.0, 0.0, null, r.startedAt(), null, r.judgeModel()
         ));
 
         String evaluatedModel = chatClient.getActiveModel();
@@ -744,7 +749,7 @@ public class EvaluationService {
         updateReport(evalId, r -> new EvaluationReport(
                 r.evalId(), "COMPLETED", r.modelName(), r.jobId(),
                 r.testSetSize(), finalScores.size(), finalAvg,
-                finalByCat, finalScores, latency, tps, null, r.startedAt(), Instant.now()
+                finalByCat, finalScores, latency, tps, null, r.startedAt(), Instant.now(), r.judgeModel()
         ));
     }
 
@@ -763,7 +768,7 @@ public class EvaluationService {
             }
             Generated generated = generateAnswer(testPairs.get(i));
             if (generated != null) {
-                perf.add(generated.latencyMs(), generated.approxTokens());
+                perf.add(generated.latencyMs(), generated.approxTokens(), generated.serverTps());
             }
             EvaluationScore score = generated != null ? judge(generated) : null;
             if (score != null) scores.add(score);
@@ -798,7 +803,7 @@ public class EvaluationService {
             Generated g = generateAnswer(testPairs.get(i));
             if (g != null) {
                 generated.add(g);
-                perf.add(g.latencyMs(), g.approxTokens());
+                perf.add(g.latencyMs(), g.approxTokens(), g.serverTps());
             }
         }
 
@@ -829,7 +834,7 @@ public class EvaluationService {
         double tps = round(perf.avgTokensPerSec());
         updateReport(evalId, r -> new EvaluationReport(
                 r.evalId(), "RUNNING", r.modelName(), r.jobId(),
-                r.testSetSize(), done, avg, byCat, snapshot, latency, tps, null, r.startedAt(), null
+                r.testSetSize(), done, avg, byCat, snapshot, latency, tps, null, r.startedAt(), null, r.judgeModel()
         ));
     }
 
@@ -841,11 +846,19 @@ public class EvaluationService {
         private long latencySumMs;
         private long tokenSum;
         private int count;
+        // Débit serveur pondéré par tokens (quand llama.cpp le fournit) — plus précis
+        // que tokens/temps-mur (qui inclut la latence réseau).
+        private double serverTpsWeighted;
+        private long serverTpsTokenBase;
 
-        void add(long latencyMs, int tokens) {
+        void add(long latencyMs, int tokens, double serverTps) {
             latencySumMs += Math.max(0, latencyMs);
             tokenSum += Math.max(0, tokens);
             count++;
+            if (serverTps > 0 && tokens > 0) {
+                serverTpsWeighted += serverTps * tokens;
+                serverTpsTokenBase += tokens;
+            }
         }
 
         double avgLatencyMs() {
@@ -853,6 +866,10 @@ public class EvaluationService {
         }
 
         double avgTokensPerSec() {
+            // Priorité au débit mesuré par le serveur ; sinon repli sur tokens/temps-mur.
+            if (serverTpsTokenBase > 0) {
+                return serverTpsWeighted / serverTpsTokenBase;
+            }
             return latencySumMs <= 0 ? 0.0 : tokenSum * 1000.0 / latencySumMs;
         }
     }
@@ -898,14 +915,14 @@ public class EvaluationService {
                 r.evalId(), "FAILED", r.modelName(), r.jobId(),
                 r.testSetSize(), r.processed(), r.averageScore(),
                 r.scoresByCategory(), r.scores(), r.avgLatencyMs(), r.avgTokensPerSec(),
-                message, r.startedAt(), Instant.now()
+                message, r.startedAt(), Instant.now(), r.judgeModel()
         ));
     }
 
     /** Réponse générée par le modèle évalué pour une paire, avant notation (avec mesure de perf). */
     private record Generated(String question, String reference, String modelAnswer,
                              String category, String source,
-                             long latencyMs, int approxTokens) {}
+                             long latencyMs, int approxTokens, double serverTps) {}
 
     /** Interroge le modèle actif (évalué) pour produire une réponse à la question de la paire. */
     private Generated generateAnswer(TrainingPair pair) {
@@ -917,18 +934,22 @@ public class EvaluationService {
 
             String sysPrompt = system != null ? system : fr.spectra.model.AssistantPersona.SYSTEM_PROMPT;
 
-            String modelAnswer;
+            LlmChatClient.ChatResult result;
             long startNanos = System.nanoTime();
             try {
-                modelAnswer = chatClient.chat(sysPrompt, question);
+                result = chatClient.chatWithStats(sysPrompt, question);
             } catch (Exception e) {
                 log.warn("Échec appel modèle évalué: {}", e.getMessage());
                 return null;
             }
             long latencyMs = (System.nanoTime() - startNanos) / 1_000_000;
-            return new Generated(question, reference, modelAnswer,
+            // Tokens réels si le serveur les fournit, sinon estimation (~ longueur/4).
+            int tokens = result.completionTokens() > 0
+                    ? result.completionTokens()
+                    : estimateTokens(result.content());
+            return new Generated(question, reference, result.content(),
                     pair.metadata().category(), pair.metadata().source(),
-                    latencyMs, estimateTokens(modelAnswer));
+                    latencyMs, tokens, result.tokensPerSecond());
         } catch (Exception e) {
             log.warn("Erreur inattendue génération réponse: {}", e.getMessage());
             return null;

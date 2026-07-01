@@ -207,6 +207,72 @@ public class LlamaCppChatClient implements LlmChatClient {
         return content;
     }
 
+    @Override
+    @CircuitBreaker(name = "llm-chat", fallbackMethod = "chatWithStatsFallback")
+    @SuppressWarnings("unchecked")
+    public ChatResult chatWithStats(String systemPrompt, String userMessage) {
+        Map<String, Object> request = Map.of(
+                "model", activeModel.get(),
+                "stream", false,
+                "max_tokens", 2048,
+                "temperature", 0.7f,
+                "top_p", 0.9f,
+                "messages", List.of(
+                        Map.of("role", "system", "content", systemPrompt),
+                        Map.of("role", "user", "content", userMessage)
+                )
+        );
+
+        Map<String, Object> response = webClient.post()
+                .uri("/v1/chat/completions")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(request)
+                .retrieve()
+                .bodyToMono(Map.class)
+                .block(generateTimeout);
+
+        if (response == null) {
+            throw new IllegalStateException("Réponse null de llama.cpp /v1/chat/completions");
+        }
+
+        List<Map<String, Object>> choices = (List<Map<String, Object>>) response.get("choices");
+        if (choices == null || choices.isEmpty()) {
+            throw new IllegalStateException("Champ 'choices' absent de la réponse llama.cpp: " + response.keySet());
+        }
+        Map<String, Object> message = (Map<String, Object>) choices.getFirst().get("message");
+        String content = message != null ? (String) message.get("content") : null;
+        if (content == null) {
+            throw new IllegalStateException("Champ 'content' absent de la réponse llama.cpp");
+        }
+
+        // Statistiques best-effort : llama-server expose usage.completion_tokens et
+        // timings.predicted_per_second sur /v1/chat/completions (absents → 0).
+        int completionTokens = intField(response.get("usage"), "completion_tokens");
+        double tps = doubleField(response.get("timings"), "predicted_per_second");
+        return new ChatResult(content, completionTokens, tps);
+    }
+
+    private int intField(Object mapObj, String key) {
+        if (mapObj instanceof Map<?, ?> m && m.get(key) instanceof Number n) {
+            return n.intValue();
+        }
+        return 0;
+    }
+
+    private double doubleField(Object mapObj, String key) {
+        if (mapObj instanceof Map<?, ?> m && m.get(key) instanceof Number n) {
+            return n.doubleValue();
+        }
+        return 0.0;
+    }
+
+    ChatResult chatWithStatsFallback(String systemPrompt, String userMessage, Throwable cause) {
+        log.warn("[circuit-breaker] llm-chat (stats) ouvert — cause: {}", cause.getMessage());
+        throw new LlmUnavailableException(
+                "Le modèle de langage est temporairement indisponible. "
+                + "Réessayez dans quelques instants.", cause);
+    }
+
     /**
      * Fallback du circuit breaker : levé quand le circuit est ouvert ou que le quota
      * d'échecs est dépassé. Retourne une {@link LlmUnavailableException} mappée en 503.

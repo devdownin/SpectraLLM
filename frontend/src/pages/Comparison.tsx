@@ -381,6 +381,12 @@ const Comparison: FC = () => {
                   <div>
                     <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Evaluated model</p>
                     <p className="font-headline font-bold text-lg">{selected.modelName}</p>
+                    {selected.judgeModel && (
+                      <p className="font-label text-[10px] text-on-surface-variant mt-0.5">
+                        judge: <span className={selected.judgeModel === selected.modelName ? '' : 'text-secondary'}>{selected.judgeModel}</span>
+                        {selected.judgeModel === selected.modelName && ' (auto-jugement)'}
+                      </p>
+                    )}
                   </div>
                   <div className="flex items-center gap-3">
                     {selected.status === 'COMPLETED' && (
