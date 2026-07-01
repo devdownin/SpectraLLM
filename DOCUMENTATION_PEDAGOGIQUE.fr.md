@@ -43,7 +43,7 @@
 7. 🟡 [Optimiser le contexte : compression, dédup, long‑contexte](#7)
 8. 🟡 [Fabriquer un jeu de données d'entraînement](#8)
 9. 🔴 [Apprendre en permanence : QLoRA et la boucle de feedback](#9)
-10. 🟡 [Mesurer la qualité : LLM‑juge, métriques, benchmark](#10)
+10. 🟡 [Mesurer et comparer : LLM‑juge, multi‑modèles, A/B, benchmark](#10)
 11. 🟡 [L'auto‑réglage matériel](#11)
 12. 🟡 [Tenir en production : résilience et concurrence](#12)
 13. 🟢 [Souveraineté et sécurité : le 100 % local en pratique](#13)
@@ -828,7 +828,7 @@ consomme le même dataset `{prompt, chosen, rejected}` que DPO.
 ---
 
 <a name="10"></a>
-## 10. Mesurer la qualité : LLM‑juge, métriques, benchmark
+## 10. Mesurer et comparer : LLM‑juge, multi‑modèles, A/B, benchmark
 
 On n'améliore que ce qu'on mesure.
 
@@ -872,6 +872,72 @@ spécialisation dans le temps.
 Mesures de **latence** (temps de première réponse, débit de tokens) et de
 **qualité** sur un jeu de questions de référence, pour comparer des
 configurations (taille de contexte, parallélisme, GPU…).
+
+### D. Comparer plusieurs modèles personnalisés
+💡 **Intuition.** Le LLM‑juge note *un* modèle. Mais dès qu'on itère (base → v1 → v2,
+ou deux recettes de fine‑tuning), la vraie question est : **lequel est meilleur, et de
+combien ?** Spectra ajoute une **vue de comparaison multi‑modèles** (écran *Comparison*).
+
+⚙️ **Deltas vs une référence.** On sélectionne plusieurs évaluations terminées ;
+`GET /api/evaluation/compare?evalIds=…&baseline=…` renvoie, pour chaque modèle, le score
+global et l'**écart (Δ) vs la baseline** — global *et par catégorie* (Q/R, résumé,
+classification, refus) — avec un **radar superposé** pour lire d'un coup d'œil forces et
+faiblesses. Les entrées sont classées par score décroissant.
+
+⚙️ **Même jeu de test pour tous (batch).** Comparer deux modèles évalués sur des jeux de
+test *différents*, c'est comparer des pommes et des oranges. `POST /api/evaluation/batch`
+évalue une liste de modèles **séquentiellement sur un échantillon partagé** : chaque modèle
+est chargé à tour de rôle, évalué, puis le modèle actif initial est restauré.
+
+⚙️ **Au‑delà de la qualité : la vitesse.** Chaque évaluation mesure aussi la **latence
+moyenne de génération** et un **débit estimé** (tokens/s ≈ longueur/4). On arbitre alors
+qualité *vs* vitesse : un modèle un peu moins bon mais 3× plus rapide peut être le bon
+choix pour de la production.
+
+⚙️ **Attribution documentaire.** Grâce aux liens GED `TRAINED_ON` / `EVALUATED_ON`
+([§3](#3)), la comparaison indique **combien de documents ont nourri chaque modèle** — pour
+relier un gain à ce qui l'a produit.
+
+🎯 **Exemple.** v2 marque **+1,4** en Q/R vs v1, mais **−0,3** en refus : le ré‑entraînement
+a gagné en précision au prix d'un peu plus d'aplomb. On relit alors le **taux
+d'hallucination** ([§10.A bis](#10)) avant de promouvoir.
+
+### E. Fiabiliser la comparaison : juge neutre, significativité, A/B
+⚠️ **Trois pièges** guettent toute comparaison de LLM — Spectra les traite.
+
+**1. Le juge complaisant.** Si le modèle évalué se juge lui‑même, il se sur‑note. →
+**Juge neutre configurable** (`spectra.evaluation.judge-model`) : un modèle tiers, fixe,
+note tout le monde de la même façon. Pour ne pas recharger le serveur à chaque paire,
+l'évaluation passe en **deux phases** : on génère d'abord *toutes* les réponses avec le
+modèle évalué, puis on bascule **une seule fois** vers le juge pour noter.
+
+**2. Le hasard des petits échantillons.** Sur 20 paires, un +0,4 peut n'être que du bruit.
+La comparaison calcule l'**écart‑type** et l'**intervalle de confiance à 95 %** de chaque
+score, et marque chaque Δ comme **significatif (`sig`)** ou **non (`ns`)** — test à deux
+échantillons, |Δ| > 1,96 · √(SEM² + SEM_base²). Un `ns` invite à **élargir le jeu de test**
+avant de conclure.
+
+**3. La note absolue instable.** Attribuer « 7/10 » dans le vide est plus bruité que de
+**comparer directement** deux réponses. Le mode **A/B head‑to‑head**
+(`POST /api/evaluation/ab`) présente au juge les deux réponses côte à côte et lui demande
+la meilleure ; l'**ordre est tiré au hasard par paire** pour neutraliser le biais de
+position. On obtient un **taux de victoire** A vs B (façon *arène*), plus robuste qu'une
+simple différence de moyennes.
+
+🧠 **Pourquoi cumuler les trois ?** Chacun corrige un biais distinct : le juge neutre
+enlève la complaisance, la significativité empêche de surinterpréter, l'A/B remplace une
+échelle absolue fragile par un choix relatif. Ensemble, ils rendent la phrase
+« *v2 est meilleur que v1* » **défendable**.
+
+🧪 **À vous de jouer.** La comparaison montre v2 à 8,1 et v1 à 7,9, écart marqué `ns`.
+Que faire ?
+<details><summary>Voir la réponse</summary>
+
+Ne pas conclure : l'écart n'est **pas statistiquement significatif** sur ce jeu de test.
+Soit on **élargit l'échantillon** (`testSetSize` plus grand) pour resserrer l'intervalle de
+confiance, soit on tranche via un **A/B head‑to‑head** qui compare les réponses paire par
+paire plutôt que deux moyennes bruitées.
+</details>
 
 🎯 **Exemple d'usage.** Avant/après un fine‑tuning : la note LLM‑juge passe de
 6,8 à 8,1 sur 50 questions métier, et la latence reste stable. Décision : promouvoir
@@ -1383,13 +1449,23 @@ hausse d'hallucination est un **mauvais** échange pour un assistant RAG.
 les réponses longues, complaisance). Il est fiable pour **comparer deux versions
 sur le même jeu** (les biais s'annulent), beaucoup moins pour donner une note
 « absolue ». Lisez‑le toujours en **différentiel** (avant/après), pas en valeur
-nue.
+nue. **Parade** : configurer un **juge neutre** (`spectra.evaluation.judge-model`,
+[§10.E](#10)) — un modèle tiers qui note tout le monde pareil, plutôt que de
+laisser chaque modèle se juger lui‑même — et, pour les cas ambigus, préférer un
+**A/B head‑to‑head** au face‑à‑face de deux notes absolues.
 
 ⚠️ **Piège n°4 — `eval_loss` qui remonte.** Si la perte de validation **remonte**
 pendant que la perte d'entraînement baisse, c'est le signe classique du
 **sur‑apprentissage** : le modèle mémorise au lieu de généraliser. Arrêtez plus
 tôt (early stopping) ou réduisez le nombre d'époques. C'est précisément ce que le
 `--val-split` permet de surveiller ([§9](#9)).
+
+⚠️ **Piège n°5 — l'écart trop petit pour être vrai.** Sur un jeu de test réduit
+(5–50 paires), un écart de note peut n'être que du **bruit d'échantillonnage**.
+La comparaison multi‑modèles ([§10.D](#10)) affiche donc l'**intervalle de
+confiance à 95 %** de chaque score et marque chaque écart `sig` (significatif) ou
+`ns` (non significatif). Règle simple : **un `ns` ne se promeut pas** — on élargit
+le jeu de test ou on tranche par A/B avant de conclure.
 
 #### C. Lire une comparaison « base vs fine‑tuné »
 
