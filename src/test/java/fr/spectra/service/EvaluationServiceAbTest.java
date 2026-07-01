@@ -45,6 +45,10 @@ class EvaluationServiceAbTest {
         when(chatClient.chat(anyString(), anyString())).thenReturn("réponse du modèle");
         when(chatClient.chat(argThat(s -> s != null && s.contains("Réponse 1")), anyString()))
                 .thenReturn("{\"winner\": 1, \"justification\": \"meilleure\"}");
+        // chatWithStats (méthode default) déléguée à chat() : la génération l'utilise.
+        when(chatClient.chatWithStats(anyString(), anyString()))
+                .thenAnswer(i -> new LlmChatClient.ChatResult(
+                        chatClient.chat(i.getArgument(0), i.getArgument(1)), 0, 0.0));
     }
 
     private EvaluationService newService() {

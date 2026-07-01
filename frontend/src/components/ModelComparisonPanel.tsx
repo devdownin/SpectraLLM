@@ -33,12 +33,67 @@ interface Props {
  * Vue comparative multi-modèles : classement, gains globaux et par catégorie
  * vs un modèle de référence, attribution documentaire (liens GED) et radar superposé.
  */
+function downloadText(filename: string, mime: string, content: string) {
+  const url = `data:${mime};charset=utf-8,` + encodeURIComponent(content);
+  const a = document.createElement('a');
+  a.setAttribute('href', url);
+  a.setAttribute('download', filename);
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 const ModelComparisonPanel: FC<Props> = ({ report, baselineId, onBaselineChange, onExport }) => {
   const { categories, models } = report;
   // Couleur stable par modèle (alignée sur le radar superposé).
   const colorOf = (evalId: string) => {
     const idx = models.findIndex(m => m.evalId === evalId);
     return MODEL_COLORS[idx % MODEL_COLORS.length];
+  };
+
+  const catLabel = (c: string) => CATEGORY_LABEL[c] ?? c;
+
+  const exportCsv = () => {
+    const cols = ['rank', 'model', 'baseline', 'score', 'ci95', 'deltaVsBaseline', 'significant',
+      'avgLatencyMs', 'avgTokensPerSec', 'trainedOnDocs', 'evaluatedOnDocs',
+      ...categories.map(c => `delta_${c}`)];
+    const esc = (v: unknown) => {
+      const s = String(v ?? '');
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const rows = models.map((m, i) => [
+      i + 1, m.modelName, m.baseline, m.averageScore, m.ci95, m.deltaVsBaseline,
+      m.baseline ? '' : m.significantVsBaseline, m.avgLatencyMs, m.avgTokensPerSec,
+      m.trainedOnDocs, m.evaluatedOnDocs,
+      ...categories.map(c => (m.baseline ? '' : m.deltaByCategory[c] ?? '')),
+    ].map(esc).join(','));
+    downloadText(`comparison_${models.length}models.csv`, 'text/csv',
+      [cols.join(','), ...rows].join('\n'));
+  };
+
+  const exportMarkdown = () => {
+    const head = `# Model comparison (baseline: ${report.baselineModel})\n\n`;
+    const th = '| # | Model | Score ±95%CI | Δ vs base | Sig | Latency (s) | tok/s | Trained | Eval |\n'
+      + '|---|---|---|---|---|---|---|---|---|\n';
+    const rows = models.map((m, i) => {
+      const delta = Math.abs(m.deltaVsBaseline) < 0.005 ? '—'
+        : `${m.deltaVsBaseline > 0 ? '+' : ''}${m.deltaVsBaseline.toFixed(2)}`;
+      const sig = m.baseline ? 'baseline' : (m.significantVsBaseline ? 'sig' : 'ns');
+      const lat = m.avgLatencyMs > 0 ? (m.avgLatencyMs / 1000).toFixed(2) : '—';
+      const tps = m.avgTokensPerSec > 0 ? m.avgTokensPerSec.toFixed(1) : '—';
+      return `| ${i + 1} | ${m.modelName}${m.baseline ? ' _(baseline)_' : ''} | ${m.averageScore.toFixed(2)}`
+        + `${m.ci95 > 0 ? ` ±${m.ci95.toFixed(2)}` : ''} | ${delta} | ${sig} | ${lat} | ${tps} | ${m.trainedOnDocs} | ${m.evaluatedOnDocs} |`;
+    }).join('\n');
+    const catTh = `\n\n## Gains by category (vs ${report.baselineModel})\n\n`
+      + `| Model | ${categories.map(catLabel).join(' | ')} |\n`
+      + `|---|${categories.map(() => '---').join('|')}|\n`;
+    const catRows = models.map(m => {
+      const cells = categories.map(c => m.baseline ? '—'
+        : (c in m.deltaByCategory ? `${m.deltaByCategory[c] > 0 ? '+' : ''}${m.deltaByCategory[c].toFixed(2)}` : 'n/a'));
+      return `| ${m.modelName} | ${cells.join(' | ')} |`;
+    }).join('\n');
+    downloadText(`comparison_${models.length}models.md`, 'text/markdown',
+      head + th + rows + catTh + catRows + '\n');
   };
 
   return (
@@ -66,13 +121,29 @@ const ModelComparisonPanel: FC<Props> = ({ report, baselineId, onBaselineChange,
                 ))}
               </select>
             </label>
-            <button
-              onClick={onExport}
-              className="px-3 py-1 text-[11px] font-label uppercase tracking-widest border border-outline-variant/30 text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors"
-              aria-label="Export comparison as JSON"
-            >
-              Export JSON
-            </button>
+            <div className="flex items-center border border-outline-variant/30 divide-x divide-outline-variant/30">
+              <button
+                onClick={exportCsv}
+                className="px-3 py-1 text-[11px] font-label uppercase tracking-widest text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors"
+                aria-label="Export comparison as CSV"
+              >
+                CSV
+              </button>
+              <button
+                onClick={exportMarkdown}
+                className="px-3 py-1 text-[11px] font-label uppercase tracking-widest text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors"
+                aria-label="Export comparison as Markdown"
+              >
+                MD
+              </button>
+              <button
+                onClick={onExport}
+                className="px-3 py-1 text-[11px] font-label uppercase tracking-widest text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors"
+                aria-label="Export comparison as JSON"
+              >
+                JSON
+              </button>
+            </div>
           </div>
         </div>
 

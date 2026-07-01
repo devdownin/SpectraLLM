@@ -135,6 +135,7 @@ export interface EvaluationReport {
   error: string | null;
   startedAt: string;
   completedAt: string | null;
+  judgeModel: string | null;
 }
 
 // ── Comparaison multi-modèles ────────────────────────────────────────────────

@@ -165,7 +165,7 @@ class EvaluationServiceComparisonTest {
                 evalId, "COMPLETED", modelName, null,
                 values.length, values.length, mean, Map.of("qa", mean), scores,
                 100.0, 20.0, null,
-                Instant.parse("2026-01-01T00:00:00Z"), Instant.parse("2026-01-01T00:05:00Z"));
+                Instant.parse("2026-01-01T00:00:00Z"), Instant.parse("2026-01-01T00:05:00Z"), modelName);
     }
 
     private static EvaluationReport completed(String evalId, String modelName,
@@ -174,7 +174,7 @@ class EvaluationServiceComparisonTest {
                 evalId, "COMPLETED", modelName, null,
                 byCategory.size(), byCategory.size(), avg, byCategory, List.of(),
                 120.0, 25.0, null,
-                Instant.parse("2026-01-01T00:00:00Z"), Instant.parse("2026-01-01T00:05:00Z"));
+                Instant.parse("2026-01-01T00:00:00Z"), Instant.parse("2026-01-01T00:05:00Z"), modelName);
     }
 
     private static DocumentModelLinkEntity link(String modelName, LinkType type) {

@@ -890,9 +890,9 @@ test *différents*, c'est comparer des pommes et des oranges. `POST /api/evaluat
 est chargé à tour de rôle, évalué, puis le modèle actif initial est restauré.
 
 ⚙️ **Au‑delà de la qualité : la vitesse.** Chaque évaluation mesure aussi la **latence
-moyenne de génération** et un **débit estimé** (tokens/s ≈ longueur/4). On arbitre alors
-qualité *vs* vitesse : un modèle un peu moins bon mais 3× plus rapide peut être le bon
-choix pour de la production.
+moyenne de génération** et le **débit** en tokens/s (réel si llama.cpp le fournit, sinon
+estimé ≈ longueur/4). On arbitre alors qualité *vs* vitesse : un modèle un peu moins bon
+mais 3× plus rapide peut être le bon choix pour de la production.
 
 ⚙️ **Attribution documentaire.** Grâce aux liens GED `TRAINED_ON` / `EVALUATED_ON`
 ([§3](#3)), la comparaison indique **combien de documents ont nourri chaque modèle** — pour
@@ -1638,7 +1638,7 @@ l'hallucination doivent progresser — ou au moins ne pas régresser — **ensem
 | **Juge neutre** | Modèle tiers, fixe, qui note tous les modèles (anti‑complaisance). |
 | **A/B (head‑to‑head)** | Le juge choisit la meilleure de deux réponses, paire par paire. |
 | **Taux de victoire** | Part des paires où un modèle bat l'autre en A/B. |
-| **Débit (tok/s)** | Vitesse de génération en tokens par seconde (ici estimée ≈ longueur/4). |
+| **Débit (tok/s)** | Vitesse de génération en tokens par seconde (réel si fourni par llama.cpp, sinon estimé). |
 
 ### Pour aller plus loin (idées sources)
 - *Plus proches voisins approchés* — **HNSW** (graphes « petit monde » hiérarchiques).

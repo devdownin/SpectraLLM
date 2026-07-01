@@ -20,17 +20,19 @@ public record EvaluationReport(
         List<EvaluationScore> scores,
         /** Latence moyenne de génération par réponse, en millisecondes (modèle évalué). */
         double avgLatencyMs,
-        /** Débit moyen estimé en tokens/seconde (estimation ~ longueur/4). */
+        /** Débit moyen en tokens/seconde (réel si fourni par llama.cpp, sinon estimé). */
         double avgTokensPerSec,
         String error,
         Instant startedAt,
-        Instant completedAt
+        Instant completedAt,
+        /** Modèle ayant servi de juge (le modèle évalué lui-même en auto-jugement). */
+        String judgeModel
 ) {
-    public static EvaluationReport pending(String evalId, String modelName, String jobId) {
+    public static EvaluationReport pending(String evalId, String modelName, String jobId, String judgeModel) {
         return new EvaluationReport(
                 evalId, "PENDING", modelName, jobId,
                 0, 0, 0.0, Map.of(), List.of(), 0.0, 0.0, null,
-                Instant.now(), null
+                Instant.now(), null, judgeModel
         );
     }
 }
