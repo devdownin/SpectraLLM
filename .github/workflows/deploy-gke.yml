@@ -92,7 +92,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build & push spectra-api
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile
@@ -104,7 +104,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build & push spectra-frontend
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ./frontend
           file: ./frontend/Dockerfile
@@ -116,7 +116,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build & push spectra-llama-cpp
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile.llama
