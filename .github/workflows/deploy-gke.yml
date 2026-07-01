@@ -129,7 +129,7 @@ jobs:
 
       # ── Déploiement sur GKE ─────────────────────────────────────────────────
       - name: Get GKE credentials
-        uses: google-github-actions/get-gke-credentials@v2
+        uses: google-github-actions/get-gke-credentials@v3
         with:
           cluster_name: ${{ env.GKE_CLUSTER }}
           location: ${{ env.GKE_LOCATION }}
