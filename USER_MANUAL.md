@@ -868,26 +868,37 @@ L'indicateur de pipeline en haut à droite montre la progression globale :
 
 ### Model Comparison
 
-Tableau de bord des évaluations **LLM-as-a-judge** : après un fine-tuning, lancez une évaluation pour mesurer objectivement la qualité de votre modèle.
+Tableau de bord des évaluations **LLM-as-a-judge** et de la **comparaison de plusieurs modèles** : après un ou plusieurs fine-tunings, mesurez objectivement la qualité — et comparez les gains d'un modèle à l'autre.
 
-**Comment ça fonctionne :**
-1. Spectra sélectionne 5 % du dataset comme set de test (minimum 5 paires, maximum 50).
-2. Pour chaque paire, le modèle actif génère une réponse.
-3. Le même modèle est réutilisé en tant que "juge" : il note la réponse de 1 à 10 et justifie sa note.
-4. Les résultats sont agrégés par catégorie (procédures, événements, nomenclatures…).
-
-**Panneau gauche :** liste de toutes les évaluations avec leur date, modèle et score global.
-
-**Panneau droit (après sélection d'une évaluation) :**
-- Score global (0–10) avec jauge colorée
-- Scores par catégorie (barres de progression)
-- Détail question par question : question · réponse de référence · réponse du modèle · note · justification du juge
+**Comment fonctionne une évaluation :**
+1. Spectra échantillonne 5 % du dataset comme jeu de test (min 5, max 50 paires), ou une taille fixe via `testSetSize`.
+2. Le **modèle ciblé** est chargé (le modèle actif est basculé le temps de l'évaluation, puis restauré) et génère une réponse par paire.
+3. Un **juge LLM** note chaque réponse de 1 à 10 avec justification. Par défaut le modèle se juge lui-même ; configurez un **juge neutre** (voir plus bas) pour une notation impartiale.
+4. Les résultats sont agrégés par catégorie, avec la **latence moyenne** de génération et un **débit estimé** (tokens/s).
 
 **Lancer une évaluation :**
 - Cliquez sur **New Evaluation** dans l'interface
 - Ou via l'API : `POST /api/evaluation` avec `{"modelName": "spectra-domain", "testSetSize": 20}`
 
-> **Interprétation des scores :** un score ≥ 7 indique que le modèle répond correctement et précisément. Un score entre 4 et 6 suggère des réponses partielles ou trop vagues. En dessous de 4, le modèle hallucine ou hors-sujet.
+**Comparer plusieurs modèles** *(bouton **Compare**)*
+Cochez au moins deux évaluations **terminées**, puis **Compare**. Spectra affiche un tableau de classement avec, pour chaque modèle : le score global, l'**écart (Δ) vs une baseline** (modifiable), la latence, le débit, et le nombre de documents qui l'ont entraîné/évalué. Un **radar superposé** et une **matrice de gains par catégorie** complètent la lecture. Chaque écart est marqué **`sig`** (statistiquement significatif, ≈ 95 %) ou **`ns`** (dans le bruit d'échantillonnage).
+- API : `GET /api/evaluation/compare?evalIds=id1,id2&baseline=id1`
+
+**Évaluer plusieurs modèles en lot** *(bouton **Batch evaluate**)*
+Sélectionnez plusieurs modèles : ils sont évalués **séquentiellement sur le même jeu de test** (comparaison équitable), puis pré-sélectionnés pour la comparaison.
+- API : `POST /api/evaluation/batch` avec `{"modelNames": ["v1","v2"], "testSetSize": 20}`
+
+**Comparaison directe A/B** *(bouton **A/B head-to-head**)*
+Choisissez deux modèles : pour chaque paire, un juge voit les deux réponses **côte à côte** (ordre tiré au hasard, pour neutraliser le biais de position) et désigne la meilleure. Vous obtenez un **taux de victoire** A vs B et le verdict paire par paire — plus robuste qu'une différence de moyennes.
+- API : `POST /api/evaluation/ab` avec `{"modelA":"v1","modelB":"v2","testSetSize":20}`
+
+**Juge neutre (recommandé pour comparer).** Par défaut le modèle évalué se juge lui-même (biais de complaisance). Fixez un juge tiers, identique pour tous, dans `.env` :
+```
+SPECTRA_EVALUATION_JUDGE_MODEL=phi-4-mini
+```
+L'évaluation se fait alors en deux temps : génération de toutes les réponses avec le modèle évalué, puis notation avec le juge (un seul changement de modèle, pour ne pas recharger le serveur à chaque paire).
+
+> **Interprétation des scores :** un score ≥ 7 indique que le modèle répond correctement et précisément. Un score entre 4 et 6 suggère des réponses partielles ou trop vagues. En dessous de 4, le modèle hallucine ou est hors-sujet. **Ne promouvez pas un écart marqué `ns`** : élargissez le jeu de test (`testSetSize`) ou tranchez par un A/B head-to-head.
 
 ---
 

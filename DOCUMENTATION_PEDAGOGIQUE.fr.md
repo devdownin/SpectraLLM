@@ -924,6 +924,25 @@ la meilleure ; l'**ordre est tiré au hasard par paire** pour neutraliser le bia
 position. On obtient un **taux de victoire** A vs B (façon *arène*), plus robuste qu'une
 simple différence de moyennes.
 
+⚙️ **Les deux mécanismes en un coup d'œil.**
+```text
+Évaluation avec juge neutre — 2 phases (1 seule bascule de modèle)
+──────────────────────────────────────────────────────────────────
+  Phase 1 · génération            Phase 2 · notation
+  ┌───────────────┐  réponses     ┌──────────────┐
+  │ modèle évalué │ ──(toutes)──► │  juge neutre │ ──► note /10 + justification
+  └───────────────┘               └──────────────┘
+  → on ne recharge PAS le serveur à chaque paire
+
+Comparaison A/B (head-to-head)
+──────────────────────────────
+  gén. A (modèle A) ┐
+                    ├─► juge ─► « Réponse 1 ou 2 ? »   (ordre tiré au hasard/paire)
+  gén. B (modèle B) ┘                │
+                                     └─► A gagne · B gagne · égalité
+                                         └─► agrégé en TAUX DE VICTOIRE A vs B
+```
+
 🧠 **Pourquoi cumuler les trois ?** Chacun corrige un biais distinct : le juge neutre
 enlève la complaisance, la significativité empêche de surinterpréter, l'A/B remplace une
 échelle absolue fragile par un choix relatif. Ensemble, ils rendent la phrase
@@ -938,6 +957,53 @@ Soit on **élargit l'échantillon** (`testSetSize` plus grand) pour resserrer l'
 confiance, soit on tranche via un **A/B head‑to‑head** qui compare les réponses paire par
 paire plutôt que deux moyennes bruitées.
 </details>
+
+### F. Recette : comparer deux fine‑tunings de A à Z
+🎯 **Objectif.** Vous avez deux modèles issus de deux recettes — `spectra-v1` et
+`spectra-v2`. Lequel promouvoir ? Voici le déroulé complet.
+
+**1) Un jeu de données** (sinon l'évaluation n'a rien à mesurer) :
+```bash
+curl -X POST localhost:8080/api/dataset/generate
+```
+
+**2) Un juge neutre** (recommandé — évite que chaque modèle se juge lui‑même).
+Dans `.env`, fixez un modèle tiers, puis redémarrez l'API :
+```bash
+SPECTRA_EVALUATION_JUDGE_MODEL=phi-4-mini
+```
+
+**3) Évaluer les deux sur le MÊME jeu de test** (batch → échantillon partagé,
+comparaison équitable) :
+```bash
+curl -X POST localhost:8080/api/evaluation/batch \
+  -H 'Content-Type: application/json' \
+  -d '{"modelNames": ["spectra-v1", "spectra-v2"], "testSetSize": 30}'
+# → {"evalIds": ["<id1>", "<id2>"], "status": "PENDING"}
+```
+Suivez la progression dans l'écran **Comparison** (ou `GET /api/evaluation`).
+
+**4) Lire les gains** — comparez avec `spectra-v1` comme référence :
+```bash
+curl "localhost:8080/api/evaluation/compare?evalIds=<id1>,<id2>&baseline=<id1>"
+```
+Ce qu'on regarde :
+- le **Δ global et par catégorie** — v2 gagne‑t‑il partout, ou perd‑il en *refus* ? ;
+- le marquage **`sig` / `ns`** — un gain `ns` n'est **pas** concluant ;
+- **latence / débit** — v2 est‑il plus lent pour un gain marginal ? ;
+- l'**hallucination**, en croisant avec `/api/quality-benchmark/compare` ([§10.A bis](#10)).
+
+**5) Trancher un cas serré** (si le Δ est `ns`, comparez *directement*) :
+```bash
+curl -X POST localhost:8080/api/evaluation/ab \
+  -H 'Content-Type: application/json' \
+  -d '{"modelA": "spectra-v1", "modelB": "spectra-v2", "testSetSize": 30}'
+```
+Le **taux de victoire** paire par paire départage même quand les moyennes se touchent.
+
+✅ **Décision.** Promouvez v2 seulement si : gain **significatif** (`sig`) sur les
+catégories qui comptent, **sans** hausse d'hallucination, et coût (latence)
+acceptable. Sinon : élargissez le jeu de test (`testSetSize`) ou gardez v1.
 
 🎯 **Exemple d'usage.** Avant/après un fine‑tuning : la note LLM‑juge passe de
 6,8 à 8,1 sur 50 questions métier, et la latence reste stable. Décision : promouvoir
@@ -1565,6 +1631,14 @@ l'hallucination doivent progresser — ou au moins ne pas régresser — **ensem
 | **Model Hub** | Écran de choix/installation du modèle de base (propulsé par `llmfit`). |
 | **Circuit breaker** | Coupe‑circuit qui isole un service défaillant. |
 | **Thread virtuel** | Fil d'exécution ultra‑léger, idéal pour l'attente réseau. |
+| **Baseline** | Modèle de référence auquel on compare les autres (calcul des deltas). |
+| **Delta (Δ)** | Écart de score d'un modèle vs la baseline (global ou par catégorie). |
+| **IC 95 %** | Intervalle de confiance : marge autour du score moyen due à l'échantillon. |
+| **`sig` / `ns`** | Écart **sig**nificatif / **n**on **s**ignificatif statistiquement (≈ 95 %). |
+| **Juge neutre** | Modèle tiers, fixe, qui note tous les modèles (anti‑complaisance). |
+| **A/B (head‑to‑head)** | Le juge choisit la meilleure de deux réponses, paire par paire. |
+| **Taux de victoire** | Part des paires où un modèle bat l'autre en A/B. |
+| **Débit (tok/s)** | Vitesse de génération en tokens par seconde (ici estimée ≈ longueur/4). |
 
 ### Pour aller plus loin (idées sources)
 - *Plus proches voisins approchés* — **HNSW** (graphes « petit monde » hiérarchiques).
