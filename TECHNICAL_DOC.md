@@ -1112,8 +1112,30 @@ POST /api/fine-tuning/models/{name}/pull
 ### Évaluation, qualité et ablation
 
 ```
-POST /api/evaluation/run
-  Évaluation LLM-as-a-judge sur un échantillon du dataset généré (5 %).
+POST /api/evaluation                    body: {modelName?, testSetSize?, jobId?}
+  Évaluation LLM-as-a-judge d'un modèle sur un échantillon du dataset (5 %,
+  min 5 / max 50). Le modèle ciblé est chargé (bascule puis restauration du
+  modèle actif) ; latence de génération et débit estimé (tokens/s) sont mesurés.
+GET  /api/evaluation                    Liste tous les rapports.
+GET  /api/evaluation/{evalId}           Rapport détaillé (progression temps réel).
+DELETE /api/evaluation/{evalId}         Annule une évaluation en cours.
+
+POST /api/evaluation/batch              body: {modelNames[], testSetSize?}
+  Évalue plusieurs modèles SÉQUENTIELLEMENT sur un MÊME jeu de test (échantillon
+  partagé) → comparaison équitable. Renvoie la liste des evalIds.
+GET  /api/evaluation/compare?evalIds=a,b,c&baseline=a
+  Agrège plusieurs rapports : score, deltas global et par catégorie vs baseline,
+  écart-type + IC 95 % + significativité (sig/ns), latence/débit, et nombre de
+  documents liés (GED TRAINED_ON / EVALUATED_ON) par modèle.
+
+POST /api/evaluation/ab                 body: {modelA, modelB, testSetSize?}
+  Comparaison directe A/B (head-to-head) : un juge désigne la meilleure des deux
+  réponses par paire, ordre randomisé (anti-biais de position). Trois phases :
+  génération A, génération B, jugement. Renvoie aWins/bWins/ties + verdict/paire.
+GET  /api/evaluation/ab   ·   GET /api/evaluation/ab/{abId}   ·   DELETE /api/evaluation/ab/{abId}
+
+GET  /api/config/models                 Liste des modèles de chat enregistrés
+                                        (picker des comparaisons).
 
 POST /api/quality-benchmark            (?model=<nom> optionnel)
 POST /api/quality-benchmark/compare?baseline=<m1>&candidate=<m2>
@@ -1140,6 +1162,18 @@ POST /api/ablation
   métrique) et appliedCounts (modules réellement déclenchés).
   overrides tri-état : null = défaut config, true = actif si dispo, false = inactif.
 ```
+
+**`EvaluationService` — juge, deux phases et rétention.** Par défaut le modèle évalué
+sert aussi de juge. Si `spectra.evaluation.judge-model` est défini, un **juge neutre** fixe
+note tous les modèles ; l'évaluation passe alors en **deux phases** (génération de toutes
+les réponses avec le modèle évalué, puis un unique changement de modèle vers le juge pour
+noter — évite de recharger `llama-server` à chaque paire). Les comparaisons batch/A/B
+réutilisent ce mécanisme (`sampleTestSet`, `generateAnswer`, bascule + restauration du
+modèle actif). La significativité (`compareReports`) est un test à deux échantillons :
+`|Δ| > 1,96·√(SEM² + SEM_baseline²)`, ≥ 2 paires notées de part et d'autre. Rétention : les
+rapports COMPLETED sont conservés (cap `spectra.evaluation.max-completed-reports`,
+défaut 200) et seuls les FAILED/CANCELLED anciens sont purgés ; persistance dans
+`evaluations.json` et `ab-comparisons.json` (répertoire `spectra.fine-tuning.work-dir`).
 
 `RagAblationService` réutilise `QualityBenchmarkService` (`judgeAnswer`, `aggregate`,
 `loadBenchmark`) et `RagService.query(request, overrides)`. Les requêtes sont émises à

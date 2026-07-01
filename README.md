@@ -722,13 +722,18 @@ The exported JSONL file uses the same `{"prompt","chosen","rejected","source","e
 
 ---
 
-### `EvaluationService` — LLM-as-a-Judge
+### `EvaluationService` — LLM-as-a-Judge & multi-model comparison
 
-After dataset generation, you can evaluate model quality automatically. Spectra samples 5% of the dataset (min 5, max 50 pairs), queries the active model, and asks the same LLM to score each response from 1 to 10.
+After dataset generation, you can evaluate model quality automatically. Spectra samples 5% of the dataset (min 5, max 50 pairs), loads the target model (switching the active model for the run, then restoring it), and scores each response from 1 to 10 — also recording generation **latency** and **estimated throughput** (tokens/s). Scores are aggregated by category (`qa`, `summary`, `classification`, `negative`), giving a quantitative baseline before and after fine-tuning.
 
-Scores are aggregated by category: `qa`, `summary`, `classification`, `negative`. This gives you a quantitative baseline before and after fine-tuning.
+**Compare your custom models against each other:**
 
-**Endpoint:** `POST /api/evaluation/run`
+- **Batch-evaluate** several models on the *same* shared test set (`POST /api/evaluation/batch`) — apples-to-apples.
+- **Compare** completed runs (`GET /api/evaluation/compare`): per-category deltas vs a movable baseline, an overlaid radar, latency/throughput, document attribution (GED `TRAINED_ON` / `EVALUATED_ON`), and each delta flagged `sig`/`ns` via a 95% confidence interval.
+- **A/B head-to-head** (`POST /api/evaluation/ab`): a judge picks the better of two answers per pair, with randomized order to cancel position bias → win rates, more robust than comparing absolute means.
+- **Neutral judge** (`SPECTRA_EVALUATION_JUDGE_MODEL`): a fixed third model scores everyone impartially (two-phase evaluation — generate, then judge).
+
+**Endpoints:** `POST /api/evaluation` · `POST /api/evaluation/batch` · `GET /api/evaluation/compare` · `POST /api/evaluation/ab`
 
 ---
 

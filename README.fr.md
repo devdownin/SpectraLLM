@@ -58,6 +58,9 @@ La plupart des outils se concentrent sur un seul maillon de la chaîne (uniqueme
 ### 📊 Mesurer le gain de chaque option (Ablation A/B)
 Spectra ne se contente pas d'activer des modules : il **quantifie leur apport**. L'écran **Optimisation** (`POST /api/ablation`) compare plusieurs configurations (*bras*) sur un benchmark tenu à l'écart — le **delta** entre deux bras est le gain marginal d'une option (RAG vs fine-tuning, et module par module). Trois familles de métriques : génération (exactitude, hallucination), retrieval (Hit@k / MRR / Recall@k), coût (tokens, latence) ; avec **moyenne ± écart-type** sur plusieurs répétitions pour distinguer un gain réel du bruit.
 
+### ⚖️ Comparer plusieurs modèles personnalisés
+L'écran **Comparison** compare vos modèles fine-tunés entre eux pour mesurer les **gains réels** d'une itération à l'autre. Évaluation **LLM-as-a-judge** (note /10 par catégorie, latence et débit estimé), avec **évaluation par lot** sur un même jeu de test (comparaison équitable), **deltas vs une référence** et radar superposé, **attribution documentaire** (quels documents ont nourri chaque modèle via la GED). Fiabilité assurée par un **juge neutre configurable** (anti-complaisance), la **significativité statistique** (IC 95 %, marquage `sig`/`ns`) et le mode **A/B head-to-head** (le juge désigne la meilleure des deux réponses, ordre randomisé). Endpoints : `POST /api/evaluation/{batch,ab}`, `GET /api/evaluation/compare`.
+
 ### 🕵️ Traçabilité des Algorithmes (Mode Trace)
 
 Le Playground intègre un mode **Trace** pour démythifier le pipeline. Pour chaque réponse, un simple clic permet de visualiser exactement ce qui s'est passé :
