@@ -939,6 +939,53 @@ confiance, soit on tranche via un **A/B head‑to‑head** qui compare les répo
 paire plutôt que deux moyennes bruitées.
 </details>
 
+### F. Recette : comparer deux fine‑tunings de A à Z
+🎯 **Objectif.** Vous avez deux modèles issus de deux recettes — `spectra-v1` et
+`spectra-v2`. Lequel promouvoir ? Voici le déroulé complet.
+
+**1) Un jeu de données** (sinon l'évaluation n'a rien à mesurer) :
+```bash
+curl -X POST localhost:8080/api/dataset/generate
+```
+
+**2) Un juge neutre** (recommandé — évite que chaque modèle se juge lui‑même).
+Dans `.env`, fixez un modèle tiers, puis redémarrez l'API :
+```bash
+SPECTRA_EVALUATION_JUDGE_MODEL=phi-4-mini
+```
+
+**3) Évaluer les deux sur le MÊME jeu de test** (batch → échantillon partagé,
+comparaison équitable) :
+```bash
+curl -X POST localhost:8080/api/evaluation/batch \
+  -H 'Content-Type: application/json' \
+  -d '{"modelNames": ["spectra-v1", "spectra-v2"], "testSetSize": 30}'
+# → {"evalIds": ["<id1>", "<id2>"], "status": "PENDING"}
+```
+Suivez la progression dans l'écran **Comparison** (ou `GET /api/evaluation`).
+
+**4) Lire les gains** — comparez avec `spectra-v1` comme référence :
+```bash
+curl "localhost:8080/api/evaluation/compare?evalIds=<id1>,<id2>&baseline=<id1>"
+```
+Ce qu'on regarde :
+- le **Δ global et par catégorie** — v2 gagne‑t‑il partout, ou perd‑il en *refus* ? ;
+- le marquage **`sig` / `ns`** — un gain `ns` n'est **pas** concluant ;
+- **latence / débit** — v2 est‑il plus lent pour un gain marginal ? ;
+- l'**hallucination**, en croisant avec `/api/quality-benchmark/compare` ([§10.A bis](#10)).
+
+**5) Trancher un cas serré** (si le Δ est `ns`, comparez *directement*) :
+```bash
+curl -X POST localhost:8080/api/evaluation/ab \
+  -H 'Content-Type: application/json' \
+  -d '{"modelA": "spectra-v1", "modelB": "spectra-v2", "testSetSize": 30}'
+```
+Le **taux de victoire** paire par paire départage même quand les moyennes se touchent.
+
+✅ **Décision.** Promouvez v2 seulement si : gain **significatif** (`sig`) sur les
+catégories qui comptent, **sans** hausse d'hallucination, et coût (latence)
+acceptable. Sinon : élargissez le jeu de test (`testSetSize`) ou gardez v1.
+
 🎯 **Exemple d'usage.** Avant/après un fine‑tuning : la note LLM‑juge passe de
 6,8 à 8,1 sur 50 questions métier, et la latence reste stable. Décision : promouvoir
 le nouveau modèle.
