@@ -924,6 +924,25 @@ la meilleure ; l'**ordre est tiré au hasard par paire** pour neutraliser le bia
 position. On obtient un **taux de victoire** A vs B (façon *arène*), plus robuste qu'une
 simple différence de moyennes.
 
+⚙️ **Les deux mécanismes en un coup d'œil.**
+```text
+Évaluation avec juge neutre — 2 phases (1 seule bascule de modèle)
+──────────────────────────────────────────────────────────────────
+  Phase 1 · génération            Phase 2 · notation
+  ┌───────────────┐  réponses     ┌──────────────┐
+  │ modèle évalué │ ──(toutes)──► │  juge neutre │ ──► note /10 + justification
+  └───────────────┘               └──────────────┘
+  → on ne recharge PAS le serveur à chaque paire
+
+Comparaison A/B (head-to-head)
+──────────────────────────────
+  gén. A (modèle A) ┐
+                    ├─► juge ─► « Réponse 1 ou 2 ? »   (ordre tiré au hasard/paire)
+  gén. B (modèle B) ┘                │
+                                     └─► A gagne · B gagne · égalité
+                                         └─► agrégé en TAUX DE VICTOIRE A vs B
+```
+
 🧠 **Pourquoi cumuler les trois ?** Chacun corrige un biais distinct : le juge neutre
 enlève la complaisance, la significativité empêche de surinterpréter, l'A/B remplace une
 échelle absolue fragile par un choix relatif. Ensemble, ils rendent la phrase
@@ -1612,6 +1631,14 @@ l'hallucination doivent progresser — ou au moins ne pas régresser — **ensem
 | **Model Hub** | Écran de choix/installation du modèle de base (propulsé par `llmfit`). |
 | **Circuit breaker** | Coupe‑circuit qui isole un service défaillant. |
 | **Thread virtuel** | Fil d'exécution ultra‑léger, idéal pour l'attente réseau. |
+| **Baseline** | Modèle de référence auquel on compare les autres (calcul des deltas). |
+| **Delta (Δ)** | Écart de score d'un modèle vs la baseline (global ou par catégorie). |
+| **IC 95 %** | Intervalle de confiance : marge autour du score moyen due à l'échantillon. |
+| **`sig` / `ns`** | Écart **sig**nificatif / **n**on **s**ignificatif statistiquement (≈ 95 %). |
+| **Juge neutre** | Modèle tiers, fixe, qui note tous les modèles (anti‑complaisance). |
+| **A/B (head‑to‑head)** | Le juge choisit la meilleure de deux réponses, paire par paire. |
+| **Taux de victoire** | Part des paires où un modèle bat l'autre en A/B. |
+| **Débit (tok/s)** | Vitesse de génération en tokens par seconde (ici estimée ≈ longueur/4). |
 
 ### Pour aller plus loin (idées sources)
 - *Plus proches voisins approchés* — **HNSW** (graphes « petit monde » hiérarchiques).
