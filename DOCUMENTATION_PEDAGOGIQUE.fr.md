@@ -53,7 +53,7 @@
 ---
 
 <a name="0"></a>
-## 0. Préambule : pourquoi Spectra existe
+## 0. Préambule : l'ambition de Spectra
 
 Un assistant généraliste (type ChatGPT) connaît « le monde », mais pas **votre**
 monde : vos procédures internes, votre jargon, vos références produit. Spectra est
