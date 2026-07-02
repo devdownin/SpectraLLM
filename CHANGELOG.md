@@ -8,6 +8,18 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Ingestion streaming Kafka — enrichir le RAG au fil de l'eau (données vivantes)
+
+- **Consumer Kafka** (`KafkaIngestionListener`, `KafkaConfig`) : source d'ingestion continue en plus des uploads/URLs. **Désactivé par défaut** (`spectra.kafka.enabled=false`) — aucun bean Kafka créé, démarrage inchangé. Commit **manuel** des offsets après indexation (*at-least-once*), retries + **Dead Letter Topic** `<topic>.DLT`, concurrence et sécurité SASL/SSL configurables.
+- **Upsert par identité métier** (`IngestionService.upsertFromStream`) : la clé du message devient `sourceFile = kafka://<topic>/<key>` ; une nouvelle version **remplace** l'ancienne (`deleteBySource` sur ChromaDB *et* BM25, puis réindexation). Valeur nulle = **tombstone** (suppression). **Idempotence** par empreinte de contenu (absorbe les rejeux). Suivi d'état en base (`kafka_stream_source` : `content_hash`, `version`, `last_updated_at`).
+- **Correctif** : `ChunkingService` propage désormais `sourceFile` dans la métadonnée des chunks, quel que soit le format — `ChromaDbClient.deleteBySource` (filtre `where sourceFile == X`) ne fonctionnait auparavant que pour les fichiers TXT, cassant silencieusement la suppression/upsert côté vecteur pour PDF/DOCX/JSON/Avro/XML.
+- **Mapping de champs configurable** (`KafkaPayloadMapper`) : payload brut par défaut ; `content-field` (nom simple ou pointeur JSON) pour n'indexer qu'un champ d'un événement structuré, `metadata-fields` pour recopier des champs en métadonnées.
+- **Fraîcheur temporelle** : chaque chunk du flux porte `ingestedAt` et `eventTime` (timestamp Kafka), exploitables pour un filtrage/tri par récence.
+- **Rétention** (`KafkaStreamRetentionService`) : cron nocturne purgeant les sources non mises à jour depuis `retention-ttl-days` jours (0 = désactivé).
+- **Métriques Micrometer** : `spectra.kafka.messages{topic,result}` et `spectra.kafka.processing{topic}` sur `/actuator/prometheus`.
+- **Déploiement** : profil Docker `kafka` (Apache Kafka mode KRaft mono-nœud) dans `docker-compose.yml`, variables `SPECTRA_KAFKA_*` (`.env.example`). Dépendance `spring-kafka` (gérée par le BOM Spring Boot).
+- **Documentation** : `docs/DESIGN_KAFKA_STREAMING_UPSERT.fr.md` (design détaillé), sections dédiées dans le README, la doc technique, le manuel utilisateur et le mini-livre pédagogique.
+
 ### Évaluation — mesure des gains des enrichissements LLM
 
 - **Ablation A/B des enrichissements** (`POST /api/ablation`, `RagAblationService`) : mesure le gain marginal du **RAG** et du **fine-tuning** de bout en bout. Contrairement à `/api/quality-benchmark` (modèle brut), chaque question du benchmark tenu à l'écart passe dans le **pipeline RAG complet**, et plusieurs configurations (**bras**) sont comparées sur le même jeu. Chaque bras reporte trois familles de métriques : génération (exactitude LLM-juge, hallucination, refus), retrieval et latence (`avgLatencyMs`, `p50LatencyMs`). Corps vide = matrice par défaut « LLM seul vs RAG » ; chaque bras peut fixer un `model` (base vs fine-tuné) et `useRag`.

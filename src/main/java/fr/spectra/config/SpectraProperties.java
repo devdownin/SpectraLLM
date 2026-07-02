@@ -275,6 +275,10 @@ public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, 
      * @param securityProtocol PLAINTEXT | SASL_SSL | SSL | SASL_PLAINTEXT
      * @param saslMechanism    ex. SCRAM-SHA-512, PLAIN (si SASL)
      * @param saslJaasConfig   configuration JAAS complète (contient les identifiants)
+     * @param contentField     (JSON) champ dont la valeur est indexée à la place du payload brut
+     *                         (nom simple {@code "body"} ou pointeur JSON {@code "/data/text"}).
+     *                         Vide = payload brut par défaut.
+     * @param metadataFields   (JSON) champs recopiés dans les métadonnées du chunk (filtrage/traçabilité)
      */
     public record KafkaProperties(
             Boolean enabled,
@@ -288,7 +292,9 @@ public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, 
             Integer retentionTtlDays,
             String securityProtocol,
             String saslMechanism,
-            String saslJaasConfig
+            String saslJaasConfig,
+            String contentField,
+            List<String> metadataFields
     ) {
         public boolean isEnabled() { return Boolean.TRUE.equals(enabled); }
         public String effectiveBootstrapServers() { return bootstrapServers != null ? bootstrapServers : "localhost:9092"; }
@@ -304,6 +310,11 @@ public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, 
         public int effectiveMaxPollRecords() { return maxPollRecords != null && maxPollRecords > 0 ? maxPollRecords : 20; }
         public int effectiveRetentionTtlDays() { return retentionTtlDays != null ? retentionTtlDays : 0; }
         public String effectiveSecurityProtocol() { return securityProtocol != null ? securityProtocol : "PLAINTEXT"; }
+        /** Champ de contenu configuré (mapping) ou {@code null} → payload brut. */
+        public String effectiveContentField() { return contentField != null && !contentField.isBlank() ? contentField.trim() : null; }
+        public List<String> effectiveMetadataFields() { return metadataFields != null ? metadataFields : List.of(); }
+        /** Le mapping de champs est-il actif (extraction d'un champ JSON) ? */
+        public boolean hasFieldMapping() { return effectiveContentField() != null; }
     }
 
     public record GedProperties(

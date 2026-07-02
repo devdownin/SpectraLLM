@@ -288,7 +288,7 @@ Kafka topic --rec(key,value)--> KafkaIngestionListener
 | **L0** | Correctif `sourceFile` en métadonnée + test (bugfix autonome) | 0,5 j | **fait** |
 | **L1 (MVP)** | `KafkaProperties`, `KafkaConfig`, listener, `upsertFromStream`, `StreamSourceEntity`, commit manuel + DLT, tests | 1,5–2 j | **fait** |
 | **L2** | Rétention TTL (`KafkaStreamRetentionService`, `@Scheduled`) + profil Docker compose `kafka` (KRaft) + doc README | 0,5–1 j | **fait** |
-| **L3 (option)** | Fraîcheur temporelle, mapping de champs configurable, métriques Micrometer | 1–2 j | à faire |
+| **L3** | Fraîcheur temporelle (`ingestedAt`/`eventTime`), mapping de champs configurable (`KafkaPayloadMapper`), métriques Micrometer | 1–2 j | **fait** |
 
 Risques principaux maîtrisés : le correctif L0 (sinon upsert cassé côté vecteur,
 **corrigé**) et le flush BM25 *debounced* (§9, sinon débit effondré).

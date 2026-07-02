@@ -103,6 +103,22 @@ class IngestionServiceUpsertTest {
     }
 
     @Test
+    void extraMetadataAndFreshnessArePropagatedToChunks() throws Exception {
+        InputStream body = new ByteArrayInputStream("Statut courant.".getBytes(StandardCharsets.UTF_8));
+        service.upsertFromStream("kafka://t/dossier-5", "kafka://t/dossier-5.json", body,
+                COLLECTION, "t/0/0", Map.of("statut", "clos"));
+
+        @SuppressWarnings("unchecked")
+        org.mockito.ArgumentCaptor<List<fr.spectra.model.TextChunk>> captor =
+                org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(chromaDb, atLeastOnce()).addDocuments(anyString(), captor.capture(), anyList());
+        Map<String, String> meta = captor.getValue().get(0).metadata();
+        assertThat(meta).containsEntry("statut", "clos");   // champ mappé propagé
+        assertThat(meta).containsKey("ingestedAt");          // fraîcheur temporelle injectée
+        assertThat(meta).containsEntry("sourceFile", "kafka://t/dossier-5");
+    }
+
+    @Test
     void changedContent_purgesOldThenReindexes() throws Exception {
         upsert("kafka://t/dossier-2", "Statut : ouvert.");
         IngestionService.UpsertResult r = upsert("kafka://t/dossier-2", "Statut : clos.");

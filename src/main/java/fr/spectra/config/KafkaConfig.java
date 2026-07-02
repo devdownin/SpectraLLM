@@ -53,7 +53,7 @@ public class KafkaConfig {
 
     public KafkaConfig(SpectraProperties properties) {
         this.cfg = properties.kafka() != null ? properties.kafka()
-                : new SpectraProperties.KafkaProperties(true, null, null, null, null, null, null, null, null, null, null, null);
+                : new SpectraProperties.KafkaProperties(true, null, null, null, null, null, null, null, null, null, null, null, null, null);
         log.info("Kafka streaming ingestion ACTIVÉ — brokers={}, topics={}, group={}, collection={}",
                 cfg.effectiveBootstrapServers(), cfg.effectiveTopics(), cfg.effectiveGroupId(), cfg.effectiveCollection());
     }

@@ -564,7 +564,15 @@ seconds, without any retraining.
 - A **null value** (Kafka log-compaction tombstone) **deletes** the entry.
 - **Idempotent**: an unchanged payload is a no-op (absorbs at-least-once redeliveries).
 - **Raw payload by default**: the message value is passed as-is to the extractor, routed by
-  `SPECTRA_KAFKA_FORMAT` (`json`, `txt`, `xml`, `avro`). No field mapping.
+  `SPECTRA_KAFKA_FORMAT` (`json`, `txt`, `xml`, `avro`). Optionally set
+  `SPECTRA_KAFKA_CONTENT_FIELD` (field name or JSON pointer) to index only one field of a
+  structured event, and `SPECTRA_KAFKA_METADATA_FIELDS` to copy chosen fields into chunk
+  metadata (for retrieval-time filtering).
+- **Freshness**: every chunk carries `ingestedAt` and `eventTime` (Kafka record timestamp)
+  metadata, available for recency filtering/weighting at retrieval.
+- **Metrics**: Micrometer counter `spectra.kafka.messages{topic,result}` (result =
+  upserted/unchanged/deleted/failed) and timer `spectra.kafka.processing{topic}`, exposed on
+  `/actuator/prometheus`.
 - **At-least-once**: offsets are committed only after successful indexing; a poison message
   is retried then routed to a **Dead Letter Topic** `<topic>.DLT` instead of blocking the
   partition.
@@ -592,6 +600,8 @@ SPECTRA_KAFKA_ENABLED=true SPECTRA_KAFKA_TOPICS=my-topic \
 | `SPECTRA_KAFKA_GROUP_ID` | `spectra-ingestion` | Consumer group id |
 | `SPECTRA_KAFKA_COLLECTION` | `spectra_stream` | Dedicated ChromaDB collection |
 | `SPECTRA_KAFKA_FORMAT` | `json` | Extractor routing: `json`/`txt`/`xml`/`avro` |
+| `SPECTRA_KAFKA_CONTENT_FIELD` | *(empty)* | JSON field/pointer to index (empty = raw payload) |
+| `SPECTRA_KAFKA_METADATA_FIELDS` | *(empty)* | JSON fields copied into chunk metadata (comma-separated) |
 | `SPECTRA_KAFKA_CONCURRENCY` | `1` | Concurrent consumers (~partitions in parallel) |
 | `SPECTRA_KAFKA_MAX_POLL_RECORDS` | `20` | Max records per poll (embedding is the bottleneck) |
 | `SPECTRA_KAFKA_RETENTION_TTL_DAYS` | `0` | Purge stale sources after N days (0 = disabled) |
