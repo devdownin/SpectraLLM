@@ -419,6 +419,16 @@ public class IngestionService {
      */
     public UpsertResult upsertFromStream(String sourceKey, String logicalName, InputStream content,
                                          String collectionName, String offsetRef) throws Exception {
+        return upsertFromStream(sourceKey, logicalName, content, collectionName, offsetRef, Map.of());
+    }
+
+    /**
+     * Variante acceptant des métadonnées supplémentaires (temporelles, champs mappés…) fusionnées
+     * dans chaque chunk — utile pour le filtrage/tri par récence au retrieval.
+     */
+    public UpsertResult upsertFromStream(String sourceKey, String logicalName, InputStream content,
+                                         String collectionName, String offsetRef,
+                                         Map<String, String> extraMetadata) throws Exception {
         String collectionId = chromaDbClient.getOrCreateCollection(collectionName);
 
         // 1. Extraction → nettoyage → chunking (sourceFile = clé métier stable)
@@ -426,7 +436,12 @@ public class IngestionService {
         var extractor = extractorFactory.getExtractor(contentType);
         ExtractedDocument doc = extractor.extract(logicalName, content);
         String cleanedText = textCleaner.clean(doc.text());
-        List<TextChunk> chunks = chunkingService.chunk(cleanedText, sourceKey, doc.metadata());
+
+        // Fraîcheur temporelle : horodatage d'ingestion + métadonnées fournies (eventTime, champs mappés).
+        Map<String, String> metadata = new java.util.HashMap<>(doc.metadata());
+        metadata.put("ingestedAt", Instant.now().toString());
+        if (extraMetadata != null) metadata.putAll(extraMetadata);
+        List<TextChunk> chunks = chunkingService.chunk(cleanedText, sourceKey, metadata);
 
         // 2. Tombstone : plus de contenu → suppression pure
         if (chunks.isEmpty()) {

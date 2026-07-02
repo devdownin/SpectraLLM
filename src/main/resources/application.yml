@@ -67,6 +67,8 @@ spectra:
     group-id: ${SPECTRA_KAFKA_GROUP_ID:spectra-ingestion}
     collection: ${SPECTRA_KAFKA_COLLECTION:spectra_stream}
     format: ${SPECTRA_KAFKA_FORMAT:json}      # extension de routage : json|txt|xml|avro
+    content-field: ${SPECTRA_KAFKA_CONTENT_FIELD:}   # (JSON) champ à indexer ; vide = payload brut
+    metadata-fields: ${SPECTRA_KAFKA_METADATA_FIELDS:} # (JSON) champs recopiés en métadonnées (virgules)
     concurrency: ${SPECTRA_KAFKA_CONCURRENCY:1}
     max-poll-records: ${SPECTRA_KAFKA_MAX_POLL_RECORDS:20}
     retention-ttl-days: ${SPECTRA_KAFKA_RETENTION_TTL_DAYS:0} # 0 = désactivé
