@@ -1,9 +1,8 @@
-# 📚 Spectra — Le Mini‑Livre des Idées et des Algorithmes
+# 📚 Spectra — L guide des Idées et des Algorithmes
 
 > *Du document brut à l'expertise métier souveraine.*
 >
-> Ce document est un **mini‑livre pédagogique**. Pour chaque brique de Spectra, il
-> cherche à éclairer **trois choses** : l'**intuition** (le problème résolu),
+> Ce document cherche à éclairer **trois choses** : l'**intuition** (le problème résolu),
 > l'**algorithme** (comment ça marche, formules et pseudo‑code à l'appui), et
 > un **exemple d'usage concret**. Tous les chapitres ne mobilisent pas les trois
 > à chaque fois — les chapitres d'architecture (production, déploiement) sont plus
