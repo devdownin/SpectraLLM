@@ -96,8 +96,23 @@ CREATE TABLE IF NOT EXISTS fine_tuning_jobs (
     PRIMARY KEY (job_id)
 );
 
+-- Ingestion streaming Kafka : état par identité métier (données vivantes).
+CREATE TABLE IF NOT EXISTS kafka_stream_source (
+    source_key       VARCHAR(512) NOT NULL,
+    collection       VARCHAR(255),
+    content_hash     VARCHAR(64),
+    chunk_count      INTEGER      NOT NULL DEFAULT 0,
+    version          BIGINT       NOT NULL DEFAULT 0,
+    first_seen_at    TIMESTAMP WITH TIME ZONE,
+    last_updated_at  TIMESTAMP WITH TIME ZONE,
+    last_offset_ref  VARCHAR(512),
+    PRIMARY KEY (source_key)
+);
+
 -- Index de performance (ddl-auto: validate ne crée pas les index déclarés via @Index ;
 -- ils doivent donc être créés ici, source de vérité du schéma). Idempotents.
+CREATE INDEX IF NOT EXISTS idx_kafka_stream_updated_at    ON kafka_stream_source(last_updated_at);
+CREATE INDEX IF NOT EXISTS idx_kafka_stream_collection    ON kafka_stream_source(collection);
 CREATE INDEX IF NOT EXISTS idx_ingested_files_lifecycle   ON ingested_files(lifecycle);
 CREATE INDEX IF NOT EXISTS idx_ingested_files_ingested_at ON ingested_files(ingested_at);
 CREATE INDEX IF NOT EXISTS idx_ingested_files_collection  ON ingested_files(collection_name);

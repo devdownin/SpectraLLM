@@ -546,6 +546,64 @@ Documents enter Spectra through several channels:
 
 ---
 
+### Kafka Streaming Ingestion — Living Data, Fed to RAG On the Fly
+
+Beyond one-shot uploads, Spectra can **continuously enrich the RAG index from a Kafka
+cluster**. Each message is *upserted*: the model's effective knowledge stays current in
+seconds, without any retraining.
+
+**Disabled by default** — no Kafka bean is created and startup is unchanged unless you set
+`SPECTRA_KAFKA_ENABLED=true`.
+
+**How it works:**
+- The **message key** becomes a stable business identity
+  (`sourceFile = kafka://<topic>/<key>`). A new version of the same entity reuses that key,
+  so Spectra **deletes the previous version** (from both the vector index and BM25) and
+  reindexes the current one — a true upsert. Without a key, it falls back to
+  `kafka://<topic>/<partition>-<offset>` (append-only).
+- A **null value** (Kafka log-compaction tombstone) **deletes** the entry.
+- **Idempotent**: an unchanged payload is a no-op (absorbs at-least-once redeliveries).
+- **Raw payload by default**: the message value is passed as-is to the extractor, routed by
+  `SPECTRA_KAFKA_FORMAT` (`json`, `txt`, `xml`, `avro`). No field mapping.
+- **At-least-once**: offsets are committed only after successful indexing; a poison message
+  is retried then routed to a **Dead Letter Topic** `<topic>.DLT` instead of blocking the
+  partition.
+- **Retention**: a nightly job purges sources not updated for
+  `SPECTRA_KAFKA_RETENTION_TTL_DAYS` days (0 = disabled) so a continuous stream doesn't grow
+  the index unbounded.
+
+A **dedicated collection** (`spectra_stream`) isolates living data from the static document
+corpus.
+
+**Start the optional broker (Docker profile `kafka`, single-node KRaft):**
+```bash
+SPECTRA_KAFKA_ENABLED=true SPECTRA_KAFKA_TOPICS=my-topic \
+  docker compose --profile kafka up -d
+# Produce test messages from the host on localhost:29092; spectra-api reads kafka:9092
+```
+
+**Configuration:**
+
+| Environment variable | Default | Description |
+|---|---|---|
+| `SPECTRA_KAFKA_ENABLED` | `false` | Enable Kafka streaming ingestion |
+| `SPECTRA_KAFKA_BOOTSTRAP_SERVERS` | `kafka:9092` | Broker list (host:port,…) |
+| `SPECTRA_KAFKA_TOPICS` | *(empty)* | Topics to consume (comma-separated) |
+| `SPECTRA_KAFKA_GROUP_ID` | `spectra-ingestion` | Consumer group id |
+| `SPECTRA_KAFKA_COLLECTION` | `spectra_stream` | Dedicated ChromaDB collection |
+| `SPECTRA_KAFKA_FORMAT` | `json` | Extractor routing: `json`/`txt`/`xml`/`avro` |
+| `SPECTRA_KAFKA_CONCURRENCY` | `1` | Concurrent consumers (~partitions in parallel) |
+| `SPECTRA_KAFKA_MAX_POLL_RECORDS` | `20` | Max records per poll (embedding is the bottleneck) |
+| `SPECTRA_KAFKA_RETENTION_TTL_DAYS` | `0` | Purge stale sources after N days (0 = disabled) |
+| `SPECTRA_KAFKA_SECURITY_PROTOCOL` | `PLAINTEXT` | `PLAINTEXT`/`SSL`/`SASL_SSL`/`SASL_PLAINTEXT` |
+| `SPECTRA_KAFKA_SASL_MECHANISM` | *(empty)* | e.g. `SCRAM-SHA-512`, `PLAIN` (if SASL) |
+| `SPECTRA_KAFKA_SASL_JAAS_CONFIG` | *(empty)* | Full JAAS config (holds credentials) |
+
+See **[docs/DESIGN_KAFKA_STREAMING_UPSERT.fr.md](docs/DESIGN_KAFKA_STREAMING_UPSERT.fr.md)**
+for the detailed design (upsert algorithm, tombstones, idempotency, performance notes).
+
+---
+
 ### `TextCleanerService` — 8-Step Text Normalization
 
 Raw extracted text is noisy. The cleaner applies these steps in order:

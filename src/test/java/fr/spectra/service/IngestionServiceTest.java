@@ -44,6 +44,7 @@ class IngestionServiceTest {
                 mock(IngestionTaskExecutor.class),
                 mock(IngestedFileRepository.class),
                 mock(GedService.class),
+                mock(fr.spectra.persistence.StreamSourceRepository.class),
                 props,
             50,
             4

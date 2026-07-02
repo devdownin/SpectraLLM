@@ -120,6 +120,13 @@ public class ChunkingService {
     private TextChunk createChunk(String text, int index, String sourceFile, Map<String, String> extraMetadata) {
         Map<String, String> metadata = new HashMap<>(extraMetadata);
         metadata.put("chunkIndex", String.valueOf(index));
+        // Garantit que le filtre `where sourceFile == X` de ChromaDbClient.deleteBySource
+        // fonctionne quel que soit le format : seul TxtExtractor peuplait cette métadonnée,
+        // ce qui cassait silencieusement la suppression/upsert par source pour PDF, DOCX,
+        // JSON, Avro, XML… (le champ TextChunk.sourceFile suffit côté BM25 mais pas côté vecteur).
+        if (sourceFile != null) {
+            metadata.put("sourceFile", sourceFile);
+        }
 
         return new TextChunk(
                 UUID.randomUUID().toString(),

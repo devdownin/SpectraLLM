@@ -71,6 +71,9 @@ Le Playground intègre un mode **Trace** pour démythifier le pipeline. Pour cha
 ### 📄 Ingestion Respectueuse de la Mise en Page (Layout-Aware)
 Spectra comprend que les documents ne sont pas que des suites de texte. En utilisant **PyMuPDF4LLM** et **IBM Docling**, il préserve la structure des tableaux, des en-têtes et des listes, convertissant les PDF complexes en Markdown propre pour une meilleure récupération.
 
+### 🔄 Ingestion Streaming Kafka (données vivantes)
+En option, Spectra consomme un **cluster Kafka** et enrichit le RAG **au fil de l'eau** : chaque message est *upserté* dans l'index (la clé du message sert d'identité métier → remplacement de la version précédente ; une valeur nulle supprime l'entrée). La connaissance effective du modèle reste à jour en secondes, sans réentraînement. Commit manuel *at-least-once*, Dead Letter Topic, rétention TTL et collection dédiée. Désactivé par défaut ; démarrage : `docker compose --profile kafka up -d` avec `SPECTRA_KAFKA_ENABLED=true`. Détails : [docs/DESIGN_KAFKA_STREAMING_UPSERT.fr.md](docs/DESIGN_KAFKA_STREAMING_UPSERT.fr.md).
+
 ### 🛡️ 100 % Local & Souverain
 Exécutez tout sur votre propre matériel. Pas d'APIs cloud, pas de fuites de données, pas d'abonnements. Conçu pour les environnements isolés (air-gapped) et les données métier sensibles.
 

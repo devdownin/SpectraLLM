@@ -6,6 +6,7 @@ import fr.spectra.model.ExtractedDocument;
 import fr.spectra.model.TextChunk;
 import fr.spectra.persistence.IngestedFileEntity;
 import fr.spectra.persistence.IngestedFileRepository;
+import fr.spectra.persistence.StreamSourceEntity;
 import fr.spectra.service.extraction.DocumentExtractorFactory;
 import fr.spectra.service.extraction.ExtractionException;
 import org.slf4j.Logger;
@@ -100,6 +101,9 @@ public class IngestionService {
     private final String defaultCollection;
     private final double autoQualifyThreshold;
 
+    // Streaming (Kafka) upsert deps
+    private final fr.spectra.persistence.StreamSourceRepository streamSourceRepository;
+
     private final Map<String, IngestionTask> tasks = new ConcurrentHashMap<>();
     private final Set<String> cancelledTaskIds = ConcurrentHashMap.newKeySet();
 
@@ -112,6 +116,7 @@ public class IngestionService {
                             IngestionTaskExecutor executor,
                             IngestedFileRepository repository,
                             GedService gedService,
+                            fr.spectra.persistence.StreamSourceRepository streamSourceRepository,
                             SpectraProperties properties,
                             @org.springframework.beans.factory.annotation.Value("${spectra.pipeline.max-uncompressed-mb:0}") int maxUncompressedMb,
                             @org.springframework.beans.factory.annotation.Value("${spectra.pipeline.concurrent-ingestions:4}") int concurrentIngestions) {
@@ -126,6 +131,7 @@ public class IngestionService {
         this.executor = executor;
         this.repository = repository;
         this.gedService = gedService;
+        this.streamSourceRepository = streamSourceRepository;
         this.embeddingBatchSize = properties.pipeline().embeddingBatchSize();
         this.maxZipEntries = properties.ingestion() != null ? properties.ingestion().effectiveMaxZipEntries() : 10_000;
         this.defaultCollection = properties.chromadb() != null
@@ -378,6 +384,136 @@ public class IngestionService {
         } catch (Exception e) {
             log.error("Erreur lors de l'ingestion locale: {}", e.getMessage(), e);
             return 0;
+        }
+    }
+
+    // ── Ingestion streaming (Kafka) — upsert par identité métier ────────────────
+
+    /** Résultat d'un {@link #upsertFromStream}. */
+    public record UpsertResult(String sourceKey, Kind kind, int removedChunks, int indexedChunks) {
+        public enum Kind { UPSERTED, UNCHANGED, DELETED }
+        static UpsertResult upserted(String key, int removed, int indexed) { return new UpsertResult(key, Kind.UPSERTED, removed, indexed); }
+        static UpsertResult unchanged(String key) { return new UpsertResult(key, Kind.UNCHANGED, 0, 0); }
+        static UpsertResult deleted(String key, int removed) { return new UpsertResult(key, Kind.DELETED, removed, 0); }
+    }
+
+    /**
+     * Upsert streaming : remplace (du point de vue métier) tous les chunks portant la clé
+     * {@code sourceKey} par la version courante du contenu. Enrichit le RAG au fil de l'eau.
+     *
+     * <p>Contrairement à {@link #ingest}, ne fait <b>pas</b> de déduplication SHA-256 par contenu
+     * (on veut remplacer, pas ignorer). Le flux est :</p>
+     * <ol>
+     *   <li><b>Tombstone</b> — un contenu vide (message Kafka {@code value=null}) supprime l'entrée.</li>
+     *   <li><b>Idempotence</b> — si le hash du texte nettoyé est identique à la dernière version
+     *       indexée, on ne fait rien (absorbe les rejeux at-least-once).</li>
+     *   <li><b>Delete-then-index</b> — purge des deux index (vecteur + BM25) par {@code sourceKey},
+     *       puis réindexation de la version courante.</li>
+     * </ol>
+     *
+     * @param sourceKey    identité métier stable (ex. {@code kafka://<topic>/<key>}) — sert de sourceFile
+     * @param logicalName  nom logique portant l'extension de routage (ex. {@code <sourceKey>.json})
+     * @param content      flux du payload brut du message
+     * @param collectionName collection ChromaDB cible (dédiée au flux)
+     * @param offsetRef    référence topic/partition/offset (diagnostic), peut être {@code null}
+     */
+    public UpsertResult upsertFromStream(String sourceKey, String logicalName, InputStream content,
+                                         String collectionName, String offsetRef) throws Exception {
+        String collectionId = chromaDbClient.getOrCreateCollection(collectionName);
+
+        // 1. Extraction → nettoyage → chunking (sourceFile = clé métier stable)
+        String contentType = extractorFactory.resolveContentType(logicalName);
+        var extractor = extractorFactory.getExtractor(contentType);
+        ExtractedDocument doc = extractor.extract(logicalName, content);
+        String cleanedText = textCleaner.clean(doc.text());
+        List<TextChunk> chunks = chunkingService.chunk(cleanedText, sourceKey, doc.metadata());
+
+        // 2. Tombstone : plus de contenu → suppression pure
+        if (chunks.isEmpty()) {
+            int removed = purgeSource(collectionId, collectionName, sourceKey);
+            streamSourceRepository.deleteById(sourceKey);
+            log.info("Upsert streaming '{}' : tombstone → {} chunks supprimés", sourceKey, removed);
+            return UpsertResult.deleted(sourceKey, removed);
+        }
+
+        // 3. Idempotence : contenu inchangé → no-op (rejeu)
+        String contentHash = sha256(new java.io.ByteArrayInputStream(cleanedText.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        StreamSourceEntity existing = streamSourceRepository.findById(sourceKey).orElse(null);
+        if (existing != null && contentHash.equals(existing.getContentHash())) {
+            log.debug("Upsert streaming '{}' : contenu inchangé, ignoré", sourceKey);
+            return UpsertResult.unchanged(sourceKey);
+        }
+
+        // 4. Delete ancienne version (les deux index)
+        int removed = purgeSource(collectionId, collectionName, sourceKey);
+
+        // 5. Index version courante (embed par lot + ChromaDB + BM25)
+        embedAndIndex(collectionId, collectionName, chunks);
+
+        // 6. Traçabilité de l'état par clé métier
+        recordUpsert(existing, sourceKey, collectionName, contentHash, chunks.size(), offsetRef);
+        log.info("Upsert streaming '{}' : {} chunks (−{} ancienne version)", sourceKey, chunks.size(), removed);
+        return UpsertResult.upserted(sourceKey, removed, chunks.size());
+    }
+
+    /**
+     * Purge complète d'une source du flux : retire ses chunks des deux index (ChromaDB + BM25)
+     * et supprime son état de suivi. Utilisé par la politique de rétention du flux Kafka.
+     *
+     * @return nombre de chunks supprimés côté vecteur
+     */
+    public int purgeStreamSource(String sourceKey, String collectionName) {
+        String collectionId = chromaDbClient.getOrCreateCollection(collectionName);
+        int removed = purgeSource(collectionId, collectionName, sourceKey);
+        try {
+            streamSourceRepository.deleteById(sourceKey);
+        } catch (Exception e) {
+            log.warn("Suppression état streaming '{}' échouée : {}", sourceKey, e.getMessage());
+        }
+        return removed;
+    }
+
+    /** Purge une source des deux index (vecteur ChromaDB + BM25). Retourne le nb de chunks supprimés côté vecteur. */
+    private int purgeSource(String collectionId, String collectionName, String sourceKey) {
+        int removed = 0;
+        try {
+            removed = chromaDbClient.deleteBySource(collectionId, sourceKey);
+        } catch (Exception e) {
+            log.warn("Purge ChromaDB échouée pour '{}': {}", sourceKey, e.getMessage());
+        }
+        try {
+            ftsService.removeBySource(sourceKey, collectionName);
+        } catch (Exception e) {
+            log.warn("Purge BM25 échouée pour '{}': {}", sourceKey, e.getMessage());
+        }
+        return removed;
+    }
+
+    /** Embed les chunks par lot et les indexe dans ChromaDB puis BM25. */
+    private void embedAndIndex(String collectionId, String collectionName, List<TextChunk> chunks) {
+        for (int i = 0; i < chunks.size(); i += embeddingBatchSize) {
+            int end = Math.min(i + embeddingBatchSize, chunks.size());
+            List<TextChunk> batch = chunks.subList(i, end);
+            List<List<Float>> batchEmbeddings = embeddingService.embedBatch(
+                    batch.stream().map(TextChunk::text).toList());
+            chromaDbClient.addDocuments(collectionId, batch, batchEmbeddings);
+        }
+        ftsService.indexChunks(chunks, collectionName);
+    }
+
+    private void recordUpsert(StreamSourceEntity existing, String sourceKey, String collectionName,
+                              String contentHash, int chunkCount, String offsetRef) {
+        try {
+            StreamSourceEntity entity = existing != null ? existing : new StreamSourceEntity(sourceKey, collectionName);
+            entity.setCollection(collectionName);
+            entity.setContentHash(contentHash);
+            entity.setChunkCount(chunkCount);
+            entity.setVersion(entity.getVersion() + 1);
+            entity.setLastUpdatedAt(Instant.now());
+            if (offsetRef != null) entity.setLastOffsetRef(offsetRef);
+            streamSourceRepository.save(entity);
+        } catch (Exception e) {
+            log.warn("Persistance état streaming '{}' échouée : {}", sourceKey, e.getMessage());
         }
     }
 
