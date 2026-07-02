@@ -1,4 +1,4 @@
-# 📚 Spectra — L guide des Idées et des Algorithmes
+# 📚 Spectra — Guide des Idées et des Algorithmes
 
 > *Du document brut à l'expertise métier souveraine.*
 >
