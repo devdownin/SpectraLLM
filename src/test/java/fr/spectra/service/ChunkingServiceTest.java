@@ -46,6 +46,17 @@ class ChunkingServiceTest {
     }
 
     @Test
+    void chunk_propagatesSourceFileIntoMetadataForVectorDelete() {
+        // Régression : ChromaDbClient.deleteBySource filtre sur la métadonnée `sourceFile`.
+        // Si elle est absente (cas de tous les extracteurs sauf TXT), la suppression/upsert
+        // par source ne matche rien côté vecteur. La métadonnée doit donc toujours la porter.
+        List<TextChunk> chunks = chunkingService.chunk("Du texte.", "kafka://commandes/dossier-4271", Map.of());
+        assertThat(chunks).isNotEmpty();
+        assertThat(chunks.get(0).metadata())
+                .containsEntry("sourceFile", "kafka://commandes/dossier-4271");
+    }
+
+    @Test
     void chunk_assignsChunkIndex() {
         String text = "Paragraphe A.\n\nParagraphe B.\n\nParagraphe C.";
         List<TextChunk> chunks = chunkingService.chunk(text, "file.txt", Map.of());
