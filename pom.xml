@@ -70,6 +70,13 @@
             <version>2.4.0</version>
         </dependency>
 
+        <!-- Kafka — ingestion streaming (RAG au fil de l'eau). Activé par
+             spectra.kafka.enabled=true ; inerte sinon. Version gérée par le BOM Spring Boot. -->
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka</artifactId>
+        </dependency>
+
         <!-- Document extraction (Phase 2) -->
         <dependency>
             <groupId>org.apache.pdfbox</groupId>
@@ -120,6 +127,12 @@
         <dependency>
             <groupId>io.projectreactor</groupId>
             <artifactId>reactor-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Broker Kafka embarqué pour les tests d'intégration du consumer -->
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka-test</artifactId>
             <scope>test</scope>
         </dependency>
         <!-- Serveur HTTP factice pour tester les clients WebClient (capture du payload) -->

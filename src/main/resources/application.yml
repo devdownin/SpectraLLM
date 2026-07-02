@@ -58,6 +58,21 @@ spectra:
     browserless-url: ${SPECTRA_INGESTION_BROWSERLESS_URL:http://browserless:3000}
     max-zip-entries: ${SPECTRA_INGESTION_MAX_ZIP_ENTRIES:10000}
     max-entry-bytes: ${SPECTRA_INGESTION_MAX_ENTRY_BYTES:52428800} # 50MB
+  # Ingestion streaming Kafka — enrichit le RAG au fil de l'eau (données vivantes).
+  # Désactivé par défaut : aucun bean Kafka n'est créé, aucune connexion à un broker.
+  kafka:
+    enabled: ${SPECTRA_KAFKA_ENABLED:false}
+    bootstrap-servers: ${SPECTRA_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    topics: ${SPECTRA_KAFKA_TOPICS:}          # liste séparée par des virgules
+    group-id: ${SPECTRA_KAFKA_GROUP_ID:spectra-ingestion}
+    collection: ${SPECTRA_KAFKA_COLLECTION:spectra_stream}
+    format: ${SPECTRA_KAFKA_FORMAT:json}      # extension de routage : json|txt|xml|avro
+    concurrency: ${SPECTRA_KAFKA_CONCURRENCY:1}
+    max-poll-records: ${SPECTRA_KAFKA_MAX_POLL_RECORDS:20}
+    retention-ttl-days: ${SPECTRA_KAFKA_RETENTION_TTL_DAYS:0} # 0 = désactivé
+    security-protocol: ${SPECTRA_KAFKA_SECURITY_PROTOCOL:PLAINTEXT}
+    sasl-mechanism: ${SPECTRA_KAFKA_SASL_MECHANISM:}
+    sasl-jaas-config: ${SPECTRA_KAFKA_SASL_JAAS_CONFIG:}
   pipeline:
     chunk-max-tokens: ${SPECTRA_CHUNK_MAX_TOKENS:512}
     chunk-overlap-tokens: ${SPECTRA_CHUNK_OVERLAP_TOKENS:64}

@@ -5,7 +5,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import java.util.List;
 
 @ConfigurationProperties(prefix = "spectra")
-public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, PipelineProperties pipeline, IngestionProperties ingestion, RerankerProperties reranker, HybridSearchProperties hybridSearch, LayoutParserProperties layoutParser, AgenticRagProperties agenticRag, GedProperties ged, ConversationalRagProperties conversationalRag, CorrectiveRagProperties correctiveRag, AdaptiveRagProperties adaptiveRag, SelfRagProperties selfRag, ContextCompressionProperties contextCompression, MultiQueryProperties multiQuery, SemanticDedupProperties semanticDedup, LongContextRagProperties longContextRag) {
+public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, PipelineProperties pipeline, IngestionProperties ingestion, RerankerProperties reranker, HybridSearchProperties hybridSearch, LayoutParserProperties layoutParser, AgenticRagProperties agenticRag, GedProperties ged, ConversationalRagProperties conversationalRag, CorrectiveRagProperties correctiveRag, AdaptiveRagProperties adaptiveRag, SelfRagProperties selfRag, ContextCompressionProperties contextCompression, MultiQueryProperties multiQuery, SemanticDedupProperties semanticDedup, LongContextRagProperties longContextRag, KafkaProperties kafka) {
 
     public SpectraProperties {
         if (pipeline == null) pipeline = new PipelineProperties(null, null, null, null, null, null);
@@ -252,6 +252,58 @@ public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, 
     public record LongContextRagProperties(Boolean enabled, Integer maxCollectionChunks) {
         public boolean isEnabled() { return Boolean.TRUE.equals(enabled); }
         public int effectiveMaxCollectionChunks() { return maxCollectionChunks != null ? maxCollectionChunks : 100; }
+    }
+
+    /**
+     * Ingestion streaming Kafka — enrichit le RAG au fil de l'eau avec des données vivantes.
+     *
+     * <p>Chaque message est « upserté » dans l'index : la clé du message fournit une identité
+     * métier stable ({@code sourceFile = kafka://<topic>/<key>}) qui permet de remplacer la
+     * version précédente (delete-by-source puis réindexation). Un message à valeur nulle
+     * (tombstone log-compaction) supprime l'entrée. Désactivé par défaut : aucun bean Kafka
+     * n'est créé tant que {@code enabled=false}.</p>
+     *
+     * @param enabled          active la consommation Kafka
+     * @param bootstrapServers liste des brokers (host:port,host:port…)
+     * @param topics           topics à consommer
+     * @param groupId          identifiant du consumer group
+     * @param collection       collection ChromaDB dédiée au flux (isole les données vivantes)
+     * @param format           extension logique de routage de l'extracteur : json|txt|xml|avro
+     * @param concurrency      nombre de consumers concurrents (≈ partitions traitées en //)
+     * @param maxPollRecords   messages max par poll (bas : chaque message déclenche un embedding)
+     * @param retentionTtlDays purge des sources non mises à jour depuis N jours (0 = désactivé)
+     * @param securityProtocol PLAINTEXT | SASL_SSL | SSL | SASL_PLAINTEXT
+     * @param saslMechanism    ex. SCRAM-SHA-512, PLAIN (si SASL)
+     * @param saslJaasConfig   configuration JAAS complète (contient les identifiants)
+     */
+    public record KafkaProperties(
+            Boolean enabled,
+            String bootstrapServers,
+            List<String> topics,
+            String groupId,
+            String collection,
+            String format,
+            Integer concurrency,
+            Integer maxPollRecords,
+            Integer retentionTtlDays,
+            String securityProtocol,
+            String saslMechanism,
+            String saslJaasConfig
+    ) {
+        public boolean isEnabled() { return Boolean.TRUE.equals(enabled); }
+        public String effectiveBootstrapServers() { return bootstrapServers != null ? bootstrapServers : "localhost:9092"; }
+        public List<String> effectiveTopics() { return topics != null ? topics : List.of(); }
+        public String effectiveGroupId() { return groupId != null ? groupId : "spectra-ingestion"; }
+        public String effectiveCollection() { return collection != null ? collection : "spectra_stream"; }
+        /** Extension de routage normalisée (json par défaut ; "text" → "txt"). */
+        public String effectiveFormat() {
+            String f = format != null ? format.trim().toLowerCase() : "json";
+            return f.equals("text") ? "txt" : f;
+        }
+        public int effectiveConcurrency() { return concurrency != null && concurrency > 0 ? concurrency : 1; }
+        public int effectiveMaxPollRecords() { return maxPollRecords != null && maxPollRecords > 0 ? maxPollRecords : 20; }
+        public int effectiveRetentionTtlDays() { return retentionTtlDays != null ? retentionTtlDays : 0; }
+        public String effectiveSecurityProtocol() { return securityProtocol != null ? securityProtocol : "PLAINTEXT"; }
     }
 
     public record GedProperties(
