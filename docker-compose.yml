@@ -132,6 +132,40 @@ services:
       retries: 3
       start_period: 60s
 
+  # ── Kafka (optionnel, profil kafka) ───────────────────────────────────────
+  # Broker mono-nœud en mode KRaft (sans Zookeeper), pour l'ingestion streaming.
+  # Deux listeners : `kafka:9092` pour les services du réseau compose (dont
+  # spectra-api) et `localhost:29092` pour produire des messages depuis l'hôte.
+  kafka:
+    profiles: [kafka]
+    image: apache/kafka:3.9.0
+    container_name: spectra-kafka
+    ports:
+      - "29092:29092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,PLAINTEXT_HOST://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1 || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
   # ── API Backend ───────────────────────────────────────────────────────────
   spectra-api:
     build:
@@ -177,6 +211,19 @@ services:
       - SPECTRA_ADAPTIVE_RAG_ENABLED=${SPECTRA_ADAPTIVE_RAG_ENABLED:-false}
       - SPECTRA_SELF_RAG_ENABLED=${SPECTRA_SELF_RAG_ENABLED:-false}
       - SPECTRA_SELF_RAG_MAX_REFLECTIONS=${SPECTRA_SELF_RAG_MAX_REFLECTIONS:-1}
+      # ── Ingestion streaming Kafka (profil kafka + SPECTRA_KAFKA_ENABLED=true) ────
+      - SPECTRA_KAFKA_ENABLED=${SPECTRA_KAFKA_ENABLED:-false}
+      - SPECTRA_KAFKA_BOOTSTRAP_SERVERS=${SPECTRA_KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      - SPECTRA_KAFKA_TOPICS=${SPECTRA_KAFKA_TOPICS:-}
+      - SPECTRA_KAFKA_GROUP_ID=${SPECTRA_KAFKA_GROUP_ID:-spectra-ingestion}
+      - SPECTRA_KAFKA_COLLECTION=${SPECTRA_KAFKA_COLLECTION:-spectra_stream}
+      - SPECTRA_KAFKA_FORMAT=${SPECTRA_KAFKA_FORMAT:-json}
+      - SPECTRA_KAFKA_CONCURRENCY=${SPECTRA_KAFKA_CONCURRENCY:-1}
+      - SPECTRA_KAFKA_MAX_POLL_RECORDS=${SPECTRA_KAFKA_MAX_POLL_RECORDS:-20}
+      - SPECTRA_KAFKA_RETENTION_TTL_DAYS=${SPECTRA_KAFKA_RETENTION_TTL_DAYS:-0}
+      - SPECTRA_KAFKA_SECURITY_PROTOCOL=${SPECTRA_KAFKA_SECURITY_PROTOCOL:-PLAINTEXT}
+      - SPECTRA_KAFKA_SASL_MECHANISM=${SPECTRA_KAFKA_SASL_MECHANISM:-}
+      - SPECTRA_KAFKA_SASL_JAAS_CONFIG=${SPECTRA_KAFKA_SASL_JAAS_CONFIG:-}
     volumes:
       - ./data:/app/data
     healthcheck:
@@ -216,3 +263,4 @@ services:
 volumes:
   chromadb-data:
   reranker-model-cache:
+  kafka-data:

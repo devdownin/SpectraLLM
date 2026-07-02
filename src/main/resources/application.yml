@@ -70,6 +70,7 @@ spectra:
     concurrency: ${SPECTRA_KAFKA_CONCURRENCY:1}
     max-poll-records: ${SPECTRA_KAFKA_MAX_POLL_RECORDS:20}
     retention-ttl-days: ${SPECTRA_KAFKA_RETENTION_TTL_DAYS:0} # 0 = désactivé
+    retention-cron: ${SPECTRA_KAFKA_RETENTION_CRON:0 30 3 * * *} # purge nocturne des sources périmées
     security-protocol: ${SPECTRA_KAFKA_SECURITY_PROTOCOL:PLAINTEXT}
     sasl-mechanism: ${SPECTRA_KAFKA_SASL_MECHANISM:}
     sasl-jaas-config: ${SPECTRA_KAFKA_SASL_JAAS_CONFIG:}

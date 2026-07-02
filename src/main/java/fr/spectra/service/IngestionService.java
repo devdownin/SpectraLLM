@@ -456,6 +456,23 @@ public class IngestionService {
         return UpsertResult.upserted(sourceKey, removed, chunks.size());
     }
 
+    /**
+     * Purge complète d'une source du flux : retire ses chunks des deux index (ChromaDB + BM25)
+     * et supprime son état de suivi. Utilisé par la politique de rétention du flux Kafka.
+     *
+     * @return nombre de chunks supprimés côté vecteur
+     */
+    public int purgeStreamSource(String sourceKey, String collectionName) {
+        String collectionId = chromaDbClient.getOrCreateCollection(collectionName);
+        int removed = purgeSource(collectionId, collectionName, sourceKey);
+        try {
+            streamSourceRepository.deleteById(sourceKey);
+        } catch (Exception e) {
+            log.warn("Suppression état streaming '{}' échouée : {}", sourceKey, e.getMessage());
+        }
+        return removed;
+    }
+
     /** Purge une source des deux index (vecteur ChromaDB + BM25). Retourne le nb de chunks supprimés côté vecteur. */
     private int purgeSource(String collectionId, String collectionName, String sourceKey) {
         int removed = 0;
