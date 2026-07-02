@@ -440,6 +440,42 @@ Pipeline en 8 étapes :
 
 > **Compatibilité vectorielle :** les vecteurs produits par `nomic-embed-text-v1.5.Q4_K_M.gguf` ne sont pas interchangeables avec ceux produits par la version Ollama du même modèle (différences de quantization et de normalisation). Tout changement de modèle d'embedding impose une ré-ingestion complète.
 
+### 3.7 Ingestion streaming Kafka (`KafkaIngestionListener` + `IngestionService.upsertFromStream`)
+
+Source d'ingestion alternative aux uploads/URLs : un consumer Kafka alimente le RAG **au fil de l'eau** avec des données vivantes. **Désactivé par défaut** (`@ConditionalOnProperty spectra.kafka.enabled=true`) : sans le flag, aucun bean Kafka n'est créé et le démarrage est inchangé.
+
+**Composants**
+
+| Classe | Rôle |
+|---|---|
+| `KafkaConfig` | `ConsumerFactory<String,byte[]>`, container factory (`AckMode.MANUAL`), `DefaultErrorHandler` + `DeadLetterPublishingRecoverer`, `KafkaTemplate` producteur DLT |
+| `KafkaIngestionListener` | `@KafkaListener` : mapping clé→identité, métriques, délégation à l'upsert |
+| `KafkaPayloadMapper` | Mapping optionnel : extraction d'un champ JSON (contenu) + champs → métadonnées |
+| `IngestionService.upsertFromStream(...)` | Delete-by-source (ChromaDB + BM25) puis réindexation |
+| `StreamSourceEntity` / `StreamSourceRepository` | État par clé métier (`content_hash`, `version`, `last_updated_at`) — table `kafka_stream_source` |
+| `KafkaStreamRetentionService` | Cron de purge des sources périmées (`retention-ttl-days`) |
+
+**Identité et upsert.** La clé du message devient `sourceFile = kafka://<topic>/<key>` (fallback `kafka://<topic>/<partition>-<offset>` sans clé). L'upsert = `deleteBySource` (les deux index) puis réindexation → une clé = une seule version dans l'index. Prérequis : la métadonnée `sourceFile` est portée par **tous** les chunks (cf. correctif `ChunkingService`), sinon `deleteBySource` (filtre `where sourceFile == X`) ne matcherait pas côté vecteur.
+
+**Sémantique de traitement**
+
+| Cas | Comportement |
+|---|---|
+| Nouvelle clé | Indexation |
+| Contenu modifié | Purge + réindexation (`UPSERTED`, `version++`) |
+| Contenu identique (hash) | No-op (`UNCHANGED`) — idempotence sur rejeu |
+| `value == null` | Tombstone → suppression (`DELETED`) |
+
+**Garanties.** Commit **manuel** de l'offset *après* indexation réussie (`AckMode.MANUAL`) → *at-least-once* ; les rejeux sont absorbés par l'idempotence (SHA-256 du texte nettoyé, stocké dans `content_hash`). Un message en échec est réessayé (`FixedBackOff(1s, 2)`) puis publié sur `<topic>.DLT`.
+
+**Mapping de champs (payload brut par défaut).** Sans `content-field`, la valeur brute est routée par extension (`format`). Avec `content-field` (nom simple ou pointeur JSON RFC 6901), seul ce champ est indexé (routé vers l'extracteur `txt`) ; `metadata-fields` recopie des champs choisis en métadonnées. JSON invalide → repli sur le payload brut (le message n'est pas mis en DLT pour autant).
+
+**Fraîcheur et rétention.** Chaque chunk porte `ingestedAt` (horodatage pipeline) et `eventTime` (timestamp Kafka). `KafkaStreamRetentionService` (cron `retention-cron`, défaut 03h30) purge les sources dont `last_updated_at` dépasse `retention-ttl-days` (0 = désactivé).
+
+**Métriques (Micrometer / `/actuator/prometheus`).** Compteur `spectra.kafka.messages{topic,result}` (`result` ∈ upserted/unchanged/deleted/failed) et timer `spectra.kafka.processing{topic}`.
+
+**Déploiement.** Service `kafka` sous profil Docker `kafka` (Apache Kafka en mode KRaft mono-nœud, listeners `kafka:9092` interne / `localhost:29092` hôte). Variables `SPECTRA_KAFKA_*` (cf. `.env.example`). Voir aussi `docs/DESIGN_KAFKA_STREAMING_UPSERT.fr.md`.
+
 ---
 
 ## 4. Génération de Dataset (`DatasetGeneratorService`)

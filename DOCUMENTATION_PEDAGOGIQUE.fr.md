@@ -299,6 +299,68 @@ petits chunks — perdre le contexte environnant — est faible ici, puisque cha
 entrée se suffit à elle‑même.
 </details>
 
+### F. Ingestion en flux continu : Kafka et les données « vivantes »
+
+Jusqu'ici, l'ingestion partait d'un geste : on *dépose* un fichier ou une URL. Mais
+beaucoup de connaissances d'entreprise ne sont pas des fichiers figés — ce sont des
+**flux qui changent** : un statut de dossier qui évolue, une fiche produit corrigée,
+un ticket qui se met à jour. Spectra sait s'abonner à un **cluster Kafka** et
+enrichir son savoir **au fil de l'eau**.
+
+**La bonne intuition d'abord : quelle « mémoire » enrichir ?** Un LLM a deux mémoires
+dans Spectra. Les **poids** (fine‑tuning) : profonds mais lents à réécrire — on ne
+réentraîne pas le modèle à chaque message. Le **RAG** (l'index) : consultable
+instantanément — on y ajoute une donnée et, *à la question suivante*, le modèle la
+voit. « Au fil de l'eau » désigne donc le **RAG en streaming** : Kafka → index →
+récupérable en secondes, sans réentraînement. (Pour graver le domaine dans les poids,
+on garde une boucle *batch* séparée, cf. §9.)
+
+**Le vrai piège : « vivant » veut dire « qui change ».** Si un événement « dossier
+4271 : *ouvert* → *clos* » arrive et qu'on se contente d'*ajouter*, l'index contient
+maintenant **les deux versions** — et le RAG sert au modèle une contradiction. La
+parade est l'**upsert** (contraction de *update* + *insert*) :
+
+> **La clé du message devient l'identité de la donnée.** On la transforme en
+> `sourceFile = kafka://<topic>/<clé>`. À chaque nouveau message pour cette clé, on
+> **supprime l'ancienne version** (dans le vecteur *et* dans le BM25) puis on
+> **réindexe** la version courante. Une même clé = une seule vérité dans l'index.
+
+Trois cas se gèrent naturellement :
+
+| Message reçu | Ce que fait Spectra |
+|---|---|
+| **Nouvelle clé** | Indexe (comme une ingestion classique) |
+| **Clé connue, contenu modifié** | Supprime l'ancien, réindexe le nouveau (*upsert*) |
+| **Clé connue, contenu identique** | Ne fait rien (**idempotence** : absorbe les rejeux) |
+| **Valeur nulle** (*tombstone*) | Supprime la donnée de l'index |
+
+**Deux détails qui font la robustesse.** *At‑least‑once* : Spectra ne valide sa
+lecture (l'*offset*) qu'**après** indexation réussie — si le service tombe en cours,
+Kafka rejoue le message, et l'idempotence (comparaison d'empreinte du contenu) évite
+le doublon. *Dead Letter Topic* : un message illisible est réessayé quelques fois
+puis mis de côté sur un topic `…​.DLT`, au lieu de **bloquer** toute la file.
+
+**Fraîcheur.** Chaque chunk issu du flux est horodaté (`ingestedAt`, `eventTime`), ce
+qui ouvre la porte à un tri par récence au retrieval — précieux quand la réponse la
+plus juste est aussi la plus récente. Et comme un flux est *infini*, une **rétention**
+optionnelle purge les données trop vieilles pour éviter que l'index n'enfle sans fin.
+
+🎯 **Exemple d'usage.** Votre SI publie sur un topic `commandes` un message par
+changement d'état, clé = numéro de commande. Vous lancez Spectra avec le profil
+`kafka` et `SPECTRA_KAFKA_ENABLED=true`. Sans rien réentraîner, poser « quel est le
+statut de la commande 4271 ? » renvoie l'état **courant** : chaque mise à jour a
+remplacé la précédente dans l'index, en secondes.
+
+🧪 **À vous de jouer.** Vos messages sont de gros JSON dont seul le champ `body` porte
+du texte utile ; le reste est technique (ids, timestamps). Faut‑il tout indexer ?
+<details><summary>Voir la réponse</summary>
+
+Non : indexer le JSON entier noie le signal sous du bruit (ids, dates) et dégrade la
+recherche. On configure `content-field: body` pour n'indexer **que** le texte utile,
+et on recopie éventuellement quelques champs (`statut`, `auteur`) en **métadonnées**
+via `metadata-fields` — utiles pour filtrer sans polluer le texte vectorisé.
+</details>
+
 [↑ Sommaire](#sommaire)
 
 ---

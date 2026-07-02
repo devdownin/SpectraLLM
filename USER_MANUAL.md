@@ -231,6 +231,59 @@ Qu'il s'agisse d'un fichier ou d'une URL, le traitement en coulisses est identiq
 
 ---
 
+#### Étape 1c — Ingestion streaming depuis Kafka (optionnel, données vivantes)
+
+**Objectif** : enrichir le RAG **en continu** à partir d'un flux Kafka, plutôt que par uploads ponctuels. Chaque message met l'index à jour en secondes, sans réentraîner le modèle — idéal pour des **données qui changent** (statuts, fiches, tickets).
+
+**Principe.** La **clé** du message identifie la donnée : une nouvelle version pour la même clé **remplace** l'ancienne dans l'index (*upsert*). Un message à **valeur nulle** supprime la donnée. Les rejeux sont sans effet (idempotence).
+
+**Démarrage** — le broker est fourni via un profil Docker optionnel (mono-nœud, pour tester) :
+
+```bash
+# Démarre la stack + un broker Kafka, avec le consumer activé sur le topic "commandes"
+SPECTRA_KAFKA_ENABLED=true SPECTRA_KAFKA_TOPICS=commandes \
+  docker compose --profile kafka up -d
+```
+
+Pour un **cluster existant**, ne lancez pas le profil : pointez simplement Spectra dessus.
+
+```bash
+SPECTRA_KAFKA_ENABLED=true
+SPECTRA_KAFKA_BOOTSTRAP_SERVERS=broker1:9092,broker2:9092
+SPECTRA_KAFKA_TOPICS=commandes,tickets
+# Sécurité (si nécessaire) :
+SPECTRA_KAFKA_SECURITY_PROTOCOL=SASL_SSL
+SPECTRA_KAFKA_SASL_MECHANISM=SCRAM-SHA-512
+SPECTRA_KAFKA_SASL_JAAS_CONFIG=org.apache.kafka.common.security.scram.ScramLoginModule required username="u" password="p";
+```
+
+**Publier un message de test** (depuis l'hôte, le broker du profil écoute sur `localhost:29092`) :
+
+```bash
+# clé = identité métier ; valeur = état courant (JSON par défaut)
+echo '4271:{"statut":"clos","client":"ACME"}' | \
+  docker exec -i spectra-kafka /opt/kafka/bin/kafka-console-producer.sh \
+  --bootstrap-server localhost:9092 --topic commandes --property "parse.key=true" --property "key.separator=:"
+```
+
+Posez ensuite votre question habituelle dans le Playground : la réponse reflète l'état **courant** de la commande 4271.
+
+**Options utiles**
+
+| Variable | Effet |
+|---|---|
+| `SPECTRA_KAFKA_FORMAT` | Format du payload : `json` (défaut), `txt`, `xml`, `avro` |
+| `SPECTRA_KAFKA_CONTENT_FIELD` | N'indexer qu'un champ JSON (ex. `body` ou `/data/text`) au lieu du message entier |
+| `SPECTRA_KAFKA_METADATA_FIELDS` | Champs JSON recopiés en métadonnées (ex. `statut,auteur`) |
+| `SPECTRA_KAFKA_COLLECTION` | Collection dédiée au flux (défaut `spectra_stream`, isolée du corpus statique) |
+| `SPECTRA_KAFKA_RETENTION_TTL_DAYS` | Purge auto des données non mises à jour depuis N jours (0 = jamais) |
+
+> **Suivi :** les compteurs `spectra.kafka.messages` et le timer `spectra.kafka.processing` sont exposés sur `http://localhost:8080/actuator/prometheus`. Les messages illisibles sont routés vers un topic `<topic>.DLT` sans bloquer le flux.
+
+> **Astuce :** un message Kafka est souvent un petit événement structuré. Si un seul champ porte le texte utile, renseignez `SPECTRA_KAFKA_CONTENT_FIELD` pour éviter d'indexer les ids/timestamps techniques et garder une recherche pertinente.
+
+---
+
 ### Étape 2 — Génération du dataset d'entraînement
 
 **Objectif** : générer des paires question/réponse à partir de vos documents, pour entraîner le modèle.
