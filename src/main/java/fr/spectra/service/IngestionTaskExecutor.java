@@ -149,12 +149,14 @@ public class IngestionTaskExecutor {
                 final int[] resultHolder = new int[1];
                 final String[] parserHolder = new String[1];
                 final int[] layoutHolder = new int[1];
+                final boolean[] completeHolder = {false};
                 ingestionTimer.record(() -> {
                     try {
                         IngestOneResult r = ingestOne(name, currentTempFile, collectionId, collectionName, progress);
                         resultHolder[0] = r.chunks();
                         parserHolder[0] = r.parserUsed();
                         layoutHolder[0] = r.layoutAwareChunks();
+                        completeHolder[0] = r.complete();
                     } catch (Exception e) {
                         log.error("Erreur lors de l'ingestion du fichier {}: {}", name, e.getMessage());
                         resultHolder[0] = 0;
@@ -169,8 +171,17 @@ public class IngestionTaskExecutor {
                     filesIngested.increment();
                 }
                 if (chunks > 0 && onIngested != null) {
-                    String hash = tempFileToHash != null ? tempFileToHash.get(tempFiles.get(i)) : null;
-                    onIngested.onIngested(hash, name, chunks);
+                    if (completeHolder[0]) {
+                        String hash = tempFileToHash != null ? tempFileToHash.get(tempFiles.get(i)) : null;
+                        onIngested.onIngested(hash, name, chunks);
+                    } else {
+                        // Indexation PARTIELLE (un lot d'embedding a échoué) : ne PAS enregistrer
+                        // la déduplication, sinon une ré-ingestion future serait ignorée et les
+                        // chunks manquants ne seraient jamais indexés. Le document reste
+                        // ré-ingérable pour compléter l'indexation.
+                        log.warn("Indexation partielle de '{}' ({} chunks) — non dédupliqué, "
+                                + "ré-ingérez le fichier pour compléter l'indexation.", name, chunks);
+                    }
                 }
             }
             final int finalChunks = totalChunks;
@@ -207,7 +218,8 @@ public class IngestionTaskExecutor {
         if (fileName.toLowerCase().endsWith(".zip")) {
             try (InputStream is = Files.newInputStream(tempFile)) {
                 int chunks = ingestZip(is, fileName, collectionId, collectionName, 0, progress);
-                return new IngestOneResult(chunks, null, 0);
+                // L'archive est enregistrée comme une unité (dédup au niveau archive).
+                return new IngestOneResult(chunks, null, 0, true);
             }
         }
 
@@ -233,7 +245,7 @@ public class IngestionTaskExecutor {
 
         if (chunks.isEmpty()) {
             log.warn("Aucun chunk produit pour: {}", fileName);
-            return new IngestOneResult(0, parserUsed, 0);
+            return new IngestOneResult(0, parserUsed, 0, true);
         }
 
         // Embed + envoie à ChromaDB par lot : on n'accumule jamais toutes les
@@ -246,12 +258,13 @@ public class IngestionTaskExecutor {
 
         if (embedded == 0) {
             log.warn("Aucun chunk indexé pour: {}", fileName);
-            return new IngestOneResult(0, parserUsed, 0);
+            return new IngestOneResult(0, parserUsed, 0, false);
         }
 
+        boolean complete = embedded == chunks.size();
         log.info("Fichier {} traité: {} chunks{}, parser={}",
-                fileName, embedded, embedded < chunks.size() ? "/" + chunks.size() + " (partiel)" : "", parserUsed);
-        return new IngestOneResult(embedded, parserUsed, layoutAware ? embedded : 0);
+                fileName, embedded, complete ? "" : "/" + chunks.size() + " (partiel)", parserUsed);
+        return new IngestOneResult(embedded, parserUsed, layoutAware ? embedded : 0, complete);
     }
 
     /**
@@ -303,7 +316,13 @@ public class IngestionTaskExecutor {
                     break;
                 }
                 String entryName = entry.getName();
-                if (entryName.startsWith("__MACOSX/") || entryName.startsWith(".")) continue;
+                String fileName = entryName.contains("/")
+                        ? entryName.substring(entryName.lastIndexOf('/') + 1)
+                        : entryName;
+                // Ignorer les métadonnées macOS et les fichiers cachés (basename commençant par
+                // "."), MAIS pas les entrées normales préfixées "./" (fréquent avec `zip -r`),
+                // qui étaient auparavant écartées à tort → perte silencieuse de documents.
+                if (entryName.startsWith("__MACOSX/") || fileName.isEmpty() || fileName.startsWith(".")) continue;
                 if (entryName.contains("..")) {
                     log.warn("Entrée ZIP suspecte ignorée (path traversal): {}", entryName);
                     continue;
@@ -314,10 +333,6 @@ public class IngestionTaskExecutor {
                             entry.getSize(), maxEntryUncompressedBytes, entryName);
                     continue;
                 }
-
-                String fileName = entryName.contains("/")
-                        ? entryName.substring(entryName.lastIndexOf('/') + 1)
-                        : entryName;
 
                 if (fileName.toLowerCase().endsWith(".zip")) {
                     // Flux non-fermable : la récursion ne doit pas fermer le ZipInputStream parent.
@@ -382,7 +397,7 @@ public class IngestionTaskExecutor {
         }
     }
 
-    private record IngestOneResult(int chunks, String parserUsed, int layoutAwareChunks) {}
+    private record IngestOneResult(int chunks, String parserUsed, int layoutAwareChunks, boolean complete) {}
 
     public interface IngestionCallback {
         void onIngested(String hash, String fileName, int chunks);

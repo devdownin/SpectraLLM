@@ -594,7 +594,12 @@ public class IngestionService {
                     break;
                 }
                 String entryName = entry.getName();
-                if (entryName.startsWith("__MACOSX/") || entryName.startsWith(".")) continue;
+                String fileName = entryName.contains("/")
+                        ? entryName.substring(entryName.lastIndexOf('/') + 1)
+                        : entryName;
+                // Ignorer les métadonnées macOS et les fichiers cachés (basename commençant par
+                // "."), MAIS pas les entrées normales préfixées "./" (perte silencieuse sinon).
+                if (entryName.startsWith("__MACOSX/") || fileName.isEmpty() || fileName.startsWith(".")) continue;
                 if (entryName.contains("..")) {
                     log.warn("Entrée ZIP suspecte ignorée (path traversal): {}", entryName);
                     continue;
@@ -604,10 +609,6 @@ public class IngestionService {
                             entry.getSize(), maxUncompressedBytes, entryName);
                     continue;
                 }
-
-                String fileName = entryName.contains("/")
-                        ? entryName.substring(entryName.lastIndexOf('/') + 1)
-                        : entryName;
 
                 if (fileName.toLowerCase().endsWith(".zip")) {
                     InputStream nonClosing = new LimitedInputStream(new java.io.FilterInputStream(zis) {
