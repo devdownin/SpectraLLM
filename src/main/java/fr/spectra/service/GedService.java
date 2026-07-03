@@ -12,8 +12,6 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -43,6 +41,11 @@ public class GedService {
     private final ChromaDbClient              chromaDbClient;
     private final FtsService                  ftsService;
     private final Path                        archiveRoot;
+
+    // Auto-injection pour invoquer les méthodes @Transactional via le proxy Spring.
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    private GedService self;
 
     public GedService(IngestedFileRepository fileRepo,
                       DocumentModelLinkRepository linkRepo,
@@ -264,48 +267,51 @@ public class GedService {
 
     // ── Amélioration 3 — Suppression synchronisée ChromaDB + GED ────────────
 
-    @Transactional
+    /**
+     * Supprime un document : d'abord les données DB autoritatives (transaction qui commit),
+     * puis le nettoyage externe ChromaDB/FTS en best-effort. L'ordre garantit qu'un rollback
+     * DB n'orpheline jamais l'état externe, et le nettoyage synchrone permet de renvoyer le
+     * nombre réel de chunks supprimés (contrairement à l'ancien afterCommit qui renvoyait 0).
+     */
     public Map<String, Object> deleteDocument(String sha256, String actor) {
-        IngestedFileEntity doc = requireDoc(sha256);
-        String collection = doc.getCollectionName();
-        String fileName = doc.getFileName();
+        // 1. Suppressions DB autoritatives — la transaction commit au retour de cet appel proxy.
+        DeleteInfo info = self.deleteDocumentDb(sha256);
 
-        // 1. Suppressions DB autoritatives à l'intérieur de la transaction.
-        linkRepo.deleteAll(linkRepo.findByDocumentSha256(sha256));
-        auditRepo.deleteAll(auditRepo.findByDocumentSha256OrderByTimestampDesc(sha256));
-        fileRepo.delete(doc);
-
-        // 2. Nettoyage externe (ChromaDB + FTS) en best-effort, exécuté APRÈS le commit :
-        //    un rollback de la transaction ne doit jamais orpheliner l'état externe,
-        //    et un échec ChromaDB ne doit pas annuler la suppression GED autoritative.
-        final int[] chunksDeleted = {0};
-        Runnable cleanup = () -> {
-            if (collection != null && !collection.isBlank()) {
-                try {
-                    String collectionId = chromaDbClient.getOrCreateCollection(collection);
-                    chunksDeleted[0] = chromaDbClient.deleteBySource(collectionId, fileName);
-                    ftsService.removeBySource(fileName, collection);
-                    log.info("Document {} : {} chunks ChromaDB supprimés", sha256, chunksDeleted[0]);
-                } catch (Exception e) {
-                    log.warn("Nettoyage ChromaDB/FTS échoué pour {} : {}", sha256, e.getMessage());
-                }
+        // 2. Nettoyage externe (ChromaDB + FTS) best-effort, APRÈS le commit DB.
+        int chunksDeleted = 0;
+        if (info.collection() != null && !info.collection().isBlank()) {
+            try {
+                String collectionId = chromaDbClient.getOrCreateCollection(info.collection());
+                chunksDeleted = chromaDbClient.deleteBySource(collectionId, info.fileName());
+                ftsService.removeBySource(info.fileName(), info.collection());
+                log.info("Document {} : {} chunks ChromaDB supprimés", sha256, chunksDeleted);
+            } catch (Exception e) {
+                log.warn("Nettoyage ChromaDB/FTS échoué pour {} : {}", sha256, e.getMessage());
             }
-        };
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override public void afterCommit() { cleanup.run(); }
-            });
-        } else {
-            cleanup.run();
         }
 
         log.info("Document {} supprimé de la GED", sha256);
         return Map.of(
                 "sha256", sha256,
-                "fileName", fileName,
-                "chunksDeleted", chunksDeleted[0],
+                "fileName", info.fileName(),
+                "chunksDeleted", chunksDeleted,
                 "actor", actor != null ? actor : "api"
         );
+    }
+
+    /** Métadonnées nécessaires au nettoyage externe après la suppression DB. */
+    public record DeleteInfo(String collection, String fileName) {}
+
+    /** Suppressions DB autoritatives dans une transaction dédiée (invoquée via {@link #self}). */
+    @Transactional
+    public DeleteInfo deleteDocumentDb(String sha256) {
+        IngestedFileEntity doc = requireDoc(sha256);
+        String collection = doc.getCollectionName();
+        String fileName = doc.getFileName();
+        linkRepo.deleteAll(linkRepo.findByDocumentSha256(sha256));
+        auditRepo.deleteAll(auditRepo.findByDocumentSha256OrderByTimestampDesc(sha256));
+        fileRepo.delete(doc);
+        return new DeleteInfo(collection, fileName);
     }
 
     // ── Amélioration 5 — Statistiques GED ───────────────────────────────────

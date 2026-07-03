@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react';
 
+/* eslint-disable react-hooks/exhaustive-deps */
+
 const FOCUSABLE =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
@@ -17,6 +19,12 @@ const FOCUSABLE =
 export function useFocusTrap<T extends HTMLElement>(active: boolean, onEscape?: () => void) {
   const ref = useRef<T>(null);
 
+  // Keep the latest callback in a ref so callers can pass an inline arrow without
+  // causing the trap effect to tear down / re-run (which would steal focus on every
+  // parent render, making inputs inside the dialog untypeable).
+  const onEscapeRef = useRef(onEscape);
+  onEscapeRef.current = onEscape;
+
   useEffect(() => {
     if (!active) return;
     const node = ref.current;
@@ -31,7 +39,7 @@ export function useFocusTrap<T extends HTMLElement>(active: boolean, onEscape?: 
     (focusable()[0] ?? node)?.focus();
 
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { onEscape?.(); return; }
+      if (e.key === 'Escape') { onEscapeRef.current?.(); return; }
       if (e.key !== 'Tab' || !node) return;
       const items = focusable();
       if (items.length === 0) { e.preventDefault(); return; }
@@ -52,7 +60,7 @@ export function useFocusTrap<T extends HTMLElement>(active: boolean, onEscape?: 
       document.removeEventListener('keydown', onKeyDown);
       previouslyFocused?.focus?.();
     };
-  }, [active, onEscape]);
+  }, [active]);
 
   return ref;
 }

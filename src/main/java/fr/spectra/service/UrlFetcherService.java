@@ -3,13 +3,16 @@ package fr.spectra.service;
 import fr.spectra.config.SpectraProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.util.UriComponentsBuilder;
+import reactor.netty.http.client.HttpClient;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.UnknownHostException;
 import java.time.Duration;
@@ -29,13 +32,40 @@ public class UrlFetcherService {
     private static final Duration FETCH_TIMEOUT = Duration.ofSeconds(30);
     private static final Duration BROWSERLESS_TIMEOUT = Duration.ofSeconds(60);
 
+    /** Client de confiance pour appeler le service interne browserless. */
     private final WebClient webClient;
+    /**
+     * Client pour les fetch directs d'URL <em>utilisateur</em> : son résolveur valide
+     * l'adresse IP réellement utilisée pour la connexion, fermant la fenêtre de
+     * DNS-rebinding (TOCTOU) entre {@link #validateUrl} et le fetch.
+     */
+    private final WebClient fetchWebClient;
     private final String browserlessUrl;
 
     public UrlFetcherService(WebClient.Builder webClientBuilder, SpectraProperties properties) {
-        this.webClient = webClientBuilder
+        this.webClient = webClientBuilder.clone()
                 .codecs(c -> c.defaultCodecs().maxInMemorySize(50 * 1024 * 1024)) // 50 MB
                 .build();
+
+        // HttpClient qui valide l'adresse résolue AU MOMENT DE LA CONNEXION : quelle que
+        // soit l'IP à laquelle le nom d'hôte se résout réellement, on refuse les adresses
+        // internes/privées — même si la résolution diffère de celle de validateUrl().
+        HttpClient validatingHttpClient = HttpClient.create()
+                .followRedirect(false) // pas de suivi 30x → limite le SSRF via Location
+                .doAfterResolve((connection, remoteAddress) -> {
+                    if (remoteAddress instanceof InetSocketAddress isa
+                            && isa.getAddress() != null
+                            && isForbiddenAddress(isa.getAddress())) {
+                        throw new IllegalStateException(
+                                "Accès à une adresse interne/privée interdit (SSRF) : "
+                                        + isa.getAddress().getHostAddress());
+                    }
+                });
+        this.fetchWebClient = webClientBuilder.clone()
+                .clientConnector(new ReactorClientHttpConnector(validatingHttpClient))
+                .codecs(c -> c.defaultCodecs().maxInMemorySize(50 * 1024 * 1024)) // 50 MB
+                .build();
+
         this.browserlessUrl = properties.ingestion() != null
                 ? properties.ingestion().effectiveBrowserlessUrl()
                 : "http://browserless:3000";
@@ -60,7 +90,7 @@ public class UrlFetcherService {
      */
     private String detectContentType(String url) {
         try {
-            var response = webClient.head()
+            var response = fetchWebClient.head()
                     .uri(URI.create(url))
                     .retrieve()
                     .toBodilessEntity()
@@ -85,6 +115,11 @@ public class UrlFetcherService {
 
     /**
      * Rend la page HTML via browserless pour exécuter le JavaScript.
+     *
+     * <p>Note SSRF : browserless résout et charge l'URL <em>côté serveur</em> ; le
+     * pré-contrôle {@link #validateUrl} reste advisory pour ce chemin. La défense
+     * effective ici relève d'une politique d'egress réseau sur le conteneur browserless
+     * (le rebinding sur le fetch direct est, lui, bloqué par {@link #fetchWebClient}).</p>
      */
     private FetchedContent fetchHtmlViaBrowserless(String url) {
         log.info("Fetching HTML via browserless: {}", url);
@@ -109,7 +144,7 @@ public class UrlFetcherService {
      */
     private FetchedContent fetchDirectly(String url, String contentType) {
         log.info("Fetching directly ({}): {}", contentType, url);
-        byte[] bytes = webClient.get()
+        byte[] bytes = fetchWebClient.get()
                 .uri(URI.create(url))
                 .retrieve()
                 .bodyToMono(byte[].class)

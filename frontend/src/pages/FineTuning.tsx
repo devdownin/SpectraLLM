@@ -236,21 +236,27 @@ const FineTuning: FC = () => {
   }, [formValues]);
 
   // ── SSE logs + loss extraction ────────────────────────────────────────────
+  // Mirror the current epoch in a ref so this effect depends ONLY on newLog. Depending on
+  // currentEpoch made it re-run on every epoch tick, re-appending the same log line and
+  // recording the previous message's loss under the new epoch (phantom loss point).
+  const currentEpochRef = useRef<number | null | undefined>(activeJob?.currentEpoch);
+  currentEpochRef.current = activeJob?.currentEpoch;
   useEffect(() => {
     if (!newLog) return;
     setLogs(prev => [...prev.slice(-999), newLog]);
     // Parse "loss: 0.1234" or "loss=0.1234" from log messages
     const m = newLog.message.match(/loss[=:\s]+([0-9]+\.[0-9]+)/i);
-    if (m && activeJob?.currentEpoch) {
+    const epoch = currentEpochRef.current;
+    if (m && epoch) {
       const loss = parseFloat(m[1]);
       setLossHistory(prev => {
-        const epoch = activeJob.currentEpoch!;
         const last = prev[prev.length - 1];
         if (last?.epoch === epoch) return [...prev.slice(0, -1), { epoch, loss }];
         return [...prev, { epoch, loss }];
       });
     }
-  }, [newLog, activeJob?.currentEpoch]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newLog]);
 
   useEffect(() => {
     if (autoScroll && listRef.current) {
@@ -282,9 +288,11 @@ const FineTuning: FC = () => {
     if (!activeJob) return;
     if (activeJob.status === 'COMPLETED' || activeJob.status === 'FAILED') return;
 
+    let failures = 0;
     const interval = setInterval(async () => {
       try {
         const res = await fineTuningApi.getJob(activeJob.jobId);
+        failures = 0;
         const job: FineTuningJob = res.data;
         setActiveJob(job);
         // Accumulate loss from polling when SSE doesn't carry it
@@ -306,7 +314,11 @@ const FineTuning: FC = () => {
             toast.error('Fine-tuning failed', { description: job.error ?? undefined });
           }
         }
-      } catch { clearInterval(interval); }
+      } catch {
+        // Tolérer les erreurs transitoires (API occupée pendant l'entraînement CPU) :
+        // ne stopper le monitoring qu'après plusieurs échecs consécutifs.
+        if (++failures >= 5) clearInterval(interval);
+      }
     }, 4000);
 
     return () => clearInterval(interval);

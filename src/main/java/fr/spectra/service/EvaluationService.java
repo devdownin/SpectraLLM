@@ -84,6 +84,16 @@ public class EvaluationService {
     private final Map<String, EvaluationReport> reports = new ConcurrentHashMap<>();
     private final Map<String, AbComparisonReport> abReports = new ConcurrentHashMap<>();
     private final Set<String> cancelledEvals = ConcurrentHashMap.newKeySet();
+    /**
+     * Sérialise les évaluations qui basculent le modèle servi globalement
+     * ({@code chatClient.setActiveModel}). Sans ce verrou, deux évaluations
+     * asynchrones concurrentes se voleraient mutuellement le modèle actif, faisant
+     * générer/scorer les réponses d'une évaluation par le modèle d'une autre.
+     */
+    private final java.util.concurrent.locks.ReentrantLock modelLock =
+            new java.util.concurrent.locks.ReentrantLock(true);
+    /** Sérialise les écritures des fichiers JSON de rapports (sinon écritures concurrentes = fichier corrompu). */
+    private final Object persistLock = new Object();
     private Path reportsFile;
     private Path abReportsFile;
 
@@ -135,21 +145,38 @@ public class EvaluationService {
 
     private void persistReports() {
         if (reportsFile == null) return;
-        try {
-            Files.createDirectories(workDir);
-            mapper.writerWithDefaultPrettyPrinter().writeValue(reportsFile.toFile(), reports);
-        } catch (Exception e) {
-            log.warn("Échec persistance évaluations: {}", e.getMessage());
+        synchronized (persistLock) {
+            try {
+                Files.createDirectories(workDir);
+                writeJsonAtomically(reportsFile, reports);
+            } catch (Exception e) {
+                log.warn("Échec persistance évaluations: {}", e.getMessage());
+            }
         }
     }
 
     private void persistAbReports() {
         if (abReportsFile == null) return;
+        synchronized (persistLock) {
+            try {
+                Files.createDirectories(workDir);
+                writeJsonAtomically(abReportsFile, abReports);
+            } catch (Exception e) {
+                log.warn("Échec persistance comparaisons A/B: {}", e.getMessage());
+            }
+        }
+    }
+
+    /** Écrit le JSON dans un fichier temporaire puis le renomme, pour ne jamais laisser un fichier tronqué. */
+    private void writeJsonAtomically(Path target, Object value) throws Exception {
+        Path tmp = target.resolveSibling(target.getFileName() + ".tmp");
+        mapper.writerWithDefaultPrettyPrinter().writeValue(tmp.toFile(), value);
         try {
-            Files.createDirectories(workDir);
-            mapper.writerWithDefaultPrettyPrinter().writeValue(abReportsFile.toFile(), abReports);
-        } catch (Exception e) {
-            log.warn("Échec persistance comparaisons A/B: {}", e.getMessage());
+            Files.move(tmp, target,
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                    java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+        } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+            Files.move(tmp, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
         }
     }
 
@@ -414,6 +441,8 @@ public class EvaluationService {
                 testPairs.size(), 0, 0, 0, 0, 0.0, 0.0, 0.0,
                 List.of(), null, r.startedAt(), null));
 
+        modelLock.lock();
+        try {
         String original = chatClient.getActiveModel();
         try {
             // Phase A — réponses du modèle A.
@@ -477,6 +506,9 @@ public class EvaluationService {
                     finalItems, null, r.startedAt(), Instant.now()));
         } finally {
             restoreModel(original);
+        }
+        } finally {
+            modelLock.unlock();
         }
     }
 
@@ -657,28 +689,33 @@ public class EvaluationService {
             return;
         }
 
-        String original = chatClient.getActiveModel();
         log.info("Évaluation par lot : {} modèles sur {} paires de test partagées",
                 evalIdByModel.size(), testPairs.size());
+        modelLock.lock();
         try {
-            for (Map.Entry<String, String> entry : evalIdByModel.entrySet()) {
-                String evalId = entry.getKey();
-                String model = entry.getValue();
-                if (cancelledEvals.contains(evalId)) {
-                    continue;
+            String original = chatClient.getActiveModel();
+            try {
+                for (Map.Entry<String, String> entry : evalIdByModel.entrySet()) {
+                    String evalId = entry.getKey();
+                    String model = entry.getValue();
+                    if (cancelledEvals.contains(evalId)) {
+                        continue;
+                    }
+                    if (!activateTargetModel(evalId, model, chatClient.getActiveModel())) {
+                        continue;
+                    }
+                    try {
+                        runEvaluationOnPairs(evalId, testPairs);
+                    } catch (Exception e) {
+                        log.error("Évaluation batch {} échouée: {}", evalId, e.getMessage(), e);
+                        failReport(evalId, e.getMessage());
+                    }
                 }
-                if (!activateTargetModel(evalId, model, chatClient.getActiveModel())) {
-                    continue;
-                }
-                try {
-                    runEvaluationOnPairs(evalId, testPairs);
-                } catch (Exception e) {
-                    log.error("Évaluation batch {} échouée: {}", evalId, e.getMessage(), e);
-                    failReport(evalId, e.getMessage());
-                }
+            } finally {
+                restoreModel(original);
             }
         } finally {
-            restoreModel(original);
+            modelLock.unlock();
         }
     }
 
@@ -690,14 +727,19 @@ public class EvaluationService {
         }
 
         String modelName = reportModelName(evalId);
-        String original = chatClient.getActiveModel();
-        if (!activateTargetModel(evalId, modelName, original)) {
-            return;
-        }
+        modelLock.lock();
         try {
-            runEvaluationOnPairs(evalId, testPairs);
+            String original = chatClient.getActiveModel();
+            if (!activateTargetModel(evalId, modelName, original)) {
+                return;
+            }
+            try {
+                runEvaluationOnPairs(evalId, testPairs);
+            } finally {
+                restoreModel(original);
+            }
         } finally {
-            restoreModel(original);
+            modelLock.unlock();
         }
     }
 

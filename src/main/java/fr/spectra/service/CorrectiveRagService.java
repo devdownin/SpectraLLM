@@ -136,20 +136,28 @@ public class CorrectiveRagService {
         List<Integer> kept = new ArrayList<>();
         Matcher m = GRADE_LINE.matcher(response);
         boolean[] seen = new boolean[total + 1];
+        boolean anyParsed = false;
 
         while (m.find()) {
-            int id = Integer.parseInt(m.group(1));
+            long id;
+            try {
+                id = Long.parseLong(m.group(1)); // \d+ non borné : éviter NumberFormatException
+            } catch (NumberFormatException e) {
+                continue;
+            }
             String grade = m.group(2).toUpperCase();
-            if (id >= 1 && id <= total && !seen[id]) {
-                seen[id] = true;
+            if (id >= 1 && id <= total && !seen[(int) id]) {
+                seen[(int) id] = true;
+                anyParsed = true;
                 if ("RELEVANT".equals(grade) || "AMBIGUOUS".equals(grade)) {
-                    kept.add(id - 1); // convert to 0-based
+                    kept.add((int) id - 1); // convert to 0-based
                 }
             }
         }
 
-        // If the LLM didn't produce parseable output, keep everything.
-        if (kept.isEmpty() && total > 0) {
+        // On ne conserve tout QUE si le grading est illisible (aucune ligne valide parsée).
+        // Un grading valide qui note tous les chunks IRRELEVANT doit bien renvoyer une liste vide.
+        if (!anyParsed && total > 0) {
             log.warn("Corrective RAG : grading illisible, tous les chunks conservés");
             return allIndices(total);
         }

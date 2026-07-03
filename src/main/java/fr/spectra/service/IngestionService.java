@@ -370,6 +370,12 @@ public class IngestionService {
                     }
                     byte[] bytes = Files.readAllBytes(path);
                     String hash = sha256(new java.io.ByteArrayInputStream(bytes));
+                    // Dédup : ne pas ré-indexer un document déjà ingéré (sinon chaque relance
+                    // du batch duplique tous les chunks dans ChromaDB et BM25).
+                    if (repository.existsById(hash)) {
+                        log.info("Fichier ignoré (déjà ingéré, sha256={}): {}", hash, path.getFileName());
+                        continue;
+                    }
                     int chunks = processSingleFile(path.getFileName().toString(),
                             new java.io.ByteArrayInputStream(bytes), collectionId, defaultCollection);
                     if (chunks > 0) {

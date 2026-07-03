@@ -24,9 +24,13 @@ public class TrainingLogBroadcaster {
      * Sink multicast avec buffer de 500 messages.
      * onBackpressureBuffer garantit que les messages émis avant la connexion d'un
      * client ne sont pas perdus (dans la limite du buffer).
+     *
+     * autoCancel=false est CRUCIAL : sinon, à la déconnexion du dernier abonné SSE
+     * le sink se termine définitivement et plus aucun log n'est diffusé (ni aux
+     * clients suivants) jusqu'au redémarrage de l'application.
      */
     private final Sinks.Many<Map<String, Object>> sink =
-            Sinks.many().multicast().onBackpressureBuffer(500);
+            Sinks.many().multicast().onBackpressureBuffer(500, false);
 
     public void publish(String level, String message) {
         Map<String, Object> event = new HashMap<>();

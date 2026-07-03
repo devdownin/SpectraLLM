@@ -399,7 +399,8 @@ if PREFERENCE:
     print(f"Mode {method_label} activé — chargement des paires chosen/rejected")
     import json as _json
 
-    pref_data = [_json.loads(l) for l in open(args.dataset) if l.strip()]
+    with open(args.dataset, encoding="utf-8") as _f:
+        pref_data = [_json.loads(l) for l in _f if l.strip()]
     print(f"  {len(pref_data)} paires de préférence chargées")
     if pref_data and not all(k in pref_data[0] for k in ("prompt", "chosen", "rejected")):
         print("ERREUR: le fichier de préférence doit contenir des objets {prompt, chosen, rejected}. "

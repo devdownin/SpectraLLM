@@ -28,6 +28,17 @@ public class HybridSearchService {
     private final FtsService ftsService;
     private final SpectraProperties props;
 
+    // Pool dédié (démon, borné) : les tâches font des appels bloquants (.block()) ; les
+    // exécuter sur le ForkJoinPool.commonPool() le saturerait et gèlerait tout le JVM.
+    private final java.util.concurrent.ExecutorService searchExecutor =
+            java.util.concurrent.Executors.newFixedThreadPool(
+                    Math.max(2, Runtime.getRuntime().availableProcessors()),
+                    r -> {
+                        Thread t = new Thread(r, "hybrid-search");
+                        t.setDaemon(true);
+                        return t;
+                    });
+
     public HybridSearchService(ChromaDbClient chromaDbClient,
                                 FtsService ftsService,
                                 SpectraProperties props) {
@@ -71,12 +82,22 @@ public class HybridSearchService {
         float bm25Weight = hybridProps.effectiveBm25Weight();
         float vecWeight = 1.0f;  // vector weight always 1
 
-        // --- Run both searches in parallel ---
-        CompletableFuture<Map<String, Object>> vectorFuture = CompletableFuture.supplyAsync(
-                () -> chromaDbClient.query(collectionId, queryEmbedding, topCandidates));
+        // --- Run both searches in parallel, chaque source dégradant indépendamment ---
+        // Si le vector store échoue, on garde les résultats BM25 (et inversement) plutôt
+        // que de tout perdre — c'est précisément l'intérêt d'une recherche hybride.
+        CompletableFuture<Map<String, Object>> vectorFuture = CompletableFuture
+                .supplyAsync(() -> chromaDbClient.query(collectionId, queryEmbedding, topCandidates), searchExecutor)
+                .exceptionally(ex -> {
+                    log.warn("Hybrid search: requête vectorielle échouée, dégradation BM25-only: {}", ex.getMessage());
+                    return null;
+                });
 
-        CompletableFuture<List<BM25Index.ScoredDoc>> bm25Future = CompletableFuture.supplyAsync(
-                () -> ftsService.search(question, collectionName, topBm25));
+        CompletableFuture<List<BM25Index.ScoredDoc>> bm25Future = CompletableFuture
+                .supplyAsync(() -> ftsService.search(question, collectionName, topBm25), searchExecutor)
+                .exceptionally(ex -> {
+                    log.warn("Hybrid search: requête BM25 échouée, dégradation vector-only: {}", ex.getMessage());
+                    return List.of();
+                });
 
         Map<String, Object> vectorResult;
         List<BM25Index.ScoredDoc> bm25Results;
@@ -84,11 +105,12 @@ public class HybridSearchService {
             vectorResult = vectorFuture.get();
             bm25Results  = bm25Future.get();
         } catch (Exception e) {
-            log.warn("Hybrid search parallel execution failed: {}", e.getMessage());
-            // Fall back to vector-only
-            vectorResult = chromaDbClient.query(collectionId, queryEmbedding, topCandidates);
+            log.warn("Hybrid search interrompue: {}", e.getMessage());
+            vectorResult = null;
             bm25Results  = List.of();
         }
+        if (vectorResult == null) vectorResult = Map.of();
+        if (bm25Results  == null) bm25Results  = List.of();
 
         // --- Parse vector results ---
         List<List<String>>               docsList     = (List<List<String>>)               vectorResult.get("documents");

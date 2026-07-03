@@ -357,7 +357,16 @@ const Playground: FC = () => {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
-    const guardTimer = setTimeout(() => controller.abort(new Error('timeout')), 120_000);
+    // Garde d'inactivité GLISSANTE : on n'annule qu'après 120 s SANS aucun token,
+    // pour ne pas tuer une génération longue mais saine (CPU : 30–120 s/chunk).
+    // On annule sans "reason" → AbortError, et un flag distingue timeout / stop manuel.
+    let timedOut = false;
+    const INACTIVITY_MS = 120_000;
+    let guardTimer = setTimeout(() => { timedOut = true; controller.abort(); }, INACTIVITY_MS);
+    const resetGuard = () => {
+      clearTimeout(guardTimer);
+      guardTimer = setTimeout(() => { timedOut = true; controller.abort(); }, INACTIVITY_MS);
+    };
 
     const currentInput = text;
     const history = buildHistory();
@@ -394,6 +403,7 @@ const Playground: FC = () => {
         } else if (event.type === 'token') {
           if (firstTokenTs === null) firstTokenTs = Date.now();
           tokenCount++;
+          resetGuard(); // activité : repousser la garde d'inactivité
           setMessages(prev => {
             const lastIdx = prev.findLastIndex(m => m.role === 'assistant');
             if (lastIdx < 0) return prev;
@@ -438,8 +448,17 @@ const Playground: FC = () => {
           try { msg = JSON.parse(event.data).message ?? msg; } catch { /* ignore */ }
           toast.error('Query Uplink Failed', { description: msg });
           setMessages(prev => {
+            const lastUserIdx = prev.findLastIndex(m => m.role === 'user' && m.content === currentInput);
             const lastAsstIdx = prev.findLastIndex(m => m.role === 'assistant');
-            return prev.map((m, i) => i === lastAsstIdx ? { ...m, status: 'ERROR' } : m);
+            const removeEmpty = lastAsstIdx >= 0 && prev[lastAsstIdx].content === '';
+            return prev
+              .filter((_, i) => !(removeEmpty && i === lastAsstIdx))
+              .map((m, i) => {
+                // Marquer le message USER en ERROR pour faire apparaître le bouton Retry.
+                if (i === lastUserIdx) return { ...m, status: 'ERROR' as const };
+                if (i === lastAsstIdx && !removeEmpty) return { ...m, status: 'ERROR' as const };
+                return m;
+              });
           });
         }
       }
@@ -465,7 +484,8 @@ const Playground: FC = () => {
               return m;
             });
         });
-        toast.info('Generation stopped');
+        if (timedOut) toast.warning('Generation timed out (stalled)');
+        else toast.info('Generation stopped');
         return;
       }
       toast.error('Query Uplink Failed', {
@@ -475,10 +495,16 @@ const Playground: FC = () => {
         const lastUserIdx = prev.findLastIndex(m => m.role === 'user' && m.content === currentInput);
         const lastAsstIdx = prev.findLastIndex(m => m.role === 'assistant');
         const removeEmpty = lastAsstIdx >= 0 && prev[lastAsstIdx].content === '';
-        // lastUserIdx < lastAsstIdx always, so filtering assistant doesn't shift user's position
+        // lastUserIdx < lastAsstIdx always, so filtering assistant doesn't shift user's position.
+        // Une bulle assistant partielle NE DOIT PAS rester en STREAMING (curseur clignotant
+        // éternel) : on la fige en ERROR, et on met le message user en ERROR pour le Retry.
         return prev
           .filter((_, i) => !(removeEmpty && i === lastAsstIdx))
-          .map((m, i) => i === lastUserIdx ? { ...m, status: 'ERROR' } : m);
+          .map((m, i) => {
+            if (i === lastUserIdx) return { ...m, status: 'ERROR' as const };
+            if (i === lastAsstIdx && !removeEmpty) return { ...m, status: 'ERROR' as const };
+            return m;
+          });
       });
     } finally {
       clearTimeout(guardTimer);

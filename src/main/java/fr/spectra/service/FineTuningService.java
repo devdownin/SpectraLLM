@@ -380,8 +380,14 @@ public class FineTuningService {
     }
 
     private void updateJob(String jobId, java.util.function.UnaryOperator<FineTuningJob> updater) {
+        // Ne jamais ressusciter un job annulé/terminal : une ligne de progression tardive
+        // émise par le thread lecteur ne doit pas réécrire le statut TRAINING par-dessus le
+        // FAILED posé par cancelJob (cancelledJobs.add() est effectué AVANT ce save).
+        if (cancelledJobs.contains(jobId)) return;
         repository.findById(jobId).ifPresent(entity -> {
-            FineTuningJob updated = updater.apply(entity.toDto());
+            FineTuningJob current = entity.toDto();
+            if (current.status() == Status.FAILED || current.status() == Status.COMPLETED) return;
+            FineTuningJob updated = updater.apply(current);
             repository.save(FineTuningJobEntity.fromDto(updated));
         });
     }

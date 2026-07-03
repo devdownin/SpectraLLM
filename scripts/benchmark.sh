@@ -8,7 +8,7 @@
 #   3. Latence API Spectra       → curl sur /api/benchmark/*
 #
 # Usage :
-#   ./scripts/benchmark.sh [--api-only] [--llama-only] [--question "..."]
+#   ./scripts/benchmark.sh [--api-only] [--llama-only] [--question="..."] [--followup="..."]
 #
 # Prérequis :
 #   - docker compose up -d (Spectra opérationnel)
@@ -19,9 +19,11 @@
 set -euo pipefail
 
 API_BASE="${SPECTRA_API:-http://localhost:8080}"
-CHAT_CONTAINER="${CHAT_CONTAINER:-spectra-llama-chat}"
-EMBED_CONTAINER="${EMBED_CONTAINER:-spectra-llama-embed}"
-CHAT_MODEL_PATH="${CHAT_MODEL_PATH:-/fine-tuning/merged/phi-4-mini-Q4_K_M.gguf}"
+# Noms des conteneurs et chemin du modèle alignés sur docker-compose.yml
+# (container_name: spectra-llm-chat / spectra-llm-embed ; ./data/models monté sur /models).
+CHAT_CONTAINER="${CHAT_CONTAINER:-spectra-llm-chat}"
+EMBED_CONTAINER="${EMBED_CONTAINER:-spectra-llm-embed}"
+CHAT_MODEL_PATH="${CHAT_MODEL_PATH:-/models/${LLM_CHAT_MODEL_FILE:-Phi-4-mini-reasoning-UD-IQ1_S.gguf}}"
 EMBED_MODEL_PATH="/models/embed.gguf"
 RAG_QUESTION="${RAG_QUESTION:-Quelle est la procédure principale décrite dans les documents ?}"
 RAG_FOLLOWUP="${RAG_FOLLOWUP:-Peux-tu donner plus de détails sur ce point ?}"
@@ -150,12 +152,18 @@ print('\n'.join(df['text'].dropna().tolist()))
 
   if [ -s "$PPLX_FILE" ]; then
     log "Calcul de la perplexité..."
-    docker cp "$PPLX_FILE" "$CHAT_CONTAINER:/tmp/wikitext2.txt"
-    PPLX=$(docker exec "$CHAT_CONTAINER" llama-perplexity \
-      -m "$CHAT_MODEL_PATH" \
-      -f /tmp/wikitext2.txt \
-      --chunks 20 2>/dev/null \
-      | grep -E "Final perplexity|PPL" || echo "Perplexité non disponible")
+    # Guarder le docker cp : sous set -e, un conteneur absent ferait avorter tout le
+    # benchmark (et sauterait les benchmarks API + le rapport).
+    if docker cp "$PPLX_FILE" "$CHAT_CONTAINER:/tmp/wikitext2.txt" 2>/dev/null; then
+      PPLX=$(docker exec "$CHAT_CONTAINER" llama-perplexity \
+        -m "$CHAT_MODEL_PATH" \
+        -f /tmp/wikitext2.txt \
+        --chunks 20 2>/dev/null \
+        | grep -E "Final perplexity|PPL" || echo "Perplexité non disponible")
+    else
+      log "docker cp échoué (conteneur $CHAT_CONTAINER indisponible) — perplexité ignorée"
+      PPLX="Perplexité non disponible (conteneur $CHAT_CONTAINER indisponible)"
+    fi
 
     {
       echo "\`\`\`"
@@ -211,7 +219,7 @@ if $RUN_API; then
 
   # 3c. RAG bout en bout
   log "Benchmark RAG (5 itérations)..."
-  ENCODED_Q=$(python3 -c "import urllib.parse; print(urllib.parse.quote('${RAG_QUESTION}'))")
+  ENCODED_Q=$(RAG_Q="$RAG_QUESTION" python3 -c "import os,urllib.parse; print(urllib.parse.quote(os.environ['RAG_Q']))")
   RAG_RESULT=$(curl -sf "${API_BASE}/api/benchmark/rag?iterations=5&maxChunks=2&question=${ENCODED_Q}" \
     -H "Accept: application/json" \
     --max-time 900 2>/dev/null \
@@ -239,17 +247,19 @@ if $RUN_API && $RUN_STRATEGIES; then
     echo ""
   } >> "$REPORT"
 
-  ENCODED_Q=$(python3 -c "import urllib.parse; print(urllib.parse.quote('${RAG_QUESTION}'))")
-  ENCODED_FQ=$(python3 -c "import urllib.parse; print(urllib.parse.quote('${RAG_FOLLOWUP}'))")
+  ENCODED_Q=$(RAG_Q="$RAG_QUESTION" python3 -c "import os,urllib.parse; print(urllib.parse.quote(os.environ['RAG_Q']))")
+  ENCODED_FQ=$(RAG_FQ="$RAG_FOLLOWUP" python3 -c "import os,urllib.parse; print(urllib.parse.quote(os.environ['RAG_FQ']))")
 
   # 4a. Conversational RAG — question de suivi avec historique
   log "Benchmark Conversational RAG (question de suivi)..."
-  CONV_BODY=$(python3 -c "
-import json, sys
+  # Passer les textes par l'environnement (jamais par interpolation shell) : une apostrophe
+  # française (« Qu'est-ce… ») ou un guillemet casserait sinon le littéral Python / le JSON.
+  CONV_BODY=$(RAG_Q="$RAG_QUESTION" RAG_FQ="$RAG_FOLLOWUP" python3 -c "
+import json, os
 body = {
-  'question': '${RAG_FOLLOWUP}',
+  'question': os.environ['RAG_FQ'],
   'conversationHistory': [
-    {'role': 'user',      'content': '${RAG_QUESTION}'},
+    {'role': 'user',      'content': os.environ['RAG_Q']},
     {'role': 'assistant', 'content': 'Réponse simulée pour le benchmark.'}
   ]
 }

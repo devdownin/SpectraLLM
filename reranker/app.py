@@ -5,7 +5,7 @@ Cross-Encoder re-ranking microservice for RAG post-retrieval.
 import os
 import logging
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sentence_transformers import CrossEncoder
 
 logging.basicConfig(level=logging.INFO)
@@ -23,7 +23,9 @@ app = FastAPI(title="Spectra Reranker", version="1.0.0")
 class RerankRequest(BaseModel):
     query: str
     documents: list[str]
-    top_n: int = 5
+    # ge=1 : un top_n négatif/zéro renvoyait silencieusement un mauvais sous-ensemble
+    # (indexed[:-1]) au lieu d'une erreur — désormais rejeté en 422.
+    top_n: int = Field(default=5, ge=1)
 
 
 class RankedResult(BaseModel):

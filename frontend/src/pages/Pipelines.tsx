@@ -1109,8 +1109,8 @@ const Pipelines: FC = () => {
 
           <footer className="p-6 border-t border-outline-variant/20">
             <button
-              onClick={() => deleteMutation.mutate(sheet!.sha256)}
-              disabled={deleteMutation.isPending}
+              onClick={() => { if (sheet) deleteMutation.mutate(sheet.sha256); }}
+              disabled={deleteMutation.isPending || !sheet}
               className="w-full py-3 bg-error/10 border border-error/30 text-error font-bold text-[10px] tracking-widest uppercase hover:bg-error hover:text-white transition-all disabled:opacity-50"
             >
               Delete permanently

@@ -77,9 +77,13 @@ public class BatchService {
                 return;
             }
 
-            // 3. Génération Dataset
+            // 3. Génération Dataset (synchrone : bloque jusqu'à la fin)
             String datasetTaskId = UUID.randomUUID().toString();
             int pairsCount = datasetGeneratorService.generate(datasetTaskId, 0);
+            if (pairsCount < 0) {
+                log.warn("Une génération de dataset est déjà en cours. Fin du batch.");
+                return;
+            }
             log.info("Génération du dataset terminée : {} paires créées.", pairsCount);
 
             if (pairsCount == 0) {

@@ -104,16 +104,20 @@ public class SelfRagService {
         log.info("Self-RAG évaluation initiale — ISREL={}, ISSUP={}, ISUSE={}",
                 scores.isRel(), scores.isSup(), scores.isUse());
 
+        int reflectionIterations = 0;
         if (needsRefinement(scores) && maxIterations > 0) {
             log.info("Self-RAG : qualité insuffisante, tentative de raffinement");
             String refinedSystemPrompt = systemPrompt + REFINE_SYSTEM_ADDENDUM;
             answer = llmClient.chat(refinedSystemPrompt, userMessage);
             scores = evaluateAnswer(question, chunks, answer);
+            reflectionIterations = 1; // une passe de raffinement a bien été exécutée
             log.info("Self-RAG après raffinement — ISREL={}, ISSUP={}, ISUSE={}",
                     scores.isRel(), scores.isSup(), scores.isUse());
         }
 
-        return new SelfRagResult(answer, scores, needsRefinement(scores) ? 1 : 0);
+        // Refléter si un raffinement a réellement eu lieu (indépendamment du score final),
+        // pour ne pas sous-compter les cas où la réflexion a corrigé la réponse.
+        return new SelfRagResult(answer, scores, reflectionIterations);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

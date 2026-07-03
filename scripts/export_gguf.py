@@ -83,7 +83,7 @@ if not convert_script:
             print("\n  Conversion manuelle :")
             print(f"    1. Téléchargez convert_hf_to_gguf.py depuis github.com/ggerganov/llama.cpp")
             print(f"    2. Exécutez : python convert_hf_to_gguf.py {args.output} --outtype q8_0")
-            sys.exit(0)
+            sys.exit(1)
     convert_script = script_path
 
 gguf_path = os.path.join(args.output, "model.gguf")
