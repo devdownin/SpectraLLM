@@ -6,6 +6,7 @@ Extracts text as structured Markdown, preserving headings, tables, and column la
 Default parser: pymupdf4llm (lightweight, no AI models required)
 Optional: Docling (IBM research, higher accuracy) via USE_DOCLING=true
 """
+import asyncio
 import os
 import re
 import logging
@@ -40,8 +41,13 @@ _ARTIFACT_PATTERNS = [
     re.compile(r'^\s*[\.]{5,}\s*$'),           # lignes de points : ...........
     re.compile(r'^\s*[-_]{5,}\s*$'),            # lignes de tirets/underscores
     re.compile(r'^\s*Page\s+\d+\s*/\s*\d+'),    # en-têtes de page : Page 3 / 47
-    re.compile(r'^\s*\d+\s*$'),                  # numéros de page seuls
 ]
+
+# Suppression des lignes « numéro de page seul ». Désactivable, et bornée à ≤ 4 chiffres,
+# car une ligne composée uniquement d'un nombre peut être une donnée légitime (quantité,
+# valeur) — la retirer aveuglément est une perte de données silencieuse.
+if os.getenv("DOCPARSER_STRIP_PAGE_NUMBERS", "true").lower() == "true":
+    _ARTIFACT_PATTERNS.append(re.compile(r'^\s*\d{1,4}\s*$'))
 
 
 def clean_markdown(text: str) -> str:
@@ -76,6 +82,14 @@ async def parse_document(file: UploadFile = File(...)):
     if not content:
         raise HTTPException(status_code=400, detail="Empty file")
 
+    # Le parsing (pymupdf4llm / docling) est bloquant et peut durer plusieurs minutes ;
+    # l'exécuter dans un thread pour ne pas geler l'event loop (santé, requêtes concurrentes).
+    return await asyncio.get_running_loop().run_in_executor(
+        None, _parse_pdf_blocking, content, suffix, filename)
+
+
+def _parse_pdf_blocking(content: bytes, suffix: str, filename: str) -> dict:
+    """Traitement synchrone (CPU-bound), exécuté hors de l'event loop."""
     tmp_path = None
     try:
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
@@ -118,8 +132,6 @@ async def parse_document(file: UploadFile = File(...)):
             "parser": parser_used,
         }
 
-    except HTTPException:
-        raise
     except Exception as e:
         log.error("Parsing error for '%s': %s", filename, e, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Parsing error: {e}")

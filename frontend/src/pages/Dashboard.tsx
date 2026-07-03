@@ -520,12 +520,13 @@ const Dashboard: FC = () => {
                   <div className="space-y-1.5">
                     {Object.entries(gedStats.byLifecycle).filter(([, n]) => n > 0).map(([lc, n]) => (
                       <div key={lc} className="flex items-center gap-2">
+                        {/* Doit correspondre aux couleurs de LifecycleDonut / aux valeurs de Lifecycle. */}
                         <div className={`w-2 h-2 shrink-0 ${
-                          lc === 'DRAFT'    ? 'bg-[#8ff5ff]' :
-                          lc === 'REVIEW'   ? 'bg-[#b8b3ff]' :
-                          lc === 'APPROVED' ? 'bg-[#4cffb3]' :
-                          lc === 'REJECTED' ? 'bg-[#ff6b8a]' :
-                                              'bg-[#5a6a8a]'
+                          lc === 'INGESTED'  ? 'bg-[#8ff5ff]' :
+                          lc === 'QUALIFIED' ? 'bg-[#b8b3ff]' :
+                          lc === 'TRAINED'   ? 'bg-[#4cffb3]' :
+                          lc === 'ARCHIVED'  ? 'bg-[#5a6a8a]' :
+                                              'bg-[#ff6b8a]'
                         }`} />
                         <span className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant">{lc}</span>
                         <span className="font-headline font-bold text-xs ml-auto">{String(n)}</span>

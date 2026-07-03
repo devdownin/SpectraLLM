@@ -92,6 +92,8 @@ public class EvaluationService {
      */
     private final java.util.concurrent.locks.ReentrantLock modelLock =
             new java.util.concurrent.locks.ReentrantLock(true);
+    /** Sérialise les écritures des fichiers JSON de rapports (sinon écritures concurrentes = fichier corrompu). */
+    private final Object persistLock = new Object();
     private Path reportsFile;
     private Path abReportsFile;
 
@@ -143,21 +145,38 @@ public class EvaluationService {
 
     private void persistReports() {
         if (reportsFile == null) return;
-        try {
-            Files.createDirectories(workDir);
-            mapper.writerWithDefaultPrettyPrinter().writeValue(reportsFile.toFile(), reports);
-        } catch (Exception e) {
-            log.warn("Échec persistance évaluations: {}", e.getMessage());
+        synchronized (persistLock) {
+            try {
+                Files.createDirectories(workDir);
+                writeJsonAtomically(reportsFile, reports);
+            } catch (Exception e) {
+                log.warn("Échec persistance évaluations: {}", e.getMessage());
+            }
         }
     }
 
     private void persistAbReports() {
         if (abReportsFile == null) return;
+        synchronized (persistLock) {
+            try {
+                Files.createDirectories(workDir);
+                writeJsonAtomically(abReportsFile, abReports);
+            } catch (Exception e) {
+                log.warn("Échec persistance comparaisons A/B: {}", e.getMessage());
+            }
+        }
+    }
+
+    /** Écrit le JSON dans un fichier temporaire puis le renomme, pour ne jamais laisser un fichier tronqué. */
+    private void writeJsonAtomically(Path target, Object value) throws Exception {
+        Path tmp = target.resolveSibling(target.getFileName() + ".tmp");
+        mapper.writerWithDefaultPrettyPrinter().writeValue(tmp.toFile(), value);
         try {
-            Files.createDirectories(workDir);
-            mapper.writerWithDefaultPrettyPrinter().writeValue(abReportsFile.toFile(), abReports);
-        } catch (Exception e) {
-            log.warn("Échec persistance comparaisons A/B: {}", e.getMessage());
+            Files.move(tmp, target,
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                    java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+        } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+            Files.move(tmp, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
         }
     }
 

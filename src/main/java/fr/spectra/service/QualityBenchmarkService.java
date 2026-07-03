@@ -186,6 +186,7 @@ public class QualityBenchmarkService {
      */
     public QualityBenchmarkReport aggregate(String model, List<QualityBenchmarkItem> items, Instant started) {
         int answerable = 0, unanswerable = 0, hallucinated = 0, refused = 0;
+        int scoredCount = 0;   // items answerable RÉELLEMENT notés (score non nul)
         double scoreSum = 0;
         Map<String, double[]> catAgg = new TreeMap<>();   // catégorie → [somme, n]
 
@@ -193,6 +194,7 @@ public class QualityBenchmarkService {
             if (it.answerable()) {
                 answerable++;
                 if (it.score() != null) {
+                    scoredCount++;
                     scoreSum += it.score();
                     double[] agg = catAgg.computeIfAbsent(it.category(), k -> new double[2]);
                     agg[0] += it.score();
@@ -213,7 +215,7 @@ public class QualityBenchmarkService {
                 items.size(),
                 answerable,
                 unanswerable,
-                answerable > 0 ? scoreSum / answerable : 0.0,
+                scoredCount > 0 ? scoreSum / scoredCount : 0.0,
                 unanswerable > 0 ? (double) hallucinated / unanswerable : 0.0,
                 unanswerable > 0 ? (double) refused / unanswerable : 0.0,
                 byCat,

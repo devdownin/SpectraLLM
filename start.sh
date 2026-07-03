@@ -42,7 +42,9 @@ if grep -q 'SPECTRA_GPU_ENABLED=true' "$SCRIPT_DIR/.env" 2>/dev/null; then
 fi
 
 # 3. Build si l'image n'existe pas
-if ! docker image inspect spectra-spectra-api &>/dev/null 2>&1; then
+# On interroge Compose lui-même plutôt qu'un nom d'image codé en dur (qui dépend du nom
+# de projet dérivé du répertoire, p. ex. « spectrallm-spectra-api »).
+if ! docker compose $COMPOSE_FILES images -q spectra-api 2>/dev/null | grep -q .; then
     echo ""
     echo "► Image spectra-api non trouvée, build en cours..."
     docker compose $COMPOSE_FILES build
@@ -64,7 +66,7 @@ if [[ -n "$DETACH" ]]; then
     # Serveur LLM
     echo -n "  LLM server: "
     for i in $(seq 1 30); do
-        if curl -s http://localhost:8081/health &>/dev/null; then
+        if curl -sf http://localhost:8081/health &>/dev/null; then
             echo "✓ prêt"
             break
         fi
@@ -75,7 +77,7 @@ if [[ -n "$DETACH" ]]; then
     # ChromaDB
     echo -n "  ChromaDB:   "
     for i in $(seq 1 30); do
-        if curl -s http://localhost:8000/api/v1/heartbeat &>/dev/null; then
+        if curl -sf http://localhost:8000/api/v1/heartbeat &>/dev/null; then
             echo "✓ prêt"
             break
         fi
@@ -86,7 +88,7 @@ if [[ -n "$DETACH" ]]; then
     # Spectra API
     echo -n "  Spectra API:"
     for i in $(seq 1 30); do
-        if curl -s http://localhost:8080/actuator/health &>/dev/null; then
+        if curl -sf http://localhost:8080/actuator/health &>/dev/null; then
             echo " ✓ prêt"
             break
         fi

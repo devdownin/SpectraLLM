@@ -172,7 +172,8 @@ public class ArticleCommentService {
             long approvedCount = commentRepo.countByCommentTypeAndRating(
                     ArticleCommentEntity.CommentType.AI_GENERATED,
                     ArticleCommentEntity.Rating.APPROVED);
-            if (approvedCount > 0 && approvedCount % autoRetrainThreshold == 0) {
+            // autoRetrainThreshold <= 0 = auto-réentraînement désactivé (évite aussi la division par zéro).
+            if (autoRetrainThreshold > 0 && approvedCount > 0 && approvedCount % autoRetrainThreshold == 0) {
                 log.info("Seuil de re-entraînement atteint ({}/{}) — déclenchement automatique DPO",
                         approvedCount, autoRetrainThreshold);
                 CompletableFuture.runAsync(() -> triggerRetraining(approvedCount));

@@ -107,7 +107,8 @@ if [ -f "data/models/embed.gguf" ]; then
 else
   if [ "$DOWNLOAD_EMBED" -eq 1 ]; then
     echo "  Téléchargement de nomic-embed-text-v1.5.Q4_K_M.gguf (~81 Mo)..."
-    curl -L --progress-bar \
+    # --fail : sortir en erreur sur 404/5xx au lieu d'enregistrer une page HTML d'erreur.
+    curl -L --fail --progress-bar \
       "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf" \
       -o data/models/embed.gguf
     green "  [OK] embed.gguf téléchargé"

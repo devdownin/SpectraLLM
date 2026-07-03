@@ -56,6 +56,9 @@ public class DpoGenerationService {
 
     private final List<DpoPair> dpoPairs = new CopyOnWriteArrayList<>();
     private final Map<String, DpoTask> tasks = new ConcurrentHashMap<>();
+    /** Empêche deux générations DPO concurrentes de tronquer/écraser dpo_pairs.jsonl et la liste partagée. */
+    private final java.util.concurrent.atomic.AtomicBoolean generationRunning =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
 
     @Autowired @Lazy
     private DpoGenerationService self;
@@ -83,6 +86,9 @@ public class DpoGenerationService {
     }
 
     public String submit(int maxPairs) {
+        if (!generationRunning.compareAndSet(false, true)) {
+            return null; // une génération DPO est déjà en cours → l'appelant renvoie 409
+        }
         String taskId = UUID.randomUUID().toString();
         tasks.put(taskId, new DpoTask(taskId, "PENDING", 0, 0, null, Instant.now(), null));
         (self != null ? self : this).runAsync(taskId, maxPairs);
@@ -126,6 +132,8 @@ public class DpoGenerationService {
         } catch (Exception e) {
             log.error("Génération DPO {} échouée: {}", taskId, e.getMessage(), e);
             tasks.computeIfPresent(taskId, (k, t) -> t.failed(e.getMessage()));
+        } finally {
+            generationRunning.set(false);
         }
     }
 

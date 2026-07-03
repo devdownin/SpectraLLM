@@ -9,12 +9,21 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ENV_FILE="$SCRIPT_DIR/.env"
 GPU_TYPE="none"   # none | nvidia | amd | vulkan
+FORCE=0
 
 for arg in "$@"; do
     case "$arg" in
-        --gpu) GPU_TYPE="nvidia" ;;   # force NVIDIA pour tests sans carte physique
+        --gpu)   GPU_TYPE="nvidia" ;;  # force NVIDIA pour tests sans carte physique
+        --force) FORCE=1 ;;            # régénère .env même s'il existe déjà
     esac
 done
+
+# Ne jamais écraser un .env existant sans --force : sinon chaque ./start.sh
+# détruirait la configuration éditée par l'utilisateur (modèle de chat, etc.).
+if [[ -f "$ENV_FILE" && "$FORCE" -eq 0 ]]; then
+    echo "  ✓ .env existant conservé (utilisez ./detect-env.sh --force pour régénérer)"
+    exit 0
+fi
 
 # ── 1. Détection RAM disponible (en Mo) ──
 # MemAvailable = RAM libre + reclaimable ; plus représentative de la marge réelle.

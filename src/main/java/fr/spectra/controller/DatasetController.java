@@ -101,6 +101,10 @@ public class DatasetController {
     public ResponseEntity<Map<String, String>> generateDpo(
             @RequestParam(defaultValue = "0") int maxPairs) {
         String taskId = dpoService.submit(maxPairs);
+        if (taskId == null) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of("error", "Une génération DPO est déjà en cours"));
+        }
         return ResponseEntity.ok(Map.of("taskId", taskId, "status", "PENDING"));
     }
 

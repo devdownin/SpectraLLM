@@ -36,23 +36,28 @@ POLL_INTERVAL=5
 MAX_POLL_INGEST=120
 MAX_POLL_DATASET=240
 
-SOURCE_DIR="${1:-data/documents}"
-BASE_MODEL="${2:-phi3}"
-MODEL_NAME="${3:-${BASE_MODEL}-autoroute}"
-
 RESET_ADAPTER=0
 PACKING_FLAG=""
 DPO_FLAG=""
 ORPO_FLAG=""
 
+# Séparer les options (--xxx) des arguments positionnels, quel que soit l'ordre.
+# Sinon « ./pipeline.sh data/docs phi3 --dpo » prendrait « --dpo » comme nom de modèle.
+POSITIONAL=()
 for arg in "$@"; do
   case "$arg" in
     --reset)   RESET_ADAPTER=1      ;;
     --packing) PACKING_FLAG="--packing" ;;
     --dpo)     DPO_FLAG="--dpo"     ;;
     --orpo)    ORPO_FLAG="--orpo"   ;;
+    --*)       die "Option inconnue : $arg" ;;
+    *)         POSITIONAL+=("$arg") ;;
   esac
 done
+
+SOURCE_DIR="${POSITIONAL[0]:-data/documents}"
+BASE_MODEL="${POSITIONAL[1]:-phi3}"
+MODEL_NAME="${POSITIONAL[2]:-${BASE_MODEL}-autoroute}"
 
 DATASET_FILE="data/fine-tuning/pipeline-export.jsonl"
 DPO_DATASET_FILE="data/fine-tuning/pipeline-dpo.jsonl"
