@@ -42,6 +42,10 @@ parser.add_argument("--neftune-alpha",  type=float, default=0.0,
 parser.add_argument("--warmup-ratio",   type=float, default=0.03,
                     help="Fraction des étapes en warm-up du learning rate (plus robuste qu'un nombre "
                          "fixe d'étapes sur de petits datasets)")
+parser.add_argument("--max-length",     type=int,
+                    default=int(os.getenv("SPECTRA_TRAIN_MAX_LENGTH", "512")),
+                    help="Longueur de séquence maximale en tokens (au-delà, troncature en préservant "
+                         "la réponse). Défaut 512, surchargeable via SPECTRA_TRAIN_MAX_LENGTH.")
 args = parser.parse_args()
 
 # Alias honnêtes : chaque clé pointe vers le modèle réellement chargé.
@@ -361,7 +365,7 @@ if args.dpo and args.orpo:
     args.dpo = False
 
 # ── Chargement dataset (PyTorch natif — compatible Python 3.14) ────────────────
-MAX_SEQ_LENGTH = 512
+MAX_SEQ_LENGTH = args.max_length
 dataset = None
 if not PREFERENCE:
     print(f"\nChargement du dataset : {args.dataset}")

@@ -309,7 +309,11 @@ const FineTuning: FC = () => {
           clearInterval(interval);
           loadJobs();
           if (job.status === 'COMPLETED') {
-            toast.success('Fine-tuning complete!', { description: `Model ${job.modelName} saved to llama-server` });
+            // Le job produit un adaptateur LoRA sur disque ; l'export GGUF + l'enregistrement
+            // dans llama-server sont des étapes distinctes (ne pas prétendre qu'il est déployé).
+            toast.success('Fine-tuning complete!', {
+              description: `Adapter for ${job.modelName} trained — export to GGUF & register to deploy`,
+            });
           } else {
             toast.error('Fine-tuning failed', { description: job.error ?? undefined });
           }

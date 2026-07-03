@@ -275,7 +275,8 @@ public class GedService {
      */
     public Map<String, Object> deleteDocument(String sha256, String actor) {
         // 1. Suppressions DB autoritatives — la transaction commit au retour de cet appel proxy.
-        DeleteInfo info = self.deleteDocumentDb(sha256);
+        //    Fallback sur `this` quand self n'est pas injecté (tests unitaires hors contexte Spring).
+        DeleteInfo info = (self != null ? self : this).deleteDocumentDb(sha256);
 
         // 2. Nettoyage externe (ChromaDB + FTS) best-effort, APRÈS le commit DB.
         int chunksDeleted = 0;

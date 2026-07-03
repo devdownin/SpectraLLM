@@ -55,6 +55,8 @@ EXTRA_ARGS=()
 [ "$PACKING" = "true" ] && EXTRA_ARGS+=(--packing)
 [ "$DPO" = "true" ]     && EXTRA_ARGS+=(--dpo)
 [ "$ORPO" = "true" ]    && EXTRA_ARGS+=(--orpo)
+# Longueur de séquence surchargeable (sinon défaut 512 côté train_host.py).
+[ -n "${SPECTRA_TRAIN_MAX_LENGTH:-}" ] && EXTRA_ARGS+=(--max-length "$SPECTRA_TRAIN_MAX_LENGTH")
 
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 

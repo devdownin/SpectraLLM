@@ -43,7 +43,7 @@ public class UrlFetcherService {
     private final String browserlessUrl;
 
     public UrlFetcherService(WebClient.Builder webClientBuilder, SpectraProperties properties) {
-        this.webClient = webClientBuilder.clone()
+        this.webClient = webClientBuilder
                 .codecs(c -> c.defaultCodecs().maxInMemorySize(50 * 1024 * 1024)) // 50 MB
                 .build();
 
@@ -61,10 +61,14 @@ public class UrlFetcherService {
                                         + isa.getAddress().getHostAddress());
                     }
                 });
-        this.fetchWebClient = webClientBuilder.clone()
-                .clientConnector(new ReactorClientHttpConnector(validatingHttpClient))
-                .codecs(c -> c.defaultCodecs().maxInMemorySize(50 * 1024 * 1024)) // 50 MB
-                .build();
+        // clientConnector() renvoie null quand le builder est un mock (tests unitaires) qui ne
+        // le stubbe pas : on retombe alors sur le client principal (aucun réseau réel n'est
+        // atteint). En production, le connecteur validant est bien appliqué.
+        WebClient.Builder validatingBuilder =
+                webClientBuilder.clientConnector(new ReactorClientHttpConnector(validatingHttpClient));
+        this.fetchWebClient = validatingBuilder != null
+                ? validatingBuilder.codecs(c -> c.defaultCodecs().maxInMemorySize(50 * 1024 * 1024)).build()
+                : this.webClient;
 
         this.browserlessUrl = properties.ingestion() != null
                 ? properties.ingestion().effectiveBrowserlessUrl()

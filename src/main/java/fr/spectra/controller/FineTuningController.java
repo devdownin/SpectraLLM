@@ -36,9 +36,13 @@ public class FineTuningController {
 
     @PostMapping
     @Operation(summary = "Lancer un job de fine-tuning QLoRA")
-    public Map<String, String> startFineTuning(@Valid @RequestBody FineTuningRequest request) {
+    public ResponseEntity<Map<String, String>> startFineTuning(@Valid @RequestBody FineTuningRequest request) {
         String jobId = fineTuningService.submit(request);
-        return Map.of("jobId", jobId, "status", "PENDING");
+        if (jobId == null) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of("error", "Un entraînement est déjà en cours"));
+        }
+        return ResponseEntity.ok(Map.of("jobId", jobId, "status", "PENDING"));
     }
 
     @GetMapping("/{jobId}")
