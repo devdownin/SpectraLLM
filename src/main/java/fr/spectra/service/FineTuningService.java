@@ -29,6 +29,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Orchestre le fine-tuning : export dataset → entraînement externe → production du modèle GGUF.
@@ -46,6 +47,7 @@ public class FineTuningService {
     private final DpoGenerationService dpoGenerator;
     private final LlmChatClient llmClient;
     private final FineTuningJobRepository repository;
+    private final TrainingLogBroadcaster broadcaster;
     private final Path workDir;
     private final String trainingScript;
     /**
@@ -58,11 +60,21 @@ public class FineTuningService {
 
     private final Map<String, Process> activeProcesses = new ConcurrentHashMap<>();
     private final Set<String> cancelledJobs = ConcurrentHashMap.newKeySet();
+    /** Un seul entraînement à la fois : lancer plusieurs train_host.py en parallèle sature CPU/RAM. */
+    private final AtomicBoolean trainingRunning = new AtomicBoolean(false);
+
+    // Auto-injection pour invoquer runAsync via le proxy Spring : sans cela, l'appel interne
+    // court-circuite l'AOP et @Async est ignoré → l'entraînement s'exécuterait de façon
+    // SYNCHRONE en bloquant le thread HTTP de la requête pendant toute sa durée.
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    private FineTuningService self;
 
     public FineTuningService(DatasetGeneratorService datasetGenerator,
                              DpoGenerationService dpoGenerator,
                              LlmChatClient llmClient,
                              FineTuningJobRepository repository,
+                             TrainingLogBroadcaster broadcaster,
                              @Value("${spectra.fine-tuning.work-dir:./data/fine-tuning}") String workDir,
                              @Value("${spectra.fine-tuning.script:./scripts/train.sh}") String trainingScript,
                              @Value("${spectra.fine-tuning.sft-excluded-categories:}") String sftExcludedCsv) {
@@ -70,6 +82,7 @@ public class FineTuningService {
          this.dpoGenerator = dpoGenerator;
          this.llmClient = llmClient;
          this.repository = repository;
+         this.broadcaster = broadcaster;
          this.workDir = Path.of(workDir);
          // Chemin absolu : le process d'entraînement s'exécute avec workDir comme répertoire
          // courant, donc un chemin relatif ne serait pas résolu correctement.
@@ -88,29 +101,64 @@ public class FineTuningService {
     }
 
     /**
+     * Au démarrage, tout job resté non-terminal (PENDING/EXPORTING/TRAINING/IMPORTING) est
+     * orphelin : son process OS a disparu avec l'ancienne JVM. On le marque FAILED pour ne pas
+     * laisser le suivi tourner indéfiniment côté UI.
+     */
+    @jakarta.annotation.PostConstruct
+    void reconcileInterruptedJobs() {
+        try {
+            for (FineTuningJobEntity e : repository.findAll()) {
+                FineTuningJob j = e.toDto();
+                if (j.status() != Status.COMPLETED && j.status() != Status.FAILED) {
+                    repository.save(FineTuningJobEntity.fromDto(
+                            j.failed("Interrompu par un redémarrage du serveur")));
+                    log.warn("Job {} ({}) marqué FAILED : interrompu par un redémarrage", j.jobId(), j.status());
+                }
+            }
+        } catch (Exception ex) {
+            log.warn("Réconciliation des jobs interrompus impossible: {}", ex.getMessage());
+        }
+    }
+
+    /**
      * Lance un job de fine-tuning asynchrone.
+     * @return l'identifiant du job, ou {@code null} si un entraînement est déjà en cours (409).
      */
     public String submit(FineTuningRequest request) {
-        String jobId = UUID.randomUUID().toString();
+        // Un seul entraînement simultané : refuser tant qu'un job tourne.
+        if (!trainingRunning.compareAndSet(false, true)) {
+            return null;
+        }
+        try {
+            String jobId = UUID.randomUUID().toString();
 
-        // Résoudre le modèle de base
-        FineTuningRequest resolved = new FineTuningRequest(
-                request.modelName(),
-                request.baseModel() != null ? request.baseModel() : llmClient.getDefaultModel(),
-                request.loraRank(),
-                request.loraAlpha(),
-                request.epochs(),
-                request.learningRate(),
-                request.minConfidence(),
-                request.packingEnabled(),
-                request.dpoEnabled(),
-                request.orpoEnabled()
-        );
+            // Résoudre le modèle de base
+            FineTuningRequest resolved = new FineTuningRequest(
+                    request.modelName(),
+                    request.baseModel() != null ? request.baseModel() : llmClient.getDefaultModel(),
+                    request.loraRank(),
+                    request.loraAlpha(),
+                    request.epochs(),
+                    request.learningRate(),
+                    request.minConfidence(),
+                    request.packingEnabled(),
+                    request.dpoEnabled(),
+                    request.orpoEnabled()
+            );
 
-        FineTuningJob job = FineTuningJob.pending(jobId, resolved);
-        repository.save(FineTuningJobEntity.fromDto(job));
-        runAsync(jobId, resolved);
-        return jobId;
+            FineTuningJob job = FineTuningJob.pending(jobId, resolved);
+            repository.save(FineTuningJobEntity.fromDto(job));
+            // Passer par le proxy pour que @Async prenne effet (fallback `this` hors Spring).
+            (self != null ? self : this).runAsync(jobId, resolved);
+            // runAsync (@Async) libère trainingRunning dans son bloc finally.
+            return jobId;
+        } catch (RuntimeException ex) {
+            // Échec avant la prise en charge asynchrone : libérer le verrou pour ne pas
+            // bloquer définitivement tout entraînement futur.
+            trainingRunning.set(false);
+            throw ex;
+        }
     }
 
     public FineTuningJob getJob(String jobId) {
@@ -182,6 +230,7 @@ public class FineTuningService {
     protected void runAsync(String jobId, FineTuningRequest request) {
         try {
             // ── Étape 1 : Export du dataset filtré ──
+            broadcaster.info("Job " + jobId + " : export du dataset…");
             updateJob(jobId, j -> j.withStatus(Status.EXPORTING_DATASET, "Export du dataset..."));
 
             Path jobDir = workDir.resolve(jobId);
@@ -208,6 +257,7 @@ public class FineTuningService {
                     preference ? "paires de préférence" : "paires SFT");
 
             // ── Étape 2 : Lancement de l'entraînement externe ──
+            broadcaster.info("Job " + jobId + " : lancement de l'entraînement (" + datasetSize + " exemples)…");
             updateJob(jobId, j -> j.withStatus(Status.TRAINING, "Lancement de l'entraînement..."));
 
             // train_host.py produit un répertoire d'adaptateur LoRA (format HuggingFace/PEFT),
@@ -236,6 +286,8 @@ public class FineTuningService {
 
             // ── Étape 3 : Modèle prêt ──
             log.info("Job {}: modèle '{}' prêt → {}", jobId, request.modelName(), adapterPath);
+            broadcaster.info("Job " + jobId + " : adaptateur entraîné → " + adapterPath
+                    + " (exporter en GGUF puis enregistrer pour le déployer)");
 
             updateJob(jobId, j -> j.completed(adapterPath.toString()));
 
@@ -245,9 +297,11 @@ public class FineTuningService {
                 return;
             }
             log.error("Job {} échoué: {}", jobId, e.getMessage(), e);
+            broadcaster.error("Job " + jobId + " échoué : " + e.getMessage());
             updateJob(jobId, j -> j.failed(e.getMessage()));
         } finally {
             cancelledJobs.remove(jobId);
+            trainingRunning.set(false);
         }
     }
 
@@ -335,6 +389,7 @@ public class FineTuningService {
                         break;
                     }
                     log.info("Job {} [train]: {}", jobId, line);
+                    broadcaster.info(line); // diffusion temps réel vers /api/sse/training-logs
                     parseTrainingOutput(jobId, line);
                 }
             }

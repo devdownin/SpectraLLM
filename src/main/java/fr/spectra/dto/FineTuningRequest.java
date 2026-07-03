@@ -1,9 +1,12 @@
 package fr.spectra.dto;
 
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Positive;
 
 public record FineTuningRequest(
 
@@ -27,10 +30,14 @@ public record FineTuningRequest(
         @Min(1) @Max(50)
         Integer epochs,
 
-        /** Learning rate. */
+        /** Learning rate (strictement positif, ≤ 1.0). */
+        @Positive(message = "learningRate doit être strictement positif")
+        @DecimalMax(value = "1.0", message = "learningRate doit être ≤ 1.0")
         Double learningRate,
 
-        /** Score de confiance minimum pour filtrer les paires du dataset. */
+        /** Score de confiance minimum pour filtrer les paires du dataset (0..1). */
+        @DecimalMin(value = "0.0", message = "minConfidence doit être ≥ 0")
+        @DecimalMax(value = "1.0", message = "minConfidence doit être ≤ 1")
         Double minConfidence,
 
         /** Activer le packing de séquences pour l'entraînement. */
