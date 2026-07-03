@@ -169,16 +169,34 @@ public class DatasetGeneratorService {
         return List.copyOf(generatedPairs);
     }
 
-    public int generate(String taskId, int minPairs) {
+    /**
+     * Génération SYNCHRONE (utilisée par le pipeline batch). Contrairement à
+     * {@link #submit}, cette méthode bloque jusqu'à la fin de la génération et
+     * retourne le nombre réel de paires produites — l'appelant (BatchService) peut
+     * donc enchaîner le fine-tuning en toute sécurité. Elle acquiert le même verrou
+     * {@code generationRunning} pour ne pas s'exécuter en parallèle d'un {@code submit}.
+     *
+     * @return le nombre de paires générées, ou -1 si une génération est déjà en cours.
+     */
+    public int generate(String taskId, int maxChunks) {
+        if (!generationRunning.compareAndSet(false, true)) {
+            log.warn("Génération {} refusée : une génération est déjà en cours", taskId);
+            return -1;
+        }
         tasks.put(taskId, new GenerationTask(taskId, GenerationTask.Status.PENDING, 0, 0, 0, null, Instant.now()));
-        DatasetGeneratorService proxy = (self != null) ? self : this;
-        proxy.generateAsync(taskId, 0);
-        return generatedPairs.size();
+        // runGeneration relâche generationRunning dans son bloc finally.
+        runGeneration(taskId, maxChunks);
+        GenerationTask result = tasks.get(taskId);
+        return result != null ? result.pairsGenerated() : generatedPairs.size();
     }
 
     @Async
-    @SuppressWarnings("unchecked")
     protected void generateAsync(String taskId, int maxChunks) {
+        runGeneration(taskId, maxChunks);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void runGeneration(String taskId, int maxChunks) {
         try {
             generatedPairs.clear();
             String collectionId = chromaDbClient.getOrCreateCollection(COLLECTION_NAME);

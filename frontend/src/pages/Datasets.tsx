@@ -138,6 +138,11 @@ const Datasets: FC = () => {
   const [historyTotal, setHistoryTotal] = useState(0);
   const [historyPage, setHistoryPage] = useState(0);
   const [historySearch, setHistorySearch] = useState('');
+  // Mirror historySearch in a ref so pollIngest can read the latest value without
+  // taking it as a dependency (which would rebuild pollIngest on every keystroke and
+  // re-trigger the mount-only restore effect).
+  const historySearchRef = useRef(historySearch);
+  historySearchRef.current = historySearch;
   const [historyLoading, setHistoryLoading] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
 
@@ -207,7 +212,7 @@ const Datasets: FC = () => {
           clearInterval(interval);
           activeIntervals.current.delete(interval);
           pollingTasks.current.delete(taskId);
-          if (t.status === 'COMPLETED') { loadStats(); loadHistory(0, historySearch); }
+          if (t.status === 'COMPLETED') { loadStats(); loadHistory(0, historySearchRef.current); }
         }
       } catch {
         if (++failures >= 5) {
@@ -218,7 +223,7 @@ const Datasets: FC = () => {
       }
     }, 3000);
     activeIntervals.current.add(interval);
-  }, [loadStats, loadHistory, historySearch]);
+  }, [loadStats, loadHistory]);
 
   // ── Upload file ───────────────────────────────────────────────────────────
   const uploadFile = useCallback(async (file: File) => {
@@ -307,7 +312,10 @@ const Datasets: FC = () => {
   }, [loadStats]);
 
   // ── Restore tasks on mount ────────────────────────────────────────────────
+  const didRestore = useRef(false);
   useEffect(() => {
+    if (didRestore.current) return;
+    didRestore.current = true;
     const restoreTasks = async () => {
       loadHistory(0, '');
       try {
@@ -351,9 +359,22 @@ const Datasets: FC = () => {
     };
 
     restoreTasks();
-  }, [pollIngest, pollGenTask, loadHistory]);
+    // Run exactly once on mount; pollIngest/pollGenTask/loadHistory are stable and the
+    // didRestore guard prevents re-entry. Depending on them here caused the effect to
+    // re-run on every history-search keystroke, clobbering results and spawning
+    // duplicate pollers.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleGenerateDataset = async () => {
+    if (!syntheticQA) {
+      // Dataset generation IS synthetic Q/A generation; there is no other mode here.
+      // Passing maxChunks=0 to the backend means "ALL chunks", the opposite of disabling.
+      toast.error('Synthetic Q&A is disabled', {
+        description: 'Enable Synthetic Q&A to generate a dataset.',
+      });
+      return;
+    }
     const hasActiveIngestion = ingestEntries.some(
       e => e.status === 'PENDING' || e.status === 'PROCESSING'
     );
@@ -364,7 +385,8 @@ const Datasets: FC = () => {
       if (!ok) return;
     }
     try {
-      const res = await datasetApi.generateDataset(syntheticQA ? maxChunks : 0);
+      // maxChunks=0 is the slider's deliberate "ALL" setting (shown as ALL in the UI).
+      const res = await datasetApi.generateDataset(maxChunks);
       const taskId: string = res.data.taskId;
       setGenTask({ taskId, status: 'PENDING', pairsGenerated: 0, chunksProcessed: 0, totalChunks: 0, error: null });
       pollGenTask(taskId);

@@ -88,13 +88,19 @@ echo
 # ══════════════════════════════════════════════════════════════════════════════
 echo "> [0/5] Verification des prerequis..."
 
-# Fichiers GGUF
-GGUF_CHAT="data/fine-tuning/merged/model.gguf"
+# Fichiers GGUF — la stack Docker charge data/models/${LLM_CHAT_MODEL_FILE}.
+CHAT_MODEL_FILE="${LLM_CHAT_MODEL_FILE:-}"
+if [ -z "$CHAT_MODEL_FILE" ] && [ -f ".env" ]; then
+  CHAT_MODEL_FILE="$(grep -E '^LLM_CHAT_MODEL_FILE=' .env | tail -n1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//')"
+fi
+CHAT_MODEL_FILE="${CHAT_MODEL_FILE:-Phi-4-mini-reasoning-UD-IQ1_S.gguf}"
+GGUF_CHAT="data/models/$CHAT_MODEL_FILE"
 GGUF_EMBED="data/models/embed.gguf"
 
 if [ ! -f "$GGUF_CHAT" ]; then
   die "Modele de chat introuvable : $GGUF_CHAT
-  Placez un GGUF instruction-tuned dans ce chemin, ou lancez :
+  Placez un GGUF instruction-tuned dans data/models/ (et renseignez
+  LLM_CHAT_MODEL_FILE dans .env), ou lancez :
     ./setup.sh --download-chat"
 fi
 green "Modele chat : $GGUF_CHAT"

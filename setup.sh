@@ -26,6 +26,27 @@ green()  { echo -e "\033[32m$*\033[0m"; }
 yellow() { echo -e "\033[33m$*\033[0m"; }
 red()    { echo -e "\033[31m$*\033[0m"; }
 
+# Lit une variable depuis .env (sans sourcer le fichier), guillemets retirés.
+read_env_var() {
+  local key="$1"
+  [ -f ".env" ] || return 0
+  grep -E "^${key}=" .env | tail -n1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//'
+}
+
+# Insère ou met à jour une variable dans .env.
+set_env_var() {
+  local key="$1" val="$2" tmp
+  [ -f ".env" ] || touch ".env"
+  if grep -qE "^${key}=" ".env"; then
+    tmp="$(mktemp)"
+    grep -vE "^${key}=" ".env" > "$tmp"
+    printf '%s=%s\n' "$key" "$val" >> "$tmp"
+    mv "$tmp" ".env"
+  else
+    printf '%s=%s\n' "$key" "$val" >> ".env"
+  fi
+}
+
 echo "======================================"
 echo "  Spectra — Configuration initiale"
 echo "======================================"
@@ -103,27 +124,41 @@ else
 fi
 
 # ── 6. Modèle de chat ─────────────────────────────────────────────────────
+# Le modèle doit résider dans data/models/ sous le nom que la stack Docker lit
+# (data/models/${LLM_CHAT_MODEL_FILE}), sinon model-init / llm-chat ne le trouvent pas.
+CHAT_DOWNLOAD_NAME="Phi-3.5-mini-instruct-Q4_K_M.gguf"
+CHAT_MODEL_FILE="$(read_env_var LLM_CHAT_MODEL_FILE)"
+CHAT_MODEL_FILE="${CHAT_MODEL_FILE:-$CHAT_DOWNLOAD_NAME}"
+CHAT_MODEL_PATH="data/models/$CHAT_MODEL_FILE"
 echo
-echo "> [6/6] Modèle de chat (data/fine-tuning/merged/model.gguf)..."
-if [ -f "data/fine-tuning/merged/model.gguf" ]; then
-  SIZE=$(du -sh data/fine-tuning/merged/model.gguf | cut -f1)
-  green "  [OK] model.gguf présent — $SIZE"
+echo "> [6/6] Modèle de chat ($CHAT_MODEL_PATH)..."
+if [ -f "$CHAT_MODEL_PATH" ]; then
+  SIZE=$(du -sh "$CHAT_MODEL_PATH" | cut -f1)
+  green "  [OK] $CHAT_MODEL_FILE présent — $SIZE"
+  set_env_var LLM_CHAT_MODEL_FILE "$CHAT_MODEL_FILE"
 else
   if [ "$DOWNLOAD_CHAT" -eq 1 ]; then
-    echo "  Téléchargement de Phi-3.5-mini-instruct-Q4_K_M.gguf (~2.4 Go)..."
+    # Téléchargement dans data/models/ sous le nom attendu par la stack.
+    CHAT_MODEL_FILE="$CHAT_DOWNLOAD_NAME"
+    CHAT_MODEL_PATH="data/models/$CHAT_MODEL_FILE"
+    echo "  Téléchargement de $CHAT_DOWNLOAD_NAME (~2.4 Go)..."
     echo "  (cela peut prendre plusieurs minutes selon votre connexion)"
-    curl -L --progress-bar \
+    curl -L --fail --progress-bar \
       "https://huggingface.co/bartowski/Phi-3.5-mini-instruct-GGUF/resolve/main/Phi-3.5-mini-instruct-Q4_K_M.gguf" \
-      -o data/fine-tuning/merged/model.gguf
-    green "  [OK] model.gguf téléchargé"
+      -o "$CHAT_MODEL_PATH"
+    green "  [OK] $CHAT_MODEL_FILE téléchargé"
+    # Aligner .env pour que la stack Docker charge bien ce fichier.
+    set_env_var LLM_CHAT_MODEL_FILE "$CHAT_MODEL_FILE"
+    echo "  LLM_CHAT_MODEL_FILE=$CHAT_MODEL_FILE écrit dans .env"
   else
-    yellow "  [MANQUANT] data/fine-tuning/merged/model.gguf absent"
+    yellow "  [MANQUANT] $CHAT_MODEL_PATH absent"
     echo
     echo "  Option 1 — Téléchargement automatique (Phi-3.5-mini ~2.4 Go) :"
     echo "    ./setup.sh --download-chat"
     echo
     echo "  Option 2 — Tout modèle GGUF instruction-tuned fonctionne :"
-    echo "    placez votre fichier dans data/fine-tuning/merged/model.gguf"
+    echo "    placez votre fichier dans data/models/ et renseignez"
+    echo "    LLM_CHAT_MODEL_FILE=<nom-du-fichier.gguf> dans .env"
     ERRORS=$((ERRORS + 1))
   fi
 fi
