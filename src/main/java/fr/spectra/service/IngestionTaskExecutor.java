@@ -149,12 +149,14 @@ public class IngestionTaskExecutor {
                 final int[] resultHolder = new int[1];
                 final String[] parserHolder = new String[1];
                 final int[] layoutHolder = new int[1];
+                final boolean[] completeHolder = {false};
                 ingestionTimer.record(() -> {
                     try {
                         IngestOneResult r = ingestOne(name, currentTempFile, collectionId, collectionName, progress);
                         resultHolder[0] = r.chunks();
                         parserHolder[0] = r.parserUsed();
                         layoutHolder[0] = r.layoutAwareChunks();
+                        completeHolder[0] = r.complete();
                     } catch (Exception e) {
                         log.error("Erreur lors de l'ingestion du fichier {}: {}", name, e.getMessage());
                         resultHolder[0] = 0;
@@ -169,8 +171,17 @@ public class IngestionTaskExecutor {
                     filesIngested.increment();
                 }
                 if (chunks > 0 && onIngested != null) {
-                    String hash = tempFileToHash != null ? tempFileToHash.get(tempFiles.get(i)) : null;
-                    onIngested.onIngested(hash, name, chunks);
+                    if (completeHolder[0]) {
+                        String hash = tempFileToHash != null ? tempFileToHash.get(tempFiles.get(i)) : null;
+                        onIngested.onIngested(hash, name, chunks);
+                    } else {
+                        // Indexation PARTIELLE (un lot d'embedding a échoué) : ne PAS enregistrer
+                        // la déduplication, sinon une ré-ingestion future serait ignorée et les
+                        // chunks manquants ne seraient jamais indexés. Le document reste
+                        // ré-ingérable pour compléter l'indexation.
+                        log.warn("Indexation partielle de '{}' ({} chunks) — non dédupliqué, "
+                                + "ré-ingérez le fichier pour compléter l'indexation.", name, chunks);
+                    }
                 }
             }
             final int finalChunks = totalChunks;
@@ -200,14 +211,17 @@ public class IngestionTaskExecutor {
         }
     }
 
-    private IngestOneResult ingestOne(String fileName, Path tempFile, String collectionId, String collectionName,
+    /** Ingère un seul fichier local (route les .zip vers {@link #ingestZip}). Package-visible :
+     *  réutilisé par {@link IngestionService} (URL / batch) pour éviter un pipeline dupliqué. */
+    IngestOneResult ingestOne(String fileName, Path tempFile, String collectionId, String collectionName,
                                       IntConsumer progress) throws Exception {
         log.info("Ingestion de: {}", fileName);
 
         if (fileName.toLowerCase().endsWith(".zip")) {
             try (InputStream is = Files.newInputStream(tempFile)) {
                 int chunks = ingestZip(is, fileName, collectionId, collectionName, 0, progress);
-                return new IngestOneResult(chunks, null, 0);
+                // L'archive est enregistrée comme une unité (dédup au niveau archive).
+                return new IngestOneResult(chunks, null, 0, true);
             }
         }
 
@@ -233,7 +247,7 @@ public class IngestionTaskExecutor {
 
         if (chunks.isEmpty()) {
             log.warn("Aucun chunk produit pour: {}", fileName);
-            return new IngestOneResult(0, parserUsed, 0);
+            return new IngestOneResult(0, parserUsed, 0, true);
         }
 
         // Embed + envoie à ChromaDB par lot : on n'accumule jamais toutes les
@@ -246,12 +260,13 @@ public class IngestionTaskExecutor {
 
         if (embedded == 0) {
             log.warn("Aucun chunk indexé pour: {}", fileName);
-            return new IngestOneResult(0, parserUsed, 0);
+            return new IngestOneResult(0, parserUsed, 0, false);
         }
 
+        boolean complete = embedded == chunks.size();
         log.info("Fichier {} traité: {} chunks{}, parser={}",
-                fileName, embedded, embedded < chunks.size() ? "/" + chunks.size() + " (partiel)" : "", parserUsed);
-        return new IngestOneResult(embedded, parserUsed, layoutAware ? embedded : 0);
+                fileName, embedded, complete ? "" : "/" + chunks.size() + " (partiel)", parserUsed);
+        return new IngestOneResult(embedded, parserUsed, layoutAware ? embedded : 0, complete);
     }
 
     /**
@@ -286,7 +301,19 @@ public class IngestionTaskExecutor {
         return ingestZip(zipStream, archiveName, collectionId, collectionName, 0, NOOP_PROGRESS);
     }
 
+    /** Surcharge (utilisée par les tests) : la source racine par défaut est le nom d'archive. */
     int ingestZip(InputStream zipStream, String archiveName, String collectionId,
+                  String collectionName, int depth, IntConsumer progress) throws Exception {
+        return ingestZip(zipStream, archiveName, archiveName, collectionId, collectionName, depth, progress);
+    }
+
+    /**
+     * @param rootSource identité stable de l'archive telle qu'enregistrée en GED (nom de l'upload).
+     *   Toutes les entrées (y compris imbriquées) portent CETTE {@code sourceFile}, afin que la
+     *   suppression GED ({@code deleteBySource(rootSource)}) et la purge BM25 retrouvent bien leurs
+     *   chunks. Le chemin réel de l'entrée est conservé dans la métadonnée {@code zipEntry}.
+     */
+    int ingestZip(InputStream zipStream, String archiveName, String rootSource, String collectionId,
                   String collectionName, int depth, IntConsumer progress) throws Exception {
         if (depth >= MAX_ZIP_DEPTH) {
             log.warn("Profondeur ZIP max ({}) atteinte — archive imbriquée ignorée: {}", MAX_ZIP_DEPTH, archiveName);
@@ -303,7 +330,13 @@ public class IngestionTaskExecutor {
                     break;
                 }
                 String entryName = entry.getName();
-                if (entryName.startsWith("__MACOSX/") || entryName.startsWith(".")) continue;
+                String fileName = entryName.contains("/")
+                        ? entryName.substring(entryName.lastIndexOf('/') + 1)
+                        : entryName;
+                // Ignorer les métadonnées macOS et les fichiers cachés (basename commençant par
+                // "."), MAIS pas les entrées normales préfixées "./" (fréquent avec `zip -r`),
+                // qui étaient auparavant écartées à tort → perte silencieuse de documents.
+                if (entryName.startsWith("__MACOSX/") || fileName.isEmpty() || fileName.startsWith(".")) continue;
                 if (entryName.contains("..")) {
                     log.warn("Entrée ZIP suspecte ignorée (path traversal): {}", entryName);
                     continue;
@@ -315,16 +348,13 @@ public class IngestionTaskExecutor {
                     continue;
                 }
 
-                String fileName = entryName.contains("/")
-                        ? entryName.substring(entryName.lastIndexOf('/') + 1)
-                        : entryName;
-
                 if (fileName.toLowerCase().endsWith(".zip")) {
                     // Flux non-fermable : la récursion ne doit pas fermer le ZipInputStream parent.
+                    // rootSource est propagé inchangé : les chunks imbriqués restent rattachés à l'archive.
                     InputStream nonClosing = new LimitedInputStream(new FilterInputStream(zis) {
                         @Override public void close() {}
                     }, maxEntryUncompressedBytes);
-                    totalChunks += ingestZip(nonClosing, archiveName + "/" + entryName,
+                    totalChunks += ingestZip(nonClosing, archiveName + "/" + entryName, rootSource,
                             collectionId, collectionName, depth + 1, progress);
                     continue;
                 }
@@ -340,7 +370,7 @@ public class IngestionTaskExecutor {
                     InputStream entryStream = new LimitedInputStream(new FilterInputStream(zis) {
                         @Override public void close() { /* ne pas fermer le ZipInputStream parent */ }
                     }, maxEntryUncompressedBytes);
-                    totalChunks += ingestEntry(qualifiedName, entryStream, collectionId, collectionName, progress);
+                    totalChunks += ingestEntry(qualifiedName, rootSource, entryStream, collectionId, collectionName, progress);
                 } catch (ExtractionException e) {
                     log.warn("Erreur sur entrée ZIP {}: {}", qualifiedName, e.getMessage());
                 }
@@ -349,15 +379,24 @@ public class IngestionTaskExecutor {
         return totalChunks;
     }
 
-    private int ingestEntry(String fileName, InputStream inputStream, String collectionId, String collectionName,
-                            IntConsumer progress) throws Exception {
+    /**
+     * @param rootSource {@code sourceFile} rattaché aux chunks (l'archive, pour que la suppression
+     *   par source fonctionne) ; {@code fileName} est le chemin qualifié conservé dans la métadonnée
+     *   {@code zipEntry} pour la traçabilité de la provenance.
+     */
+    private int ingestEntry(String fileName, String rootSource, InputStream inputStream,
+                            String collectionId, String collectionName, IntConsumer progress) throws Exception {
         String shortName = fileName.contains("/") ? fileName.substring(fileName.lastIndexOf('/') + 1) : fileName;
         String contentType = extractorFactory.resolveContentType(shortName);
         var extractor = extractorFactory.getExtractor(contentType);
         ExtractedDocument doc = extractor.extract(fileName, inputStream);
 
         String cleanedText = textCleaner.clean(doc.text());
-        List<TextChunk> chunks = chunkingService.chunk(cleanedText, fileName, doc.metadata());
+        // Rattacher les chunks à l'archive (rootSource) pour une suppression cohérente, tout en
+        // gardant le chemin réel de l'entrée dans les métadonnées.
+        Map<String, String> meta = new java.util.HashMap<>(doc.metadata() != null ? doc.metadata() : Map.of());
+        meta.put("zipEntry", fileName);
+        List<TextChunk> chunks = chunkingService.chunk(cleanedText, rootSource, meta);
 
         if (chunks.isEmpty()) {
             log.warn("Aucun chunk produit pour l'entrée ZIP: {}", fileName);
@@ -382,7 +421,7 @@ public class IngestionTaskExecutor {
         }
     }
 
-    private record IngestOneResult(int chunks, String parserUsed, int layoutAwareChunks) {}
+    record IngestOneResult(int chunks, String parserUsed, int layoutAwareChunks, boolean complete) {}
 
     public interface IngestionCallback {
         void onIngested(String hash, String fileName, int chunks);

@@ -259,6 +259,13 @@ public class GedService {
             spec = spec.and((root, q, cb) ->
                     cb.like(root.get("tags"), pattern));
         }
+        // Recherche par nom de fichier (insensible à la casse) — côté serveur pour couvrir
+        // l'ensemble du corpus, pas seulement la page chargée par l'UI.
+        if (f.q() != null && !f.q().isBlank()) {
+            String like = "%" + f.q().toLowerCase().replace("%", "\\%").replace("_", "\\_") + "%";
+            spec = spec.and((root, query, cb) ->
+                    cb.like(cb.lower(root.get("fileName")), like, '\\'));
+        }
 
         PageRequest page = PageRequest.of(f.page(), f.size(),
                 Sort.by(Sort.Direction.DESC, "ingestedAt"));

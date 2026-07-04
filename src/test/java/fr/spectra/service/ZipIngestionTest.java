@@ -95,11 +95,19 @@ class ZipIngestionTest {
         when(props.pipeline()).thenReturn(pipeline);
         when(props.chromadb()).thenReturn(null);
 
+        FtsService fts = mock(FtsService.class);
+        // processZip délègue désormais au pipeline unique de l'exécuteur : on en construit un vrai
+        // (mêmes mocks réseau) au lieu d'un mock, sinon la délégation renverrait toujours 0.
+        IngestionTaskExecutor executor = new IngestionTaskExecutor(
+                factory, textCleaner, chunkingService, embeddingService, chromaDb, fts,
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry(),
+                props, 10, 50, 4);
+
         ingestionService = new IngestionService(
                 factory, textCleaner, chunkingService,
                 embeddingService, chromaDb,
-                mock(FtsService.class),
-                mock(IngestionTaskExecutor.class),
+                fts,
+                executor,
                 mock(IngestedFileRepository.class),
                 mock(GedService.class),
                 mock(fr.spectra.persistence.StreamSourceRepository.class),

@@ -42,6 +42,7 @@ public class GedController {
             @RequestParam(required = false) Double minQuality,
             @RequestParam(required = false) String from,
             @RequestParam(required = false) String to,
+            @RequestParam(required = false) String q,
             @RequestParam(defaultValue = "0")  int page,
             @RequestParam(defaultValue = "20") int size) {
         IngestedFileEntity.Lifecycle lc = parseLifecycle(lifecycle);
@@ -49,7 +50,7 @@ public class GedController {
         Instant toInst   = parseInstant(to, "to");
 
         GedDocumentFilter filter = new GedDocumentFilter(
-                lc, tag, collection, minQuality, fromInst, toInst, page, size);
+                lc, tag, collection, minQuality, fromInst, toInst, q, page, size);
         Page<IngestedFileEntity> result = gedService.findFiltered(filter);
 
         return Map.of(

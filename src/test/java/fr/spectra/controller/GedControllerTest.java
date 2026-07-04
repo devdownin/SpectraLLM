@@ -45,7 +45,7 @@ class GedControllerTest {
                 List.of(entity("sha1"), entity("sha2")), PageRequest.of(0, 20), 2);
         when(gedService.findFiltered(any())).thenReturn(page);
 
-        Map<String, Object> result = controller.listAll(null, null, null, null, null, null, 0, 20);
+        Map<String, Object> result = controller.listAll(null, null, null, null, null, null, null, 0, 20);
 
         assertThat((List<?>) result.get("content")).hasSize(2);
         assertThat(result).containsKey("totalElements");
@@ -56,7 +56,7 @@ class GedControllerTest {
         Page<IngestedFileEntity> page = new PageImpl<>(List.of(entity("sha1")));
         when(gedService.findFiltered(any())).thenReturn(page);
 
-        controller.listAll("QUALIFIED", null, null, null, null, null, 0, 20);
+        controller.listAll("QUALIFIED", null, null, null, null, null, null, 0, 20);
 
         verify(gedService).findFiltered(argThat(f ->
                 f.lifecycle() == IngestedFileEntity.Lifecycle.QUALIFIED));
@@ -67,7 +67,7 @@ class GedControllerTest {
         Page<IngestedFileEntity> page = new PageImpl<>(List.of());
         when(gedService.findFiltered(any())).thenReturn(page);
 
-        controller.listAll(null, "kafka", null, null, null, null, 0, 20);
+        controller.listAll(null, "kafka", null, null, null, null, null, 0, 20);
 
         verify(gedService).findFiltered(argThat(f -> "kafka".equals(f.tag())));
     }
@@ -75,13 +75,13 @@ class GedControllerTest {
     @Test
     void listAll_invalidLifecycle_throwsIllegalArgumentException() {
         org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
-                () -> controller.listAll("BROKEN", null, null, null, null, null, 0, 20));
+                () -> controller.listAll("BROKEN", null, null, null, null, null, null, 0, 20));
     }
 
     @Test
     void listAll_invalidFromDate_throwsIllegalArgumentException() {
         org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
-                () -> controller.listAll(null, null, null, null, "22-04-2026", null, 0, 20));
+                () -> controller.listAll(null, null, null, null, "22-04-2026", null, null, 0, 20));
     }
 
     @Test
@@ -89,7 +89,7 @@ class GedControllerTest {
         Page<IngestedFileEntity> page = new PageImpl<>(List.of(entity("sha1")));
         when(gedService.findFiltered(any())).thenReturn(page);
 
-        Map<String, Object> result = controller.listAll(null, null, null, null, null, null, 0, 20);
+        Map<String, Object> result = controller.listAll(null, null, null, null, null, null, null, 0, 20);
         @SuppressWarnings("unchecked")
         Map<String, Object> sheet = ((List<Map<String, Object>>) result.get("content")).get(0);
 
@@ -103,7 +103,7 @@ class GedControllerTest {
                 List.of(entity("sha1")), PageRequest.of(0, 5), 42);
         when(gedService.findFiltered(any())).thenReturn(page);
 
-        Map<String, Object> result = controller.listAll(null, null, null, null, null, null, 0, 5);
+        Map<String, Object> result = controller.listAll(null, null, null, null, null, null, null, 0, 5);
 
         assertThat(result.get("totalElements")).isEqualTo(42L);
         assertThat(result.get("totalPages")).isEqualTo(9);
