@@ -49,6 +49,9 @@ const ModelHub: FC = () => {
               return next;
             });
             setInstalledModels(prev => prev.includes(variables.modelName) ? prev : [...prev, variables.modelName]);
+            // Rafraîchir les recommandations pour que `model.installed` reflète l'installation
+            // côté serveur (sinon la carte repasse à « Installer »).
+            refetch();
             toast.success(`Model "${variables.modelName}" downloaded`, {
               description: autoActivate
                 ? 'Activated — restart llm-chat to load it: docker compose restart llm-chat'
@@ -329,22 +332,29 @@ const ModelHub: FC = () => {
               {installingModels[model.name] !== undefined && installingModels[model.name] < 100 && (
                 <div className="absolute top-0 left-0 h-1 bg-secondary transition-all duration-300" style={{ width: `${installingModels[model.name]}%` }}></div>
               )}
+              {/* installedModels donne un retour immédiat en attendant le refetch des recommandations. */}
+              {(() => {
+                const isInstalled = model.installed || installedModels.includes(model.name);
+                const isInstalling = installingModels[model.name] !== undefined;
+                return (
               <button
                 onClick={() => handleInstall(model.name, model.best_quant)}
-                disabled={model.installed || installingModels[model.name] !== undefined}
+                disabled={isInstalled || isInstalling}
                 className={`w-full py-4 font-headline uppercase tracking-[0.2em] text-[11px] font-black flex items-center justify-center gap-2 transition-all ${
-                  model.installed
+                  isInstalled
                   ? 'bg-surface-variant text-outline cursor-default'
-                  : installingModels[model.name] !== undefined
+                  : isInstalling
                     ? 'bg-secondary text-on-secondary cursor-wait'
                     : 'bg-primary text-on-primary hover:bg-primary/90'
                 }`}
               >
                 <span className="material-symbols-outlined text-sm">
-                  {model.installed ? 'check_circle' : installingModels[model.name] !== undefined ? 'sync' : 'download'}
+                  {isInstalled ? 'check_circle' : isInstalling ? 'sync' : 'download'}
                 </span>
-                {model.installed ? 'Installed' : installingModels[model.name] !== undefined ? `Downloading (${installingModels[model.name]}%)` : 'Installer'}
+                {isInstalled ? 'Installed' : isInstalling ? `Downloading (${installingModels[model.name]}%)` : 'Installer'}
               </button>
+                );
+              })()}
             </div>
           </div>
         ))}
