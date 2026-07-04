@@ -192,7 +192,6 @@ const Playground: FC = () => {
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
 
   const [activeModel, setActiveModel] = useState<string>('');
-  const [availableModels, setAvailableModels] = useState<Array<{ name: string; provenance?: string }>>([]);
 
   // Santé des services (polling 20 s) — pour signaler une panne et bloquer l'envoi
   // quand le LLM de chat est down, plutôt que de laisser la requête échouer en timeout.
@@ -205,6 +204,20 @@ const Playground: FC = () => {
   });
   const chatService = services?.find(s => s.name === 'llama-cpp') ?? services?.[0];
   const chromaService = services?.find(s => s.name === 'chromadb');
+
+  // Modèles de chat disponibles + modèle actif — via React Query pour se rafraîchir au retour
+  // d'onglet (un modèle installé dans le Model Hub apparaît sans recharger la page).
+  const { data: modelsData } = useQuery<{ activeModel: string; chatModels: Array<{ name: string; provenance?: string }> }>({
+    queryKey: ['playground-models'],
+    queryFn: async () => {
+      const [configRes, modelsRes] = await Promise.all([configApi.getModelConfig(), fineTuningApi.getModels()]);
+      const chatModels = (modelsRes.data ?? []).filter((m: any) => m.type === 'chat');
+      return { activeModel: configRes.data.model ?? '', chatModels };
+    },
+    refetchOnWindowFocus: true,
+    staleTime: 30_000,
+  });
+  const availableModels = modelsData?.chatModels ?? [];
   // `undefined` avant le premier poll → on n'empêche pas l'envoi (optimiste).
   const llmDown = chatService ? !chatService.available : false;
   const ragDegraded = ragEnabled && chromaService ? !chromaService.available : false;
@@ -242,15 +255,10 @@ const Playground: FC = () => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Initialise le modèle actif depuis la config, sans écraser un choix optimiste de l'utilisateur.
   useEffect(() => {
-    Promise.all([configApi.getModelConfig(), fineTuningApi.getModels()])
-      .then(([configRes, modelsRes]) => {
-        setActiveModel(configRes.data.model ?? '');
-        const chatModels = (modelsRes.data ?? []).filter((m: any) => m.type === 'chat');
-        setAvailableModels(chatModels);
-      })
-      .catch(() => {/* silencieux si l'API est indisponible */});
-  }, []);
+    if (modelsData?.activeModel && !activeModel) setActiveModel(modelsData.activeModel);
+  }, [modelsData?.activeModel, activeModel]);
 
   const handleModelSwitch = async (modelName: string) => {
     try {

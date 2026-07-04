@@ -2,7 +2,7 @@ import type { FC } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { modelsHubApi } from '../services/api';
 import Skeleton from '../components/Skeleton';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { toast } from 'sonner';
 
 const ModelHub: FC = () => {
@@ -10,11 +10,10 @@ const ModelHub: FC = () => {
   const [installedModels, setInstalledModels] = useState<string[]>([]);
   const [autoActivate, setAutoActivate] = useState(false);
   const activeEventSources = useRef<Map<string, EventSource>>(new Map());
+  // autoActivate lu via ref pour ne pas recréer subscribeProgress (et donc l'effet de reprise).
+  const autoActivateRef = useRef(autoActivate);
+  autoActivateRef.current = autoActivate;
 
-  useEffect(() => {
-    const sources = activeEventSources.current;
-    return () => { sources.forEach(es => es.close()); };
-  }, []);
   const [filter, setFilter] = useState('All');
   const [limit, setLimit] = useState(12);
   const [simulation, setSimulation] = useState<{memory?: string, ram?: string, cpuCores?: number}>({});
@@ -25,53 +24,72 @@ const ModelHub: FC = () => {
     queryFn: () => modelsHubApi.getRecommendations({ limit, ...simulation }).then(res => res.data),
   });
 
+  // Persiste les téléchargements en cours (nom → dernier %) pour pouvoir reprendre le suivi
+  // après une navigation / un rechargement de page : le sink SSE côté serveur rejoue le %.
+  const persistInstalling = (models: Record<string, number>) => {
+    try {
+      const active = Object.fromEntries(Object.entries(models).filter(([, p]) => p < 100));
+      if (Object.keys(active).length) sessionStorage.setItem('modelhub-installing', JSON.stringify(active));
+      else sessionStorage.removeItem('modelhub-installing');
+    } catch { /* sessionStorage indisponible */ }
+  };
+
+  /** Ouvre (ou ré-ouvre) le flux de progression d'un modèle et branche les handlers. */
+  const subscribeProgress = useCallback((modelName: string) => {
+    if (activeEventSources.current.has(modelName)) return; // déjà suivi
+    const eventSource = modelsHubApi.getProgressSource(modelName);
+    activeEventSources.current.set(modelName, eventSource);
+    const cleanupSource = () => {
+      activeEventSources.current.get(modelName)?.close();
+      activeEventSources.current.delete(modelName);
+    };
+    eventSource.onmessage = (event) => {
+      const progress = parseInt(event.data);
+      if (isNaN(progress)) return;
+      setInstallingModels(prev => { const next = { ...prev, [modelName]: progress }; persistInstalling(next); return next; });
+      if (progress >= 100) {
+        cleanupSource();
+        setInstallingModels(prev => { const next = { ...prev }; delete next[modelName]; persistInstalling(next); return next; });
+        setInstalledModels(prev => prev.includes(modelName) ? prev : [...prev, modelName]);
+        // Rafraîchir les recommandations pour que `model.installed` reflète l'installation serveur.
+        refetch();
+        toast.success(`Model "${modelName}" downloaded`, {
+          description: autoActivateRef.current
+            ? 'Activated — restart llm-chat to load it: docker compose restart llm-chat'
+            : 'Saved to the registry. Activate it in the Playground, then restart llm-chat.',
+          duration: 8000,
+        });
+      }
+    };
+    eventSource.onerror = () => {
+      cleanupSource();
+      setInstallingModels(prev => { const next = { ...prev }; delete next[modelName]; persistInstalling(next); return next; });
+      toast.error(`Progress tracking unavailable for "${modelName}"`, {
+        description: 'The download may still be running. Check the logs: docker compose logs spectra-api',
+      });
+    };
+  }, [refetch]);
+
+  // Reprise au montage : ré-abonne les téléchargements en cours mémorisés (navigation / reload).
+  useEffect(() => {
+    let persisted: Record<string, number> = {};
+    try { persisted = JSON.parse(sessionStorage.getItem('modelhub-installing') || '{}'); } catch { /* ignore */ }
+    const names = Object.keys(persisted);
+    if (names.length) {
+      setInstallingModels(persisted); // affiche le dernier % connu immédiatement
+      names.forEach(subscribeProgress); // le sink serveur rejoue la progression courante
+    }
+    const sources = activeEventSources.current;
+    return () => { sources.forEach(es => es.close()); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const installMutation = useMutation({
     mutationFn: ({ modelName, quant }: { modelName: string; quant?: string }) =>
       modelsHubApi.installModel(modelName, quant, autoActivate),
     onSuccess: (_, variables) => {
-      setInstallingModels(prev => ({ ...prev, [variables.modelName]: 0 }));
-
-      const eventSource = modelsHubApi.getProgressSource(variables.modelName);
-      activeEventSources.current.set(variables.modelName, eventSource);
-      const cleanupSource = (name: string) => {
-        activeEventSources.current.get(name)?.close();
-        activeEventSources.current.delete(name);
-      };
-      eventSource.onmessage = (event) => {
-        const progress = parseInt(event.data);
-        if (!isNaN(progress)) {
-          setInstallingModels(prev => ({ ...prev, [variables.modelName]: progress }));
-          if (progress >= 100) {
-            cleanupSource(variables.modelName);
-            setInstallingModels(prev => {
-              const next = { ...prev };
-              delete next[variables.modelName];
-              return next;
-            });
-            setInstalledModels(prev => prev.includes(variables.modelName) ? prev : [...prev, variables.modelName]);
-            // Rafraîchir les recommandations pour que `model.installed` reflète l'installation
-            // côté serveur (sinon la carte repasse à « Installer »).
-            refetch();
-            toast.success(`Model "${variables.modelName}" downloaded`, {
-              description: autoActivate
-                ? 'Activated — restart llm-chat to load it: docker compose restart llm-chat'
-                : 'Saved to the registry. Activate it in the Playground, then restart llm-chat.',
-              duration: 8000,
-            });
-          }
-        }
-      };
-      eventSource.onerror = () => {
-        cleanupSource(variables.modelName);
-        setInstallingModels(prev => {
-          const next = { ...prev };
-          delete next[variables.modelName];
-          return next;
-        });
-        toast.error(`Progress tracking unavailable for "${variables.modelName}"`, {
-          description: 'The download may still be running. Check the logs: docker compose logs spectra-api',
-        });
-      };
+      setInstallingModels(prev => { const next = { ...prev, [variables.modelName]: 0 }; persistInstalling(next); return next; });
+      subscribeProgress(variables.modelName);
     },
     onError: (error: any) => {
       toast.error('Failed to start the download', {

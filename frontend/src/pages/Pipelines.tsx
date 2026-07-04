@@ -128,10 +128,13 @@ const Pipelines: FC = () => {
   });
 
   const { data: documents, isLoading, isFetching, refetch } = useQuery<IngestedFile[]>({
-    queryKey: ['ged-documents', selectedLifecycle],
+    // Recherche déportée serveur (q) : trouve un document au-delà du lot chargé. Le reste du
+    // filtrage (format/qualité/tri/groupement) reste client-side sur le lot retourné.
+    queryKey: ['ged-documents', selectedLifecycle, deferredSearch],
     queryFn: async () => {
-      const params: Record<string, unknown> = { size: 500 };
+      const params: Record<string, unknown> = { size: 1000 };
       if (selectedLifecycle !== 'all') params.lifecycle = selectedLifecycle;
+      if (deferredSearch.trim()) params.q = deferredSearch.trim();
       const res = await gedApi.listDocuments(params);
       return res.data.content;
     },
