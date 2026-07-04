@@ -13,8 +13,11 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class IngestionServiceTest {
@@ -23,6 +26,7 @@ class IngestionServiceTest {
     Path tempDir;
 
     private IngestionService ingestionService;
+    private IngestionTaskExecutor executor;
 
     @BeforeEach
     void setUp() {
@@ -34,6 +38,8 @@ class IngestionServiceTest {
         ChromaDbClient chromaDb = mock(ChromaDbClient.class);
         when(chromaDb.getOrCreateCollection(anyString())).thenReturn("test-collection-id");
 
+        executor = mock(IngestionTaskExecutor.class);
+
         ingestionService = new IngestionService(
                 mock(DocumentExtractorFactory.class),
                 mock(TextCleanerService.class),
@@ -41,7 +47,7 @@ class IngestionServiceTest {
                 mock(EmbeddingService.class),
                 chromaDb,
                 mock(FtsService.class),
-                mock(IngestionTaskExecutor.class),
+                executor,
                 mock(IngestedFileRepository.class),
                 mock(GedService.class),
                 mock(fr.spectra.persistence.StreamSourceRepository.class),
@@ -62,6 +68,24 @@ class IngestionServiceTest {
         IngestionTask task = ingestionService.getTask(taskId);
         assertThat(task).isNotNull();
         assertThat(task.taskId()).isEqualTo(taskId);
+    }
+
+    @Test
+    void submit_sameContentWhileInFlight_secondIsSkipped() {
+        byte[] content = "contenu identique pour deux uploads simultanes".getBytes();
+        // Le premier upload réserve le hachage ; l'exécuteur étant mocké, il n'appelle pas le
+        // callback qui libère la réservation → le second upload du même contenu est ignoré.
+        String first = ingestionService.submit(List.of(
+                new MockMultipartFile("files", "a.txt", "text/plain", content)));
+        String second = ingestionService.submit(List.of(
+                new MockMultipartFile("files", "b.txt", "text/plain", content)));
+
+        // Le second n'a rien à traiter : tâche terminée immédiatement, exécuteur non ré-appelé.
+        assertThat(ingestionService.getTask(second).status())
+                .isEqualTo(IngestionTask.Status.COMPLETED);
+        assertThat(ingestionService.getTask(second).chunksCreated()).isZero();
+        assertThat(first).isNotEqualTo(second);
+        verify(executor, times(1)).execute(anyString(), any(), any(), any(), anyString(), any(), any(), any());
     }
 
     @Test
