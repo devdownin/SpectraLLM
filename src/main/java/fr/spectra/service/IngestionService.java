@@ -25,6 +25,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -101,6 +102,14 @@ public class IngestionService {
 
     private final Map<String, IngestionTask> tasks = new ConcurrentHashMap<>();
     private final Set<String> cancelledTaskIds = ConcurrentHashMap.newKeySet();
+    /**
+     * Hachages en cours d'ingestion (hash → instant de réservation). Empêche deux uploads
+     * simultanés du MÊME contenu d'indexer chacun ses chunks (doublons vectoriels) avant que
+     * la ligne GED n'existe. La réservation se libère au succès ; une réservation périmée
+     * (ingestion échouée/crashée) est automatiquement reprise après {@link #INFLIGHT_TTL}.
+     */
+    private final Map<String, Instant> inFlightHashes = new ConcurrentHashMap<>();
+    private static final Duration INFLIGHT_TTL = Duration.ofMinutes(15);
 
     public IngestionService(DocumentExtractorFactory extractorFactory,
                             TextCleanerService textCleaner,
@@ -188,8 +197,10 @@ public class IngestionService {
             String hash = allHashes.get(i);
             String fileName = allFileNamesOrdered.get(i);
 
-            if (!force && existingHashes.contains(hash)) {
-                log.info("Fichier ignoré (déjà ingéré, sha256={}): {}", hash, fileName);
+            // Ignorer si déjà en base OU si une ingestion concurrente du même contenu est en
+            // cours (réservation in-flight) — évite la double indexation des mêmes chunks.
+            if (!force && (existingHashes.contains(hash) || !tryClaimHash(hash))) {
+                log.info("Fichier ignoré (déjà ingéré ou ingestion concurrente, sha256={}): {}", hash, fileName);
                 try { Files.deleteIfExists(tempFile); } catch (Exception ignored) {}
                 continue;
             }
@@ -208,9 +219,28 @@ public class IngestionService {
 
         tasks.put(taskId, IngestionTask.pending(taskId, allFileNames));
         executor.execute(taskId, toProcessNames, tempFiles, tasks, defaultCollection, tempFileToHash,
-                (hash, fileName, chunks) -> recordIngestion(hash, fileName, chunks), tempDir);
+                (hash, fileName, chunks) -> {
+                    recordIngestion(hash, fileName, chunks);
+                    inFlightHashes.remove(hash); // libère la réservation : la dédup DB prend le relais
+                }, tempDir);
 
         return taskId;
+    }
+
+    /**
+     * Réserve un hachage pour l'ingestion. Retourne {@code false} si une ingestion du même
+     * contenu est déjà en cours (réservation récente). Une réservation périmée (au-delà de
+     * {@link #INFLIGHT_TTL}) est reprise atomiquement — une ingestion échouée n'est jamais
+     * bloquée indéfiniment.
+     */
+    private boolean tryClaimHash(String hash) {
+        Instant now = Instant.now();
+        Instant prev = inFlightHashes.putIfAbsent(hash, now);
+        if (prev == null) return true;
+        if (Duration.between(prev, now).compareTo(INFLIGHT_TTL) > 0) {
+            return inFlightHashes.replace(hash, prev, now);
+        }
+        return false;
     }
 
     /** Compatibilité ascendante — soumet sans forcer la ré-ingestion. */
@@ -257,6 +287,9 @@ public class IngestionService {
                     && t.completedAt() != null && t.completedAt().isBefore(cutoff);
         });
         cancelledTaskIds.removeIf(id -> !tasks.containsKey(id));
+        // Purge les réservations in-flight périmées (ingestions échouées/crashées) pour borner la mémoire.
+        Instant claimCutoff = Instant.now().minus(INFLIGHT_TTL);
+        inFlightHashes.entrySet().removeIf(e -> e.getValue().isBefore(claimCutoff));
     }
 
     public Page<IngestedFileEntity> getHistory(int page, int size, String q) {

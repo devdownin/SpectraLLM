@@ -16,10 +16,15 @@ import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
+import fr.spectra.model.TextChunk;
+import org.mockito.ArgumentCaptor;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -37,6 +42,7 @@ class ZipIngestionExecutorTest {
             "<root><item><name>test</name><value>42</value></item></root>";
 
     private IngestionTaskExecutor executor;
+    private ChromaDbClient chromaDb;
 
     @BeforeEach
     void setUp() {
@@ -49,7 +55,7 @@ class ZipIngestionExecutorTest {
             return texts.stream().map(t -> List.of(0.1f, 0.2f, 0.3f)).toList();
         });
 
-        ChromaDbClient chromaDb = mock(ChromaDbClient.class);
+        chromaDb = mock(ChromaDbClient.class);
         when(chromaDb.getOrCreateCollection(anyString())).thenReturn("test-col");
 
         FtsService ftsService = mock(FtsService.class);
@@ -71,6 +77,32 @@ class ZipIngestionExecutorTest {
                 10,
                 50,
                 4);
+    }
+
+    // ── Rattachement des chunks à l'archive (suppression GED cohérente) ─────────
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void ingestZip_chunksKeyedByArchiveName_soDeletionMatches() throws Exception {
+        // Une archive « sample.zip » contenant « data.json ».
+        byte[] zip = buildZip(Map.of("data.json", SAMPLE_JSON.getBytes()));
+
+        int chunks = executor.ingestZip(stream(zip), "sample.zip", "test-col", "test", 0, n -> {});
+        assertThat(chunks).isGreaterThanOrEqualTo(1);
+
+        ArgumentCaptor<List<TextChunk>> captor = ArgumentCaptor.forClass(List.class);
+        verify(chromaDb, atLeastOnce()).addDocuments(anyString(), captor.capture(), anyList());
+
+        List<TextChunk> indexed = captor.getAllValues().stream().flatMap(List::stream).toList();
+        assertThat(indexed).isNotEmpty();
+        // La sourceFile doit être le NOM DE L'ARCHIVE (et non « sample.zip/data.json »), sinon
+        // GedService.deleteDocument(deleteBySource("sample.zip")) n'effacerait aucun chunk.
+        assertThat(indexed).allSatisfy(c -> {
+            assertThat(c.sourceFile()).isEqualTo("sample.zip");
+            assertThat(c.metadata()).containsEntry("sourceFile", "sample.zip");
+            // Le chemin réel de l'entrée reste disponible pour la traçabilité.
+            assertThat(c.metadata().get("zipEntry")).isEqualTo("sample.zip/data.json");
+        });
     }
 
     // ── Contenu JSON ──────────────────────────────────────────────────────────
