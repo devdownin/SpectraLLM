@@ -8,7 +8,6 @@ import fr.spectra.persistence.IngestedFileEntity;
 import fr.spectra.persistence.IngestedFileRepository;
 import fr.spectra.persistence.StreamSourceEntity;
 import fr.spectra.service.extraction.DocumentExtractorFactory;
-import fr.spectra.service.extraction.ExtractionException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -34,8 +33,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipInputStream;
 
 /**
  * Service d'ingestion — transforme un fichier brut en chunks vectorisés interrogeables.
@@ -89,10 +86,8 @@ public class IngestionService {
     private final ChromaDbClient chromaDbClient;
     private final FtsService ftsService;
     private final int embeddingBatchSize;
-    /** Taille décompressée maximale par fichier/entrée ZIP (mémoire + anti-ZIP-bomb). */
+    /** Taille décompressée maximale par fichier local (mémoire ; garde-fou avant délégation). */
     private final long maxUncompressedBytes;
-    /** Nombre maximal d'entrées traitées par archive (protection ZIP bomb). */
-    private final int maxZipEntries;
 
     // Async + dedup deps (used by submit())
     private final IngestionTaskExecutor executor;
@@ -133,7 +128,6 @@ public class IngestionService {
         this.gedService = gedService;
         this.streamSourceRepository = streamSourceRepository;
         this.embeddingBatchSize = properties.pipeline().embeddingBatchSize();
-        this.maxZipEntries = properties.ingestion() != null ? properties.ingestion().effectiveMaxZipEntries() : 10_000;
         this.defaultCollection = properties.chromadb() != null
                 ? properties.chromadb().effectiveCollection()
                 : DEFAULT_COLLECTION;
@@ -340,14 +334,14 @@ public class IngestionService {
                 log.info("Fichier ignoré (déjà ingéré, sha256={}): {}", hash, fileName);
                 return 0;
             }
-            int chunks;
-            try (InputStream in = Files.newInputStream(tempFile)) {
-                chunks = processSingleFile(fileName, in, collectionId, defaultCollection);
+            // Pipeline unique : on délègue à l'exécuteur (extraction → chunking → embedding →
+            // indexation, gestion .zip et comptage partiel inclus) au lieu de dupliquer la logique.
+            IngestionTaskExecutor.IngestOneResult r =
+                    executor.ingestOne(fileName, tempFile, collectionId, defaultCollection, i -> {});
+            if (r.chunks() > 0 && r.complete()) {
+                recordIngestion(hash, fileName, r.chunks(), defaultCollection);
             }
-            if (chunks > 0) {
-                recordIngestion(hash, fileName, chunks, defaultCollection);
-            }
-            return chunks;
+            return r.chunks();
         } finally {
             Files.deleteIfExists(tempFile);
         }
@@ -368,20 +362,24 @@ public class IngestionService {
                                 fileSize / (1024 * 1024), maxUncompressedBytes / (1024 * 1024), path);
                         continue;
                     }
-                    byte[] bytes = Files.readAllBytes(path);
-                    String hash = sha256(new java.io.ByteArrayInputStream(bytes));
+                    // Hash en streaming (pas de chargement complet en mémoire).
+                    String hash;
+                    try (InputStream in = Files.newInputStream(path)) {
+                        hash = sha256(in);
+                    }
                     // Dédup : ne pas ré-indexer un document déjà ingéré (sinon chaque relance
                     // du batch duplique tous les chunks dans ChromaDB et BM25).
                     if (repository.existsById(hash)) {
                         log.info("Fichier ignoré (déjà ingéré, sha256={}): {}", hash, path.getFileName());
                         continue;
                     }
-                    int chunks = processSingleFile(path.getFileName().toString(),
-                            new java.io.ByteArrayInputStream(bytes), collectionId, defaultCollection);
-                    if (chunks > 0) {
-                        recordIngestion(hash, path.getFileName().toString(), chunks, defaultCollection);
+                    // Pipeline unique via l'exécuteur (gestion .zip + comptage partiel inclus).
+                    IngestionTaskExecutor.IngestOneResult r = executor.ingestOne(
+                            path.getFileName().toString(), path, collectionId, defaultCollection, i -> {});
+                    if (r.chunks() > 0 && r.complete()) {
+                        recordIngestion(hash, path.getFileName().toString(), r.chunks(), defaultCollection);
                     }
-                    total += chunks;
+                    total += r.chunks();
                 } catch (Exception e) {
                     log.warn("Erreur ingestion fichier {}: {}", path, e.getMessage());
                 }
@@ -540,102 +538,14 @@ public class IngestionService {
 
     // ── Pipeline direct ───────────────────────────────────────────────────────
 
-    private int processSingleFile(String fileName, InputStream inputStream, String collectionId, String collectionName) throws Exception {
-        log.info("Ingestion de: {}", fileName);
-
-        String shortName = fileName.contains("/")
-                ? fileName.substring(fileName.lastIndexOf('/') + 1)
-                : fileName;
-
-        String contentType = extractorFactory.resolveContentType(shortName);
-        var extractor = extractorFactory.getExtractor(contentType);
-        ExtractedDocument doc = extractor.extract(fileName, inputStream);
-
-        String cleanedText = textCleaner.clean(doc.text());
-        List<TextChunk> chunks = chunkingService.chunk(cleanedText, fileName, doc.metadata());
-
-        if (chunks.isEmpty()) {
-            log.warn("Aucun chunk produit pour: {}", fileName);
-            return 0;
-        }
-
-        // Embed + ajout ChromaDB par lot (pas d'accumulation mémoire de toutes les embeddings).
-        for (int i = 0; i < chunks.size(); i += embeddingBatchSize) {
-            int end = Math.min(i + embeddingBatchSize, chunks.size());
-            List<TextChunk> batch = chunks.subList(i, end);
-            List<List<Float>> batchEmbeddings = embeddingService.embedBatch(
-                    batch.stream().map(TextChunk::text).toList());
-            chromaDbClient.addDocuments(collectionId, batch, batchEmbeddings);
-        }
-
-        ftsService.indexChunks(chunks, collectionName);
-        log.info("Fichier {} traité: {} chunks", fileName, chunks.size());
-        return chunks.size();
-    }
-
-    /** Package-visible for testing. */
+    /**
+     * Package-visible pour les tests — délègue à l'unique pipeline d'extraction/chunking/
+     * indexation de {@link IngestionTaskExecutor}. La logique ZIP (walk récursif, bornes anti
+     * ZIP-bomb, filtrage des entrées) n'est plus dupliquée ici : une seule implémentation évite
+     * la dérive entre le chemin upload (asynchrone) et le chemin URL/batch.
+     */
     int processZip(InputStream zipStream, String archiveName, String collectionId) throws Exception {
-        return processZip(zipStream, archiveName, collectionId, 0);
-    }
-
-    private int processZip(InputStream zipStream, String archiveName, String collectionId, int depth) throws Exception {
-        if (depth > MAX_ZIP_DEPTH) {
-            log.warn("ZIP imbriqué ignoré (profondeur {} > {}): {}", depth, MAX_ZIP_DEPTH, archiveName);
-            return 0;
-        }
-        int totalChunks = 0;
-        int entryCount = 0;
-        try (ZipInputStream zis = new ZipInputStream(zipStream)) {
-            ZipEntry entry;
-            while ((entry = zis.getNextEntry()) != null) {
-                if (entry.isDirectory()) continue;
-                if (++entryCount > maxZipEntries) {
-                    log.warn("Nombre max d'entrées ZIP ({}) atteint — archive tronquée: {}", maxZipEntries, archiveName);
-                    break;
-                }
-                String entryName = entry.getName();
-                String fileName = entryName.contains("/")
-                        ? entryName.substring(entryName.lastIndexOf('/') + 1)
-                        : entryName;
-                // Ignorer les métadonnées macOS et les fichiers cachés (basename commençant par
-                // "."), MAIS pas les entrées normales préfixées "./" (perte silencieuse sinon).
-                if (entryName.startsWith("__MACOSX/") || fileName.isEmpty() || fileName.startsWith(".")) continue;
-                if (entryName.contains("..")) {
-                    log.warn("Entrée ZIP suspecte ignorée (path traversal): {}", entryName);
-                    continue;
-                }
-                if (entry.getSize() > maxUncompressedBytes) {
-                    log.warn("Entrée ZIP ignorée (taille décompressée {} > {} octets): {}",
-                            entry.getSize(), maxUncompressedBytes, entryName);
-                    continue;
-                }
-
-                if (fileName.toLowerCase().endsWith(".zip")) {
-                    InputStream nonClosing = new LimitedInputStream(new java.io.FilterInputStream(zis) {
-                        @Override public void close() {}
-                    }, maxUncompressedBytes);
-                    totalChunks += processZip(nonClosing, archiveName + "/" + entryName, collectionId, depth + 1);
-                    continue;
-                }
-                if (!isSupportedFile(fileName)) {
-                    continue;
-                }
-
-                String qualifiedName = archiveName + "/" + entryName;
-                try {
-                    // Enveloppe zis dans un flux non-fermable + borné : certains extracteurs
-                    // (Jackson AUTO_CLOSE_SOURCE) ferment le stream après lecture, ce qui
-                    // invaliderait le ZipInputStream ; la borne protège des ZIP bombs.
-                    InputStream entryStream = new LimitedInputStream(new java.io.FilterInputStream(zis) {
-                        @Override public void close() { /* ne pas fermer le ZipInputStream parent */ }
-                    }, maxUncompressedBytes);
-                    totalChunks += processSingleFile(qualifiedName, entryStream, collectionId, defaultCollection);
-                } catch (ExtractionException e) {
-                    log.warn("Erreur sur {}: {}", qualifiedName, e.getMessage());
-                }
-            }
-        }
-        return totalChunks;
+        return executor.ingestZip(zipStream, archiveName, collectionId, defaultCollection);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -664,17 +574,5 @@ public class IngestionService {
         StringBuilder sb = new StringBuilder(64);
         for (byte b : hash) sb.append(String.format("%02x", b));
         return sb.toString();
-    }
-
-    private boolean isSupportedFile(String fileName) {
-        try {
-            if (fileName != null && fileName.toLowerCase().endsWith(".zip")) {
-                return true;
-            }
-            extractorFactory.resolveContentType(fileName);
-            return true;
-        } catch (ExtractionException e) {
-            return false;
-        }
     }
 }
