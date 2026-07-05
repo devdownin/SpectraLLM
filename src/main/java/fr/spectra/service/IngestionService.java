@@ -415,7 +415,7 @@ public class IngestionService {
             // indexation, gestion .zip et comptage partiel inclus) au lieu de dupliquer la logique.
             IngestionTaskExecutor.IngestOneResult r =
                     executor.ingestOne(fileName, tempFile, collectionId, defaultCollection, i -> {});
-            if (r.chunks() > 0 && r.complete()) {
+            if (r.chunks() > 0) {
                 recordIngestion(hash, fileName, r.chunks(), defaultCollection);
             }
             return r.chunks();
@@ -453,7 +453,7 @@ public class IngestionService {
                     // Pipeline unique via l'exécuteur (gestion .zip + comptage partiel inclus).
                     IngestionTaskExecutor.IngestOneResult r = executor.ingestOne(
                             path.getFileName().toString(), path, collectionId, defaultCollection, i -> {});
-                    if (r.chunks() > 0 && r.complete()) {
+                    if (r.chunks() > 0) {
                         recordIngestion(hash, path.getFileName().toString(), r.chunks(), defaultCollection);
                     }
                     total += r.chunks();

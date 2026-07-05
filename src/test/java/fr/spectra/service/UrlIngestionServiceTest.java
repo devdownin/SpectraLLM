@@ -66,11 +66,18 @@ class UrlIngestionServiceTest {
         when(props.pipeline()).thenReturn(pipeline);
         when(props.chromadb()).thenReturn(chromaProps);
 
+        FtsService fts = mock(FtsService.class);
+        // ingest() délègue au pipeline unique de l'exécuteur : on en construit un vrai (mêmes
+        // mocks réseau) plutôt qu'un mock, sinon ingestOne renverrait null → tâche FAILED.
+        IngestionTaskExecutor executor = new IngestionTaskExecutor(
+                factory, textCleaner, chunkingService, embeddingService, chromaDbClient, fts,
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry(), props, 10, 50, 4);
+
         ingestionService = new IngestionService(
                 factory, textCleaner, chunkingService,
                 embeddingService, chromaDbClient,
-                mock(FtsService.class),
-                mock(IngestionTaskExecutor.class),
+                fts,
+                executor,
                 mock(IngestedFileRepository.class),
                 mock(GedService.class),
                 mock(fr.spectra.persistence.StreamSourceRepository.class),
