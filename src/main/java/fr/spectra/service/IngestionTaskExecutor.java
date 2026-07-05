@@ -149,14 +149,12 @@ public class IngestionTaskExecutor {
                 final int[] resultHolder = new int[1];
                 final String[] parserHolder = new String[1];
                 final int[] layoutHolder = new int[1];
-                final boolean[] completeHolder = {false};
                 ingestionTimer.record(() -> {
                     try {
                         IngestOneResult r = ingestOne(name, currentTempFile, collectionId, collectionName, progress);
                         resultHolder[0] = r.chunks();
                         parserHolder[0] = r.parserUsed();
                         layoutHolder[0] = r.layoutAwareChunks();
-                        completeHolder[0] = r.complete();
                     } catch (Exception e) {
                         log.error("Erreur lors de l'ingestion du fichier {}: {}", name, e.getMessage());
                         resultHolder[0] = 0;
@@ -170,18 +168,11 @@ public class IngestionTaskExecutor {
                     chunksIngested.increment(chunks);
                     filesIngested.increment();
                 }
+                // On enregistre le document dès qu'au moins un chunk a été indexé (y compris en cas
+                // d'échec partiel d'un lot tardif) : on conserve ce qui a réussi.
                 if (chunks > 0 && onIngested != null) {
-                    if (completeHolder[0]) {
-                        String hash = tempFileToHash != null ? tempFileToHash.get(tempFiles.get(i)) : null;
-                        onIngested.onIngested(hash, name, chunks);
-                    } else {
-                        // Indexation PARTIELLE (un lot d'embedding a échoué) : ne PAS enregistrer
-                        // la déduplication, sinon une ré-ingestion future serait ignorée et les
-                        // chunks manquants ne seraient jamais indexés. Le document reste
-                        // ré-ingérable pour compléter l'indexation.
-                        log.warn("Indexation partielle de '{}' ({} chunks) — non dédupliqué, "
-                                + "ré-ingérez le fichier pour compléter l'indexation.", name, chunks);
-                    }
+                    String hash = tempFileToHash != null ? tempFileToHash.get(tempFiles.get(i)) : null;
+                    onIngested.onIngested(hash, name, chunks);
                 }
             }
             final int finalChunks = totalChunks;
