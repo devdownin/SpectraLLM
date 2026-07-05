@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SpotBugs include (whitelist) filter for the Spectra backend.
+
+  This gate deliberately reports only a curated set of HIGH-CONFIDENCE bug
+  patterns rather than everything SpotBugs can emit. The goal is a signal-dense
+  gate that catches the classes of defect this codebase has actually hit
+  (concurrency / visibility, unclosed resources, guaranteed NPEs) plus every
+  security finding from find-sec-bugs — without drowning CI in the stylistic and
+  DTO-exposure noise (EI_EXPOSE_REP, SE_BAD_FIELD, …) that a Spring/JPA/record
+  codebase generates by the hundred.
+
+  Only patterns matched here are considered; combined with threshold=High in the
+  POM, that keeps false positives low. Widen this list as the team builds trust.
+-->
+<FindBugsFilter>
+    <!-- All security findings (find-sec-bugs + core security detectors):
+         SSRF, path traversal, injection, weak crypto, XXE, etc. -->
+    <Match>
+        <Bug category="SECURITY"/>
+    </Match>
+
+    <!-- Guaranteed / highly-likely NullPointerExceptions. -->
+    <Match>
+        <Bug pattern="NP_ALWAYS_NULL,NP_GUARANTEED_DEREF,NP_NULL_PARAM_DEREF,NP_NONNULL_RETURN_VIOLATION,NP_CLOSING_NULL,RCN_REDUNDANT_NULLCHECK_WOULD_HAVE_BEEN_A_NPE"/>
+    </Match>
+
+    <!-- Resource leaks: streams / DB resources not closed on all paths. -->
+    <Match>
+        <Bug pattern="OS_OPEN_STREAM,OS_OPEN_STREAM_EXCEPTION_PATH,ODR_OPEN_DATABASE_RESOURCE,ODR_OPEN_DATABASE_RESOURCE_EXCEPTION_PATH"/>
+    </Match>
+
+    <!-- Concurrency / memory-visibility defects — the dominant bug class of the audit. -->
+    <Match>
+        <Bug pattern="IS2_INCONSISTENT_SYNC,IS_FIELD_NOT_GUARDED,UG_SYNC_SET_UNSYNC_GET,LI_LAZY_INIT_UPDATE_STATIC,DC_DOUBLECHECK,VO_VOLATILE_INCREMENT,DL_SYNCHRONIZATION_ON_BOXED_PRIMITIVE,DL_SYNCHRONIZATION_ON_SHARED_CONSTANT,SWL_SLEEP_WITH_LOCK_HELD,WA_NOT_IN_LOOP,SC_START_IN_CTOR,RU_INVOKE_RUN"/>
+    </Match>
+</FindBugsFilter>

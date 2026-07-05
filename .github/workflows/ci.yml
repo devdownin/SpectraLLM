@@ -21,6 +21,30 @@ jobs:
     - name: Build and Test with Maven
       run: mvn -B package --file pom.xml
 
+  static-analysis:
+    name: Static analysis (SpotBugs)
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+    - name: Set up JDK 25
+      uses: actions/setup-java@v5
+      with:
+        java-version: '25'
+        distribution: 'temurin'
+        cache: maven
+    # SpotBugs + find-sec-bugs, restricted to a curated high-confidence rule set
+    # (see spotbugs-include.xml) plus all security findings. Runs off the default
+    # build via the `static-analysis` profile so `mvn package` stays fast.
+    - name: SpotBugs check
+      run: mvn -B -Pstatic-analysis -DskipTests compile spotbugs:check --file pom.xml
+    - name: Upload SpotBugs report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: spotbugs-report
+        path: target/spotbugs*
+        if-no-files-found: ignore
+
   frontend:
     name: Frontend (Vite)
     runs-on: ubuntu-latest
