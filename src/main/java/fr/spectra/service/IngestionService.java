@@ -110,6 +110,8 @@ public class IngestionService {
      */
     private final Map<String, Instant> inFlightHashes = new ConcurrentHashMap<>();
     private static final Duration INFLIGHT_TTL = Duration.ofMinutes(15);
+    /** Âge au-delà duquel un temp d'ingestion est considéré orphelin (bien > durée d'ingestion). */
+    private static final Duration ORPHAN_TEMP_TTL = Duration.ofHours(2);
 
     public IngestionService(DocumentExtractorFactory extractorFactory,
                             TextCleanerService textCleaner,
@@ -290,6 +292,48 @@ public class IngestionService {
         // Purge les réservations in-flight périmées (ingestions échouées/crashées) pour borner la mémoire.
         Instant claimCutoff = Instant.now().minus(INFLIGHT_TTL);
         inFlightHashes.entrySet().removeIf(e -> e.getValue().isBefore(claimCutoff));
+    }
+
+    /**
+     * Supprime les fichiers/répertoires temporaires d'ingestion orphelins. En fonctionnement
+     * normal le {@code finally} de l'exécuteur les nettoie ; mais un arrêt brutal de la JVM
+     * (kill, OOM) mid-ingestion peut laisser des {@code spectra-ingest-*}/{@code spectra-url-*}
+     * dans le répertoire temp. On ne supprime que ceux plus vieux que {@link #ORPHAN_TEMP_TTL}
+     * — bien au-delà de toute ingestion en cours — pour ne jamais toucher un travail actif.
+     */
+    @Scheduled(fixedDelay = 3_600_000)
+    public void cleanupOrphanedTempFiles() {
+        Path tmp = Path.of(System.getProperty("java.io.tmpdir"));
+        long cutoffMillis = System.currentTimeMillis() - ORPHAN_TEMP_TTL.toMillis();
+        try (var entries = Files.list(tmp)) {
+            entries.filter(p -> {
+                        String n = p.getFileName().toString();
+                        return n.startsWith("spectra-ingest-") || n.startsWith("spectra-url-");
+                    })
+                    .filter(p -> {
+                        try { return Files.getLastModifiedTime(p).toMillis() < cutoffMillis; }
+                        catch (Exception e) { return false; }
+                    })
+                    .forEach(this::deleteRecursively);
+        } catch (Exception e) {
+            log.debug("Balayage des fichiers temp orphelins impossible: {}", e.getMessage());
+        }
+    }
+
+    private void deleteRecursively(Path p) {
+        try {
+            if (Files.isDirectory(p)) {
+                try (var walk = Files.walk(p)) {
+                    walk.sorted(java.util.Comparator.reverseOrder())
+                            .forEach(x -> { try { Files.deleteIfExists(x); } catch (Exception ignored) {} });
+                }
+            } else {
+                Files.deleteIfExists(p);
+            }
+            log.info("Temp d'ingestion orphelin supprimé (ingestion interrompue): {}", p.getFileName());
+        } catch (Exception e) {
+            log.debug("Suppression du temp orphelin {} impossible: {}", p, e.getMessage());
+        }
     }
 
     public Page<IngestedFileEntity> getHistory(int page, int size, String q) {
