@@ -1,0 +1,12 @@
+# Test-only dependencies for the Python microservices (docparser, reranker).
+#
+# Deliberately excludes the heavy runtime deps (torch, sentence-transformers,
+# pymupdf, ...): the unit tests stub those modules so they run offline and fast.
+# Only the light web-framework layer that the request-handling logic actually
+# uses is installed here.
+pytest==8.4.1
+httpx==0.28.1
+fastapi==0.136.1
+pydantic==2.13.4
+python-multipart==0.0.20
+ruff==0.15.8

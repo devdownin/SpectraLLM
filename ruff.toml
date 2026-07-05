@@ -1,0 +1,14 @@
+# Ruff configuration for the Python microservices (docparser, reranker).
+# Pinned rule set so a future change to Ruff's defaults can't turn CI red on
+# code that was clean when it merged.
+line-length = 120
+target-version = "py311"
+
+[lint]
+# Pyflakes (F) catches real defects — undefined names, unused imports, shadowing.
+# The pycodestyle error subset (E4/E7/E9) catches syntax-level mistakes.
+select = ["E4", "E7", "E9", "F"]
+
+[lint.per-file-ignores]
+# Test stubs deliberately inject fake modules and reload; that is intentional.
+"**/tests/*" = ["E402"]
