@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import fr.spectra.dto.FineTuningJob;
 import fr.spectra.dto.FineTuningJob.Status;
 import fr.spectra.dto.FineTuningRequest;
+import fr.spectra.model.AssistantPersona;
 import fr.spectra.model.TrainingPair;
 import fr.spectra.model.DpoPair;
 import fr.spectra.persistence.FineTuningJobEntity;
@@ -30,6 +31,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 
 /**
  * Orchestre le fine-tuning : export dataset → entraînement externe → production du modèle GGUF.
@@ -48,8 +50,15 @@ public class FineTuningService {
     private final LlmChatClient llmClient;
     private final FineTuningJobRepository repository;
     private final TrainingLogBroadcaster broadcaster;
+    private final ModelRegistryService modelRegistry;
     private final Path workDir;
     private final String trainingScript;
+    /** Script de fusion LoRA + conversion GGUF (voir scripts/export_gguf.py). */
+    private final String exportScript;
+    /** Interpréteur Python utilisé pour l'export GGUF. */
+    private final String pythonBin;
+    /** Volume partagé des modèles GGUF servis par llm-chat (cf. LlmFitService). */
+    private final String modelsDir;
     /**
      * Catégories/types exclus du SFT (jetons comparés à {@code category} ET {@code type}).
      * Levier « fine-tuning vs RAG » : le fine-tuning encode mal les faits volatils (événements,
@@ -75,18 +84,26 @@ public class FineTuningService {
                              LlmChatClient llmClient,
                              FineTuningJobRepository repository,
                              TrainingLogBroadcaster broadcaster,
+                             ModelRegistryService modelRegistry,
                              @Value("${spectra.fine-tuning.work-dir:./data/fine-tuning}") String workDir,
                              @Value("${spectra.fine-tuning.script:./scripts/train.sh}") String trainingScript,
+                             @Value("${spectra.fine-tuning.export-script:./scripts/export_gguf.py}") String exportScript,
+                             @Value("${spectra.fine-tuning.python:python3}") String pythonBin,
+                             @Value("${llmfit.models-dir:./data/models}") String modelsDir,
                              @Value("${spectra.fine-tuning.sft-excluded-categories:}") String sftExcludedCsv) {
          this.datasetGenerator = datasetGenerator;
          this.dpoGenerator = dpoGenerator;
          this.llmClient = llmClient;
          this.repository = repository;
          this.broadcaster = broadcaster;
+         this.modelRegistry = modelRegistry;
          this.workDir = Path.of(workDir);
          // Chemin absolu : le process d'entraînement s'exécute avec workDir comme répertoire
          // courant, donc un chemin relatif ne serait pas résolu correctement.
          this.trainingScript = Path.of(trainingScript).toAbsolutePath().toString();
+         this.exportScript = Path.of(exportScript).toAbsolutePath().toString();
+         this.pythonBin = pythonBin;
+         this.modelsDir = modelsDir;
          this.sftExcludedCategories = parseCsvLower(sftExcludedCsv);
     }
 
@@ -144,7 +161,8 @@ public class FineTuningService {
                     request.minConfidence(),
                     request.packingEnabled(),
                     request.dpoEnabled(),
-                    request.orpoEnabled()
+                    request.orpoEnabled(),
+                    request.exportGguf()
             );
 
             FineTuningJob job = FineTuningJob.pending(jobId, resolved);
@@ -286,10 +304,15 @@ public class FineTuningService {
 
             // ── Étape 3 : Modèle prêt ──
             log.info("Job {}: modèle '{}' prêt → {}", jobId, request.modelName(), adapterPath);
-            broadcaster.info("Job " + jobId + " : adaptateur entraîné → " + adapterPath
-                    + " (exporter en GGUF puis enregistrer pour le déployer)");
 
-            updateJob(jobId, j -> j.completed(adapterPath.toString()));
+            if (Boolean.TRUE.equals(request.exportGguf())) {
+                // Étape 3b (opt-in) : fusion LoRA → GGUF → enregistrement pour déploiement.
+                exportGgufAndRegister(jobId, request, adapterPath, jobDir);
+            } else {
+                broadcaster.info("Job " + jobId + " : adaptateur entraîné → " + adapterPath
+                        + " (exporter en GGUF puis enregistrer pour le déployer)");
+                updateJob(jobId, j -> j.completed(adapterPath.toString()));
+            }
 
         } catch (Exception e) {
             if (cancelledJobs.contains(jobId)) {
@@ -369,7 +392,19 @@ public class FineTuningService {
                 String.valueOf(request.dpoEnabled()),
                 String.valueOf(request.orpoEnabled())
         );
+        return runProcess(jobId, "train", command, line -> parseTrainingOutput(jobId, line));
+    }
 
+    /**
+     * Lance un sous-processus, diffuse sa sortie ligne à ligne (logs + SSE) et respecte
+     * l'annulation ({@link #cancelledJobs}). L'enregistrement dans {@link #activeProcesses}
+     * permet à {@code cancelJob} de tuer le process en cours.
+     *
+     * @param onLine traitement optionnel par ligne (ex. extraction de la progression)
+     * @return le code de sortie du process
+     */
+    private int runProcess(String jobId, String label, List<String> command, Consumer<String> onLine)
+            throws Exception {
         log.info("Job {}: commande = {}", jobId, String.join(" ", command));
 
         ProcessBuilder pb = new ProcessBuilder(command)
@@ -380,7 +415,6 @@ public class FineTuningService {
         activeProcesses.put(jobId, process);
 
         try {
-            // Lire la sortie du process pour détecter la progression
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
@@ -388,15 +422,84 @@ public class FineTuningService {
                         process.destroyForcibly();
                         break;
                     }
-                    log.info("Job {} [train]: {}", jobId, line);
+                    log.info("Job {} [{}]: {}", jobId, label, line);
                     broadcaster.info(line); // diffusion temps réel vers /api/sse/training-logs
-                    parseTrainingOutput(jobId, line);
+                    if (onLine != null) onLine.accept(line);
                 }
             }
             return process.waitFor();
         } finally {
             activeProcesses.remove(jobId);
         }
+    }
+
+    /**
+     * Fusionne l'adaptateur LoRA, le convertit en GGUF via {@code export_gguf.py}, copie le
+     * fichier dans le volume partagé des modèles puis l'enregistre — le modèle fine-tuné devient
+     * ainsi déployable/servable par llm-chat sans étape manuelle. En cas d'échec, le job passe
+     * FAILED mais l'adaptateur entraîné reste conservé sur disque.
+     */
+    private void exportGgufAndRegister(String jobId, FineTuningRequest request,
+                                       Path adapterPath, Path jobDir) throws Exception {
+        updateJob(jobId, j -> j.withStatus(Status.IMPORTING_MODEL, "Fusion LoRA + conversion GGUF…"));
+        broadcaster.info("Job " + jobId + " : fusion de l'adaptateur, conversion GGUF et enregistrement…");
+
+        Path mergedDir = jobDir.resolve("merged");
+        List<String> command = new java.util.ArrayList<>(List.of(
+                pythonBin, exportScript,
+                "--adapter", adapterPath.toAbsolutePath().toString(),
+                "--output", mergedDir.toAbsolutePath().toString(),
+                "--model-name", request.modelName()));
+        // baseModel peut être vide (défaut config) : ne pas passer un « --base-model "" » qui
+        // écraserait le défaut du script par une valeur invalide.
+        if (request.baseModel() != null && !request.baseModel().isBlank()) {
+            command.add("--base-model");
+            command.add(request.baseModel());
+        }
+
+        int exitCode = runProcess(jobId, "export", command, null);
+
+        if (cancelledJobs.contains(jobId)) {
+            log.info("Job {} annulé pendant l'export GGUF.", jobId);
+            return;
+        }
+        if (exitCode != 0) {
+            throw new IllegalStateException("La conversion GGUF a retourné le code " + exitCode
+                    + " (adaptateur conservé : " + adapterPath + ")");
+        }
+
+        Path gguf = mergedDir.resolve("model.gguf");
+        if (!Files.exists(gguf)) {
+            throw new IllegalStateException("Fichier GGUF introuvable après conversion: " + gguf);
+        }
+
+        // Copie dans le volume partagé pour que llm-chat (monté sur modelsDir) puisse le servir.
+        Path modelsDirPath = Path.of(modelsDir);
+        Files.createDirectories(modelsDirPath);
+        Path target = modelsDirPath.resolve(safeFileName(request.modelName()) + ".gguf");
+        Files.copy(gguf, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        String registeredPath = target.toAbsolutePath().toString();
+
+        // La persona d'enregistrement DOIT correspondre à celle de l'entraînement, sinon le
+        // fine-tuning est dégradé au service (cf. AssistantPersona.SYSTEM_PROMPT).
+        modelRegistry.registerChatModel(
+                request.modelName(),
+                registeredPath,
+                AssistantPersona.SYSTEM_PROMPT,
+                Map.of("jobId", jobId, "baseModel", String.valueOf(request.baseModel())),
+                "fine-tuning");
+
+        log.info("Job {}: modèle '{}' converti et enregistré → {}", jobId, request.modelName(), registeredPath);
+        broadcaster.info("Job " + jobId + " : modèle '" + request.modelName()
+                + "' enregistré et déployable → " + registeredPath);
+        updateJob(jobId, j -> j.completed(registeredPath));
+    }
+
+    /** Neutralise un nom de modèle pour l'utiliser comme nom de fichier GGUF. */
+    private static String safeFileName(String modelName) {
+        String cleaned = modelName.replaceAll("[^A-Za-z0-9._-]", "-").replaceAll("-+", "-");
+        cleaned = cleaned.replaceAll("^-+|-+$", "");
+        return cleaned.isEmpty() ? "model" : cleaned;
     }
 
     /**

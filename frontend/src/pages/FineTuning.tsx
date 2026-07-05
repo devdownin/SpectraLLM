@@ -140,6 +140,7 @@ const trainingSchema = z.object({
   minConfidence: z.number().min(0).max(1),
   packingEnabled: z.boolean().optional(),
   dpoEnabled: z.boolean().optional(),
+  exportGguf: z.boolean().optional(),
 });
 
 type TrainingFormValues = z.infer<typeof trainingSchema>;
@@ -175,6 +176,7 @@ const FineTuning: FC = () => {
       minConfidence: parseFloat(localStorage.getItem('spectra_ft_conf') || '0.8'),
       packingEnabled: false,
       dpoEnabled: false,
+      exportGguf: false,
     }
   });
 
@@ -460,6 +462,11 @@ const FineTuning: FC = () => {
                 <input type="checkbox" {...register('dpoEnabled')} className="accent-secondary" />
                 <span className="font-label text-[10px] uppercase tracking-widest">DPO Alignment</span>
                 <span className="text-[9px] text-on-surface-variant">(requires DPO pairs)</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input type="checkbox" {...register('exportGguf')} className="accent-primary" />
+                <span className="font-label text-[10px] uppercase tracking-widest">Export GGUF &amp; register</span>
+                <span className="text-[9px] text-on-surface-variant">(merge + convert + deploy)</span>
               </label>
             </div>
 

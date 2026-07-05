@@ -48,6 +48,29 @@ public class LlmFitService {
     /** Extrait un chemin/fichier GGUF d'une ligne de log (tolère du texte avant/après). */
     private static final Pattern GGUF_PATTERN = Pattern.compile("(\\S+\\.gguf)");
 
+    // Ces valeurs proviennent de requêtes HTTP et sont passées en arguments à un
+    // sous-processus (llmfit). ProcessBuilder(List) n'utilise pas de shell — pas
+    // d'injection de métacaractères — mais un argument commençant par « - » serait
+    // interprété par llmfit comme une OPTION (argument injection). On impose donc un
+    // premier caractère alphanumérique et un jeu de caractères restreint.
+    /** Identifiant de modèle façon HuggingFace (« org/name ») ou Ollama (« llama3.2:3b »). */
+    private static final Pattern SAFE_MODEL_ID = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._:/-]{0,200}");
+    /** Option courte (quantisation « Q4_K_M », mémoire « 8GB », …). */
+    private static final Pattern SAFE_OPTION = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,64}");
+
+    /**
+     * Valide une valeur destinée à la ligne de commande d'un sous-processus.
+     *
+     * @throws IllegalArgumentException si la valeur est nulle ou hors de l'allowlist
+     *         (empêche notamment l'injection d'arguments via un « - » initial).
+     */
+    private static String requireSafeArg(String value, Pattern allowed, String field) {
+        if (value == null || !allowed.matcher(value).matches()) {
+            throw new IllegalArgumentException("Valeur invalide pour « " + field + " »");
+        }
+        return value;
+    }
+
     private final ObjectMapper objectMapper;
     private final ModelRegistryService modelRegistryService;
     private final LlmChatClient chatClient;
@@ -76,11 +99,11 @@ public class LlmFitService {
             List<String> command = new ArrayList<>(List.of(llmfitPath, "recommend", "--json", "--limit", String.valueOf(limit)));
             if (memory != null && !memory.isBlank()) {
                 command.add("--memory");
-                command.add(memory);
+                command.add(requireSafeArg(memory, SAFE_OPTION, "memory"));
             }
             if (ram != null && !ram.isBlank()) {
                 command.add("--ram");
-                command.add(ram);
+                command.add(requireSafeArg(ram, SAFE_OPTION, "ram"));
             }
             if (cpuCores != null) {
                 command.add("--cpu-cores");
@@ -106,6 +129,13 @@ public class LlmFitService {
     }
 
     public CompletableFuture<Boolean> installModel(String modelName, String quant, boolean autoActivate) {
+        // Validation synchrone AVANT le sous-processus : rejette une entrée malveillante
+        // (ex. modelName = « --output=/etc/… ») immédiatement, sans démarrer de tâche async.
+        requireSafeArg(modelName, SAFE_MODEL_ID, "modelName");
+        if (quant != null && !quant.isBlank()) {
+            requireSafeArg(quant, SAFE_OPTION, "quant");
+        }
+
         // Sink neuf à chaque install (remplace un éventuel sink terminé d'un run précédent
         // pour ce modèle). On le CONSERVE après complétion : le navigateur ne s'abonne au
         // flux SSE qu'après le retour du POST, donc un téléchargement rapide ou en cache

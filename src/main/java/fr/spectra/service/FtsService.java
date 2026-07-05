@@ -33,6 +33,16 @@ public class FtsService {
     private static final Logger log = LoggerFactory.getLogger(FtsService.class);
     private static final Path INDEX_DIR = Path.of("./data/fts-index");
 
+    /**
+     * Allowlist for deserializing a persisted BM25 index: only the index class itself
+     * and JDK value types (the maps/sets/strings/numbers it is built from) may be
+     * reconstructed; every other class is rejected. This closes the native-deserialization
+     * gadget-chain surface — should a malicious {@code *.bin} ever land in {@link #INDEX_DIR},
+     * it cannot instantiate arbitrary classes to trigger code execution.
+     */
+    private static final ObjectInputFilter FTS_INDEX_FILTER =
+            ObjectInputFilter.Config.createFilter("fr.spectra.service.BM25Index;java.util.*;java.lang.*;!*");
+
     private final ChromaDbClient chromaDbClient;
     private final SpectraProperties props;
 
@@ -170,6 +180,7 @@ public class FtsService {
             return null;
         }
         try (ObjectInputStream ois = new ObjectInputStream(Files.newInputStream(file))) {
+            ois.setObjectInputFilter(FTS_INDEX_FILTER);
             return (BM25Index) ois.readObject();
         } catch (Exception e) {
             log.warn("FTS: failed to deserialize index for '{}' from disk, rebuilding: {}", collectionName, e.getMessage());

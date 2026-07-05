@@ -1,7 +1,7 @@
 import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import type { FC } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import Skeleton from '../components/Skeleton';
 import Tooltip from '../components/Tooltip';
@@ -53,6 +53,8 @@ const QUALITY_THRESHOLDS = [
 ];
 
 const PAGE_SIZE = 50;
+/** Taille d'un lot chargé depuis le serveur (pagination incrémentale « Load more »). */
+const FETCH_SIZE = 200;
 
 function getDocumentType(file: IngestedFile): DocumentTypeMeta {
   const format = file.format.toLowerCase();
@@ -127,18 +129,42 @@ const Pipelines: FC = () => {
     queryFn: () => gedApi.getStats().then(r => r.data),
   });
 
-  const { data: documents, isLoading, isFetching, refetch } = useQuery<IngestedFile[]>({
-    // Recherche déportée serveur (q) : trouve un document au-delà du lot chargé. Le reste du
-    // filtrage (format/qualité/tri/groupement) reste client-side sur le lot retourné.
+  // Pagination serveur incrémentale. On charge des pages successives (lifecycle + recherche
+  // appliqués côté serveur) et on les accumule ; le filtrage riche (format/qualité/tri/
+  // groupement) reste client-side sur l'ensemble chargé. Remplace l'ancien plafond muet
+  // `size:1000` : au-delà, un bouton « Load more » charge la suite et un indicateur montre
+  // « N chargés / M au total » plutôt que de tronquer silencieusement.
+  const {
+    data: docPages,
+    isLoading,
+    isFetching,
+    refetch,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
     queryKey: ['ged-documents', selectedLifecycle, deferredSearch],
-    queryFn: async () => {
-      const params: Record<string, unknown> = { size: 1000 };
+    initialPageParam: 0,
+    queryFn: async ({ pageParam }) => {
+      const params: Record<string, unknown> = { page: pageParam, size: FETCH_SIZE };
       if (selectedLifecycle !== 'all') params.lifecycle = selectedLifecycle;
       if (deferredSearch.trim()) params.q = deferredSearch.trim();
       const res = await gedApi.listDocuments(params);
-      return res.data.content;
+      return res.data as {
+        content: IngestedFile[];
+        page: number;
+        totalPages: number;
+        totalElements: number;
+      };
     },
+    getNextPageParam: (last) => (last.page + 1 < last.totalPages ? last.page + 1 : undefined),
   });
+
+  const documents = useMemo(
+    () => docPages?.pages.flatMap((p) => p.content) ?? [],
+    [docPages],
+  );
+  const totalDocuments = docPages?.pages[0]?.totalElements ?? documents.length;
 
   const { data: sheet, isLoading: isLoadingSheet } = useQuery<IngestedFileSheet>({
     queryKey: ['ged-document', selectedSha],
@@ -452,7 +478,8 @@ const Pipelines: FC = () => {
         </div>
         <div className="flex items-center gap-3">
           <span className="text-[10px] font-label text-on-surface-variant uppercase tracking-widest">
-            {filtered.length} / {documents?.length ?? 0} documents
+            {filtered.length} shown · {documents.length} loaded
+            {totalDocuments > documents.length ? ` / ${totalDocuments} total` : ''}
           </span>
           <button
             onClick={() => refetch()}
@@ -745,6 +772,22 @@ const Pipelines: FC = () => {
               Next →
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Chargement incrémental depuis le serveur : plus de troncature muette à 1000. */}
+      {hasNextPage && (
+        <div className="flex items-center justify-center gap-3 border border-outline-variant/10 p-4 bg-surface-container">
+          <span className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">
+            {documents.length} of {totalDocuments} loaded
+          </span>
+          <button
+            onClick={() => fetchNextPage()}
+            disabled={isFetchingNextPage}
+            className="px-4 py-2 border border-primary/40 text-[9px] font-label uppercase tracking-widest text-primary hover:bg-primary/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {isFetchingNextPage ? 'Loading…' : `Load ${Math.min(FETCH_SIZE, totalDocuments - documents.length)} more`}
+          </button>
         </div>
       )}
 

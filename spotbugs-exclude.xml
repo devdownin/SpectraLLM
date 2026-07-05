@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SpotBugs exclude filter: findings that have been reviewed and addressed, but which
+  the (presence-based) find-sec-bugs detectors keep reporting because the risky API is
+  still used. Each entry documents WHY it is safe. Keep this list short and justified —
+  it is not a place to silence real bugs.
+-->
+<FindBugsFilter>
+    <!--
+      FtsService persists/loads its BM25 full-text index via Java serialization to an
+      app-owned cache file (./data/fts-index/<collection>.bin). Native deserialization is
+      flagged generically, but the read is now guarded by a strict ObjectInputFilter
+      allowlist (BM25Index + JDK value types only, see FtsService.FTS_INDEX_FILTER), which
+      removes the gadget-chain / RCE surface. Reviewed safe.
+    -->
+    <Match>
+        <Class name="fr.spectra.service.FtsService"/>
+        <Bug pattern="OBJECT_DESERIALIZATION"/>
+    </Match>
+
+    <!--
+      LlmFitService spawns the external `llmfit` tool via ProcessBuilder(List), which execs
+      the binary directly with an argv array — no shell is involved, so shell-metacharacter
+      injection is not possible. The remaining argument-injection risk (a value starting with
+      '-' being read as an option) is closed by validating modelName/quant/memory/ram against
+      strict allowlists (SAFE_MODEL_ID / SAFE_OPTION) before they reach the command. Reviewed safe.
+      The taint is reported at both the sink (LlmFitService) and the source (ModelHubController).
+    -->
+    <Match>
+        <Class name="fr.spectra.service.LlmFitService"/>
+        <Bug pattern="COMMAND_INJECTION"/>
+    </Match>
+    <Match>
+        <Class name="fr.spectra.controller.ModelHubController"/>
+        <Bug pattern="COMMAND_INJECTION"/>
+    </Match>
+</FindBugsFilter>

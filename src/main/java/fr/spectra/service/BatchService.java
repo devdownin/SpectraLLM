@@ -92,7 +92,7 @@ public class BatchService {
             }
 
             // 4. Fine-tuning
-            FineTuningRequest request = new FineTuningRequest(defaultModelName, null, null, null, null, null, null, null, null, null);
+            FineTuningRequest request = new FineTuningRequest(defaultModelName, null, null, null, null, null, null, null, null, null, null);
             String jobId = fineTuningService.submit(request);
             if (jobId == null) {
                 log.warn("Un entraînement est déjà en cours — fine-tuning batch ignoré.");

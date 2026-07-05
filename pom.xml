@@ -191,5 +191,54 @@
                 </plugins>
             </build>
         </profile>
+
+        <!-- Analyse statique du bytecode (SpotBugs + find-sec-bugs). Comme dep-check,
+             volontairement HORS du build par défaut pour ne pas alourdir chaque
+             `mvn package` : activée par le workflow static-analysis via `-Pstatic-analysis`.
+             Le gate est restreint à un jeu de motifs à forte confiance (voir
+             spotbugs-include.xml) + toutes les alertes de sécurité, au seuil High. -->
+        <profile>
+            <id>static-analysis</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>com.github.spotbugs</groupId>
+                        <artifactId>spotbugs-maven-plugin</artifactId>
+                        <version>4.10.2.0</version>
+                        <configuration>
+                            <effort>Max</effort>
+                            <threshold>High</threshold>
+                            <includeTests>false</includeTests>
+                            <includeFilterFile>spotbugs-include.xml</includeFilterFile>
+                            <excludeFilterFile>spotbugs-exclude.xml</excludeFilterFile>
+                            <sarifOutput>true</sarifOutput>
+                            <xmlOutput>true</xmlOutput>
+                            <plugins>
+                                <plugin>
+                                    <groupId>com.h3xstream.findsecbugs</groupId>
+                                    <artifactId>findsecbugs-plugin</artifactId>
+                                    <version>1.14.0</version>
+                                </plugin>
+                            </plugins>
+                        </configuration>
+                        <!-- Épingle le moteur SpotBugs à une version qui lit le bytecode Java 25. -->
+                        <dependencies>
+                            <dependency>
+                                <groupId>com.github.spotbugs</groupId>
+                                <artifactId>spotbugs</artifactId>
+                                <version>4.10.2</version>
+                            </dependency>
+                        </dependencies>
+                        <executions>
+                            <execution>
+                                <goals>
+                                    <goal>check</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
     </profiles>
 </project>

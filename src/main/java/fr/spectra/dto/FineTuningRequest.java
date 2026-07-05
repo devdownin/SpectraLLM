@@ -10,12 +10,21 @@ import jakarta.validation.constraints.Positive;
 
 public record FineTuningRequest(
 
-        /** Nom du modèle résultant (ex: "spectra-highway"). */
+        /**
+         * Nom du modèle résultant (ex: "spectra-highway"). Doit commencer par un caractère
+         * alphanumérique — cette valeur est passée en argument au sous-processus d'export GGUF,
+         * et un « - » initial serait interprété comme une option (argument injection).
+         */
         @NotBlank(message = "Le nom du modèle est obligatoire")
+        @Pattern(regexp = "[A-Za-z0-9][\\w./@:-]*", message = "modelName contient des caractères non autorisés")
         String modelName,
 
-        /** Modèle de base à fine-tuner (défaut: depuis la config). */
-        @Pattern(regexp = "[\\w./@:-]*", message = "baseModel contient des caractères non autorisés")
+        /**
+         * Modèle de base à fine-tuner (défaut: depuis la config). Optionnel, mais s'il est fourni
+         * il doit commencer par un caractère alphanumérique (même raison que modelName : il est
+         * passé en argument au script d'entraînement / d'export).
+         */
+        @Pattern(regexp = "([A-Za-z0-9][\\w./@:-]*)?", message = "baseModel contient des caractères non autorisés")
         String baseModel,
 
         /** LoRA rank. */
@@ -47,7 +56,15 @@ public record FineTuningRequest(
         Boolean dpoEnabled,
 
         /** Activer l'entraînement ORPO (SFT + préférence en une passe, sans modèle de référence). */
-        Boolean orpoEnabled
+        Boolean orpoEnabled,
+
+        /**
+         * Après l'entraînement, fusionner l'adaptateur LoRA, convertir en GGUF (export_gguf.py)
+         * et enregistrer le modèle pour le rendre déployable. Désactivé par défaut : l'étape est
+         * lourde (téléchargement du modèle de base, fusion, conversion llama.cpp) et exige que le
+         * poste dispose de la stack Python d'inférence.
+         */
+        Boolean exportGguf
 ) {
     public FineTuningRequest {
         if (loraRank == null) loraRank = 64;
@@ -58,6 +75,7 @@ public record FineTuningRequest(
         if (packingEnabled == null) packingEnabled = false;
         if (dpoEnabled == null) dpoEnabled = false;
         if (orpoEnabled == null) orpoEnabled = false;
+        if (exportGguf == null) exportGguf = false;
         // DPO et ORPO sont mutuellement exclusifs : ORPO a priorité.
         if (orpoEnabled && dpoEnabled) dpoEnabled = false;
     }
