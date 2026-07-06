@@ -172,6 +172,10 @@ resilience4j:
         wait-duration-in-open-state: 30s
         permitted-number-of-calls-in-half-open-state: 2
         register-health-indicator: true
+        # Une incohérence embedding ↔ index est une erreur de configuration, pas une
+        # panne ChromaDB : elle ne doit pas ouvrir le circuit.
+        ignore-exceptions:
+          - fr.spectra.service.ChromaDbClient$EmbeddingModelMismatchException
       embed:
         sliding-window-size: 5
         failure-rate-threshold: 60

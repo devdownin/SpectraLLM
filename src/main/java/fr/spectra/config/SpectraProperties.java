@@ -15,6 +15,10 @@ public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, 
     /**
      * Generic LLM config. Includes legacy flat fields (base-url, model, embedding-model)
      * used by LlmClient/EmbeddingService, plus new nested structure for llama.cpp.
+     *
+     * <p>La résolution « champ imbriqué → champ plat legacy → défaut » est centralisée ici
+     * ({@link #effectiveChatModel()}, {@link #effectiveEmbeddingModel()}) : c'est le seul
+     * endroit du code où les noms de modèles par défaut sont définis.</p>
      */
     public record LlmProperties(
             String baseUrl,
@@ -26,8 +30,25 @@ public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, 
             EndpointProperties embedding,
             RuntimeProperties runtime
     ) {
+        /** Instance vide : toutes les méthodes effective*() renvoient leurs défauts. */
+        public static LlmProperties defaults() {
+            return new LlmProperties(null, null, null, null, null, null, null, null);
+        }
+
         public String effectiveRegistryPath() {
             return registryPath != null ? registryPath : "./data/models/registry.json";
+        }
+
+        /** Modèle de chat : {@code llm.chat.model} → {@code llm.model} (legacy) → défaut. */
+        public String effectiveChatModel() {
+            if (chat != null && chat.model() != null) return chat.model();
+            return model != null ? model : "phi-4-mini";
+        }
+
+        /** Modèle d'embedding : {@code llm.embedding.model} → {@code llm.embedding-model} (legacy) → défaut. */
+        public String effectiveEmbeddingModel() {
+            if (embedding != null && embedding.model() != null) return embedding.model();
+            return embeddingModel != null ? embeddingModel : "nomic-embed-text";
         }
     }
 

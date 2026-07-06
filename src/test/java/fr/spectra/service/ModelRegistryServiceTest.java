@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -180,6 +181,39 @@ class ModelRegistryServiceTest {
         Map<String, Object> modelA = registry.listModels("chat").stream()
                 .filter(m -> "model-a".equals(m.get("name"))).findFirst().orElseThrow();
         assertThat(modelA.get("active")).isEqualTo(false);
+    }
+
+    @Test
+    void setActiveChatModel_unknownAlias_throwsWithoutCreatingPhantomEntry() {
+        String previousActive = registry.getActiveChatModel();
+
+        assertThatThrownBy(() -> registry.setActiveChatModel("typo-model"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("typo-model");
+
+        // Ni entrée fantôme, ni changement de modèle actif.
+        assertThat(registry.hasModel("typo-model", "chat")).isFalse();
+        assertThat(registry.getActiveChatModel()).isEqualTo(previousActive);
+    }
+
+    @Test
+    void setActiveEmbeddingModel_unknownAlias_throwsWithoutCreatingPhantomEntry() {
+        String previousActive = registry.getActiveEmbeddingModel();
+
+        assertThatThrownBy(() -> registry.setActiveEmbeddingModel("typo-embed"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("typo-embed");
+
+        assertThat(registry.hasModel("typo-embed", "embedding")).isFalse();
+        assertThat(registry.getActiveEmbeddingModel()).isEqualTo(previousActive);
+    }
+
+    @Test
+    void setActiveChatModel_registeredEmbeddingAlias_isRejectedForChat() {
+        registry.registerEmbeddingModel("embed-x", "/models/embed-x.gguf", "llmfit");
+
+        assertThatThrownBy(() -> registry.setActiveChatModel("embed-x"))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     // ── hasModel ──────────────────────────────────────────────────────────────

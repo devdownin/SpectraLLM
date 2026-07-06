@@ -37,18 +37,13 @@ public class ModelRegistryService {
     private RegistryState state;
 
     public ModelRegistryService(SpectraProperties properties) {
-        SpectraProperties.LlmProperties llm = properties.llm();
-        this.registryPath = Path.of(
-                llm != null ? llm.effectiveRegistryPath() : "./data/models/registry.json"
-        );
+        SpectraProperties.LlmProperties llm = properties.llm() != null
+                ? properties.llm()
+                : SpectraProperties.LlmProperties.defaults();
 
-        String llmChatModel = llm != null && llm.chat() != null ? llm.chat().model() : null;
-        String llmEmbeddingModel = llm != null && llm.embedding() != null ? llm.embedding().model() : null;
-
-        this.defaultChatModel = llmChatModel != null ? llmChatModel
-                : (llm != null && llm.model() != null ? llm.model() : "phi-4-mini");
-        this.defaultEmbeddingModel = llmEmbeddingModel != null ? llmEmbeddingModel
-                : (llm != null && llm.embeddingModel() != null ? llm.embeddingModel() : "nomic-embed-text");
+        this.registryPath = Path.of(llm.effectiveRegistryPath());
+        this.defaultChatModel = llm.effectiveChatModel();
+        this.defaultEmbeddingModel = llm.effectiveEmbeddingModel();
     }
 
     @PostConstruct
@@ -105,14 +100,26 @@ public class ModelRegistryService {
         return state.activeEmbeddingModel();
     }
 
+    /**
+     * Active un modèle de chat déjà enregistré.
+     *
+     * @throws IllegalArgumentException si l'alias est inconnu du registre. Un nom mal
+     *         orthographié créait auparavant une entrée fantôme sans source (« alias »),
+     *         impossible à servir ; on échoue désormais explicitement.
+     */
     public synchronized void setActiveChatModel(String name) {
-        ensureModelExists(name, "chat", name, "alias", null, Map.of(), "manual-select");
+        requireRegistered(name, "chat");
         state = state.withActiveChatModel(name);
         persist();
     }
 
+    /**
+     * Active un modèle d'embedding déjà enregistré.
+     *
+     * @throws IllegalArgumentException si l'alias est inconnu du registre
+     */
     public synchronized void setActiveEmbeddingModel(String name) {
-        ensureModelExists(name, "embedding", name, "alias", null, Map.of(), "manual-select");
+        requireRegistered(name, "embedding");
         state = state.withActiveEmbeddingModel(name);
         persist();
     }
@@ -173,6 +180,19 @@ public class ModelRegistryService {
         registerChatModel(name, source, systemPrompt, parameters, resolvedProvenance);
         if (activate) {
             setActiveChatModel(name);
+        }
+    }
+
+    private void requireRegistered(String name, String type) {
+        if (name == null || name.isBlank() || findModel(name, type).isEmpty()) {
+            List<String> known = state.models().stream()
+                    .filter(model -> type.equals(model.type()))
+                    .map(RegisteredModel::name)
+                    .toList();
+            throw new IllegalArgumentException(
+                    "Modèle " + ("embedding".equals(type) ? "d'embedding" : "de chat")
+                    + " inconnu du registre : '" + name + "'. Modèles enregistrés : " + known
+                    + ". Enregistrez-le d'abord (fine-tuning, llmfit ou POST /api/models).");
         }
     }
 

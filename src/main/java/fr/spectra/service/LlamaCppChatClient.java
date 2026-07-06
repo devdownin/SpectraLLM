@@ -51,16 +51,17 @@ public class LlamaCppChatClient implements LlmChatClient {
         this.runtimeOrchestrator = runtimeOrchestrator;
         this.objectMapper = objectMapper;
 
-        SpectraProperties.EndpointProperties chat = properties.llm() != null ? properties.llm().chat() : null;
-        SpectraProperties.RuntimeProperties runtime = properties.llm() != null ? properties.llm().runtime() : null;
+        SpectraProperties.LlmProperties llm = properties.llm() != null
+                ? properties.llm()
+                : SpectraProperties.LlmProperties.defaults();
+        SpectraProperties.EndpointProperties chat = llm.chat();
+        SpectraProperties.RuntimeProperties runtime = llm.runtime();
         this.baseUrl = runtime != null && runtime.enabled()
                 ? "http://127.0.0.1:" + runtime.effectivePort()
                 : chat != null && chat.baseUrl() != null
                     ? chat.baseUrl()
                     : "http://llama-cpp-chat:8080";
-        String model = chat != null && chat.model() != null
-                ? chat.model()
-                : (properties.llm() != null && properties.llm().model() != null ? properties.llm().model() : "phi-4-mini");
+        String model = llm.effectiveChatModel();
         int timeoutSeconds = chat != null
                 ? chat.effectiveTimeoutSeconds(properties.pipeline().generationTimeoutSeconds())
                 : properties.pipeline().generationTimeoutSeconds();
@@ -76,8 +77,10 @@ public class LlamaCppChatClient implements LlmChatClient {
 
     @Override
     public void setActiveModel(String model) {
-        String previous = activeModel.getAndSet(model);
+        // Le registre valide (et rejette un alias inconnu) AVANT de toucher l'état
+        // en mémoire : un nom invalide ne doit pas laisser le client incohérent.
         modelRegistry.setActiveChatModel(model);
+        String previous = activeModel.getAndSet(model);
         runtimeOrchestrator.ensureChatModelServed(model);
         log.info("Modèle actif llama.cpp changé : {} → {}", previous, model);
         // Vérifie que le serveur sert bien le modèle demandé après le changement

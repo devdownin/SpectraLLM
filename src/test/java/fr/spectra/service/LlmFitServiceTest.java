@@ -2,6 +2,11 @@ package fr.spectra.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -64,5 +69,33 @@ class LlmFitServiceTest {
     @Test
     void installModel_ollamaStyleName_isAccepted() {
         assertThat(newService().installModel("llama3.2:3b", null, false)).isNotNull();
+    }
+
+    // ── Repli de détection du GGUF téléchargé (scan de models-dir) ──────────────
+
+    @TempDir
+    Path modelsDir;
+
+    @Test
+    void findRecentGguf_retourneLeGgufApparuDepuisLeDebutDuTelechargement() throws Exception {
+        Instant start = Instant.now().minusSeconds(10);
+        Path gguf = Files.writeString(modelsDir.resolve("nouveau-modele.gguf"), "fake");
+        Files.writeString(modelsDir.resolve("autre-fichier.txt"), "pas un gguf");
+
+        assertThat(LlmFitService.findRecentGguf(modelsDir, start)).contains(gguf);
+    }
+
+    @Test
+    void findRecentGguf_ignoreLesGgufAnterieursAuTelechargement() throws Exception {
+        Path ancien = Files.writeString(modelsDir.resolve("ancien.gguf"), "fake");
+        Files.setLastModifiedTime(ancien,
+                java.nio.file.attribute.FileTime.from(Instant.now().minusSeconds(3600)));
+
+        assertThat(LlmFitService.findRecentGguf(modelsDir, Instant.now().minusSeconds(10))).isEmpty();
+    }
+
+    @Test
+    void findRecentGguf_repertoireInexistant_retourneVide() {
+        assertThat(LlmFitService.findRecentGguf(modelsDir.resolve("absent"), Instant.now())).isEmpty();
     }
 }

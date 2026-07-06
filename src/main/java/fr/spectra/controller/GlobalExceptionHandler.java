@@ -59,6 +59,15 @@ public class GlobalExceptionHandler {
         return problem;
     }
 
+    @ExceptionHandler(fr.spectra.service.ChromaDbClient.EmbeddingModelMismatchException.class)
+    public ProblemDetail handleEmbeddingMismatch(fr.spectra.service.ChromaDbClient.EmbeddingModelMismatchException e) {
+        log.error("Incohérence modèle d'embedding ↔ index vectoriel : {}", e.getMessage());
+        ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.CONFLICT);
+        problem.setTitle("Modèle d'embedding incompatible avec l'index");
+        problem.setDetail(e.getMessage());
+        return problem;
+    }
+
     @ExceptionHandler(LlmUnavailableException.class)
     public ProblemDetail handleLlmUnavailable(LlmUnavailableException e) {
         log.warn("LLM indisponible (circuit ouvert): {}", e.getMessage());

@@ -12,16 +12,20 @@ import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Sinks;
@@ -149,6 +153,10 @@ public class LlmFitService {
                 log.info("Démarrage de l'installation du modèle {} avec llmfit (quant={}, autoActivate={})",
                         modelName, quant != null ? quant : "auto", autoActivate);
 
+                // Référence temporelle pour le repli par scan : tout GGUF apparu dans
+                // models-dir après cet instant est un candidat produit par ce téléchargement.
+                Instant downloadStart = Instant.now();
+
                 List<String> command = new ArrayList<>(List.of(llmfitPath, "download", modelName));
                 if (quant != null && !quant.isBlank()) {
                     command.add("--quant");
@@ -199,6 +207,19 @@ public class LlmFitService {
                     sink.tryEmitNext(100);
                     sink.tryEmitComplete();
 
+                    if (downloadedFile == null) {
+                        // Repli : la sortie de llmfit n'a pas permis d'extraire le chemin
+                        // (format de log changé ?). Si llmfit a écrit directement dans
+                        // models-dir, un scan des GGUF récents retrouve le fichier.
+                        downloadedFile = findRecentGguf(Path.of(modelsDirPath), downloadStart)
+                                .map(Path::toString)
+                                .orElse(null);
+                        if (downloadedFile != null) {
+                            log.info("Chemin GGUF non détecté dans la sortie llmfit — retrouvé par scan "
+                                    + "de {} : {}", modelsDirPath, downloadedFile);
+                        }
+                    }
+
                     if (downloadedFile != null) {
                         Path source   = Path.of(downloadedFile);
                         String fileName = source.getFileName().toString();
@@ -239,12 +260,14 @@ public class LlmFitService {
                                     + "redémarrez llm-chat pour le charger).", alias);
                         }
                     } else {
-                        // Téléchargement réussi mais chemin GGUF non détecté dans la sortie llmfit :
-                        // le modèle n'a pu être ni copié dans le volume partagé ni enregistré.
-                        // On le signale explicitement plutôt que de laisser un faux succès silencieux.
-                        log.warn("Modèle '{}' téléchargé (exit 0) mais aucun chemin .gguf détecté dans la sortie "
-                                + "llmfit — enregistrement/activation ignorés. Vérifiez le format de sortie de llmfit "
-                                + "ou enregistrez le modèle manuellement.", modelName);
+                        // Téléchargement réussi mais chemin GGUF introuvable (ni dans la sortie
+                        // llmfit, ni par scan de models-dir) : le modèle n'a pu être ni copié dans
+                        // le volume partagé ni enregistré. On le signale explicitement plutôt que
+                        // de laisser un faux succès silencieux.
+                        log.warn("Modèle '{}' téléchargé (exit 0) mais aucun fichier .gguf détecté (sortie "
+                                + "llmfit et scan de {}) — enregistrement/activation ignorés. Vérifiez le "
+                                + "format de sortie de llmfit ou enregistrez le modèle manuellement.",
+                                modelName, modelsDirPath);
                     }
 
                     return true;
@@ -262,5 +285,34 @@ public class LlmFitService {
             // il est conservé pour rejouer l'état terminal aux abonnés tardifs et sera
             // remplacé au prochain install du même modèle.
         });
+    }
+
+    /**
+     * Repli de détection : le GGUF le plus récent apparu dans {@code dir} depuis {@code since}.
+     * Best-effort : ne couvre que le cas où llmfit écrit directement dans models-dir (s'il
+     * télécharge dans son propre cache, seul le parsing de sa sortie connaît le chemin).
+     */
+    static Optional<Path> findRecentGguf(Path dir, Instant since) {
+        if (!Files.isDirectory(dir)) {
+            return Optional.empty();
+        }
+        try (Stream<Path> files = Files.list(dir)) {
+            return files
+                    .filter(Files::isRegularFile)
+                    .filter(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".gguf"))
+                    .filter(p -> lastModified(p).isAfter(since.minusSeconds(1)))
+                    .max(Comparator.comparing(LlmFitService::lastModified));
+        } catch (Exception e) {
+            log.debug("Scan de {} impossible : {}", dir, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    private static Instant lastModified(Path path) {
+        try {
+            return Files.getLastModifiedTime(path).toInstant();
+        } catch (Exception e) {
+            return Instant.EPOCH;
+        }
     }
 }
