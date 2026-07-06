@@ -1,0 +1,25 @@
+{
+  "$comment": "Manifeste UNIQUE des modèles de base pour le fine-tuning. Consommé par train_host.py, export_gguf.py, export_lora_gguf.py (fichier voisin) ET par le backend Java (BaseModelCatalog, via le classpath — cf. pom.xml). Ne dupliquez jamais ce mapping ailleurs : un adaptateur LoRA n'est valide que sur le modèle de base EXACT qui l'a entraîné.",
+  "models": {
+    "tinyllama": {
+      "hfRepo": "TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+      "contextLength": 2048,
+      "description": "CPU léger (~1.1B) — idéal pour valider rapidement le pipeline"
+    },
+    "phi3": {
+      "hfRepo": "microsoft/Phi-3-mini-4k-instruct",
+      "contextLength": 4096,
+      "description": "~3.8B (GPU recommandé) — bon compromis qualité/ressources"
+    },
+    "mistral": {
+      "hfRepo": "mistralai/Mistral-7B-Instruct-v0.3",
+      "contextLength": 32768,
+      "description": "7B (GPU requis)"
+    },
+    "llama3": {
+      "hfRepo": "meta-llama/Meta-Llama-3-8B-Instruct",
+      "contextLength": 8192,
+      "description": "8B (GPU requis, accès HuggingFace gated)"
+    }
+  }
+}

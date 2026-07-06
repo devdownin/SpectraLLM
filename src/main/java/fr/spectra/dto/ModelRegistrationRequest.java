@@ -35,7 +35,22 @@ public record ModelRegistrationRequest(
         /**
          * Active le modele juste apres son enregistrement.
          */
-        Boolean activate
+        Boolean activate,
+
+        /**
+         * Repo HuggingFace d'origine (optionnel, traçabilité).
+         */
+        String hfRepo,
+
+        /**
+         * Quantisation du GGUF (optionnel, ex. Q4_K_M).
+         */
+        String quantization,
+
+        /**
+         * Fenêtre de contexte d'entraînement n_ctx_train (optionnel).
+         */
+        Integer contextLength
 ) {
     public ModelRegistrationRequest {
         if (type == null || type.isBlank()) type = "chat";

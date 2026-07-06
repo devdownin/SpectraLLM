@@ -246,7 +246,13 @@ public class LlmFitService {
                             registeredPath,
                             "Tu es un assistant IA spécialisé.",
                             Collections.emptyMap(),
-                            "llmfit"
+                            "llmfit",
+                            // Traçabilité : identifiant demandé à llmfit (repo HF ou tag Ollama)
+                            // et quantisation choisie, pour que le registre soit auto-descriptif.
+                            new ModelRegistryService.ModelOrigin(
+                                    modelName,
+                                    quant != null && !quant.isBlank() ? quant : null,
+                                    null)
                         );
                         log.info("Modèle enregistré dans Spectra sous l'alias '{}' → {}", alias, registeredPath);
 

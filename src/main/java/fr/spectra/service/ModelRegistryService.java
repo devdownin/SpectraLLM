@@ -33,6 +33,9 @@ public class ModelRegistryService {
     private final Path registryPath;
     private final String defaultChatModel;
     private final String defaultEmbeddingModel;
+    /** Source du modèle par défaut : chemin GGUF réel si le fichier est configuré, sinon alias. */
+    private final String defaultChatSource;
+    private final String defaultEmbeddingSource;
 
     private RegistryState state;
 
@@ -44,6 +47,24 @@ public class ModelRegistryService {
         this.registryPath = Path.of(llm.effectiveRegistryPath());
         this.defaultChatModel = llm.effectiveChatModel();
         this.defaultEmbeddingModel = llm.effectiveEmbeddingModel();
+        this.defaultChatSource = resolveDefaultSource(llm.chat(), defaultChatModel);
+        this.defaultEmbeddingSource = resolveDefaultSource(llm.embedding(), defaultEmbeddingModel);
+    }
+
+    /**
+     * Source du modèle par défaut : le fichier GGUF configuré ({@code spectra.llm.*.file}),
+     * résolu dans le répertoire des modèles (celui du registre, par convention le volume
+     * partagé avec les conteneurs llama.cpp). À défaut, l'alias lui-même — comportement
+     * historique, non servable par l'orchestrateur runtime.
+     */
+    private String resolveDefaultSource(SpectraProperties.EndpointProperties endpoint, String alias) {
+        String file = endpoint != null ? endpoint.effectiveFile() : null;
+        if (file == null) {
+            return alias;
+        }
+        Path modelsDir = registryPath.getParent();
+        Path source = modelsDir != null ? modelsDir.resolve(file) : Path.of(file);
+        return source.toAbsolutePath().normalize().toString();
     }
 
     @PostConstruct
@@ -64,8 +85,8 @@ public class ModelRegistryService {
             state = state.withModels(new ArrayList<>());
         }
 
-        ensureModelExists(defaultChatModel, "chat", defaultChatModel, "alias", null, Map.of(), "bootstrap");
-        ensureModelExists(defaultEmbeddingModel, "embedding", defaultEmbeddingModel, "alias", null, Map.of(), "bootstrap");
+        bootstrapModel(defaultChatModel, "chat", defaultChatSource);
+        bootstrapModel(defaultEmbeddingModel, "embedding", defaultEmbeddingSource);
 
         if (state.activeChatModel() == null || state.activeChatModel().isBlank()) {
             state = state.withActiveChatModel(defaultChatModel);
@@ -130,6 +151,12 @@ public class ModelRegistryService {
 
     public synchronized void registerChatModel(String name, String source, String systemPrompt,
                                                Map<String, Object> parameters, String provenance) {
+        registerChatModel(name, source, systemPrompt, parameters, provenance, ModelOrigin.UNKNOWN);
+    }
+
+    public synchronized void registerChatModel(String name, String source, String systemPrompt,
+                                               Map<String, Object> parameters, String provenance,
+                                               ModelOrigin origin) {
         upsertModel(new RegisteredModel(
                 name,
                 "chat",
@@ -139,7 +166,10 @@ public class ModelRegistryService {
                 systemPrompt,
                 parameters != null ? Map.copyOf(parameters) : Map.of(),
                 Instant.now(),
-                provenance
+                provenance,
+                origin.hfRepo(),
+                origin.quantization(),
+                origin.contextLength()
         ));
         persist();
     }
@@ -149,6 +179,11 @@ public class ModelRegistryService {
     }
 
     public synchronized void registerEmbeddingModel(String name, String source, String provenance) {
+        registerEmbeddingModel(name, source, provenance, ModelOrigin.UNKNOWN);
+    }
+
+    public synchronized void registerEmbeddingModel(String name, String source, String provenance,
+                                                    ModelOrigin origin) {
         upsertModel(new RegisteredModel(
                 name,
                 "embedding",
@@ -158,7 +193,10 @@ public class ModelRegistryService {
                 null,
                 Map.of(),
                 Instant.now(),
-                provenance
+                provenance,
+                origin.hfRepo(),
+                origin.quantization(),
+                origin.contextLength()
         ));
         persist();
     }
@@ -166,18 +204,24 @@ public class ModelRegistryService {
     public synchronized void registerModel(String name, String type, String source,
                                            String systemPrompt, Map<String, Object> parameters,
                                            String provenance, boolean activate) {
+        registerModel(name, type, source, systemPrompt, parameters, provenance, activate, ModelOrigin.UNKNOWN);
+    }
+
+    public synchronized void registerModel(String name, String type, String source,
+                                           String systemPrompt, Map<String, Object> parameters,
+                                           String provenance, boolean activate, ModelOrigin origin) {
         String resolvedType = (type != null && !type.isBlank()) ? type : "chat";
         String resolvedProvenance = (provenance != null && !provenance.isBlank()) ? provenance : "api";
 
         if ("embedding".equals(resolvedType)) {
-            registerEmbeddingModel(name, source, resolvedProvenance);
+            registerEmbeddingModel(name, source, resolvedProvenance, origin);
             if (activate) {
                 setActiveEmbeddingModel(name);
             }
             return;
         }
 
-        registerChatModel(name, source, systemPrompt, parameters, resolvedProvenance);
+        registerChatModel(name, source, systemPrompt, parameters, resolvedProvenance, origin);
         if (activate) {
             setActiveChatModel(name);
         }
@@ -192,7 +236,7 @@ public class ModelRegistryService {
             throw new IllegalArgumentException(
                     "Modèle " + ("embedding".equals(type) ? "d'embedding" : "de chat")
                     + " inconnu du registre : '" + name + "'. Modèles enregistrés : " + known
-                    + ". Enregistrez-le d'abord (fine-tuning, llmfit ou POST /api/models).");
+                    + ". Enregistrez-le d'abord (fine-tuning, llmfit ou POST /api/fine-tuning/models/register).");
         }
     }
 
@@ -203,13 +247,31 @@ public class ModelRegistryService {
                 .findFirst();
     }
 
-    private void ensureModelExists(String name, String type, String source, String sourceType,
-                                   String systemPrompt, Map<String, Object> parameters, String provenance) {
-        if (findModel(name, type).isEmpty()) {
+    /**
+     * Crée l'entrée du modèle par défaut si elle manque, et <b>répare</b> une entrée
+     * bootstrap historique de type « alias » (sans chemin) quand le fichier GGUF réel
+     * est désormais connu par la configuration — l'entrée devient alors servable.
+     * Les entrées enregistrées avec une vraie source (fine-tuning, llmfit, api) ne sont
+     * jamais écrasées.
+     */
+    private void bootstrapModel(String name, String type, String source) {
+        Optional<RegisteredModel> existing = findModel(name, type);
+        if (existing.isEmpty()) {
             upsertModel(new RegisteredModel(
-                    name, type, "local", source, sourceType,
-                    systemPrompt, parameters != null ? Map.copyOf(parameters) : Map.of(),
-                    Instant.now(), provenance
+                    name, type, "local", source, inferSourceType(source),
+                    null, Map.of(), Instant.now(), "bootstrap", null, null, null
+            ));
+            return;
+        }
+
+        RegisteredModel current = existing.get();
+        boolean realSourceKnown = !source.equals(name);
+        if (realSourceKnown && "alias".equals(current.sourceType()) && !source.equals(current.source())) {
+            log.info("Registre : source du modèle par défaut '{}' ({}) mise à jour → {}", name, type, source);
+            upsertModel(new RegisteredModel(
+                    current.name(), current.type(), current.backend(), source, inferSourceType(source),
+                    current.systemPrompt(), current.parameters(), current.createdAt(),
+                    current.provenance(), current.hfRepo(), current.quantization(), current.contextLength()
             ));
         }
     }
@@ -250,6 +312,15 @@ public class ModelRegistryService {
         }
         if (model.parameters() != null && !model.parameters().isEmpty()) {
             api.put("parameters", model.parameters());
+        }
+        if (model.hfRepo() != null) {
+            api.put("hfRepo", model.hfRepo());
+        }
+        if (model.quantization() != null) {
+            api.put("quantization", model.quantization());
+        }
+        if (model.contextLength() != null) {
+            api.put("contextLength", model.contextLength());
         }
         return api;
     }
@@ -311,6 +382,22 @@ public class ModelRegistryService {
             String systemPrompt,
             Map<String, Object> parameters,
             Instant createdAt,
-            String provenance) {
+            String provenance,
+            // ── Traçabilité d'origine (nullable — absents des registres antérieurs) ──
+            /** Repo HuggingFace d'origine (modèle téléchargé, ou base d'un fine-tuning). */
+            String hfRepo,
+            /** Quantisation du GGUF (Q4_K_M, q8_0, …) quand elle est connue. */
+            String quantization,
+            /** Fenêtre de contexte d'entraînement (n_ctx_train) quand elle est connue. */
+            Integer contextLength) {
+    }
+
+    /**
+     * Origine d'un modèle au moment de son enregistrement (tous les champs optionnels).
+     * Rend le registre auto-descriptif : d'où vient le fichier, dans quelle quantisation,
+     * avec quelle fenêtre de contexte — sans devoir recouper .env, scripts et docs.
+     */
+    public record ModelOrigin(String hfRepo, String quantization, Integer contextLength) {
+        public static final ModelOrigin UNKNOWN = new ModelOrigin(null, null, null);
     }
 }

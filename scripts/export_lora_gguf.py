@@ -33,13 +33,10 @@ parser.add_argument("--outtype",    default="f16", choices=["f16", "f32", "q8_0"
                     help="Précision des tenseurs LoRA dans le GGUF (f16 = bon compromis)")
 args = parser.parse_args()
 
-# IDENTIQUE à train_host.py / export_gguf.py : l'adaptateur n'est valide que sur SA base.
-MODEL_MAP = {
-    "tinyllama":"TinyLlama/TinyLlama-1.1B-Chat-v1.0",
-    "phi3":     "microsoft/Phi-3-mini-4k-instruct",
-    "mistral":  "mistralai/Mistral-7B-Instruct-v0.3",
-    "llama3":   "meta-llama/Meta-Llama-3-8B-Instruct",
-}
+# Mapping alias → repo HF chargé depuis le manifeste UNIQUE base_models.json (même source
+# que train_host.py / export_gguf.py) : l'adaptateur n'est valide que sur SA base.
+from base_models import load_base_models
+MODEL_MAP = load_base_models()
 hf_base = MODEL_MAP.get(args.base_model, args.base_model)
 
 if not os.path.exists(os.path.join(args.adapter, "adapter_config.json")):

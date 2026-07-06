@@ -56,10 +56,21 @@ public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, 
     public record EndpointProperties(
             String baseUrl,
             String model,
+            /**
+             * Nom du fichier GGUF servi (celui monté dans le conteneur llama.cpp).
+             * Quand il est renseigné, le registre local associe le modèle par défaut à ce
+             * fichier réel (source servable) au lieu d'un simple alias sans chemin.
+             */
+            String file,
             Integer timeoutSeconds
     ) {
         public int effectiveTimeoutSeconds(int fallback) {
             return timeoutSeconds != null ? timeoutSeconds : fallback;
+        }
+
+        /** Fichier GGUF configuré, ou {@code null} si absent/vide. */
+        public String effectiveFile() {
+            return file != null && !file.isBlank() ? file.trim() : null;
         }
     }
 

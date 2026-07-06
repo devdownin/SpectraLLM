@@ -48,16 +48,13 @@ parser.add_argument("--max-length",     type=int,
                          "la réponse). Défaut 512, surchargeable via SPECTRA_TRAIN_MAX_LENGTH.")
 args = parser.parse_args()
 
-# Alias honnêtes : chaque clé pointe vers le modèle réellement chargé.
-# "tinyllama" est le défaut léger pour CPU ; "phi3" charge bien Phi-3 (les target_modules
-# LoRA sont auto-détectés plus bas, donc l'attention fusionnée qkv_proj de Phi-3 est gérée).
-# Ce mapping doit rester IDENTIQUE à celui de export_gguf.py (sinon la fusion LoRA échoue).
-MODEL_MAP = {
-    "tinyllama":"TinyLlama/TinyLlama-1.1B-Chat-v1.0",   # CPU léger (~1.1B)
-    "phi3":     "microsoft/Phi-3-mini-4k-instruct",     # ~3.8B (GPU recommandé)
-    "mistral":  "mistralai/Mistral-7B-Instruct-v0.3",
-    "llama3":   "meta-llama/Meta-Llama-3-8B-Instruct",
-}
+# Mapping alias → repo HF chargé depuis le manifeste UNIQUE base_models.json (fichier
+# voisin, également embarqué côté backend Java) : entraînement, fusion et API partagent
+# ainsi la même vérité. Un identifiant hors manifeste est passé tel quel à HuggingFace
+# (repo complet « org/nom »). Les target_modules LoRA sont auto-détectés plus bas, donc
+# l'attention fusionnée qkv_proj de Phi-3 est gérée.
+from base_models import load_base_models
+MODEL_MAP = load_base_models()
 hf_model = MODEL_MAP.get(args.base_model, args.base_model)
 
 # ── Détection GPU ──────────────────────────────────────────────
