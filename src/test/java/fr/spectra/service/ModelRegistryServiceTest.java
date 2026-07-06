@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -31,8 +32,17 @@ class ModelRegistryServiceTest {
     }
 
     private ModelRegistryService buildRegistry(String registryPath) {
+        return buildRegistry(registryPath, null, null);
+    }
+
+    /** Registre avec fichiers GGUF par défaut configurés (spectra.llm.chat.file / embedding.file). */
+    private ModelRegistryService buildRegistry(String registryPath, String chatFile, String embedFile) {
+        SpectraProperties.EndpointProperties chat = chatFile != null
+                ? new SpectraProperties.EndpointProperties(null, null, chatFile, null) : null;
+        SpectraProperties.EndpointProperties embedding = embedFile != null
+                ? new SpectraProperties.EndpointProperties(null, null, embedFile, null) : null;
         SpectraProperties.LlmProperties llm = new SpectraProperties.LlmProperties(
-                null, "default-chat", "default-embed", null, registryPath, null, null, null);
+                null, "default-chat", "default-embed", null, registryPath, chat, embedding, null);
         SpectraProperties props = mock(SpectraProperties.class);
         when(props.llm()).thenReturn(llm);
         return new ModelRegistryService(props);
@@ -99,6 +109,60 @@ class ModelRegistryServiceTest {
         assertThat(chats).anyMatch(m -> "active-model".equals(m.get("name")) && Boolean.TRUE.equals(m.get("active")));
     }
 
+    // ── bootstrap avec fichier GGUF configuré ─────────────────────────────────
+
+    @Test
+    void init_fichierChatConfigure_sourceEstLeCheminReelDansLeRepertoireDuRegistre() {
+        ModelRegistryService withFile = buildRegistry(
+                tempDir.resolve("models/registry.json").toString(), "chat.gguf", "embed.gguf");
+        withFile.init();
+
+        Map<String, Object> chat = withFile.listModels("chat").stream()
+                .filter(m -> "default-chat".equals(m.get("name"))).findFirst().orElseThrow();
+        assertThat((String) chat.get("source"))
+                .endsWith("chat.gguf")
+                .contains(tempDir.resolve("models").toString());
+        assertThat(chat.get("sourceType")).isEqualTo("gguf");
+
+        Map<String, Object> embed = withFile.listModels("embedding").stream()
+                .filter(m -> "default-embed".equals(m.get("name"))).findFirst().orElseThrow();
+        assertThat((String) embed.get("source")).endsWith("embed.gguf");
+    }
+
+    @Test
+    void init_registreExistantAvecEntreeAlias_repareeQuandLeFichierDevientConnu() {
+        // 1er démarrage sans fichier configuré : entrée bootstrap « alias » (non servable).
+        String path = tempDir.resolve("models/registry.json").toString();
+        Map<String, Object> before = registryFor(path, null).listModels("chat").stream()
+                .filter(m -> "default-chat".equals(m.get("name"))).findFirst().orElseThrow();
+        assertThat(before.get("sourceType")).isEqualTo("alias");
+
+        // Redémarrage avec le fichier configuré : l'entrée est réparée vers la source réelle.
+        Map<String, Object> after = registryFor(path, "chat.gguf").listModels("chat").stream()
+                .filter(m -> "default-chat".equals(m.get("name"))).findFirst().orElseThrow();
+        assertThat(after.get("sourceType")).isEqualTo("gguf");
+        assertThat((String) after.get("source")).endsWith("chat.gguf");
+    }
+
+    @Test
+    void init_entreeAvecVraieSource_jamaisEcraseeParLeBootstrap() {
+        String path = tempDir.resolve("models/registry.json").toString();
+        ModelRegistryService first = registryFor(path, null);
+        // L'utilisateur ré-enregistre le modèle par défaut avec SA source (ex. fine-tuning).
+        first.registerChatModel("default-chat", "/models/custom.gguf", null, Map.of(), "fine-tuning");
+
+        ModelRegistryService reloaded = registryFor(path, "chat.gguf");
+        Map<String, Object> model = reloaded.listModels("chat").stream()
+                .filter(m -> "default-chat".equals(m.get("name"))).findFirst().orElseThrow();
+        assertThat(model.get("source")).isEqualTo("/models/custom.gguf");
+    }
+
+    private ModelRegistryService registryFor(String path, String chatFile) {
+        ModelRegistryService registry = buildRegistry(path, chatFile, null);
+        registry.init();
+        return registry;
+    }
+
     // ── registerChatModel avec provenance llmfit ──────────────────────────────
 
     @Test
@@ -134,6 +198,30 @@ class ModelRegistryServiceTest {
         Map<String, Object> found = registry.listModels("chat").stream()
                 .filter(m -> "assistant".equals(m.get("name"))).findFirst().orElseThrow();
         assertThat(found.get("systemPrompt")).isEqualTo("Tu es un assistant IA spécialisé.");
+    }
+
+    @Test
+    void registerChatModel_avecOrigine_exposeEtPersisteLaTracabilite() {
+        registry.registerChatModel("qwen-q4", "/models/qwen.gguf", null, Map.of(), "llmfit",
+                new ModelRegistryService.ModelOrigin("Qwen/Qwen2.5-1.5B-Instruct-GGUF", "Q4_K_M", 32768));
+
+        ModelRegistryService reloaded = buildRegistry(tempDir.resolve("registry.json").toString());
+        reloaded.init();
+
+        Map<String, Object> model = reloaded.listModels("chat").stream()
+                .filter(m -> "qwen-q4".equals(m.get("name"))).findFirst().orElseThrow();
+        assertThat(model.get("hfRepo")).isEqualTo("Qwen/Qwen2.5-1.5B-Instruct-GGUF");
+        assertThat(model.get("quantization")).isEqualTo("Q4_K_M");
+        assertThat(model.get("contextLength")).isEqualTo(32768);
+    }
+
+    @Test
+    void registerChatModel_sansOrigine_nExposePasLesChampsDeTracabilite() {
+        registry.registerChatModel("simple", "/models/simple.gguf", null, Map.of(), "llmfit");
+
+        Map<String, Object> model = registry.listModels("chat").stream()
+                .filter(m -> "simple".equals(m.get("name"))).findFirst().orElseThrow();
+        assertThat(model).doesNotContainKeys("hfRepo", "quantization", "contextLength");
     }
 
     @Test
@@ -180,6 +268,39 @@ class ModelRegistryServiceTest {
         Map<String, Object> modelA = registry.listModels("chat").stream()
                 .filter(m -> "model-a".equals(m.get("name"))).findFirst().orElseThrow();
         assertThat(modelA.get("active")).isEqualTo(false);
+    }
+
+    @Test
+    void setActiveChatModel_unknownAlias_throwsWithoutCreatingPhantomEntry() {
+        String previousActive = registry.getActiveChatModel();
+
+        assertThatThrownBy(() -> registry.setActiveChatModel("typo-model"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("typo-model");
+
+        // Ni entrée fantôme, ni changement de modèle actif.
+        assertThat(registry.hasModel("typo-model", "chat")).isFalse();
+        assertThat(registry.getActiveChatModel()).isEqualTo(previousActive);
+    }
+
+    @Test
+    void setActiveEmbeddingModel_unknownAlias_throwsWithoutCreatingPhantomEntry() {
+        String previousActive = registry.getActiveEmbeddingModel();
+
+        assertThatThrownBy(() -> registry.setActiveEmbeddingModel("typo-embed"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("typo-embed");
+
+        assertThat(registry.hasModel("typo-embed", "embedding")).isFalse();
+        assertThat(registry.getActiveEmbeddingModel()).isEqualTo(previousActive);
+    }
+
+    @Test
+    void setActiveChatModel_registeredEmbeddingAlias_isRejectedForChat() {
+        registry.registerEmbeddingModel("embed-x", "/models/embed-x.gguf", "llmfit");
+
+        assertThatThrownBy(() -> registry.setActiveChatModel("embed-x"))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     // ── hasModel ──────────────────────────────────────────────────────────────

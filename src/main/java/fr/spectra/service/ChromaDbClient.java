@@ -37,6 +37,15 @@ import java.util.regex.Pattern;
  * une collection existante en cosinus impose une ré-ingestion. La création est rendue robuste
  * à la version de ChromaDB (API 1.x → repli métadonnées {@code hnsw:*} → création simple).</p>
  *
+ * <p><b>Cohérence embedding ↔ index.</b> Les vecteurs d'une collection ne sont comparables
+ * qu'entre eux : changer de modèle d'embedding sans ré-ingérer rend silencieusement le RAG
+ * inutilisable (les distances n'ont plus de sens). Chaque collection est donc estampillée à
+ * sa création avec le modèle d'embedding actif ({@code spectra:embedding-model}) et chaque
+ * accès vérifie que le modèle actif correspond toujours à l'estampille — sinon
+ * {@link EmbeddingModelMismatchException} est levée avec la marche à suivre (réindexation).
+ * Les collections créées avant cette protection (sans estampille) restent accessibles avec
+ * un simple avertissement.</p>
+ *
  * <p><b>Note d'implémentation.</b> Toutes les requêtes passent par l'API v2 :
  * {@code /api/v2/tenants/{tenant}/databases/{database}/collections/…}.
  * L'API v1 ({@code /api/v1/}) a été supprimée (HTTP 410) à partir de ChromaDB 1.x.</p>
@@ -45,6 +54,9 @@ import java.util.regex.Pattern;
 public class ChromaDbClient {
 
     private static final Logger log = LoggerFactory.getLogger(ChromaDbClient.class);
+
+    /** Clé de métadonnée portant le modèle d'embedding qui a indexé la collection. */
+    public static final String EMBEDDING_MODEL_METADATA_KEY = "spectra:embedding-model";
 
     // Timeouts adaptés à chaque opération
     private static final Duration TIMEOUT_DEFAULT  = Duration.ofSeconds(10);
@@ -64,14 +76,19 @@ public class ChromaDbClient {
 
     private final WebClient webClient;
     private final SpectraProperties.ChromaDbProperties props;
+    private final ModelRegistryService modelRegistry;
 
-    // P1 — Cache name → collectionId pour éviter un POST ChromaDB à chaque appel
-    private final ConcurrentHashMap<String, String> collectionIdCache = new ConcurrentHashMap<>();
+    // P1 — Cache name → (id, estampille embedding) pour éviter un POST ChromaDB à chaque appel
+    private final ConcurrentHashMap<String, CollectionRef> collectionCache = new ConcurrentHashMap<>();
+    // Collections legacy (sans estampille) déjà signalées, pour ne logger l'avertissement qu'une fois
+    private final java.util.Set<String> warnedUnstamped = ConcurrentHashMap.newKeySet();
 
     public ChromaDbClient(@Qualifier("chromaDbWebClient") WebClient webClient,
-                          SpectraProperties properties) {
+                          SpectraProperties properties,
+                          ModelRegistryService modelRegistry) {
         this.webClient = webClient;
         this.props = properties.chromadb();
+        this.modelRegistry = modelRegistry;
     }
 
     public ServiceStatus checkHealth() {
@@ -97,41 +114,74 @@ public class ChromaDbClient {
      */
     @CircuitBreaker(name = "chroma", fallbackMethod = "getOrCreateCollectionFallback")
     @Retry(name = "chroma")
-    @SuppressWarnings("unchecked")
     public String getOrCreateCollection(String name) {
         // S1 — Validation du nom avant tout appel ChromaDB
         validateCollectionName(name);
 
-        // P1 — Cache hit
-        String cached = collectionIdCache.get(name);
-        if (cached != null) return cached;
+        // P1 — Cache hit (la cohérence embedding est revérifiée à CHAQUE appel :
+        // le modèle actif peut changer à chaud via le registre)
+        CollectionRef ref = collectionCache.get(name);
+        if (ref == null) {
+            // Création avec espace cosinus + réglages HNSW (sinon ChromaDB applique L2
+            // par défaut) :
+            //  - space=cosine : convention RAG, scores de similarité interprétables [0,1]
+            //    (les vecteurs de llama.cpp /v1/embeddings sont normalisés)
+            //  - ef_search relevé : meilleur recall qu'avec le défaut (~10), un reranker
+            //    affine ensuite le top-K
+            //  - ef_construction relevé : index plus précis à la construction
+            // Le SCHÉMA de configuration dépend de la version de ChromaDB : on tente
+            // l'API 1.x (configuration.hnsw), puis on retombe sur les métadonnées
+            // hnsw:* (versions plus anciennes), enfin sur une création simple — afin
+            // que le cosinus soit appliqué quelle que soit la version sans jamais
+            // casser la création.
+            // NB : l'espace de distance est figé à la création ; une collection déjà
+            // existante conserve sa configuration (get_or_create ne la modifie pas) —
+            // l'estampille embedding retournée est donc celle de la création d'origine.
+            ref = createCollectionWithCosine(name);
+            collectionCache.put(name, ref);
+        }
 
-        // Création avec espace cosinus + réglages HNSW (sinon ChromaDB applique L2
-        // par défaut) :
-        //  - space=cosine : convention RAG, scores de similarité interprétables [0,1]
-        //    (les vecteurs de llama.cpp /v1/embeddings sont normalisés)
-        //  - ef_search relevé : meilleur recall qu'avec le défaut (~10), un reranker
-        //    affine ensuite le top-K
-        //  - ef_construction relevé : index plus précis à la construction
-        // Le SCHÉMA de configuration dépend de la version de ChromaDB : on tente
-        // l'API 1.x (configuration.hnsw), puis on retombe sur les métadonnées
-        // hnsw:* (versions plus anciennes), enfin sur une création simple — afin
-        // que le cosinus soit appliqué quelle que soit la version sans jamais
-        // casser la création.
-        // NB : l'espace de distance est figé à la création ; une collection déjà
-        // existante conserve sa configuration (get_or_create ne la modifie pas).
-        String id = createCollectionWithCosine(name);
-        collectionIdCache.put(name, id);
-        return id;
+        verifyEmbeddingModel(name, ref.embeddingModel());
+        return ref.id();
+    }
+
+    /**
+     * Vérifie que le modèle d'embedding actif correspond à celui qui a indexé la collection.
+     * Bloque lecture ET écriture : interroger un index avec des vecteurs d'un autre modèle
+     * renvoie des résultats aléatoires, et y écrire le corrompt définitivement.
+     */
+    private void verifyEmbeddingModel(String name, String stampedModel) {
+        String active = modelRegistry != null ? modelRegistry.getActiveEmbeddingModel() : null;
+
+        if (stampedModel == null || stampedModel.isBlank()) {
+            // Collection créée avant l'estampillage : impossible de vérifier, on signale une fois.
+            if (warnedUnstamped.add(name)) {
+                log.warn("Collection '{}' sans estampille de modèle d'embedding (créée avant cette "
+                        + "protection). Impossible de vérifier la cohérence avec le modèle actif '{}' — "
+                        + "en cas de doute, ré-ingérez la collection.", name, active);
+            }
+            return;
+        }
+        if (active == null || active.isBlank() || active.equals(stampedModel)) {
+            return;
+        }
+        throw new EmbeddingModelMismatchException(
+                "La collection '" + name + "' a été indexée avec le modèle d'embedding '" + stampedModel
+                + "' mais le modèle actif est '" + active + "'. Les vecteurs ne sont pas comparables : "
+                + "réactivez '" + stampedModel + "' ou ré-ingérez la collection avec le nouveau modèle.");
     }
 
     /** Crée la collection en cosinus selon plusieurs schémas, du plus récent au plus ancien. */
-    private String createCollectionWithCosine(String name) {
+    private CollectionRef createCollectionWithCosine(String name) {
+        // Estampille systématiquement le modèle d'embedding actif ; pour une collection
+        // déjà existante, get_or_create ignore ces métadonnées et renvoie l'estampille d'origine.
+        Map<String, Object> stamp = embeddingStamp();
+
         // ChromaDB 1.x : objet `configuration.hnsw`
-        Map<String, Object> modern = Map.of(
+        Map<String, Object> modern = withStamp(Map.of(
                 "name", name, "get_or_create", true,
                 "configuration", Map.of("hnsw", Map.of(
-                        "space", "cosine", "ef_search", 100, "ef_construction", 200)));
+                        "space", "cosine", "ef_search", 100, "ef_construction", 200))), stamp);
         try {
             return postCreateCollection(name, modern);
         } catch (WebClientResponseException e) {
@@ -140,10 +190,12 @@ public class ChromaDbClient {
                     e.getStatusCode());
         }
         // Versions plus anciennes : métadonnées `hnsw:*`
+        Map<String, Object> hnswMeta = new java.util.LinkedHashMap<>(Map.of(
+                "hnsw:space", "cosine", "hnsw:search_ef", 100, "hnsw:construction_ef", 200));
+        hnswMeta.putAll(stamp);
         Map<String, Object> legacy = Map.of(
                 "name", name, "get_or_create", true,
-                "metadata", Map.of(
-                        "hnsw:space", "cosine", "hnsw:search_ef", 100, "hnsw:construction_ef", 200));
+                "metadata", hnswMeta);
         try {
             return postCreateCollection(name, legacy);
         } catch (WebClientResponseException e) {
@@ -152,11 +204,27 @@ public class ChromaDbClient {
                     + "(distance par défaut)", e.getStatusCode());
         }
         // Dernier recours : création simple (laisse la distance par défaut)
-        return postCreateCollection(name, Map.of("name", name, "get_or_create", true));
+        return postCreateCollection(name, withStamp(Map.of("name", name, "get_or_create", true), stamp));
+    }
+
+    /** Métadonnée d'estampille {@code spectra:embedding-model → modèle actif} (vide si inconnu). */
+    private Map<String, Object> embeddingStamp() {
+        String active = modelRegistry != null ? modelRegistry.getActiveEmbeddingModel() : null;
+        return active != null && !active.isBlank()
+                ? Map.of(EMBEDDING_MODEL_METADATA_KEY, active)
+                : Map.of();
+    }
+
+    /** Ajoute l'estampille au corps de création (fusionnée avec d'éventuelles métadonnées). */
+    private Map<String, Object> withStamp(Map<String, Object> body, Map<String, Object> stamp) {
+        if (stamp.isEmpty()) return body;
+        Map<String, Object> merged = new java.util.LinkedHashMap<>(body);
+        merged.put("metadata", stamp);
+        return merged;
     }
 
     @SuppressWarnings("unchecked")
-    private String postCreateCollection(String name, Map<String, Object> body) {
+    private CollectionRef postCreateCollection(String name, Map<String, Object> body) {
         Map<String, Object> response = webClient.post()
                 .uri(COLLECTIONS_BASE)
                 .bodyValue(body)
@@ -172,7 +240,32 @@ public class ChromaDbClient {
         if (id == null) {
             throw new IllegalStateException("ChromaDB: champ 'id' absent de la réponse pour la collection '" + name + "'");
         }
-        return id;
+        return new CollectionRef(id, extractEmbeddingStamp(response));
+    }
+
+    /** Extrait l'estampille embedding des métadonnées d'une collection retournée par ChromaDB. */
+    @SuppressWarnings("unchecked")
+    private static String extractEmbeddingStamp(Map<String, Object> collection) {
+        Object metadata = collection.get("metadata");
+        if (metadata instanceof Map<?, ?> meta) {
+            Object stamped = meta.get(EMBEDDING_MODEL_METADATA_KEY);
+            return stamped != null ? stamped.toString() : null;
+        }
+        return null;
+    }
+
+    /**
+     * Liste les collections existantes (id, nom, métadonnées) — utilisé par le contrôle
+     * de cohérence embedding au démarrage.
+     */
+    @SuppressWarnings("unchecked")
+    public List<Map<String, Object>> listCollections() {
+        List<Map<String, Object>> collections = webClient.get()
+                .uri(COLLECTIONS_BASE)
+                .retrieve()
+                .bodyToMono(List.class)
+                .block(TIMEOUT_DEFAULT);
+        return collections != null ? collections : List.of();
     }
 
     /**
@@ -323,6 +416,11 @@ public class ChromaDbClient {
     // ── Circuit breaker fallbacks ──────────────────────────────────────────────
 
     String getOrCreateCollectionFallback(String name, Throwable cause) {
+        // Une incohérence de modèle d'embedding n'est PAS une indisponibilité : on la propage
+        // telle quelle (elle est aussi ignorée par le circuit breaker via ignore-exceptions).
+        if (cause instanceof EmbeddingModelMismatchException mismatch) {
+            throw mismatch;
+        }
         log.warn("[circuit-breaker] chroma ouvert — getOrCreateCollection('{}') : {}", name, cause.getMessage());
         throw new ChromaDbUnavailableException("ChromaDB temporairement indisponible", cause);
     }
@@ -335,6 +433,17 @@ public class ChromaDbClient {
     public static class ChromaDbUnavailableException extends RuntimeException {
         public ChromaDbUnavailableException(String msg, Throwable cause) { super(msg, cause); }
     }
+
+    /**
+     * Le modèle d'embedding actif ne correspond pas à celui qui a indexé la collection.
+     * Une réindexation (ou la réactivation du modèle d'origine) est requise.
+     */
+    public static class EmbeddingModelMismatchException extends RuntimeException {
+        public EmbeddingModelMismatchException(String msg) { super(msg); }
+    }
+
+    /** Référence de collection résolue : id ChromaDB + estampille embedding (nullable). */
+    private record CollectionRef(String id, String embeddingModel) {}
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 

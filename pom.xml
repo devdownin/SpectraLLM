@@ -145,6 +145,20 @@
     </dependencies>
 
     <build>
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+            </resource>
+            <!-- Manifeste UNIQUE des modèles de base de fine-tuning : le fichier vit dans
+                 scripts/ (lu par les scripts Python voisins) et est embarqué tel quel dans
+                 le classpath pour le backend (BaseModelCatalog). Une seule source de vérité. -->
+            <resource>
+                <directory>scripts</directory>
+                <includes>
+                    <include>base_models.json</include>
+                </includes>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>

@@ -40,10 +40,11 @@ public class LlamaCppEmbeddingClient implements EmbeddingClient {
                                    SpectraProperties properties) {
         this.webClient = webClient;
 
-        SpectraProperties.EndpointProperties embedding = properties.llm() != null ? properties.llm().embedding() : null;
-        this.embeddingModel = embedding != null && embedding.model() != null
-                ? embedding.model()
-                : (properties.llm() != null && properties.llm().embeddingModel() != null ? properties.llm().embeddingModel() : "nomic-embed-text");
+        SpectraProperties.LlmProperties llm = properties.llm() != null
+                ? properties.llm()
+                : SpectraProperties.LlmProperties.defaults();
+        SpectraProperties.EndpointProperties embedding = llm.embedding();
+        this.embeddingModel = llm.effectiveEmbeddingModel();
         this.baseUrl = embedding != null && embedding.baseUrl() != null
                 ? embedding.baseUrl()
                 : "http://llama-cpp-embed:8080";

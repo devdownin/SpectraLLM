@@ -182,6 +182,10 @@ services:
       - SPECTRA_LLM_EMBEDDING_BASE_URL=http://llm-embed:8082
       - SPECTRA_LLM_MODEL=${LLM_CHAT_MODEL_NAME:-phi-4-mini}
       - SPECTRA_LLM_EMBEDDING_MODEL=${LLM_EMBED_MODEL_NAME:-nomic-embed-text}
+      # Fichiers GGUF réellement servis (mêmes variables que llm-chat/llm-embed) :
+      # le registre local associe ainsi les modèles par défaut à leur source servable.
+      - SPECTRA_LLM_CHAT_FILE=${LLM_CHAT_MODEL_FILE:-Phi-4-mini-reasoning-UD-IQ1_S.gguf}
+      - SPECTRA_LLM_EMBEDDING_FILE=${LLM_EMBED_MODEL_FILE:-embed.gguf}
       - SPECTRA_CHROMADB_BASE_URL=http://chromadb:8000
       - SPECTRA_PIPELINE_CHUNK_MAX_TOKENS=${SPECTRA_CHUNK_MAX_TOKENS:-256}
       - SPECTRA_PIPELINE_CHUNK_OVERLAP_TOKENS=${SPECTRA_CHUNK_OVERLAP_TOKENS:-64}

@@ -47,10 +47,12 @@ public class FineTuningService {
 
     private final DatasetGeneratorService datasetGenerator;
     private final DpoGenerationService dpoGenerator;
-    private final LlmChatClient llmClient;
     private final FineTuningJobRepository repository;
     private final TrainingLogBroadcaster broadcaster;
     private final ModelRegistryService modelRegistry;
+    private final BaseModelCatalog baseModelCatalog;
+    /** Alias (ou repo HF) utilisé quand la requête ne précise pas de modèle de base. */
+    private final String defaultBaseModel;
     private final Path workDir;
     private final String trainingScript;
     /** Script de fusion LoRA + conversion GGUF (voir scripts/export_gguf.py). */
@@ -81,10 +83,11 @@ public class FineTuningService {
 
     public FineTuningService(DatasetGeneratorService datasetGenerator,
                              DpoGenerationService dpoGenerator,
-                             LlmChatClient llmClient,
                              FineTuningJobRepository repository,
                              TrainingLogBroadcaster broadcaster,
                              ModelRegistryService modelRegistry,
+                             BaseModelCatalog baseModelCatalog,
+                             @Value("${spectra.fine-tuning.default-base-model:phi3}") String defaultBaseModel,
                              @Value("${spectra.fine-tuning.work-dir:./data/fine-tuning}") String workDir,
                              @Value("${spectra.fine-tuning.script:./scripts/train.sh}") String trainingScript,
                              @Value("${spectra.fine-tuning.export-script:./scripts/export_gguf.py}") String exportScript,
@@ -93,10 +96,11 @@ public class FineTuningService {
                              @Value("${spectra.fine-tuning.sft-excluded-categories:}") String sftExcludedCsv) {
          this.datasetGenerator = datasetGenerator;
          this.dpoGenerator = dpoGenerator;
-         this.llmClient = llmClient;
          this.repository = repository;
          this.broadcaster = broadcaster;
          this.modelRegistry = modelRegistry;
+         this.baseModelCatalog = baseModelCatalog;
+         this.defaultBaseModel = defaultBaseModel;
          this.workDir = Path.of(workDir);
          // Chemin absolu : le process d'entraînement s'exécute avec workDir comme répertoire
          // courant, donc un chemin relatif ne serait pas résolu correctement.
@@ -150,10 +154,19 @@ public class FineTuningService {
         try {
             String jobId = UUID.randomUUID().toString();
 
-            // Résoudre le modèle de base
+            // Modèle de base : alias du catalogue (base_models.json) ou repo HF complet.
+            // La résolution est vérifiée ICI (fail-fast, HTTP 400) plutôt que d'échouer des
+            // minutes plus tard au téléchargement HuggingFace. NB : l'ancien défaut — le
+            // modèle ACTIF du registre — était voué à l'échec (un GGUF servi n'a pas de
+            // poids entraînables) ; le défaut est désormais un alias entraînable configurable.
+            String baseModel = request.baseModel() != null && !request.baseModel().isBlank()
+                    ? request.baseModel()
+                    : defaultBaseModel;
+            baseModelCatalog.resolveHfRepo(baseModel);
+
             FineTuningRequest resolved = new FineTuningRequest(
                     request.modelName(),
-                    request.baseModel() != null ? request.baseModel() : llmClient.getDefaultModel(),
+                    baseModel,
                     request.loraRank(),
                     request.loraAlpha(),
                     request.epochs(),
@@ -379,11 +392,14 @@ public class FineTuningService {
      */
     private int runTrainingProcess(String jobId, FineTuningRequest request,
                                    Path datasetFile, Path adapterPath) throws Exception {
+        // Repo HF résolu depuis le manifeste unique (base_models.json) : le script reçoit
+        // toujours un identifiant directement téléchargeable, jamais un alias ambigu.
+        String baseHfRepo = baseModelCatalog.resolveHfRepo(request.baseModel());
         List<String> command = List.of(
                 trainingScript,
                 datasetFile.toAbsolutePath().toString(),
                 adapterPath.toAbsolutePath().toString(),
-                request.baseModel(),
+                baseHfRepo,
                 String.valueOf(request.loraRank()),
                 String.valueOf(request.loraAlpha()),
                 String.valueOf(request.epochs()),
@@ -445,17 +461,15 @@ public class FineTuningService {
         broadcaster.info("Job " + jobId + " : fusion de l'adaptateur, conversion GGUF et enregistrement…");
 
         Path mergedDir = jobDir.resolve("merged");
+        // Même résolution que l'entraînement (manifeste unique) : l'adaptateur LoRA n'est
+        // fusionnable QUE sur le modèle de base exact qui l'a entraîné.
+        String baseHfRepo = baseModelCatalog.resolveHfRepo(request.baseModel());
         List<String> command = new java.util.ArrayList<>(List.of(
                 pythonBin, exportScript,
                 "--adapter", adapterPath.toAbsolutePath().toString(),
                 "--output", mergedDir.toAbsolutePath().toString(),
-                "--model-name", request.modelName()));
-        // baseModel peut être vide (défaut config) : ne pas passer un « --base-model "" » qui
-        // écraserait le défaut du script par une valeur invalide.
-        if (request.baseModel() != null && !request.baseModel().isBlank()) {
-            command.add("--base-model");
-            command.add(request.baseModel());
-        }
+                "--model-name", request.modelName(),
+                "--base-model", baseHfRepo));
 
         int exitCode = runProcess(jobId, "export", command, null);
 
@@ -487,7 +501,13 @@ public class FineTuningService {
                 registeredPath,
                 AssistantPersona.SYSTEM_PROMPT,
                 Map.of("jobId", jobId, "baseModel", String.valueOf(request.baseModel())),
-                "fine-tuning");
+                "fine-tuning",
+                new ModelRegistryService.ModelOrigin(
+                        baseHfRepo,
+                        "q8_0", // quantisation appliquée par export_gguf.py (convert --outtype q8_0)
+                        baseModelCatalog.find(request.baseModel())
+                                .map(BaseModelCatalog.BaseModel::contextLength)
+                                .orElse(null)));
 
         log.info("Job {}: modèle '{}' converti et enregistré → {}", jobId, request.modelName(), registeredPath);
         broadcaster.info("Job " + jobId + " : modèle '" + request.modelName()

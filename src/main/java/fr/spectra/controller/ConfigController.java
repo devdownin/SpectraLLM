@@ -1,6 +1,7 @@
 package fr.spectra.controller;
 
 import fr.spectra.dto.ResourceProfile;
+import fr.spectra.service.EmbeddingConsistencyChecker;
 import fr.spectra.service.LlmChatClient;
 import fr.spectra.service.ResourceAdvisorService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -22,10 +23,13 @@ public class ConfigController {
 
     private final LlmChatClient chatClient;
     private final ResourceAdvisorService resourceAdvisor;
+    private final EmbeddingConsistencyChecker embeddingConsistencyChecker;
 
-    public ConfigController(LlmChatClient chatClient, ResourceAdvisorService resourceAdvisor) {
+    public ConfigController(LlmChatClient chatClient, ResourceAdvisorService resourceAdvisor,
+                            EmbeddingConsistencyChecker embeddingConsistencyChecker) {
         this.chatClient = chatClient;
         this.resourceAdvisor = resourceAdvisor;
+        this.embeddingConsistencyChecker = embeddingConsistencyChecker;
     }
 
     @Operation(summary = "Retourne le modèle LLM actif")
@@ -50,13 +54,29 @@ public class ConfigController {
         }
         try {
             chatClient.setActiveModel(model);
-        } catch (IllegalStateException e) {
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            // IllegalArgumentException : alias inconnu du registre (rejeté sans créer d'entrée) ;
+            // IllegalStateException : modèle connu mais non servisable (orchestrateur runtime).
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
         return ResponseEntity.ok(Map.of(
                 "model", model,
                 "status", "updated"
         ));
+    }
+
+    @Operation(
+            summary = "Cohérence entre le modèle d'embedding actif et les index vectoriels",
+            description = "Compare l'estampille 'spectra:embedding-model' de chaque collection "
+                    + "ChromaDB au modèle d'embedding actif. Une collection MISMATCH a été indexée "
+                    + "avec un autre modèle : ses vecteurs ne sont pas comparables aux nouveaux "
+                    + "embeddings et le RAG dessus est bloqué tant qu'elle n'est pas ré-ingérée "
+                    + "(ou que le modèle d'origine n'est pas réactivé). UNSTAMPED = collection "
+                    + "créée avant cette protection, cohérence invérifiable."
+    )
+    @GetMapping("/embedding-consistency")
+    public ResponseEntity<Map<String, Object>> embeddingConsistency() {
+        return ResponseEntity.ok(embeddingConsistencyChecker.verify());
     }
 
     @Operation(
