@@ -8,6 +8,11 @@
 # `kubectl apply -k k8s/base` (sinon les pods llama-cpp détiennent déjà les
 # volumes et le Job reste en Pending).
 #
+# Chat ET embed atterrissent dans le volume des modèles (PVC `models`), à côté du
+# registre : c'est ce que sert le superviseur llm-chat (modèle actif). Les noms de
+# fichiers proviennent du ConfigMap model-seed-config et doivent rester alignés sur
+# SPECTRA_LLM_CHAT_FILE / SPECTRA_LLM_EMBEDDING_FILE (k8s/base/01-configmap.yaml).
+#
 # Usage :
 #   ./scripts/gke-seed-models.sh
 #   # puis :  kubectl apply -k k8s/base

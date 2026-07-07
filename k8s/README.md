@@ -81,17 +81,12 @@ kubectl run -n spectra copy-models --image=busybox --restart=Never \
   --overrides='{"spec":{"volumes":[{"name":"m","persistentVolumeClaim":{"claimName":"spectra-models-pvc"}}],"containers":[{"name":"c","image":"busybox","command":["sleep","3600"],"volumeMounts":[{"name":"m","mountPath":"/data"}]}]}}' \
   -- sleep 3600
 
+# Le modèle de chat vit désormais dans le volume des modèles (servi par le superviseur
+# llm-chat via le pointeur du modèle actif). Le nom de fichier doit correspondre à
+# SPECTRA_LLM_CHAT_FILE / llama-chat-config.LLM_CHAT_MODEL_FILE.
 kubectl cp data/models/embed.gguf spectra/copy-models:/data/embed.gguf
+kubectl cp data/models/Phi-4-mini-reasoning-UD-IQ1_S.gguf spectra/copy-models:/data/Phi-4-mini-reasoning-UD-IQ1_S.gguf
 kubectl delete pod -n spectra copy-models
-
-# Copier model.gguf
-kubectl run -n spectra copy-ft --image=busybox --restart=Never \
-  --overrides='{"spec":{"volumes":[{"name":"f","persistentVolumeClaim":{"claimName":"spectra-fine-tuning-pvc"}}],"containers":[{"name":"c","image":"busybox","command":["sleep","3600"],"volumeMounts":[{"name":"f","mountPath":"/data"}]}]}}' \
-  -- sleep 3600
-
-kubectl exec -n spectra copy-ft -- mkdir -p /data/merged
-kubectl cp data/fine-tuning/merged/model.gguf spectra/copy-ft:/data/merged/model.gguf
-kubectl delete pod -n spectra copy-ft
 ```
 
 ---
@@ -153,8 +148,10 @@ kubectl apply -f https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/v0.1
 # 2. Dans 06-llama-chat.yaml (et/ou 05-llama-embed.yaml), décommenter :
 #      limits:
 #        nvidia.com/gpu: "1"
-#    et ajouter dans le ConfigMap llama-chat-config :
-#      LLAMA_NGL: "-1"   # toutes les couches sur GPU
+#    et régler l'offload GPU dans le ConfigMap :
+#      - chat  (superviseur)     : LLM_CHAT_EXTRA_ARGS: "--n-gpu-layers 999"
+#      - embed (llama-autostart) : LLAMA_NGL: "-1"
+#    (ou plus simplement : kubectl apply -k k8s/overlays/gpu)
 
 # 3. Redéployer
 kubectl apply -k k8s/base/

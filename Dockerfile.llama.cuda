@@ -17,7 +17,9 @@ FROM ghcr.io/ggml-org/llama.cpp:server-cuda
 # pour que llama-autostart.sh puisse l'invoquer par son nom.
 ENV PATH="/app:${PATH}"
 
+# Comme l'image CPU : autostart (défaut/embed) + superviseur registre (chat).
 COPY scripts/llama-autostart.sh /scripts/llama-autostart.sh
-RUN chmod +x /scripts/llama-autostart.sh
+COPY scripts/llm-chat-entrypoint.sh /scripts/llm-chat-entrypoint.sh
+RUN chmod +x /scripts/llama-autostart.sh /scripts/llm-chat-entrypoint.sh
 
 ENTRYPOINT ["/bin/bash", "/scripts/llama-autostart.sh"]

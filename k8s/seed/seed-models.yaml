@@ -16,11 +16,12 @@ metadata:
   name: model-seed-config
   namespace: spectra
 data:
-  # Modèle de chat → PVC fine-tuning, à l'emplacement attendu par llama-chat-config
-  # (MODEL_PATH=/fine-tuning/merged/model.gguf). Par défaut : Phi-4-mini (≈1,1 Go).
+  # Modèle de chat → PVC models, dans le volume partagé avec le registre. Le nom de fichier
+  # DOIT correspondre à SPECTRA_LLM_CHAT_FILE / llama-chat-config.LLM_CHAT_MODEL_FILE : le
+  # superviseur llm-chat sert ce GGUF via le pointeur du modèle actif. Par défaut : Phi-4-mini.
   CHAT_URL: "https://huggingface.co/unsloth/Phi-4-mini-reasoning-GGUF/resolve/main/Phi-4-mini-reasoning-UD-IQ1_S.gguf"
-  CHAT_DEST: "/fine-tuning/merged/model.gguf"
-  # Modèle d'embedding → PVC models (MODEL_PATH=/models/embed.gguf). nomic-embed-text.
+  CHAT_DEST: "/models/Phi-4-mini-reasoning-UD-IQ1_S.gguf"
+  # Modèle d'embedding → PVC models (SPECTRA_LLM_EMBEDDING_FILE=embed.gguf). nomic-embed-text.
   EMBED_URL: "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_0.gguf"
   EMBED_DEST: "/models/embed.gguf"
   # Taille plancher (octets) sous laquelle un fichier est considéré incomplet → re-téléchargé.
@@ -73,10 +74,10 @@ spec:
               fetch "$CHAT_URL"  "$CHAT_DEST"
               echo "=> Modèles prêts."
           volumeMounts:
+            # Chat ET embed atterrissent désormais dans le volume des modèles (partagé avec
+            # le registre et servi par le superviseur llm-chat) — plus de PVC fine-tuning ici.
             - name: models
               mountPath: /models
-            - name: fine-tuning
-              mountPath: /fine-tuning
           resources:
             requests:
               cpu: "100m"
@@ -88,6 +89,3 @@ spec:
         - name: models
           persistentVolumeClaim:
             claimName: spectra-models-pvc
-        - name: fine-tuning
-          persistentVolumeClaim:
-            claimName: spectra-fine-tuning-pvc
