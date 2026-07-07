@@ -1932,7 +1932,7 @@ Ce script envoie des requêtes réelles à l'API Spectra et mesure les temps de 
 |------------|--------|---------------|
 | Contexte modèle fine-tuné = 2048 tokens | RAG limité à ~2 chunks par requête | Utiliser un modèle avec contexte plus large (Phi-3 4k) ou `maxContextChunks=2` |
 | Inférence CPU uniquement | 20–60 s par réponse RAG | GPU via `nvidia` runtime Docker (non configuré par défaut) |
-| Pas de rechargement à chaud de llama-server | Changement de modèle = restart du conteneur | `docker compose restart llm-chat` ou `docker compose restart llm-embed` |
+| Rechargement du modèle de **chat** : automatique | L'entrypoint superviseur de `llm-chat` suit le pointeur `active-chat-model` du registre (~10 s) | Rien à faire ; pour l'**embedding**, `docker compose restart llm-embed` reste requis (et impose une ré-ingestion) |
 | Vecteurs non portables entre modèles d'embedding | Changement de modèle = ré-ingestion complète | Prévoir une plage de maintenance pour la ré-ingestion |
 | `pullModel` non supporté | `POST /api/fine-tuning/models/{name}/pull` lève une exception | Les modèles doivent être gérés localement (téléchargement manuel GGUF) |
 | Paires dataset en mémoire | Perdues au redémarrage du conteneur | Export JSONL avant redémarrage |

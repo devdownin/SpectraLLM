@@ -1,16 +1,21 @@
 package fr.spectra.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import fr.spectra.dto.LlmFitRecommendation;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * Sécurité : validation des arguments passés au sous-processus {@code llmfit}.
@@ -69,6 +74,54 @@ class LlmFitServiceTest {
     @Test
     void installModel_ollamaStyleName_isAccepted() {
         assertThat(newService().installModel("llama3.2:3b", null, false)).isNotNull();
+    }
+
+    // ── Recommandations : validation du simulateur et croisement registre ───────
+
+    @Test
+    void getRecommendations_simulationInvalide_rejetteEn400AuLieuDeListeVide() {
+        // « 12 G » (espace) sort de l'allowlist : l'utilisateur doit voir une 400 claire,
+        // pas un Model Hub silencieusement vide.
+        assertThatThrownBy(() -> newService().getRecommendations(10, "12 G", null, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("memory");
+    }
+
+    @Test
+    void enrichWithRegistry_modeleEnregistreDansSpectra_marqueInstalled() {
+        ModelRegistryService registry = mock(ModelRegistryService.class);
+        when(registry.listModels("chat")).thenReturn(List.of(
+                Map.of("name", "llama3.2-3b-q4", "hfRepo", "llama3.2:3b")));
+        LlmFitService service = new LlmFitService(new ObjectMapper(), registry, mock(LlmChatClient.class));
+
+        LlmFitRecommendation.ModelRecommendation installedViaSpectra = recommendation("llama3.2:3b", false);
+        LlmFitRecommendation.ModelRecommendation notInstalled = recommendation("qwen2.5:7b", false);
+
+        LlmFitRecommendation enriched = service.enrichWithRegistry(
+                new LlmFitRecommendation(List.of(installedViaSpectra, notInstalled), null));
+
+        assertThat(enriched.models().get(0).installed())
+                .as("modèle présent dans le registre Spectra (hfRepo) → installé")
+                .isTrue();
+        assertThat(enriched.models().get(1).installed()).isFalse();
+    }
+
+    private static LlmFitRecommendation.ModelRecommendation recommendation(String name, boolean installed) {
+        return new LlmFitRecommendation.ModelRecommendation(
+                name, "provider", "3B", "chat", 90.0, "Good", "Q4_K_M",
+                12.0, 3.5, 2.1, 4096, List.of(), Map.of(), List.of(), installed, "CPU");
+    }
+
+    // ── Suivi de progression (SSE) ───────────────────────────────────────────────
+
+    @Test
+    void getInstallationProgress_telechargementInconnu_fluxCompleteImmediatement() {
+        // Reprise d'UI après redémarrage de l'API : aucun sink pour ce modèle.
+        // Le flux doit se terminer (l'EventSource client se ferme) au lieu de rester muet.
+        assertThat(newService().getInstallationProgress("inconnu")
+                .collectList()
+                .block(Duration.ofSeconds(2)))
+                .isEmpty();
     }
 
     // ── Repli de détection du GGUF téléchargé (scan de models-dir) ──────────────

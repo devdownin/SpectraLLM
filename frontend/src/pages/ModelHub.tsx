@@ -19,7 +19,7 @@ const ModelHub: FC = () => {
   const [simulation, setSimulation] = useState<{memory?: string, ram?: string, cpuCores?: number}>({});
   const [isSimulating, setIsSimulating] = useState(false);
 
-  const { data: recommendations, isLoading, refetch, isFetching } = useQuery({
+  const { data: recommendations, isLoading, refetch, isFetching, isError, error: recommendationsError } = useQuery({
     queryKey: ['model-recommendations', simulation, limit],
     queryFn: () => modelsHubApi.getRecommendations({ limit, ...simulation }).then(res => res.data),
   });
@@ -55,8 +55,8 @@ const ModelHub: FC = () => {
         refetch();
         toast.success(`Model "${modelName}" downloaded`, {
           description: autoActivateRef.current
-            ? 'Activated — restart llm-chat to load it: docker compose restart llm-chat'
-            : 'Saved to the registry. Activate it in the Playground, then restart llm-chat.',
+            ? 'Activated — llm-chat reloads it automatically within a few seconds.'
+            : 'Saved to the registry. Activate it from the Playground — llm-chat will reload it automatically.',
           duration: 8000,
         });
       }
@@ -64,8 +64,10 @@ const ModelHub: FC = () => {
     eventSource.onerror = () => {
       cleanupSource();
       setInstallingModels(prev => { const next = { ...prev }; delete next[modelName]; persistInstalling(next); return next; });
-      toast.error(`Progress tracking unavailable for "${modelName}"`, {
-        description: 'The download may still be running. Check the logs: docker compose logs spectra-api',
+      toast.error(`Progress tracking stopped for "${modelName}"`, {
+        description: 'The download failed or was interrupted (API restart). Check the logs '
+          + '(docker compose logs spectra-api) and relaunch the install if needed — an already '
+          + 'downloaded file is reused.',
       });
     };
   }, [refetch]);
@@ -92,8 +94,9 @@ const ModelHub: FC = () => {
       subscribeProgress(variables.modelName);
     },
     onError: (error: any) => {
+      // L'API renvoie un ProblemDetail (RFC 9457) : le message utile est dans `detail`.
       toast.error('Failed to start the download', {
-        description: error?.response?.data?.message ?? error.message,
+        description: error?.response?.data?.detail ?? error?.response?.data?.message ?? error.message,
       });
     }
   });
@@ -272,21 +275,20 @@ const ModelHub: FC = () => {
         </section>
       )}
 
-      {/* Post-install Docker restart reminder */}
+      {/* Post-install info : le superviseur llm-chat recharge le modèle actif tout seul */}
       {installedModels.length > 0 && (
         <div className="bg-primary/5 border border-primary/30 p-4 flex items-start gap-3">
           <span className="material-symbols-outlined text-primary text-sm mt-0.5 shrink-0">info</span>
           <div className="space-y-1">
             <p className="text-[10px] font-label font-bold uppercase tracking-widest text-primary">
-              Model(s) downloaded — restart required
+              Model(s) downloaded and registered
             </p>
             <p className="text-[9px] text-on-surface-variant leading-relaxed">
-              The GGUF file was copied to <code className="font-mono bg-surface-container px-1">data/models/</code>.
-              To have <strong>llm-chat</strong> serve this model, update <code className="font-mono bg-surface-container px-1">.env</code> then restart:
+              The GGUF file was copied to <code className="font-mono bg-surface-container px-1">data/models/</code> and
+              saved to the model registry. Once <strong>activated</strong> (Auto-activation here, or from the
+              Playground), <strong>llm-chat</strong> reloads it automatically within a few seconds — no manual
+              restart needed.
             </p>
-            <code className="block font-mono text-[9px] bg-surface-container px-2 py-1 text-primary mt-1">
-              docker compose restart llm-chat
-            </code>
           </div>
         </div>
       )}
@@ -378,10 +380,31 @@ const ModelHub: FC = () => {
         ))}
       </div>
 
-      {filteredModels?.length === 0 && (
+      {isError && (
+        <div className="text-center py-20 bg-error/5 border border-dashed border-error/30 space-y-3">
+          <span className="material-symbols-outlined text-error text-4xl">error</span>
+          <p className="text-error font-bold">Failed to load recommendations.</p>
+          <p className="text-outline text-xs">
+            {(recommendationsError as any)?.response?.data?.detail
+              ?? 'Check the simulation values (e.g. "12G") and that llmfit is available on the server.'}
+          </p>
+          <button
+            onClick={() => refetch()}
+            className="px-4 py-2 bg-primary text-on-primary font-headline uppercase tracking-widest text-[10px] font-bold"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {!isError && filteredModels?.length === 0 && (
         <div className="text-center py-20 bg-surface-container-lowest border border-dashed border-outline-variant/30">
           <span className="material-symbols-outlined text-outline-variant text-4xl mb-3">search_off</span>
-          <p className="text-outline">No model matches your filters.</p>
+          <p className="text-outline">
+            No model matches your filters — or llmfit returned no recommendation (check
+            <code className="font-mono bg-surface-container px-1 mx-1">docker compose logs spectra-api</code>
+            if the list stays empty without filters).
+          </p>
         </div>
       )}
     </div>
