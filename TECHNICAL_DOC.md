@@ -231,7 +231,7 @@ Le registre est persisté dans `data/models/registry.json` :
 
 ### `ResourceAdvisorService` — détection des ressources disponibles
 
-`ResourceAdvisorService` est un `@Service` Spring qui réplique côté Java la logique de détection du script `llama-autostart.sh`. Il s'initialise via `@PostConstruct` au démarrage de `spectra-api` et expose le profil détecté au reste de l'application.
+`ResourceAdvisorService` est le **propriétaire unique** du dimensionnement CPU/RAM (threads, contexte, batch, KV cache). Il s'initialise via `@PostConstruct` au démarrage de `spectra-api`, expose le profil détecté au reste de l'application, et `RuntimeParamsMaterializer` écrit ses recommandations dans `data/models/active-chat-params` — consommées par l'entrypoint superviseur de `llm-chat` comme valeurs par défaut (un `LLM_*` explicite dans `.env` garde la priorité). Le script `llama-autostart.sh` conserve sa propre détection uniquement pour les images llama.cpp autonomes (k8s/GKE), où l'API n'est pas joignable.
 
 **Sources de détection (dans l'ordre de priorité) :**
 
@@ -247,7 +247,7 @@ Le registre est persisté dans `data/models/registry.json` :
 
 **Intégration avec `LlamaCppRuntimeOrchestrator`** : quand le mode runtime est activé (`runtime.enabled=true`), `LlamaCppRuntimeOrchestrator.buildChatCommand()` consulte `ResourceAdvisorService` pour construire les arguments CLI de `llama-server` de façon adaptée à l'environnement courant, plutôt que d'utiliser des valeurs codées en dur.
 
-**Pourquoi dupliquer la logique shell en Java ?** Le service `spectra-api` peut s'exécuter en dehors de Docker (développement local, tests d'intégration). Dans ce contexte, `scripts/llama-autostart.sh` n'est pas invoqué ; `ResourceAdvisorService` prend le relais pour la détection et le calcul des paramètres.
+**Répartition des responsabilités.** Le Java calcule (une seule implémentation, testable) ; le shell consomme. Seule la détection **GPU** reste locale à chaque conteneur llama.cpp (`spectra-api` ne voit pas les GPU attribués à `llm-chat`) : offload via `LLM_CHAT_EXTRA_ARGS=--n-gpu-layers …` en compose, ou `llama-autostart.sh` pour les images autonomes.
 
 ---
 
@@ -1932,7 +1932,7 @@ Ce script envoie des requêtes réelles à l'API Spectra et mesure les temps de 
 |------------|--------|---------------|
 | Contexte modèle fine-tuné = 2048 tokens | RAG limité à ~2 chunks par requête | Utiliser un modèle avec contexte plus large (Phi-3 4k) ou `maxContextChunks=2` |
 | Inférence CPU uniquement | 20–60 s par réponse RAG | GPU via `nvidia` runtime Docker (non configuré par défaut) |
-| Pas de rechargement à chaud de llama-server | Changement de modèle = restart du conteneur | `docker compose restart llm-chat` ou `docker compose restart llm-embed` |
+| Rechargement du modèle de **chat** : automatique | L'entrypoint superviseur de `llm-chat` suit le pointeur `active-chat-model` du registre (~10 s) | Rien à faire ; pour l'**embedding**, `docker compose restart llm-embed` reste requis (et impose une ré-ingestion) |
 | Vecteurs non portables entre modèles d'embedding | Changement de modèle = ré-ingestion complète | Prévoir une plage de maintenance pour la ré-ingestion |
 | `pullModel` non supporté | `POST /api/fine-tuning/models/{name}/pull` lève une exception | Les modèles doivent être gérés localement (téléchargement manuel GGUF) |
 | Paires dataset en mémoire | Perdues au redémarrage du conteneur | Export JSONL avant redémarrage |

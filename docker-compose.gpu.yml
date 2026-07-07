@@ -3,15 +3,12 @@
 # Les paramètres -c/-b respectent le .env généré par detect-env.sh (LLM_CONTEXT),
 # avec les mêmes défauts que docker-compose.yml.
 services:
+  # llm-chat garde l'entrypoint superviseur du compose de base (modèle actif du
+  # registre) : seuls l'image CUDA et l'offload GPU sont ajoutés ici.
   llm-chat:
     image: ghcr.io/ggml-org/llama.cpp:server-cuda
-    command: >
-      --host 0.0.0.0
-      --port 8081
-      --model /models/${LLM_CHAT_MODEL_FILE:-Phi-4-mini-reasoning-UD-IQ1_S.gguf}
-      --ctx-size ${LLM_CONTEXT:-4096}
-      --parallel ${LLM_PARALLEL:-2}
-      --n-gpu-layers 99
+    environment:
+      - LLM_CHAT_EXTRA_ARGS=--n-gpu-layers 99
     deploy:
       resources:
         reservations:

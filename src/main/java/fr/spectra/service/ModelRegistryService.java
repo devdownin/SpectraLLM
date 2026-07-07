@@ -227,6 +227,83 @@ public class ModelRegistryService {
         }
     }
 
+    /**
+     * Retire un modèle du registre, avec suppression optionnelle de son fichier GGUF.
+     *
+     * <p>Garde-fous :</p>
+     * <ul>
+     *   <li>le modèle <b>actif</b> (chat ou embedding) n'est pas supprimable — il faut
+     *       d'abord en activer un autre ;</li>
+     *   <li>le fichier n'est supprimé que s'il réside dans le répertoire des modèles
+     *       (celui du registre) et qu'<b>aucun autre</b> modèle enregistré ne le référence.</li>
+     * </ul>
+     *
+     * @return compte-rendu : {@code name}, {@code type}, {@code fileDeleted}, {@code fileSkippedReason}
+     * @throws IllegalArgumentException modèle inconnu
+     * @throws IllegalStateException    modèle actif
+     */
+    public synchronized Map<String, Object> removeModel(String name, String type, boolean deleteFile) {
+        String resolvedType = (type != null && !type.isBlank()) ? type : "chat";
+        RegisteredModel model = findModel(name, resolvedType).orElseThrow(() -> new IllegalArgumentException(
+                "Modèle inconnu du registre : '" + name + "' (type=" + resolvedType + ")"));
+
+        boolean active = ("chat".equals(resolvedType) && name.equals(state.activeChatModel()))
+                || ("embedding".equals(resolvedType) && name.equals(state.activeEmbeddingModel()));
+        if (active) {
+            throw new IllegalStateException("Le modèle actif '" + name + "' ne peut pas être supprimé : "
+                    + "activez d'abord un autre modèle de " + resolvedType + ".");
+        }
+
+        state = state.withModels(state.models().stream()
+                .filter(current -> !(current.name().equals(name) && current.type().equals(resolvedType)))
+                .toList());
+        persist();
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("name", name);
+        result.put("type", resolvedType);
+        result.put("status", "deleted");
+        if (deleteFile) {
+            deleteModelFile(model, result);
+        } else {
+            result.put("fileDeleted", false);
+        }
+        log.info("Modèle '{}' ({}) retiré du registre{}", name, resolvedType,
+                Boolean.TRUE.equals(result.get("fileDeleted")) ? " — fichier supprimé : " + model.source() : "");
+        return result;
+    }
+
+    /** Supprime le GGUF du modèle si — et seulement si — c'est sûr (cf. {@link #removeModel}). */
+    private void deleteModelFile(RegisteredModel model, Map<String, Object> result) {
+        result.put("fileDeleted", false);
+        String source = model.source();
+        if (source == null || !source.toLowerCase().endsWith(".gguf")) {
+            result.put("fileSkippedReason", "La source n'est pas un fichier GGUF : " + source);
+            return;
+        }
+        Path file = Path.of(source).toAbsolutePath().normalize();
+        Path modelsDir = registryPath.getParent() != null
+                ? registryPath.getParent().toAbsolutePath().normalize() : null;
+        if (modelsDir == null || !file.startsWith(modelsDir)) {
+            result.put("fileSkippedReason", "Fichier hors du répertoire des modèles — non supprimé : " + file);
+            return;
+        }
+        boolean shared = state.models().stream().anyMatch(other -> source.equals(other.source()));
+        if (shared) {
+            result.put("fileSkippedReason", "Fichier encore référencé par un autre modèle enregistré — non supprimé");
+            return;
+        }
+        try {
+            boolean deleted = Files.deleteIfExists(file);
+            result.put("fileDeleted", deleted);
+            if (!deleted) {
+                result.put("fileSkippedReason", "Fichier déjà absent : " + file);
+            }
+        } catch (Exception e) {
+            result.put("fileSkippedReason", "Suppression impossible : " + e.getMessage());
+        }
+    }
+
     private void requireRegistered(String name, String type) {
         if (name == null || name.isBlank() || findModel(name, type).isEmpty()) {
             List<String> known = state.models().stream()
@@ -350,6 +427,50 @@ public class ModelRegistryService {
             MAPPER.writerWithDefaultPrettyPrinter().writeValue(registryPath.toFile(), state);
         } catch (Exception e) {
             log.warn("Impossible de persister le registre des modèles {}: {}", registryPath, e.getMessage());
+        }
+        materializeActiveChatPointer();
+    }
+
+    /**
+     * Matérialise le modèle de chat actif dans un fichier pointeur trivialement parsable
+     * ({@code active-chat-model}, à côté du registre donc sur le volume partagé des modèles) :
+     * <pre>
+     *   ligne 1 : alias du modèle actif
+     *   ligne 2 : nom du fichier GGUF dans le volume (absente si la source n'est pas un GGUF)
+     * </pre>
+     * C'est le contrat lu par l'entrypoint superviseur de llm-chat
+     * ({@code scripts/llm-chat-entrypoint.sh}) pour converger automatiquement vers le
+     * modèle actif après un {@code POST /api/config/model} — registry.json reste la source
+     * de vérité, ce fichier n'en est qu'une vue dérivée (réécrite à chaque persistance).
+     */
+    private void materializeActiveChatPointer() {
+        try {
+            String active = state.activeChatModel();
+            Path modelsDir = registryPath.getParent();
+            if (active == null || active.isBlank() || modelsDir == null) {
+                return;
+            }
+
+            StringBuilder content = new StringBuilder(active).append('\n');
+            findModel(active, "chat")
+                    .map(RegisteredModel::source)
+                    .filter(source -> source != null && source.toLowerCase().endsWith(".gguf"))
+                    .ifPresent(source -> content.append(Path.of(source).getFileName()).append('\n'));
+
+            // Écriture atomique : llm-chat peut lire le pointeur à tout instant.
+            Path pointer = modelsDir.resolve("active-chat-model");
+            Path tmp = modelsDir.resolve("active-chat-model.tmp");
+            Files.writeString(tmp, content.toString());
+            try {
+                Files.move(tmp, pointer, java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                        java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+            } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                // Certains systèmes de fichiers (montages réseau) ne supportent pas le move
+                // atomique : un remplacement simple reste préférable à aucun pointeur.
+                Files.move(tmp, pointer, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (Exception e) {
+            log.warn("Impossible d'écrire le pointeur du modèle actif : {}", e.getMessage());
         }
     }
 

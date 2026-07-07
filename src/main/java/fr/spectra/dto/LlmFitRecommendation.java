@@ -29,7 +29,14 @@ public record LlmFitRecommendation(
             @JsonProperty("gguf_sources") List<GgufSource> ggufSources,
             Boolean installed,
             @JsonProperty("run_mode") String runMode
-    ) {}
+    ) {
+        /** Copie avec le drapeau {@code installed} forcé (croisement avec le registre Spectra). */
+        public ModelRecommendation withInstalled(Boolean newInstalled) {
+            return new ModelRecommendation(name, provider, parameterCount, useCase, score, fitLevel,
+                    bestQuant, estimatedTps, memoryRequiredGb, diskSizeGb, contextLength,
+                    notes, scoreComponents, ggufSources, newInstalled, runMode);
+        }
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record GgufSource(

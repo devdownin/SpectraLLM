@@ -255,6 +255,69 @@ public class ChromaDbClient {
     }
 
     /**
+     * Résout l'id d'une collection <b>sans</b> contrôle de cohérence embedding.
+     * Réservé à la ré-indexation : c'est précisément la collection en MISMATCH
+     * (bloquée partout ailleurs) qu'il faut pouvoir lire pour la reconstruire.
+     */
+    public String resolveCollectionIdUnchecked(String name) {
+        validateCollectionName(name);
+        CollectionRef ref = collectionCache.get(name);
+        if (ref == null) {
+            ref = createCollectionWithCosine(name);
+            collectionCache.put(name, ref);
+        }
+        return ref.id();
+    }
+
+    /**
+     * Remplace les embeddings de chunks existants (mêmes ids, nouveaux vecteurs).
+     * Utilisé par la ré-indexation : documents et métadonnées restent inchangés.
+     */
+    public void updateEmbeddings(String collectionId, List<String> ids, List<List<Float>> embeddings) {
+        if (ids.isEmpty()) {
+            return;
+        }
+        Map<String, Object> body = Map.of("ids", ids, "embeddings", embeddings);
+        webClient.post()
+                .uri(COLLECTIONS_BASE + "/{id}/update", collectionId)
+                .bodyValue(body)
+                .retrieve()
+                .bodyToMono(Void.class)
+                .block(TIMEOUT_ADD);
+    }
+
+    /**
+     * Ré-estampille une collection avec un modèle d'embedding (fin de ré-indexation).
+     * Les métadonnées existantes (réglages {@code hnsw:*} des collections legacy) sont
+     * préservées : seule l'estampille change. Le cache local est mis à jour pour que
+     * l'accès suivant reflète immédiatement la nouvelle estampille.
+     */
+    @SuppressWarnings("unchecked")
+    public void updateEmbeddingStamp(String collectionName, String collectionId, String embeddingModel) {
+        Map<String, Object> current = webClient.get()
+                .uri(COLLECTIONS_BASE + "/{id}", collectionId)
+                .retrieve()
+                .bodyToMono(Map.class)
+                .block(TIMEOUT_DEFAULT);
+
+        Map<String, Object> metadata = new java.util.LinkedHashMap<>();
+        if (current != null && current.get("metadata") instanceof Map<?, ?> existing) {
+            existing.forEach((k, v) -> metadata.put(String.valueOf(k), v));
+        }
+        metadata.put(EMBEDDING_MODEL_METADATA_KEY, embeddingModel);
+
+        webClient.put()
+                .uri(COLLECTIONS_BASE + "/{id}", collectionId)
+                .bodyValue(Map.of("new_metadata", metadata))
+                .retrieve()
+                .bodyToMono(Void.class)
+                .block(TIMEOUT_DEFAULT);
+
+        collectionCache.put(collectionName, new CollectionRef(collectionId, embeddingModel));
+        log.info("Collection '{}' ré-estampillée avec le modèle d'embedding '{}'", collectionName, embeddingModel);
+    }
+
+    /**
      * Liste les collections existantes (id, nom, métadonnées) — utilisé par le contrôle
      * de cohérence embedding au démarrage.
      */

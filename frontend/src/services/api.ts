@@ -260,6 +260,10 @@ export const configApi = {
   getModelConfig: () => api.get('/config/model'),
   setModelConfig: (config: any) => api.post('/config/model', config),
   getModels: () => api.get('/config/models'),
+  getEmbeddingConsistency: () => api.get('/config/embedding-consistency'),
+  reindexCollection: (collection: string) =>
+    api.post('/config/embedding-consistency/reindex', { collection }),
+  getReindexStatuses: () => api.get('/config/embedding-consistency/reindex'),
 };
 
 export const modelsHubApi = {
@@ -269,6 +273,9 @@ export const modelsHubApi = {
     api.post(`/models/hub/install?modelName=${encodeURIComponent(modelName)}${quant ? `&quant=${quant}` : ''}&autoActivate=${autoActivate}`),
   getProgressSource: (modelName: string) =>
     new EventSource(`/api/models/hub/install/progress?modelName=${encodeURIComponent(modelName)}`),
+  getStorage: () => api.get('/models/hub/storage'),
+  deleteModel: (name: string, type = 'chat', deleteFile = true) =>
+    api.delete(`/fine-tuning/models/${encodeURIComponent(name)}`, { params: { type, deleteFile } }),
 };
 
 export default api;

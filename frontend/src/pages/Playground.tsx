@@ -264,11 +264,14 @@ const Playground: FC = () => {
     try {
       await configApi.setModelConfig({ model: modelName });
       setActiveModel(modelName);
-      toast.info('Registry updated', {
-        description: `Model "${modelName}" active on next llama-cpp-chat restart.`,
+      toast.info('Active model updated', {
+        description: `llm-chat reloads "${modelName}" automatically within a few seconds.`,
       });
-    } catch {
-      toast.error('Failed to switch model');
+    } catch (error: any) {
+      // 400 : alias inconnu du registre — le détail liste les modèles enregistrés.
+      toast.error('Failed to switch model', {
+        description: error?.response?.data?.error ?? error?.response?.data?.detail ?? error?.message,
+      });
     }
   };
 

@@ -8,6 +8,7 @@ import Skeleton from '../components/Skeleton';
 import Tooltip from '../components/Tooltip';
 import LifecycleDonut from '../components/charts/LifecycleDonut';
 import CategoryBar from '../components/charts/CategoryBar';
+import EmbeddingConsistencyCard from '../components/EmbeddingConsistencyCard';
 
 interface DatasetStats {
   totalPairs: number;
@@ -163,6 +164,9 @@ const Dashboard: FC = () => {
         <p className="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-1">System Overview</p>
         <h2 className="font-headline text-3xl font-bold tracking-tighter">DASHBOARD</h2>
       </header>
+
+      {/* ── Cohérence embedding ↔ index (visible seulement en cas de problème) ── */}
+      <EmbeddingConsistencyCard />
 
       {/* ── Service Health ── */}
       <section className="space-y-4">

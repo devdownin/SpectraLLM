@@ -99,15 +99,20 @@ public class LlmFitService {
     }
 
     public LlmFitRecommendation getRecommendations(int limit, String memory, String ram, Integer cpuCores) {
+        // Validation AVANT le try : une valeur de simulation invalide (ex. « 12 G ») doit
+        // remonter en 400 explicite, pas être avalée en « aucune recommandation ».
+        if (memory != null && !memory.isBlank()) requireSafeArg(memory, SAFE_OPTION, "memory");
+        if (ram != null && !ram.isBlank()) requireSafeArg(ram, SAFE_OPTION, "ram");
+
         try {
             List<String> command = new ArrayList<>(List.of(llmfitPath, "recommend", "--json", "--limit", String.valueOf(limit)));
             if (memory != null && !memory.isBlank()) {
                 command.add("--memory");
-                command.add(requireSafeArg(memory, SAFE_OPTION, "memory"));
+                command.add(memory);
             }
             if (ram != null && !ram.isBlank()) {
                 command.add("--ram");
-                command.add(requireSafeArg(ram, SAFE_OPTION, "ram"));
+                command.add(ram);
             }
             if (cpuCores != null) {
                 command.add("--cpu-cores");
@@ -117,19 +122,52 @@ public class LlmFitService {
             ProcessBuilder pb = new ProcessBuilder(command);
             Process process = pb.start();
 
+            LlmFitRecommendation recommendation;
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-                return objectMapper.readValue(reader, LlmFitRecommendation.class);
+                recommendation = objectMapper.readValue(reader, LlmFitRecommendation.class);
             }
+            // Le JSON est déjà lu : borne courte pour ne pas bloquer le thread si llmfit traîne.
+            if (!process.waitFor(10, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+            }
+            return enrichWithRegistry(recommendation);
         } catch (Exception e) {
             log.error("Erreur lors de la récupération des recommandations llmfit", e);
             return new LlmFitRecommendation(Collections.emptyList(), null);
         }
     }
 
+    /**
+     * Croise le drapeau {@code installed} de llmfit avec le registre Spectra : llmfit ne
+     * connaît que SON cache, alors que la vérité d'installation est le registre (le GGUF
+     * est copié dans le volume partagé et enregistré avec {@code hfRepo} = identifiant
+     * llmfit). Un modèle installé via Spectra reste ainsi marqué « installé » même si le
+     * cache llmfit est purgé — et le comparatif du Model Hub reflète l'état réel.
+     */
+    LlmFitRecommendation enrichWithRegistry(LlmFitRecommendation recommendation) {
+        if (recommendation == null || recommendation.models() == null || recommendation.models().isEmpty()) {
+            return recommendation;
+        }
+        java.util.Set<String> registered = modelRegistryService.listModels("chat").stream()
+                .map(model -> model.get("hfRepo"))
+                .filter(java.util.Objects::nonNull)
+                .map(Object::toString)
+                .collect(java.util.stream.Collectors.toSet());
+
+        List<LlmFitRecommendation.ModelRecommendation> enriched = recommendation.models().stream()
+                .map(model -> registered.contains(model.name()) && !Boolean.TRUE.equals(model.installed())
+                        ? model.withInstalled(true)
+                        : model)
+                .toList();
+        return new LlmFitRecommendation(enriched, recommendation.system());
+    }
+
     public Flux<Integer> getInstallationProgress(String modelName) {
-        return progressSinks.computeIfAbsent(modelName,
-                k -> Sinks.many().replay().latest())
-                .asFlux();
+        // Pas de sink = aucun téléchargement connu de cette JVM (ex. reprise de l'UI après
+        // un redémarrage de l'API) : compléter immédiatement pour que l'EventSource se ferme
+        // côté client, au lieu de créer un flux muet qui laisserait la barre figée à jamais.
+        Sinks.Many<Integer> sink = progressSinks.get(modelName);
+        return sink != null ? sink.asFlux() : Flux.empty();
     }
 
     public CompletableFuture<Boolean> installModel(String modelName, String quant, boolean autoActivate) {
@@ -260,10 +298,11 @@ public class LlmFitService {
                             // Route via le chat client (et non le registre seul) pour aligner
                             // l'activation sur le reste : registre + orchestrateur runtime
                             // (hot-reload en mode embarqué) + modèle actif en mémoire + vérif.
-                            // En mode conteneur séparé, un redémarrage de llm-chat reste requis.
+                            // En mode conteneur séparé, l'entrypoint superviseur de llm-chat
+                            // lit le pointeur du registre et recharge le modèle tout seul.
                             chatClient.setActiveModel(alias);
-                            log.info("Modèle '{}' activé automatiquement (en mode conteneur séparé, "
-                                    + "redémarrez llm-chat pour le charger).", alias);
+                            log.info("Modèle '{}' activé — llm-chat converge automatiquement "
+                                    + "(pointeur du registre) sous quelques secondes.", alias);
                         }
                     } else {
                         // Téléchargement réussi mais chemin GGUF introuvable (ni dans la sortie
@@ -291,6 +330,70 @@ public class LlmFitService {
             // il est conservé pour rejouer l'état terminal aux abonnés tardifs et sera
             // remplacé au prochain install du même modèle.
         });
+    }
+
+    /**
+     * Inventaire du volume des modèles : chaque GGUF présent avec sa taille, les alias
+     * du registre qui le référencent et son éventuel statut actif. Ferme le cycle de vie
+     * (télécharger → activer → <b>retirer</b>) en rendant visible l'espace consommé —
+     * les GGUF pèsent plusieurs Go chacun et s'accumulaient sans aucune vue d'ensemble.
+     */
+    public Map<String, Object> getStorageReport() {
+        Path modelsDir = Path.of(modelsDirPath).toAbsolutePath().normalize();
+        List<Map<String, Object>> registered = new ArrayList<>();
+        registered.addAll(modelRegistryService.listModels("chat"));
+        registered.addAll(modelRegistryService.listModels("embedding"));
+
+        List<Map<String, Object>> files = new ArrayList<>();
+        long totalBytes = 0;
+        if (Files.isDirectory(modelsDir)) {
+            try (Stream<Path> entries = Files.list(modelsDir)) {
+                List<Path> ggufs = entries
+                        .filter(Files::isRegularFile)
+                        .filter(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".gguf"))
+                        .sorted()
+                        .toList();
+                for (Path gguf : ggufs) {
+                    String fileName = gguf.getFileName().toString();
+                    long size;
+                    try {
+                        size = Files.size(gguf);
+                    } catch (Exception e) {
+                        size = 0;
+                    }
+                    totalBytes += size;
+
+                    List<Map<String, Object>> references = registered.stream()
+                            .filter(model -> {
+                                Object source = model.get("source");
+                                return source != null
+                                        && fileName.equals(Path.of(source.toString()).getFileName().toString());
+                            })
+                            .toList();
+
+                    Map<String, Object> entry = new java.util.LinkedHashMap<>();
+                    entry.put("file", fileName);
+                    entry.put("sizeBytes", size);
+                    entry.put("registeredAs", references.stream()
+                            .map(model -> Map.of(
+                                    "name", model.get("name"),
+                                    "type", model.get("type"),
+                                    "active", Boolean.TRUE.equals(model.get("active"))))
+                            .toList());
+                    entry.put("active", references.stream()
+                            .anyMatch(model -> Boolean.TRUE.equals(model.get("active"))));
+                    files.add(entry);
+                }
+            } catch (Exception e) {
+                log.warn("Inventaire du répertoire des modèles impossible : {}", e.getMessage());
+            }
+        }
+
+        Map<String, Object> report = new java.util.LinkedHashMap<>();
+        report.put("modelsDir", modelsDir.toString());
+        report.put("totalBytes", totalBytes);
+        report.put("files", files);
+        return report;
     }
 
     /**

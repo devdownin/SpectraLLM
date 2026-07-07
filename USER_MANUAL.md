@@ -689,11 +689,7 @@ Avantage : pas de duplication du modèle de base, et permutation d'adaptateurs �
 | CPU + Python installé | HuggingFace PEFT | Adaptateur LoRA CPU (lent mais réel) |
 | GPU NVIDIA + Python | Unsloth QLoRA 4-bit | Adaptateur GGUF haute qualité dans `data/fine-tuning/merged/model.gguf` |
 
-Après le fine-tuning, le modèle est automatiquement enregistré dans `data/models/registry.json`. Pour le prendre en compte dans le serveur de chat :
-
-```bash
-docker compose restart llm-chat
-```
+Après le fine-tuning, le modèle est automatiquement enregistré dans `data/models/registry.json`. Dès que vous l'**activez** (Playground ou `POST /api/config/model`), le superviseur de `llm-chat` détecte le changement via le pointeur `data/models/active-chat-model` et recharge `llama-server` automatiquement en quelques secondes — aucun redémarrage manuel n'est nécessaire.
 
 ---
 
@@ -913,7 +909,7 @@ L'indicateur de pipeline en haut à droite montre la progression globale :
 
 - **Sélecteur de modèle** (colonne gauche, section "Active Model") : liste tous les modèles de chat enregistrés dans le registre. Cliquez sur un modèle pour le définir comme modèle actif dans le registre.
 
-  > **Important :** le changement prend effet uniquement au prochain redémarrage de `llm-chat`. Le Playground affiche un toast d'information pour le rappeler. Pour appliquer immédiatement : `docker compose restart llm-chat` (ou modifiez `LLAMA_CHAT_MODEL` dans `.env` si vous changez de fichier GGUF).
+  > **Note :** l'activation met à jour le registre, puis le superviseur de `llm-chat` recharge automatiquement le nouveau modèle en quelques secondes (période de surveillance : `LLM_CHAT_WATCH_INTERVAL`, défaut 10 s). Le healthcheck (`activeModelLoaded` dans `/api/status`) confirme la convergence. Un alias inconnu du registre est rejeté avec la liste des modèles enregistrés.
 
 - **Temperature et Top P** : ajustent le comportement de génération (déterministe ↔ créatif)
 - **Enable Knowledge Base** : active/désactive le RAG — pratique pour comparer les réponses avec et sans contexte documentaire
@@ -992,15 +988,7 @@ curl -X POST http://localhost:8080/api/config/model \
 # → {"model": "mon-modele", "status": "updated"}
 ```
 
-> **Note :** avec `runtime.enabled=false` (mode par défaut en Docker), le changement met à jour le registre mais **ne recharge pas llama-server**. Pour que le nouveau modèle soit effectivement servi, redémarrez `llm-chat` :
-> ```bash
-> # Si le GGUF est déjà dans data/models/
-> docker compose restart llm-chat
->
-> # Si vous changez de fichier GGUF, modifiez .env puis relancez
-> # LLM_CHAT_MODEL_FILE=nouveau-modele.gguf
-> docker compose up -d --no-deps llm-chat
-> ```
+> **Note :** le changement met à jour le registre **et** le pointeur `data/models/active-chat-model` ; l'entrypoint superviseur de `llm-chat` (`scripts/llm-chat-entrypoint.sh`) le détecte et recharge `llama-server` avec le nouveau GGUF en quelques secondes — sans redémarrage manuel. Prérequis : le modèle doit être **enregistré dans le registre** avec une source GGUF présente dans `data/models/` (c'est automatique pour les modèles issus du Model Hub ou du fine-tuning). Un alias inconnu est rejeté en 400.
 
 ---
 

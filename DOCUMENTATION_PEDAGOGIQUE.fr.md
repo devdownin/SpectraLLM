@@ -1158,15 +1158,17 @@ l'essai‑erreur (télécharger plusieurs Go pour découvrir que ça ne charge p
 relie le choix au **dimensionnement** ci‑dessous.
 
 ⚠️ **Cohérence des volumes.** Le modèle est copié dans `data/models/`, qui **doit**
-être le volume monté par le conteneur `llm-chat`. En mode conteneurs séparés,
-servir un modèle fraîchement installé demande un `docker compose restart llm-chat`
-(l'écran le rappelle après chaque installation).
+être le volume monté par le conteneur `llm-chat`. Une fois le modèle **activé**
+(auto‑activation du Model Hub ou Playground), le superviseur de `llm-chat` lit le
+pointeur `active-chat-model` du registre et recharge `llama-server` automatiquement
+en quelques secondes — plus de redémarrage manuel.
 
 🎯 **Exemple d'usage.** Sur un portable 16 Go sans GPU, *Model Hub* classe en tête
 un 3‑4 B en q4 (`Good`, ~12 tok/s, ~3 Go requis) et grise les 13 B (`Too Tight`).
 L'utilisateur clique **Installer** ; la barre progresse jusqu'à 100 %, le GGUF
-atterrit dans `data/models/`, est enregistré, et après un redémarrage de `llm-chat`
-il est servi — **sans avoir tâtonné** entre plusieurs téléchargements.
+atterrit dans `data/models/`, est enregistré dans le registre (avec son repo
+d'origine et sa quantization), et dès son activation `llm-chat` le sert
+automatiquement — **sans avoir tâtonné** entre plusieurs téléchargements.
 
 ### Dimensionner : combien de mémoire pour combien de documents ?
 💡 L'auto‑réglage choisit les paramètres, mais c'est à vous de provisionner la
