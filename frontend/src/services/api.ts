@@ -260,6 +260,10 @@ export const configApi = {
   getModelConfig: () => api.get('/config/model'),
   setModelConfig: (config: any) => api.post('/config/model', config),
   getModels: () => api.get('/config/models'),
+  getEmbeddingConsistency: () => api.get('/config/embedding-consistency'),
+  reindexCollection: (collection: string) =>
+    api.post('/config/embedding-consistency/reindex', { collection }),
+  getReindexStatuses: () => api.get('/config/embedding-consistency/reindex'),
 };
 
 export const modelsHubApi = {

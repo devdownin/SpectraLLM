@@ -2,6 +2,7 @@ package fr.spectra.controller;
 
 import fr.spectra.dto.ResourceProfile;
 import fr.spectra.service.EmbeddingConsistencyChecker;
+import fr.spectra.service.EmbeddingReindexService;
 import fr.spectra.service.LlmChatClient;
 import fr.spectra.service.ResourceAdvisorService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -24,12 +25,15 @@ public class ConfigController {
     private final LlmChatClient chatClient;
     private final ResourceAdvisorService resourceAdvisor;
     private final EmbeddingConsistencyChecker embeddingConsistencyChecker;
+    private final EmbeddingReindexService embeddingReindexService;
 
     public ConfigController(LlmChatClient chatClient, ResourceAdvisorService resourceAdvisor,
-                            EmbeddingConsistencyChecker embeddingConsistencyChecker) {
+                            EmbeddingConsistencyChecker embeddingConsistencyChecker,
+                            EmbeddingReindexService embeddingReindexService) {
         this.chatClient = chatClient;
         this.resourceAdvisor = resourceAdvisor;
         this.embeddingConsistencyChecker = embeddingConsistencyChecker;
+        this.embeddingReindexService = embeddingReindexService;
     }
 
     @Operation(summary = "Retourne le modèle LLM actif")
@@ -77,6 +81,33 @@ public class ConfigController {
     @GetMapping("/embedding-consistency")
     public ResponseEntity<Map<String, Object>> embeddingConsistency() {
         return ResponseEntity.ok(embeddingConsistencyChecker.verify());
+    }
+
+    @Operation(
+            summary = "Ré-indexe une collection avec le modèle d'embedding actif",
+            description = "Remédiation d'un statut MISMATCH : recalcule les vecteurs de tous les "
+                    + "chunks (textes et métadonnées conservés, pas de ré-ingestion des fichiers) "
+                    + "puis ré-estampille la collection. La collection reste bloquée pour le RAG "
+                    + "pendant l'opération (l'estampille n'est mise à jour qu'à la fin). "
+                    + "Une seule ré-indexation à la fois — 409 si une autre est en cours. "
+                    + "Suivi via GET /api/config/embedding-consistency/reindex."
+    )
+    @PostMapping("/embedding-consistency/reindex")
+    public ResponseEntity<Map<String, Object>> reindexCollection(@RequestBody Map<String, String> body) {
+        String collection = body.get("collection");
+        try {
+            return ResponseEntity.accepted().body(embeddingReindexService.start(collection).toApi());
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(409).body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @Operation(summary = "Statut des ré-indexations (en cours et terminées)")
+    @GetMapping("/embedding-consistency/reindex")
+    public ResponseEntity<List<Map<String, Object>>> reindexStatuses() {
+        return ResponseEntity.ok(embeddingReindexService.statuses().stream()
+                .map(EmbeddingReindexService.ReindexStatus::toApi)
+                .toList());
     }
 
     @Operation(
