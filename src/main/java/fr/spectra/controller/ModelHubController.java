@@ -1,9 +1,11 @@
 package fr.spectra.controller;
 
+import fr.spectra.dto.InstallationJob;
 import fr.spectra.dto.LlmFitRecommendation;
 import fr.spectra.service.LlmFitService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -11,8 +13,10 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Flux;
 
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -53,6 +57,26 @@ public class ModelHubController {
             @RequestParam(defaultValue = "false") boolean autoActivate) {
         llmFitService.installModel(modelName, quant, autoActivate);
         return Map.of("status", "IN_PROGRESS", "modelName", modelName);
+    }
+
+    @GetMapping("/installations")
+    @Operation(summary = "Historique des installations (persisté, survit au redémarrage de l'API)",
+            description = "Chaque téléchargement lancé via le Model Hub avec son statut "
+                    + "(DOWNLOADING/COMPLETED/FAILED), sa progression et son éventuelle erreur. "
+                    + "Un téléchargement interrompu par un redémarrage apparaît en FAILED plutôt "
+                    + "que figé — la réconciliation au démarrage le réconcilie.")
+    public List<InstallationJob> listInstallations() {
+        return llmFitService.getInstallations();
+    }
+
+    @GetMapping("/installations/{jobId}")
+    @Operation(summary = "Suivi d'une installation par identifiant")
+    public InstallationJob getInstallation(@PathVariable String jobId) {
+        InstallationJob job = llmFitService.getInstallation(jobId);
+        if (job == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Installation inconnue: " + jobId);
+        }
+        return job;
     }
 
     /**

@@ -8,6 +8,17 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Model Hub — boucle « comparatif → qualité mesurée »
+
+- **Comparaison qualité asynchrone et suivie** (`QualityBenchmarkService.submitCompare`, `QualityCompareJob`, `POST /api/quality-benchmark/compare/async`, `GET /compare/{jobId}`, `GET /compare`) : le benchmark tenu à l'écart est lent (plusieurs appels LLM par question, ×2 modèles), donc piloté comme un job de fond suivi (PENDING → RUNNING → COMPLETED/FAILED) plutôt qu'en requête HTTP bloquante. Une seule comparaison à la fois (bascule du modèle actif), persistée en JSON et réconciliée au démarrage (jobs orphelins → FAILED), à l'image d'`EvaluationService`.
+- **Le Model Hub relie fit matériel et qualité réelle** : après une installation **auto-activée**, l'API mémorise le modèle actif remplacé (`InstallationJob.previousActiveModel`) et l'UI propose directement de lancer le benchmark qualité du nouveau modèle (candidate) contre le précédent (baseline) — sur **votre corpus**. Le composant `QualityBenchmarkCta` sonde le job et affiche le face-à-face (exactitude /10, taux d'hallucination, refus corrects) avec deltas et verdict. On choisit ainsi sur des chiffres mesurés, pas seulement sur le score de compatibilité de llmfit.
+
+### Model Hub — installations persistantes (reprise après redémarrage)
+
+- **Suivi persisté des téléchargements** (`installation_jobs` en H2, `InstallationJob`/`InstallationJobEntity`/`InstallationJobRepository`) : un redémarrage de l'API tuait le sous-processus `llmfit` et effaçait tout le suivi (les sinks SSE ne vivaient qu'en mémoire). Chaque installation est désormais persistée de bout en bout (PENDING → DOWNLOADING → REGISTERING → COMPLETED/FAILED), progression comprise — même pattern que les jobs de fine-tuning.
+- **Réconciliation au démarrage** (`LlmFitService.reconcileInterruptedInstallations`, `@PostConstruct`) : tout job resté non-terminal (orphelin de l'ancienne JVM) est marqué **FAILED** (« Interrompu par un redémarrage du serveur ») au lieu de rester figé. L'historique redevient honnête.
+- **Historique interrogeable** : `GET /api/models/hub/installations` (liste, plus récentes d'abord) et `GET /api/models/hub/installations/{jobId}`. Panneau repliable « Installation history » dans le Model Hub (statut, progression, erreur), rafraîchi tant qu'un téléchargement est en cours.
+
 ### Ingestion streaming Kafka — enrichir le RAG au fil de l'eau (données vivantes)
 
 - **Consumer Kafka** (`KafkaIngestionListener`, `KafkaConfig`) : source d'ingestion continue en plus des uploads/URLs. **Désactivé par défaut** (`spectra.kafka.enabled=false`) — aucun bean Kafka créé, démarrage inchangé. Commit **manuel** des offsets après indexation (*at-least-once*), retries + **Dead Letter Topic** `<topic>.DLT`, concurrence et sécurité SASL/SSL configurables.

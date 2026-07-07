@@ -266,6 +266,14 @@ export const configApi = {
   getReindexStatuses: () => api.get('/config/embedding-consistency/reindex'),
 };
 
+export const qualityBenchmarkApi = {
+  // Comparaison qualité asynchrone (suivie) : candidate vs baseline sur le benchmark tenu à l'écart.
+  compareAsync: (baseline: string, candidate: string) =>
+    api.post(`/quality-benchmark/compare/async?baseline=${encodeURIComponent(baseline)}&candidate=${encodeURIComponent(candidate)}`),
+  getCompareJob: (jobId: string) => api.get(`/quality-benchmark/compare/${encodeURIComponent(jobId)}`),
+  listCompareJobs: () => api.get('/quality-benchmark/compare'),
+};
+
 export const modelsHubApi = {
   getRecommendations: (params: { limit?: number; memory?: string; ram?: string; cpuCores?: number } = {}) =>
     api.get('/models/hub/recommendations', { params }),
@@ -273,6 +281,7 @@ export const modelsHubApi = {
     api.post(`/models/hub/install?modelName=${encodeURIComponent(modelName)}${quant ? `&quant=${quant}` : ''}&autoActivate=${autoActivate}`),
   getProgressSource: (modelName: string) =>
     new EventSource(`/api/models/hub/install/progress?modelName=${encodeURIComponent(modelName)}`),
+  getInstallations: () => api.get('/models/hub/installations'),
   getStorage: () => api.get('/models/hub/storage'),
   deleteModel: (name: string, type = 'chat', deleteFile = true) =>
     api.delete(`/fine-tuning/models/${encodeURIComponent(name)}`, { params: { type, deleteFile } }),

@@ -1,8 +1,10 @@
 import type { FC } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { modelsHubApi } from '../services/api';
+import { modelsHubApi, configApi } from '../services/api';
 import Skeleton from '../components/Skeleton';
 import ModelStoragePanel from '../components/ModelStoragePanel';
+import InstallationHistoryPanel from '../components/InstallationHistoryPanel';
+import QualityBenchmarkCta from '../components/QualityBenchmarkCta';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { toast } from 'sonner';
 
@@ -14,6 +16,30 @@ const ModelHub: FC = () => {
   // autoActivate lu via ref pour ne pas recréer subscribeProgress (et donc l'effet de reprise).
   const autoActivateRef = useRef(autoActivate);
   autoActivateRef.current = autoActivate;
+  // Installations lancées avec auto-activation : à leur fin, on propose le benchmark qualité
+  // (candidate = modèle nouvellement actif, baseline = modèle qu'il remplace).
+  const autoActivatedInstalls = useRef<Set<string>>(new Set());
+  const [benchmarkCta, setBenchmarkCta] = useState<{ candidate: string; baseline: string } | null>(null);
+
+  // Boucle « comparatif → qualité mesurée » : après une installation auto-activée, résout le
+  // modèle actif (candidate) et le modèle précédent enregistré côté serveur (baseline) puis
+  // propose de lancer le benchmark qualité sur le corpus. Best-effort (silencieux si indispo).
+  const proposeBenchmark = useCallback(async (installedModelId: string) => {
+    try {
+      const [installsRes, cfgRes] = await Promise.all([
+        modelsHubApi.getInstallations(),
+        configApi.getModelConfig(),
+      ]);
+      const candidate: string | undefined = cfgRes.data?.model;
+      const job = (installsRes.data as any[])
+        .filter(j => j.modelName === installedModelId && j.status === 'COMPLETED' && j.previousActiveModel)
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+      const baseline: string | undefined = job?.previousActiveModel;
+      if (candidate && baseline && candidate !== baseline) {
+        setBenchmarkCta({ candidate, baseline });
+      }
+    } catch { /* best-effort : pas de CTA si la résolution échoue */ }
+  }, []);
 
   const [filter, setFilter] = useState('All');
   const [limit, setLimit] = useState(12);
@@ -60,6 +86,11 @@ const ModelHub: FC = () => {
             : 'Saved to the registry. Activate it from the Playground — llm-chat will reload it automatically.',
           duration: 8000,
         });
+        // Auto-activée : propose de mesurer la qualité vs le modèle remplacé (boucle comparatif→qualité).
+        if (autoActivatedInstalls.current.has(modelName)) {
+          autoActivatedInstalls.current.delete(modelName);
+          proposeBenchmark(modelName);
+        }
       }
     };
     eventSource.onerror = () => {
@@ -71,7 +102,7 @@ const ModelHub: FC = () => {
           + 'downloaded file is reused.',
       });
     };
-  }, [refetch]);
+  }, [refetch, proposeBenchmark]);
 
   // Reprise au montage : ré-abonne les téléchargements en cours mémorisés (navigation / reload).
   useEffect(() => {
@@ -92,6 +123,8 @@ const ModelHub: FC = () => {
       modelsHubApi.installModel(modelName, quant, autoActivate),
     onSuccess: (_, variables) => {
       setInstallingModels(prev => { const next = { ...prev, [variables.modelName]: 0 }; persistInstalling(next); return next; });
+      // Mémorise l'auto-activation pour proposer le benchmark qualité à la fin du téléchargement.
+      if (autoActivate) autoActivatedInstalls.current.add(variables.modelName);
       subscribeProgress(variables.modelName);
     },
     onError: (error: any) => {
@@ -278,6 +311,21 @@ const ModelHub: FC = () => {
 
       {/* Inventaire du volume des modèles (repliable) : tailles, alias, suppression */}
       <ModelStoragePanel />
+
+      {/* Historique persistant des installations : survit au redémarrage de l'API,
+          un téléchargement interrompu apparaît en FAILED plutôt que figé. */}
+      <InstallationHistoryPanel />
+
+      {/* Boucle comparatif → qualité : après une installation auto-activée, propose de mesurer
+          la qualité réelle du nouveau modèle contre le précédent, sur le corpus. */}
+      {benchmarkCta && (
+        <QualityBenchmarkCta
+          key={`${benchmarkCta.baseline}→${benchmarkCta.candidate}`}
+          candidate={benchmarkCta.candidate}
+          baseline={benchmarkCta.baseline}
+          onDismiss={() => setBenchmarkCta(null)}
+        />
+      )}
 
       {/* Post-install info : le superviseur llm-chat recharge le modèle actif tout seul */}
       {installedModels.length > 0 && (

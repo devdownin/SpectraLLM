@@ -1,9 +1,13 @@
 package fr.spectra.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import fr.spectra.dto.InstallationJob;
 import fr.spectra.dto.LlmFitRecommendation;
+import fr.spectra.persistence.InstallationJobEntity;
+import fr.spectra.persistence.InstallationJobRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.ArgumentCaptor;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -11,10 +15,15 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -31,7 +40,8 @@ class LlmFitServiceTest {
         return new LlmFitService(
                 new ObjectMapper(),
                 mock(ModelRegistryService.class),
-                mock(LlmChatClient.class));
+                mock(LlmChatClient.class),
+                mock(InstallationJobRepository.class));
     }
 
     // ── Entrées rejetées (aucun sous-processus ne doit démarrer) ────────────────
@@ -92,7 +102,8 @@ class LlmFitServiceTest {
         ModelRegistryService registry = mock(ModelRegistryService.class);
         when(registry.listModels("chat")).thenReturn(List.of(
                 Map.of("name", "llama3.2-3b-q4", "hfRepo", "llama3.2:3b")));
-        LlmFitService service = new LlmFitService(new ObjectMapper(), registry, mock(LlmChatClient.class));
+        LlmFitService service = new LlmFitService(new ObjectMapper(), registry, mock(LlmChatClient.class),
+                mock(InstallationJobRepository.class));
 
         LlmFitRecommendation.ModelRecommendation installedViaSpectra = recommendation("llama3.2:3b", false);
         LlmFitRecommendation.ModelRecommendation notInstalled = recommendation("qwen2.5:7b", false);
@@ -150,5 +161,99 @@ class LlmFitServiceTest {
     @Test
     void findRecentGguf_repertoireInexistant_retourneVide() {
         assertThat(LlmFitService.findRecentGguf(modelsDir.resolve("absent"), Instant.now())).isEmpty();
+    }
+
+    // ── Persistance des installations (H2) + réconciliation au démarrage ─────────
+
+    private LlmFitService newServiceWith(InstallationJobRepository repo) {
+        return new LlmFitService(new ObjectMapper(), mock(ModelRegistryService.class),
+                mock(LlmChatClient.class), repo);
+    }
+
+    @Test
+    void installationJob_previousActiveModel_survitAuRoundTripEntity() {
+        // Le modèle actif remplacé (baseline du benchmark qualité) doit traverser les withers,
+        // le mapping entité et la persistance sans se perdre.
+        InstallationJob job = InstallationJob.pending("j", "m", "Q4", true)
+                .withPreviousActiveModel("ancien-actif")
+                .completed("/m.gguf", "Terminé");
+        InstallationJob roundTrip = InstallationJobEntity.fromDto(job).toDto();
+        assertThat(roundTrip.previousActiveModel()).isEqualTo("ancien-actif");
+        assertThat(roundTrip.status()).isEqualTo(InstallationJob.Status.COMPLETED);
+        assertThat(roundTrip.outputPath()).isEqualTo("/m.gguf");
+    }
+
+    @Test
+    void installModel_persisteUnJobPendingAvantLeSousProcessus() {
+        InstallationJobRepository repo = mock(InstallationJobRepository.class);
+        // findById renvoie vide : les transitions asynchrones (updateInstallation) sont des no-op,
+        // on isole la persistance SYNCHRONE du job pending faite avant CompletableFuture.
+        when(repo.findById(any())).thenReturn(Optional.empty());
+
+        newServiceWith(repo).installModel("llama3.2:3b", "Q4_K_M", true);
+
+        ArgumentCaptor<InstallationJobEntity> captor = ArgumentCaptor.forClass(InstallationJobEntity.class);
+        verify(repo, atLeastOnce()).save(captor.capture());
+        InstallationJob pending = captor.getAllValues().get(0).toDto();
+        assertThat(pending.status()).isEqualTo(InstallationJob.Status.PENDING);
+        assertThat(pending.modelName()).isEqualTo("llama3.2:3b");
+        assertThat(pending.quant()).isEqualTo("Q4_K_M");
+        assertThat(pending.autoActivate()).isTrue();
+        assertThat(pending.jobId()).isNotBlank();
+    }
+
+    @Test
+    void reconcileInterruptedInstallations_marqueFailedLesJobsNonTerminaux() {
+        InstallationJobRepository repo = mock(InstallationJobRepository.class);
+        InstallationJob downloading = InstallationJob.pending("j1", "modelA", null, false)
+                .withProgress(42);
+        InstallationJob completed = InstallationJob.pending("j2", "modelB", null, false)
+                .completed("/models/b.gguf", "Terminé");
+        InstallationJob alreadyFailed = InstallationJob.pending("j3", "modelC", null, false)
+                .failed("boom");
+        when(repo.findAll()).thenReturn(List.of(
+                InstallationJobEntity.fromDto(downloading),
+                InstallationJobEntity.fromDto(completed),
+                InstallationJobEntity.fromDto(alreadyFailed)));
+
+        newServiceWith(repo).reconcileInterruptedInstallations();
+
+        ArgumentCaptor<InstallationJobEntity> captor = ArgumentCaptor.forClass(InstallationJobEntity.class);
+        verify(repo, atLeastOnce()).save(captor.capture());
+        // Seul le job DOWNLOADING doit être réécrit, en FAILED, sans perdre la progression.
+        List<InstallationJob> saved = captor.getAllValues().stream().map(InstallationJobEntity::toDto).toList();
+        assertThat(saved).hasSize(1);
+        assertThat(saved.get(0).jobId()).isEqualTo("j1");
+        assertThat(saved.get(0).status()).isEqualTo(InstallationJob.Status.FAILED);
+        assertThat(saved.get(0).progress()).isEqualTo(42);
+        assertThat(saved.get(0).error()).contains("redémarrage");
+    }
+
+    @Test
+    void reconcileInterruptedInstallations_aucunJobNonTerminal_neReecritRien() {
+        InstallationJobRepository repo = mock(InstallationJobRepository.class);
+        when(repo.findAll()).thenReturn(List.of(InstallationJobEntity.fromDto(
+                InstallationJob.pending("j1", "m", null, false).completed("/m.gguf", "Terminé"))));
+
+        newServiceWith(repo).reconcileInterruptedInstallations();
+
+        verify(repo, never()).save(any());
+    }
+
+    @Test
+    void getInstallations_trieLesPlusRecentesDAbord() {
+        InstallationJobRepository repo = mock(InstallationJobRepository.class);
+        InstallationJob vieux = new InstallationJob("old", InstallationJob.Status.COMPLETED,
+                "m1", null, false, 100, "Terminé", "/m1.gguf", null, null,
+                Instant.now().minusSeconds(600), Instant.now().minusSeconds(590));
+        InstallationJob recent = new InstallationJob("new", InstallationJob.Status.COMPLETED,
+                "m2", null, false, 100, "Terminé", "/m2.gguf", null, null,
+                Instant.now(), Instant.now());
+        when(repo.findAll()).thenReturn(List.of(
+                InstallationJobEntity.fromDto(vieux), InstallationJobEntity.fromDto(recent)));
+
+        List<InstallationJob> jobs = newServiceWith(repo).getInstallations();
+
+        assertThat(jobs).extracting(InstallationJob::jobId).containsExactly("new", "old");
     }
 }
