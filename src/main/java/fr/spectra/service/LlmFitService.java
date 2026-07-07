@@ -260,10 +260,11 @@ public class LlmFitService {
                             // Route via le chat client (et non le registre seul) pour aligner
                             // l'activation sur le reste : registre + orchestrateur runtime
                             // (hot-reload en mode embarqué) + modèle actif en mémoire + vérif.
-                            // En mode conteneur séparé, un redémarrage de llm-chat reste requis.
+                            // En mode conteneur séparé, l'entrypoint superviseur de llm-chat
+                            // lit le pointeur du registre et recharge le modèle tout seul.
                             chatClient.setActiveModel(alias);
-                            log.info("Modèle '{}' activé automatiquement (en mode conteneur séparé, "
-                                    + "redémarrez llm-chat pour le charger).", alias);
+                            log.info("Modèle '{}' activé — llm-chat converge automatiquement "
+                                    + "(pointeur du registre) sous quelques secondes.", alias);
                         }
                     } else {
                         // Téléchargement réussi mais chemin GGUF introuvable (ni dans la sortie

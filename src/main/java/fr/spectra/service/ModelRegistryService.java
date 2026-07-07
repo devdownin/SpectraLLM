@@ -351,6 +351,50 @@ public class ModelRegistryService {
         } catch (Exception e) {
             log.warn("Impossible de persister le registre des modèles {}: {}", registryPath, e.getMessage());
         }
+        materializeActiveChatPointer();
+    }
+
+    /**
+     * Matérialise le modèle de chat actif dans un fichier pointeur trivialement parsable
+     * ({@code active-chat-model}, à côté du registre donc sur le volume partagé des modèles) :
+     * <pre>
+     *   ligne 1 : alias du modèle actif
+     *   ligne 2 : nom du fichier GGUF dans le volume (absente si la source n'est pas un GGUF)
+     * </pre>
+     * C'est le contrat lu par l'entrypoint superviseur de llm-chat
+     * ({@code scripts/llm-chat-entrypoint.sh}) pour converger automatiquement vers le
+     * modèle actif après un {@code POST /api/config/model} — registry.json reste la source
+     * de vérité, ce fichier n'en est qu'une vue dérivée (réécrite à chaque persistance).
+     */
+    private void materializeActiveChatPointer() {
+        try {
+            String active = state.activeChatModel();
+            Path modelsDir = registryPath.getParent();
+            if (active == null || active.isBlank() || modelsDir == null) {
+                return;
+            }
+
+            StringBuilder content = new StringBuilder(active).append('\n');
+            findModel(active, "chat")
+                    .map(RegisteredModel::source)
+                    .filter(source -> source != null && source.toLowerCase().endsWith(".gguf"))
+                    .ifPresent(source -> content.append(Path.of(source).getFileName()).append('\n'));
+
+            // Écriture atomique : llm-chat peut lire le pointeur à tout instant.
+            Path pointer = modelsDir.resolve("active-chat-model");
+            Path tmp = modelsDir.resolve("active-chat-model.tmp");
+            Files.writeString(tmp, content.toString());
+            try {
+                Files.move(tmp, pointer, java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                        java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+            } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                // Certains systèmes de fichiers (montages réseau) ne supportent pas le move
+                // atomique : un remplacement simple reste préférable à aucun pointeur.
+                Files.move(tmp, pointer, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (Exception e) {
+            log.warn("Impossible d'écrire le pointeur du modèle actif : {}", e.getMessage());
+        }
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)

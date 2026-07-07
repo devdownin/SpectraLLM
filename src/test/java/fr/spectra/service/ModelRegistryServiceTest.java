@@ -163,6 +163,41 @@ class ModelRegistryServiceTest {
         return registry;
     }
 
+    // ── pointeur du modèle actif (contrat lu par llm-chat-entrypoint.sh) ──────
+
+    @Test
+    void pointeurActiveChatModel_ecritAliasEtFichierGguf() throws Exception {
+        registry.registerChatModel("mon-ft", "/app/data/models/mon-ft.gguf", null, Map.of(), "fine-tuning");
+        registry.setActiveChatModel("mon-ft");
+
+        java.util.List<String> lines = java.nio.file.Files.readAllLines(
+                tempDir.resolve("active-chat-model"));
+        assertThat(lines).containsExactly("mon-ft", "mon-ft.gguf");
+    }
+
+    @Test
+    void pointeurActiveChatModel_sourceNonGguf_ecritSeulementLAlias() throws Exception {
+        // Le bootstrap par défaut crée une entrée « alias » (source = nom) : le pointeur
+        // ne doit alors porter que l'alias — l'entrypoint retombe sur le fichier d'env.
+        java.util.List<String> lines = java.nio.file.Files.readAllLines(
+                tempDir.resolve("active-chat-model"));
+        assertThat(lines).containsExactly("default-chat");
+    }
+
+    @Test
+    void pointeurActiveChatModel_suitLesChangementsDeModeleActif() throws Exception {
+        registry.registerChatModel("a", "/models/a.gguf", null, Map.of(), "llmfit");
+        registry.registerChatModel("b", "/models/b.gguf", null, Map.of(), "llmfit");
+
+        registry.setActiveChatModel("a");
+        assertThat(java.nio.file.Files.readAllLines(tempDir.resolve("active-chat-model")))
+                .containsExactly("a", "a.gguf");
+
+        registry.setActiveChatModel("b");
+        assertThat(java.nio.file.Files.readAllLines(tempDir.resolve("active-chat-model")))
+                .containsExactly("b", "b.gguf");
+    }
+
     // ── registerChatModel avec provenance llmfit ──────────────────────────────
 
     @Test
