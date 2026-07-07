@@ -266,6 +266,14 @@ export const configApi = {
   getReindexStatuses: () => api.get('/config/embedding-consistency/reindex'),
 };
 
+export const qualityBenchmarkApi = {
+  // Comparaison qualité asynchrone (suivie) : candidate vs baseline sur le benchmark tenu à l'écart.
+  compareAsync: (baseline: string, candidate: string) =>
+    api.post(`/quality-benchmark/compare/async?baseline=${encodeURIComponent(baseline)}&candidate=${encodeURIComponent(candidate)}`),
+  getCompareJob: (jobId: string) => api.get(`/quality-benchmark/compare/${encodeURIComponent(jobId)}`),
+  listCompareJobs: () => api.get('/quality-benchmark/compare'),
+};
+
 export const modelsHubApi = {
   getRecommendations: (params: { limit?: number; memory?: string; ram?: string; cpuCores?: number } = {}) =>
     api.get('/models/hub/recommendations', { params }),

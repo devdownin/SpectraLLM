@@ -8,6 +8,11 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Model Hub — boucle « comparatif → qualité mesurée »
+
+- **Comparaison qualité asynchrone et suivie** (`QualityBenchmarkService.submitCompare`, `QualityCompareJob`, `POST /api/quality-benchmark/compare/async`, `GET /compare/{jobId}`, `GET /compare`) : le benchmark tenu à l'écart est lent (plusieurs appels LLM par question, ×2 modèles), donc piloté comme un job de fond suivi (PENDING → RUNNING → COMPLETED/FAILED) plutôt qu'en requête HTTP bloquante. Une seule comparaison à la fois (bascule du modèle actif), persistée en JSON et réconciliée au démarrage (jobs orphelins → FAILED), à l'image d'`EvaluationService`.
+- **Le Model Hub relie fit matériel et qualité réelle** : après une installation **auto-activée**, l'API mémorise le modèle actif remplacé (`InstallationJob.previousActiveModel`) et l'UI propose directement de lancer le benchmark qualité du nouveau modèle (candidate) contre le précédent (baseline) — sur **votre corpus**. Le composant `QualityBenchmarkCta` sonde le job et affiche le face-à-face (exactitude /10, taux d'hallucination, refus corrects) avec deltas et verdict. On choisit ainsi sur des chiffres mesurés, pas seulement sur le score de compatibilité de llmfit.
+
 ### Model Hub — installations persistantes (reprise après redémarrage)
 
 - **Suivi persisté des téléchargements** (`installation_jobs` en H2, `InstallationJob`/`InstallationJobEntity`/`InstallationJobRepository`) : un redémarrage de l'API tuait le sous-processus `llmfit` et effaçait tout le suivi (les sinks SSE ne vivaient qu'en mémoire). Chaque installation est désormais persistée de bout en bout (PENDING → DOWNLOADING → REGISTERING → COMPLETED/FAILED), progression comprise — même pattern que les jobs de fine-tuning.

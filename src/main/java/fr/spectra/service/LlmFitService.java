@@ -347,6 +347,13 @@ public class LlmFitService {
                         log.info("Modèle enregistré dans Spectra sous l'alias '{}' → {}", alias, registeredPath);
 
                         if (autoActivate) {
+                            // Mémorise le modèle actif AVANT bascule : il devient la baseline
+                            // proposée pour le benchmark qualité (boucle « comparatif → qualité »).
+                            String previousActive = chatClient.getActiveModel();
+                            if (previousActive != null && !previousActive.isBlank()
+                                    && !previousActive.equals(alias)) {
+                                updateInstallation(jobId, j -> j.withPreviousActiveModel(previousActive));
+                            }
                             // Route via le chat client (et non le registre seul) pour aligner
                             // l'activation sur le reste : registre + orchestrateur runtime
                             // (hot-reload en mode embarqué) + modèle actif en mémoire + vérif.

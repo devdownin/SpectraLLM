@@ -1,14 +1,21 @@
 package fr.spectra.controller;
 
 import fr.spectra.dto.QualityBenchmarkReport;
+import fr.spectra.dto.QualityCompareJob;
 import fr.spectra.service.QualityBenchmarkService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -50,5 +57,40 @@ public class QualityBenchmarkController {
             @RequestParam String baseline,
             @RequestParam String candidate) {
         return service.compare(baseline, candidate);
+    }
+
+    @PostMapping("/compare/async")
+    @Operation(
+            summary = "Lancer une comparaison qualité asynchrone (suivie)",
+            description = "Boucle « comparatif → qualité mesurée » : après installation + activation "
+                    + "d'un modèle, compare le nouveau (candidate) au précédent (baseline) sur votre "
+                    + "corpus. Non bloquant (le benchmark est lent sur CPU) : renvoie un jobId à suivre "
+                    + "via GET /compare/{jobId}. Une seule comparaison à la fois (409 sinon)."
+    )
+    public ResponseEntity<Map<String, String>> compareAsync(
+            @RequestParam String baseline,
+            @RequestParam String candidate) {
+        String jobId = service.submitCompare(baseline, candidate);
+        if (jobId == null) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of("error", "Une comparaison qualité est déjà en cours"));
+        }
+        return ResponseEntity.ok(Map.of("jobId", jobId, "status", "PENDING"));
+    }
+
+    @GetMapping("/compare/{jobId}")
+    @Operation(summary = "Suivi d'une comparaison qualité asynchrone")
+    public QualityCompareJob getCompareJob(@PathVariable String jobId) {
+        QualityCompareJob job = service.getCompareJob(jobId);
+        if (job == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Comparaison inconnue: " + jobId);
+        }
+        return job;
+    }
+
+    @GetMapping("/compare")
+    @Operation(summary = "Historique des comparaisons qualité (les plus récentes d'abord)")
+    public List<QualityCompareJob> listCompareJobs() {
+        return service.getCompareJobs();
     }
 }

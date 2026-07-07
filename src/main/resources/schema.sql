@@ -107,11 +107,15 @@ CREATE TABLE IF NOT EXISTS installation_jobs (
     progress         INTEGER      NOT NULL DEFAULT 0,
     current_step     VARCHAR(255),
     output_path      VARCHAR(255),
+    previous_active_model VARCHAR(255),
     error            TEXT,
     created_at       TIMESTAMP WITH TIME ZONE,
     completed_at     TIMESTAMP WITH TIME ZONE,
     PRIMARY KEY (job_id)
 );
+
+-- Migration : bases créées avant l'ajout du modèle actif précédent (idempotent sous H2).
+ALTER TABLE installation_jobs ADD COLUMN IF NOT EXISTS previous_active_model VARCHAR(255);
 
 -- Ingestion streaming Kafka : état par identité métier (données vivantes).
 CREATE TABLE IF NOT EXISTS kafka_stream_source (

@@ -171,6 +171,19 @@ class LlmFitServiceTest {
     }
 
     @Test
+    void installationJob_previousActiveModel_survitAuRoundTripEntity() {
+        // Le modèle actif remplacé (baseline du benchmark qualité) doit traverser les withers,
+        // le mapping entité et la persistance sans se perdre.
+        InstallationJob job = InstallationJob.pending("j", "m", "Q4", true)
+                .withPreviousActiveModel("ancien-actif")
+                .completed("/m.gguf", "Terminé");
+        InstallationJob roundTrip = InstallationJobEntity.fromDto(job).toDto();
+        assertThat(roundTrip.previousActiveModel()).isEqualTo("ancien-actif");
+        assertThat(roundTrip.status()).isEqualTo(InstallationJob.Status.COMPLETED);
+        assertThat(roundTrip.outputPath()).isEqualTo("/m.gguf");
+    }
+
+    @Test
     void installModel_persisteUnJobPendingAvantLeSousProcessus() {
         InstallationJobRepository repo = mock(InstallationJobRepository.class);
         // findById renvoie vide : les transitions asynchrones (updateInstallation) sont des no-op,
@@ -231,10 +244,10 @@ class LlmFitServiceTest {
     void getInstallations_trieLesPlusRecentesDAbord() {
         InstallationJobRepository repo = mock(InstallationJobRepository.class);
         InstallationJob vieux = new InstallationJob("old", InstallationJob.Status.COMPLETED,
-                "m1", null, false, 100, "Terminé", "/m1.gguf", null,
+                "m1", null, false, 100, "Terminé", "/m1.gguf", null, null,
                 Instant.now().minusSeconds(600), Instant.now().minusSeconds(590));
         InstallationJob recent = new InstallationJob("new", InstallationJob.Status.COMPLETED,
-                "m2", null, false, 100, "Terminé", "/m2.gguf", null,
+                "m2", null, false, 100, "Terminé", "/m2.gguf", null, null,
                 Instant.now(), Instant.now());
         when(repo.findAll()).thenReturn(List.of(
                 InstallationJobEntity.fromDto(vieux), InstallationJobEntity.fromDto(recent)));

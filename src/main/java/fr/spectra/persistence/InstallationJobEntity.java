@@ -27,6 +27,7 @@ public class InstallationJobEntity {
     private int progress;
     private String currentStep;
     private String outputPath;
+    private String previousActiveModel;
 
     @Column(columnDefinition = "TEXT")
     private String error;
@@ -38,7 +39,7 @@ public class InstallationJobEntity {
 
     public InstallationJobEntity(String jobId, String status, String modelName, String quant,
                                  boolean autoActivate, int progress, String currentStep,
-                                 String outputPath, String error,
+                                 String outputPath, String previousActiveModel, String error,
                                  Instant createdAt, Instant completedAt) {
         this.jobId = jobId;
         this.status = status;
@@ -48,6 +49,7 @@ public class InstallationJobEntity {
         this.progress = progress;
         this.currentStep = currentStep;
         this.outputPath = outputPath;
+        this.previousActiveModel = previousActiveModel;
         this.error = error;
         this.createdAt = createdAt;
         this.completedAt = completedAt;
@@ -57,13 +59,14 @@ public class InstallationJobEntity {
         return new InstallationJobEntity(
                 dto.jobId(), dto.status().name(), dto.modelName(), dto.quant(),
                 dto.autoActivate(), dto.progress(), dto.currentStep(),
-                dto.outputPath(), dto.error(), dto.createdAt(), dto.completedAt());
+                dto.outputPath(), dto.previousActiveModel(), dto.error(),
+                dto.createdAt(), dto.completedAt());
     }
 
     public InstallationJob toDto() {
         return new InstallationJob(
                 jobId, InstallationJob.Status.valueOf(status), modelName, quant,
-                autoActivate, progress, currentStep, outputPath, error,
+                autoActivate, progress, currentStep, outputPath, previousActiveModel, error,
                 createdAt, completedAt);
     }
 

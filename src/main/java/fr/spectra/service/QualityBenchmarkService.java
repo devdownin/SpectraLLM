@@ -2,25 +2,38 @@ package fr.spectra.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import fr.spectra.dto.QualityBenchmarkItem;
 import fr.spectra.dto.QualityBenchmarkReport;
+import fr.spectra.dto.QualityCompareJob;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Harnais d'évaluation <b>qualité</b> sur un benchmark <b>tenu à l'écart</b> (jamais dans
@@ -59,13 +72,154 @@ public class QualityBenchmarkService {
             Réponds UNIQUEMENT avec ce JSON : {"refused": true|false, "justification": "<phrase courte>"}
             """;
 
+    /** Mapper dédié à la (dé)sérialisation des jobs persistés (gère les {@link Instant}). */
+    private static final ObjectMapper jobMapper = new ObjectMapper()
+            .registerModule(new JavaTimeModule())
+            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+
     private final LlmChatClient chatClient;
     private final String benchmarkPath;
+    private final Path workDir;
+
+    /** Jobs de comparaison suivis (en mémoire + persistés en JSON), à l'image d'EvaluationService. */
+    private final Map<String, QualityCompareJob> compareJobs = new ConcurrentHashMap<>();
+    /**
+     * Une seule comparaison à la fois : chaque {@link #run(String)} bascule le modèle actif servi
+     * globalement puis le restaure ; deux comparaisons concurrentes se voleraient le modèle actif.
+     */
+    private final AtomicBoolean compareRunning = new AtomicBoolean(false);
+    private final Object persistLock = new Object();
+    private Path compareJobsFile;
+
+    // Proxy Spring pour que @Async prenne effet sur l'appel interne (fallback `this` hors Spring).
+    @Autowired @Lazy
+    private QualityBenchmarkService self;
 
     public QualityBenchmarkService(LlmChatClient chatClient,
-                                   @Value("${spectra.benchmark.quality-file:}") String benchmarkPath) {
+                                   @Value("${spectra.benchmark.quality-file:}") String benchmarkPath,
+                                   @Value("${spectra.fine-tuning.work-dir:./data/fine-tuning}") String workDir) {
         this.chatClient = chatClient;
         this.benchmarkPath = benchmarkPath;
+        this.workDir = Path.of(workDir);
+    }
+
+    /**
+     * Restaure les jobs persistés et réconcilie ceux restés non-terminaux (orphelins d'une ancienne
+     * JVM) en FAILED — même logique que les autres suivis (fine-tuning, installations).
+     */
+    @PostConstruct
+    void init() {
+        compareJobsFile = workDir.resolve("quality-compare-jobs.json");
+        if (Files.exists(compareJobsFile)) {
+            try {
+                var type = jobMapper.getTypeFactory()
+                        .constructMapType(Map.class, String.class, QualityCompareJob.class);
+                Map<String, QualityCompareJob> loaded = jobMapper.readValue(compareJobsFile.toFile(), type);
+                compareJobs.putAll(loaded);
+                log.info("Comparaisons qualité restaurées: {} jobs", loaded.size());
+            } catch (Exception e) {
+                log.warn("Impossible de charger les comparaisons qualité persistées: {}", e.getMessage());
+            }
+        }
+        boolean reconciled = false;
+        for (QualityCompareJob j : compareJobs.values()) {
+            if (j.status() != QualityCompareJob.Status.COMPLETED
+                    && j.status() != QualityCompareJob.Status.FAILED) {
+                compareJobs.put(j.jobId(), j.failed("Interrompu par un redémarrage du serveur"));
+                log.warn("Comparaison qualité {} ({} vs {}) marquée FAILED : interrompue par un redémarrage",
+                        j.jobId(), j.baseline(), j.candidate());
+                reconciled = true;
+            }
+        }
+        if (reconciled) persistCompareJobs();
+    }
+
+    private void persistCompareJobs() {
+        if (compareJobsFile == null) return;
+        synchronized (persistLock) {
+            try {
+                Files.createDirectories(workDir);
+                Path tmp = compareJobsFile.resolveSibling(compareJobsFile.getFileName() + ".tmp");
+                jobMapper.writerWithDefaultPrettyPrinter().writeValue(tmp.toFile(), compareJobs);
+                try {
+                    Files.move(tmp, compareJobsFile,
+                            java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                            java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+                } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                    Files.move(tmp, compareJobsFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                }
+            } catch (Exception e) {
+                log.warn("Échec persistance des comparaisons qualité: {}", e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Lance une comparaison qualité asynchrone {@code candidate} vs {@code baseline} sur le benchmark
+     * tenu à l'écart. Un seul passage à la fois (bascule du modèle actif) : renvoie {@code null} si une
+     * comparaison est déjà en cours (le contrôleur répond alors 409).
+     *
+     * @return l'identifiant du job, ou {@code null} si une comparaison tourne déjà
+     */
+    public String submitCompare(String baseline, String candidate) {
+        if (baseline == null || baseline.isBlank() || candidate == null || candidate.isBlank()) {
+            throw new IllegalArgumentException("baseline et candidate sont requis.");
+        }
+        if (!compareRunning.compareAndSet(false, true)) {
+            return null;
+        }
+        try {
+            String jobId = UUID.randomUUID().toString();
+            compareJobs.put(jobId, QualityCompareJob.pending(jobId, baseline, candidate));
+            persistCompareJobs();
+            (self != null ? self : this).runCompareAsync(jobId, baseline, candidate);
+            return jobId;
+        } catch (RuntimeException ex) {
+            compareRunning.set(false);
+            throw ex;
+        }
+    }
+
+    /** Exécute la comparaison en tâche de fond : baseline puis candidate, avec suivi de statut. */
+    @Async
+    protected void runCompareAsync(String jobId, String baseline, String candidate) {
+        try {
+            updateCompareJob(jobId, j -> j.running("Évaluation du modèle de référence « " + baseline + " »…"));
+            QualityBenchmarkReport baselineReport = run(baseline);
+
+            updateCompareJob(jobId, j -> j.withBaselineReport(baselineReport,
+                    "Évaluation du modèle candidat « " + candidate + " »…"));
+            QualityBenchmarkReport candidateReport = run(candidate);
+
+            updateCompareJob(jobId, j -> j.completed(candidateReport));
+            log.info("Comparaison qualité {} terminée : {} ({}/10) vs {} ({}/10)", jobId,
+                    baseline, String.format("%.2f", baselineReport.avgScore()),
+                    candidate, String.format("%.2f", candidateReport.avgScore()));
+        } catch (Exception e) {
+            log.error("Comparaison qualité {} échouée: {}", jobId, e.getMessage());
+            updateCompareJob(jobId, j -> j.failed(e.getMessage() != null ? e.getMessage() : e.toString()));
+        } finally {
+            compareRunning.set(false);
+        }
+    }
+
+    private void updateCompareJob(String jobId, java.util.function.UnaryOperator<QualityCompareJob> updater) {
+        QualityCompareJob current = compareJobs.get(jobId);
+        if (current == null) return;
+        compareJobs.put(jobId, updater.apply(current));
+        persistCompareJobs();
+    }
+
+    public QualityCompareJob getCompareJob(String jobId) {
+        return compareJobs.get(jobId);
+    }
+
+    /** Historique des comparaisons qualité, les plus récentes d'abord. */
+    public List<QualityCompareJob> getCompareJobs() {
+        return compareJobs.values().stream()
+                .sorted(Comparator.comparing(QualityCompareJob::createdAt,
+                        Comparator.nullsLast(Comparator.reverseOrder())))
+                .toList();
     }
 
     /**
