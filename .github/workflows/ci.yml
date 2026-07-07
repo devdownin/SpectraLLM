@@ -67,6 +67,14 @@ jobs:
       run: npm run test
     - name: Build (tsc + vite)
       run: npm run build
+    - name: E2E tests (Playwright)
+      run: |
+        npm install -g playwright
+        npm install playwright core-js
+        npx playwright install --with-deps chromium
+        npm run preview &
+        sleep 5
+        node ../test_pw.js
 
   python-services:
     name: Python services (docparser, reranker)

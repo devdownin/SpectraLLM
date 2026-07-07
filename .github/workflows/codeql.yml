@@ -53,6 +53,4 @@ jobs:
       uses: github/codeql-action/analyze@v4
       with:
         category: "/language:${{matrix.language}}"
-        # upload: false is used here to avoid CI failure if "GitHub Code Scanning" is not explicitly enabled in the repo settings.
-        # Set to true once the feature is enabled to see results in the Security tab.
-        upload: false
+        upload: true
