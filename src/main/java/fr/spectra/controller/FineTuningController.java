@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -112,6 +113,23 @@ public class FineTuningController {
     @Operation(summary = "Lister les modèles disponibles sur le serveur LLM")
     public List<Map<String, Object>> listModels() {
         return llmClient.listModels();
+    }
+
+    @DeleteMapping("/models/{name}")
+    @Operation(summary = "Retirer un modèle du registre (suppression optionnelle du GGUF)",
+            description = "Le modèle ACTIF n'est pas supprimable (409) : activez-en un autre "
+                    + "d'abord. Avec deleteFile=true, le fichier GGUF est supprimé seulement "
+                    + "s'il réside dans le répertoire des modèles et n'est référencé par aucun "
+                    + "autre modèle enregistré (sinon fileSkippedReason l'explique).")
+    public ResponseEntity<Map<String, Object>> deleteModel(
+            @PathVariable String name,
+            @RequestParam(defaultValue = "chat") String type,
+            @RequestParam(defaultValue = "false") boolean deleteFile) {
+        try {
+            return ResponseEntity.ok(modelRegistry.removeModel(name, type, deleteFile));
+        } catch (IllegalStateException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, e.getMessage());
+        }
     }
 
     @DeleteMapping("/{jobId}")

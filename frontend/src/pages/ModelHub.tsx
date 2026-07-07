@@ -2,6 +2,7 @@ import type { FC } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { modelsHubApi } from '../services/api';
 import Skeleton from '../components/Skeleton';
+import ModelStoragePanel from '../components/ModelStoragePanel';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { toast } from 'sonner';
 
@@ -274,6 +275,9 @@ const ModelHub: FC = () => {
           )}
         </section>
       )}
+
+      {/* Inventaire du volume des modèles (repliable) : tailles, alias, suppression */}
+      <ModelStoragePanel />
 
       {/* Post-install info : le superviseur llm-chat recharge le modèle actif tout seul */}
       {installedModels.length > 0 && (

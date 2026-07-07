@@ -26,6 +26,15 @@ public class ModelHubController {
         this.llmFitService = llmFitService;
     }
 
+    @GetMapping("/storage")
+    @Operation(summary = "Inventaire du volume des modèles (GGUF, tailles, alias, actifs)",
+            description = "Chaque fichier GGUF de data/models/ avec sa taille, les modèles du "
+                    + "registre qui le référencent et son statut actif. Complète le cycle de "
+                    + "vie : suppression via DELETE /api/fine-tuning/models/{name}?deleteFile=true.")
+    public Map<String, Object> getStorage() {
+        return llmFitService.getStorageReport();
+    }
+
     @GetMapping("/recommendations")
     @Operation(summary = "Récupérer les 10 meilleurs modèles optimisés pour le matériel (avec simulation optionnelle)")
     public LlmFitRecommendation getRecommendations(

@@ -273,6 +273,9 @@ export const modelsHubApi = {
     api.post(`/models/hub/install?modelName=${encodeURIComponent(modelName)}${quant ? `&quant=${quant}` : ''}&autoActivate=${autoActivate}`),
   getProgressSource: (modelName: string) =>
     new EventSource(`/api/models/hub/install/progress?modelName=${encodeURIComponent(modelName)}`),
+  getStorage: () => api.get('/models/hub/storage'),
+  deleteModel: (name: string, type = 'chat', deleteFile = true) =>
+    api.delete(`/fine-tuning/models/${encodeURIComponent(name)}`, { params: { type, deleteFile } }),
 };
 
 export default api;

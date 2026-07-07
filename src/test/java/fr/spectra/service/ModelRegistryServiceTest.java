@@ -338,6 +338,78 @@ class ModelRegistryServiceTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    // ── removeModel ───────────────────────────────────────────────────────────
+
+    @Test
+    void removeModel_modeleInactif_retireDuRegistre() {
+        registry.registerChatModel("obsolete", "/models/obsolete.gguf", null, Map.of(), "llmfit");
+
+        Map<String, Object> result = registry.removeModel("obsolete", "chat", false);
+
+        assertThat(result.get("status")).isEqualTo("deleted");
+        assertThat(result.get("fileDeleted")).isEqualTo(false);
+        assertThat(registry.hasModel("obsolete", "chat")).isFalse();
+    }
+
+    @Test
+    void removeModel_modeleActif_rejeteEn409() {
+        registry.registerChatModel("actif", "/models/actif.gguf", null, Map.of(), "llmfit");
+        registry.setActiveChatModel("actif");
+
+        assertThatThrownBy(() -> registry.removeModel("actif", "chat", false))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("actif");
+        assertThat(registry.hasModel("actif", "chat")).isTrue();
+    }
+
+    @Test
+    void removeModel_modeleInconnu_rejette() {
+        assertThatThrownBy(() -> registry.removeModel("fantome", "chat", false))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void removeModel_deleteFile_supprimeLeGgufDansLeRepertoireDesModeles() throws Exception {
+        // Le répertoire des modèles = celui du registre (tempDir).
+        java.nio.file.Path gguf = java.nio.file.Files.writeString(
+                tempDir.resolve("a-supprimer.gguf"), "fake");
+        registry.registerChatModel("a-supprimer", gguf.toString(), null, Map.of(), "llmfit");
+
+        Map<String, Object> result = registry.removeModel("a-supprimer", "chat", true);
+
+        assertThat(result.get("fileDeleted")).isEqualTo(true);
+        assertThat(java.nio.file.Files.exists(gguf)).isFalse();
+    }
+
+    @Test
+    void removeModel_fichierPartageParUnAutreModele_conserveLeFichier() throws Exception {
+        java.nio.file.Path gguf = java.nio.file.Files.writeString(
+                tempDir.resolve("partage.gguf"), "fake");
+        registry.registerChatModel("modele-a", gguf.toString(), null, Map.of(), "llmfit");
+        registry.registerChatModel("modele-b", gguf.toString(), null, Map.of(), "llmfit");
+
+        Map<String, Object> result = registry.removeModel("modele-a", "chat", true);
+
+        assertThat(result.get("fileDeleted")).isEqualTo(false);
+        assertThat(result.get("fileSkippedReason").toString()).contains("référencé");
+        assertThat(java.nio.file.Files.exists(gguf)).isTrue();
+    }
+
+    @Test
+    void removeModel_fichierHorsDuRepertoireDesModeles_conserveLeFichier() throws Exception {
+        java.nio.file.Path outside = java.nio.file.Files.createTempFile("hors-volume", ".gguf");
+        try {
+            registry.registerChatModel("externe", outside.toString(), null, Map.of(), "llmfit");
+
+            Map<String, Object> result = registry.removeModel("externe", "chat", true);
+
+            assertThat(result.get("fileDeleted")).isEqualTo(false);
+            assertThat(java.nio.file.Files.exists(outside)).isTrue();
+        } finally {
+            java.nio.file.Files.deleteIfExists(outside);
+        }
+    }
+
     // ── hasModel ──────────────────────────────────────────────────────────────
 
     @Test

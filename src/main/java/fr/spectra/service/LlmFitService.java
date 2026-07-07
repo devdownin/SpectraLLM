@@ -333,6 +333,70 @@ public class LlmFitService {
     }
 
     /**
+     * Inventaire du volume des modèles : chaque GGUF présent avec sa taille, les alias
+     * du registre qui le référencent et son éventuel statut actif. Ferme le cycle de vie
+     * (télécharger → activer → <b>retirer</b>) en rendant visible l'espace consommé —
+     * les GGUF pèsent plusieurs Go chacun et s'accumulaient sans aucune vue d'ensemble.
+     */
+    public Map<String, Object> getStorageReport() {
+        Path modelsDir = Path.of(modelsDirPath).toAbsolutePath().normalize();
+        List<Map<String, Object>> registered = new ArrayList<>();
+        registered.addAll(modelRegistryService.listModels("chat"));
+        registered.addAll(modelRegistryService.listModels("embedding"));
+
+        List<Map<String, Object>> files = new ArrayList<>();
+        long totalBytes = 0;
+        if (Files.isDirectory(modelsDir)) {
+            try (Stream<Path> entries = Files.list(modelsDir)) {
+                List<Path> ggufs = entries
+                        .filter(Files::isRegularFile)
+                        .filter(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".gguf"))
+                        .sorted()
+                        .toList();
+                for (Path gguf : ggufs) {
+                    String fileName = gguf.getFileName().toString();
+                    long size;
+                    try {
+                        size = Files.size(gguf);
+                    } catch (Exception e) {
+                        size = 0;
+                    }
+                    totalBytes += size;
+
+                    List<Map<String, Object>> references = registered.stream()
+                            .filter(model -> {
+                                Object source = model.get("source");
+                                return source != null
+                                        && fileName.equals(Path.of(source.toString()).getFileName().toString());
+                            })
+                            .toList();
+
+                    Map<String, Object> entry = new java.util.LinkedHashMap<>();
+                    entry.put("file", fileName);
+                    entry.put("sizeBytes", size);
+                    entry.put("registeredAs", references.stream()
+                            .map(model -> Map.of(
+                                    "name", model.get("name"),
+                                    "type", model.get("type"),
+                                    "active", Boolean.TRUE.equals(model.get("active"))))
+                            .toList());
+                    entry.put("active", references.stream()
+                            .anyMatch(model -> Boolean.TRUE.equals(model.get("active"))));
+                    files.add(entry);
+                }
+            } catch (Exception e) {
+                log.warn("Inventaire du répertoire des modèles impossible : {}", e.getMessage());
+            }
+        }
+
+        Map<String, Object> report = new java.util.LinkedHashMap<>();
+        report.put("modelsDir", modelsDir.toString());
+        report.put("totalBytes", totalBytes);
+        report.put("files", files);
+        return report;
+    }
+
+    /**
      * Repli de détection : le GGUF le plus récent apparu dans {@code dir} depuis {@code since}.
      * Best-effort : ne couvre que le cas où llmfit écrit directement dans models-dir (s'il
      * télécharge dans son propre cache, seul le parsing de sa sortie connaît le chemin).

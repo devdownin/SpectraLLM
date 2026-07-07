@@ -227,6 +227,83 @@ public class ModelRegistryService {
         }
     }
 
+    /**
+     * Retire un modèle du registre, avec suppression optionnelle de son fichier GGUF.
+     *
+     * <p>Garde-fous :</p>
+     * <ul>
+     *   <li>le modèle <b>actif</b> (chat ou embedding) n'est pas supprimable — il faut
+     *       d'abord en activer un autre ;</li>
+     *   <li>le fichier n'est supprimé que s'il réside dans le répertoire des modèles
+     *       (celui du registre) et qu'<b>aucun autre</b> modèle enregistré ne le référence.</li>
+     * </ul>
+     *
+     * @return compte-rendu : {@code name}, {@code type}, {@code fileDeleted}, {@code fileSkippedReason}
+     * @throws IllegalArgumentException modèle inconnu
+     * @throws IllegalStateException    modèle actif
+     */
+    public synchronized Map<String, Object> removeModel(String name, String type, boolean deleteFile) {
+        String resolvedType = (type != null && !type.isBlank()) ? type : "chat";
+        RegisteredModel model = findModel(name, resolvedType).orElseThrow(() -> new IllegalArgumentException(
+                "Modèle inconnu du registre : '" + name + "' (type=" + resolvedType + ")"));
+
+        boolean active = ("chat".equals(resolvedType) && name.equals(state.activeChatModel()))
+                || ("embedding".equals(resolvedType) && name.equals(state.activeEmbeddingModel()));
+        if (active) {
+            throw new IllegalStateException("Le modèle actif '" + name + "' ne peut pas être supprimé : "
+                    + "activez d'abord un autre modèle de " + resolvedType + ".");
+        }
+
+        state = state.withModels(state.models().stream()
+                .filter(current -> !(current.name().equals(name) && current.type().equals(resolvedType)))
+                .toList());
+        persist();
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("name", name);
+        result.put("type", resolvedType);
+        result.put("status", "deleted");
+        if (deleteFile) {
+            deleteModelFile(model, result);
+        } else {
+            result.put("fileDeleted", false);
+        }
+        log.info("Modèle '{}' ({}) retiré du registre{}", name, resolvedType,
+                Boolean.TRUE.equals(result.get("fileDeleted")) ? " — fichier supprimé : " + model.source() : "");
+        return result;
+    }
+
+    /** Supprime le GGUF du modèle si — et seulement si — c'est sûr (cf. {@link #removeModel}). */
+    private void deleteModelFile(RegisteredModel model, Map<String, Object> result) {
+        result.put("fileDeleted", false);
+        String source = model.source();
+        if (source == null || !source.toLowerCase().endsWith(".gguf")) {
+            result.put("fileSkippedReason", "La source n'est pas un fichier GGUF : " + source);
+            return;
+        }
+        Path file = Path.of(source).toAbsolutePath().normalize();
+        Path modelsDir = registryPath.getParent() != null
+                ? registryPath.getParent().toAbsolutePath().normalize() : null;
+        if (modelsDir == null || !file.startsWith(modelsDir)) {
+            result.put("fileSkippedReason", "Fichier hors du répertoire des modèles — non supprimé : " + file);
+            return;
+        }
+        boolean shared = state.models().stream().anyMatch(other -> source.equals(other.source()));
+        if (shared) {
+            result.put("fileSkippedReason", "Fichier encore référencé par un autre modèle enregistré — non supprimé");
+            return;
+        }
+        try {
+            boolean deleted = Files.deleteIfExists(file);
+            result.put("fileDeleted", deleted);
+            if (!deleted) {
+                result.put("fileSkippedReason", "Fichier déjà absent : " + file);
+            }
+        } catch (Exception e) {
+            result.put("fileSkippedReason", "Suppression impossible : " + e.getMessage());
+        }
+    }
+
     private void requireRegistered(String name, String type) {
         if (name == null || name.isBlank() || findModel(name, type).isEmpty()) {
             List<String> known = state.models().stream()
