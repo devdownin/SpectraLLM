@@ -8,6 +8,12 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Model Hub — installations persistantes (reprise après redémarrage)
+
+- **Suivi persisté des téléchargements** (`installation_jobs` en H2, `InstallationJob`/`InstallationJobEntity`/`InstallationJobRepository`) : un redémarrage de l'API tuait le sous-processus `llmfit` et effaçait tout le suivi (les sinks SSE ne vivaient qu'en mémoire). Chaque installation est désormais persistée de bout en bout (PENDING → DOWNLOADING → REGISTERING → COMPLETED/FAILED), progression comprise — même pattern que les jobs de fine-tuning.
+- **Réconciliation au démarrage** (`LlmFitService.reconcileInterruptedInstallations`, `@PostConstruct`) : tout job resté non-terminal (orphelin de l'ancienne JVM) est marqué **FAILED** (« Interrompu par un redémarrage du serveur ») au lieu de rester figé. L'historique redevient honnête.
+- **Historique interrogeable** : `GET /api/models/hub/installations` (liste, plus récentes d'abord) et `GET /api/models/hub/installations/{jobId}`. Panneau repliable « Installation history » dans le Model Hub (statut, progression, erreur), rafraîchi tant qu'un téléchargement est en cours.
+
 ### Ingestion streaming Kafka — enrichir le RAG au fil de l'eau (données vivantes)
 
 - **Consumer Kafka** (`KafkaIngestionListener`, `KafkaConfig`) : source d'ingestion continue en plus des uploads/URLs. **Désactivé par défaut** (`spectra.kafka.enabled=false`) — aucun bean Kafka créé, démarrage inchangé. Commit **manuel** des offsets après indexation (*at-least-once*), retries + **Dead Letter Topic** `<topic>.DLT`, concurrence et sécurité SASL/SSL configurables.

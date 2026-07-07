@@ -96,6 +96,23 @@ CREATE TABLE IF NOT EXISTS fine_tuning_jobs (
     PRIMARY KEY (job_id)
 );
 
+-- Suivi persistant des installations Model Hub (llmfit download) : survit au redémarrage
+-- de l'API pour un historique fiable et la réconciliation des téléchargements interrompus.
+CREATE TABLE IF NOT EXISTS installation_jobs (
+    job_id           VARCHAR(255) NOT NULL,
+    status           VARCHAR(50),
+    model_name       VARCHAR(255),
+    quant            VARCHAR(64),
+    auto_activate    BOOLEAN      NOT NULL DEFAULT FALSE,
+    progress         INTEGER      NOT NULL DEFAULT 0,
+    current_step     VARCHAR(255),
+    output_path      VARCHAR(255),
+    error            TEXT,
+    created_at       TIMESTAMP WITH TIME ZONE,
+    completed_at     TIMESTAMP WITH TIME ZONE,
+    PRIMARY KEY (job_id)
+);
+
 -- Ingestion streaming Kafka : état par identité métier (données vivantes).
 CREATE TABLE IF NOT EXISTS kafka_stream_source (
     source_key       VARCHAR(512) NOT NULL,

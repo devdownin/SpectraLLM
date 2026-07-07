@@ -3,6 +3,7 @@ import { useQuery, useMutation } from '@tanstack/react-query';
 import { modelsHubApi } from '../services/api';
 import Skeleton from '../components/Skeleton';
 import ModelStoragePanel from '../components/ModelStoragePanel';
+import InstallationHistoryPanel from '../components/InstallationHistoryPanel';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { toast } from 'sonner';
 
@@ -278,6 +279,10 @@ const ModelHub: FC = () => {
 
       {/* Inventaire du volume des modèles (repliable) : tailles, alias, suppression */}
       <ModelStoragePanel />
+
+      {/* Historique persistant des installations : survit au redémarrage de l'API,
+          un téléchargement interrompu apparaît en FAILED plutôt que figé. */}
+      <InstallationHistoryPanel />
 
       {/* Post-install info : le superviseur llm-chat recharge le modèle actif tout seul */}
       {installedModels.length > 0 && (

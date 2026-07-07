@@ -1,7 +1,10 @@
 package fr.spectra.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import fr.spectra.dto.InstallationJob;
 import fr.spectra.dto.LlmFitRecommendation;
+import fr.spectra.persistence.InstallationJobEntity;
+import fr.spectra.persistence.InstallationJobRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -20,9 +23,11 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.function.UnaryOperator;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -78,6 +83,7 @@ public class LlmFitService {
     private final ObjectMapper objectMapper;
     private final ModelRegistryService modelRegistryService;
     private final LlmChatClient chatClient;
+    private final InstallationJobRepository installationRepository;
     private final Map<String, Sinks.Many<Integer>> progressSinks = new ConcurrentHashMap<>();
 
     @Value("${llmfit.path:llmfit}")
@@ -92,10 +98,36 @@ public class LlmFitService {
     private String modelsDirPath;
 
     public LlmFitService(ObjectMapper objectMapper, ModelRegistryService modelRegistryService,
-                         LlmChatClient chatClient) {
+                         LlmChatClient chatClient, InstallationJobRepository installationRepository) {
         this.objectMapper = objectMapper;
         this.modelRegistryService = modelRegistryService;
         this.chatClient = chatClient;
+        this.installationRepository = installationRepository;
+    }
+
+    /**
+     * Au démarrage, tout job d'installation resté non-terminal (PENDING/DOWNLOADING/REGISTERING)
+     * est orphelin : son sous-processus {@code llmfit} a disparu avec l'ancienne JVM. On le marque
+     * FAILED pour donner un historique honnête au lieu d'un téléchargement figé à jamais.
+     *
+     * <p>Miroir de {@code FineTuningService.reconcileInterruptedJobs()}.</p>
+     */
+    @jakarta.annotation.PostConstruct
+    void reconcileInterruptedInstallations() {
+        try {
+            for (InstallationJobEntity e : installationRepository.findAll()) {
+                InstallationJob j = e.toDto();
+                if (j.status() != InstallationJob.Status.COMPLETED
+                        && j.status() != InstallationJob.Status.FAILED) {
+                    installationRepository.save(InstallationJobEntity.fromDto(
+                            j.failed("Interrompu par un redémarrage du serveur")));
+                    log.warn("Installation {} ({}) marquée FAILED : interrompue par un redémarrage ({})",
+                            j.jobId(), j.status(), j.modelName());
+                }
+            }
+        } catch (Exception ex) {
+            log.warn("Réconciliation des installations interrompues impossible: {}", ex.getMessage());
+        }
     }
 
     public LlmFitRecommendation getRecommendations(int limit, String memory, String ram, Integer cpuCores) {
@@ -186,10 +218,19 @@ public class LlmFitService {
         Sinks.Many<Integer> sink = Sinks.many().replay().latest();
         progressSinks.put(modelName, sink);
 
+        // Job persisté (H2) AVANT la tâche async : il apparaît immédiatement dans l'historique
+        // et, s'il reste non-terminal après un crash/redémarrage, la réconciliation au démarrage
+        // le marquera FAILED. Le sink SSE en mémoire ne survivant pas à la JVM, la base est la
+        // seule trace durable du téléchargement (cf. FineTuningService).
+        String jobId = UUID.randomUUID().toString();
+        installationRepository.save(InstallationJobEntity.fromDto(
+                InstallationJob.pending(jobId, modelName, quant, autoActivate)));
+
         return CompletableFuture.supplyAsync(() -> {
             try {
-                log.info("Démarrage de l'installation du modèle {} avec llmfit (quant={}, autoActivate={})",
-                        modelName, quant != null ? quant : "auto", autoActivate);
+                log.info("Démarrage de l'installation du modèle {} avec llmfit (quant={}, autoActivate={}, job={})",
+                        modelName, quant != null ? quant : "auto", autoActivate, jobId);
+                updateInstallation(jobId, j -> j.withStatus(InstallationJob.Status.DOWNLOADING, "Téléchargement"));
 
                 // Référence temporelle pour le repli par scan : tout GGUF apparu dans
                 // models-dir après cet instant est un candidat produit par ce téléchargement.
@@ -206,6 +247,7 @@ public class LlmFitService {
                 Process process = pb.start();
 
                 String downloadedFile = null;
+                int lastPersistedProgress = -1;
                 try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
                     String line;
                     while ((line = reader.readLine()) != null) {
@@ -217,6 +259,13 @@ public class LlmFitService {
                             try {
                                 int progress = (int) Double.parseDouble(m.group(1));
                                 sink.tryEmitNext(progress);
+                                // Persiste la progression seulement quand l'entier avance :
+                                // borne les écritures (~100 max) et garde l'historique à jour
+                                // pour l'UI même sans abonné SSE (reprise après redémarrage).
+                                if (progress > lastPersistedProgress) {
+                                    lastPersistedProgress = progress;
+                                    updateInstallation(jobId, j -> j.withProgress(progress));
+                                }
                             } catch (Exception ignored) {}
                         }
 
@@ -238,12 +287,15 @@ public class LlmFitService {
                     process.destroyForcibly();
                     log.error("Timeout installation du modèle {} — process tué", modelName);
                     sink.tryEmitError(new RuntimeException("Timeout after 60 minutes"));
+                    updateInstallation(jobId, j -> j.failed("Délai dépassé (60 minutes) — process interrompu"));
                     return false;
                 }
                 if (process.exitValue() == 0) {
                     log.info("Modèle {} installé avec succès", modelName);
                     sink.tryEmitNext(100);
                     sink.tryEmitComplete();
+                    updateInstallation(jobId, j -> j.withStatus(InstallationJob.Status.REGISTERING,
+                            "Enregistrement du modèle"));
 
                     if (downloadedFile == null) {
                         // Repli : la sortie de llmfit n'a pas permis d'extraire le chemin
@@ -304,6 +356,8 @@ public class LlmFitService {
                             log.info("Modèle '{}' activé — llm-chat converge automatiquement "
                                     + "(pointeur du registre) sous quelques secondes.", alias);
                         }
+                        String finalPath = registeredPath;
+                        updateInstallation(jobId, j -> j.completed(finalPath, "Terminé"));
                     } else {
                         // Téléchargement réussi mais chemin GGUF introuvable (ni dans la sortie
                         // llmfit, ni par scan de models-dir) : le modèle n'a pu être ni copié dans
@@ -313,22 +367,54 @@ public class LlmFitService {
                                 + "llmfit et scan de {}) — enregistrement/activation ignorés. Vérifiez le "
                                 + "format de sortie de llmfit ou enregistrez le modèle manuellement.",
                                 modelName, modelsDirPath);
+                        updateInstallation(jobId, j -> j.completed(null,
+                                "Téléchargé mais fichier GGUF introuvable — non enregistré"));
                     }
 
                     return true;
                 } else {
                     log.error("Échec de l'installation du modèle {} (exit code: {})", modelName, process.exitValue());
                     sink.tryEmitError(new RuntimeException("Exit code: " + process.exitValue()));
+                    updateInstallation(jobId, j -> j.failed("llmfit a retourné le code " + process.exitValue()));
                     return false;
                 }
             } catch (Exception e) {
                 log.error("Erreur lors de l'installation du modèle " + modelName, e);
                 sink.tryEmitError(e);
+                updateInstallation(jobId, j -> j.failed(e.getMessage() != null ? e.getMessage() : e.toString()));
                 return false;
             }
             // Le sink n'est volontairement pas retiré ici (cf. note à la création) :
             // il est conservé pour rejouer l'état terminal aux abonnés tardifs et sera
             // remplacé au prochain install du même modèle.
+        });
+    }
+
+    /** Historique des installations Model Hub (les plus récentes d'abord). */
+    public List<InstallationJob> getInstallations() {
+        return installationRepository.findAll().stream()
+                .map(InstallationJobEntity::toDto)
+                .sorted(Comparator.comparing(InstallationJob::createdAt,
+                        Comparator.nullsLast(Comparator.reverseOrder())))
+                .toList();
+    }
+
+    /** Un job d'installation par identifiant, ou {@code null} s'il est inconnu. */
+    public InstallationJob getInstallation(String jobId) {
+        return installationRepository.findById(jobId).map(InstallationJobEntity::toDto).orElse(null);
+    }
+
+    /**
+     * Applique une transition au job persisté sans jamais ressusciter un job terminal :
+     * une ligne de progression tardive ne doit pas réécrire par-dessus un FAILED/COMPLETED.
+     * Miroir de {@code FineTuningService.updateJob}.
+     */
+    private void updateInstallation(String jobId, UnaryOperator<InstallationJob> updater) {
+        installationRepository.findById(jobId).ifPresent(entity -> {
+            InstallationJob current = entity.toDto();
+            if (current.status() == InstallationJob.Status.COMPLETED
+                    || current.status() == InstallationJob.Status.FAILED) return;
+            installationRepository.save(InstallationJobEntity.fromDto(updater.apply(current)));
         });
     }
 
