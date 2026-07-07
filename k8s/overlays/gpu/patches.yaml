@@ -1,11 +1,13 @@
-# ── ConfigMap chat : offload toutes les couches sur GPU (override du défaut CPU "0") ──
+# ── ConfigMap chat : offload toutes les couches sur GPU (override du défaut CPU vide) ──
+# Le pod chat utilise le superviseur (llm-chat-entrypoint.sh) : l'offload GPU passe par
+# LLM_CHAT_EXTRA_ARGS (arguments bruts llama-server), pas par LLAMA_NGL (var de llama-autostart).
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: llama-chat-config
   namespace: spectra
 data:
-  LLAMA_NGL: "-1"   # -1 = toutes les couches sur GPU
+  LLM_CHAT_EXTRA_ARGS: "--n-gpu-layers 999"   # 999 = toutes les couches sur GPU
 ---
 # ── Déploiement chat : demande 1 GPU + toleration des nœuds GPU ──────────────
 # (strategic merge : n'ajoute que nvidia.com/gpu, conserve cpu/memory existants)

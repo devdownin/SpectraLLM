@@ -14,6 +14,13 @@ data:
   SPECTRA_LLM_MODEL: "spectra-domain"
   SPECTRA_LLM_EMBEDDING_BASE_URL: "http://llama-cpp-embed:8080"
   SPECTRA_LLM_EMBEDDING_MODEL: "nomic-embed-text"
+  # Fichiers GGUF réellement servis (dans le volume des modèles, à côté du registre).
+  # Ils donnent au registre la SOURCE des modèles par défaut, pour que le pointeur
+  # active-chat-model (lu par le superviseur llm-chat) désigne un fichier servable dès
+  # le 1er boot — sinon « modèle actif ≠ modèle servi ». DOIVENT correspondre aux noms
+  # seedés dans le volume des modèles (k8s/seed) et au repli LLM_CHAT_MODEL_FILE ci-dessous.
+  SPECTRA_LLM_CHAT_FILE: "Phi-4-mini-reasoning-UD-IQ1_S.gguf"
+  SPECTRA_LLM_EMBEDDING_FILE: "embed.gguf"
   SPECTRA_CHROMADB_BASE_URL: "http://chromadb:8000"
   SPECTRA_INGESTION_BROWSERLESS_URL: "http://browserless:3000"
 
@@ -27,17 +34,27 @@ metadata:
   name: llama-chat-config
   namespace: spectra
 data:
-  MODEL_PATH: "/fine-tuning/merged/model.gguf"
-  MODEL_ALIAS: "spectra-domain"
-  LLAMA_MODE: "chat"
-  LLAMA_CONTEXT: ""       # vide = auto-détection par llama-autostart.sh
-  LLAMA_THREADS: ""       # vide = auto-détection
-  LLAMA_BATCH: ""         # vide = auto-détection
-  LLAMA_NGL: "0"          # 0 = CPU uniquement — mettre -1 pour tout sur GPU
-  LLAMA_FLASH_ATTN: "1"
-  LLAMA_CACHE_TYPE_K: ""
-  LLAMA_CACHE_TYPE_V: ""
-  LLAMA_PARALLELISM: "1"
+  # Le pod chat lance le SUPERVISEUR (scripts/llm-chat-entrypoint.sh) : il sert le
+  # modèle de chat ACTIF du registre (pointeur /models/active-chat-model écrit par
+  # spectra-api) et redémarre llama-server à chaud quand il change (POST /api/config/model,
+  # activation post-fine-tuning, installation llmfit auto-activée). Résout « modèle actif ≠
+  # modèle servi » en k8s, comme en docker-compose.
+  MODELS_DIR: "/models"
+  LLM_PORT: "8080"                                     # aligné sur le Service et les probes
+  # Repli tant que le pointeur du registre n'existe pas (1er boot) : DOIVENT correspondre
+  # au fichier seedé dans le volume des modèles et à SPECTRA_LLM_CHAT_FILE / SPECTRA_LLM_MODEL.
+  LLM_CHAT_MODEL_FILE: "Phi-4-mini-reasoning-UD-IQ1_S.gguf"
+  LLM_CHAT_MODEL_NAME: "spectra-domain"
+  # Vide = le superviseur applique les hints calculés par spectra-api
+  # (/models/active-chat-params), sinon ses défauts intégrés. Une valeur impose l'override.
+  LLM_CONTEXT: ""
+  LLM_THREADS: ""
+  LLM_BATCH: ""
+  LLM_PARALLEL: "1"
+  LLM_CHAT_WATCH_INTERVAL: "10"                        # période de surveillance du pointeur (s)
+  # Arguments supplémentaires passés tels quels à llama-server. GPU : "--n-gpu-layers 999"
+  # (voir overlay k8s/overlays/gpu). Vide = CPU.
+  LLM_CHAT_EXTRA_ARGS: ""
 
 ---
 apiVersion: v1

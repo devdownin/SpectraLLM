@@ -5,9 +5,11 @@
 #   ReadWriteOnce (RWO) convient pour un cluster mono-nœud ou si tous les pods
 #   qui partagent un volume sont schedulés sur le même nœud.
 #
-#   Pour un cluster multi-nœuds, les PVCs partagés entre plusieurs pods
-#   (fine-tuning, models) nécessitent ReadWriteMany (RWX) via une StorageClass
-#   NFS, CephFS, AWS EFS, Azure Files, etc.
+#   Pour un cluster multi-nœuds, le PVC `models` — partagé par spectra-api (RW),
+#   llama-cpp-embed (RO) ET llama-cpp-chat (RO, via le superviseur qui suit le
+#   modèle actif) — nécessite ReadWriteMany (RWX) via une StorageClass NFS, CephFS,
+#   AWS EFS, Azure Files, etc. Sinon ces trois pods doivent être schedulés sur le
+#   même nœud. `fine-tuning` n'est plus monté que par spectra-api.
 #
 #   Remplacer storageClassName par le nom de votre StorageClass :
 #     - standard      (minikube / kind)
@@ -42,8 +44,9 @@ spec:
       storage: 5Gi
 
 ---
-# Adaptateurs LoRA, modèles fine-tunés, jobs — partagé avec llama-cpp-chat (lecture seule)
-# Passer en ReadWriteMany si llama-cpp-chat et spectra-api sont sur des nœuds différents
+# Adaptateurs LoRA, datasets et jobs de fine-tuning — écrit par spectra-api. Les modèles
+# fine-tunés exportés (GGUF) sont copiés dans le volume `models` pour être servis ; ce PVC
+# n'est donc plus monté par llama-cpp-chat.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -56,7 +59,9 @@ spec:
       storage: 20Gi
 
 ---
-# Modèles GGUF (embed.gguf, registry.json) — partagé avec llama-cpp-embed
+# Modèles GGUF + registry.json + pointeur active-chat-model — partagé par spectra-api (RW),
+# llama-cpp-embed (RO) et llama-cpp-chat (RO). C'est la source de vérité du modèle servi :
+# le superviseur llm-chat y lit le modèle actif. RWX requis en multi-nœuds (cf. en-tête).
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

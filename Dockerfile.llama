@@ -15,8 +15,13 @@ FROM ghcr.io/ggml-org/llama.cpp:server
 # pour que llama-autostart.sh puisse l'invoquer par son nom.
 ENV PATH="/app:${PATH}"
 
-# Script d'autostart intégré à l'image (les manifests le lancent via `command`).
+# Scripts intégrés à l'image (les manifests choisissent lequel via `command`) :
+#  - llama-autostart.sh      : entrypoint autonome (défaut, utilisé pour l'embedding)
+#  - llm-chat-entrypoint.sh  : superviseur piloté par le registre pour le chat — suit le
+#    modèle ACTIF (pointeur /models/active-chat-model) et redémarre llama-server à chaud,
+#    résolvant « modèle actif ≠ modèle servi » aussi en k8s (comme en docker-compose).
 COPY scripts/llama-autostart.sh /scripts/llama-autostart.sh
-RUN chmod +x /scripts/llama-autostart.sh
+COPY scripts/llm-chat-entrypoint.sh /scripts/llm-chat-entrypoint.sh
+RUN chmod +x /scripts/llama-autostart.sh /scripts/llm-chat-entrypoint.sh
 
 ENTRYPOINT ["/bin/bash", "/scripts/llama-autostart.sh"]

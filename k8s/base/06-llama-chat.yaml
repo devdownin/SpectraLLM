@@ -21,15 +21,21 @@ spec:
         - name: llama-cpp-chat
           image: spectra-llama-cpp:latest
           imagePullPolicy: IfNotPresent
-          command: ["/bin/bash", "/scripts/llama-autostart.sh"]
+          # Superviseur piloté par le registre : sert le modèle de chat ACTIF
+          # (pointeur /models/active-chat-model) et redémarre llama-server à chaud
+          # quand il change — plus de « modèle actif ≠ modèle servi », sans redéploiement.
+          command: ["/bin/sh", "/scripts/llm-chat-entrypoint.sh"]
           ports:
             - containerPort: 8080
           envFrom:
             - configMapRef:
                 name: llama-chat-config
           volumeMounts:
-            - name: fine-tuning
-              mountPath: /fine-tuning
+            # Volume des modèles (avec le registre) : le superviseur y lit le pointeur du
+            # modèle actif et sert les GGUF correspondants (base seedé, modèles llmfit,
+            # exports fine-tunés copiés par spectra-api). Lecture seule : il n'écrit rien.
+            - name: models
+              mountPath: /models
               readOnly: true
           resources:
             # QoS Guaranteed : requests == limits → réservation stable, pas de
@@ -42,7 +48,8 @@ spec:
               cpu: "4000m"
               memory: "8Gi"
             # ── GPU NVIDIA (optionnel) ────────────────────────────────────
-            # Décommenter et ajuster LLAMA_NGL dans le ConfigMap (ex: -1 pour tout sur GPU)
+            # Décommenter, et régler LLM_CHAT_EXTRA_ARGS: "--n-gpu-layers 999" dans le
+            # ConfigMap llama-chat-config (ou utiliser l'overlay k8s/overlays/gpu).
             # limits:
             #   nvidia.com/gpu: "1"
           readinessProbe:
@@ -52,17 +59,22 @@ spec:
             initialDelaySeconds: 30
             periodSeconds: 10
             failureThreshold: 24   # 4 min pour charger le modèle
+          # Le superviseur recharge le modèle À CHAUD au changement de modèle actif :
+          # llama-server est brièvement indisponible le temps de charger le nouveau GGUF
+          # (jusqu'à plusieurs minutes pour un gros modèle). failureThreshold élevé pour
+          # ne PAS tuer le pod pendant un swap légitime — la readiness (ci-dessus) coupe
+          # déjà le trafic entrant durant ce laps de temps.
           livenessProbe:
             httpGet:
               path: /health
               port: 8080
             initialDelaySeconds: 90
             periodSeconds: 30
-            failureThreshold: 3
+            failureThreshold: 10   # ~5 min de tolérance pour un rechargement de modèle
       volumes:
-        - name: fine-tuning
+        - name: models
           persistentVolumeClaim:
-            claimName: spectra-fine-tuning-pvc
+            claimName: spectra-models-pvc
 
 ---
 apiVersion: v1

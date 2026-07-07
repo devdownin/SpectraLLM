@@ -8,6 +8,13 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Déploiement k8s/GKE — le chat suit le modèle actif (fin de « modèle actif ≠ modèle servi »)
+
+- **Superviseur piloté par le registre en k8s** : `llama-cpp-chat` lance désormais `scripts/llm-chat-entrypoint.sh` (intégré aux images `Dockerfile.llama` / `Dockerfile.llama.cuda`) au lieu de servir un fichier figé. Il lit le pointeur `active-chat-model` du volume des modèles et redémarre llama-server à chaud à chaque changement (POST /api/config/model, activation post-fine-tuning, installation llmfit auto-activée) — même convergence automatique qu'en docker-compose, plus de redéploiement manuel.
+- **Volume des modèles partagé avec le chat** : `06-llama-chat.yaml` monte le PVC `models` (lecture seule) et non plus le PVC `fine-tuning` ; le modèle de chat par défaut et les modèles installés/fine-tunés vivent tous à côté du registre. `02-pvc.yaml` documente la nouvelle contrainte de co-scheduling (ou RWX multi-nœuds).
+- **Variables alignées sur docker-compose** : `spectra-api-config` renseigne `SPECTRA_LLM_CHAT_FILE` / `SPECTRA_LLM_EMBEDDING_FILE` (source des modèles par défaut → pointeur servable dès le 1er boot) ; `llama-chat-config` passe aux variables du superviseur (`LLM_CHAT_MODEL_FILE/NAME`, `LLM_PORT`, `MODELS_DIR`, hints `LLM_*`, `LLM_CHAT_EXTRA_ARGS` pour le GPU). L'overlay GPU règle l'offload via `LLM_CHAT_EXTRA_ARGS` (et non plus `LLAMA_NGL`).
+- **Seeding cohérent** : `k8s/seed/seed-models.yaml` télécharge le modèle de chat dans le volume `models` (et non plus dans `fine-tuning/merged/model.gguf`), avec un nom de fichier aligné sur `SPECTRA_LLM_CHAT_FILE`. Docs (`k8s/README.md`, `scripts/gke-seed-models.sh`) mises à jour.
+
 ### Model Hub — boucle « comparatif → qualité mesurée »
 
 - **Comparaison qualité asynchrone et suivie** (`QualityBenchmarkService.submitCompare`, `QualityCompareJob`, `POST /api/quality-benchmark/compare/async`, `GET /compare/{jobId}`, `GET /compare`) : le benchmark tenu à l'écart est lent (plusieurs appels LLM par question, ×2 modèles), donc piloté comme un job de fond suivi (PENDING → RUNNING → COMPLETED/FAILED) plutôt qu'en requête HTTP bloquante. Une seule comparaison à la fois (bascule du modèle actif), persistée en JSON et réconciliée au démarrage (jobs orphelins → FAILED), à l'image d'`EvaluationService`.
