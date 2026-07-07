@@ -1,9 +1,17 @@
 #!/usr/bin/env bash
 # =============================================================================
-# llama-autostart.sh — Entrypoint intelligent pour llama-server
+# llama-autostart.sh — Entrypoint AUTONOME pour llama-server (images
+# Dockerfile.llama / Dockerfile.llama.cuda, déploiements k8s/GKE)
 #
 # Détecte automatiquement les ressources disponibles (CPU, RAM, GPU)
 # et calcule les paramètres optimaux pour llama-server.
+#
+# NB : en mode docker-compose, le dimensionnement CPU/RAM appartient à
+# spectra-api (ResourceAdvisorService), qui matérialise ses recommandations
+# dans data/models/active-chat-params, consommées par llm-chat-entrypoint.sh.
+# Ce script reste l'implémentation de repli pour les environnements où l'API
+# n'est pas joignable (images llama.cpp autonomes) — la détection GPU, elle,
+# doit dans tous les cas rester locale au conteneur qui sert le modèle.
 #
 # Variables d'environnement (toutes optionnelles — auto-détectées si absentes) :
 #   MODEL_PATH          : chemin vers le fichier GGUF (requis)

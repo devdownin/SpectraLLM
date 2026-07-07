@@ -36,7 +36,12 @@ services:
       - LLM_CHAT_MODEL_FILE=${LLM_CHAT_MODEL_FILE:-Phi-4-mini-reasoning-UD-IQ1_S.gguf}
       - LLM_CHAT_MODEL_NAME=${LLM_CHAT_MODEL_NAME:-phi-4-mini}
       - LLM_PORT=8081
-      - LLM_CONTEXT=${LLM_CONTEXT:-4096}
+      # Pass-through SANS défaut : vide = l'entrypoint applique les hints calculés
+      # par spectra-api (/models/active-chat-params), sinon ses défauts intégrés.
+      # Définir la variable dans .env impose la valeur (priorité utilisateur).
+      - LLM_CONTEXT=${LLM_CONTEXT:-}
+      - LLM_THREADS=${LLM_THREADS:-}
+      - LLM_BATCH=${LLM_BATCH:-}
       - LLM_PARALLEL=${LLM_PARALLEL:-2}
       - LLM_CHAT_WATCH_INTERVAL=${LLM_CHAT_WATCH_INTERVAL:-10}
     healthcheck:

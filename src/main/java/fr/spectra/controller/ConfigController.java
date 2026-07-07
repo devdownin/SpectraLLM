@@ -5,6 +5,7 @@ import fr.spectra.service.EmbeddingConsistencyChecker;
 import fr.spectra.service.EmbeddingReindexService;
 import fr.spectra.service.LlmChatClient;
 import fr.spectra.service.ResourceAdvisorService;
+import fr.spectra.service.RuntimeParamsMaterializer;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.ResponseEntity;
@@ -26,14 +27,17 @@ public class ConfigController {
     private final ResourceAdvisorService resourceAdvisor;
     private final EmbeddingConsistencyChecker embeddingConsistencyChecker;
     private final EmbeddingReindexService embeddingReindexService;
+    private final RuntimeParamsMaterializer runtimeParamsMaterializer;
 
     public ConfigController(LlmChatClient chatClient, ResourceAdvisorService resourceAdvisor,
                             EmbeddingConsistencyChecker embeddingConsistencyChecker,
-                            EmbeddingReindexService embeddingReindexService) {
+                            EmbeddingReindexService embeddingReindexService,
+                            RuntimeParamsMaterializer runtimeParamsMaterializer) {
         this.chatClient = chatClient;
         this.resourceAdvisor = resourceAdvisor;
         this.embeddingConsistencyChecker = embeddingConsistencyChecker;
         this.embeddingReindexService = embeddingReindexService;
+        this.runtimeParamsMaterializer = runtimeParamsMaterializer;
     }
 
     @Operation(summary = "Retourne le modèle LLM actif")
@@ -130,6 +134,10 @@ public class ConfigController {
     )
     @PostMapping("/resources/refresh")
     public ResourceProfile refreshResources() {
-        return resourceAdvisor.refresh();
+        ResourceProfile profile = resourceAdvisor.refresh();
+        // Répercute les nouvelles recommandations vers llm-chat (fichier de hints) :
+        // elles seront appliquées à son prochain (re)démarrage de modèle.
+        runtimeParamsMaterializer.materialize();
+        return profile;
     }
 }
