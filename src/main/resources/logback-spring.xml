@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!-- Inclure la configuration par défaut de Spring Boot (couleurs console, etc.) -->
+    <include resource="org/springframework/boot/logging/logback/defaults.xml" />
+    <include resource="org/springframework/boot/logging/logback/console-appender.xml" />
+
+    <!-- Paramètres des fichiers -->
+    <property name="LOG_FILE" value="${LOG_FILE:-data/logs/spectra.log}"/>
+    <property name="LOG_MAX_HISTORY" value="30"/>
+    <property name="LOG_MAX_FILE_SIZE" value="100MB"/>
+    <property name="LOG_TOTAL_SIZE_CAP" value="3GB"/>
+
+    <!-- Appender Fichier avec rotation -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_FILE}</file>
+        <encoder>
+            <pattern>${FILE_LOG_PATTERN}</pattern>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_FILE}.%d{yyyy-MM-dd}.%i.gz</fileNamePattern>
+            <maxFileSize>${LOG_MAX_FILE_SIZE}</maxFileSize>
+            <maxHistory>${LOG_MAX_HISTORY}</maxHistory>
+            <totalSizeCap>${LOG_TOTAL_SIZE_CAP}</totalSizeCap>
+        </rollingPolicy>
+    </appender>
+
+    <!-- Appender Asynchrone pour de meilleures performances sous Loom -->
+    <appender name="ASYNC_CONSOLE" class="ch.qos.logback.classic.AsyncAppender">
+        <queueSize>512</queueSize>
+        <!-- Ne pas perdre d'événements, même si la file est pleine (bloque le thread) -->
+        <discardingThreshold>0</discardingThreshold>
+        <!-- Laisse l'info complète (ligne de code, etc) - coûteux mais utile en dev -->
+        <includeCallerData>false</includeCallerData>
+        <appender-ref ref="CONSOLE" />
+    </appender>
+
+    <appender name="ASYNC_FILE" class="ch.qos.logback.classic.AsyncAppender">
+        <queueSize>512</queueSize>
+        <discardingThreshold>0</discardingThreshold>
+        <includeCallerData>false</includeCallerData>
+        <appender-ref ref="FILE" />
+    </appender>
+
+    <!-- Configuration par environnement (Spring profiles) -->
+    <springProfile name="dev">
+        <root level="INFO">
+            <appender-ref ref="CONSOLE" />
+            <appender-ref ref="FILE" />
+        </root>
+        <logger name="fr.spectra" level="DEBUG" />
+    </springProfile>
+
+    <springProfile name="!dev">
+        <!-- En production (y compris container Docker par défaut), on utilise les appenders asynchrones -->
+        <root level="INFO">
+            <appender-ref ref="ASYNC_CONSOLE" />
+            <appender-ref ref="ASYNC_FILE" />
+        </root>
+        <logger name="fr.spectra" level="INFO" />
+    </springProfile>
+
+    <!-- Éviter le bruit excessif de certaines libs -->
+    <logger name="org.apache.pdfbox" level="WARN" />
+    <logger name="org.hibernate.orm.deprecation" level="ERROR" />
+</configuration>

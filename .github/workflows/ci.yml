@@ -11,7 +11,7 @@ jobs:
     name: Backend (Maven)
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v7
+    - uses: actions/checkout@v4
     - name: Set up JDK 25
       uses: actions/setup-java@v5
       with:
@@ -20,12 +20,17 @@ jobs:
         cache: maven
     - name: Build and Test with Maven
       run: mvn -B package --file pom.xml
+    - name: Upload Jacoco Report
+      uses: actions/upload-artifact@v4
+      with:
+        name: jacoco-report
+        path: target/site/jacoco/jacoco.xml
 
   static-analysis:
     name: Static analysis (SpotBugs)
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v7
+    - uses: actions/checkout@v4
     - name: Set up JDK 25
       uses: actions/setup-java@v5
       with:
@@ -52,7 +57,7 @@ jobs:
       run:
         working-directory: frontend
     steps:
-    - uses: actions/checkout@v7
+    - uses: actions/checkout@v4
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
@@ -64,15 +69,46 @@ jobs:
     - name: Lint (ESLint)
       run: npm run lint
     - name: Unit tests (Vitest)
-      run: npm run test
+      run: npm run test:coverage
+    - name: Upload Vitest Coverage Report
+      uses: actions/upload-artifact@v4
+      with:
+        name: vitest-coverage-report
+        path: frontend/coverage/lcov.info
     - name: Build (tsc + vite)
       run: npm run build
+
+  e2e:
+    name: E2E tests (Playwright)
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Docker Compose
+      run: |
+        docker compose -f docker-compose.yml build
+        docker compose -f docker-compose.yml up -d
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+    - name: Wait for services to be ready
+      run: |
+        npm install -g wait-on
+        wait-on http://localhost:80 http://localhost:8080/actuator/health --timeout 120000
+    - name: Run E2E tests
+      run: |
+        npm install playwright core-js
+        npx playwright install --with-deps chromium
+        node test_pw.js
+    - name: Stop services
+      if: always()
+      run: docker compose down
 
   python-services:
     name: Python services (docparser, reranker)
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v7
+    - uses: actions/checkout@v4
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
@@ -87,3 +123,30 @@ jobs:
       run: |
         (cd docparser && python -m pytest tests/ -q)
         (cd reranker && python -m pytest tests/ -q)
+
+  codecov:
+    name: Upload coverage to Codecov
+    needs: [build, frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download Jacoco report
+        uses: actions/download-artifact@v4
+        with:
+          name: jacoco-report
+          path: jacoco
+
+      - name: Download Vitest coverage report
+        uses: actions/download-artifact@v4
+        with:
+          name: vitest-coverage-report
+          path: vitest
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: jacoco/jacoco.xml,vitest/lcov.info
+          fail_ci_if_error: true
+          token: ${{ secrets.CODECOV_TOKEN }}

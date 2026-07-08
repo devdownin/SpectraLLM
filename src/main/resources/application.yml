@@ -231,6 +231,10 @@ management:
       # externes/diskSpace (évite les redémarrages en cascade).
       probes:
         enabled: true
+logging:
+  level:
+    fr.spectra: INFO
+    org.springframework: INFO
   metrics:
     distribution:
       # Histogrammes (percentiles calculés côté Prometheus via histogram_quantile)

@@ -10,7 +10,7 @@ At this time, we only support the latest version of Spectra. Please ensure you a
 
 ## Reporting a Vulnerability
 
-If you find a security vulnerability, please do not disclose it publicly. Instead, please report it via security@spectra-ai.local. We will acknowledge your report within 48 hours and provide a timeline for addressing the issue.
+If you find a security vulnerability, please do not disclose it publicly. Instead, please report it via [GitHub Security Advisories](https://github.com/devdownin/SpectraLLM/security/advisories/new). We will acknowledge your report within 48 hours and provide a timeline for addressing the issue.
 
 ## Security Best Practices
 
