@@ -75,13 +75,13 @@ const RagBadges: FC<{ meta: RagMeta; onShowTrace?: () => void }> = ({ meta, onSh
     <div className="mt-3 pt-3 border-t border-outline-variant/20 flex flex-wrap items-center justify-between gap-2">
       <div className="flex flex-wrap items-center gap-1.5">
         <Tooltip content={`Strategy: ${meta.ragStrategy}`}>
-          <span className={`text-[8px] font-bold px-1.5 py-0.5 border uppercase tracking-wider cursor-help ${STRATEGY_COLORS[meta.ragStrategy] ?? STRATEGY_COLORS.STANDARD}`}>
+          <span className={`text-[10px] font-bold px-1.5 py-0.5 border uppercase tracking-wider cursor-help ${STRATEGY_COLORS[meta.ragStrategy] ?? STRATEGY_COLORS.STANDARD}`}>
             {meta.ragStrategy}
           </span>
         </Tooltip>
         {activeBadges.map(b => (
           <Tooltip key={b.label} content={b.tooltip}>
-            <span className="text-[8px] font-bold px-1.5 py-0.5 border border-primary/30 text-primary bg-primary/5 uppercase tracking-wider cursor-help">
+            <span className="text-[10px] font-bold px-1.5 py-0.5 border border-primary/30 text-primary bg-primary/5 uppercase tracking-wider cursor-help">
               {b.label}
             </span>
           </Tooltip>
@@ -91,7 +91,7 @@ const RagBadges: FC<{ meta: RagMeta; onShowTrace?: () => void }> = ({ meta, onSh
         <button
           type="button"
           onClick={onShowTrace}
-          className="flex items-center gap-1 text-[9px] uppercase tracking-widest text-outline hover:text-primary transition-colors px-1.5 py-0.5"
+          className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-outline hover:text-primary transition-colors px-1.5 py-0.5"
           aria-label="View algorithm trace details"
         >
           <span className="material-symbols-outlined text-[13px]">insights</span>
@@ -114,8 +114,8 @@ const SourceItem: FC<{ src: Source }> = ({ src }) => {
       const res = await ingestApi.getHistory({ q: src.sourceFile, size: 5 });
       const items: any[] = res.data?.content ?? res.data ?? [];
       const match = items.find(d => d.fileName === src.sourceFile) ?? items[0];
-      if (match?.sha256) navigate(`/pipelines?doc=${encodeURIComponent(match.sha256)}`);
-      else toast.error('Document not found in the Database');
+      if (match?.sha256) navigate(`/documents?doc=${encodeURIComponent(match.sha256)}`);
+      else toast.error('Document not found in Documents');
     } catch {
       toast.error('Could not open the document');
     }
@@ -130,23 +130,23 @@ const SourceItem: FC<{ src: Source }> = ({ src }) => {
         className="w-full flex items-center gap-2 py-1 text-left hover:text-primary transition-colors"
       >
         <span aria-hidden="true" className="material-symbols-outlined text-[12px] text-primary shrink-0">article</span>
-        <span className="font-mono text-[9px] text-on-surface-variant truncate flex-1">{src.sourceFile}</span>
-        {pct !== null && <span className="text-[8px] font-bold text-primary shrink-0" title="Relevance">{pct}%</span>}
+        <span className="font-mono text-[10px] text-on-surface-variant truncate flex-1">{src.sourceFile}</span>
+        {pct !== null && <span className="text-[10px] font-bold text-primary shrink-0" title="Relevance">{pct}%</span>}
         <span aria-hidden="true" className={`material-symbols-outlined text-[12px] text-outline shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}>expand_more</span>
       </button>
       {open && (
         <div className="pl-5 pb-2 space-y-1.5">
           {snippet
-            ? <p className="text-[10px] text-on-surface-variant leading-relaxed whitespace-pre-wrap">{snippet}</p>
-            : <p className="text-[10px] text-outline italic">No preview available.</p>}
+            ? <p className="text-[11px] text-on-surface-variant leading-relaxed whitespace-pre-wrap">{snippet}</p>
+            : <p className="text-[11px] text-outline italic">No preview available.</p>}
           <div className="flex items-center justify-between">
-            <span className="text-[8px] font-mono text-outline">distance: {typeof src.distance === 'number' ? src.distance.toFixed(3) : '—'}</span>
+            <span className="text-[10px] font-mono text-outline">distance: {typeof src.distance === 'number' ? src.distance.toFixed(3) : '—'}</span>
             <button
               type="button"
               onClick={openInDatabase}
-              className="flex items-center gap-1 text-[8px] uppercase tracking-widest text-primary hover:text-primary/70 transition-colors"
+              className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-primary hover:text-primary/70 transition-colors"
             >
-              <span aria-hidden="true" className="material-symbols-outlined text-[11px]">open_in_new</span>Open in Database
+              <span aria-hidden="true" className="material-symbols-outlined text-[11px]">open_in_new</span>Open in Documents
             </button>
           </div>
         </div>
@@ -596,20 +596,20 @@ const Playground: FC = () => {
                 ...(ragEnabled ? [{ label: 'Knowledge Base', svc: chromaService, warn: ragDegraded }] : []),
               ].map(({ label, svc, warn }) => (
                 <div key={label} className="flex items-center justify-between">
-                  <span className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">{label}</span>
-                  <span className={`flex items-center gap-1.5 text-[9px] font-mono uppercase tracking-wider ${warn ? 'text-error' : 'text-primary'}`}>
+                  <span className="text-[11px] font-label uppercase tracking-widest text-on-surface-variant">{label}</span>
+                  <span className={`flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider ${warn ? 'text-error' : 'text-primary'}`}>
                     <span className={`w-1.5 h-1.5 rounded-full ${warn ? 'bg-error animate-pulse' : 'bg-primary'}`} />
                     {svc?.available ? 'online' : 'offline'}
                   </span>
                 </div>
               ))}
               {llmDown && (
-                <p className="text-[9px] text-error leading-relaxed pt-1">
+                <p className="text-[10px] text-error leading-relaxed pt-1">
                   Chat model unreachable — start <span className="font-mono">llama-cpp-chat</span> to send messages.
                 </p>
               )}
               {ragDegraded && !llmDown && (
-                <p className="text-[9px] text-error leading-relaxed pt-1">
+                <p className="text-[10px] text-error leading-relaxed pt-1">
                   Vector DB unreachable — retrieval may fail. Disable the Knowledge Base for a direct answer.
                 </p>
               )}
@@ -622,9 +622,9 @@ const Playground: FC = () => {
             <div className="space-y-2">
               <div className="flex justify-between items-center">
                 <Tooltip content="Controls randomness: Lower is more deterministic, higher is more creative.">
-                  <label className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant cursor-help">Temperature</label>
+                  <label className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant cursor-help">Temperature</label>
                 </Tooltip>
-                <span className="text-[10px] font-mono text-primary">{temperature.toFixed(1)}</span>
+                <span className="text-[11px] font-mono text-primary">{temperature.toFixed(1)}</span>
               </div>
               <input
                 type="range"
@@ -638,9 +638,9 @@ const Playground: FC = () => {
             <div className="space-y-2">
               <div className="flex justify-between items-center">
                 <Tooltip content="Limits the cumulative probability of the most likely tokens.">
-                  <label className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant cursor-help">Top P</label>
+                  <label className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant cursor-help">Top P</label>
                 </Tooltip>
-                <span className="text-[10px] font-mono text-primary">{topP.toFixed(2)}</span>
+                <span className="text-[11px] font-mono text-primary">{topP.toFixed(2)}</span>
               </div>
               <input
                 type="range"
@@ -667,14 +667,14 @@ const Playground: FC = () => {
                       : 'border-outline-variant/30 hover:border-primary/40 hover:bg-surface-container-high'
                   }`}
                 >
-                  <p className="font-mono text-[10px] font-bold uppercase truncate">{m.name}</p>
+                  <p className="font-mono text-[11px] font-bold uppercase truncate">{m.name}</p>
                   {m.provenance && (
-                    <p className="text-[8px] uppercase tracking-widest text-on-surface-variant mt-0.5">{m.provenance}</p>
+                    <p className="text-[10px] uppercase tracking-widest text-on-surface-variant mt-0.5">{m.provenance}</p>
                   )}
                 </button>
               ))}
               {availableModels.length > 1 && (
-                <p className="text-[9px] text-outline uppercase tracking-widest leading-relaxed">
+                <p className="text-[10px] text-outline uppercase tracking-widest leading-relaxed">
                   Effective on the next chat service restart.
                 </p>
               )}
@@ -725,7 +725,7 @@ const Playground: FC = () => {
 
                 <div>
                   <button
-                    className="flex items-center gap-1 text-[9px] uppercase tracking-widest text-on-surface-variant hover:text-primary transition-colors mt-1"
+                    className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-on-surface-variant hover:text-primary transition-colors mt-1"
                     onClick={() => setShowAdvanced(v => !v)}
                   >
                     <span className="material-symbols-outlined text-[11px]">{showAdvanced ? 'expand_less' : 'expand_more'}</span>
@@ -736,11 +736,11 @@ const Playground: FC = () => {
                     <div className="mt-3 space-y-2">
                       <div className="flex justify-between items-center">
                         <Tooltip content="Number of candidates sent to the re-ranker (higher = better coverage, slower).">
-                          <label className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant cursor-help">
+                          <label className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant cursor-help">
                             Top Candidates
                           </label>
                         </Tooltip>
-                        <span className="text-[10px] font-mono text-primary">{topCandidates}</span>
+                        <span className="text-[11px] font-mono text-primary">{topCandidates}</span>
                       </div>
                       <input
                         type="range"
@@ -760,7 +760,7 @@ const Playground: FC = () => {
         <div className="pt-8 border-t border-outline-variant/10 space-y-3">
           <button
             onClick={() => setAdvisorOpen(true)}
-            className="w-full py-3 px-4 border border-primary/30 text-primary text-[10px] font-headline uppercase tracking-widest hover:bg-primary/5 transition-colors flex items-center justify-center gap-2"
+            className="w-full py-3 px-4 border border-primary/30 text-primary text-[11px] font-headline uppercase tracking-widest hover:bg-primary/5 transition-colors flex items-center justify-center gap-2"
           >
             <span className="material-symbols-outlined text-sm">psychology</span>
             RAG Advisor
@@ -769,7 +769,7 @@ const Playground: FC = () => {
             <button
               onClick={() => setExportMenuOpen(o => !o)}
               aria-haspopup="menu" aria-expanded={exportMenuOpen}
-              className="w-full py-3 px-4 border border-outline-variant/40 text-on-surface-variant text-[10px] font-headline uppercase tracking-widest hover:border-primary/40 hover:text-primary transition-colors flex items-center justify-center gap-2"
+              className="w-full py-3 px-4 border border-outline-variant/40 text-on-surface-variant text-[11px] font-headline uppercase tracking-widest hover:border-primary/40 hover:text-primary transition-colors flex items-center justify-center gap-2"
             >
               <span className="material-symbols-outlined text-sm">download</span>
               Export Conversation
@@ -781,11 +781,11 @@ const Playground: FC = () => {
                 <div role="menu"
                   className="absolute left-0 right-0 bottom-full mb-1 z-20 bg-surface-container-high border border-outline-variant/30 shadow-lg py-1 animate-in fade-in slide-in-from-bottom-1">
                   <button type="button" role="menuitem" onClick={() => exportConversation('md')}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-left text-[10px] uppercase tracking-widest text-on-surface-variant hover:bg-primary/10 hover:text-primary transition-colors">
+                    className="w-full flex items-center gap-2 px-3 py-2 text-left text-[11px] uppercase tracking-widest text-on-surface-variant hover:bg-primary/10 hover:text-primary transition-colors">
                     <span aria-hidden="true" className="material-symbols-outlined text-[14px]">description</span>As Markdown
                   </button>
                   <button type="button" role="menuitem" onClick={() => exportConversation('json')}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-left text-[10px] uppercase tracking-widest text-on-surface-variant hover:bg-primary/10 hover:text-primary transition-colors">
+                    className="w-full flex items-center gap-2 px-3 py-2 text-left text-[11px] uppercase tracking-widest text-on-surface-variant hover:bg-primary/10 hover:text-primary transition-colors">
                     <span aria-hidden="true" className="material-symbols-outlined text-[14px]">data_object</span>As JSON
                   </button>
                 </div>
@@ -794,7 +794,7 @@ const Playground: FC = () => {
           </div>
           <button
             onClick={clearChat}
-            className="w-full py-3 px-4 border border-error/30 text-error text-[10px] font-headline uppercase tracking-widest hover:bg-error/5 transition-colors flex items-center justify-center gap-2"
+            className="w-full py-3 px-4 border border-error/30 text-error text-[11px] font-headline uppercase tracking-widest hover:bg-error/5 transition-colors flex items-center justify-center gap-2"
           >
             <span className="material-symbols-outlined text-sm">delete_sweep</span>
             Clear Chat History
@@ -828,7 +828,7 @@ const Playground: FC = () => {
                   </div>
                 )}
 
-                <p className="font-label text-[10px] uppercase tracking-[0.1em] text-on-surface-variant mb-3">
+                <p className="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-3">
                   {msg.role === 'user' ? 'Architect' : 'Spectra Core'}
                 </p>
                 {msg.role === 'assistant' ? (
@@ -844,7 +844,7 @@ const Playground: FC = () => {
 
                 {msg.sources && msg.sources.length > 0 && (
                   <div className="mt-4 pt-4 border-t border-outline-variant/20">
-                    <p className="font-label text-[9px] uppercase tracking-widest text-outline mb-1">Sources ({msg.sources.length})</p>
+                    <p className="font-label text-[10px] uppercase tracking-widest text-outline mb-1">Sources ({msg.sources.length})</p>
                     {msg.sources.map((src, j) => <SourceItem key={j} src={src} />)}
                   </div>
                 )}
@@ -857,7 +857,7 @@ const Playground: FC = () => {
                 {msg.role === 'assistant' && msg.status === 'SENT' && msg.content && (
                   <div className="mt-3 flex items-center justify-between gap-3">
                     {msg.metrics ? (
-                      <div className="flex items-center gap-3 text-[8px] font-mono text-outline">
+                      <div className="flex items-center gap-3 text-[10px] font-mono text-outline">
                         <span title="Time to first token">TTFT {(msg.metrics.ttftMs / 1000).toFixed(1)}s</span>
                         <span title="Total time">{(msg.metrics.totalMs / 1000).toFixed(1)}s</span>
                         <span title="Tokens (approx.)">{msg.metrics.tokens} tok</span>
@@ -879,14 +879,14 @@ const Playground: FC = () => {
 
                       <span className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
                         <button type="button" onClick={() => copyAnswer(msg.content)} aria-label="Copy answer"
-                          className="flex items-center gap-1 text-[9px] uppercase tracking-widest text-outline hover:text-primary transition-colors px-1.5 py-0.5">
+                          className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-outline hover:text-primary transition-colors px-1.5 py-0.5">
                           <span aria-hidden="true" className="material-symbols-outlined text-[13px]">content_copy</span>Copy
                         </button>
                         {i === lastAssistantIdx && (
                           <div className="relative">
                             <button type="button" onClick={() => setRegenMenuOpen(o => !o)} disabled={isTyping}
                               aria-label="Regenerate" aria-haspopup="menu" aria-expanded={regenMenuOpen}
-                              className="flex items-center gap-1 text-[9px] uppercase tracking-widest text-outline hover:text-primary transition-colors px-1.5 py-0.5 disabled:opacity-40">
+                              className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-outline hover:text-primary transition-colors px-1.5 py-0.5 disabled:opacity-40">
                               <span aria-hidden="true" className="material-symbols-outlined text-[13px]">refresh</span>Regenerate
                               <span aria-hidden="true" className={`material-symbols-outlined text-[12px] transition-transform ${regenMenuOpen ? 'rotate-180' : ''}`}>expand_more</span>
                             </button>
@@ -900,10 +900,10 @@ const Playground: FC = () => {
                                   {regenVariants.map(v => (
                                     <button key={v.label} type="button" role="menuitem"
                                       onClick={() => regenerateLast(v.temp)}
-                                      className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-[10px] uppercase tracking-widest text-on-surface-variant hover:bg-primary/10 hover:text-primary transition-colors">
+                                      className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-[11px] uppercase tracking-widest text-on-surface-variant hover:bg-primary/10 hover:text-primary transition-colors">
                                       <span aria-hidden="true" className="material-symbols-outlined text-[13px]">{v.icon}</span>
                                       <span className="flex-1">{v.label}</span>
-                                      {v.temp !== undefined && <span className="font-mono text-[8px] text-outline">{v.temp.toFixed(1)}</span>}
+                                      {v.temp !== undefined && <span className="font-mono text-[10px] text-outline">{v.temp.toFixed(1)}</span>}
                                     </button>
                                   ))}
                                 </div>
@@ -918,12 +918,12 @@ const Playground: FC = () => {
                 {msg.role === 'user' && (
                   <div className="mt-2 flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
                     <button type="button" onClick={() => editMessage(i)} disabled={isTyping} aria-label="Edit message"
-                      className="flex items-center gap-1 text-[9px] uppercase tracking-widest text-outline hover:text-secondary transition-colors px-1.5 py-0.5 disabled:opacity-40">
+                      className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-outline hover:text-secondary transition-colors px-1.5 py-0.5 disabled:opacity-40">
                       <span aria-hidden="true" className="material-symbols-outlined text-[13px]">edit</span>Edit
                     </button>
                     {msg.status === 'ERROR' && (
                       <button type="button" onClick={() => regenerateLast()} disabled={isTyping} aria-label="Retry"
-                        className="flex items-center gap-1 text-[9px] uppercase tracking-widest text-error hover:text-error/80 transition-colors px-1.5 py-0.5 disabled:opacity-40">
+                        className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-error hover:text-error/80 transition-colors px-1.5 py-0.5 disabled:opacity-40">
                         <span aria-hidden="true" className="material-symbols-outlined text-[13px]">replay</span>Retry
                       </button>
                     )}
@@ -940,7 +940,7 @@ const Playground: FC = () => {
                   <div className="w-1 h-1 bg-primary animate-bounce [animation-delay:0.2s]"></div>
                   <div className="w-1 h-1 bg-primary animate-bounce [animation-delay:0.4s]"></div>
                 </div>
-                <span className="text-[9px] uppercase tracking-widest text-outline">Processing...</span>
+                <span className="text-[10px] uppercase tracking-widest text-outline">Processing...</span>
               </div>
             </div>
           )}
@@ -953,7 +953,7 @@ const Playground: FC = () => {
             type="button"
             onClick={scrollToBottom}
             aria-label="Scroll to latest message"
-            className="absolute bottom-28 right-6 z-10 flex items-center gap-1 bg-surface-container-high border border-outline-variant/30 text-on-surface-variant hover:text-primary px-2.5 py-1.5 shadow-lg text-[9px] uppercase tracking-widest transition-colors animate-in fade-in slide-in-from-bottom-2"
+            className="absolute bottom-28 right-6 z-10 flex items-center gap-1 bg-surface-container-high border border-outline-variant/30 text-on-surface-variant hover:text-primary px-2.5 py-1.5 shadow-lg text-[10px] uppercase tracking-widest transition-colors animate-in fade-in slide-in-from-bottom-2"
           >
             <span aria-hidden="true" className={`material-symbols-outlined text-[14px] ${isTyping ? 'text-primary animate-bounce' : ''}`}>arrow_downward</span>
             {isTyping ? 'New' : 'Latest'}
@@ -962,8 +962,8 @@ const Playground: FC = () => {
 
         <div className="p-8 border-t border-outline-variant/10">
           {convEnabled && messages.filter(m => m.status === 'SENT').length > 1 && (
-            <p className="text-[8px] font-label uppercase tracking-widest text-secondary mb-2 flex items-center gap-1">
-              <span className="material-symbols-outlined text-[10px]">forum</span>
+            <p className="text-[10px] font-label uppercase tracking-widest text-secondary mb-2 flex items-center gap-1">
+              <span className="material-symbols-outlined text-[11px]">forum</span>
               Conversational — {messages.filter(m => m.status === 'SENT').length} messages in history
             </p>
           )}
@@ -1023,7 +1023,7 @@ const Playground: FC = () => {
                 </div>
                 <div>
                   <h2 className="font-headline font-bold text-lg text-on-surface">Algorithm Trace</h2>
-                  <p className="text-[10px] uppercase tracking-widest text-on-surface-variant">Execution details for the selected response</p>
+                  <p className="text-[11px] uppercase tracking-widest text-on-surface-variant">Execution details for the selected response</p>
                 </div>
               </div>
               <button
@@ -1054,7 +1054,7 @@ const Playground: FC = () => {
                     {traceMsg.ragMeta?.ragStrategy === 'AGENTIC' && traceMsg.ragMeta?.agenticIterations && (
                       <div className="text-right">
                         <p className="text-2xl font-mono text-primary">{traceMsg.ragMeta?.agenticIterations}</p>
-                        <p className="text-[10px] uppercase tracking-widest text-on-surface-variant mt-1">Iterations</p>
+                        <p className="text-[11px] uppercase tracking-widest text-on-surface-variant mt-1">Iterations</p>
                       </div>
                     )}
                   </div>
@@ -1082,7 +1082,7 @@ const Playground: FC = () => {
                           </span>
                           <span className={`font-bold text-xs ${opt.active ? 'text-secondary' : 'text-on-surface-variant'}`}>{opt.label}</span>
                         </div>
-                        <p className="text-[10px] text-on-surface-variant leading-relaxed">{opt.desc}</p>
+                        <p className="text-[11px] text-on-surface-variant leading-relaxed">{opt.desc}</p>
                      </div>
                    ))}
                 </div>
@@ -1102,7 +1102,7 @@ const Playground: FC = () => {
                            <div className="flex items-center justify-between">
                              <span className="font-bold text-on-surface break-all">{src.sourceFile}</span>
                              {pct !== null && (
-                               <span className="text-[10px] bg-primary/20 text-primary px-1.5 rounded">{pct}% relevance</span>
+                               <span className="text-[11px] bg-primary/20 text-primary px-1.5 rounded">{pct}% relevance</span>
                              )}
                            </div>
                            <p className="text-on-surface-variant line-clamp-2" title={src.text || src.preview}>{src.text || src.preview}</p>

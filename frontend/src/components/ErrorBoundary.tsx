@@ -35,7 +35,7 @@ class ErrorBoundary extends Component<Props, State> {
           </p>
           <button 
             onClick={() => this.setState({ hasError: false })}
-            className="bg-primary text-on-primary-fixed px-6 py-2 font-bold text-[10px] uppercase tracking-widest"
+            className="bg-primary text-on-primary-fixed px-6 py-2 font-bold text-[11px] uppercase tracking-widest"
           >
             Attempt Reconciliation
           </button>

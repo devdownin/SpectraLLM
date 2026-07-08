@@ -80,7 +80,7 @@ const BatchEvaluateDialog: FC<Props> = ({ open, onClose, onSubmitted }) => {
         onClick={e => e.stopPropagation()}
       >
         <div className="px-5 py-4 border-b border-outline-variant/10">
-          <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Compare models</p>
+          <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">Compare models</p>
           <h3 className="font-headline font-bold text-lg">Batch evaluation</h3>
           <p className="text-xs text-on-surface-variant mt-1">
             Selected models are evaluated one after another on the <strong>same test set</strong>,
@@ -110,7 +110,7 @@ const BatchEvaluateDialog: FC<Props> = ({ open, onClose, onSubmitted }) => {
                       />
                       <span className="font-headline text-sm truncate flex-1">{name}</span>
                       {m.active && (
-                        <span className="font-label text-[8px] uppercase tracking-widest px-1.5 py-0.5 bg-primary/10 text-primary border border-primary/20">
+                        <span className="font-label text-[10px] uppercase tracking-widest px-1.5 py-0.5 bg-primary/10 text-primary border border-primary/20">
                           active
                         </span>
                       )}
@@ -124,7 +124,7 @@ const BatchEvaluateDialog: FC<Props> = ({ open, onClose, onSubmitted }) => {
 
         <div className="px-5 py-4 border-t border-outline-variant/10 space-y-3">
           <label className="flex items-center justify-between gap-3">
-            <span className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">
+            <span className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">
               Test set size (optional)
             </span>
             <input

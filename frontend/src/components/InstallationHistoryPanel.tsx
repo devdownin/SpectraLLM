@@ -53,7 +53,7 @@ const InstallationHistoryPanel: FC = () => {
             Installation history
           </span>
           {jobs.length > 0 && (
-            <span className="text-[10px] text-outline">{jobs.length} download{jobs.length > 1 ? 's' : ''}</span>
+            <span className="text-[11px] text-outline">{jobs.length} download{jobs.length > 1 ? 's' : ''}</span>
           )}
         </div>
         <span className="material-symbols-outlined text-outline text-sm">
@@ -73,7 +73,7 @@ const InstallationHistoryPanel: FC = () => {
                 <div className="text-xs font-mono truncate">
                   {j.modelName}{j.quant ? ` · ${j.quant}` : ''}
                 </div>
-                <div className="text-[10px] text-outline flex flex-wrap gap-2 items-center">
+                <div className="text-[11px] text-outline flex flex-wrap gap-2 items-center">
                   <span>{formatDate(j.createdAt)}</span>
                   {j.currentStep && <span className="italic">{j.currentStep}</span>}
                   {j.status === 'FAILED' && j.error && (
@@ -83,9 +83,9 @@ const InstallationHistoryPanel: FC = () => {
               </div>
               <div className="shrink-0 flex items-center gap-3">
                 {(j.status === 'DOWNLOADING' || j.status === 'PENDING' || j.status === 'REGISTERING') && (
-                  <span className="text-[10px] text-outline tabular-nums">{j.progress}%</span>
+                  <span className="text-[11px] text-outline tabular-nums">{j.progress}%</span>
                 )}
-                <span className={`px-1.5 py-0.5 border text-[10px] font-black uppercase tracking-widest ${STATUS_STYLE[j.status] ?? 'border-outline-variant/40 text-outline'}`}>
+                <span className={`px-1.5 py-0.5 border text-[11px] font-black uppercase tracking-widest ${STATUS_STYLE[j.status] ?? 'border-outline-variant/40 text-outline'}`}>
                   {j.status}
                 </span>
               </div>

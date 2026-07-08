@@ -102,14 +102,14 @@ const ModelComparisonPanel: FC<Props> = ({ report, baselineId, onBaselineChange,
       <div className="bg-surface-container p-6 space-y-5">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
-            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">
+            <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">
               Comparing {models.length} models
             </p>
             <p className="font-headline font-bold text-lg">Gains vs baseline</p>
           </div>
           <div className="flex items-center gap-3">
             <label className="flex items-center gap-2">
-              <span className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Baseline</span>
+              <span className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">Baseline</span>
               <select
                 value={baselineId}
                 onChange={e => onBaselineChange(e.target.value)}
@@ -151,7 +151,7 @@ const ModelComparisonPanel: FC<Props> = ({ report, baselineId, onBaselineChange,
         <div className="overflow-x-auto">
           <table className="w-full text-xs border-collapse">
             <thead>
-              <tr className="text-on-surface-variant font-label text-[9px] uppercase tracking-widest border-b border-outline-variant/20">
+              <tr className="text-on-surface-variant font-label text-[10px] uppercase tracking-widest border-b border-outline-variant/20">
                 <th className="text-left py-2 pr-3 font-medium">#</th>
                 <th className="text-left py-2 pr-3 font-medium">Model</th>
                 <th className="text-right py-2 px-3 font-medium">Score</th>
@@ -172,7 +172,7 @@ const ModelComparisonPanel: FC<Props> = ({ report, baselineId, onBaselineChange,
                       <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: colorOf(m.evalId) }} />
                       <span className="font-headline font-bold truncate max-w-[180px]">{m.modelName}</span>
                       {m.baseline && (
-                        <span className="font-label text-[8px] uppercase tracking-widest px-1.5 py-0.5 bg-secondary/10 text-secondary border border-secondary/20">
+                        <span className="font-label text-[10px] uppercase tracking-widest px-1.5 py-0.5 bg-secondary/10 text-secondary border border-secondary/20">
                           baseline
                         </span>
                       )}
@@ -181,16 +181,16 @@ const ModelComparisonPanel: FC<Props> = ({ report, baselineId, onBaselineChange,
                   <td className="py-2.5 px-3 text-right font-headline font-bold whitespace-nowrap">
                     {m.averageScore.toFixed(2)}
                     {m.ci95 > 0 && (
-                      <span className="font-label text-[9px] font-normal text-on-surface-variant ml-1">±{m.ci95.toFixed(2)}</span>
+                      <span className="font-label text-[10px] font-normal text-on-surface-variant ml-1">±{m.ci95.toFixed(2)}</span>
                     )}
                   </td>
                   <td className="py-2.5 px-3 text-right whitespace-nowrap">
                     <Delta value={m.deltaVsBaseline} />
                     {!m.baseline && Math.abs(m.deltaVsBaseline) >= 0.005 && (
                       m.significantVsBaseline ? (
-                        <span className="font-label text-[8px] uppercase tracking-widest text-primary ml-1" title="Statistically significant (≈95%)">sig</span>
+                        <span className="font-label text-[10px] uppercase tracking-widest text-primary ml-1" title="Statistically significant (≈95%)">sig</span>
                       ) : (
-                        <span className="font-label text-[8px] uppercase tracking-widest text-on-surface-variant/60 ml-1" title="Not statistically significant — likely within noise">ns</span>
+                        <span className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant/60 ml-1" title="Not statistically significant — likely within noise">ns</span>
                       )
                     )}
                   </td>
@@ -208,7 +208,7 @@ const ModelComparisonPanel: FC<Props> = ({ report, baselineId, onBaselineChange,
             </tbody>
           </table>
         </div>
-        <p className="font-label text-[9px] text-on-surface-variant/70 leading-relaxed">
+        <p className="font-label text-[10px] text-on-surface-variant/70 leading-relaxed">
           Score shown as mean ±95% CI. <span className="text-primary">sig</span> = delta vs baseline is
           statistically significant (≈95%); <span className="text-on-surface-variant">ns</span> = within noise.
           tok/s is estimated (~length/4) — indicative, not a benchmark.
@@ -218,13 +218,13 @@ const ModelComparisonPanel: FC<Props> = ({ report, baselineId, onBaselineChange,
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
         {/* Per-category delta matrix */}
         <div className="bg-surface-container p-6">
-          <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-3">
+          <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant mb-3">
             Gains by category (vs {report.baselineModel})
           </p>
           <div className="overflow-x-auto">
             <table className="w-full text-xs border-collapse">
               <thead>
-                <tr className="text-on-surface-variant font-label text-[9px] uppercase tracking-widest border-b border-outline-variant/20">
+                <tr className="text-on-surface-variant font-label text-[10px] uppercase tracking-widest border-b border-outline-variant/20">
                   <th className="text-left py-2 pr-3 font-medium">Model</th>
                   {categories.map(cat => (
                     <th key={cat} className="text-right py-2 px-2 font-medium">{CATEGORY_LABEL[cat] ?? cat}</th>
@@ -258,7 +258,7 @@ const ModelComparisonPanel: FC<Props> = ({ report, baselineId, onBaselineChange,
 
         {/* Overlaid radar */}
         <div className="bg-surface-container p-6">
-          <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">
+          <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant mb-1">
             Category radar
           </p>
           <div className="h-72">

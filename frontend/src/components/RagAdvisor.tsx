@@ -240,9 +240,9 @@ const RagAdvisor: FC<Props> = ({ open, onClose }) => {
         {/* Header */}
         <header className="p-6 border-b border-outline-variant/20 flex justify-between items-start shrink-0">
           <div>
-            <p className="text-[9px] font-label uppercase tracking-widest text-outline mb-1">Intelligence Pipeline</p>
+            <p className="text-[10px] font-label uppercase tracking-widest text-outline mb-1">Intelligence Pipeline</p>
             <h3 className="font-headline text-xl font-bold tracking-tight uppercase">RAG Advisor</h3>
-            <p className="text-[10px] text-on-surface-variant mt-1">
+            <p className="text-[11px] text-on-surface-variant mt-1">
               Recommendations based on your current corpus
             </p>
           </div>
@@ -255,7 +255,7 @@ const RagAdvisor: FC<Props> = ({ open, onClose }) => {
 
           {/* ── Corpus analysis ───────────────────────────────────────────── */}
           <section className="p-6 border-b border-outline-variant/10">
-            <p className="font-label text-[9px] uppercase tracking-widest text-outline mb-4">Corpus analysis</p>
+            <p className="font-label text-[10px] uppercase tracking-widest text-outline mb-4">Corpus analysis</p>
 
             {loadingStats ? (
               <div className="space-y-3">
@@ -267,7 +267,7 @@ const RagAdvisor: FC<Props> = ({ open, onClose }) => {
                 <span className="material-symbols-outlined text-outline text-2xl">inbox</span>
                 <div>
                   <p className="font-headline font-bold text-sm">No documents indexed</p>
-                  <p className="text-[10px] text-on-surface-variant mt-0.5">Ingest documents from the <strong>GED / Database</strong> page to get recommendations.</p>
+                  <p className="text-[11px] text-on-surface-variant mt-0.5">Ingest documents from the <strong>GED / Database</strong> page to get recommendations.</p>
                 </div>
               </div>
             ) : (
@@ -275,30 +275,30 @@ const RagAdvisor: FC<Props> = ({ open, onClose }) => {
                 {/* Stats cards */}
                 <div className="grid grid-cols-3 gap-3 mb-4">
                   <div className="p-3 bg-surface-container-lowest border-l-2 border-primary">
-                    <p className="text-[8px] uppercase tracking-widest text-outline mb-1">Documents</p>
+                    <p className="text-[10px] uppercase tracking-widest text-outline mb-1">Documents</p>
                     <p className="font-headline font-bold text-2xl">{total}</p>
-                    <p className="text-[8px] text-on-surface-variant mt-0.5">{corpusLabel(total, totalChunks)}</p>
+                    <p className="text-[10px] text-on-surface-variant mt-0.5">{corpusLabel(total, totalChunks)}</p>
                   </div>
                   <div className="p-3 bg-surface-container-lowest border-l-2 border-secondary">
-                    <p className="text-[8px] uppercase tracking-widest text-outline mb-1">Avg. quality</p>
+                    <p className="text-[10px] uppercase tracking-widest text-outline mb-1">Avg. quality</p>
                     <p className={`font-headline font-bold text-2xl ${avgQ !== null && avgQ < 0.5 ? 'text-error' : avgQ !== null && avgQ >= 0.7 ? 'text-primary' : ''}`}>
                       {avgQ !== null ? `${(avgQ * 100).toFixed(0)}%` : '—'}
                     </p>
-                    <p className="text-[8px] text-on-surface-variant mt-0.5">
+                    <p className="text-[10px] text-on-surface-variant mt-0.5">
                       {avgQ !== null && avgQ < 0.5 ? 'Noisy index' : avgQ !== null && avgQ >= 0.7 ? 'Good quality' : 'Average quality'}
                     </p>
                   </div>
                   <div className="p-3 bg-surface-container-lowest border-l-2 border-outline-variant">
-                    <p className="text-[8px] uppercase tracking-widest text-outline mb-1">Chunks</p>
+                    <p className="text-[10px] uppercase tracking-widest text-outline mb-1">Chunks</p>
                     <p className="font-headline font-bold text-2xl">{totalChunks.toLocaleString('en-US')}</p>
-                    <p className="text-[8px] text-on-surface-variant mt-0.5">{formats.length} format(s)</p>
+                    <p className="text-[10px] text-on-surface-variant mt-0.5">{formats.length} format(s)</p>
                   </div>
                 </div>
 
                 {/* Quality histogram */}
                 {Object.keys(qualDist).length > 0 && (
                   <div className="mb-4">
-                    <p className="text-[8px] uppercase tracking-widest text-outline mb-2">Quality distribution</p>
+                    <p className="text-[10px] uppercase tracking-widest text-outline mb-2">Quality distribution</p>
                     <div className="flex gap-1 h-6">
                       {[
                         { key: '0.00-0.25', color: 'bg-error/60',            label: '0–25%' },
@@ -322,7 +322,7 @@ const RagAdvisor: FC<Props> = ({ open, onClose }) => {
                 {formats.length > 0 && (
                   <div className="flex flex-wrap gap-1.5">
                     {formats.map(f => (
-                      <span key={f} className="text-[8px] border border-outline-variant/30 px-1.5 py-0.5 uppercase font-mono text-outline-variant">
+                      <span key={f} className="text-[10px] border border-outline-variant/30 px-1.5 py-0.5 uppercase font-mono text-outline">
                         .{f}
                       </span>
                     ))}
@@ -335,7 +335,7 @@ const RagAdvisor: FC<Props> = ({ open, onClose }) => {
           {/* ── Recommendations ───────────────────────────────────────────── */}
           {recommendations.length > 0 && (
             <section className="p-6 border-b border-outline-variant/10">
-              <p className="font-label text-[9px] uppercase tracking-widest text-outline mb-4">
+              <p className="font-label text-[10px] uppercase tracking-widest text-outline mb-4">
                 Recommendations for this corpus
               </p>
               <div className="space-y-3">
@@ -348,14 +348,14 @@ const RagAdvisor: FC<Props> = ({ open, onClose }) => {
                           <span className="material-symbols-outlined text-[18px] shrink-0">{meta.icon}</span>
                           <p className="font-headline font-bold text-sm tracking-tight truncate">{meta.name}</p>
                         </div>
-                        <span className={`text-[8px] font-bold px-1.5 py-0.5 border uppercase tracking-wider shrink-0 ${PRIORITY_STYLES[rec.priority]}`}>
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 border uppercase tracking-wider shrink-0 ${PRIORITY_STYLES[rec.priority]}`}>
                           {rec.priority}
                         </span>
                       </div>
-                      <p className="text-[10px] text-on-surface-variant leading-relaxed">{rec.reason}</p>
+                      <p className="text-[11px] text-on-surface-variant leading-relaxed">{rec.reason}</p>
                       <button
                         onClick={() => navigator.clipboard.writeText(meta.envVar)}
-                        className="flex items-center gap-2 text-[9px] font-mono border border-outline-variant/20 px-2 py-1 hover:border-primary/40 hover:text-primary transition-colors group w-full"
+                        className="flex items-center gap-2 text-[10px] font-mono border border-outline-variant/20 px-2 py-1 hover:border-primary/40 hover:text-primary transition-colors group w-full"
                       >
                         <span className="flex-1 text-left truncate">{meta.envVar}</span>
                         <span className="material-symbols-outlined text-[12px] text-outline group-hover:text-primary transition-colors shrink-0">content_copy</span>
@@ -369,7 +369,7 @@ const RagAdvisor: FC<Props> = ({ open, onClose }) => {
 
           {/* ── Full strategy guide ───────────────────────────────────────── */}
           <section className="p-6">
-            <p className="font-label text-[9px] uppercase tracking-widest text-outline mb-4">
+            <p className="font-label text-[10px] uppercase tracking-widest text-outline mb-4">
               Strategy guide
             </p>
             <div className="space-y-4">
@@ -385,12 +385,12 @@ const RagAdvisor: FC<Props> = ({ open, onClose }) => {
                         <div className="flex items-center gap-2">
                           <p className="font-headline font-bold text-sm tracking-tight">{s.name}</p>
                           {isRecommended && (
-                            <span className="text-[7px] font-bold px-1 py-0.5 border border-primary/30 text-primary uppercase tracking-wider bg-primary/5">
+                            <span className="text-[10px] font-bold px-1 py-0.5 border border-primary/30 text-primary uppercase tracking-wider bg-primary/5">
                               ✓ recommended
                             </span>
                           )}
                         </div>
-                        <p className="text-[9px] uppercase tracking-widest text-on-surface-variant mt-0.5">{s.tagline}</p>
+                        <p className="text-[10px] uppercase tracking-widest text-on-surface-variant mt-0.5">{s.tagline}</p>
                       </div>
                       <span className="material-symbols-outlined text-[16px] text-on-surface-variant group-open:rotate-180 transition-transform shrink-0">
                         expand_more
@@ -404,22 +404,22 @@ const RagAdvisor: FC<Props> = ({ open, onClose }) => {
                         <div className="flex items-start gap-2">
                           <span className="material-symbols-outlined text-[13px] text-outline mt-0.5 shrink-0">speed</span>
                           <div>
-                            <p className="text-[8px] uppercase tracking-widest text-outline mb-0.5">Overhead</p>
-                            <p className="text-[10px] text-on-surface-variant">{s.tradeoff}</p>
+                            <p className="text-[10px] uppercase tracking-widest text-outline mb-0.5">Overhead</p>
+                            <p className="text-[11px] text-on-surface-variant">{s.tradeoff}</p>
                           </div>
                         </div>
                         <div className="flex items-start gap-2">
                           <span className="material-symbols-outlined text-[13px] text-outline mt-0.5 shrink-0">tips_and_updates</span>
                           <div>
-                            <p className="text-[8px] uppercase tracking-widest text-outline mb-0.5">When to enable</p>
-                            <p className="text-[10px] text-on-surface-variant">{s.bestFor}</p>
+                            <p className="text-[10px] uppercase tracking-widest text-outline mb-0.5">When to enable</p>
+                            <p className="text-[11px] text-on-surface-variant">{s.bestFor}</p>
                           </div>
                         </div>
                       </div>
 
                       <button
                         onClick={() => navigator.clipboard.writeText(s.envVar)}
-                        className="flex items-center gap-2 text-[9px] font-mono border border-outline-variant/20 px-2 py-1.5 hover:border-primary/40 hover:text-primary transition-colors group w-full"
+                        className="flex items-center gap-2 text-[10px] font-mono border border-outline-variant/20 px-2 py-1.5 hover:border-primary/40 hover:text-primary transition-colors group w-full"
                       >
                         <span className="flex-1 text-left">{s.envVar}</span>
                         <span className="material-symbols-outlined text-[12px] text-outline group-hover:text-primary transition-colors">content_copy</span>
@@ -432,10 +432,10 @@ const RagAdvisor: FC<Props> = ({ open, onClose }) => {
 
             {/* Compatibility matrix */}
             <div className="mt-6 p-4 bg-surface-container-lowest border border-outline-variant/10">
-              <p className="text-[9px] font-bold uppercase tracking-widest text-outline mb-3">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-outline mb-3">
                 Compatibility — combining modules
               </p>
-              <div className="space-y-1.5 text-[9px] text-on-surface-variant">
+              <div className="space-y-1.5 text-[10px] text-on-surface-variant">
                 {[
                   { combo: 'Conversational + Adaptive', note: 'Optimal — rewrites the query before routing.' },
                   { combo: 'Corrective + Reranker',     note: 'Recommended — double relevance filtering.' },

@@ -18,7 +18,7 @@ const CustomTooltip = ({ active, payload }: any) => {
   if (!active || !payload?.length) return null;
   const { name, value } = payload[0];
   return (
-    <div className="bg-surface-container border border-primary/20 px-3 py-2 text-[10px] font-label">
+    <div className="bg-surface-container border border-primary/20 px-3 py-2 text-[11px] font-label">
       <p className="text-on-surface-variant uppercase tracking-widest">{name}</p>
       <p className="text-primary font-bold">{value} doc{value > 1 ? 's' : ''}</p>
     </div>
@@ -60,7 +60,7 @@ const LifecycleDonut: FC<Props> = ({ byLifecycle }) => {
       {/* Center label */}
       <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
         <span className="font-headline font-bold text-xl">{total}</span>
-        <span className="font-label text-[8px] uppercase tracking-widest text-on-surface-variant">docs</span>
+        <span className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">docs</span>
       </div>
     </div>
   );
