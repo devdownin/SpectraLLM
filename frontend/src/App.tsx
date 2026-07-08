@@ -31,7 +31,7 @@ const LoadingState: FC = () => (
     <div className="w-12 h-1 bg-primary/20 relative overflow-hidden">
       <div className="absolute inset-0 bg-primary animate-progress-fast"></div>
     </div>
-    <span className="font-headline text-[10px] uppercase tracking-widest text-primary animate-pulse">Synchronizing Neural Modules...</span>
+    <span className="font-headline text-[11px] uppercase tracking-widest text-primary animate-pulse">Synchronizing Neural Modules...</span>
   </div>
 );
 

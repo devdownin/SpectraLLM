@@ -43,7 +43,7 @@ const Sidebar: FC<SidebarProps> = ({ isCollapsed, onToggle, mobileOpen = false, 
             </span>
             <div>
               <div className="text-base font-black text-primary font-headline tracking-[-0.04em] leading-none">Spectra</div>
-              <div className="font-headline uppercase tracking-[0.12em] text-[9px] text-outline mt-0.5">AI ARCHITECT</div>
+              <div className="font-headline uppercase tracking-[0.12em] text-[10px] text-outline mt-0.5">AI ARCHITECT</div>
             </div>
           </div>
         )}
@@ -108,7 +108,7 @@ const Sidebar: FC<SidebarProps> = ({ isCollapsed, onToggle, mobileOpen = false, 
           className={`mt-4 mb-6 bg-primary text-on-primary-fixed font-bold flex items-center justify-center transition-all hover:opacity-90 hover:shadow-[0_0_20px_rgba(143,245,255,0.25)] ${isCollapsed ? 'w-10 h-10 mx-auto' : 'py-2.5 px-4 gap-2'}`}
         >
           <span className="material-symbols-outlined text-[16px]">add</span>
-          {!isCollapsed && <span className="font-headline uppercase tracking-[0.1em] text-[10px]">NEW MODEL</span>}
+          {!isCollapsed && <span className="font-headline uppercase tracking-[0.1em] text-[11px]">NEW MODEL</span>}
         </button>
       </Tooltip>
 

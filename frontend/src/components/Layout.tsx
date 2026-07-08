@@ -4,6 +4,7 @@ import { Toaster } from 'sonner';
 import Sidebar from './Sidebar';
 import Header from './Header';
 import WizardProgress from './WizardProgress';
+import ServiceHealthBanner from './ServiceHealthBanner';
 
 interface LayoutProps {
   children: ReactNode;
@@ -70,6 +71,7 @@ const Layout: FC<LayoutProps> = ({ children }) => {
 
       <main className={`transition-all duration-300 ml-0 ${isCollapsed ? 'md:ml-20' : 'md:ml-64'} min-h-screen flex flex-col`}>
         <Header onMenuClick={() => setMobileOpen(true)} />
+        <ServiceHealthBanner />
         <WizardProgress />
         <div className="flex-1 p-4 md:p-8 max-w-[1600px] mx-auto w-full">
           {children}

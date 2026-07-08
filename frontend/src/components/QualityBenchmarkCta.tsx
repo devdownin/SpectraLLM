@@ -93,10 +93,10 @@ const QualityBenchmarkCta: FC<{ candidate: string; baseline: string; onDismiss: 
         <div className="flex items-start gap-3">
           <span className="material-symbols-outlined text-secondary text-sm mt-0.5 shrink-0">experiment</span>
           <div className="space-y-1">
-            <p className="text-[10px] font-label font-bold uppercase tracking-widest text-secondary">
+            <p className="text-[11px] font-label font-bold uppercase tracking-widest text-secondary">
               Measure quality on your corpus
             </p>
-            <p className="text-[9px] text-on-surface-variant leading-relaxed max-w-2xl">
+            <p className="text-[10px] text-on-surface-variant leading-relaxed max-w-2xl">
               The Model Hub score rates <strong>hardware fit</strong>. To choose on real numbers, run the held-out
               quality benchmark of the newly activated model
               (<code className="font-mono bg-surface-container px-1">{candidate}</code>) against the one it replaced
@@ -116,7 +116,7 @@ const QualityBenchmarkCta: FC<{ candidate: string; baseline: string; onDismiss: 
       {!jobId && !start.isPending && (
         <button
           onClick={() => start.mutate()}
-          className="flex items-center gap-2 px-4 py-2 bg-secondary text-on-secondary font-headline uppercase tracking-widest text-[10px] font-black hover:bg-secondary/90 transition-colors"
+          className="flex items-center gap-2 px-4 py-2 bg-secondary text-on-secondary font-headline uppercase tracking-widest text-[11px] font-black hover:bg-secondary/90 transition-colors"
         >
           <span className="material-symbols-outlined text-sm">play_arrow</span>
           Run quality benchmark
@@ -139,7 +139,7 @@ const QualityBenchmarkCta: FC<{ candidate: string; baseline: string; onDismiss: 
 
       {done && (
         <div className="bg-surface-container-lowest border border-outline-variant/10">
-          <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 items-center px-4 py-2 text-[9px] uppercase tracking-widest text-outline font-bold border-b border-outline-variant/10">
+          <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 items-center px-4 py-2 text-[10px] uppercase tracking-widest text-outline font-bold border-b border-outline-variant/10">
             <span>Metric</span>
             <span className="text-right w-16 truncate" title={baseline}>{baseline}</span>
             <span className="text-right w-16 truncate" title={candidate}>{candidate}</span>
@@ -148,7 +148,7 @@ const QualityBenchmarkCta: FC<{ candidate: string; baseline: string; onDismiss: 
           <MetricRow label="Accuracy (answerable)" baseline={job!.baselineReport!.avgScore} candidate={job!.candidateReport!.avgScore} higherIsBetter format="score" />
           <MetricRow label="Hallucination rate" baseline={job!.baselineReport!.hallucinationRate} candidate={job!.candidateReport!.hallucinationRate} higherIsBetter={false} format="pct" />
           <MetricRow label="Refusal accuracy" baseline={job!.baselineReport!.refusalAccuracy} candidate={job!.candidateReport!.refusalAccuracy} higherIsBetter format="pct" />
-          <div className="px-4 py-2 border-t border-outline-variant/10 text-[10px] text-on-surface-variant">
+          <div className="px-4 py-2 border-t border-outline-variant/10 text-[11px] text-on-surface-variant">
             {scoreDelta > 0.05
               ? <>✓ <strong className="text-primary">{candidate}</strong> is more accurate on your corpus (+{scoreDelta.toFixed(2)}/10){hallucDelta < -0.01 ? ` and hallucinates less` : ''}.</>
               : scoreDelta < -0.05

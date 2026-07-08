@@ -59,7 +59,7 @@ const EmbeddingConsistencyCard: FC = () => {
           <h2 className="text-sm font-black uppercase tracking-widest text-error font-headline">
             Embedding / index mismatch
           </h2>
-          <p className="text-[10px] text-outline">
+          <p className="text-[11px] text-outline">
             Active embedding model: <span className="font-mono text-primary">{consistency?.activeEmbeddingModel}</span>
             {' '}— RAG is blocked on mismatched collections until they are reindexed.
           </p>
@@ -75,7 +75,7 @@ const EmbeddingConsistencyCard: FC = () => {
             <div key={c.name} className="flex items-center justify-between gap-4 bg-surface-container-lowest border border-outline-variant/10 px-4 py-2">
               <div className="min-w-0">
                 <div className="text-sm font-bold truncate">{c.name}</div>
-                <div className="text-[10px] text-outline">
+                <div className="text-[11px] text-outline">
                   indexed with <span className="font-mono">{c.indexedWith}</span>
                   {status?.status === 'FAILED' && (
                     <span className="text-error ml-2">last reindex failed: {status.error}</span>
@@ -93,7 +93,7 @@ const EmbeddingConsistencyCard: FC = () => {
                 <button
                   onClick={() => reindexMutation.mutate(c.name)}
                   disabled={activeStatuses.some((s) => s.status === 'RUNNING')}
-                  className="shrink-0 px-3 py-1.5 bg-error text-on-error font-headline uppercase tracking-widest text-[10px] font-black disabled:opacity-40"
+                  className="shrink-0 px-3 py-1.5 bg-error text-on-error font-headline uppercase tracking-widest text-[11px] font-black disabled:opacity-40"
                 >
                   Reindex
                 </button>

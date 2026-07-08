@@ -31,24 +31,24 @@ function AbItemRow({ item, modelA, modelB }: { item: AbItem; modelA: string; mod
         className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-surface-container-high/40 transition-colors"
         aria-expanded={open}
       >
-        <span className={`font-label text-[9px] uppercase tracking-widest w-16 shrink-0 ${color}`}>
+        <span className={`font-label text-[10px] uppercase tracking-widest w-16 shrink-0 ${color}`}>
           {WINNER_LABEL[item.winner]}
         </span>
         <span className="text-xs text-on-surface truncate flex-1">{item.question}</span>
-        <span className="text-[10px] text-on-surface-variant shrink-0">{open ? '▲' : '▼'}</span>
+        <span className="text-[11px] text-on-surface-variant shrink-0">{open ? '▲' : '▼'}</span>
       </button>
       {open && (
         <div className="px-4 pb-4 grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className={`p-3 rounded border ${item.winner === 'A' ? 'bg-primary/5 border-primary/30' : 'bg-surface-container-low border-outline-variant/10'}`}>
-            <p className="font-label text-[9px] uppercase tracking-widest text-primary mb-1">A · {modelA}</p>
+            <p className="font-label text-[10px] uppercase tracking-widest text-primary mb-1">A · {modelA}</p>
             <p className="text-xs text-on-surface leading-relaxed">{item.answerA}</p>
           </div>
           <div className={`p-3 rounded border ${item.winner === 'B' ? 'bg-secondary/5 border-secondary/30' : 'bg-surface-container-low border-outline-variant/10'}`}>
-            <p className="font-label text-[9px] uppercase tracking-widest text-secondary mb-1">B · {modelB}</p>
+            <p className="font-label text-[10px] uppercase tracking-widest text-secondary mb-1">B · {modelB}</p>
             <p className="text-xs text-on-surface leading-relaxed">{item.answerB}</p>
           </div>
           <div className="md:col-span-2 bg-surface-container-low p-3 rounded border border-outline-variant/10">
-            <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-1">Reference</p>
+            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">Reference</p>
             <p className="text-xs text-on-surface-variant leading-relaxed">{item.reference}</p>
           </div>
         </div>
@@ -108,10 +108,10 @@ const AbComparisonView: FC = () => {
     <div className="space-y-6">
       {/* Setup */}
       <div className="bg-surface-container p-6 space-y-4">
-        <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">New head-to-head</p>
+        <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">New head-to-head</p>
         <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr_auto_auto] gap-3 items-end">
           <label className="space-y-1">
-            <span className="font-label text-[9px] uppercase tracking-widest text-primary">Model A</span>
+            <span className="font-label text-[10px] uppercase tracking-widest text-primary">Model A</span>
             <select value={modelA} onChange={e => setModelA(e.target.value)}
               className="w-full bg-surface-container-low text-sm px-2 py-2 outline-none border border-outline-variant/20 focus:border-primary/50">
               <option value="">Select…</option>
@@ -120,7 +120,7 @@ const AbComparisonView: FC = () => {
           </label>
           <span className="text-on-surface-variant text-xs pb-2 text-center font-headline">vs</span>
           <label className="space-y-1">
-            <span className="font-label text-[9px] uppercase tracking-widest text-secondary">Model B</span>
+            <span className="font-label text-[10px] uppercase tracking-widest text-secondary">Model B</span>
             <select value={modelB} onChange={e => setModelB(e.target.value)}
               className="w-full bg-surface-container-low text-sm px-2 py-2 outline-none border border-outline-variant/20 focus:border-secondary/50">
               <option value="">Select…</option>
@@ -128,7 +128,7 @@ const AbComparisonView: FC = () => {
             </select>
           </label>
           <label className="space-y-1">
-            <span className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant">Test size</span>
+            <span className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Test size</span>
             <input type="number" min={1} placeholder="auto" value={size} onChange={e => setSize(e.target.value)}
               className="w-20 bg-surface-container-low text-sm px-2 py-2 outline-none border border-outline-variant/20 focus:border-primary/50" />
           </label>
@@ -152,12 +152,12 @@ const AbComparisonView: FC = () => {
         <div className="grid grid-cols-[240px_1fr] gap-6 items-start">
           {/* History */}
           <div className="bg-surface-container divide-y divide-outline-variant/10">
-            <p className="px-4 py-3 bg-surface-container-high font-label text-[10px] uppercase tracking-widest text-on-surface-variant">History</p>
+            <p className="px-4 py-3 bg-surface-container-high font-label text-[11px] uppercase tracking-widest text-on-surface-variant">History</p>
             {reports.map(r => (
               <button key={r.abId} onClick={() => setSelectedId(r.abId)}
                 className={`w-full text-left px-4 py-3 transition-colors hover:bg-surface-container-high/60 ${selected?.abId === r.abId ? 'bg-surface-container-high' : ''}`}>
                 <p className="font-headline font-bold text-xs truncate">{r.modelA} <span className="text-on-surface-variant">vs</span> {r.modelB}</p>
-                <p className="font-label text-[9px] text-on-surface-variant mt-0.5">
+                <p className="font-label text-[10px] text-on-surface-variant mt-0.5">
                   {new Date(r.startedAt).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' })} · {r.status}
                 </p>
                 {r.status === 'COMPLETED' && (
@@ -177,7 +177,7 @@ const AbComparisonView: FC = () => {
                     <span className="text-on-surface-variant mx-2">vs</span>
                     <span className="text-secondary">{selected.modelB}</span>
                   </p>
-                  <span className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">
+                  <span className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">
                     judge: {selected.judgeModel}
                   </span>
                 </div>
@@ -195,7 +195,7 @@ const AbComparisonView: FC = () => {
                       <span className="text-secondary font-bold">{Math.round(selected.winRateB * 100)}% ({selected.bWins}) · B</span>
                     </div>
                     {selected.status !== 'COMPLETED' && (
-                      <p className="font-label text-[10px] text-on-surface-variant text-right">
+                      <p className="font-label text-[11px] text-on-surface-variant text-right">
                         {selected.processed} / {selected.testSetSize} pairs judged…
                       </p>
                     )}
@@ -205,7 +205,7 @@ const AbComparisonView: FC = () => {
 
               {selected.items.length > 0 && (
                 <div className="bg-surface-container">
-                  <p className="px-4 py-3 font-label text-[10px] uppercase tracking-widest text-on-surface-variant bg-surface-container-high border-b border-outline-variant/10">
+                  <p className="px-4 py-3 font-label text-[11px] uppercase tracking-widest text-on-surface-variant bg-surface-container-high border-b border-outline-variant/10">
                     Per-pair verdicts ({selected.items.length})
                   </p>
                   {selected.items.map((it, i) => (

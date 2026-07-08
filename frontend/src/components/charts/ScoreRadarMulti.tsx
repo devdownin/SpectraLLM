@@ -23,7 +23,7 @@ interface Props {
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-surface-container border border-primary/20 px-3 py-2 text-[10px] font-label space-y-1">
+    <div className="bg-surface-container border border-primary/20 px-3 py-2 text-[11px] font-label space-y-1">
       <p className="text-on-surface-variant uppercase tracking-widest">{label}</p>
       {payload.map((p: any) => (
         <p key={p.dataKey} className="font-bold" style={{ color: p.color }}>
@@ -56,7 +56,7 @@ const ScoreRadarMulti: FC<Props> = ({ categories, models }) => {
         <PolarGrid stroke="rgba(255,255,255,0.06)" />
         <PolarAngleAxis
           dataKey="subject"
-          tick={{ fill: 'rgba(222,229,255,0.55)', fontSize: 9, fontFamily: 'Space Grotesk' }}
+          tick={{ fill: 'rgba(222,229,255,0.55)', fontSize: 10, fontFamily: 'Space Grotesk' }}
         />
         <PolarRadiusAxis domain={[0, 10]} tick={false} axisLine={false} />
         {models.map((m, i) => (
@@ -70,7 +70,7 @@ const ScoreRadarMulti: FC<Props> = ({ categories, models }) => {
             strokeWidth={1.5}
           />
         ))}
-        <Legend wrapperStyle={{ fontSize: 9, fontFamily: 'Space Grotesk', textTransform: 'uppercase', letterSpacing: '0.1em' }} />
+        <Legend wrapperStyle={{ fontSize: 10, fontFamily: 'Space Grotesk', textTransform: 'uppercase', letterSpacing: '0.1em' }} />
         <Tooltip content={<CustomTooltip />} />
       </RadarChart>
     </ResponsiveContainer>

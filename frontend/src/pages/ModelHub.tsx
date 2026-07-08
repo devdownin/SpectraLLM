@@ -177,7 +177,7 @@ const ModelHub: FC = () => {
 
         <div className="flex flex-wrap gap-3">
           <div className="flex items-center gap-2 bg-surface-container-low px-3 py-1 border border-outline-variant/20">
-            <span className="text-[10px] font-black uppercase tracking-widest text-outline">Show</span>
+            <span className="text-[11px] font-black uppercase tracking-widest text-outline">Show</span>
             <select
               value={limit}
               onChange={(e) => setLimit(parseInt(e.target.value))}
@@ -190,7 +190,7 @@ const ModelHub: FC = () => {
           </div>
 
           <div className="flex items-center gap-2 bg-surface-container-low px-3 py-1 border border-outline-variant/20">
-            <span className="text-[10px] font-black uppercase tracking-widest text-outline">Filter</span>
+            <span className="text-[11px] font-black uppercase tracking-widest text-outline">Filter</span>
             <select
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
@@ -211,7 +211,7 @@ const ModelHub: FC = () => {
               onChange={(e) => setAutoActivate(e.target.checked)}
               className="accent-primary"
             />
-            <span className="text-[10px] font-black uppercase tracking-widest text-outline">Auto-activation</span>
+            <span className="text-[11px] font-black uppercase tracking-widest text-outline">Auto-activation</span>
           </label>
 
           <button
@@ -219,7 +219,7 @@ const ModelHub: FC = () => {
             className={`flex items-center gap-2 px-4 py-2 transition-colors border border-outline-variant/20 ${isSimulating ? 'bg-primary text-on-primary' : 'bg-surface-container-high text-primary hover:bg-surface-variant'}`}
           >
             <span className="material-symbols-outlined text-sm">settings_input_component</span>
-            <span className="font-headline uppercase tracking-widest text-[10px] font-bold">Simulation</span>
+            <span className="font-headline uppercase tracking-widest text-[11px] font-bold">Simulation</span>
           </button>
 
           <button
@@ -227,7 +227,7 @@ const ModelHub: FC = () => {
             className="flex items-center gap-2 px-4 py-2 bg-surface-container-high hover:bg-surface-variant text-primary transition-colors border border-outline-variant/20"
           >
             <span className={`material-symbols-outlined text-sm ${isFetching ? 'animate-spin' : ''}`}>refresh</span>
-            <span className="font-headline uppercase tracking-widest text-[10px] font-bold">Refresh</span>
+            <span className="font-headline uppercase tracking-widest text-[11px] font-bold">Refresh</span>
           </button>
         </div>
       </header>
@@ -240,7 +240,7 @@ const ModelHub: FC = () => {
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="space-y-2">
-              <label className="text-[10px] uppercase tracking-wider text-outline font-bold">VRAM GPU (ex: 12G, 24G)</label>
+              <label className="text-[11px] uppercase tracking-wider text-outline font-bold">VRAM GPU (ex: 12G, 24G)</label>
               <input
                 type="text"
                 placeholder="Auto"
@@ -250,7 +250,7 @@ const ModelHub: FC = () => {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-[10px] uppercase tracking-wider text-outline font-bold">System RAM (e.g. 32G, 64G)</label>
+              <label className="text-[11px] uppercase tracking-wider text-outline font-bold">System RAM (e.g. 32G, 64G)</label>
               <input
                 type="text"
                 placeholder="Auto"
@@ -260,7 +260,7 @@ const ModelHub: FC = () => {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-[10px] uppercase tracking-wider text-outline font-bold">CPU Cores</label>
+              <label className="text-[11px] uppercase tracking-wider text-outline font-bold">CPU Cores</label>
               <input
                 type="number"
                 placeholder="Auto"
@@ -273,7 +273,7 @@ const ModelHub: FC = () => {
           <div className="mt-4 flex justify-end gap-3">
             <button
               onClick={() => { setSimulation({}); setIsSimulating(false); }}
-              className="text-[10px] font-black uppercase tracking-widest text-outline hover:text-primary transition-colors"
+              className="text-[11px] font-black uppercase tracking-widest text-outline hover:text-primary transition-colors"
             >
               Réinitialiser
             </button>
@@ -286,14 +286,14 @@ const ModelHub: FC = () => {
           <div className="flex items-center gap-3">
             <span className="material-symbols-outlined text-outline">cpu</span>
             <div>
-              <div className="text-[10px] uppercase tracking-wider text-outline font-bold">CPU</div>
+              <div className="text-[11px] uppercase tracking-wider text-outline font-bold">CPU</div>
               <div className="text-sm font-medium">{recommendations.system.cpu_name} ({recommendations.system.cpu_cores} cores)</div>
             </div>
           </div>
           <div className="flex items-center gap-3">
             <span className="material-symbols-outlined text-outline">memory</span>
             <div>
-              <div className="text-[10px] uppercase tracking-wider text-outline font-bold">RAM</div>
+              <div className="text-[11px] uppercase tracking-wider text-outline font-bold">RAM</div>
               <div className="text-sm font-medium">{recommendations.system.total_ram_gb.toFixed(1)} GB ({recommendations.system.available_ram_gb.toFixed(1)} GB dispos)</div>
             </div>
           </div>
@@ -301,7 +301,7 @@ const ModelHub: FC = () => {
             <div className="flex items-center gap-3">
               <span className="material-symbols-outlined text-secondary">memory_alt</span>
               <div>
-                <div className="text-[10px] uppercase tracking-wider text-secondary font-bold">GPU</div>
+                <div className="text-[11px] uppercase tracking-wider text-secondary font-bold">GPU</div>
                 <div className="text-sm font-medium">{recommendations.system.gpu_name || 'Simulated'} ({recommendations.system.gpu_vram_gb?.toFixed(1) || simulation.memory} VRAM)</div>
               </div>
             </div>
@@ -332,10 +332,10 @@ const ModelHub: FC = () => {
         <div className="bg-primary/5 border border-primary/30 p-4 flex items-start gap-3">
           <span className="material-symbols-outlined text-primary text-sm mt-0.5 shrink-0">info</span>
           <div className="space-y-1">
-            <p className="text-[10px] font-label font-bold uppercase tracking-widest text-primary">
+            <p className="text-[11px] font-label font-bold uppercase tracking-widest text-primary">
               Model(s) downloaded and registered
             </p>
-            <p className="text-[9px] text-on-surface-variant leading-relaxed">
+            <p className="text-[10px] text-on-surface-variant leading-relaxed">
               The GGUF file was copied to <code className="font-mono bg-surface-container px-1">data/models/</code> and
               saved to the model registry. Once <strong>activated</strong> (Auto-activation here, or from the
               Playground), <strong>llm-chat</strong> reloads it automatically within a few seconds — no manual
@@ -350,14 +350,14 @@ const ModelHub: FC = () => {
           <div key={model.name} className="group relative bg-surface-container-lowest border border-outline-variant/10 hover:border-primary/30 transition-all flex flex-col h-full shadow-sm hover:shadow-md">
             <div className="p-6 flex-1">
               <div className="flex justify-between items-start mb-4">
-                <div className="px-2 py-0.5 bg-primary/10 text-primary text-[10px] font-black uppercase tracking-widest border border-primary/20">
+                <div className="px-2 py-0.5 bg-primary/10 text-primary text-[11px] font-black uppercase tracking-widest border border-primary/20">
                   {model.parameter_count}
                 </div>
                 <div className="flex flex-col items-end">
                   <div className="text-2xl font-black text-primary font-headline leading-none">
                     {Math.round(model.score)}
                   </div>
-                  <div className="text-[8px] uppercase tracking-tighter text-outline font-bold">FIT SCORE</div>
+                  <div className="text-[10px] uppercase tracking-tighter text-outline font-bold">FIT SCORE</div>
                 </div>
               </div>
 
@@ -386,14 +386,14 @@ const ModelHub: FC = () => {
               </div>
 
               <div className="mt-6 pt-6 border-t border-outline-variant/10">
-                 <div className="text-[10px] font-black uppercase tracking-widest text-outline mb-2">Capabilities</div>
+                 <div className="text-[11px] font-black uppercase tracking-widest text-outline mb-2">Capabilities</div>
                  <div className="flex flex-wrap gap-2">
                     {model.score_components && Object.entries(model.score_components).map(([key, val]: [string, any]) => (
                       <div key={key} className="flex flex-col">
                          <div className="h-1 w-12 bg-surface-variant rounded-full overflow-hidden">
                             <div className="h-full bg-primary" style={{ width: `${val}%` }}></div>
                          </div>
-                         <span className="text-[8px] uppercase mt-1 text-outline-variant">{key === 'fit' ? 'fit' : key === 'quality' ? 'quality' : key === 'speed' ? 'vitesse' : key}</span>
+                         <span className="text-[10px] uppercase mt-1 text-outline">{key === 'fit' ? 'fit' : key === 'quality' ? 'quality' : key === 'speed' ? 'vitesse' : key}</span>
                       </div>
                     ))}
                  </div>
@@ -442,7 +442,7 @@ const ModelHub: FC = () => {
           </p>
           <button
             onClick={() => refetch()}
-            className="px-4 py-2 bg-primary text-on-primary font-headline uppercase tracking-widest text-[10px] font-bold"
+            className="px-4 py-2 bg-primary text-on-primary font-headline uppercase tracking-widest text-[11px] font-bold"
           >
             Retry
           </button>
@@ -451,7 +451,7 @@ const ModelHub: FC = () => {
 
       {!isError && filteredModels?.length === 0 && (
         <div className="text-center py-20 bg-surface-container-lowest border border-dashed border-outline-variant/30">
-          <span className="material-symbols-outlined text-outline-variant text-4xl mb-3">search_off</span>
+          <span className="material-symbols-outlined text-outline text-4xl mb-3">search_off</span>
           <p className="text-outline">
             No model matches your filters — or llmfit returned no recommendation (check
             <code className="font-mono bg-surface-container px-1 mx-1">docker compose logs spectra-api</code>

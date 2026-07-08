@@ -21,10 +21,10 @@ const Header: FC<HeaderProps> = ({ onMenuClick }) => {
         >
           <span aria-hidden="true" className="material-symbols-outlined text-[22px]">menu</span>
         </button>
-        <span className="font-label text-[9px] uppercase tracking-[0.15em] text-outline select-none">Spectra</span>
+        <span className="font-label text-[10px] uppercase tracking-[0.15em] text-outline select-none">Spectra</span>
         {pageName && (
           <>
-            <span className="text-outline/40 text-[10px]">/</span>
+            <span className="text-outline/40 text-[11px]">/</span>
             <span className="font-headline font-bold text-[11px] uppercase tracking-[0.08em] text-on-surface">{pageName}</span>
           </>
         )}

@@ -104,7 +104,7 @@ const PipelineStep: FC<PipelineStepProps> = ({ icon, label, state, nextState, is
           <span className="material-symbols-outlined text-base">{icon}</span>
         </div>
       </div>
-      <span className={`font-label text-[9px] uppercase tracking-widest ${
+      <span className={`font-label text-[10px] uppercase tracking-widest ${
         state === 'idle' ? 'text-outline' : state === 'done' ? 'text-primary' : 'text-secondary'
       }`}>{label}</span>
     </div>
@@ -421,7 +421,7 @@ const Ingestion: FC = () => {
         <div className="flex items-center gap-6">
         <button
           onClick={loadStats}
-          className="flex items-center gap-1.5 text-[9px] font-label uppercase tracking-widest text-on-surface-variant hover:text-primary transition-colors"
+          className="flex items-center gap-1.5 text-[10px] font-label uppercase tracking-widest text-on-surface-variant hover:text-primary transition-colors"
         >
           <span className="material-symbols-outlined text-sm">refresh</span>
           Refresh
@@ -453,7 +453,7 @@ const Ingestion: FC = () => {
             <p className="font-headline font-bold text-xl">
               {stats ? stats.chunksInStore : '—'}
             </p>
-            <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant">Indexed chunks</p>
+            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Indexed chunks</p>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -465,22 +465,22 @@ const Ingestion: FC = () => {
             <p className="font-headline font-bold text-xl">
               {stats ? stats.totalPairs : '—'}
             </p>
-            <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant">Training pairs</p>
+            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Training pairs</p>
           </div>
         </div>
         <div className="flex items-center gap-3 justify-end">
           {!stats ? (
             <Skeleton className="h-5 w-44" />
           ) : stats.chunksInStore === 0 ? (
-            <span className="text-[9px] text-outline uppercase tracking-widest font-label border border-outline-variant/30 px-2 py-1">
+            <span className="text-[10px] text-outline uppercase tracking-widest font-label border border-outline-variant/30 px-2 py-1">
               Empty store — ingest documents
             </span>
           ) : stats.totalPairs === 0 ? (
-            <span className="text-[9px] text-secondary uppercase tracking-widest font-label border border-secondary/30 px-2 py-1">
+            <span className="text-[10px] text-secondary uppercase tracking-widest font-label border border-secondary/30 px-2 py-1">
               {stats.chunksInStore} chunks ready — start step 2
             </span>
           ) : (
-            <span className="text-[9px] text-primary uppercase tracking-widest font-label border border-primary/30 px-2 py-1">
+            <span className="text-[10px] text-primary uppercase tracking-widest font-label border border-primary/30 px-2 py-1">
               Dataset ready — {stats.totalPairs} pairs
             </span>
           )}
@@ -495,7 +495,7 @@ const Ingestion: FC = () => {
           </div>
           <h3 className="font-headline text-lg font-bold uppercase tracking-tight">Document Ingestion</h3>
           {stats && stats.chunksInStore > 0 && (
-            <span className="ml-auto font-label text-[10px] uppercase tracking-widest text-primary">
+            <span className="ml-auto font-label text-[11px] uppercase tracking-widest text-primary">
               {stats.chunksInStore} chunks in store
             </span>
           )}
@@ -522,7 +522,7 @@ const Ingestion: FC = () => {
                 onChange={handleFileChange} multiple />
               <button
                 onClick={e => { e.stopPropagation(); fileInputRef.current?.click(); }}
-                className="bg-outline-variant/20 hover:bg-outline-variant/40 text-on-surface font-bold py-2 px-8 text-[10px] uppercase tracking-widest transition-colors"
+                className="bg-outline-variant/20 hover:bg-outline-variant/40 text-on-surface font-bold py-2 px-8 text-[11px] uppercase tracking-widest transition-colors"
               >
                 Browse Files
               </button>
@@ -542,7 +542,7 @@ const Ingestion: FC = () => {
               <button
                 onClick={() => ingestUrl(urlInput)}
                 disabled={!urlInput.trim()}
-                className="text-[9px] font-headline uppercase tracking-widest px-3 py-1.5 border border-primary text-primary hover:bg-primary/5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+                className="text-[10px] font-headline uppercase tracking-widest px-3 py-1.5 border border-primary text-primary hover:bg-primary/5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
               >
                 Ingest URL
               </button>
@@ -559,7 +559,7 @@ const Ingestion: FC = () => {
                 </div>
                 <div className="p-3 bg-surface-container-lowest border-l-2 border-primary">
                   <p className="text-xs font-bold mb-0.5">SEMANTIC_CHUNK_V2</p>
-                  <p className="text-[10px] text-on-surface-variant uppercase tracking-widest leading-relaxed">
+                  <p className="text-[11px] text-on-surface-variant uppercase tracking-widest leading-relaxed">
                     Context-aware partitioning
                   </p>
                 </div>
@@ -600,7 +600,7 @@ const Ingestion: FC = () => {
                   setShowHistory(next);
                   if (next) loadHistory(0, historySearch);
                 }}
-                className="text-[9px] font-label uppercase tracking-widest text-primary hover:underline flex items-center gap-1"
+                className="text-[10px] font-label uppercase tracking-widest text-primary hover:underline flex items-center gap-1"
               >
                 <span className="material-symbols-outlined text-sm">{showHistory ? 'sensors' : 'history'}</span>
                 {showHistory ? 'Live' : 'History'}
@@ -613,7 +613,7 @@ const Ingestion: FC = () => {
                   <span className="material-symbols-outlined text-sm text-outline shrink-0">search</span>
                   <input
                     type="text"
-                    className="flex-1 bg-transparent border-none focus:ring-0 text-[10px] font-body placeholder:text-outline"
+                    className="flex-1 bg-transparent border-none focus:ring-0 text-[11px] font-body placeholder:text-outline"
                     placeholder="Search for a file…"
                     value={historySearch}
                     onChange={e => {
@@ -629,38 +629,38 @@ const Ingestion: FC = () => {
                   )}
                 </div>
                 {/* Count */}
-                <p className="text-[9px] text-outline font-label uppercase tracking-widest">
+                <p className="text-[10px] text-outline font-label uppercase tracking-widest">
                   {historyTotal} file{historyTotal !== 1 ? 's' : ''}{historySearch ? ` · "${historySearch}"` : ''}
                 </p>
                 {/* List */}
                 <div className="flex-1 space-y-2 overflow-y-auto custom-scrollbar max-h-64">
                   {history.length === 0 && !historyLoading ? (
-                    <p className="text-[10px] text-outline uppercase tracking-widest italic text-center py-4">
+                    <p className="text-[11px] text-outline uppercase tracking-widest italic text-center py-4">
                       {historySearch ? 'No results' : 'Empty history'}
                     </p>
                   ) : (
                     history.map(item => (
                       <div key={item.sha256} className="p-2.5 bg-surface-container-lowest border-l-2 border-primary/20 hover:border-primary transition-all">
                         <div className="flex justify-between items-start mb-0.5">
-                          <span className="text-[10px] font-bold truncate max-w-[140px]" title={item.fileName}>{item.fileName}</span>
-                          <span className="text-[9px] font-mono text-outline shrink-0 ml-1">{item.sha256.slice(0, 7)}</span>
+                          <span className="text-[11px] font-bold truncate max-w-[140px]" title={item.fileName}>{item.fileName}</span>
+                          <span className="text-[10px] font-mono text-outline shrink-0 ml-1">{item.sha256.slice(0, 7)}</span>
                         </div>
                         <div className="flex justify-between items-center">
                           <div className="flex gap-1.5 items-center">
-                            <span className="text-[8px] font-bold font-label uppercase tracking-widest text-on-surface-variant border border-outline-variant/30 px-1">
+                            <span className="text-[10px] font-bold font-label uppercase tracking-widest text-on-surface-variant border border-outline-variant/30 px-1">
                               {item.format?.toUpperCase() ?? '?'}
                             </span>
-                            <span className="text-[9px] text-outline">
+                            <span className="text-[10px] text-outline">
                               {new Date(item.ingestedAt).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })}
                             </span>
                           </div>
-                          <span className="text-[9px] font-bold text-primary">{item.chunksCreated}ch</span>
+                          <span className="text-[10px] font-bold text-primary">{item.chunksCreated}ch</span>
                         </div>
                       </div>
                     ))
                   )}
                   {historyLoading && (
-                    <p className="text-[9px] text-outline font-label uppercase tracking-widest text-center animate-pulse py-2">
+                    <p className="text-[10px] text-outline font-label uppercase tracking-widest text-center animate-pulse py-2">
                       Loading…
                     </p>
                   )}
@@ -669,7 +669,7 @@ const Ingestion: FC = () => {
                 {history.length < historyTotal && !historyLoading && (
                   <button
                     onClick={() => loadHistory(historyPage + 1, historySearch, true)}
-                    className="text-[9px] font-label uppercase tracking-widest text-primary border border-primary/30 px-3 py-1.5 hover:bg-primary/5 transition-colors w-full"
+                    className="text-[10px] font-label uppercase tracking-widest text-primary border border-primary/30 px-3 py-1.5 hover:bg-primary/5 transition-colors w-full"
                   >
                     Load more ({historyTotal - history.length} remaining)
                   </button>
@@ -677,7 +677,7 @@ const Ingestion: FC = () => {
               </div>
             ) : ingestEntries.length === 0 ? (
               <div className="flex-1 flex items-center justify-center">
-                <p className="text-[10px] text-outline uppercase tracking-widest italic text-center">
+                <p className="text-[11px] text-outline uppercase tracking-widest italic text-center">
                   No files<br />currently ingesting
                 </p>
               </div>
@@ -692,10 +692,10 @@ const Ingestion: FC = () => {
                           style={entry.status === 'PROCESSING' ? { animation: 'rotate-slow 1.2s linear infinite' } : undefined}>
                           {statusIcon[entry.status]}
                         </span>
-                        <span className="text-[10px] font-label truncate">{entry.fileName}</span>
+                        <span className="text-[11px] font-label truncate">{entry.fileName}</span>
                       </div>
                       <span key={`${entry.status}-${entry.chunksCreated}`}
-                        className={`text-[9px] font-bold uppercase tracking-widest shrink-0 ${statusColor[entry.status]} ${entry.status === 'COMPLETED' ? 'count-flash' : ''}`}>
+                        className={`text-[10px] font-bold uppercase tracking-widest shrink-0 ${statusColor[entry.status]} ${entry.status === 'COMPLETED' ? 'count-flash' : ''}`}>
                         {entry.status === 'COMPLETED'
                           ? `${entry.chunksCreated} chunks`
                           : entry.status === 'PROCESSING' && entry.chunksCreated > 0
@@ -713,7 +713,7 @@ const Ingestion: FC = () => {
                       </div>
                     )}
                     {entry.error && (
-                      <p className="text-[9px] text-error truncate">{entry.error}</p>
+                      <p className="text-[10px] text-error truncate">{entry.error}</p>
                     )}
                   </div>
                 ))}
@@ -738,7 +738,7 @@ const Ingestion: FC = () => {
             <div className="space-y-3">
               <div className="flex justify-between items-center">
                 <div className="flex items-center gap-2">
-                  <label className="font-label text-[10px] uppercase tracking-widest">Max Chunks</label>
+                  <label className="font-label text-[11px] uppercase tracking-widest">Max Chunks</label>
                   <Tooltip content="Number of chunks to process (0 = all). Limit for a quick test.">
                     <span className="material-symbols-outlined text-xs text-outline cursor-help">help</span>
                   </Tooltip>
@@ -752,7 +752,7 @@ const Ingestion: FC = () => {
                 onChange={e => setMaxChunks(parseInt(e.target.value))}
                 className="w-full accent-primary"
               />
-              <div className="flex justify-between text-[9px] text-outline uppercase tracking-widest">
+              <div className="flex justify-between text-[10px] text-outline uppercase tracking-widest">
                 <span>All</span><span>50</span><span>100</span>
               </div>
             </div>
@@ -776,7 +776,7 @@ const Ingestion: FC = () => {
           <div className="lg:col-span-2 bg-surface-container p-6 space-y-5">
             {!genTask ? (
               <div className="h-full flex items-center justify-center">
-                <p className="text-[10px] text-outline uppercase tracking-widest italic text-center">
+                <p className="text-[11px] text-outline uppercase tracking-widest italic text-center">
                   No generation in progress.<br />
                   Upload documents then start the pipeline.
                 </p>
@@ -785,10 +785,10 @@ const Ingestion: FC = () => {
               <>
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-1">Task ID</p>
+                    <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">Task ID</p>
                     <p className="font-headline font-bold text-sm">{genTask.taskId.slice(0, 8).toUpperCase()}…</p>
                   </div>
-                  <span className={`font-label text-[10px] font-bold uppercase tracking-widest px-3 py-1 border ${
+                  <span className={`font-label text-[11px] font-bold uppercase tracking-widest px-3 py-1 border ${
                     genTask.status === 'COMPLETED' ? 'border-primary text-primary' :
                     genTask.status === 'FAILED'    ? 'border-error text-error' :
                     genTask.status === 'PROCESSING'? 'border-secondary text-secondary' :
@@ -801,7 +801,7 @@ const Ingestion: FC = () => {
                 {/* Chunks progress */}
                 {genTask.totalChunks > 0 && (
                   <div className="space-y-2">
-                    <div className="flex justify-between text-[10px] font-label uppercase tracking-widest">
+                    <div className="flex justify-between text-[11px] font-label uppercase tracking-widest">
                       <span className="text-on-surface-variant">Chunks Processed</span>
                       <span className="font-bold">
                         {genTask.chunksProcessed} / {genTask.totalChunks}
@@ -821,21 +821,21 @@ const Ingestion: FC = () => {
                 {/* Pairs count */}
                 <div className="grid grid-cols-2 gap-4">
                   <div className="bg-surface-container-lowest p-4 border-l-2 border-primary">
-                    <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-1">Pairs Generated</p>
+                    <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">Pairs Generated</p>
                     {/* key forces re-mount → count-flash animation replays on each new value */}
                     <p key={genTask.pairsGenerated} className={`font-headline font-bold text-2xl ${genTask.status === 'PROCESSING' ? 'count-flash' : ''}`}>
                       {genTask.pairsGenerated}
                     </p>
                   </div>
                   <div className="bg-surface-container-lowest p-4 border-l-2 border-secondary">
-                    <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-1">Chunks Total</p>
+                    <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">Chunks Total</p>
                     <p className="font-headline font-bold text-2xl">{genTask.totalChunks || '—'}</p>
                   </div>
                 </div>
 
                 {genTask.error && (
                   <div className="p-3 bg-error/10 border border-error/30">
-                    <p className="text-[10px] text-error">{genTask.error}</p>
+                    <p className="text-[11px] text-error">{genTask.error}</p>
                   </div>
                 )}
               </>
@@ -857,7 +857,7 @@ const Ingestion: FC = () => {
 
           {stats.totalPairs === 0 && stats.chunksInStore === 0 ? (
             <div className="bg-surface-container p-8 flex items-center justify-center">
-              <p className="text-[10px] text-outline uppercase tracking-widest italic text-center">
+              <p className="text-[11px] text-outline uppercase tracking-widest italic text-center">
                 No data in store.<br />
                 Ingest documents (step 1) then start generation (step 2).
               </p>
@@ -865,21 +865,21 @@ const Ingestion: FC = () => {
           ) : (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-surface-container p-5 border-t-2 border-primary">
-              <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-2">Training Pairs</p>
+              <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">Training Pairs</p>
               <p className="font-headline font-bold text-3xl">{stats.totalPairs}</p>
             </div>
             <div className="bg-surface-container p-5 border-t-2 border-secondary">
-              <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-2">Chunks in Store</p>
+              <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">Chunks in Store</p>
               <p className="font-headline font-bold text-3xl">{stats.chunksInStore}</p>
             </div>
             <div className="bg-surface-container p-5 border-t-2 border-outline-variant">
-              <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-2">Avg Confidence</p>
+              <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">Avg Confidence</p>
               <p className="font-headline font-bold text-3xl">
                 {stats.avgConfidence > 0 ? (stats.avgConfidence * 100).toFixed(0) + '%' : '—'}
               </p>
             </div>
             <div className="bg-surface-container p-5 border-t-2 border-outline-variant">
-              <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-2">Categories</p>
+              <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">Categories</p>
               <p className="font-headline font-bold text-3xl">{Object.keys(stats.byCategory).length}</p>
             </div>
           </div>
@@ -887,11 +887,11 @@ const Ingestion: FC = () => {
 
           {Object.keys(stats.byCategory).length > 0 && (
             <div className="bg-surface-container p-5 space-y-3">
-              <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Category Distribution</p>
+              <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">Category Distribution</p>
               <div className="space-y-2">
                 {Object.entries(stats.byCategory).map(([cat, count]) => (
                   <div key={cat} className="space-y-1">
-                    <div className="flex justify-between text-[10px] font-label uppercase tracking-widest">
+                    <div className="flex justify-between text-[11px] font-label uppercase tracking-widest">
                       <span>{cat}</span>
                       <span className="font-bold">{count}</span>
                     </div>

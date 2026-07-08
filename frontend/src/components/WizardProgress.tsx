@@ -119,7 +119,7 @@ const WizardProgress: FC = () => {
                     </span>
                   </div>
                   <span className={`
-                    font-headline text-[8px] uppercase tracking-[0.15em] transition-colors
+                    font-headline text-[10px] uppercase tracking-[0.15em] transition-colors
                     ${isActive ? 'text-primary font-bold' :
                       step.done ? 'text-secondary' :
                       isNext ? 'text-primary/80' :

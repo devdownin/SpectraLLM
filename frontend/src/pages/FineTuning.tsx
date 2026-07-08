@@ -91,7 +91,7 @@ const StepBar: FC<StepBarProps> = ({ job }) => {
                   <span className="material-symbols-outlined text-sm">{step.icon}</span>
                 </div>
               </div>
-              <span className={`font-label text-[9px] uppercase tracking-widest ${
+              <span className={`font-label text-[10px] uppercase tracking-widest ${
                 isFailed  ? 'text-error' :
                 isDone    ? 'text-primary' :
                 isActive  ? 'text-secondary' :
@@ -376,21 +376,21 @@ const FineTuning: FC = () => {
           <div className="flex items-center justify-between mb-6">
             <h3 className="font-headline text-lg font-bold uppercase tracking-tight">Configure Training Job</h3>
             <button type="button" onClick={exportRecipe}
-              className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant hover:text-on-surface flex items-center gap-1 transition-colors">
+              className="text-[11px] font-label uppercase tracking-widest text-on-surface-variant hover:text-on-surface flex items-center gap-1 transition-colors">
               <span className="material-symbols-outlined text-sm">download</span>Export Recipe
             </button>
           </div>
 
           {recipes.length > 0 && (
             <div className="mb-6 p-4 bg-surface-container-high/50 border border-outline-variant/20">
-              <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-3">
+              <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-3">
                 Recipes {loadingRecipe ? '— loading…' : ''}
               </p>
               <div className="flex flex-wrap gap-2">
                 {recipes.map(r => (
                   <button key={r.name} type="button" onClick={() => loadRecipe(r.name)}
                     title={r.description}
-                    className="px-3 py-1.5 border border-outline-variant/40 font-label text-[10px] uppercase tracking-widest
+                    className="px-3 py-1.5 border border-outline-variant/40 font-label text-[11px] uppercase tracking-widest
                                hover:border-primary hover:text-primary transition-colors">
                     {r.displayName}
                   </button>
@@ -402,27 +402,27 @@ const FineTuning: FC = () => {
           <form onSubmit={handleSubmit(onFormSubmit)} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
 
             <div className="space-y-2">
-              <label className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Model Name</label>
+              <label className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">Model Name</label>
               <input
                 type="text" {...register('modelName')}
                 className={`w-full bg-surface-container-lowest border ${errors.modelName ? 'border-error' : 'border-outline-variant/30'} px-4 py-2.5 text-sm font-label focus:outline-none focus:border-primary transition-colors`}
                 placeholder="spectra-domain"
               />
-              {errors.modelName && <p className="text-[9px] text-error uppercase tracking-wider">{errors.modelName.message}</p>}
+              {errors.modelName && <p className="text-[10px] text-error uppercase tracking-wider">{errors.modelName.message}</p>}
             </div>
 
             <div className="space-y-2">
-              <label className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Base Model</label>
+              <label className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">Base Model</label>
               <input
                 type="text" {...register('baseModel')}
                 className={`w-full bg-surface-container-lowest border ${errors.baseModel ? 'border-error' : 'border-outline-variant/30'} px-4 py-2.5 text-sm font-label focus:outline-none focus:border-primary transition-colors`}
                 placeholder="phi3"
               />
-              {errors.baseModel && <p className="text-[9px] text-error uppercase tracking-wider">{errors.baseModel.message}</p>}
+              {errors.baseModel && <p className="text-[10px] text-error uppercase tracking-wider">{errors.baseModel.message}</p>}
             </div>
 
             <div className="space-y-2">
-              <label className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">
+              <label className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">
                 Epochs — <span className="text-primary font-bold">{formValues.epochs}</span>
               </label>
               <input
@@ -432,7 +432,7 @@ const FineTuning: FC = () => {
             </div>
 
             <div className="space-y-2">
-              <label className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">
+              <label className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">
                 LoRA Rank — <span className="text-primary font-bold">{formValues.loraRank}</span>
               </label>
               <input
@@ -442,7 +442,7 @@ const FineTuning: FC = () => {
             </div>
 
             <div className="space-y-2">
-              <label className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">
+              <label className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">
                 Min Confidence — <span className="text-primary font-bold">{(formValues.minConfidence || 0).toFixed(1)}</span>
               </label>
               <input
@@ -452,21 +452,21 @@ const FineTuning: FC = () => {
             </div>
 
             <div className="space-y-3">
-              <label className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Options</label>
+              <label className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">Options</label>
               <label className="flex items-center gap-2 cursor-pointer select-none">
                 <input type="checkbox" {...register('packingEnabled')} className="accent-primary" />
-                <span className="font-label text-[10px] uppercase tracking-widest">Multipacking</span>
-                <span className="text-[9px] text-on-surface-variant">(-30% padding)</span>
+                <span className="font-label text-[11px] uppercase tracking-widest">Multipacking</span>
+                <span className="text-[10px] text-on-surface-variant">(-30% padding)</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer select-none">
                 <input type="checkbox" {...register('dpoEnabled')} className="accent-secondary" />
-                <span className="font-label text-[10px] uppercase tracking-widest">DPO Alignment</span>
-                <span className="text-[9px] text-on-surface-variant">(requires DPO pairs)</span>
+                <span className="font-label text-[11px] uppercase tracking-widest">DPO Alignment</span>
+                <span className="text-[10px] text-on-surface-variant">(requires DPO pairs)</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer select-none">
                 <input type="checkbox" {...register('exportGguf')} className="accent-primary" />
-                <span className="font-label text-[10px] uppercase tracking-widest">Export GGUF &amp; register</span>
-                <span className="text-[9px] text-on-surface-variant">(merge + convert + deploy)</span>
+                <span className="font-label text-[11px] uppercase tracking-widest">Export GGUF &amp; register</span>
+                <span className="text-[10px] text-on-surface-variant">(merge + convert + deploy)</span>
               </label>
             </div>
 
@@ -491,7 +491,7 @@ const FineTuning: FC = () => {
         <div className="absolute top-0 right-0 p-4 flex items-center gap-4">
           <button
             onClick={() => setAutoScroll(v => !v)}
-            className={`text-[9px] font-bold uppercase tracking-widest px-2 py-1 border transition-colors ${
+            className={`text-[10px] font-bold uppercase tracking-widest px-2 py-1 border transition-colors ${
               autoScroll ? 'bg-primary/10 border-primary text-primary' : 'border-outline text-outline'
             }`}
           >
@@ -500,7 +500,7 @@ const FineTuning: FC = () => {
           {activeJob && (activeJob.status !== 'COMPLETED' && activeJob.status !== 'FAILED') && (
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 bg-secondary animate-pulse"></div>
-              <span className="text-[10px] font-bold text-secondary uppercase tracking-widest">Live</span>
+              <span className="text-[11px] font-bold text-secondary uppercase tracking-widest">Live</span>
             </div>
           )}
         </div>
@@ -508,7 +508,7 @@ const FineTuning: FC = () => {
         {!activeJob ? (
           <div className="py-12 flex flex-col items-center justify-center gap-3">
             <span className="material-symbols-outlined text-4xl text-outline">model_training</span>
-            <p className="text-[10px] text-outline uppercase tracking-widest italic text-center">
+            <p className="text-[11px] text-outline uppercase tracking-widest italic text-center">
               No active job.<br />Click "New Training Job" to start training.
             </p>
           </div>
@@ -521,26 +521,26 @@ const FineTuning: FC = () => {
               {/* Left: Job details */}
               <div className="lg:col-span-1 space-y-5">
                 <div>
-                  <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-1">Model</p>
+                  <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">Model</p>
                   <h3 className="font-headline text-lg font-bold uppercase">{activeJob.modelName}</h3>
-                  <p className="text-[10px] text-on-surface-variant">from {activeJob.baseModel}</p>
+                  <p className="text-[11px] text-on-surface-variant">from {activeJob.baseModel}</p>
                 </div>
 
                 <div>
-                  <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-1">Status</p>
-                  <span className={`font-label text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 border ${jobStatusColor(activeJob.status)}`}>
+                  <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">Status</p>
+                  <span className={`font-label text-[11px] font-bold uppercase tracking-widest px-2 py-0.5 border ${jobStatusColor(activeJob.status)}`}>
                     {activeJob.status}
                   </span>
                 </div>
 
                 <div>
-                  <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-1">Current Step</p>
+                  <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">Current Step</p>
                   <p className="text-xs font-label">{activeJob.currentStep}</p>
                 </div>
 
                 {activeJob.datasetSize > 0 && (
                   <div>
-                    <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-1">Dataset</p>
+                    <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">Dataset</p>
                     <p className="font-headline font-bold text-xl">{activeJob.datasetSize} <span className="text-xs font-label text-on-surface-variant">pairs</span></p>
                   </div>
                 )}
@@ -548,13 +548,13 @@ const FineTuning: FC = () => {
                 {epochProgress !== null && (
                   <div className="space-y-2">
                     <div className="flex justify-between items-end">
-                      <span className="text-[9px] font-label uppercase text-on-surface-variant">Training Progress</span>
+                      <span className="text-[10px] font-label uppercase text-on-surface-variant">Training Progress</span>
                       <span className="font-headline font-bold text-sm">{epochProgress.toFixed(0)}%</span>
                     </div>
                     <div className="w-full bg-outline-variant/20 h-1.5 relative">
                       <div className="absolute top-0 left-0 h-full bg-secondary transition-all" style={{ width: `${epochProgress}%` }} />
                     </div>
-                    <div className="flex justify-between text-[9px] text-outline">
+                    <div className="flex justify-between text-[10px] text-outline">
                       <span>Epoch {activeJob.currentEpoch}/{activeJob.totalEpochs}</span>
                       {activeJob.loss !== null && <span>Loss: {activeJob.loss.toFixed(4)}</span>}
                     </div>
@@ -563,14 +563,14 @@ const FineTuning: FC = () => {
 
                 {activeJob.error && (
                   <div className="p-3 bg-error/10 border border-error/30">
-                    <p className="text-[10px] text-error break-words">{activeJob.error}</p>
+                    <p className="text-[11px] text-error break-words">{activeJob.error}</p>
                   </div>
                 )}
 
                 {activeJob.status === 'COMPLETED' && activeJob.outputPath && (
                   <div className="p-3 bg-primary/5 border border-primary/20">
-                    <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-1">Output</p>
-                    <p className="text-[10px] text-primary break-all">{activeJob.outputPath}</p>
+                    <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">Output</p>
+                    <p className="text-[11px] text-primary break-all">{activeJob.outputPath}</p>
                   </div>
                 )}
               </div>
@@ -582,8 +582,8 @@ const FineTuning: FC = () => {
                 {(lossHistory.length > 0 || activeJob.status === 'TRAINING') && (
                   <div className="bg-surface-container-lowest border border-outline-variant/10">
                     <div className="px-4 py-2.5 border-b border-outline-variant/10 flex justify-between items-center">
-                      <span className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant font-bold">Training Loss</span>
-                      <span className="text-[9px] text-outline">{lossHistory.length} points</span>
+                      <span className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant font-bold">Training Loss</span>
+                      <span className="text-[10px] text-outline">{lossHistory.length} points</span>
                     </div>
                     <div className="h-32">
                       <LossChart data={lossHistory} totalEpochs={activeJob.totalEpochs} />
@@ -592,13 +592,13 @@ const FineTuning: FC = () => {
                 )}
 
               {/* Telemetry stream */}
-              <div className="h-48 bg-surface-container-lowest font-mono text-[10px] flex flex-col">
+              <div className="h-48 bg-surface-container-lowest font-mono text-[11px] flex flex-col">
                 <div className="px-4 py-2.5 bg-surface-container-lowest/80 backdrop-blur-sm border-b border-outline-variant/10 flex justify-between items-center shrink-0">
-                  <span className="uppercase tracking-widest text-on-surface-variant font-bold text-[9px]">Telemetry Stream</span>
+                  <span className="uppercase tracking-widest text-on-surface-variant font-bold text-[10px]">Telemetry Stream</span>
                   <div className="flex items-center gap-3">
                     {/* État de la connexion SSE (live / reconnexion / coupée) */}
                     <span
-                      className={`flex items-center gap-1 text-[9px] uppercase tracking-widest font-bold ${
+                      className={`flex items-center gap-1 text-[10px] uppercase tracking-widest font-bold ${
                         sseStatus === 'open' ? 'text-primary'
                           : sseStatus === 'connecting' ? 'text-secondary'
                           : 'text-error'
@@ -612,12 +612,12 @@ const FineTuning: FC = () => {
                       }`} aria-hidden="true" />
                       {sseStatus === 'open' ? 'Live' : sseStatus === 'connecting' ? 'Connecting…' : 'Disconnected'}
                     </span>
-                    <span className="text-[9px] text-outline">{logs.length} events</span>
+                    <span className="text-[10px] text-outline">{logs.length} events</span>
                   </div>
                 </div>
                 {logs.length === 0 ? (
                   <div className="flex-1 flex items-center justify-center">
-                    <p className="text-outline italic text-[10px]">
+                    <p className="text-outline italic text-[11px]">
                       {sseStatus === 'closed'
                         ? 'Telemetry stream interrupted — reconnection failed.'
                         : sseStatus === 'connecting'
@@ -649,7 +649,7 @@ const FineTuning: FC = () => {
           <h3 className="font-headline text-xl font-bold tracking-tight uppercase">Training History</h3>
           <button
             onClick={loadJobs}
-            className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant hover:text-on-surface transition-colors flex items-center gap-1"
+            className="text-[11px] font-label uppercase tracking-widest text-on-surface-variant hover:text-on-surface transition-colors flex items-center gap-1"
           >
             <span className="material-symbols-outlined text-sm">refresh</span>Refresh
           </button>
@@ -660,14 +660,14 @@ const FineTuning: FC = () => {
             <thead>
               <tr className="bg-surface-container-high">
                 {['Job ID', 'Model', 'Base', 'Dataset', 'Epochs', 'Status', 'Date'].map(h => (
-                  <th key={h} className="px-5 py-3 font-label text-[10px] uppercase tracking-widest text-on-surface-variant">{h}</th>
+                  <th key={h} className="px-5 py-3 font-label text-[11px] uppercase tracking-widest text-on-surface-variant">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-outline-variant/10">
               {jobs.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-5 py-8 text-center text-[10px] text-outline uppercase tracking-widest italic">
+                  <td colSpan={7} className="px-5 py-8 text-center text-[11px] text-outline uppercase tracking-widest italic">
                     No jobs in history
                   </td>
                 </tr>
@@ -685,7 +685,7 @@ const FineTuning: FC = () => {
                   <td className="px-5 py-3 font-label text-xs">{job.datasetSize} pairs</td>
                   <td className="px-5 py-3 font-label text-xs">{job.parameters?.epochs ?? '—'}</td>
                   <td className="px-5 py-3">
-                    <span className={`text-[10px] font-bold uppercase tracking-widest ${
+                    <span className={`text-[11px] font-bold uppercase tracking-widest ${
                       job.status === 'COMPLETED' ? 'text-primary' :
                       job.status === 'FAILED'    ? 'text-error' :
                                                    'text-secondary'

@@ -50,7 +50,7 @@ function ProgressBar({ value, max }: { value: number; max: number }) {
         <div className="absolute top-0 left-0 h-full bg-secondary transition-all duration-500"
              style={{ width: `${pct}%` }} />
       </div>
-      <span className="font-label text-[10px] text-on-surface-variant">{value}/{max}</span>
+      <span className="font-label text-[11px] text-on-surface-variant">{value}/{max}</span>
     </div>
   );
 }
@@ -69,29 +69,29 @@ function ScoreDetail({ score }: { score: EvaluationScore }) {
               style={{ color: score.score >= 7 ? 'var(--color-primary)' : score.score >= 4 ? 'var(--color-secondary)' : 'var(--color-error)' }}>
           {score.score.toFixed(0)}/10
         </span>
-        <span className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant w-20 shrink-0">
+        <span className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant w-20 shrink-0">
           {CATEGORY_LABEL[score.category] ?? score.category}
         </span>
         <span className="text-xs text-on-surface truncate flex-1">{score.question}</span>
-        <span className="text-[10px] text-on-surface-variant shrink-0">{open ? '▲' : '▼'}</span>
+        <span className="text-[11px] text-on-surface-variant shrink-0">{open ? '▲' : '▼'}</span>
       </button>
       {open && (
         <div className="px-4 pb-4 space-y-3 bg-surface-container-low/20">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="bg-surface-container-low p-3 rounded border border-outline-variant/10">
-              <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-2">Reference answer</p>
+              <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">Reference answer</p>
               <p className="text-xs text-on-surface-variant leading-relaxed">{score.referenceAnswer}</p>
             </div>
             <div className={`p-3 rounded border ${score.score >= 7 ? 'bg-primary/5 border-primary/20' : score.score >= 4 ? 'bg-secondary/5 border-secondary/20' : 'bg-error/5 border-error/20'}`}>
-              <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-2">Model answer</p>
+              <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">Model answer</p>
               <p className="text-xs text-on-surface leading-relaxed">{score.modelAnswer}</p>
             </div>
           </div>
           <div className="bg-surface-container-low p-3 rounded border border-outline-variant/10 mt-3">
-            <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-1">Judge justification</p>
+            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">Judge justification</p>
             <p className="text-xs italic text-on-surface-variant">{score.justification}</p>
           </div>
-          <p className="font-label text-[9px] text-on-surface-variant">Source: {score.source}</p>
+          <p className="font-label text-[10px] text-on-surface-variant">Source: {score.source}</p>
         </div>
       )}
     </div>
@@ -295,7 +295,7 @@ const Comparison: FC = () => {
           {/* Evaluation list */}
           <div className="bg-surface-container divide-y divide-outline-variant/10">
             <div className="px-4 py-3 bg-surface-container-high flex flex-col gap-2">
-               <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">History</p>
+               <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">History</p>
                <input
                  type="text"
                  placeholder="Filter by model..."
@@ -330,16 +330,16 @@ const Comparison: FC = () => {
               >
                 <div className="flex items-center justify-between mb-0.5">
                   <span className="font-headline font-bold text-xs truncate pr-2">{r.modelName}</span>
-                  <span className={`font-label text-[9px] uppercase tracking-widest shrink-0 ${STATUS_COLOR[r.status]}`}>
+                  <span className={`font-label text-[10px] uppercase tracking-widest shrink-0 ${STATUS_COLOR[r.status]}`}>
                     {STATUS_LABEL[r.status]}
                   </span>
                 </div>
-                <p className="font-label text-[9px] text-on-surface-variant">
+                <p className="font-label text-[10px] text-on-surface-variant">
                   {new Date(r.startedAt).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' })}
                 </p>
                 {r.status === 'COMPLETED' && (
                   <p className="font-headline text-sm font-bold mt-1">
-                    {r.averageScore.toFixed(2)}<span className="text-[10px] font-normal text-on-surface-variant">/10</span>
+                    {r.averageScore.toFixed(2)}<span className="text-[11px] font-normal text-on-surface-variant">/10</span>
                   </p>
                 )}
                 {r.status === 'RUNNING' && (
@@ -379,10 +379,10 @@ const Comparison: FC = () => {
               <div className="bg-surface-container p-6 space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Evaluated model</p>
+                    <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">Evaluated model</p>
                     <p className="font-headline font-bold text-lg">{selected.modelName}</p>
                     {selected.judgeModel && (
-                      <p className="font-label text-[10px] text-on-surface-variant mt-0.5">
+                      <p className="font-label text-[11px] text-on-surface-variant mt-0.5">
                         judge: <span className={selected.judgeModel === selected.modelName ? '' : 'text-secondary'}>{selected.judgeModel}</span>
                         {selected.judgeModel === selected.modelName && ' (auto-jugement)'}
                       </p>
@@ -408,8 +408,8 @@ const Comparison: FC = () => {
                 {(selected.status === 'RUNNING' || selected.status === 'PENDING') && (
                   <div>
                     <div className="flex items-center justify-between mb-1">
-                      <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Progress</p>
-                      <span className="flex items-center gap-1 text-[9px] font-label uppercase tracking-widest text-secondary">
+                      <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">Progress</p>
+                      <span className="flex items-center gap-1 text-[10px] font-label uppercase tracking-widest text-secondary">
                         <span className="w-1.5 h-1.5 bg-secondary rounded-full animate-pulse inline-block" />
                         {selected.status === 'PENDING' ? 'Pending…' : 'Running'}
                       </span>
@@ -427,7 +427,7 @@ const Comparison: FC = () => {
                       )}
                     </div>
                     {selected.testSetSize > 0 && (
-                      <p className="font-label text-[9px] text-on-surface-variant mt-0.5 text-right">
+                      <p className="font-label text-[10px] text-on-surface-variant mt-0.5 text-right">
                         {selected.processed} / {selected.testSetSize} pairs
                       </p>
                     )}
@@ -441,23 +441,23 @@ const Comparison: FC = () => {
                 {(selected.status === 'COMPLETED' || selected.status === 'RUNNING') && selected.processed > 0 && (
                   <>
                     <div>
-                      <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">Global score</p>
+                      <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant mb-2">Global score</p>
                       <div className="flex items-baseline gap-2">
                         <span className="font-headline text-4xl font-bold">{selected.averageScore.toFixed(2)}</span>
                         <span className="text-on-surface-variant">/10</span>
-                        <span className="font-label text-[10px] text-on-surface-variant ml-2">
+                        <span className="font-label text-[11px] text-on-surface-variant ml-2">
                           on {selected.processed} pair{selected.processed > 1 ? 's' : ''}
                         </span>
                       </div>
                       {(selected.avgLatencyMs > 0 || selected.avgTokensPerSec > 0) && (
                         <div className="flex items-center gap-4 mt-2">
                           {selected.avgLatencyMs > 0 && (
-                            <span className="font-label text-[10px] text-on-surface-variant">
+                            <span className="font-label text-[11px] text-on-surface-variant">
                               Latency <span className="text-on-surface font-bold">{(selected.avgLatencyMs / 1000).toFixed(2)}s</span> / answer
                             </span>
                           )}
                           {selected.avgTokensPerSec > 0 && (
-                            <span className="font-label text-[10px] text-on-surface-variant">
+                            <span className="font-label text-[11px] text-on-surface-variant">
                               ~<span className="text-on-surface font-bold">{selected.avgTokensPerSec.toFixed(1)}</span> tok/s (est.)
                             </span>
                           )}
@@ -469,11 +469,11 @@ const Comparison: FC = () => {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
                         {/* Score bars */}
                         <div>
-                          <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-3">By category</p>
+                          <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant mb-3">By category</p>
                           <div className="space-y-2">
                             {categories.map(([cat, avg]) => (
                               <div key={cat} className="grid grid-cols-[100px_1fr] gap-3 items-center">
-                                <span className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">
+                                <span className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">
                                   {CATEGORY_LABEL[cat] ?? cat}
                                 </span>
                                 <ScoreBar score={avg}
@@ -485,7 +485,7 @@ const Comparison: FC = () => {
                         {/* Radar chart */}
                         {categories.length >= 3 && (
                           <div className="h-48">
-                            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">Radar</p>
+                            <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant mb-1">Radar</p>
                             <ScoreRadar scoresByCategory={selected.scoresByCategory} />
                           </div>
                         )}
@@ -498,7 +498,7 @@ const Comparison: FC = () => {
               {/* Per-pair details */}
               {selected.scores.length > 0 && (
                 <div className="bg-surface-container">
-                  <p className="px-4 py-3 font-label text-[10px] uppercase tracking-widest text-on-surface-variant bg-surface-container-high border-b border-outline-variant/10 flex items-center justify-between">
+                  <p className="px-4 py-3 font-label text-[11px] uppercase tracking-widest text-on-surface-variant bg-surface-container-high border-b border-outline-variant/10 flex items-center justify-between">
                     <span>Pair details ({selected.scores.length})</span>
                   </p>
                   {selected.scores.map((s, i) => (
