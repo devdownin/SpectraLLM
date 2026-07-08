@@ -262,7 +262,7 @@ const Optimization: FC = () => {
         <p className="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-1">
           Ablation A/B · benchmark tenu à l'écart
         </p>
-        <h2 className="font-headline text-3xl font-bold tracking-tighter">OPTIMISATION DES RÉPONSES</h2>
+        <h2 className="font-headline text-3xl font-bold tracking-tighter">RESPONSE OPTIMIZATION</h2>
         <p className="text-sm text-on-surface-variant max-w-3xl mt-2 leading-relaxed">
           Mesurez et <strong className="text-on-surface">validez l'apport réel</strong> de chaque option d'apprentissage
           (fine-tuning) et d'optimisation (modules RAG). Chaque <em>bras</em> ne change qu'une chose à la fois :

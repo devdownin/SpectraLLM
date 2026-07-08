@@ -114,8 +114,8 @@ const SourceItem: FC<{ src: Source }> = ({ src }) => {
       const res = await ingestApi.getHistory({ q: src.sourceFile, size: 5 });
       const items: any[] = res.data?.content ?? res.data ?? [];
       const match = items.find(d => d.fileName === src.sourceFile) ?? items[0];
-      if (match?.sha256) navigate(`/pipelines?doc=${encodeURIComponent(match.sha256)}`);
-      else toast.error('Document not found in the Database');
+      if (match?.sha256) navigate(`/documents?doc=${encodeURIComponent(match.sha256)}`);
+      else toast.error('Document not found in Documents');
     } catch {
       toast.error('Could not open the document');
     }
@@ -146,7 +146,7 @@ const SourceItem: FC<{ src: Source }> = ({ src }) => {
               onClick={openInDatabase}
               className="flex items-center gap-1 text-[8px] uppercase tracking-widest text-primary hover:text-primary/70 transition-colors"
             >
-              <span aria-hidden="true" className="material-symbols-outlined text-[11px]">open_in_new</span>Open in Database
+              <span aria-hidden="true" className="material-symbols-outlined text-[11px]">open_in_new</span>Open in Documents
             </button>
           </div>
         </div>

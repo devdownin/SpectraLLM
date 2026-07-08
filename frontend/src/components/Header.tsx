@@ -1,17 +1,6 @@
 import type { FC } from 'react';
 import { useLocation } from 'react-router-dom';
-import { toast } from 'sonner';
-
-const PAGE_NAMES: Record<string, string> = {
-  '/':              'Dashboard',
-  '/model-hub':     'Model Hub',
-  '/datasets':      'Datasets',
-  '/pipelines':     'Database',
-  '/fine-tuning':   'Fine-Tuning',
-  '/playground':    'Playground',
-  '/comparison':    'Comparison',
-  '/documentation': 'Documentation',
-};
+import { PAGE_NAMES } from '../navigation';
 
 interface HeaderProps {
   onMenuClick?: () => void;
@@ -39,35 +28,6 @@ const Header: FC<HeaderProps> = ({ onMenuClick }) => {
             <span className="font-headline font-bold text-[11px] uppercase tracking-[0.08em] text-on-surface">{pageName}</span>
           </>
         )}
-      </div>
-      <div className="flex items-center gap-6">
-        <div className="flex items-center gap-3 text-on-surface-variant">
-          <button
-            className="hover:bg-surface-variant/60 p-1.5 transition-colors duration-200 hover:text-primary"
-            aria-label="Settings"
-            title="Settings"
-            onClick={() => toast.info('Settings panel coming soon')}
-          >
-            <span aria-hidden="true" className="material-symbols-outlined text-[20px]">settings</span>
-          </button>
-          <button
-            className="hover:bg-surface-variant/60 p-1.5 transition-colors duration-200 relative hover:text-primary"
-            aria-label="Notifications"
-            title="Notifications"
-            onClick={() => toast.info('No new notifications')}
-          >
-            <span aria-hidden="true" className="material-symbols-outlined text-[20px]">notifications</span>
-            <span aria-hidden="true" className="absolute top-1 right-1 w-1.5 h-1.5 bg-secondary rounded-full"></span>
-          </button>
-          <button
-            className="hover:bg-surface-variant/60 p-1.5 transition-colors duration-200 hover:text-primary"
-            aria-label="Account"
-            title="Account"
-            onClick={() => toast.info('Account management coming soon')}
-          >
-            <span aria-hidden="true" className="material-symbols-outlined text-[20px]">account_circle</span>
-          </button>
-        </div>
       </div>
     </header>
   );

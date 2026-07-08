@@ -510,7 +510,7 @@ const sectionCommenting = () => (
         </div>
         <div>
           <h2 className="text-2xl font-headline font-bold text-foreground">AI Comments — RAG + DPO Loop</h2>
-          <p className="text-sm text-muted-foreground">Pipeline step 2c — available on the Database page</p>
+          <p className="text-sm text-muted-foreground">Pipeline step 2c — available on the Documents page</p>
         </div>
       </div>
       <p className="text-sm text-foreground/80 leading-relaxed">
@@ -596,7 +596,7 @@ const sectionCommenting = () => (
       <ol className="space-y-4 text-sm text-foreground/80">
         <li className="flex gap-3">
           <span className="w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">1</span>
-          <span>Click <strong>Database</strong> in the side menu, then a document to open its record.</span>
+          <span>Click <strong>Documents</strong> in the side menu, then a document to open its record.</span>
         </li>
         <li className="flex gap-3">
           <span className="w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">2</span>
@@ -1003,23 +1003,23 @@ const sectionInterface = () => (
             badge: 'Auto metrics',
           },
           {
-            key: 'Datasets',
+            key: 'Ingestion',
             title: 'Ingestion & Generation',
             body: 'A drop zone for your documents (PDF, DOCX, TXT, URL). Track ingestion chunk by chunk. Launch Q/A dataset generation with the Max Chunks slider.',
             icon: 'cloud_upload',
           },
           {
-            key: 'Database',
+            key: 'Documents',
             title: 'DMS + AI Comments',
             body: 'A complete record for every document: lifecycle, tags, audit trail. A Comments section with 3 tabs: List / Manual / ✦ AI — RAG generation, DPO rating, export. The approval counter feeds the Dashboard progress bar.',
-            icon: 'analytics',
+            icon: 'folder_open',
             badge: 'AI Comments',
           },
           {
             key: 'Fine-Tuning',
             title: 'Training & Logs',
             body: 'Launch manual jobs (CPU/GPU/DPO recipes) or review auto-triggered jobs. View live telemetry (loss, epoch). Auto-DPO jobs appear with the "auto-dpo-" prefix.',
-            icon: 'history',
+            icon: 'model_training',
             badge: 'Auto-DPO jobs',
           },
           {

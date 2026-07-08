@@ -124,7 +124,7 @@ const PipelineStep: FC<PipelineStepProps> = ({ icon, label, state, nextState, is
 
 // ── Main component ───────────────────────────────────────────────────────────
 
-const Datasets: FC = () => {
+const Ingestion: FC = () => {
   const [dragActive, setDragActive] = useState(false);
   const [syntheticQA, setSyntheticQA] = useState(true);
   const [maxChunks, setMaxChunks] = useState(10);
@@ -416,7 +416,7 @@ const Datasets: FC = () => {
       <header className="flex justify-between items-end">
         <div>
           <p className="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-1">Data Engineering</p>
-          <h2 className="font-headline text-3xl font-bold tracking-tighter">DATASET PIPELINES</h2>
+          <h2 className="font-headline text-3xl font-bold tracking-tighter">INGESTION &amp; DATASET</h2>
         </div>
         <div className="flex items-center gap-6">
         <button
@@ -909,4 +909,4 @@ const Datasets: FC = () => {
   );
 };
 
-export default Datasets;
+export default Ingestion;

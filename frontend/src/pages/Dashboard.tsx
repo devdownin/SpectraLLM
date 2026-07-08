@@ -301,8 +301,8 @@ const Dashboard: FC = () => {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {[
-              { num: '1', title: 'Ingest your documents', desc: 'PDF, DOCX, TXT or URLs — drop your files into Dataset Pipelines or run adddoc.bat examples to test.', action: 'Go to Dataset Pipelines', route: '/datasets', icon: 'cloud_upload' },
-              { num: '2', title: 'Generate the dataset', desc: 'Spectra automatically generates Q/A pairs from your documents. Expect 30–120 s/chunk on CPU.', action: 'Go to Dataset Pipelines', route: '/datasets', icon: 'dataset' },
+              { num: '1', title: 'Ingest your documents', desc: 'PDF, DOCX, TXT or URLs — drop your files into the Ingestion page or run adddoc.bat examples to test.', action: 'Go to Ingestion', route: '/ingestion', icon: 'cloud_upload' },
+              { num: '2', title: 'Generate the dataset', desc: 'Spectra automatically generates Q/A pairs from your documents. Expect 30–120 s/chunk on CPU.', action: 'Go to Ingestion', route: '/ingestion', icon: 'dataset' },
               { num: '3', title: 'Launch fine-tuning', desc: 'Pick a recipe (e.g. "Fast CPU") and fine-tune the model on your domain.', action: 'Go to Fine-Tuning', route: '/fine-tuning', icon: 'model_training' },
             ].map(step => (
               <div key={step.num} className="bg-surface-container p-5 space-y-3">
@@ -410,7 +410,7 @@ const Dashboard: FC = () => {
             )}
           </div>
           <button
-            onClick={() => navigate('/pipelines')}
+            onClick={() => navigate('/documents')}
             className="text-[9px] font-label font-bold uppercase tracking-widest text-primary hover:text-primary/70 transition-colors flex items-center gap-1"
           >
             <span className="material-symbols-outlined text-[11px]">arrow_forward</span>
@@ -500,7 +500,7 @@ const Dashboard: FC = () => {
           <div className="p-4 border border-primary/30 bg-primary/5 flex items-start gap-3">
             <span className="material-symbols-outlined text-sm text-primary mt-0.5 shrink-0">check_circle</span>
             <p className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">
-              {commentStats!.approved} DPO pair(s) available — export them from the Database page, then run a fine-tuning job with DPO alignment.
+              {commentStats!.approved} DPO pair(s) available — export them from the Documents page, then run a fine-tuning job with DPO alignment.
             </p>
           </div>
         )}
@@ -852,9 +852,9 @@ const Dashboard: FC = () => {
         <h3 className="font-headline text-sm font-bold uppercase tracking-tight text-on-surface-variant">Pipeline</h3>
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
           {[
-            { step: '1', label: 'Ingest',      sub: 'Upload documents',  icon: 'cloud_upload',   route: '/datasets' },
-            { step: '2', label: 'Generate',    sub: 'Build dataset',     icon: 'dataset',        route: '/datasets' },
-            { step: '3', label: 'Annotate',    sub: 'RAG comments + DPO',icon: 'rate_review',    route: '/pipelines' },
+            { step: '1', label: 'Ingest',      sub: 'Upload documents',  icon: 'cloud_upload',   route: '/ingestion' },
+            { step: '2', label: 'Generate',    sub: 'Build dataset',     icon: 'dataset',        route: '/ingestion' },
+            { step: '3', label: 'Annotate',    sub: 'RAG comments + DPO',icon: 'rate_review',    route: '/documents' },
             { step: '4', label: 'Fine-Tune',   sub: 'Train model',       icon: 'model_training', route: '/fine-tuning' },
             { step: '5', label: 'Query',       sub: 'RAG playground',    icon: 'chat',           route: '/playground' },
           ].map(action => (

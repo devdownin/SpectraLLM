@@ -1,19 +1,20 @@
 import { lazy, Suspense } from 'react';
 import type { FC } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Layout from './components/Layout';
 import ErrorBoundary from './components/ErrorBoundary';
+import { LEGACY_ROUTE_REDIRECTS } from './navigation';
 
 // Suggestion 4: Lazy Loading for code splitting
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Playground = lazy(() => import('./pages/Playground'));
-const Datasets = lazy(() => import('./pages/Datasets'));
+const Ingestion = lazy(() => import('./pages/Ingestion'));
 const FineTuning = lazy(() => import('./pages/FineTuning'));
 const Comparison = lazy(() => import('./pages/Comparison'));
 const Optimization = lazy(() => import('./pages/Optimization'));
 const Documentation = lazy(() => import('./pages/Documentation'));
-const Pipelines = lazy(() => import('./pages/Pipelines'));
+const Documents = lazy(() => import('./pages/Documents'));
 const ModelHub = lazy(() => import('./pages/ModelHub'));
 
 const queryClient = new QueryClient({
@@ -34,6 +35,12 @@ const LoadingState: FC = () => (
   </div>
 );
 
+/** Redirige une ancienne route vers la nouvelle en conservant les query params (ex. ?doc=…). */
+const LegacyRedirect: FC<{ to: string }> = ({ to }) => {
+  const location = useLocation();
+  return <Navigate to={{ pathname: to, search: location.search }} replace />;
+};
+
 function App() {
   return (
     <ErrorBoundary>
@@ -43,14 +50,17 @@ function App() {
             <Suspense fallback={<LoadingState />}>
               <Routes>
                 <Route path="/" element={<Dashboard />} />
-                <Route path="/datasets" element={<Datasets />} />
-                <Route path="/pipelines" element={<Pipelines />} />
+                <Route path="/ingestion" element={<Ingestion />} />
+                <Route path="/documents" element={<Documents />} />
                 <Route path="/fine-tuning" element={<FineTuning />} />
                 <Route path="/playground" element={<Playground />} />
                 <Route path="/comparison" element={<Comparison />} />
                 <Route path="/optimization" element={<Optimization />} />
                 <Route path="/model-hub" element={<ModelHub />} />
                 <Route path="/documentation" element={<Documentation />} />
+                {Object.entries(LEGACY_ROUTE_REDIRECTS).map(([from, to]) => (
+                  <Route key={from} path={from} element={<LegacyRedirect to={to} />} />
+                ))}
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </Suspense>

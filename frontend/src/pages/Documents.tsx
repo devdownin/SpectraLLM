@@ -87,7 +87,7 @@ function getGroupLabel(key: string, groupBy: GroupBy): string {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-const Pipelines: FC = () => {
+const Documents: FC = () => {
   const queryClient = useQueryClient();
 
   const [search, setSearch] = useState('');
@@ -470,7 +470,7 @@ const Pipelines: FC = () => {
       <header className="flex flex-col xl:flex-row xl:items-end justify-between gap-6">
         <div>
           <p className="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-1">Knowledge & Records</p>
-          <h2 className="font-headline text-3xl font-bold tracking-tighter uppercase">GED / DATABASE</h2>
+          <h2 className="font-headline text-3xl font-bold tracking-tighter uppercase">DOCUMENTS</h2>
           <p className="text-sm text-on-surface-variant mt-3 max-w-3xl leading-relaxed">
             Electronic Document Management: track the lifecycle, audit changes,
             and manage the quality of the sources feeding your models.
@@ -1176,4 +1176,4 @@ const Pipelines: FC = () => {
   );
 };
 
-export default Pipelines;
+export default Documents;
