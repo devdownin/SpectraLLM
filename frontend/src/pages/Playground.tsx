@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import type { FC } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { queryApi, configApi, fineTuningApi, ingestApi, healthApi } from '../services/api';
 import type { StreamDoneMeta } from '../services/api';
@@ -103,8 +104,9 @@ const RagBadges: FC<{ meta: RagMeta; onShowTrace?: () => void }> = ({ meta, onSh
 };
 
 /** Source de réponse dépliable : nom de fichier + pertinence + passage récupéré. */
-const SourceItem: FC<{ src: Source }> = ({ src }) => {
+const SourceItem: FC<{ src: Source; expert?: boolean }> = ({ src, expert = false }) => {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const snippet = src.preview ?? src.text ?? '';
   const pct = typeof src.distance === 'number' ? Math.max(0, Math.min(100, Math.round((1 - src.distance) * 100))) : null;
@@ -131,7 +133,7 @@ const SourceItem: FC<{ src: Source }> = ({ src }) => {
       >
         <span aria-hidden="true" className="material-symbols-outlined text-[12px] text-primary shrink-0">article</span>
         <span className="font-mono text-[10px] text-on-surface-variant truncate flex-1">{src.sourceFile}</span>
-        {pct !== null && <span className="text-[10px] font-bold text-primary shrink-0" title="Relevance">{pct}%</span>}
+        {pct !== null && <span className="text-[10px] font-bold text-primary shrink-0" title={t('playground.relevance')}>{pct}%</span>}
         <span aria-hidden="true" className={`material-symbols-outlined text-[12px] text-outline shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}>expand_more</span>
       </button>
       {open && (
@@ -139,8 +141,10 @@ const SourceItem: FC<{ src: Source }> = ({ src }) => {
           {snippet
             ? <p className="text-[11px] text-on-surface-variant leading-relaxed whitespace-pre-wrap">{snippet}</p>
             : <p className="text-[11px] text-outline italic">No preview available.</p>}
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-mono text-outline">distance: {typeof src.distance === 'number' ? src.distance.toFixed(3) : '—'}</span>
+          <div className={`flex items-center ${expert ? 'justify-between' : 'justify-end'}`}>
+            {expert && (
+              <span className="text-[10px] font-mono text-outline">distance: {typeof src.distance === 'number' ? src.distance.toFixed(3) : '—'}</span>
+            )}
             <button
               type="button"
               onClick={openInDatabase}
@@ -156,6 +160,7 @@ const SourceItem: FC<{ src: Source }> = ({ src }) => {
 };
 
 const Playground: FC = () => {
+  const { t } = useTranslation();
   const defaultWelcome: Message = { role: 'assistant', content: 'Welcome to the Spectra Playground. I am ready to answer questions based on your ingested documents. How can I help you today?', status: 'SENT' };
   const [traceMsg, setTraceMsg] = useState<Message | null>(null);
   const [messages, setMessages] = useState<Message[]>(() => {
@@ -185,6 +190,9 @@ const Playground: FC = () => {
     parseInt(localStorage.getItem('spectra_top_candidates') || '20', 10));
   const [convEnabled, setConvEnabled] = useState(() =>
     localStorage.getItem('spectra_conv') !== 'false');
+  /** Mode expert : affiche badges RAG, distances vectorielles et métriques de latence. Off par défaut. */
+  const [expertMode, setExpertMode] = useState(() =>
+    localStorage.getItem('spectra_expert') === 'true');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [advisorOpen, setAdvisorOpen] = useState(false);
   const [atBottom, setAtBottom] = useState(true);
@@ -245,7 +253,8 @@ const Playground: FC = () => {
     localStorage.setItem('spectra_rag', ragEnabled.toString());
     localStorage.setItem('spectra_top_candidates', topCandidates.toString());
     localStorage.setItem('spectra_conv', convEnabled.toString());
-  }, [temperature, topP, ragEnabled, topCandidates, convEnabled]);
+    localStorage.setItem('spectra_expert', expertMode.toString());
+  }, [temperature, topP, ragEnabled, topCandidates, convEnabled, expertMode]);
 
   useEffect(() => {
     // N'auto-scroll que si l'utilisateur est déjà proche du bas — évite de
@@ -758,6 +767,24 @@ const Playground: FC = () => {
         </div>
 
         <div className="pt-8 border-t border-outline-variant/10 space-y-3">
+          <label className="flex items-center gap-3 cursor-pointer group px-1 pb-1">
+            <input
+              type="checkbox"
+              checked={expertMode}
+              onChange={(e) => {
+                const next = e.target.checked;
+                setExpertMode(next);
+                toast.info(next ? t('playground.expertModeOn') : t('playground.expertModeOff'));
+              }}
+              className="sr-only peer"
+            />
+            <div className="w-4 h-4 border border-primary flex items-center justify-center group-hover:bg-primary/10 transition-colors peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-primary peer-focus-visible:outline-offset-2">
+              {expertMode && <div className="w-2 h-2 bg-primary"></div>}
+            </div>
+            <Tooltip content={t('playground.expertModeHint')}>
+              <span className="text-xs font-label uppercase tracking-widest cursor-help">{t('playground.expertMode')}</span>
+            </Tooltip>
+          </label>
           <button
             onClick={() => setAdvisorOpen(true)}
             className="w-full py-3 px-4 border border-primary/30 text-primary text-[11px] font-headline uppercase tracking-widest hover:bg-primary/5 transition-colors flex items-center justify-center gap-2"
@@ -845,18 +872,18 @@ const Playground: FC = () => {
                 {msg.sources && msg.sources.length > 0 && (
                   <div className="mt-4 pt-4 border-t border-outline-variant/20">
                     <p className="font-label text-[10px] uppercase tracking-widest text-outline mb-1">Sources ({msg.sources.length})</p>
-                    {msg.sources.map((src, j) => <SourceItem key={j} src={src} />)}
+                    {msg.sources.map((src, j) => <SourceItem key={j} src={src} expert={expertMode} />)}
                   </div>
                 )}
 
-                {msg.ragMeta && msg.status === 'SENT' && msg.role === 'assistant' && (
+                {expertMode && msg.ragMeta && msg.status === 'SENT' && msg.role === 'assistant' && (
                   <RagBadges meta={msg.ragMeta} onShowTrace={() => setTraceMsg(msg)} />
                 )}
 
                 {/* Pied de bulle : métriques + feedback (toujours) + copy/regenerate (survol) */}
                 {msg.role === 'assistant' && msg.status === 'SENT' && msg.content && (
                   <div className="mt-3 flex items-center justify-between gap-3">
-                    {msg.metrics ? (
+                    {msg.metrics && expertMode ? (
                       <div className="flex items-center gap-3 text-[10px] font-mono text-outline">
                         <span title="Time to first token">TTFT {(msg.metrics.ttftMs / 1000).toFixed(1)}s</span>
                         <span title="Total time">{(msg.metrics.totalMs / 1000).toFixed(1)}s</span>
@@ -867,6 +894,10 @@ const Playground: FC = () => {
                           </span>
                         )}
                       </div>
+                    ) : msg.stopped ? (
+                      <span className="text-[10px] font-mono text-error font-bold uppercase tracking-wider" title="Generation stopped — answer may be incomplete">
+                        stopped
+                      </span>
                     ) : <span />}
 
                     <div className="flex items-center gap-1">

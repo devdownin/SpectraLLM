@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import type { FC } from 'react';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { useStatus } from '../hooks/useStatus';
 
 /**
@@ -24,12 +26,12 @@ interface HealthIssue {
 
 const DISMISS_KEY = 'spectra-health-banner-dismissed';
 
-function computeIssues(status: { services?: ServiceWithDetails[] } | undefined, error: unknown): HealthIssue[] {
+function computeIssues(status: { services?: ServiceWithDetails[] } | undefined, error: unknown, t: TFunction): HealthIssue[] {
   if (error || !status) {
     return [{
       key: 'api',
-      title: 'Spectra API unreachable',
-      description: 'The backend is not responding — no feature will work until it is up.',
+      title: t('health.apiTitle'),
+      description: t('health.apiDesc'),
       command: './start.sh   (Windows: start.bat)',
     }];
   }
@@ -43,31 +45,31 @@ function computeIssues(status: { services?: ServiceWithDetails[] } | undefined, 
   if (chat && !chat.available) {
     issues.push({
       key: 'chat',
-      title: 'Chat LLM server offline',
-      description: 'Answers, dataset generation and evaluation need it. Download a model, then restart the stack.',
+      title: t('health.chatTitle'),
+      description: t('health.chatDesc'),
       command: './setup.sh --download-chat   (Windows: setup.bat)',
     });
   } else if (chat?.details?.activeModelLoaded === false) {
     issues.push({
       key: 'chat-model',
-      title: 'LLM server is up but no model is loaded',
-      description: 'Place a .gguf file in data/models/ or download the default model.',
+      title: t('health.chatModelTitle'),
+      description: t('health.chatModelDesc'),
       command: './setup.sh --download-chat   (Windows: setup.bat)',
     });
   }
   if (embed && !embed.available) {
     issues.push({
       key: 'embed',
-      title: 'Embedding server offline',
-      description: 'Document ingestion and semantic search need it.',
+      title: t('health.embedTitle'),
+      description: t('health.embedDesc'),
       command: './setup.sh --download-embed   (Windows: setup.bat)',
     });
   }
   if (chroma && !chroma.available) {
     issues.push({
       key: 'chromadb',
-      title: 'ChromaDB offline',
-      description: 'Vector storage is unavailable — ingestion and retrieval will fail.',
+      title: t('health.chromaTitle'),
+      description: t('health.chromaDesc'),
       command: 'docker compose ps   (check the chromadb container)',
     });
   }
@@ -76,13 +78,14 @@ function computeIssues(status: { services?: ServiceWithDetails[] } | undefined, 
 
 const ServiceHealthBanner: FC = () => {
   const { status, loading, error } = useStatus();
+  const { t } = useTranslation();
   const [dismissed, setDismissed] = useState<string>(
     () => sessionStorage.getItem(DISMISS_KEY) ?? '',
   );
 
   if (loading) return null;
 
-  const issues = computeIssues(status, error);
+  const issues = computeIssues(status, error, t);
   if (issues.length === 0) return null;
 
   // La signature change si la liste des problèmes évolue : un bandeau masqué
@@ -122,7 +125,7 @@ const ServiceHealthBanner: FC = () => {
         <button
           type="button"
           onClick={dismiss}
-          aria-label="Dismiss service health warning"
+          aria-label={t('health.dismiss')}
           className="p-1 text-outline hover:text-on-surface transition-colors shrink-0"
         >
           <span aria-hidden="true" className="material-symbols-outlined text-[16px]">close</span>

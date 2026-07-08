@@ -1,6 +1,7 @@
 import type { FC } from 'react';
 import { useLocation } from 'react-router-dom';
-import { PAGE_NAMES } from '../navigation';
+import { useTranslation } from 'react-i18next';
+import { NAV_BY_PATH } from '../navigation';
 
 interface HeaderProps {
   onMenuClick?: () => void;
@@ -8,7 +9,12 @@ interface HeaderProps {
 
 const Header: FC<HeaderProps> = ({ onMenuClick }) => {
   const location = useLocation();
-  const pageName = PAGE_NAMES[location.pathname] ?? '';
+  const { t, i18n } = useTranslation();
+  const navItem = NAV_BY_PATH[location.pathname];
+  const pageName = navItem ? t(navItem.nameKey, navItem.name) : '';
+
+  const currentLang = i18n.resolvedLanguage === 'fr' ? 'fr' : 'en';
+  const nextLang = currentLang === 'fr' ? 'en' : 'fr';
 
   return (
     <header className="header-border flex justify-between items-center px-4 md:px-6 py-3 sticky top-0 z-30 bg-surface-container/80 backdrop-blur-md">
@@ -29,6 +35,16 @@ const Header: FC<HeaderProps> = ({ onMenuClick }) => {
           </>
         )}
       </div>
+      <button
+        type="button"
+        onClick={() => i18n.changeLanguage(nextLang)}
+        aria-label={t('header.switchLanguage')}
+        title={t('header.switchLanguage')}
+        className="flex items-center gap-1.5 px-2 py-1.5 hover:bg-surface-variant/60 text-on-surface-variant hover:text-primary transition-colors"
+      >
+        <span aria-hidden="true" className="material-symbols-outlined text-[18px]">language</span>
+        <span className="font-headline font-bold text-[11px] uppercase tracking-widest">{currentLang}</span>
+      </button>
     </header>
   );
 };

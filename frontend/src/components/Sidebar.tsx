@@ -1,5 +1,6 @@
 import type { FC } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import Tooltip from './Tooltip';
 import { NAV_ITEMS, DOCUMENTATION_ITEM } from '../navigation';
 
@@ -29,6 +30,7 @@ const NeuralIcon: FC<{ size?: number }> = ({ size = 22 }) => (
 
 const Sidebar: FC<SidebarProps> = ({ isCollapsed, onToggle, mobileOpen = false, onMobileClose }) => {
   const navigate = useNavigate();
+  const { t } = useTranslation();
 
   const navItems = NAV_ITEMS;
 
@@ -78,7 +80,7 @@ const Sidebar: FC<SidebarProps> = ({ isCollapsed, onToggle, mobileOpen = false, 
 
       <nav className="flex-1 space-y-0.5">
         {navItems.map((item) => (
-          <Tooltip key={item.path} content={isCollapsed ? item.name : ''}>
+          <Tooltip key={item.path} content={isCollapsed ? t(item.nameKey, item.name) : ''}>
             <NavLink
               to={item.path}
               end={item.path === '/'}
@@ -94,7 +96,7 @@ const Sidebar: FC<SidebarProps> = ({ isCollapsed, onToggle, mobileOpen = false, 
               <span className={`material-symbols-outlined text-[18px] ${isCollapsed ? 'mr-0' : 'mr-3'}`}>{item.icon}</span>
               {!isCollapsed && (
                 <span className="font-headline uppercase tracking-[0.08em] text-[11px] animate-in fade-in slide-in-from-left-2">
-                  {item.name}
+                  {t(item.nameKey, item.name)}
                 </span>
               )}
             </NavLink>
@@ -102,18 +104,18 @@ const Sidebar: FC<SidebarProps> = ({ isCollapsed, onToggle, mobileOpen = false, 
         ))}
       </nav>
 
-      <Tooltip content={isCollapsed ? 'New Model' : ''}>
+      <Tooltip content={isCollapsed ? t('nav.newModel') : ''}>
         <button
           onClick={() => { navigate('/fine-tuning'); onMobileClose?.(); }}
           className={`mt-4 mb-6 bg-primary text-on-primary-fixed font-bold flex items-center justify-center transition-all hover:opacity-90 hover:shadow-[0_0_20px_rgba(143,245,255,0.25)] ${isCollapsed ? 'w-10 h-10 mx-auto' : 'py-2.5 px-4 gap-2'}`}
         >
           <span className="material-symbols-outlined text-[16px]">add</span>
-          {!isCollapsed && <span className="font-headline uppercase tracking-[0.1em] text-[11px]">NEW MODEL</span>}
+          {!isCollapsed && <span className="font-headline uppercase tracking-[0.1em] text-[11px]">{t('nav.newModel')}</span>}
         </button>
       </Tooltip>
 
       <div className="space-y-0.5 mt-auto pt-4 border-t border-outline-variant/10">
-        <Tooltip content={isCollapsed ? DOCUMENTATION_ITEM.name : ''}>
+        <Tooltip content={isCollapsed ? t(DOCUMENTATION_ITEM.nameKey, DOCUMENTATION_ITEM.name) : ''}>
           <NavLink
             to={DOCUMENTATION_ITEM.path}
             onClick={onMobileClose}
@@ -122,7 +124,7 @@ const Sidebar: FC<SidebarProps> = ({ isCollapsed, onToggle, mobileOpen = false, 
             }
           >
             <span className={`material-symbols-outlined text-[18px] ${isCollapsed ? 'mr-0' : 'mr-3'}`}>{DOCUMENTATION_ITEM.icon}</span>
-            {!isCollapsed && <span className="font-headline uppercase tracking-[0.08em] text-[11px] animate-in fade-in slide-in-from-left-2">Docs</span>}
+            {!isCollapsed && <span className="font-headline uppercase tracking-[0.08em] text-[11px] animate-in fade-in slide-in-from-left-2">{t('nav.docs')}</span>}
           </NavLink>
         </Tooltip>
       </div>

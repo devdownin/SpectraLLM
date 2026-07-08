@@ -2,6 +2,7 @@ import type { FC } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { LineChart, Line, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from 'recharts';
+import { useTranslation } from 'react-i18next';
 import { useStatus } from '../hooks/useStatus';
 import { datasetApi, gedApi, commentApi, metricsApi } from '../services/api';
 import Skeleton from '../components/Skeleton';
@@ -81,6 +82,7 @@ function statusChip(status: string): { label: string; cls: string } {
 
 const Dashboard: FC = () => {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const { status, loading } = useStatus();
   // Stats périodiques (dataset + GED + métriques) via React Query — Promise.allSettled
   // pour que l'échec d'une source n'invalide pas les autres ; polling 30 s.
@@ -161,8 +163,8 @@ const Dashboard: FC = () => {
 
       {/* Header */}
       <header>
-        <p className="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-1">System Overview</p>
-        <h2 className="font-headline text-3xl font-bold tracking-tighter">DASHBOARD</h2>
+        <p className="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-1">{t('dashboard.kicker')}</p>
+        <h2 className="font-headline text-3xl font-bold tracking-tighter">{t('dashboard.title')}</h2>
       </header>
 
       {/* ── Cohérence embedding ↔ index (visible seulement en cas de problème) ── */}
@@ -170,7 +172,7 @@ const Dashboard: FC = () => {
 
       {/* ── Service Health ── */}
       <section className="space-y-4">
-        <h3 className="font-headline text-sm font-bold uppercase tracking-tight text-on-surface-variant">Service Health</h3>
+        <h3 className="font-headline text-sm font-bold uppercase tracking-tight text-on-surface-variant">{t('dashboard.serviceHealth')}</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
 
           <div className="bg-surface-container p-6 flex items-center justify-between card-hover">
@@ -191,7 +193,7 @@ const Dashboard: FC = () => {
               {loading ? <Skeleton className="h-4 w-16" /> : (
                 <>
                   <p className={`text-[11px] font-bold uppercase tracking-widest ${chatSvc?.available ? 'text-primary' : 'text-error'}`}>
-                    {chatSvc?.available ? 'Online' : 'Offline'}
+                    {chatSvc?.available ? t('dashboard.online') : t('dashboard.offline')}
                   </p>
                   {chatSvc?.details?.activeModel && (
                     <p className="text-[10px] text-outline font-mono mt-0.5 max-w-[120px] truncate" title={chatSvc.details.activeModel}>
@@ -201,7 +203,7 @@ const Dashboard: FC = () => {
                   {chatSvc?.available && chatSvc?.details?.activeModelLoaded === false && (
                     <p className="text-[10px] font-bold text-error uppercase tracking-widest mt-1 flex items-center gap-1">
                       <span className="material-symbols-outlined text-[11px]">warning</span>
-                      model not loaded
+                      {t('dashboard.modelNotLoaded')}
                     </p>
                   )}
                 </>
@@ -230,7 +232,7 @@ const Dashboard: FC = () => {
               ) : (
                 <>
                   <p className={`text-[11px] font-bold uppercase tracking-widest ${embedSvc.available ? 'text-secondary' : 'text-error'}`}>
-                    {embedSvc.available ? 'Online' : 'Offline'}
+                    {embedSvc.available ? t('dashboard.online') : t('dashboard.offline')}
                   </p>
                   {embedSvc?.details?.activeModel && (
                     <p className="text-[10px] text-outline font-mono mt-0.5 max-w-[120px] truncate" title={embedSvc.details.activeModel}>
@@ -260,7 +262,7 @@ const Dashboard: FC = () => {
               {loading ? <Skeleton className="h-4 w-16" /> : (
                 <>
                   <p className={`text-[11px] font-bold uppercase tracking-widest ${chromadb?.available ? 'text-primary' : 'text-error'}`}>
-                    {chromadb?.available ? 'Online' : 'Offline'}
+                    {chromadb?.available ? t('dashboard.online') : t('dashboard.offline')}
                   </p>
                   {!statsLoading && (stats?.chunksInStore ?? 0) > 0 && (
                     <p className="text-[10px] text-outline font-mono mt-0.5">{stats!.chunksInStore} chunks</p>
@@ -276,15 +278,15 @@ const Dashboard: FC = () => {
       {/* ── Getting Started (shown only when no data yet) ── */}
       {!statsLoading && !loading && (stats?.chunksInStore ?? 0) === 0 && (
         <section className="space-y-4">
-          <h3 className="font-headline text-sm font-bold uppercase tracking-tight text-on-surface-variant">Getting Started</h3>
+          <h3 className="font-headline text-sm font-bold uppercase tracking-tight text-on-surface-variant">{t('dashboard.gettingStarted')}</h3>
 
           <div className="bg-surface-container p-5 space-y-3">
-            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-3">Prerequisites</p>
+            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-3">{t('dashboard.prerequisites')}</p>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {[
-                { ok: chatSvc?.available ?? false, label: 'Chat model', hint: 'Run ./setup.sh --download-chat (Windows: setup.bat) or place your .gguf in data/models/', icon: 'memory' },
-                { ok: embedSvc?.available ?? false, label: 'Embedding model', hint: 'Run ./setup.sh --download-embed (Windows: setup.bat) or place embed.gguf in data/models/', icon: 'hub' },
-                { ok: chromadb?.available ?? false, label: 'ChromaDB', hint: 'Check docker compose ps', icon: 'database' },
+                { ok: chatSvc?.available ?? false, label: t('dashboard.chatModel'), hint: t('dashboard.chatModelHint'), icon: 'memory' },
+                { ok: embedSvc?.available ?? false, label: t('dashboard.embeddingModel'), hint: t('dashboard.embeddingModelHint'), icon: 'hub' },
+                { ok: chromadb?.available ?? false, label: 'ChromaDB', hint: t('dashboard.chromaHint'), icon: 'database' },
               ].map(item => (
                 <div key={item.label} className={`flex items-start gap-3 p-3 border ${item.ok ? 'border-primary/20 bg-primary/5' : 'border-error/20 bg-error/5'}`}>
                   <span className={`material-symbols-outlined text-sm mt-0.5 ${item.ok ? 'text-primary' : 'text-error'}`}>
@@ -301,9 +303,9 @@ const Dashboard: FC = () => {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {[
-              { num: '1', title: 'Ingest your documents', desc: 'PDF, DOCX, TXT or URLs — drop your files into the Ingestion page or run adddoc.bat examples to test.', action: 'Go to Ingestion', route: '/ingestion', icon: 'cloud_upload' },
-              { num: '2', title: 'Generate the dataset', desc: 'Spectra automatically generates Q/A pairs from your documents. Expect 30–120 s/chunk on CPU.', action: 'Go to Ingestion', route: '/ingestion', icon: 'dataset' },
-              { num: '3', title: 'Launch fine-tuning', desc: 'Pick a recipe (e.g. "Fast CPU") and fine-tune the model on your domain.', action: 'Go to Fine-Tuning', route: '/fine-tuning', icon: 'model_training' },
+              { num: '1', title: t('dashboard.step1Title'), desc: t('dashboard.step1Desc'), action: t('dashboard.step1Action'), route: '/ingestion', icon: 'cloud_upload' },
+              { num: '2', title: t('dashboard.step2Title'), desc: t('dashboard.step2Desc'), action: t('dashboard.step2Action'), route: '/ingestion', icon: 'dataset' },
+              { num: '3', title: t('dashboard.step3Title'), desc: t('dashboard.step3Desc'), action: t('dashboard.step3Action'), route: '/fine-tuning', icon: 'model_training' },
             ].map(step => (
               <div key={step.num} className="bg-surface-container p-5 space-y-3">
                 <div className="flex items-center gap-3">
@@ -324,9 +326,9 @@ const Dashboard: FC = () => {
           <div className="p-4 border border-outline-variant/20 bg-surface-container">
             <p className="text-[11px] font-label uppercase tracking-widest text-on-surface-variant flex items-center gap-2">
               <span className="material-symbols-outlined text-sm text-outline">tip</span>
-              New here? Drop the files from the <code className="font-mono bg-surface-container-high px-1">examples/</code> folder into the{' '}
-              <button onClick={() => navigate('/ingestion')} className="text-primary hover:text-primary/70 underline underline-offset-2 uppercase">Ingestion page</button>
-              {' '}(Windows: <code className="font-mono bg-surface-container-high px-1">adddoc.bat examples</code>) to validate the pipeline in 5 minutes.
+              {t('dashboard.tipPrefix')} <code className="font-mono bg-surface-container-high px-1">examples/</code> {t('dashboard.tipFolder')}{' '}
+              <button onClick={() => navigate('/ingestion')} className="text-primary hover:text-primary/70 underline underline-offset-2 uppercase">{t('dashboard.tipIngestionPage')}</button>
+              {' '}(Windows : <code className="font-mono bg-surface-container-high px-1">adddoc.bat examples</code>) {t('dashboard.tipSuffix')}
             </p>
           </div>
         </section>
@@ -336,7 +338,7 @@ const Dashboard: FC = () => {
       <section className="space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <h3 className="font-headline text-sm font-bold uppercase tracking-tight text-on-surface-variant">Knowledge Base</h3>
+            <h3 className="font-headline text-sm font-bold uppercase tracking-tight text-on-surface-variant">{t('dashboard.knowledgeBase')}</h3>
             {statsErrors.includes('dataset') && (
               <Tooltip content="Unable to load dataset stats — the API may be unavailable.">
                 <span className="material-symbols-outlined text-sm text-error cursor-help">warning</span>
@@ -350,21 +352,21 @@ const Dashboard: FC = () => {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
 
           <div className="bg-surface-container p-5 border-t-2 border-primary card-hover">
-            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">Chunks in Store</p>
+            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">{t('dashboard.chunksInStore')}</p>
             {statsLoading ? <Skeleton className="h-9 w-16" /> : (
               <p className="font-headline font-bold text-3xl text-primary stat-glow">{stats?.chunksInStore ?? 0}</p>
             )}
           </div>
 
           <div className="bg-surface-container p-5 border-t-2 border-secondary card-hover">
-            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">Training Pairs</p>
+            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">{t('dashboard.trainingPairs')}</p>
             {statsLoading ? <Skeleton className="h-9 w-16" /> : (
               <p className="font-headline font-bold text-3xl text-secondary stat-glow-secondary">{stats?.totalPairs ?? 0}</p>
             )}
           </div>
 
           <div className="bg-surface-container p-5 border-t-2 border-outline-variant card-hover">
-            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">Avg Confidence</p>
+            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">{t('dashboard.avgConfidence')}</p>
             {statsLoading ? <Skeleton className="h-9 w-16" /> : (
               <p className="font-headline font-bold text-3xl">
                 {stats && stats.avgConfidence > 0 ? (stats.avgConfidence * 100).toFixed(0) + '%' : '—'}
@@ -373,7 +375,7 @@ const Dashboard: FC = () => {
           </div>
 
           <div className="bg-surface-container p-5 border-t-2 border-outline-variant card-hover">
-            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">Categories</p>
+            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">{t('dashboard.categories')}</p>
             {statsLoading ? <Skeleton className="h-9 w-16" /> : (
               <p className="font-headline font-bold text-3xl">
                 {stats ? Object.keys(stats.byCategory).length : 0}
@@ -391,10 +393,10 @@ const Dashboard: FC = () => {
             </span>
             <p className="text-[11px] font-label uppercase tracking-widest text-on-surface-variant">
               {pipelineReady
-                ? `Pipeline ready — ${stats!.chunksInStore} chunks · ${stats!.totalPairs} pairs · model ready to fine-tune`
+                ? t('dashboard.pipelineReady', { chunks: stats!.chunksInStore, pairs: stats!.totalPairs })
                 : (stats?.chunksInStore ?? 0) > 0
-                  ? 'Chunks indexed — run dataset generation (step 2)'
-                  : 'Empty knowledge base — ingest documents to get started (step 1)'}
+                  ? t('dashboard.pipelineChunksOnly')
+                  : t('dashboard.pipelineEmpty')}
             </p>
           </div>
         )}
