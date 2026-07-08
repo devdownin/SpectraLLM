@@ -145,13 +145,12 @@ bash scripts/setup-java.sh
 # Cloner le dépôt
 git clone https://github.com/YourOrg/Spectra.git && cd Spectra
 
-# Exécuter la configuration (vérifie les ressources et crée les dossiers)
-./setup.sh
-
-# Démarrer la stack (mode CPU)
-./start.sh --detach
+# Premier lancement tout-en-un : télécharge les modèles par défaut,
+# démarre la stack, attend que tout soit prêt et ouvre http://localhost
+./start.sh --first-run        # Windows : start.bat --first-run
 ```
 
+Pour un contrôle étape par étape : `./setup.sh` (configuration + modèles) puis `./start.sh --detach`.
 Pour l'accélération GPU : `./start.sh --detach --gpu`
 
 ### Accès
