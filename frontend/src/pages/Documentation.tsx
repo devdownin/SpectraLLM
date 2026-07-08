@@ -1,20 +1,109 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import { renderToStaticMarkup } from 'react-dom/server';
+
+const SECTIONS = [
+  { id: 'overview',          title: 'Overview' },
+  { id: 'prerequisites',     title: 'Prerequisites' },
+  { id: 'pipeline',          title: 'Pipeline' },
+  { id: 'commenting',        title: 'AI Comments' },
+  { id: 'personalisation',   title: 'Personalization' },
+  { id: 'algorithms',        title: 'Theory & Algo' },
+  { id: 'interface',         title: 'Interface' },
+  { id: 'benchmark',         title: 'Benchmark' },
+  { id: 'tips',              title: 'Tips' },
+  { id: 'troubleshooting',   title: 'Troubleshooting' },
+];
+
+interface SearchEntry { id: string; title: string; text: string; }
+interface SearchResult { id: string; title: string; count: number; snippets: string[]; }
+
+/** Minuscules + suppression des diacritiques, pour une recherche tolérante. */
+const normalize = (v: string) => v.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+/**
+ * Index plein texte construit à la demande : chaque section (JSX statique,
+ * sans hook ni état) est rendue en HTML puis réduite à son texte brut.
+ * Coût unique ~quelques ms, payé au premier focus du champ de recherche.
+ */
+function buildSearchIndex(): SearchEntry[] {
+  const parser = new DOMParser();
+  return SECTIONS.map((s) => {
+    const html = renderToStaticMarkup(SECTION_RENDERERS[s.id]());
+    const text = parser.parseFromString(html, 'text/html').body.textContent ?? '';
+    return { id: s.id, title: s.title, text: text.replace(/\s+/g, ' ').trim() };
+  });
+}
+
+function searchSections(index: SearchEntry[], query: string): SearchResult[] {
+  const q = normalize(query);
+  const results: SearchResult[] = [];
+  for (const entry of index) {
+    const haystack = normalize(entry.text);
+    const snippets: string[] = [];
+    let count = 0;
+    let pos = haystack.indexOf(q);
+    while (pos !== -1) {
+      count++;
+      if (snippets.length < 2) {
+        const start = Math.max(0, pos - 60);
+        const end = Math.min(entry.text.length, pos + q.length + 60);
+        snippets.push(`${start > 0 ? '…' : ''}${entry.text.slice(start, end)}${end < entry.text.length ? '…' : ''}`);
+      }
+      pos = haystack.indexOf(q, pos + q.length);
+    }
+    if (count > 0 || normalize(entry.title).includes(q)) {
+      results.push({ id: entry.id, title: entry.title, count: Math.max(count, 1), snippets });
+    }
+  }
+  return results.sort((a, b) => b.count - a.count);
+}
+
+/** Snippet avec les occurrences de la requête surlignées (insensible aux accents). */
+const HighlightedSnippet: React.FC<{ text: string; query: string }> = ({ text, query }) => {
+  const q = normalize(query);
+  const norm = normalize(text);
+  const parts: React.ReactNode[] = [];
+  let from = 0;
+  let pos = norm.indexOf(q);
+  while (pos !== -1) {
+    if (pos > from) parts.push(text.slice(from, pos));
+    parts.push(<mark key={pos} className="bg-primary/25 text-inherit rounded-sm px-0.5">{text.slice(pos, pos + q.length)}</mark>);
+    from = pos + q.length;
+    pos = norm.indexOf(q, from);
+  }
+  parts.push(text.slice(from));
+  return <>{parts}</>;
+};
 
 const Documentation: React.FC = () => {
-  const [activeTab, setActiveTab] = useState('overview');
+  const { t } = useTranslation();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState(() => {
+    const s = searchParams.get('section');
+    return s && SECTIONS.some((x) => x.id === s) ? s : 'overview';
+  });
+  const [query, setQuery] = useState('');
+  const [index, setIndex] = useState<SearchEntry[] | null>(null);
 
-  const sections = [
-    { id: 'overview',          title: 'Overview' },
-    { id: 'prerequisites',     title: 'Prerequisites' },
-    { id: 'pipeline',          title: 'Pipeline' },
-    { id: 'commenting',        title: 'AI Comments' },
-    { id: 'personalisation',   title: 'Personalization' },
-    { id: 'algorithms',        title: 'Theory & Algo' },
-    { id: 'interface',         title: 'Interface' },
-    { id: 'benchmark',         title: 'Benchmark' },
-    { id: 'tips',              title: 'Tips' },
-    { id: 'troubleshooting',   title: 'Troubleshooting' },
-  ];
+  const sections = SECTIONS;
+
+  // Aide contextuelle : le « ? » du header pousse ?section=… même quand on est
+  // déjà sur la page — suivre les changements d'URL.
+  useEffect(() => {
+    const s = searchParams.get('section');
+    if (s && s !== activeTab && SECTIONS.some((x) => x.id === s)) setActiveTab(s);
+  }, [searchParams, activeTab]);
+
+  const selectTab = (id: string) => {
+    setActiveTab(id);
+    setQuery('');
+    setSearchParams({ section: id }, { replace: true });
+  };
+
+  const ensureIndex = () => { if (!index) setIndex(buildSearchIndex()); };
+  const results = query.trim().length >= 2 && index ? searchSections(index, query.trim()) : null;
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
@@ -26,11 +115,24 @@ const Documentation: React.FC = () => {
             Master Spectra — from document ingestion to the continuous personalization loop and preference-based fine-tuning.
           </p>
         </div>
+        <div className="flex flex-col gap-3 md:items-end">
+        <div className="relative w-full md:w-80">
+          <span aria-hidden="true" className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[16px] text-muted-foreground pointer-events-none">search</span>
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => { setQuery(e.target.value); ensureIndex(); }}
+            onFocus={ensureIndex}
+            placeholder={t('docs.searchPlaceholder')}
+            aria-label={t('docs.searchPlaceholder')}
+            className="w-full bg-secondary/30 border border-border/40 rounded-lg pl-9 pr-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/60 transition-colors"
+          />
+        </div>
         <div className="flex bg-secondary/30 p-1 rounded-lg border border-border/40 overflow-x-auto no-scrollbar flex-wrap gap-0.5">
           {sections.map((section) => (
             <button
               key={section.id}
-              onClick={() => setActiveTab(section.id)}
+              onClick={() => selectTab(section.id)}
               className={`px-4 py-1.5 text-xs font-headline uppercase tracking-widest rounded-md transition-all whitespace-nowrap ${
                 activeTab === section.id
                   ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/20'
@@ -41,20 +143,39 @@ const Documentation: React.FC = () => {
             </button>
           ))}
         </div>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-8">
-        {activeTab === 'overview'        && sectionOverview()}
-        {activeTab === 'prerequisites'   && sectionPrerequisites()}
-        {activeTab === 'pipeline'        && sectionPipeline()}
-        {activeTab === 'commenting'      && sectionCommenting()}
-        {activeTab === 'personalisation' && sectionPersonalisation()}
-        {activeTab === 'interface'       && sectionInterface()}
-        {activeTab === 'benchmark'       && sectionBenchmark()}
-        {activeTab === 'tips'            && sectionTips()}
-        {activeTab === 'troubleshooting' && sectionTroubleshooting()}
-        {activeTab === 'algorithms'      && sectionAlgorithms()}
-      </div>
+      {results !== null ? (
+        <div className="space-y-4">
+          {results.length === 0 ? (
+            <p className="text-muted-foreground">{t('docs.noResults')} « {query.trim()} »</p>
+          ) : (
+            results.map((r) => (
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => selectTab(r.id)}
+                className="w-full text-left bg-card/50 border border-border/40 rounded-xl p-5 hover:border-primary/50 transition-colors space-y-2"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-headline font-bold text-foreground uppercase tracking-widest text-sm">{r.title}</span>
+                  <span className="text-xs text-muted-foreground shrink-0">{t('docs.matches', { count: r.count })}</span>
+                </div>
+                {r.snippets.map((snip, i) => (
+                  <p key={i} className="text-sm text-muted-foreground leading-relaxed">
+                    <HighlightedSnippet text={snip} query={query.trim()} />
+                  </p>
+                ))}
+              </button>
+            ))
+          )}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-8">
+          {SECTION_RENDERERS[activeTab]?.()}
+        </div>
+      )}
     </div>
   );
 };
@@ -1356,5 +1477,20 @@ const sectionTroubleshooting = () => (
     </div>
   </div>
 );
+
+// Registre id → rendu, utilisé pour l'affichage ET l'index de recherche.
+// (Déclaré en fin de fichier : les const fléchées ne sont pas hoistées.)
+const SECTION_RENDERERS: Record<string, () => React.JSX.Element> = {
+  overview: sectionOverview,
+  prerequisites: sectionPrerequisites,
+  pipeline: sectionPipeline,
+  commenting: sectionCommenting,
+  personalisation: sectionPersonalisation,
+  algorithms: sectionAlgorithms,
+  interface: sectionInterface,
+  benchmark: sectionBenchmark,
+  tips: sectionTips,
+  troubleshooting: sectionTroubleshooting,
+};
 
 export default Documentation;

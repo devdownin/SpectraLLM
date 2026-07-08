@@ -12,17 +12,19 @@ export interface NavItem {
   nameKey: string;
   icon: string;
   path: string;
+  /** Section de la page Documentation ouverte par le « ? » d'aide contextuelle. */
+  docSection?: string;
 }
 
 export const NAV_ITEMS: NavItem[] = [
-  { name: 'Dashboard',    nameKey: 'nav.dashboard',    icon: 'dashboard',      path: '/'             },
-  { name: 'Model Hub',    nameKey: 'nav.modelHub',     icon: 'hub',            path: '/model-hub'    },
-  { name: 'Ingestion',    nameKey: 'nav.ingestion',    icon: 'cloud_upload',   path: '/ingestion'    },
-  { name: 'Documents',    nameKey: 'nav.documents',    icon: 'folder_open',    path: '/documents'    },
-  { name: 'Fine-Tuning',  nameKey: 'nav.fineTuning',   icon: 'model_training', path: '/fine-tuning'  },
-  { name: 'Playground',   nameKey: 'nav.playground',   icon: 'chat_bubble',    path: '/playground'   },
-  { name: 'Comparison',   nameKey: 'nav.comparison',   icon: 'compare_arrows', path: '/comparison'   },
-  { name: 'Optimization', nameKey: 'nav.optimization', icon: 'tune',           path: '/optimization' },
+  { name: 'Dashboard',    nameKey: 'nav.dashboard',    icon: 'dashboard',      path: '/',             docSection: 'interface'     },
+  { name: 'Model Hub',    nameKey: 'nav.modelHub',     icon: 'hub',            path: '/model-hub',    docSection: 'prerequisites' },
+  { name: 'Ingestion',    nameKey: 'nav.ingestion',    icon: 'cloud_upload',   path: '/ingestion',    docSection: 'pipeline'      },
+  { name: 'Documents',    nameKey: 'nav.documents',    icon: 'folder_open',    path: '/documents',    docSection: 'commenting'    },
+  { name: 'Fine-Tuning',  nameKey: 'nav.fineTuning',   icon: 'model_training', path: '/fine-tuning',  docSection: 'pipeline'      },
+  { name: 'Playground',   nameKey: 'nav.playground',   icon: 'chat_bubble',    path: '/playground',   docSection: 'algorithms'    },
+  { name: 'Comparison',   nameKey: 'nav.comparison',   icon: 'compare_arrows', path: '/comparison',   docSection: 'benchmark'     },
+  { name: 'Optimization', nameKey: 'nav.optimization', icon: 'tune',           path: '/optimization', docSection: 'tips'          },
 ];
 
 export const DOCUMENTATION_ITEM: NavItem = {

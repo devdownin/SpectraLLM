@@ -1,5 +1,5 @@
 import type { FC } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { NAV_BY_PATH } from '../navigation';
 
@@ -9,6 +9,7 @@ interface HeaderProps {
 
 const Header: FC<HeaderProps> = ({ onMenuClick }) => {
   const location = useLocation();
+  const navigate = useNavigate();
   const { t, i18n } = useTranslation();
   const navItem = NAV_BY_PATH[location.pathname];
   const pageName = navItem ? t(navItem.nameKey, navItem.name) : '';
@@ -35,6 +36,18 @@ const Header: FC<HeaderProps> = ({ onMenuClick }) => {
           </>
         )}
       </div>
+      <div className="flex items-center gap-1">
+      {navItem?.docSection && (
+        <button
+          type="button"
+          onClick={() => navigate(`/documentation?section=${navItem.docSection}`)}
+          aria-label={t('header.help')}
+          title={t('header.help')}
+          className="p-1.5 hover:bg-surface-variant/60 text-on-surface-variant hover:text-primary transition-colors"
+        >
+          <span aria-hidden="true" className="material-symbols-outlined text-[18px]">help</span>
+        </button>
+      )}
       <button
         type="button"
         onClick={() => i18n.changeLanguage(nextLang)}
@@ -45,6 +58,7 @@ const Header: FC<HeaderProps> = ({ onMenuClick }) => {
         <span aria-hidden="true" className="material-symbols-outlined text-[18px]">language</span>
         <span className="font-headline font-bold text-[11px] uppercase tracking-widest">{currentLang}</span>
       </button>
+      </div>
     </header>
   );
 };

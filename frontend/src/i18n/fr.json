@@ -13,7 +13,8 @@
     "newModel": "Nouveau modèle"
   },
   "header": {
-    "switchLanguage": "Changer de langue"
+    "switchLanguage": "Changer de langue",
+    "help": "Aide sur cette page"
   },
   "wizard": {
     "ingestion": "Ingestion",
@@ -84,5 +85,11 @@
     "expertModeOn": "Mode expert activé",
     "expertModeOff": "Mode simple — détails techniques masqués",
     "relevance": "Pertinence"
+  },
+  "docs": {
+    "searchPlaceholder": "Rechercher dans la documentation…",
+    "noResults": "Aucun résultat pour",
+    "matches_one": "{{count}} occurrence",
+    "matches_other": "{{count}} occurrences"
   }
 }
