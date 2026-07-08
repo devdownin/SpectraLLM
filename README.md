@@ -38,6 +38,24 @@ No cloud APIs. No data leaving your infrastructure. No ongoing costs.
 
 ---
 
+# Why choose Spectra
+
+| Feature | Spectra | LangChain | Haystack | Open WebUI |
+|---------|:--------:|:---------:|:---------:|:---------:|
+| End-to-end platform | ✅ | ❌ | ❌ | ❌ |
+| Advanced Hybrid RAG | ✅ | ⚠️ | ✅ | ❌ |
+| Agentic RAG | ✅ | ⚠️ | ⚠️ | ❌ |
+| Synthetic Dataset Generation | ✅ | ❌ | ❌ | ❌ |
+| QLoRA Fine-tuning | ✅ | ❌ | ❌ | ❌ |
+| DPO Training | ✅ | ❌ | ❌ | ❌ |
+| Continuous Learning | ✅ | ❌ | ❌ | ❌ |
+| Model Evaluation | ✅ | ❌ | ❌ | ❌ |
+| GGUF Deployment | ✅ | ❌ | ❌ | ⚠️ |
+| Kubernetes Ready | ✅ | ⚠️ | ⚠️ | ⚠️ |
+| 100% Local | ✅ | ✅ | ✅ | ✅ |
+
+> ✅ Built-in &nbsp;&nbsp; ⚠️ Requires custom integration &nbsp;&nbsp; ❌ Not available
+
 ## The Full Pipeline at a Glance
 
 ```
