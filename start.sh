@@ -1,27 +1,46 @@
 #!/usr/bin/env bash
 # ────────────────────────────────────────────────────────
 # Spectra — Script de lancement
-# Usage: ./start.sh [--gpu] [--detach]
+# Usage: ./start.sh [--first-run] [--gpu] [--detach]
+#
+#   --first-run    Premier lancement tout-en-un : configuration initiale,
+#                  téléchargement des modèles (embedding + chat), démarrage
+#                  en arrière-plan puis ouverture du navigateur sur l'UI.
+#   --gpu          Force la détection GPU (transmis à detect-env.sh).
+#   --detach, -d   Démarre en arrière-plan et attend que les services
+#                  soient prêts avant d'afficher le récapitulatif.
 # ────────────────────────────────────────────────────────
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
+bold()  { echo -e "\033[1m$*\033[0m"; }
+green() { echo -e "\033[1;32m$*\033[0m"; }
+
 DETACH=""
 GPU_FLAG=""
+FIRST_RUN=""
 
 # Parse des arguments
 for arg in "$@"; do
     case "$arg" in
         --detach|-d)   DETACH="-d" ;;
         --gpu)         GPU_FLAG="--gpu" ;;
+        --first-run)   FIRST_RUN=1; DETACH="-d" ;;
     esac
 done
 
 echo "╔══════════════════════════════════════╗"
 echo "║        Spectra — Démarrage           ║"
 echo "╚══════════════════════════════════════╝"
+
+# 0. Premier lancement : setup complet (Java, répertoires, .env, modèles)
+if [[ -n "$FIRST_RUN" ]]; then
+    echo ""
+    echo "► Premier lancement : configuration initiale + téléchargement des modèles..."
+    bash "$SCRIPT_DIR/setup.sh" --download-embed --download-chat
+fi
 
 # 1. Créer les répertoires de données
 echo ""
@@ -50,6 +69,16 @@ if ! docker compose $COMPOSE_FILES images -q spectra-api 2>/dev/null | grep -q .
     docker compose $COMPOSE_FILES build
 fi
 
+# En mode premier plan, docker compose bloque le terminal : afficher les URLs
+# d'accès AVANT le démarrage, sinon l'utilisateur ne les voit jamais.
+if [[ -z "$DETACH" ]]; then
+    echo ""
+    bold "► URLs d'accès (une fois les services prêts, ~1-2 min) :"
+    green "   Interface Web :  http://localhost"
+    echo "   API REST      :  http://localhost:8080/api/status"
+    echo "   Ctrl+C pour arrêter — ou relancez avec --detach pour libérer le terminal."
+fi
+
 # 4. Démarrage des services
 echo ""
 echo "► Démarrage des services Docker..."
@@ -64,7 +93,7 @@ if [[ -n "$DETACH" ]]; then
     echo "► Attente des services..."
 
     # Serveur LLM
-    echo -n "  LLM server: "
+    echo -n "  LLM server:   "
     for i in $(seq 1 30); do
         if curl -sf http://localhost:8081/health &>/dev/null; then
             echo "✓ prêt"
@@ -75,7 +104,7 @@ if [[ -n "$DETACH" ]]; then
     done
 
     # ChromaDB
-    echo -n "  ChromaDB:   "
+    echo -n "  ChromaDB:     "
     for i in $(seq 1 30); do
         if curl -sf http://localhost:8000/api/v1/heartbeat &>/dev/null; then
             echo "✓ prêt"
@@ -86,9 +115,20 @@ if [[ -n "$DETACH" ]]; then
     done
 
     # Spectra API
-    echo -n "  Spectra API:"
+    echo -n "  Spectra API:  "
     for i in $(seq 1 30); do
         if curl -sf http://localhost:8080/actuator/health &>/dev/null; then
+            echo "✓ prêt"
+            break
+        fi
+        if [[ $i -eq 30 ]]; then echo "✗ timeout"; fi
+        sleep 2
+    done
+
+    # Interface Web (nginx + React)
+    echo -n "  Interface Web:"
+    for i in $(seq 1 30); do
+        if curl -sf http://localhost/ &>/dev/null; then
             echo " ✓ prêt"
             break
         fi
@@ -99,7 +139,9 @@ if [[ -n "$DETACH" ]]; then
     # 6. Résumé
     echo ""
     echo "══════════════════════════════════════"
-    echo " Spectra est prêt !"
+    green " Spectra est prêt !"
+    echo ""
+    green " Interface Web :  http://localhost"
     echo ""
     echo " API REST    :  http://localhost:8080/api/status"
     echo " Swagger     :  http://localhost:8080/swagger-ui.html"
@@ -109,4 +151,9 @@ if [[ -n "$DETACH" ]]; then
     echo " Arrêt       :  ./stop.sh"
     echo " Logs        :  docker compose logs -f"
     echo "══════════════════════════════════════"
+
+    # 7. Premier lancement : ouvrir le navigateur sur l'UI (best effort)
+    if [[ -n "$FIRST_RUN" ]]; then
+        (xdg-open "http://localhost" 2>/dev/null || open "http://localhost" 2>/dev/null || true) &
+    fi
 fi

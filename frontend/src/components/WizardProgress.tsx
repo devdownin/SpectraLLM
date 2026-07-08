@@ -1,6 +1,7 @@
 import type { FC } from 'react';
 import { useLocation, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { datasetApi, fineTuningApi } from '../services/api';
 import Tooltip from './Tooltip';
 
@@ -22,6 +23,7 @@ interface WizardStep {
 
 const WizardProgress: FC = () => {
   const location = useLocation();
+  const { t } = useTranslation();
 
   const { data: datasetStats } = useQuery({
     queryKey: ['wizard-dataset-stats'],
@@ -47,33 +49,33 @@ const WizardProgress: FC = () => {
   const steps: WizardStep[] = [
     {
       path: '/ingestion',
-      label: 'Ingestion',
+      label: t('wizard.ingestion'),
       icon: 'cloud_upload',
       done: chunks > 0,
-      detail: chunks > 0 ? `${chunks} chunks indexed` : 'Upload documents to build the knowledge base',
+      detail: chunks > 0 ? t('wizard.ingestionDone', { count: chunks }) : t('wizard.ingestionTodo'),
     },
     {
       path: '/ingestion',
-      label: 'Dataset',
+      label: t('wizard.dataset'),
       icon: 'dataset',
       done: pairs > 0,
-      detail: pairs > 0 ? `${pairs} training pairs generated` : 'Generate Q/A pairs from your documents',
+      detail: pairs > 0 ? t('wizard.datasetDone', { count: pairs }) : t('wizard.datasetTodo'),
     },
     {
       path: '/fine-tuning',
-      label: 'Training',
+      label: t('wizard.training'),
       icon: 'model_training',
       done: completedJobs > 0,
       detail: completedJobs > 0
-        ? `${completedJobs} fine-tuning job${completedJobs > 1 ? 's' : ''} completed`
-        : 'Fine-tune a model on your dataset',
+        ? t('wizard.trainingDone', { count: completedJobs })
+        : t('wizard.trainingTodo'),
     },
     {
       path: '/playground',
-      label: 'Querying',
+      label: t('wizard.querying'),
       icon: 'chat_bubble',
       done: false,
-      detail: 'Chat with your specialized model',
+      detail: t('wizard.queryingDetail'),
     },
   ];
 

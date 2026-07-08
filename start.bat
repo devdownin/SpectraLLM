@@ -4,19 +4,28 @@ setlocal enabledelayedexpansion
 
 REM  ────────────────────────────────────────────────────────
 REM  Spectra — Script de lancement (Windows)
-REM  Usage: start.bat [--detach] [--gpu]
+REM  Usage: start.bat [--first-run] [--detach] [--gpu]
+REM
+REM    --first-run   Premier lancement tout-en-un : configuration initiale,
+REM                  telechargement des modeles, demarrage en arriere-plan
+REM                  puis ouverture du navigateur sur l'UI.
 REM  ────────────────────────────────────────────────────────
 
 cd /d "%~dp0"
 
 set DETACH=
 set GPU_FLAG=
+set FIRST_RUN=
 
 :parse_args
 if "%~1"=="" goto done_args
 if "%~1"=="--detach" set DETACH=-d
 if "%~1"=="-d"       set DETACH=-d
 if "%~1"=="--gpu" set GPU_FLAG=--gpu
+if "%~1"=="--first-run" (
+    set FIRST_RUN=1
+    set DETACH=-d
+)
 shift
 goto parse_args
 :done_args
@@ -24,6 +33,13 @@ goto parse_args
 echo ======================================
 echo         Spectra — Demarrage
 echo ======================================
+
+REM  0. Premier lancement : setup complet (repertoires, .env, modeles)
+if defined FIRST_RUN (
+    echo.
+    echo ^> Premier lancement : configuration initiale + telechargement des modeles...
+    call setup.bat --download-embed --download-chat
+)
 
 REM  1. Creer les repertoires de donnees
 echo.
@@ -53,6 +69,16 @@ if %errorlevel% neq 0 (
     echo.
     echo ^> Image spectra-api non trouvee, build en cours...
     docker compose %COMPOSE_FILES% build
+)
+
+REM  En mode premier plan, docker compose bloque le terminal : afficher les
+REM  URLs d'acces AVANT le demarrage, sinon l'utilisateur ne les voit jamais.
+if "%DETACH%"=="" (
+    echo.
+    echo ^> URLs d'acces ^(une fois les services prets, ~1-2 min^) :
+    echo    Interface Web :  http://localhost
+    echo    API REST      :  http://localhost:8080/api/status
+    echo    Ctrl+C pour arreter — ou relancez avec --detach pour liberer le terminal.
 )
 
 REM  4. Demarrage des services
@@ -114,10 +140,27 @@ for /l %%i in (1,1,30) do (
 )
 if !READY!==0 echo   Spectra API:  [TIMEOUT]
 
+REM  Interface Web (nginx + React)
+set /a "READY=0"
+for /l %%i in (1,1,30) do (
+    if !READY!==0 (
+        powershell -Command "try { Invoke-WebRequest -Uri http://localhost/ -UseBasicParsing -TimeoutSec 2 | Out-Null; exit 0 } catch { exit 1 }" >nul 2>&1
+        if !errorlevel!==0 (
+            echo   Interface Web: [OK] prete
+            set /a "READY=1"
+        ) else (
+            timeout /t 2 /nobreak >nul
+        )
+    )
+)
+if !READY!==0 echo   Interface Web: [TIMEOUT]
+
 REM  6. Resume
 echo.
 echo ======================================
 echo  Spectra est pret !
+echo.
+echo  Interface Web :  http://localhost
 echo.
 echo  API REST    :  http://localhost:8080/api/status
 echo  Swagger     :  http://localhost:8080/swagger-ui.html
@@ -127,6 +170,9 @@ echo.
 echo  Arret       :  stop.bat
 echo  Logs        :  docker compose logs -f
 echo ======================================
+
+REM  7. Premier lancement : ouvrir le navigateur sur l'UI
+if defined FIRST_RUN start "" http://localhost
 
 :eof
 endlocal

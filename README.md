@@ -235,6 +235,16 @@ bash scripts/setup-java.sh
 
 GPU is optional but strongly recommended for inference speed. NVIDIA, AMD (ROCm), and Vulkan are all supported.
 
+### Quick start — one command
+
+```bash
+git clone https://github.com/your-org/Spectra.git
+cd Spectra
+./start.sh --first-run        # Windows: start.bat --first-run
+```
+
+This downloads the default models (embedding ~81 MB + chat ~1.1 GB), starts the full stack in the background, waits for every service to be ready, then opens the Web UI at **http://localhost**. Steps 1–4 below do the same thing manually, for when you want control over each stage.
+
 ### 1. Clone and prepare
 
 ```bash
