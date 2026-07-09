@@ -86,6 +86,32 @@ jobs:
         npx wait-on http://localhost:5173
         node ../test_pw.js
 
+  e2e:
+    name: E2E tests (Playwright)
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Docker Compose
+      run: |
+        docker compose -f docker-compose.yml build
+        docker compose -f docker-compose.yml up -d
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+    - name: Wait for services to be ready
+      run: |
+        npm install -g wait-on
+        wait-on http://localhost:80 http://localhost:8080/actuator/health --timeout 120000
+    - name: Run E2E tests
+      run: |
+        npm install playwright core-js
+        npx playwright install --with-deps chromium
+        node test_pw.js
+    - name: Stop services
+      if: always()
+      run: docker compose down
+
   python-services:
     name: Python services (docparser, reranker)
     runs-on: ubuntu-latest
