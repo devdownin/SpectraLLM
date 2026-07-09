@@ -129,12 +129,22 @@ jobs:
       run: ruff check docparser reranker
     - name: Unit tests (pytest)
       run: |
-        (cd docparser && python -m pytest tests/ -q)
-        (cd reranker && python -m pytest tests/ -q)
+        (cd docparser && python -m pytest tests/ -q --cov=app --cov-report=xml)
+        (cd reranker && python -m pytest tests/ -q --cov=app --cov-report=xml)
+    - name: Upload docparser coverage
+      uses: actions/upload-artifact@v4
+      with:
+        name: docparser-coverage
+        path: docparser/coverage.xml
+    - name: Upload reranker coverage
+      uses: actions/upload-artifact@v4
+      with:
+        name: reranker-coverage
+        path: reranker/coverage.xml
 
   codecov:
     name: Upload coverage to Codecov
-    needs: [build, frontend]
+    needs: [build, frontend, python-services]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -152,9 +162,21 @@ jobs:
           name: vitest-coverage-report
           path: vitest
 
+      - name: Download docparser coverage report
+        uses: actions/download-artifact@v4
+        with:
+          name: docparser-coverage
+          path: docparser
+
+      - name: Download reranker coverage report
+        uses: actions/download-artifact@v4
+        with:
+          name: reranker-coverage
+          path: reranker
+
       - name: Upload to Codecov
         uses: codecov/codecov-action@v5
         with:
-          files: jacoco/jacoco.xml,vitest/lcov.info
+          files: jacoco/jacoco.xml,vitest/lcov.info,docparser/coverage.xml,reranker/coverage.xml
           fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}
