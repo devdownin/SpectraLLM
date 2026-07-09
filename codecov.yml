@@ -1,0 +1,32 @@
+version: "3"
+
+coverage:
+  status:
+    project:
+      default:
+        # Compare coverage to the base commit.
+        target: auto
+        # Allow the coverage to drop by up to 1% before failing the status check.
+        threshold: 1%
+    patch:
+      default:
+        # The coverage for the new code only (patch).
+        target: auto
+        threshold: 1%
+
+ignore:
+  - "**/tests/**/*"
+  - "**/*_test.*"
+  - "**/*.test.*"
+  - "**/*.spec.*"
+  - "frontend/dist/**/*"
+  - "scripts/**/*"
+  - "huggingface_space/**/*"
+  - "*.bat"
+  - "*.sh"
+
+comment:
+  layout: "reach, diff, flags, files"
+  behavior: default
+  # Set to true to only comment if coverage changes
+  require_changes: false
