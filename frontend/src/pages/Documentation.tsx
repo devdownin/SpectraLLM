@@ -1,20 +1,109 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import { renderToStaticMarkup } from 'react-dom/server';
+
+const SECTIONS = [
+  { id: 'overview',          title: 'Overview' },
+  { id: 'prerequisites',     title: 'Prerequisites' },
+  { id: 'pipeline',          title: 'Pipeline' },
+  { id: 'commenting',        title: 'AI Comments' },
+  { id: 'personalisation',   title: 'Personalization' },
+  { id: 'algorithms',        title: 'Theory & Algo' },
+  { id: 'interface',         title: 'Interface' },
+  { id: 'benchmark',         title: 'Benchmark' },
+  { id: 'tips',              title: 'Tips' },
+  { id: 'troubleshooting',   title: 'Troubleshooting' },
+];
+
+interface SearchEntry { id: string; title: string; text: string; }
+interface SearchResult { id: string; title: string; count: number; snippets: string[]; }
+
+/** Minuscules + suppression des diacritiques, pour une recherche tolérante. */
+const normalize = (v: string) => v.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+/**
+ * Index plein texte construit à la demande : chaque section (JSX statique,
+ * sans hook ni état) est rendue en HTML puis réduite à son texte brut.
+ * Coût unique ~quelques ms, payé au premier focus du champ de recherche.
+ */
+function buildSearchIndex(): SearchEntry[] {
+  const parser = new DOMParser();
+  return SECTIONS.map((s) => {
+    const html = renderToStaticMarkup(SECTION_RENDERERS[s.id]());
+    const text = parser.parseFromString(html, 'text/html').body.textContent ?? '';
+    return { id: s.id, title: s.title, text: text.replace(/\s+/g, ' ').trim() };
+  });
+}
+
+function searchSections(index: SearchEntry[], query: string): SearchResult[] {
+  const q = normalize(query);
+  const results: SearchResult[] = [];
+  for (const entry of index) {
+    const haystack = normalize(entry.text);
+    const snippets: string[] = [];
+    let count = 0;
+    let pos = haystack.indexOf(q);
+    while (pos !== -1) {
+      count++;
+      if (snippets.length < 2) {
+        const start = Math.max(0, pos - 60);
+        const end = Math.min(entry.text.length, pos + q.length + 60);
+        snippets.push(`${start > 0 ? '…' : ''}${entry.text.slice(start, end)}${end < entry.text.length ? '…' : ''}`);
+      }
+      pos = haystack.indexOf(q, pos + q.length);
+    }
+    if (count > 0 || normalize(entry.title).includes(q)) {
+      results.push({ id: entry.id, title: entry.title, count: Math.max(count, 1), snippets });
+    }
+  }
+  return results.sort((a, b) => b.count - a.count);
+}
+
+/** Snippet avec les occurrences de la requête surlignées (insensible aux accents). */
+const HighlightedSnippet: React.FC<{ text: string; query: string }> = ({ text, query }) => {
+  const q = normalize(query);
+  const norm = normalize(text);
+  const parts: React.ReactNode[] = [];
+  let from = 0;
+  let pos = norm.indexOf(q);
+  while (pos !== -1) {
+    if (pos > from) parts.push(text.slice(from, pos));
+    parts.push(<mark key={pos} className="bg-primary/25 text-inherit rounded-sm px-0.5">{text.slice(pos, pos + q.length)}</mark>);
+    from = pos + q.length;
+    pos = norm.indexOf(q, from);
+  }
+  parts.push(text.slice(from));
+  return <>{parts}</>;
+};
 
 const Documentation: React.FC = () => {
-  const [activeTab, setActiveTab] = useState('overview');
+  const { t } = useTranslation();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState(() => {
+    const s = searchParams.get('section');
+    return s && SECTIONS.some((x) => x.id === s) ? s : 'overview';
+  });
+  const [query, setQuery] = useState('');
+  const [index, setIndex] = useState<SearchEntry[] | null>(null);
 
-  const sections = [
-    { id: 'overview',          title: 'Overview' },
-    { id: 'prerequisites',     title: 'Prerequisites' },
-    { id: 'pipeline',          title: 'Pipeline' },
-    { id: 'commenting',        title: 'AI Comments' },
-    { id: 'personalisation',   title: 'Personalization' },
-    { id: 'algorithms',        title: 'Theory & Algo' },
-    { id: 'interface',         title: 'Interface' },
-    { id: 'benchmark',         title: 'Benchmark' },
-    { id: 'tips',              title: 'Tips' },
-    { id: 'troubleshooting',   title: 'Troubleshooting' },
-  ];
+  const sections = SECTIONS;
+
+  // Aide contextuelle : le « ? » du header pousse ?section=… même quand on est
+  // déjà sur la page — suivre les changements d'URL.
+  useEffect(() => {
+    const s = searchParams.get('section');
+    if (s && s !== activeTab && SECTIONS.some((x) => x.id === s)) setActiveTab(s);
+  }, [searchParams, activeTab]);
+
+  const selectTab = (id: string) => {
+    setActiveTab(id);
+    setQuery('');
+    setSearchParams({ section: id }, { replace: true });
+  };
+
+  const ensureIndex = () => { if (!index) setIndex(buildSearchIndex()); };
+  const results = query.trim().length >= 2 && index ? searchSections(index, query.trim()) : null;
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
@@ -26,11 +115,24 @@ const Documentation: React.FC = () => {
             Master Spectra — from document ingestion to the continuous personalization loop and preference-based fine-tuning.
           </p>
         </div>
+        <div className="flex flex-col gap-3 md:items-end">
+        <div className="relative w-full md:w-80">
+          <span aria-hidden="true" className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[16px] text-muted-foreground pointer-events-none">search</span>
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => { setQuery(e.target.value); ensureIndex(); }}
+            onFocus={ensureIndex}
+            placeholder={t('docs.searchPlaceholder')}
+            aria-label={t('docs.searchPlaceholder')}
+            className="w-full bg-secondary/30 border border-border/40 rounded-lg pl-9 pr-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/60 transition-colors"
+          />
+        </div>
         <div className="flex bg-secondary/30 p-1 rounded-lg border border-border/40 overflow-x-auto no-scrollbar flex-wrap gap-0.5">
           {sections.map((section) => (
             <button
               key={section.id}
-              onClick={() => setActiveTab(section.id)}
+              onClick={() => selectTab(section.id)}
               className={`px-4 py-1.5 text-xs font-headline uppercase tracking-widest rounded-md transition-all whitespace-nowrap ${
                 activeTab === section.id
                   ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/20'
@@ -41,20 +143,39 @@ const Documentation: React.FC = () => {
             </button>
           ))}
         </div>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-8">
-        {activeTab === 'overview'        && sectionOverview()}
-        {activeTab === 'prerequisites'   && sectionPrerequisites()}
-        {activeTab === 'pipeline'        && sectionPipeline()}
-        {activeTab === 'commenting'      && sectionCommenting()}
-        {activeTab === 'personalisation' && sectionPersonalisation()}
-        {activeTab === 'interface'       && sectionInterface()}
-        {activeTab === 'benchmark'       && sectionBenchmark()}
-        {activeTab === 'tips'            && sectionTips()}
-        {activeTab === 'troubleshooting' && sectionTroubleshooting()}
-        {activeTab === 'algorithms'      && sectionAlgorithms()}
-      </div>
+      {results !== null ? (
+        <div className="space-y-4">
+          {results.length === 0 ? (
+            <p className="text-muted-foreground">{t('docs.noResults')} « {query.trim()} »</p>
+          ) : (
+            results.map((r) => (
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => selectTab(r.id)}
+                className="w-full text-left bg-card/50 border border-border/40 rounded-xl p-5 hover:border-primary/50 transition-colors space-y-2"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-headline font-bold text-foreground uppercase tracking-widest text-sm">{r.title}</span>
+                  <span className="text-xs text-muted-foreground shrink-0">{t('docs.matches', { count: r.count })}</span>
+                </div>
+                {r.snippets.map((snip, i) => (
+                  <p key={i} className="text-sm text-muted-foreground leading-relaxed">
+                    <HighlightedSnippet text={snip} query={query.trim()} />
+                  </p>
+                ))}
+              </button>
+            ))
+          )}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-8">
+          {SECTION_RENDERERS[activeTab]?.()}
+        </div>
+      )}
     </div>
   );
 };
@@ -104,7 +225,7 @@ const sectionAlgorithms = () => (
           Vector search is great for meaning, but bad for exact technical terms (e.g. "Valve X-42"). <strong className="text-foreground">BM25</strong> is a keyword-matching algorithm (like traditional search engines). Spectra combines both.
         </p>
         <div className="bg-black/40 rounded-lg p-5 border border-border/20">
-          <p className="text-[10px] font-headline uppercase tracking-widest text-primary mb-3">Algorithm: Reciprocal Rank Fusion (RRF)</p>
+          <p className="text-[11px] font-headline uppercase tracking-widest text-primary mb-3">Algorithm: Reciprocal Rank Fusion (RRF)</p>
           <p className="text-xs text-muted-foreground leading-relaxed mb-3">
             RRF merges the two ranked lists mathematically, rewarding documents that rank high in both without needing to balance arbitrary scores.
           </p>
@@ -121,7 +242,7 @@ const sectionAlgorithms = () => (
           For Direct Preference Optimization (DPO), we need a <em>chosen</em> (good) and a <em>rejected</em> (bad) answer. But if the bad answer is almost identical to the good one, the model learns nothing.
         </p>
         <div className="bg-black/40 rounded-lg p-5 border border-border/20">
-          <p className="text-[10px] font-headline uppercase tracking-widest text-primary mb-3">Algorithm: Jaccard Similarity</p>
+          <p className="text-[11px] font-headline uppercase tracking-widest text-primary mb-3">Algorithm: Jaccard Similarity</p>
           <code className="block bg-black/50 p-3 rounded font-mono text-xs text-foreground/80 mb-3">
             J(A, B) = |A ∩ B| / |A ∪ B|
           </code>
@@ -216,7 +337,7 @@ const sectionOverview = () => (
             <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center group-hover:scale-110 transition-transform shrink-0">
               {p.icon}
             </div>
-            <span className="text-[8px] font-bold uppercase tracking-widest border border-primary/30 text-primary px-2 py-0.5 rounded-full">
+            <span className="text-[10px] font-bold uppercase tracking-widest border border-primary/30 text-primary px-2 py-0.5 rounded-full">
               {p.badge}
             </span>
           </div>
@@ -248,8 +369,8 @@ const sectionOverview = () => (
           ) : (
             <div key={i} className="flex flex-col items-center gap-2 px-3">
               <div className={`w-10 h-10 rounded-full flex items-center justify-center font-headline font-bold text-xs shadow-lg ${s.color} text-primary-foreground`}>{s.num}</div>
-              <span className={`text-[10px] font-headline uppercase tracking-widest ${s.text}`}>{s.label}</span>
-              <span className="text-[8px] text-muted-foreground/60 text-center max-w-[70px]">{s.sub}</span>
+              <span className={`text-[11px] font-headline uppercase tracking-widest ${s.text}`}>{s.label}</span>
+              <span className="text-[10px] text-muted-foreground/60 text-center max-w-[70px]">{s.sub}</span>
             </div>
           ))}
         </div>
@@ -274,7 +395,7 @@ const sectionOverview = () => (
       ].map(s => (
         <div key={s.label} className="bg-secondary/20 rounded-xl p-5 text-center border border-border/40">
           <p className={`text-3xl font-headline font-bold ${s.color}`}>{s.label}</p>
-          <p className="text-[9px] text-muted-foreground uppercase tracking-widest mt-1">{s.sub}</p>
+          <p className="text-[10px] text-muted-foreground uppercase tracking-widest mt-1">{s.sub}</p>
         </div>
       ))}
     </div>
@@ -295,7 +416,7 @@ const sectionPrerequisites = () => (
         </ul>
 
         <div className="mt-8">
-          <h3 className="text-lg font-headline font-bold text-foreground mb-3 uppercase tracking-wider text-[10px]">Required GGUF Models</h3>
+          <h3 className="text-lg font-headline font-bold text-foreground mb-3 uppercase tracking-wider text-[11px]">Required GGUF Models</h3>
           <div className="bg-black/40 p-4 rounded-lg font-mono text-sm border border-border/20">
             <p className="text-green-400"># Embeddings — place in data/models/embed.gguf</p>
             <p className="text-foreground mb-3">nomic-embed-text-v1.5.Q4_K_M.gguf</p>
@@ -341,7 +462,7 @@ const sectionPipeline = () => (
                   ? 'bg-primary text-primary-foreground shadow-primary/20'
                   : 'bg-secondary/80 text-foreground shadow-secondary/10'
               }`}>{s.n}</div>
-              <span className={`text-[9px] font-headline uppercase mt-1.5 tracking-widest ${
+              <span className={`text-[10px] font-headline uppercase mt-1.5 tracking-widest ${
                 s.accent === 'primary' ? 'text-primary' : 'text-secondary'
               }`}>{s.label}</span>
             </div>
@@ -394,8 +515,8 @@ const sectionPipeline = () => (
             { type: 'DPO pair', desc: 'Chosen (correct) + Rejected (LLM erroneous)', color: 'border-border/40 text-muted-foreground' },
           ].map(t => (
             <div key={t.type} className={`rounded p-2 border ${t.color}`}>
-              <p className={`font-bold text-[9px] uppercase tracking-widest ${t.color}`}>{t.type}</p>
-              <p className="text-muted-foreground mt-0.5 text-[8px]">{t.desc}</p>
+              <p className={`font-bold text-[10px] uppercase tracking-widest ${t.color}`}>{t.type}</p>
+              <p className="text-muted-foreground mt-0.5 text-[10px]">{t.desc}</p>
             </div>
           ))}
         </div>
@@ -407,7 +528,7 @@ const sectionPipeline = () => (
         <div className="flex items-center gap-2 mb-4">
           <div className="w-7 h-7 rounded-full bg-secondary/80 flex items-center justify-center font-headline font-bold text-foreground text-xs">2c</div>
           <h3 className="text-xl font-headline font-bold text-foreground">AI Annotations</h3>
-          <span className="text-[8px] font-bold uppercase tracking-widest border border-secondary/40 text-secondary px-2 py-0.5 rounded-full">DPO Loop</span>
+          <span className="text-[10px] font-bold uppercase tracking-widest border border-secondary/40 text-secondary px-2 py-0.5 rounded-full">DPO Loop</span>
         </div>
         <p className="text-sm text-muted-foreground mb-4 leading-relaxed">
           The LLM generates an analytical comment grounded in the document's actual chunks (RAG). Your 👍/👎 ratings form DPO pairs.
@@ -440,7 +561,7 @@ const sectionPipeline = () => (
             { name: 'dpo-alignement',  desc: 'rank 32, DPO enabled — integrates your preferences', color: 'text-secondary' },
           ].map(r => (
             <div key={r.name} className="flex items-start gap-2">
-              <code className={`font-mono font-bold text-[9px] ${r.color} shrink-0`}>{r.name}</code>
+              <code className={`font-mono font-bold text-[10px] ${r.color} shrink-0`}>{r.name}</code>
               <span className="text-muted-foreground">{r.desc}</span>
             </div>
           ))}
@@ -484,8 +605,8 @@ const sectionPipeline = () => (
           ].map(r => (
             <div key={r.label} className="bg-secondary/20 rounded-lg p-3">
               <span className="material-symbols-outlined text-sm text-primary">{r.icon}</span>
-              <p className="text-[9px] font-bold uppercase tracking-widest text-primary mt-1">{r.label}</p>
-              <p className="text-[9px] text-muted-foreground mt-0.5">{r.desc}</p>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-primary mt-1">{r.label}</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">{r.desc}</p>
             </div>
           ))}
         </div>
@@ -510,7 +631,7 @@ const sectionCommenting = () => (
         </div>
         <div>
           <h2 className="text-2xl font-headline font-bold text-foreground">AI Comments — RAG + DPO Loop</h2>
-          <p className="text-sm text-muted-foreground">Pipeline step 2c — available on the Database page</p>
+          <p className="text-sm text-muted-foreground">Pipeline step 2c — available on the Documents page</p>
         </div>
       </div>
       <p className="text-sm text-foreground/80 leading-relaxed">
@@ -554,7 +675,7 @@ const sectionCommenting = () => (
               <span className="font-headline font-bold text-sm">{c.title}</span>
             </div>
             <p className="text-xs text-muted-foreground leading-relaxed mb-3">{c.body}</p>
-            <span className={`text-[8px] font-bold uppercase tracking-widest border px-2 py-0.5 rounded-full ${c.accent}`}>
+            <span className={`text-[10px] font-bold uppercase tracking-widest border px-2 py-0.5 rounded-full ${c.accent}`}>
               {c.badge}
             </span>
           </div>
@@ -596,7 +717,7 @@ const sectionCommenting = () => (
       <ol className="space-y-4 text-sm text-foreground/80">
         <li className="flex gap-3">
           <span className="w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">1</span>
-          <span>Click <strong>Database</strong> in the side menu, then a document to open its record.</span>
+          <span>Click <strong>Documents</strong> in the side menu, then a document to open its record.</span>
         </li>
         <li className="flex gap-3">
           <span className="w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">2</span>
@@ -658,7 +779,7 @@ const sectionPersonalisation = () => (
       <div className="flex items-center gap-3 mb-4">
         <span className="material-symbols-outlined text-2xl text-primary">auto_mode</span>
         <h2 className="text-2xl font-headline font-bold text-foreground">Continuous Personalization</h2>
-        <span className="text-[8px] font-bold uppercase tracking-widest border border-primary/40 text-primary px-2 py-0.5 rounded-full">v1.1</span>
+        <span className="text-[10px] font-bold uppercase tracking-widest border border-primary/40 text-primary px-2 py-0.5 rounded-full">v1.1</span>
       </div>
       <p className="text-sm text-foreground/80 leading-relaxed">
         Spectra implements an <strong>automatic personalization loop</strong> built from 4 complementary mechanisms.
@@ -684,7 +805,7 @@ const sectionPersonalisation = () => (
 
       {/* Diagram */}
       <div className="bg-black/40 rounded-xl p-6 border border-border/20">
-        <p className="text-[9px] font-headline uppercase tracking-widest text-muted-foreground mb-4">Trigger diagram</p>
+        <p className="text-[10px] font-headline uppercase tracking-widest text-muted-foreground mb-4">Trigger diagram</p>
         <div className="font-mono text-xs space-y-1">
           <div className="flex items-center gap-2">
             <span className="text-muted-foreground w-28">Approval 1</span>
@@ -695,7 +816,7 @@ const sectionPersonalisation = () => (
               <div className="w-6 h-3 bg-border/20 rounded-sm" />
               <div className="w-6 h-3 bg-border/20 rounded-sm" />
             </div>
-            <span className="text-muted-foreground text-[9px]">1 / 5</span>
+            <span className="text-muted-foreground text-[10px]">1 / 5</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-muted-foreground w-28">Approval 3</span>
@@ -706,7 +827,7 @@ const sectionPersonalisation = () => (
               <div className="w-6 h-3 bg-border/20 rounded-sm" />
               <div className="w-6 h-3 bg-border/20 rounded-sm" />
             </div>
-            <span className="text-muted-foreground text-[9px]">3 / 5</span>
+            <span className="text-muted-foreground text-[10px]">3 / 5</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-foreground w-28 font-bold">Approval 5</span>
@@ -717,7 +838,7 @@ const sectionPersonalisation = () => (
               <div className="w-6 h-3 bg-primary rounded-sm" />
               <div className="w-6 h-3 bg-primary rounded-sm" />
             </div>
-            <span className="text-primary font-bold text-[9px] flex items-center gap-1">
+            <span className="text-primary font-bold text-[10px] flex items-center gap-1">
               5 / 5 → <span className="material-symbols-outlined text-[11px]">rocket_launch</span> DPO FT launched!
             </span>
           </div>
@@ -730,7 +851,7 @@ const sectionPersonalisation = () => (
               <div className="w-6 h-3 bg-primary rounded-sm" />
               <div className="w-6 h-3 bg-primary rounded-sm" />
             </div>
-            <span className="text-primary text-[9px] flex items-center gap-1">
+            <span className="text-primary text-[10px] flex items-center gap-1">
               10 / 5 → <span className="material-symbols-outlined text-[11px]">rocket_launch</span> 2nd cycle
             </span>
           </div>
@@ -739,7 +860,7 @@ const sectionPersonalisation = () => (
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-black/30 rounded-lg p-4">
-          <p className="text-[9px] font-headline uppercase tracking-widest text-primary mb-2">Configuration</p>
+          <p className="text-[10px] font-headline uppercase tracking-widest text-primary mb-2">Configuration</p>
           <div className="font-mono text-xs space-y-1 text-foreground/80">
             <p><span className="text-muted-foreground">Key:</span> spectra.ged.auto-retrain-threshold</p>
             <p><span className="text-muted-foreground">Default:</span> 5</p>
@@ -747,7 +868,7 @@ const sectionPersonalisation = () => (
           </div>
         </div>
         <div className="bg-black/30 rounded-lg p-4">
-          <p className="text-[9px] font-headline uppercase tracking-widest text-secondary mb-2">What happens</p>
+          <p className="text-[10px] font-headline uppercase tracking-widest text-secondary mb-2">What happens</p>
           <div className="text-xs space-y-1 text-foreground/80">
             <p>1. <code className="font-mono">exportDpoPairs()</code> → <code className="font-mono">comments_dpo.jsonl</code></p>
             <p>2. <code className="font-mono">FineTuningService.submit()</code> with <code className="font-mono">dpoEnabled=true</code></p>
@@ -775,7 +896,7 @@ const sectionPersonalisation = () => (
 
       {/* Formula */}
       <div className="bg-black/40 rounded-xl p-6 border border-border/20 space-y-4">
-        <p className="text-[9px] font-headline uppercase tracking-widest text-muted-foreground">Jaccard formula over word sets</p>
+        <p className="text-[10px] font-headline uppercase tracking-widest text-muted-foreground">Jaccard formula over word sets</p>
         <div className="flex items-center justify-center">
           <div className="font-mono text-sm text-center space-y-1">
             <p className="text-foreground/60 text-xs">Let A = words of <span className="text-primary">chosen</span>, B = words of <span className="text-secondary">rejected</span></p>
@@ -793,18 +914,18 @@ const sectionPersonalisation = () => (
 
       {/* Worked example */}
       <div className="space-y-3">
-        <p className="text-[9px] font-headline uppercase tracking-widest text-muted-foreground">Concrete example</p>
+        <p className="text-[10px] font-headline uppercase tracking-widest text-muted-foreground">Concrete example</p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="bg-green-500/5 border border-green-500/20 rounded-lg p-4">
-            <p className="text-[9px] font-bold uppercase tracking-widest text-green-400 mb-2">ACCEPTED pair ✓</p>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-green-400 mb-2">ACCEPTED pair ✓</p>
             <div className="font-mono text-xs space-y-2">
               <div>
-                <p className="text-primary text-[9px] uppercase">chosen</p>
+                <p className="text-primary text-[10px] uppercase">chosen</p>
                 <p className="text-foreground/80">"The document describes 5 steps: alert, containment, evacuation, response, return-to-normal"</p>
               </div>
               <div>
-                <p className="text-secondary text-[9px] uppercase">rejected</p>
+                <p className="text-secondary text-[10px] uppercase">rejected</p>
                 <p className="text-foreground/60">"This report summarizes the legal safety obligations in 3 main points"</p>
               </div>
               <div className="border-t border-border/20 pt-2">
@@ -816,14 +937,14 @@ const sectionPersonalisation = () => (
           </div>
 
           <div className="bg-red-500/5 border border-red-500/20 rounded-lg p-4">
-            <p className="text-[9px] font-bold uppercase tracking-widest text-red-400 mb-2">REJECTED pair ✗</p>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-red-400 mb-2">REJECTED pair ✗</p>
             <div className="font-mono text-xs space-y-2">
               <div>
-                <p className="text-primary text-[9px] uppercase">chosen</p>
+                <p className="text-primary text-[10px] uppercase">chosen</p>
                 <p className="text-foreground/80">"The document describes 5 steps: alert, containment, evacuation, response, return-to-normal"</p>
               </div>
               <div>
-                <p className="text-secondary text-[9px] uppercase">rejected</p>
+                <p className="text-secondary text-[10px] uppercase">rejected</p>
                 <p className="text-foreground/60">"The document describes 5 steps: alert, containment, evacuation, response, normalization"</p>
               </div>
               <div className="border-t border-border/20 pt-2">
@@ -864,16 +985,16 @@ const sectionPersonalisation = () => (
 
       {/* Problem/Solution diagram */}
       <div className="bg-black/40 rounded-xl p-6 border border-border/20 space-y-4">
-        <p className="text-[9px] font-headline uppercase tracking-widest text-muted-foreground">Mismatch problem</p>
+        <p className="text-[10px] font-headline uppercase tracking-widest text-muted-foreground">Mismatch problem</p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs font-mono">
           <div className="bg-red-500/10 border border-red-500/20 rounded p-3">
-            <p className="text-red-400 font-bold text-[9px] uppercase mb-2">Registry (registry.json)</p>
+            <p className="text-red-400 font-bold text-[10px] uppercase mb-2">Registry (registry.json)</p>
             <p className="text-foreground">activeChatModel:</p>
             <p className="text-primary font-bold">"phi-4-mini-finetuned"</p>
           </div>
           <div className="flex items-center justify-center text-muted-foreground/40 text-2xl">≠</div>
           <div className="bg-red-500/10 border border-red-500/20 rounded p-3">
-            <p className="text-red-400 font-bold text-[9px] uppercase mb-2">llama-server (GET /v1/models)</p>
+            <p className="text-red-400 font-bold text-[10px] uppercase mb-2">llama-server (GET /v1/models)</p>
             <p className="text-foreground">models[0].id:</p>
             <p className="text-secondary font-bold">"phi-3-mini"</p>
           </div>
@@ -886,7 +1007,7 @@ const sectionPersonalisation = () => (
 
       {/* Solution */}
       <div className="bg-black/40 rounded-xl p-6 border border-border/20 space-y-3">
-        <p className="text-[9px] font-headline uppercase tracking-widest text-muted-foreground">Implemented solution</p>
+        <p className="text-[10px] font-headline uppercase tracking-widest text-muted-foreground">Implemented solution</p>
         <div className="font-mono text-xs space-y-1 text-foreground/80">
           <p><span className="text-primary">setActiveModel(</span><span className="text-secondary">"phi-4-mini-finetuned"</span><span className="text-primary">)</span></p>
           <p className="text-muted-foreground">  ↓ 1. Update the registry</p>
@@ -903,7 +1024,7 @@ const sectionPersonalisation = () => (
       </div>
 
       <div className="bg-black/30 rounded-lg p-4">
-        <p className="text-[9px] font-headline uppercase tracking-widest text-muted-foreground mb-2">Monitor mismatches</p>
+        <p className="text-[10px] font-headline uppercase tracking-widest text-muted-foreground mb-2">Monitor mismatches</p>
         <div className="font-mono text-xs text-foreground/70 space-y-1">
           <p className="text-green-400"># Search the logs</p>
           <p>docker compose logs spectra-api | grep "ALERTE REGISTRE"</p>
@@ -930,7 +1051,7 @@ const sectionPersonalisation = () => (
 
       {/* Metrics map */}
       <div className="bg-black/40 rounded-xl p-6 border border-border/20">
-        <p className="text-[9px] font-headline uppercase tracking-widest text-muted-foreground mb-4">Response structure</p>
+        <p className="text-[10px] font-headline uppercase tracking-widest text-muted-foreground mb-4">Response structure</p>
         <div className="font-mono text-xs space-y-0.5 overflow-x-auto">
           <p className="text-foreground">{`GET /api/metrics/personalization`}</p>
           <p className="text-muted-foreground">{`{`}</p>
@@ -951,7 +1072,7 @@ const sectionPersonalisation = () => (
 
       {/* Dashboard visual */}
       <div className="space-y-3">
-        <p className="text-[9px] font-headline uppercase tracking-widest text-muted-foreground">What you see in the Dashboard</p>
+        <p className="text-[10px] font-headline uppercase tracking-widest text-muted-foreground">What you see in the Dashboard</p>
         <div className="grid grid-cols-4 gap-3">
           {[
             { label: 'Approved', value: '12', color: 'border-primary text-primary' },
@@ -960,7 +1081,7 @@ const sectionPersonalisation = () => (
             { label: 'Eval Score', value: '7.3/10', color: 'border-border/40 text-foreground' },
           ].map(m => (
             <div key={m.label} className={`bg-black/30 rounded p-3 border-t-2 ${m.color}`}>
-              <p className="text-[8px] uppercase tracking-widest text-muted-foreground">{m.label}</p>
+              <p className="text-[10px] uppercase tracking-widest text-muted-foreground">{m.label}</p>
               <p className={`font-headline font-bold text-xl mt-1 ${m.color}`}>{m.value}</p>
             </div>
           ))}
@@ -969,15 +1090,15 @@ const sectionPersonalisation = () => (
         {/* Progress bar */}
         <div className="bg-black/30 rounded-lg p-4">
           <div className="flex justify-between mb-2">
-            <p className="text-[9px] uppercase tracking-widest text-muted-foreground">Next auto re-training</p>
-            <p className="text-[9px] font-mono text-muted-foreground">threshold: 5</p>
+            <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Next auto re-training</p>
+            <p className="text-[10px] font-mono text-muted-foreground">threshold: 5</p>
           </div>
           <div className="w-full bg-border/20 h-2 rounded-full">
             <div className="h-2 bg-primary rounded-full" style={{ width: '80%' }} />
           </div>
           <div className="flex justify-between mt-1">
-            <p className="text-[8px] text-muted-foreground">12 / 15 (2nd cycle + 2 into 3rd)</p>
-            <p className="text-[8px] text-muted-foreground">3 more approvals</p>
+            <p className="text-[10px] text-muted-foreground">12 / 15 (2nd cycle + 2 into 3rd)</p>
+            <p className="text-[10px] text-muted-foreground">3 more approvals</p>
           </div>
         </div>
       </div>
@@ -1003,23 +1124,23 @@ const sectionInterface = () => (
             badge: 'Auto metrics',
           },
           {
-            key: 'Datasets',
+            key: 'Ingestion',
             title: 'Ingestion & Generation',
             body: 'A drop zone for your documents (PDF, DOCX, TXT, URL). Track ingestion chunk by chunk. Launch Q/A dataset generation with the Max Chunks slider.',
             icon: 'cloud_upload',
           },
           {
-            key: 'Database',
+            key: 'Documents',
             title: 'DMS + AI Comments',
             body: 'A complete record for every document: lifecycle, tags, audit trail. A Comments section with 3 tabs: List / Manual / ✦ AI — RAG generation, DPO rating, export. The approval counter feeds the Dashboard progress bar.',
-            icon: 'analytics',
+            icon: 'folder_open',
             badge: 'AI Comments',
           },
           {
             key: 'Fine-Tuning',
             title: 'Training & Logs',
             body: 'Launch manual jobs (CPU/GPU/DPO recipes) or review auto-triggered jobs. View live telemetry (loss, epoch). Auto-DPO jobs appear with the "auto-dpo-" prefix.',
-            icon: 'history',
+            icon: 'model_training',
             badge: 'Auto-DPO jobs',
           },
           {
@@ -1038,9 +1159,9 @@ const sectionInterface = () => (
           <div key={item.key} className="flex gap-6">
             <div className="w-28 shrink-0 flex flex-col items-start gap-1 pt-1">
               <span className="material-symbols-outlined text-sm text-primary">{item.icon}</span>
-              <span className="font-headline uppercase tracking-widest text-[10px] text-primary">{item.key}</span>
+              <span className="font-headline uppercase tracking-widest text-[11px] text-primary">{item.key}</span>
               {item.badge && (
-                <span className="text-[7px] font-bold uppercase border border-secondary/40 text-secondary px-1.5 py-0.5 rounded-full tracking-widest">
+                <span className="text-[10px] font-bold uppercase border border-secondary/40 text-secondary px-1.5 py-0.5 rounded-full tracking-widest">
                   {item.badge}
                 </span>
               )}
@@ -1287,7 +1408,7 @@ const sectionTips = () => (
         },
       ].map(tip => (
         <div key={tip.title} className="space-y-3">
-          <h3 className="text-[10px] font-headline font-bold text-primary uppercase tracking-widest">{tip.title}</h3>
+          <h3 className="text-[11px] font-headline font-bold text-primary uppercase tracking-widest">{tip.title}</h3>
           <p className="text-sm text-muted-foreground leading-relaxed">{tip.body}</p>
         </div>
       ))}
@@ -1356,5 +1477,20 @@ const sectionTroubleshooting = () => (
     </div>
   </div>
 );
+
+// Registre id → rendu, utilisé pour l'affichage ET l'index de recherche.
+// (Déclaré en fin de fichier : les const fléchées ne sont pas hoistées.)
+const SECTION_RENDERERS: Record<string, () => React.JSX.Element> = {
+  overview: sectionOverview,
+  prerequisites: sectionPrerequisites,
+  pipeline: sectionPipeline,
+  commenting: sectionCommenting,
+  personalisation: sectionPersonalisation,
+  algorithms: sectionAlgorithms,
+  interface: sectionInterface,
+  benchmark: sectionBenchmark,
+  tips: sectionTips,
+  troubleshooting: sectionTroubleshooting,
+};
 
 export default Documentation;

@@ -12,7 +12,7 @@ interface Props {
 const CustomTooltip = ({ active, payload }: any) => {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-surface-container border border-primary/20 px-3 py-2 text-[10px] font-label">
+    <div className="bg-surface-container border border-primary/20 px-3 py-2 text-[11px] font-label">
       <p className="text-on-surface-variant uppercase tracking-widest">{payload[0].payload.name}</p>
       <p className="text-primary font-bold">{payload[0].value} paires</p>
     </div>
@@ -33,7 +33,7 @@ const CategoryBar: FC<Props> = ({ byCategory, color = '#8ff5ff' }) => {
         <CartesianGrid horizontal={false} strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
         <XAxis
           type="number"
-          tick={{ fill: 'rgba(222,229,255,0.4)', fontSize: 9, fontFamily: 'Space Grotesk' }}
+          tick={{ fill: 'rgba(222,229,255,0.4)', fontSize: 10, fontFamily: 'Space Grotesk' }}
           axisLine={false}
           tickLine={false}
         />
@@ -41,7 +41,7 @@ const CategoryBar: FC<Props> = ({ byCategory, color = '#8ff5ff' }) => {
           type="category"
           dataKey="name"
           width={80}
-          tick={{ fill: 'rgba(222,229,255,0.55)', fontSize: 9, fontFamily: 'Space Grotesk' }}
+          tick={{ fill: 'rgba(222,229,255,0.55)', fontSize: 10, fontFamily: 'Space Grotesk' }}
           axisLine={false}
           tickLine={false}
         />

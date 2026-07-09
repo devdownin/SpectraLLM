@@ -1,6 +1,8 @@
 import type { FC } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import Tooltip from './Tooltip';
+import { NAV_ITEMS, DOCUMENTATION_ITEM } from '../navigation';
 
 interface SidebarProps {
   isCollapsed: boolean;
@@ -28,17 +30,9 @@ const NeuralIcon: FC<{ size?: number }> = ({ size = 22 }) => (
 
 const Sidebar: FC<SidebarProps> = ({ isCollapsed, onToggle, mobileOpen = false, onMobileClose }) => {
   const navigate = useNavigate();
+  const { t } = useTranslation();
 
-  const navItems = [
-    { name: 'Dashboard',  icon: 'dashboard',      path: '/'             },
-    { name: 'Model Hub',  icon: 'hub',             path: '/model-hub'    },
-    { name: 'Datasets',   icon: 'database',        path: '/datasets'     },
-    { name: 'Database',   icon: 'analytics',       path: '/pipelines'    },
-    { name: 'Fine-Tuning',icon: 'history',         path: '/fine-tuning'  },
-    { name: 'Playground', icon: 'chat_bubble',     path: '/playground'   },
-    { name: 'Comparison', icon: 'compare_arrows',  path: '/comparison'   },
-    { name: 'Optimisation',icon: 'tune',           path: '/optimization' },
-  ];
+  const navItems = NAV_ITEMS;
 
   return (
     <aside className={`sidebar-dots fixed left-0 top-0 h-full flex flex-col p-4 z-50 bg-surface-container-low transition-all duration-300 w-64 ${isCollapsed ? 'md:w-20' : 'md:w-64'} ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 border-r border-outline-variant/10`}>
@@ -51,7 +45,7 @@ const Sidebar: FC<SidebarProps> = ({ isCollapsed, onToggle, mobileOpen = false, 
             </span>
             <div>
               <div className="text-base font-black text-primary font-headline tracking-[-0.04em] leading-none">Spectra</div>
-              <div className="font-headline uppercase tracking-[0.12em] text-[9px] text-outline mt-0.5">AI ARCHITECT</div>
+              <div className="font-headline uppercase tracking-[0.12em] text-[10px] text-outline mt-0.5">AI ARCHITECT</div>
             </div>
           </div>
         )}
@@ -86,7 +80,7 @@ const Sidebar: FC<SidebarProps> = ({ isCollapsed, onToggle, mobileOpen = false, 
 
       <nav className="flex-1 space-y-0.5">
         {navItems.map((item) => (
-          <Tooltip key={item.path} content={isCollapsed ? item.name : ''}>
+          <Tooltip key={item.path} content={isCollapsed ? t(item.nameKey, item.name) : ''}>
             <NavLink
               to={item.path}
               end={item.path === '/'}
@@ -102,7 +96,7 @@ const Sidebar: FC<SidebarProps> = ({ isCollapsed, onToggle, mobileOpen = false, 
               <span className={`material-symbols-outlined text-[18px] ${isCollapsed ? 'mr-0' : 'mr-3'}`}>{item.icon}</span>
               {!isCollapsed && (
                 <span className="font-headline uppercase tracking-[0.08em] text-[11px] animate-in fade-in slide-in-from-left-2">
-                  {item.name}
+                  {t(item.nameKey, item.name)}
                 </span>
               )}
             </NavLink>
@@ -110,27 +104,27 @@ const Sidebar: FC<SidebarProps> = ({ isCollapsed, onToggle, mobileOpen = false, 
         ))}
       </nav>
 
-      <Tooltip content={isCollapsed ? 'New Model' : ''}>
+      <Tooltip content={isCollapsed ? t('nav.newModel') : ''}>
         <button
           onClick={() => { navigate('/fine-tuning'); onMobileClose?.(); }}
           className={`mt-4 mb-6 bg-primary text-on-primary-fixed font-bold flex items-center justify-center transition-all hover:opacity-90 hover:shadow-[0_0_20px_rgba(143,245,255,0.25)] ${isCollapsed ? 'w-10 h-10 mx-auto' : 'py-2.5 px-4 gap-2'}`}
         >
           <span className="material-symbols-outlined text-[16px]">add</span>
-          {!isCollapsed && <span className="font-headline uppercase tracking-[0.1em] text-[10px]">NEW MODEL</span>}
+          {!isCollapsed && <span className="font-headline uppercase tracking-[0.1em] text-[11px]">{t('nav.newModel')}</span>}
         </button>
       </Tooltip>
 
       <div className="space-y-0.5 mt-auto pt-4 border-t border-outline-variant/10">
-        <Tooltip content={isCollapsed ? 'Documentation' : ''}>
+        <Tooltip content={isCollapsed ? t(DOCUMENTATION_ITEM.nameKey, DOCUMENTATION_ITEM.name) : ''}>
           <NavLink
-            to="/documentation"
+            to={DOCUMENTATION_ITEM.path}
             onClick={onMobileClose}
             className={({ isActive }) =>
               `flex items-center text-outline hover:text-primary hover:bg-surface-container-high/60 transition-all cursor-pointer w-full ${isCollapsed ? 'px-3 py-2 justify-center' : 'px-4 py-2'} ${isActive ? 'text-primary nav-active' : ''}`
             }
           >
-            <span className={`material-symbols-outlined text-[18px] ${isCollapsed ? 'mr-0' : 'mr-3'}`}>menu_book</span>
-            {!isCollapsed && <span className="font-headline uppercase tracking-[0.08em] text-[11px] animate-in fade-in slide-in-from-left-2">Docs</span>}
+            <span className={`material-symbols-outlined text-[18px] ${isCollapsed ? 'mr-0' : 'mr-3'}`}>{DOCUMENTATION_ITEM.icon}</span>
+            {!isCollapsed && <span className="font-headline uppercase tracking-[0.08em] text-[11px] animate-in fade-in slide-in-from-left-2">{t('nav.docs')}</span>}
           </NavLink>
         </Tooltip>
       </div>

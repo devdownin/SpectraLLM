@@ -38,6 +38,24 @@ No cloud APIs. No data leaving your infrastructure. No ongoing costs.
 
 ---
 
+# Why choose Spectra
+
+| Feature | Spectra | LangChain | Haystack | Open WebUI |
+|---------|:--------:|:---------:|:---------:|:---------:|
+| End-to-end platform | ✅ | ❌ | ❌ | ❌ |
+| Advanced Hybrid RAG | ✅ | ⚠️ | ✅ | ❌ |
+| Agentic RAG | ✅ | ⚠️ | ⚠️ | ❌ |
+| Synthetic Dataset Generation | ✅ | ❌ | ❌ | ❌ |
+| QLoRA Fine-tuning | ✅ | ❌ | ❌ | ❌ |
+| DPO Training | ✅ | ❌ | ❌ | ❌ |
+| Continuous Learning | ✅ | ❌ | ❌ | ❌ |
+| Model Evaluation | ✅ | ❌ | ❌ | ❌ |
+| GGUF Deployment | ✅ | ❌ | ❌ | ⚠️ |
+| Kubernetes Ready | ✅ | ⚠️ | ⚠️ | ⚠️ |
+| 100% Local | ✅ | ✅ | ✅ | ✅ |
+
+> ✅ Built-in &nbsp;&nbsp; ⚠️ Requires custom integration &nbsp;&nbsp; ❌ Not available
+
 ## The Full Pipeline at a Glance
 
 ```
@@ -216,6 +234,16 @@ bash scripts/setup-java.sh
 - A `.gguf` model file placed in `data/models/`
 
 GPU is optional but strongly recommended for inference speed. NVIDIA, AMD (ROCm), and Vulkan are all supported.
+
+### Quick start — one command
+
+```bash
+git clone https://github.com/your-org/Spectra.git
+cd Spectra
+./start.sh --first-run        # Windows: start.bat --first-run
+```
+
+This downloads the default models (embedding ~81 MB + chat ~1.1 GB), starts the full stack in the background, waits for every service to be ready, then opens the Web UI at **http://localhost**. Steps 1–4 below do the same thing manually, for when you want control over each stage.
 
 ### 1. Clone and prepare
 

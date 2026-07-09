@@ -21,7 +21,7 @@ const CodeBlock: FC<{ children: ReactNode }> = ({ children }) => {
         type="button"
         onClick={copy}
         aria-label="Copy code"
-        className="absolute right-2 top-2 opacity-0 group-hover/code:opacity-100 focus-visible:opacity-100 transition-opacity bg-surface-container-high border border-outline-variant/30 text-on-surface-variant hover:text-primary px-1.5 py-0.5 text-[9px] uppercase tracking-widest flex items-center gap-1"
+        className="absolute right-2 top-2 opacity-0 group-hover/code:opacity-100 focus-visible:opacity-100 transition-opacity bg-surface-container-high border border-outline-variant/30 text-on-surface-variant hover:text-primary px-1.5 py-0.5 text-[10px] uppercase tracking-widest flex items-center gap-1"
       >
         <span aria-hidden="true" className="material-symbols-outlined text-[12px]">{copied ? 'check' : 'content_copy'}</span>
         {copied ? 'Copied' : 'Copy'}

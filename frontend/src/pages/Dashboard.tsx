@@ -2,6 +2,7 @@ import type { FC } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { LineChart, Line, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from 'recharts';
+import { useTranslation } from 'react-i18next';
 import { useStatus } from '../hooks/useStatus';
 import { datasetApi, gedApi, commentApi, metricsApi } from '../services/api';
 import Skeleton from '../components/Skeleton';
@@ -81,6 +82,7 @@ function statusChip(status: string): { label: string; cls: string } {
 
 const Dashboard: FC = () => {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const { status, loading } = useStatus();
   // Stats périodiques (dataset + GED + métriques) via React Query — Promise.allSettled
   // pour que l'échec d'une source n'invalide pas les autres ; polling 30 s.
@@ -161,8 +163,8 @@ const Dashboard: FC = () => {
 
       {/* Header */}
       <header>
-        <p className="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-1">System Overview</p>
-        <h2 className="font-headline text-3xl font-bold tracking-tighter">DASHBOARD</h2>
+        <p className="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-1">{t('dashboard.kicker')}</p>
+        <h2 className="font-headline text-3xl font-bold tracking-tighter">{t('dashboard.title')}</h2>
       </header>
 
       {/* ── Cohérence embedding ↔ index (visible seulement en cas de problème) ── */}
@@ -170,7 +172,7 @@ const Dashboard: FC = () => {
 
       {/* ── Service Health ── */}
       <section className="space-y-4">
-        <h3 className="font-headline text-sm font-bold uppercase tracking-tight text-on-surface-variant">Service Health</h3>
+        <h3 className="font-headline text-sm font-bold uppercase tracking-tight text-on-surface-variant">{t('dashboard.serviceHealth')}</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
 
           <div className="bg-surface-container p-6 flex items-center justify-between card-hover">
@@ -184,24 +186,24 @@ const Dashboard: FC = () => {
               </div>
               <div>
                 <p className="font-headline font-bold text-sm uppercase">Chat</p>
-                <p className="text-[10px] text-on-surface-variant uppercase tracking-widest">LLM Inference · llama.cpp</p>
+                <p className="text-[11px] text-on-surface-variant uppercase tracking-widest">LLM Inference · llama.cpp</p>
               </div>
             </div>
             <div className="text-right">
               {loading ? <Skeleton className="h-4 w-16" /> : (
                 <>
-                  <p className={`text-[10px] font-bold uppercase tracking-widest ${chatSvc?.available ? 'text-primary' : 'text-error'}`}>
-                    {chatSvc?.available ? 'Online' : 'Offline'}
+                  <p className={`text-[11px] font-bold uppercase tracking-widest ${chatSvc?.available ? 'text-primary' : 'text-error'}`}>
+                    {chatSvc?.available ? t('dashboard.online') : t('dashboard.offline')}
                   </p>
                   {chatSvc?.details?.activeModel && (
-                    <p className="text-[9px] text-outline font-mono mt-0.5 max-w-[120px] truncate" title={chatSvc.details.activeModel}>
+                    <p className="text-[10px] text-outline font-mono mt-0.5 max-w-[120px] truncate" title={chatSvc.details.activeModel}>
                       {chatSvc.details.activeModel}
                     </p>
                   )}
                   {chatSvc?.available && chatSvc?.details?.activeModelLoaded === false && (
-                    <p className="text-[8px] font-bold text-error uppercase tracking-widest mt-1 flex items-center gap-1">
-                      <span className="material-symbols-outlined text-[10px]">warning</span>
-                      model not loaded
+                    <p className="text-[10px] font-bold text-error uppercase tracking-widest mt-1 flex items-center gap-1">
+                      <span className="material-symbols-outlined text-[11px]">warning</span>
+                      {t('dashboard.modelNotLoaded')}
                     </p>
                   )}
                 </>
@@ -221,19 +223,19 @@ const Dashboard: FC = () => {
               </div>
               <div>
                 <p className="font-headline font-bold text-sm uppercase">Embed</p>
-                <p className="text-[10px] text-on-surface-variant uppercase tracking-widest">Embeddings · llama.cpp</p>
+                <p className="text-[11px] text-on-surface-variant uppercase tracking-widest">Embeddings · llama.cpp</p>
               </div>
             </div>
             <div className="text-right">
               {loading ? <Skeleton className="h-4 w-16" /> : !embedSvc ? (
-                <p className="text-[10px] font-bold uppercase tracking-widest text-outline">N/A</p>
+                <p className="text-[11px] font-bold uppercase tracking-widest text-outline">N/A</p>
               ) : (
                 <>
-                  <p className={`text-[10px] font-bold uppercase tracking-widest ${embedSvc.available ? 'text-secondary' : 'text-error'}`}>
-                    {embedSvc.available ? 'Online' : 'Offline'}
+                  <p className={`text-[11px] font-bold uppercase tracking-widest ${embedSvc.available ? 'text-secondary' : 'text-error'}`}>
+                    {embedSvc.available ? t('dashboard.online') : t('dashboard.offline')}
                   </p>
                   {embedSvc?.details?.activeModel && (
-                    <p className="text-[9px] text-outline font-mono mt-0.5 max-w-[120px] truncate" title={embedSvc.details.activeModel}>
+                    <p className="text-[10px] text-outline font-mono mt-0.5 max-w-[120px] truncate" title={embedSvc.details.activeModel}>
                       {embedSvc.details.activeModel}
                     </p>
                   )}
@@ -253,17 +255,17 @@ const Dashboard: FC = () => {
               </div>
               <div>
                 <p className="font-headline font-bold text-sm uppercase">ChromaDB</p>
-                <p className="text-[10px] text-on-surface-variant uppercase tracking-widest">Vector Storage · API v2</p>
+                <p className="text-[11px] text-on-surface-variant uppercase tracking-widest">Vector Storage · API v2</p>
               </div>
             </div>
             <div className="text-right">
               {loading ? <Skeleton className="h-4 w-16" /> : (
                 <>
-                  <p className={`text-[10px] font-bold uppercase tracking-widest ${chromadb?.available ? 'text-primary' : 'text-error'}`}>
-                    {chromadb?.available ? 'Online' : 'Offline'}
+                  <p className={`text-[11px] font-bold uppercase tracking-widest ${chromadb?.available ? 'text-primary' : 'text-error'}`}>
+                    {chromadb?.available ? t('dashboard.online') : t('dashboard.offline')}
                   </p>
                   {!statsLoading && (stats?.chunksInStore ?? 0) > 0 && (
-                    <p className="text-[9px] text-outline font-mono mt-0.5">{stats!.chunksInStore} chunks</p>
+                    <p className="text-[10px] text-outline font-mono mt-0.5">{stats!.chunksInStore} chunks</p>
                   )}
                 </>
               )}
@@ -276,23 +278,23 @@ const Dashboard: FC = () => {
       {/* ── Getting Started (shown only when no data yet) ── */}
       {!statsLoading && !loading && (stats?.chunksInStore ?? 0) === 0 && (
         <section className="space-y-4">
-          <h3 className="font-headline text-sm font-bold uppercase tracking-tight text-on-surface-variant">Getting Started</h3>
+          <h3 className="font-headline text-sm font-bold uppercase tracking-tight text-on-surface-variant">{t('dashboard.gettingStarted')}</h3>
 
           <div className="bg-surface-container p-5 space-y-3">
-            <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-3">Prerequisites</p>
+            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-3">{t('dashboard.prerequisites')}</p>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {[
-                { ok: chatSvc?.available ?? false, label: 'Chat model', hint: 'Place model.gguf in data/fine-tuning/merged/', icon: 'memory' },
-                { ok: embedSvc?.available ?? false, label: 'Embedding model', hint: 'Place embed.gguf in data/models/ — or run setup.bat --download-embed', icon: 'hub' },
-                { ok: chromadb?.available ?? false, label: 'ChromaDB', hint: 'Check docker compose ps', icon: 'database' },
+                { ok: chatSvc?.available ?? false, label: t('dashboard.chatModel'), hint: t('dashboard.chatModelHint'), icon: 'memory' },
+                { ok: embedSvc?.available ?? false, label: t('dashboard.embeddingModel'), hint: t('dashboard.embeddingModelHint'), icon: 'hub' },
+                { ok: chromadb?.available ?? false, label: 'ChromaDB', hint: t('dashboard.chromaHint'), icon: 'database' },
               ].map(item => (
                 <div key={item.label} className={`flex items-start gap-3 p-3 border ${item.ok ? 'border-primary/20 bg-primary/5' : 'border-error/20 bg-error/5'}`}>
                   <span className={`material-symbols-outlined text-sm mt-0.5 ${item.ok ? 'text-primary' : 'text-error'}`}>
                     {item.ok ? 'check_circle' : 'cancel'}
                   </span>
                   <div className="min-w-0">
-                    <p className="font-label text-[10px] font-bold uppercase tracking-widest">{item.label}</p>
-                    {!item.ok && <p className="text-[9px] text-on-surface-variant mt-0.5 leading-relaxed">{item.hint}</p>}
+                    <p className="font-label text-[11px] font-bold uppercase tracking-widest">{item.label}</p>
+                    {!item.ok && <p className="text-[10px] text-on-surface-variant mt-0.5 leading-relaxed">{item.hint}</p>}
                   </div>
                 </div>
               ))}
@@ -301,9 +303,9 @@ const Dashboard: FC = () => {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {[
-              { num: '1', title: 'Ingest your documents', desc: 'PDF, DOCX, TXT or URLs — drop your files into Dataset Pipelines or run adddoc.bat examples to test.', action: 'Go to Dataset Pipelines', route: '/datasets', icon: 'cloud_upload' },
-              { num: '2', title: 'Generate the dataset', desc: 'Spectra automatically generates Q/A pairs from your documents. Expect 30–120 s/chunk on CPU.', action: 'Go to Dataset Pipelines', route: '/datasets', icon: 'dataset' },
-              { num: '3', title: 'Launch fine-tuning', desc: 'Pick a recipe (e.g. "Fast CPU") and fine-tune the model on your domain.', action: 'Go to Fine-Tuning', route: '/fine-tuning', icon: 'model_training' },
+              { num: '1', title: t('dashboard.step1Title'), desc: t('dashboard.step1Desc'), action: t('dashboard.step1Action'), route: '/ingestion', icon: 'cloud_upload' },
+              { num: '2', title: t('dashboard.step2Title'), desc: t('dashboard.step2Desc'), action: t('dashboard.step2Action'), route: '/ingestion', icon: 'dataset' },
+              { num: '3', title: t('dashboard.step3Title'), desc: t('dashboard.step3Desc'), action: t('dashboard.step3Action'), route: '/fine-tuning', icon: 'model_training' },
             ].map(step => (
               <div key={step.num} className="bg-surface-container p-5 space-y-3">
                 <div className="flex items-center gap-3">
@@ -312,8 +314,8 @@ const Dashboard: FC = () => {
                   </div>
                   <p className="font-headline font-bold text-sm uppercase">{step.title}</p>
                 </div>
-                <p className="text-[10px] text-on-surface-variant leading-relaxed">{step.desc}</p>
-                <button onClick={() => navigate(step.route)} className="w-full text-left text-[9px] font-label font-bold uppercase tracking-widest text-primary hover:text-primary/70 transition-colors flex items-center gap-1">
+                <p className="text-[11px] text-on-surface-variant leading-relaxed">{step.desc}</p>
+                <button onClick={() => navigate(step.route)} className="w-full text-left text-[10px] font-label font-bold uppercase tracking-widest text-primary hover:text-primary/70 transition-colors flex items-center gap-1">
                   <span className="material-symbols-outlined text-[11px]">arrow_forward</span>
                   {step.action}
                 </button>
@@ -322,9 +324,11 @@ const Dashboard: FC = () => {
           </div>
 
           <div className="p-4 border border-outline-variant/20 bg-surface-container">
-            <p className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant flex items-center gap-2">
+            <p className="text-[11px] font-label uppercase tracking-widest text-on-surface-variant flex items-center gap-2">
               <span className="material-symbols-outlined text-sm text-outline">tip</span>
-              New here? Run <code className="font-mono bg-surface-container-high px-1">adddoc.bat examples</code> to ingest the demo documents and validate the pipeline in 5 minutes.
+              {t('dashboard.tipPrefix')} <code className="font-mono bg-surface-container-high px-1">examples/</code> {t('dashboard.tipFolder')}{' '}
+              <button onClick={() => navigate('/ingestion')} className="text-primary hover:text-primary/70 underline underline-offset-2 uppercase">{t('dashboard.tipIngestionPage')}</button>
+              {' '}(Windows : <code className="font-mono bg-surface-container-high px-1">adddoc.bat examples</code>) {t('dashboard.tipSuffix')}
             </p>
           </div>
         </section>
@@ -334,7 +338,7 @@ const Dashboard: FC = () => {
       <section className="space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <h3 className="font-headline text-sm font-bold uppercase tracking-tight text-on-surface-variant">Knowledge Base</h3>
+            <h3 className="font-headline text-sm font-bold uppercase tracking-tight text-on-surface-variant">{t('dashboard.knowledgeBase')}</h3>
             {statsErrors.includes('dataset') && (
               <Tooltip content="Unable to load dataset stats — the API may be unavailable.">
                 <span className="material-symbols-outlined text-sm text-error cursor-help">warning</span>
@@ -348,21 +352,21 @@ const Dashboard: FC = () => {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
 
           <div className="bg-surface-container p-5 border-t-2 border-primary card-hover">
-            <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-2">Chunks in Store</p>
+            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">{t('dashboard.chunksInStore')}</p>
             {statsLoading ? <Skeleton className="h-9 w-16" /> : (
               <p className="font-headline font-bold text-3xl text-primary stat-glow">{stats?.chunksInStore ?? 0}</p>
             )}
           </div>
 
           <div className="bg-surface-container p-5 border-t-2 border-secondary card-hover">
-            <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-2">Training Pairs</p>
+            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">{t('dashboard.trainingPairs')}</p>
             {statsLoading ? <Skeleton className="h-9 w-16" /> : (
               <p className="font-headline font-bold text-3xl text-secondary stat-glow-secondary">{stats?.totalPairs ?? 0}</p>
             )}
           </div>
 
           <div className="bg-surface-container p-5 border-t-2 border-outline-variant card-hover">
-            <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-2">Avg Confidence</p>
+            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">{t('dashboard.avgConfidence')}</p>
             {statsLoading ? <Skeleton className="h-9 w-16" /> : (
               <p className="font-headline font-bold text-3xl">
                 {stats && stats.avgConfidence > 0 ? (stats.avgConfidence * 100).toFixed(0) + '%' : '—'}
@@ -371,7 +375,7 @@ const Dashboard: FC = () => {
           </div>
 
           <div className="bg-surface-container p-5 border-t-2 border-outline-variant card-hover">
-            <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-2">Categories</p>
+            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">{t('dashboard.categories')}</p>
             {statsLoading ? <Skeleton className="h-9 w-16" /> : (
               <p className="font-headline font-bold text-3xl">
                 {stats ? Object.keys(stats.byCategory).length : 0}
@@ -387,12 +391,12 @@ const Dashboard: FC = () => {
             <span className={`material-symbols-outlined text-sm ${pipelineReady ? 'text-primary' : 'text-outline'}`}>
               {pipelineReady ? 'check_circle' : 'radio_button_unchecked'}
             </span>
-            <p className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">
+            <p className="text-[11px] font-label uppercase tracking-widest text-on-surface-variant">
               {pipelineReady
-                ? `Pipeline ready — ${stats!.chunksInStore} chunks · ${stats!.totalPairs} pairs · model ready to fine-tune`
+                ? t('dashboard.pipelineReady', { chunks: stats!.chunksInStore, pairs: stats!.totalPairs })
                 : (stats?.chunksInStore ?? 0) > 0
-                  ? 'Chunks indexed — run dataset generation (step 2)'
-                  : 'Empty knowledge base — ingest documents to get started (step 1)'}
+                  ? t('dashboard.pipelineChunksOnly')
+                  : t('dashboard.pipelineEmpty')}
             </p>
           </div>
         )}
@@ -410,8 +414,8 @@ const Dashboard: FC = () => {
             )}
           </div>
           <button
-            onClick={() => navigate('/pipelines')}
-            className="text-[9px] font-label font-bold uppercase tracking-widest text-primary hover:text-primary/70 transition-colors flex items-center gap-1"
+            onClick={() => navigate('/documents')}
+            className="text-[10px] font-label font-bold uppercase tracking-widest text-primary hover:text-primary/70 transition-colors flex items-center gap-1"
           >
             <span className="material-symbols-outlined text-[11px]">arrow_forward</span>
             Manage documents
@@ -421,14 +425,14 @@ const Dashboard: FC = () => {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
 
           <div className="bg-surface-container p-5 border-t-2 border-primary/60">
-            <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-1">Documents</p>
+            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">Documents</p>
             {statsLoading ? <Skeleton className="h-9 w-12" /> : (
               <>
                 <p className="font-headline font-bold text-3xl">{totalDocs}</p>
                 {gedStats?.byLifecycle && (
                   <div className="flex gap-1 mt-2 flex-wrap">
                     {Object.entries(gedStats.byLifecycle).map(([lc, n]) => (
-                      <span key={lc} className="text-[7px] font-bold uppercase px-1 py-0.5 border border-outline-variant/20 text-outline">
+                      <span key={lc} className="text-[10px] font-bold uppercase px-1 py-0.5 border border-outline-variant/20 text-outline">
                         {lc.slice(0, 3)} {String(n)}
                       </span>
                     ))}
@@ -439,11 +443,11 @@ const Dashboard: FC = () => {
           </div>
 
           <div className="bg-surface-container p-5 border-t-2 border-secondary/60">
-            <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-1">AI Comments</p>
+            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">AI Comments</p>
             {statsLoading ? <Skeleton className="h-9 w-12" /> : (
               <>
                 <p className="font-headline font-bold text-3xl">{commentStats?.aiGenerated ?? 0}</p>
-                <p className="text-[9px] text-on-surface-variant mt-1">
+                <p className="text-[10px] text-on-surface-variant mt-1">
                   {commentStats?.total ?? 0} total (human + AI)
                 </p>
               </>
@@ -451,18 +455,18 @@ const Dashboard: FC = () => {
           </div>
 
           <div className="bg-surface-container p-5 border-t-2 border-primary/40">
-            <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-1">Reviewed</p>
+            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">Reviewed</p>
             {statsLoading ? <Skeleton className="h-9 w-12" /> : (
               <>
                 <p className="font-headline font-bold text-3xl">
                   {(commentStats?.approved ?? 0) + (commentStats?.rejected ?? 0)}
                 </p>
                 <div className="flex gap-3 mt-2">
-                  <span className="flex items-center gap-1 text-[9px] font-bold text-primary" title="Approved">
+                  <span className="flex items-center gap-1 text-[10px] font-bold text-primary" title="Approved">
                     <span aria-hidden="true" className="material-symbols-outlined text-[12px]">thumb_up</span>
                     {commentStats?.approved ?? 0}
                   </span>
-                  <span className="flex items-center gap-1 text-[9px] font-bold text-error" title="Rejected">
+                  <span className="flex items-center gap-1 text-[10px] font-bold text-error" title="Rejected">
                     <span aria-hidden="true" className="material-symbols-outlined text-[12px]">thumb_down</span>
                     {commentStats?.rejected ?? 0}
                   </span>
@@ -472,13 +476,13 @@ const Dashboard: FC = () => {
           </div>
 
           <div className={`bg-surface-container p-5 border-t-2 ${dpoPairsReady ? 'border-primary' : 'border-outline-variant/30'}`}>
-            <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-1">DPO Ready</p>
+            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">DPO Ready</p>
             {statsLoading ? <Skeleton className="h-9 w-12" /> : (
               <>
                 <p className={`font-headline font-bold text-3xl ${dpoPairsReady ? 'text-primary' : 'text-outline'}`}>
                   {dpoPairsReady ? '✓' : '—'}
                 </p>
-                <p className="text-[9px] text-on-surface-variant mt-1">
+                <p className="text-[10px] text-on-surface-variant mt-1">
                   {dpoPairsReady ? `${commentStats!.approved} exportable pairs` : 'No approved comments'}
                 </p>
               </>
@@ -491,7 +495,7 @@ const Dashboard: FC = () => {
         {!statsLoading && (commentStats?.aiGenerated ?? 0) > 0 && (commentStats?.approved ?? 0) === 0 && (
           <div className="p-4 border border-secondary/20 bg-secondary/5 flex items-start gap-3">
             <span className="material-symbols-outlined text-sm text-secondary mt-0.5 shrink-0">rate_review</span>
-            <p className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">
+            <p className="text-[11px] font-label uppercase tracking-widest text-on-surface-variant">
               {commentStats!.aiGenerated} AI comment(s) generated — review them (👍/👎) in the document view to build your DPO pairs.
             </p>
           </div>
@@ -499,8 +503,8 @@ const Dashboard: FC = () => {
         {!statsLoading && dpoPairsReady && (
           <div className="p-4 border border-primary/30 bg-primary/5 flex items-start gap-3">
             <span className="material-symbols-outlined text-sm text-primary mt-0.5 shrink-0">check_circle</span>
-            <p className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">
-              {commentStats!.approved} DPO pair(s) available — export them from the Database page, then run a fine-tuning job with DPO alignment.
+            <p className="text-[11px] font-label uppercase tracking-widest text-on-surface-variant">
+              {commentStats!.approved} DPO pair(s) available — export them from the Documents page, then run a fine-tuning job with DPO alignment.
             </p>
           </div>
         )}
@@ -514,7 +518,7 @@ const Dashboard: FC = () => {
 
             {gedStats?.byLifecycle && Object.keys(gedStats.byLifecycle).length > 0 && (
               <div className="bg-surface-container p-5">
-                <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-3">
+                <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-3">
                   Documents by lifecycle
                 </p>
                 <div className="flex items-center gap-4">
@@ -532,7 +536,7 @@ const Dashboard: FC = () => {
                           lc === 'ARCHIVED'  ? 'bg-[#5a6a8a]' :
                                               'bg-[#ff6b8a]'
                         }`} />
-                        <span className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant">{lc}</span>
+                        <span className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">{lc}</span>
                         <span className="font-headline font-bold text-xs ml-auto">{String(n)}</span>
                       </div>
                     ))}
@@ -543,7 +547,7 @@ const Dashboard: FC = () => {
 
             {stats?.byCategory && Object.keys(stats.byCategory).length > 0 && (
               <div className="bg-surface-container p-5">
-                <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-3">
+                <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-3">
                   Pairs by category
                 </p>
                 <div className="h-36">
@@ -577,7 +581,7 @@ const Dashboard: FC = () => {
 
           {/* Approuvés + approval ratio */}
           <div className="bg-surface-container p-5 border-t-2 border-primary space-y-2">
-            <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant">Approved</p>
+            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Approved</p>
             {statsLoading ? <Skeleton className="h-9 w-12" /> : (
               <>
                 <p className="font-headline font-bold text-3xl text-primary">
@@ -587,7 +591,7 @@ const Dashboard: FC = () => {
                 {(() => {
                   const m = personalizationMetrics;
                   if (!m || m.totalAiComments === 0) return (
-                    <p className="text-[9px] text-on-surface-variant">no AI comments</p>
+                    <p className="text-[10px] text-on-surface-variant">no AI comments</p>
                   );
                   const pending = m.totalAiComments - m.approvedComments - m.rejectedComments;
                   const pctA = (m.approvedComments / m.totalAiComments) * 100;
@@ -600,7 +604,7 @@ const Dashboard: FC = () => {
                         <div className="bg-error transition-all"   style={{ width: `${pctR}%` }} />
                         <div className="bg-outline-variant/30 transition-all" style={{ width: `${pctP}%` }} />
                       </div>
-                      <div className="flex gap-3 text-[9px] text-outline">
+                      <div className="flex gap-3 text-[10px] text-outline">
                         <span className="flex items-center gap-1 text-primary" title="Approved">
                           <span aria-hidden="true" className="material-symbols-outlined text-[12px]">thumb_up</span>{m.approvedComments}
                         </span>
@@ -620,13 +624,13 @@ const Dashboard: FC = () => {
 
           {/* Paires DPO */}
           <div className="bg-surface-container p-5 border-t-2 border-secondary space-y-2">
-            <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant">DPO Pairs</p>
+            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">DPO Pairs</p>
             {statsLoading ? <Skeleton className="h-9 w-12" /> : (
               <>
                 <p className="font-headline font-bold text-3xl text-secondary">
                   {personalizationMetrics?.dpoPairs ?? 0}
                 </p>
-                <p className="text-[9px] text-on-surface-variant">
+                <p className="text-[10px] text-on-surface-variant">
                   {(personalizationMetrics?.dpoPairs ?? 0) > 0
                     ? 'ready · Jaccard > 0.85 guard active'
                     : 'no filtered pairs available'}
@@ -637,13 +641,13 @@ const Dashboard: FC = () => {
 
           {/* Fine-Tunings */}
           <div className="bg-surface-container p-5 border-t-2 border-outline-variant space-y-2">
-            <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant">Fine-Tunings</p>
+            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Fine-Tunings</p>
             {statsLoading ? <Skeleton className="h-9 w-12" /> : (
               <>
                 <p className="font-headline font-bold text-3xl">
                   {personalizationMetrics?.completedFineTuningJobs ?? 0}
                 </p>
-                <p className="text-[9px] text-on-surface-variant">
+                <p className="text-[10px] text-on-surface-variant">
                   completed · {(personalizationMetrics?.fineTuningJobs ?? []).length} total
                 </p>
               </>
@@ -652,7 +656,7 @@ const Dashboard: FC = () => {
 
           {/* Score Éval. avec tendance */}
           <div className="bg-surface-container p-5 border-t-2 border-outline-variant space-y-2">
-            <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant">Eval Score</p>
+            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Eval Score</p>
             {statsLoading ? <Skeleton className="h-9 w-12" /> : (() => {
               const m = personalizationMetrics;
               const completed = (m?.evaluations ?? []).filter(e => e.status === 'COMPLETED');
@@ -666,12 +670,12 @@ const Dashboard: FC = () => {
                       {last ? last.averageScore.toFixed(1) : '—'}
                     </p>
                     {delta !== null && (
-                      <span className={`text-[10px] font-bold mb-1 ${delta >= 0 ? 'text-primary' : 'text-error'}`}>
+                      <span className={`text-[11px] font-bold mb-1 ${delta >= 0 ? 'text-primary' : 'text-error'}`}>
                         {delta >= 0 ? '▲' : '▼'} {Math.abs(delta).toFixed(1)}
                       </span>
                     )}
                   </div>
-                  <p className="text-[9px] text-on-surface-variant">
+                  <p className="text-[10px] text-on-surface-variant">
                     {last ? `/10 · ${relativeTime(last.completedAt)}` : 'no evaluation'}
                   </p>
                 </>
@@ -685,10 +689,10 @@ const Dashboard: FC = () => {
         {!statsLoading && personalizationMetrics && personalizationMetrics.autoRetrainThreshold > 0 && (
           <div className="bg-surface-container p-4 space-y-2">
             <div className="flex items-center justify-between">
-              <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant">
+              <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">
                 Next automatic retraining
               </p>
-              <p className="text-[9px] font-mono text-outline">
+              <p className="text-[10px] font-mono text-outline">
                 threshold: {personalizationMetrics.autoRetrainThreshold} approvals
               </p>
             </div>
@@ -701,17 +705,17 @@ const Dashboard: FC = () => {
               />
             </div>
             <div className="flex justify-between">
-              <p className="text-[8px] text-outline">
+              <p className="text-[10px] text-outline">
                 {personalizationMetrics.autoRetrainThreshold - personalizationMetrics.nextTriggerIn} / {personalizationMetrics.autoRetrainThreshold}
               </p>
-              <p className={`text-[8px] font-bold ${personalizationMetrics.nextTriggerIn <= 1 ? 'text-primary' : 'text-outline'}`}>
+              <p className={`text-[10px] font-bold ${personalizationMetrics.nextTriggerIn <= 1 ? 'text-primary' : 'text-outline'}`}>
                 {personalizationMetrics.nextTriggerIn > 0
                   ? `${personalizationMetrics.nextTriggerIn} more approval(s)`
                   : '↺ triggering imminent'}
               </p>
             </div>
             {personalizationMetrics.completedCycles > 0 && (
-              <p className="text-[9px] text-primary font-label uppercase tracking-widest flex items-center gap-1">
+              <p className="text-[10px] text-primary font-label uppercase tracking-widest flex items-center gap-1">
                 <span className="material-symbols-outlined text-[11px]">check_circle</span>
                 {personalizationMetrics.completedCycles} retraining cycle(s) completed
               </p>
@@ -728,7 +732,7 @@ const Dashboard: FC = () => {
             {/* Recent jobs */}
             {(personalizationMetrics?.fineTuningJobs.length ?? 0) > 0 && (
               <div className="bg-surface-container p-4 space-y-3">
-                <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant">
+                <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">
                   Recent jobs
                 </p>
                 <div className="space-y-2">
@@ -742,18 +746,18 @@ const Dashboard: FC = () => {
                         <div key={i} className="flex items-center justify-between gap-2 py-1.5 border-b border-outline-variant/10 last:border-0">
                           <div className="flex items-center gap-2 min-w-0">
                             <span className="material-symbols-outlined text-[11px] text-outline shrink-0">model_training</span>
-                            <span className="font-mono text-[9px] text-on-surface-variant truncate" title={job.modelName}>
+                            <span className="font-mono text-[10px] text-on-surface-variant truncate" title={job.modelName}>
                               {job.modelName}
                             </span>
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
                             {job.loss != null && (
-                              <span className="text-[8px] text-outline font-mono">loss {job.loss.toFixed(3)}</span>
+                              <span className="text-[10px] text-outline font-mono">loss {job.loss.toFixed(3)}</span>
                             )}
-                            <span className={`text-[7px] font-bold uppercase px-1.5 py-0.5 border ${chip.cls}`}>
+                            <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 border ${chip.cls}`}>
                               {chip.label}
                             </span>
-                            <span className="text-[8px] text-outline w-6 text-right">
+                            <span className="text-[10px] text-outline w-6 text-right">
                               {relativeTime(job.completedAt ?? job.createdAt)}
                             </span>
                           </div>
@@ -763,7 +767,7 @@ const Dashboard: FC = () => {
                 </div>
                 <button
                   onClick={() => navigate('/fine-tuning')}
-                  className="text-[9px] font-label font-bold uppercase tracking-widest text-primary hover:text-primary/70 transition-colors flex items-center gap-1"
+                  className="text-[10px] font-label font-bold uppercase tracking-widest text-primary hover:text-primary/70 transition-colors flex items-center gap-1"
                 >
                   <span className="material-symbols-outlined text-[11px]">arrow_forward</span>
                   View all jobs
@@ -774,7 +778,7 @@ const Dashboard: FC = () => {
             {/* Evaluations trend chart */}
             {(personalizationMetrics?.evaluations.filter(e => e.status === 'COMPLETED').length ?? 0) > 0 && (
               <div className="bg-surface-container p-4 space-y-3 flex flex-col h-full">
-                <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant flex items-center justify-between">
+                <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant flex items-center justify-between">
                   <span>Score Evolution</span>
                   <button type="button" onClick={() => navigate('/comparison')} className="hover:text-primary transition-colors flex items-center gap-1">
                      <span className="material-symbols-outlined text-[11px]">open_in_new</span> Details
@@ -794,14 +798,14 @@ const Dashboard: FC = () => {
                       margin={{ top: 15, right: 10, left: -25, bottom: 0 }}
                     >
                       <CartesianGrid strokeDasharray="3 3" stroke="var(--color-outline-variant)" opacity={0.2} vertical={false} />
-                      <XAxis dataKey="name" tick={{ fontSize: 9, fill: 'var(--color-on-surface-variant)' }} axisLine={false} tickLine={false} />
-                      <YAxis domain={[0, 10]} tick={{ fontSize: 9, fill: 'var(--color-on-surface-variant)' }} axisLine={false} tickLine={false} tickCount={6} />
+                      <XAxis dataKey="name" tick={{ fontSize: 10, fill: 'var(--color-on-surface-variant)' }} axisLine={false} tickLine={false} />
+                      <YAxis domain={[0, 10]} tick={{ fontSize: 10, fill: 'var(--color-on-surface-variant)' }} axisLine={false} tickLine={false} tickCount={6} />
                       <RechartsTooltip
                         contentStyle={{ backgroundColor: 'var(--color-surface-container-high)', border: '1px solid var(--color-outline-variant)', borderRadius: '4px', fontSize: '11px', color: 'var(--color-on-surface)' }}
                         itemStyle={{ color: 'var(--color-primary)' }}
                         labelStyle={{ color: 'var(--color-on-surface-variant)', marginBottom: '4px' }}
                       />
-                      <ReferenceLine y={7} stroke="var(--color-secondary)" strokeDasharray="3 3" opacity={0.3} label={{ position: 'insideTopLeft', value: 'Good', fill: 'var(--color-secondary)', fontSize: 9, opacity: 0.5 }} />
+                      <ReferenceLine y={7} stroke="var(--color-secondary)" strokeDasharray="3 3" opacity={0.3} label={{ position: 'insideTopLeft', value: 'Good', fill: 'var(--color-secondary)', fontSize: 10, opacity: 0.5 }} />
                       <Line type="monotone" dataKey="score" stroke="var(--color-primary)" strokeWidth={2} dot={{ r: 3, fill: 'var(--color-primary)' }} activeDot={{ r: 5, fill: 'var(--color-primary)', stroke: 'var(--color-surface)', strokeWidth: 2 }} />
                     </LineChart>
                   </ResponsiveContainer>
@@ -819,7 +823,7 @@ const Dashboard: FC = () => {
         )) && (
           <div className="p-4 border border-outline-variant/20 bg-surface-container flex items-start gap-3">
             <span className="material-symbols-outlined text-sm text-outline mt-0.5 shrink-0">info</span>
-            <p className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant leading-relaxed">
+            <p className="text-[11px] font-label uppercase tracking-widest text-on-surface-variant leading-relaxed">
               No personalization data — generate AI comments on your documents (Database → document view → ✦ AI), then review them to start the cycle.
             </p>
           </div>
@@ -840,8 +844,8 @@ const Dashboard: FC = () => {
           ].map(cap => (
             <div key={cap.label} className={`bg-surface-container p-4 border border-outline-variant/10 hover:border-${cap.color}/30 transition-colors group`}>
               <span className={`material-symbols-outlined text-base text-outline group-hover:text-${cap.color} transition-colors`}>{cap.icon}</span>
-              <p className="font-headline font-bold text-[10px] uppercase mt-2">{cap.label}</p>
-              <p className="text-[9px] text-on-surface-variant mt-1 leading-relaxed">{cap.desc}</p>
+              <p className="font-headline font-bold text-[11px] uppercase mt-2">{cap.label}</p>
+              <p className="text-[10px] text-on-surface-variant mt-1 leading-relaxed">{cap.desc}</p>
             </div>
           ))}
         </div>
@@ -852,9 +856,9 @@ const Dashboard: FC = () => {
         <h3 className="font-headline text-sm font-bold uppercase tracking-tight text-on-surface-variant">Pipeline</h3>
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
           {[
-            { step: '1', label: 'Ingest',      sub: 'Upload documents',  icon: 'cloud_upload',   route: '/datasets' },
-            { step: '2', label: 'Generate',    sub: 'Build dataset',     icon: 'dataset',        route: '/datasets' },
-            { step: '3', label: 'Annotate',    sub: 'RAG comments + DPO',icon: 'rate_review',    route: '/pipelines' },
+            { step: '1', label: 'Ingest',      sub: 'Upload documents',  icon: 'cloud_upload',   route: '/ingestion' },
+            { step: '2', label: 'Generate',    sub: 'Build dataset',     icon: 'dataset',        route: '/ingestion' },
+            { step: '3', label: 'Annotate',    sub: 'RAG comments + DPO',icon: 'rate_review',    route: '/documents' },
             { step: '4', label: 'Fine-Tune',   sub: 'Train model',       icon: 'model_training', route: '/fine-tuning' },
             { step: '5', label: 'Query',       sub: 'RAG playground',    icon: 'chat',           route: '/playground' },
           ].map(action => (
@@ -874,7 +878,7 @@ const Dashboard: FC = () => {
                 </span>
               </div>
               <p className="font-headline font-bold text-sm uppercase">{action.label}</p>
-              <p className="text-[9px] text-on-surface-variant uppercase tracking-widest mt-0.5">{action.sub}</p>
+              <p className="text-[10px] text-on-surface-variant uppercase tracking-widest mt-0.5">{action.sub}</p>
             </button>
           ))}
         </div>
@@ -887,10 +891,10 @@ const Dashboard: FC = () => {
             <span className="material-symbols-outlined text-sm text-primary">api</span>
             <div>
               <p className="text-xs font-label font-bold uppercase">{status.application}</p>
-              <p className="text-[9px] text-outline font-mono">{status.version}</p>
+              <p className="text-[10px] text-outline font-mono">{status.version}</p>
             </div>
           </div>
-          <p className="text-[9px] text-outline font-mono">
+          <p className="text-[10px] text-outline font-mono">
             {new Date(status.timestamp).toLocaleTimeString('fr-FR')}
           </p>
         </section>

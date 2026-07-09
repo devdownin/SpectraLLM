@@ -262,7 +262,7 @@ const Optimization: FC = () => {
         <p className="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-1">
           Ablation A/B · benchmark tenu à l'écart
         </p>
-        <h2 className="font-headline text-3xl font-bold tracking-tighter">OPTIMISATION DES RÉPONSES</h2>
+        <h2 className="font-headline text-3xl font-bold tracking-tighter">RESPONSE OPTIMIZATION</h2>
         <p className="text-sm text-on-surface-variant max-w-3xl mt-2 leading-relaxed">
           Mesurez et <strong className="text-on-surface">validez l'apport réel</strong> de chaque option d'apprentissage
           (fine-tuning) et d'optimisation (modules RAG). Chaque <em>bras</em> ne change qu'une chose à la fois :
@@ -279,8 +279,8 @@ const Optimization: FC = () => {
             <div key={m.key} className="bg-surface-container-low border border-outline-variant/10 p-4">
               <p className="font-headline text-sm font-bold mb-1">{m.name}</p>
               <p className="text-[11px] text-on-surface-variant leading-relaxed mb-2">{m.what}</p>
-              <p className="text-[10px] text-primary leading-snug">▲ {m.gain}</p>
-              <p className="text-[10px] text-on-surface-variant leading-snug mt-0.5">⏱ {m.cost}</p>
+              <p className="text-[11px] text-primary leading-snug">▲ {m.gain}</p>
+              <p className="text-[11px] text-on-surface-variant leading-snug mt-0.5">⏱ {m.cost}</p>
             </div>
           ))}
         </div>
@@ -308,7 +308,7 @@ const Optimization: FC = () => {
                 : 'border-outline-variant/20 text-on-surface-variant hover:border-outline-variant/40'}`}
             >
               <span className="block font-headline text-xs font-bold">{label}</span>
-              <span className="block text-[10px] text-on-surface-variant">{sub}</span>
+              <span className="block text-[11px] text-on-surface-variant">{sub}</span>
             </button>
           ))}
         </div>
@@ -336,7 +336,7 @@ const Optimization: FC = () => {
 
         {/* Aperçu des bras */}
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Bras :</span>
+          <span className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">Bras :</span>
           {arms.map((a, i) => (
             <span key={i} className="px-2 py-1 bg-surface-container border border-outline-variant/20 text-[11px] text-on-surface">
               {a.label}
@@ -364,7 +364,7 @@ const Optimization: FC = () => {
           >
             {mutation.isPending ? 'Ablation en cours…' : 'Lancer l’ablation'}
           </button>
-          <span className="text-[10px] text-on-surface-variant">
+          <span className="text-[11px] text-on-surface-variant">
             Bloquant et lent sur CPU : {arms.length} bras × {runs} run(s) × benchmark, plusieurs appels LLM par question.
           </span>
         </div>
@@ -376,7 +376,7 @@ const Optimization: FC = () => {
           <div className="w-12 h-1 bg-primary/20 relative overflow-hidden">
             <div className="absolute inset-0 bg-primary animate-progress-fast" />
           </div>
-          <span className="font-headline text-[10px] uppercase tracking-widest text-primary animate-pulse">
+          <span className="font-headline text-[11px] uppercase tracking-widest text-primary animate-pulse">
             Évaluation des bras…
           </span>
         </div>
@@ -390,7 +390,7 @@ const Optimization: FC = () => {
             </h3>
             <button
               onClick={() => downloadCsv(report)}
-              className="px-3 py-1.5 border border-outline-variant/30 text-on-surface-variant font-headline text-[10px] uppercase tracking-widest hover:border-primary hover:text-on-surface transition-colors"
+              className="px-3 py-1.5 border border-outline-variant/30 text-on-surface-variant font-headline text-[11px] uppercase tracking-widest hover:border-primary hover:text-on-surface transition-colors"
             >
               Exporter CSV
             </button>
@@ -407,11 +407,11 @@ const Optimization: FC = () => {
             <table className="w-full text-xs">
               <thead>
                 <tr className="bg-surface-container-low text-on-surface-variant">
-                  <th className="text-left font-label text-[10px] uppercase tracking-widest px-3 py-2">Bras</th>
+                  <th className="text-left font-label text-[11px] uppercase tracking-widest px-3 py-2">Bras</th>
                   {METRICS.map(m => (
-                    <th key={m.key} className="text-right font-label text-[10px] uppercase tracking-widest px-3 py-2 relative group">
+                    <th key={m.key} className="text-right font-label text-[11px] uppercase tracking-widest px-3 py-2 relative group">
                       <span className="cursor-help border-b border-dotted border-on-surface-variant/50">{m.label}</span>
-                      <div className="absolute bottom-full right-0 mb-2 hidden group-hover:block w-48 p-2 bg-surface-container-high border border-outline-variant/30 shadow-lg text-[10px] text-on-surface normal-case tracking-normal rounded z-10 font-sans text-left">
+                      <div className="absolute bottom-full right-0 mb-2 hidden group-hover:block w-48 p-2 bg-surface-container-high border border-outline-variant/30 shadow-lg text-[11px] text-on-surface normal-case tracking-normal rounded z-10 font-sans text-left">
                         {m.help}
                       </div>
                     </th>
@@ -423,7 +423,7 @@ const Optimization: FC = () => {
                   <tr key={i} className="border-t border-outline-variant/10 hover:bg-surface-container-high/30">
                     <td className="px-3 py-2">
                       <span className="text-on-surface font-medium">{arm.label}</span>
-                      <span className="block text-[10px] text-on-surface-variant">
+                      <span className="block text-[11px] text-on-surface-variant">
                         {arm.model}{arm.useRag ? '' : ' · sans RAG'}
                       </span>
                     </td>
@@ -433,10 +433,10 @@ const Optimization: FC = () => {
                       return (
                         <td key={m.key} className="px-3 py-2 text-right tabular-nums">
                           <span className="text-on-surface">{m.format(arm)}</span>
-                          {std && <span className="text-[9px] text-on-surface-variant ml-1">{std}</span>}
+                          {std && <span className="text-[10px] text-on-surface-variant ml-1">{std}</span>}
                           {i > 0 && (
                             <span
-                              className={`block text-[10px] ${sig ? deltaColor(m.value(arm) - m.value(baseArm), m.higherIsBetter) : 'text-on-surface-variant/50'}`}
+                              className={`block text-[11px] ${sig ? deltaColor(m.value(arm) - m.value(baseArm), m.higherIsBetter) : 'text-on-surface-variant/50'}`}
                               title={sig ? '' : 'Delta dans le bruit (≤ σ combiné) — non significatif'}
                             >
                               {!sig && fmtDelta(m, baseArm, arm) ? '≈ ' : ''}{fmtDelta(m, baseArm, arm)}
@@ -452,11 +452,11 @@ const Optimization: FC = () => {
           </div>
 
           {report.arms.some(a => a.runs > 1)
-            ? <p className="text-[10px] text-on-surface-variant">
+            ? <p className="text-[11px] text-on-surface-variant">
                 Valeurs = moyenne sur {report.arms[0]?.runs} répétitions (±σ). Un delta grisé « ≈ » est dans le bruit
                 (≤ σ combiné) : non significatif.
               </p>
-            : <p className="text-[10px] text-on-surface-variant">
+            : <p className="text-[11px] text-on-surface-variant">
                 1 seule répétition : les deltas ne sont pas testés contre le bruit. Augmentez « répétitions » (≥3) pour fiabiliser.
               </p>}
 
@@ -465,7 +465,7 @@ const Optimization: FC = () => {
 
           {/* Modules effectivement déclenchés (validation) */}
           <div className="space-y-2">
-            <h4 className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">
+            <h4 className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">
               Modules effectivement déclenchés (validation que l'option a pris effet)
             </h4>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
@@ -475,11 +475,11 @@ const Optimization: FC = () => {
                   <div key={i} className="bg-surface-container-low border border-outline-variant/10 p-3">
                     <p className="text-[11px] text-on-surface font-medium mb-1">{arm.label}</p>
                     {fired.length === 0 ? (
-                      <p className="text-[10px] text-on-surface-variant">aucun module (génération directe)</p>
+                      <p className="text-[11px] text-on-surface-variant">aucun module (génération directe)</p>
                     ) : (
                       <div className="flex flex-wrap gap-1">
                         {fired.map(([k, n]) => (
-                          <span key={k} className="px-1.5 py-0.5 bg-primary/10 text-primary text-[10px] border border-primary/20">
+                          <span key={k} className="px-1.5 py-0.5 bg-primary/10 text-primary text-[11px] border border-primary/20">
                             {MODULE_NAME[k] ?? k} ×{n}
                           </span>
                         ))}
@@ -493,7 +493,7 @@ const Optimization: FC = () => {
 
           {/* Légende des métriques */}
           <details className="bg-surface-container-low border border-outline-variant/10 p-4">
-            <summary className="cursor-pointer font-label text-[10px] uppercase tracking-widest text-on-surface-variant">
+            <summary className="cursor-pointer font-label text-[11px] uppercase tracking-widest text-on-surface-variant">
               Comment lire ces métriques ?
             </summary>
             <ul className="mt-3 space-y-1.5">

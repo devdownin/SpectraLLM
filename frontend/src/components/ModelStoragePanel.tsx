@@ -59,7 +59,7 @@ const ModelStoragePanel: FC = () => {
             Storage — data/models/
           </span>
           {storage && (
-            <span className="text-[10px] text-outline">
+            <span className="text-[11px] text-outline">
               {storage.files?.length ?? 0} GGUF · {formatSize(storage.totalBytes ?? 0)}
             </span>
           )}
@@ -81,7 +81,7 @@ const ModelStoragePanel: FC = () => {
               <div key={f.file} className="px-4 py-2 flex items-center justify-between gap-4">
                 <div className="min-w-0">
                   <div className="text-xs font-mono truncate">{f.file}</div>
-                  <div className="text-[10px] text-outline flex flex-wrap gap-2 items-center">
+                  <div className="text-[11px] text-outline flex flex-wrap gap-2 items-center">
                     <span className="font-bold">{formatSize(f.sizeBytes)}</span>
                     {(f.registeredAs ?? []).map((r: any) => (
                       <span key={`${r.type}-${r.name}`} className={`px-1.5 py-0.5 border ${r.active ? 'border-primary text-primary font-bold' : 'border-outline-variant/30'}`}>
@@ -98,7 +98,7 @@ const ModelStoragePanel: FC = () => {
                     onClick={() => deleteMutation.mutate({ name: primaryRef.name, type: primaryRef.type })}
                     disabled={f.active || deleteMutation.isPending}
                     title={f.active ? 'Active model — activate another one first' : 'Remove from registry and delete the GGUF'}
-                    className="shrink-0 flex items-center gap-1 px-3 py-1.5 border border-error/40 text-error text-[10px] font-black uppercase tracking-widest disabled:opacity-30 hover:bg-error/10 transition-colors"
+                    className="shrink-0 flex items-center gap-1 px-3 py-1.5 border border-error/40 text-error text-[11px] font-black uppercase tracking-widest disabled:opacity-30 hover:bg-error/10 transition-colors"
                   >
                     <span className="material-symbols-outlined text-sm">delete</span>
                     Delete

@@ -77,6 +77,14 @@ jobs:
         path: frontend/coverage/lcov.info
     - name: Build (tsc + vite)
       run: npm run build
+    - name: E2E tests (Playwright)
+      run: |
+        npm install -g playwright
+        npm install playwright core-js wait-on
+        npx playwright install --with-deps chromium
+        npm run preview &
+        npx wait-on http://localhost:5173
+        node ../test_pw.js
 
   e2e:
     name: E2E tests (Playwright)

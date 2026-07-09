@@ -87,7 +87,7 @@ function getGroupLabel(key: string, groupBy: GroupBy): string {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-const Pipelines: FC = () => {
+const Documents: FC = () => {
   const queryClient = useQueryClient();
 
   const [search, setSearch] = useState('');
@@ -396,7 +396,7 @@ const Pipelines: FC = () => {
           className="flex justify-center"
         >
           <span className={`w-4 h-4 border flex items-center justify-center transition-all shrink-0 ${isChecked ? 'bg-primary border-primary' : 'border-outline-variant/40 hover:border-primary/50'}`}>
-            {isChecked && <span aria-hidden="true" className="material-symbols-outlined text-white text-[10px]">check</span>}
+            {isChecked && <span aria-hidden="true" className="material-symbols-outlined text-white text-[11px]">check</span>}
           </span>
         </button>
 
@@ -407,22 +407,22 @@ const Pipelines: FC = () => {
           <div className="min-w-0">
             <p className="font-headline text-sm font-bold tracking-tight truncate">{doc.fileName}</p>
             <div className="flex items-center gap-2 mt-1 flex-wrap">
-              <span className="text-[9px] font-mono text-outline">{doc.sha256.slice(0, 8)}</span>
+              <span className="text-[10px] font-mono text-outline">{doc.sha256.slice(0, 8)}</span>
               {doc.collectionName && (
-                <span className="text-[8px] border border-primary/20 px-1 text-primary/60 uppercase truncate max-w-[100px]">{doc.collectionName}</span>
+                <span className="text-[10px] border border-primary/20 px-1 text-primary/60 uppercase truncate max-w-[100px]">{doc.collectionName}</span>
               )}
               {doc.tags.slice(0, 2).map(t => (
-                <span key={t} className="text-[8px] border border-outline-variant/30 px-1 text-outline-variant uppercase">#{t}</span>
+                <span key={t} className="text-[10px] border border-outline-variant/30 px-1 text-outline uppercase">#{t}</span>
               ))}
               {doc.tags.length > 2 && (
-                <span className="text-[8px] text-outline-variant">+{doc.tags.length - 2}</span>
+                <span className="text-[10px] text-outline">+{doc.tags.length - 2}</span>
               )}
             </div>
           </div>
         </div>
 
         <div className="flex justify-center">
-          <span className={`text-[8px] font-bold px-2 py-0.5 border uppercase tracking-wider ${LIFECYCLE_COLORS[doc.lifecycle]}`}>
+          <span className={`text-[10px] font-bold px-2 py-0.5 border uppercase tracking-wider ${LIFECYCLE_COLORS[doc.lifecycle]}`}>
             {doc.lifecycle}
           </span>
         </div>
@@ -441,16 +441,16 @@ const Pipelines: FC = () => {
               style={{ width: `${score * 100}%` }}
             />
           </div>
-          <span className="text-[10px] font-mono text-on-surface-variant w-8 text-right">{(score * 100).toFixed(0)}%</span>
+          <span className="text-[11px] font-mono text-on-surface-variant w-8 text-right">{(score * 100).toFixed(0)}%</span>
         </div>
 
-        <div className="text-[10px] text-on-surface-variant font-label uppercase">{formatDate(doc.ingestedAt)}</div>
+        <div className="text-[11px] text-on-surface-variant font-label uppercase">{formatDate(doc.ingestedAt)}</div>
         <div className="text-right font-headline font-bold text-lg">{doc.chunksCreated}</div>
 
         <div className="flex justify-end">
           <button
             onClick={e => { e.stopPropagation(); deleteMutation.mutate(doc.sha256); }}
-            className="w-8 h-8 flex items-center justify-center text-outline-variant hover:text-error transition-colors"
+            className="w-8 h-8 flex items-center justify-center text-outline hover:text-error transition-colors"
           >
             <span className="material-symbols-outlined text-sm">delete</span>
           </button>
@@ -470,20 +470,20 @@ const Pipelines: FC = () => {
       <header className="flex flex-col xl:flex-row xl:items-end justify-between gap-6">
         <div>
           <p className="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-1">Knowledge & Records</p>
-          <h2 className="font-headline text-3xl font-bold tracking-tighter uppercase">GED / DATABASE</h2>
+          <h2 className="font-headline text-3xl font-bold tracking-tighter uppercase">DOCUMENTS</h2>
           <p className="text-sm text-on-surface-variant mt-3 max-w-3xl leading-relaxed">
             Electronic Document Management: track the lifecycle, audit changes,
             and manage the quality of the sources feeding your models.
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-[10px] font-label text-on-surface-variant uppercase tracking-widest">
+          <span className="text-[11px] font-label text-on-surface-variant uppercase tracking-widest">
             {filtered.length} shown · {documents.length} loaded
             {totalDocuments > documents.length ? ` / ${totalDocuments} total` : ''}
           </span>
           <button
             onClick={() => refetch()}
-            className="flex items-center gap-2 border border-outline-variant/20 px-4 py-3 text-[10px] font-label uppercase tracking-widest text-on-surface-variant hover:text-primary transition-colors"
+            className="flex items-center gap-2 border border-outline-variant/20 px-4 py-3 text-[11px] font-label uppercase tracking-widest text-on-surface-variant hover:text-primary transition-colors"
           >
             <span className={`material-symbols-outlined text-sm ${isFetching ? 'animate-spin' : ''}`}>refresh</span>
             Sync
@@ -494,19 +494,19 @@ const Pipelines: FC = () => {
       {/* Stats Cards */}
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-surface-container p-5 border-t-2 border-primary">
-          <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-2">Total Documents</p>
+          <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">Total Documents</p>
           <p className="font-headline font-bold text-3xl">{total || '—'}</p>
         </div>
         <div className="bg-surface-container p-5 border-t-2 border-secondary">
-          <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-2">Avg Quality</p>
+          <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">Avg Quality</p>
           <p className="font-headline font-bold text-3xl">{stats?.avgQualityScore ? (stats.avgQualityScore * 100).toFixed(0) + '%' : '—'}</p>
         </div>
         <div className="bg-surface-container p-5 border-t-2 border-outline-variant">
-          <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-2">Total Chunks</p>
+          <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">Total Chunks</p>
           <p className="font-headline font-bold text-3xl">{stats?.totalChunks ?? '—'}</p>
         </div>
         <div className="bg-surface-container p-5 border-t-2 border-outline-variant">
-          <p className="font-label text-[9px] uppercase tracking-widest text-on-surface-variant mb-2">Lifecycle</p>
+          <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">Lifecycle</p>
           <div className="flex gap-0.5 mt-3 overflow-hidden">
             {['INGESTED', 'QUALIFIED', 'TRAINED', 'ARCHIVED'].map(lc => {
               const count = stats?.byLifecycle?.[lc] ?? 0;
@@ -520,7 +520,7 @@ const Pipelines: FC = () => {
           </div>
           <div className="flex justify-between mt-1">
             {['INGESTED', 'QUALIFIED', 'TRAINED', 'ARCHIVED'].map(lc => (
-              <span key={lc} className="text-[8px] text-outline-variant">{stats?.byLifecycle?.[lc] ?? 0}</span>
+              <span key={lc} className="text-[10px] text-outline">{stats?.byLifecycle?.[lc] ?? 0}</span>
             ))}
           </div>
         </div>
@@ -531,7 +531,7 @@ const Pipelines: FC = () => {
         {/* Row 1 */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="space-y-2">
-            <label className="text-[9px] font-label uppercase tracking-widest text-on-surface-variant">Search</label>
+            <label className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">Search</label>
             <div className="flex items-center gap-3 border border-outline-variant/20 bg-surface-container-lowest px-4 py-2.5">
               <span className="material-symbols-outlined text-base text-outline">search</span>
               <input
@@ -549,13 +549,13 @@ const Pipelines: FC = () => {
             </div>
           </div>
           <div className="space-y-2">
-            <label className="text-[9px] font-label uppercase tracking-widest text-on-surface-variant">Lifecycle</label>
+            <label className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">Lifecycle</label>
             <div className="flex gap-2">
               {['all', 'INGESTED', 'QUALIFIED', 'TRAINED', 'ARCHIVED'].map(lc => (
                 <button
                   key={lc}
                   onClick={() => setSelectedLifecycle(lc)}
-                  className={`flex-1 py-2 border text-[9px] font-label uppercase tracking-widest transition-all ${selectedLifecycle === lc ? 'border-primary bg-primary/10 text-primary' : 'border-outline-variant/20 text-on-surface-variant hover:border-primary/30'}`}
+                  className={`flex-1 py-2 border text-[10px] font-label uppercase tracking-widest transition-all ${selectedLifecycle === lc ? 'border-primary bg-primary/10 text-primary' : 'border-outline-variant/20 text-on-surface-variant hover:border-primary/30'}`}
                 >
                   {lc === 'all' ? 'All' : lc.slice(0, 1)}
                 </button>
@@ -563,13 +563,13 @@ const Pipelines: FC = () => {
             </div>
           </div>
           <div className="space-y-2">
-            <label className="text-[9px] font-label uppercase tracking-widest text-on-surface-variant">Sort</label>
+            <label className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">Sort</label>
             <div className="flex gap-2">
               {(['recent', 'name', 'chunks', 'quality'] as SortMode[]).map(m => (
                 <button
                   key={m}
                   onClick={() => setSortMode(m)}
-                  className={`flex-1 py-2 border text-[9px] font-label uppercase tracking-widest transition-all ${sortMode === m ? 'border-primary bg-primary/10 text-primary' : 'border-outline-variant/20 text-on-surface-variant hover:border-primary/30'}`}
+                  className={`flex-1 py-2 border text-[10px] font-label uppercase tracking-widest transition-all ${sortMode === m ? 'border-primary bg-primary/10 text-primary' : 'border-outline-variant/20 text-on-surface-variant hover:border-primary/30'}`}
                 >
                   {m === 'recent' ? 'Date' : m === 'chunks' ? 'Chunks' : m === 'quality' ? 'Quality' : 'Name'}
                 </button>
@@ -581,7 +581,7 @@ const Pipelines: FC = () => {
         {/* Row 2 */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="space-y-2">
-            <label className="text-[9px] font-label uppercase tracking-widest text-on-surface-variant">
+            <label className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">
               Document type {selectedFormats.size > 0 && <span className="text-primary">({selectedFormats.size} active)</span>}
             </label>
             <div className="flex flex-wrap gap-2">
@@ -592,7 +592,7 @@ const Pipelines: FC = () => {
                   <button
                     key={fmt}
                     onClick={() => toggleFormat(fmt)}
-                    className={`flex items-center gap-1.5 px-2.5 py-1.5 border text-[9px] font-label uppercase tracking-widest transition-all ${active ? 'border-primary bg-primary/10 text-primary' : 'border-outline-variant/20 text-on-surface-variant hover:border-primary/30'}`}
+                    className={`flex items-center gap-1.5 px-2.5 py-1.5 border text-[10px] font-label uppercase tracking-widest transition-all ${active ? 'border-primary bg-primary/10 text-primary' : 'border-outline-variant/20 text-on-surface-variant hover:border-primary/30'}`}
                   >
                     <span className="material-symbols-outlined text-[12px]">{meta.icon}</span>
                     {meta.label}
@@ -600,7 +600,7 @@ const Pipelines: FC = () => {
                 );
               })}
               {selectedFormats.size > 0 && (
-                <button onClick={() => setSelectedFormats(new Set())} className="text-[9px] text-outline-variant hover:text-error uppercase tracking-widest px-2">
+                <button onClick={() => setSelectedFormats(new Set())} className="text-[10px] text-outline hover:text-error uppercase tracking-widest px-2">
                   Reset
                 </button>
               )}
@@ -608,13 +608,13 @@ const Pipelines: FC = () => {
           </div>
 
           <div className="space-y-2">
-            <label className="text-[9px] font-label uppercase tracking-widest text-on-surface-variant">Minimum quality score</label>
+            <label className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">Minimum quality score</label>
             <div className="flex gap-2">
               {QUALITY_THRESHOLDS.map(({ label, value }) => (
                 <button
                   key={value}
                   onClick={() => setQualityMin(value)}
-                  className={`flex-1 py-2 border text-[9px] font-label uppercase tracking-widest transition-all ${qualityMin === value ? 'border-secondary bg-secondary/10 text-secondary' : 'border-outline-variant/20 text-on-surface-variant hover:border-secondary/30'}`}
+                  className={`flex-1 py-2 border text-[10px] font-label uppercase tracking-widest transition-all ${qualityMin === value ? 'border-secondary bg-secondary/10 text-secondary' : 'border-outline-variant/20 text-on-surface-variant hover:border-secondary/30'}`}
                 >
                   {label}
                 </button>
@@ -623,7 +623,7 @@ const Pipelines: FC = () => {
           </div>
 
           <div className="space-y-2">
-            <label className="text-[9px] font-label uppercase tracking-widest text-on-surface-variant">Grouping</label>
+            <label className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">Grouping</label>
             <div className="flex gap-2">
               {([
                 { key: 'none', label: 'None' },
@@ -634,7 +634,7 @@ const Pipelines: FC = () => {
                 <button
                   key={key}
                   onClick={() => { setGroupBy(key); setCollapsedGroups(new Set()); }}
-                  className={`flex-1 py-2 border text-[9px] font-label uppercase tracking-widest transition-all ${groupBy === key ? 'border-primary bg-primary/10 text-primary' : 'border-outline-variant/20 text-on-surface-variant hover:border-primary/30'}`}
+                  className={`flex-1 py-2 border text-[10px] font-label uppercase tracking-widest transition-all ${groupBy === key ? 'border-primary bg-primary/10 text-primary' : 'border-outline-variant/20 text-on-surface-variant hover:border-primary/30'}`}
                 >
                   {label}
                 </button>
@@ -647,7 +647,7 @@ const Pipelines: FC = () => {
       {/* Document List */}
       <section className="space-y-1">
         {/* Column headers */}
-        <div className="hidden lg:grid sticky top-0 z-10 bg-background lg:grid-cols-[32px_minmax(0,1.5fr)_100px_140px_120px_100px_80px] gap-4 px-4 py-3 border-b border-outline-variant/10 text-[9px] font-label uppercase tracking-widest text-outline">
+        <div className="hidden lg:grid sticky top-0 z-10 bg-background lg:grid-cols-[32px_minmax(0,1.5fr)_100px_140px_120px_100px_80px] gap-4 px-4 py-3 border-b border-outline-variant/10 text-[10px] font-label uppercase tracking-widest text-outline">
           <div className="flex justify-center">
             <button
               type="button"
@@ -657,8 +657,8 @@ const Pipelines: FC = () => {
               onClick={toggleSelectAll}
               className={`w-4 h-4 border flex items-center justify-center cursor-pointer transition-all ${allSelected ? 'bg-primary border-primary' : 'border-outline-variant/40 hover:border-primary/50'}`}
             >
-              {allSelected && <span aria-hidden="true" className="material-symbols-outlined text-white text-[10px]">check</span>}
-              {!allSelected && someSelected && <span aria-hidden="true" className="material-symbols-outlined text-primary text-[10px]">remove</span>}
+              {allSelected && <span aria-hidden="true" className="material-symbols-outlined text-white text-[11px]">check</span>}
+              {!allSelected && someSelected && <span aria-hidden="true" className="material-symbols-outlined text-primary text-[11px]">remove</span>}
             </button>
           </div>
           <span>Document</span>
@@ -714,15 +714,15 @@ const Pipelines: FC = () => {
                         style={{ width: 32 }}
                       >
                         <span className={`w-4 h-4 border flex items-center justify-center transition-all ${allGroupSelected ? 'bg-primary border-primary' : groupSelected > 0 ? 'border-primary bg-primary/20' : 'border-outline-variant/40 hover:border-primary/50'}`}>
-                          {allGroupSelected && <span aria-hidden="true" className="material-symbols-outlined text-white text-[10px]">check</span>}
-                          {!allGroupSelected && groupSelected > 0 && <span aria-hidden="true" className="material-symbols-outlined text-primary text-[10px]">remove</span>}
+                          {allGroupSelected && <span aria-hidden="true" className="material-symbols-outlined text-white text-[11px]">check</span>}
+                          {!allGroupSelected && groupSelected > 0 && <span aria-hidden="true" className="material-symbols-outlined text-primary text-[11px]">remove</span>}
                         </span>
                       </button>
                       <span className={`material-symbols-outlined text-base text-on-surface-variant transition-transform ${isCollapsed ? '-rotate-90' : ''}`}>expand_more</span>
                       <p className="font-headline font-bold text-sm uppercase tracking-tight flex-1">{label}</p>
-                      <span className="text-[10px] font-label text-on-surface-variant uppercase tracking-widest">{docs.length} doc{docs.length > 1 ? 's' : ''}</span>
+                      <span className="text-[11px] font-label text-on-surface-variant uppercase tracking-widest">{docs.length} doc{docs.length > 1 ? 's' : ''}</span>
                       {groupSelected > 0 && (
-                        <span className="text-[9px] font-label text-primary uppercase tracking-widest">{groupSelected} selected</span>
+                        <span className="text-[10px] font-label text-primary uppercase tracking-widest">{groupSelected} selected</span>
                       )}
                     </div>
                     {!isCollapsed && (
@@ -740,14 +740,14 @@ const Pipelines: FC = () => {
       {/* Pagination (flat list only) */}
       {groupBy === 'none' && totalPages > 1 && (
         <div className="flex items-center justify-between border border-outline-variant/10 p-4 bg-surface-container">
-          <span className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">
+          <span className="text-[11px] font-label uppercase tracking-widest text-on-surface-variant">
             Page {page + 1} / {totalPages} — {filtered.length} results
           </span>
           <div className="flex gap-2">
             <button
               onClick={() => setPage(p => Math.max(0, p - 1))}
               disabled={page === 0}
-              className="px-3 py-2 border border-outline-variant/20 text-[9px] font-label uppercase tracking-widest text-on-surface-variant hover:text-primary hover:border-primary/30 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              className="px-3 py-2 border border-outline-variant/20 text-[10px] font-label uppercase tracking-widest text-on-surface-variant hover:text-primary hover:border-primary/30 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             >
               ← Previous
             </button>
@@ -758,7 +758,7 @@ const Pipelines: FC = () => {
                 <button
                   key={p}
                   onClick={() => setPage(p)}
-                  className={`w-8 py-2 border text-[9px] font-label uppercase tracking-widest transition-all ${p === page ? 'border-primary bg-primary/10 text-primary' : 'border-outline-variant/20 text-on-surface-variant hover:border-primary/30'}`}
+                  className={`w-8 py-2 border text-[10px] font-label uppercase tracking-widest transition-all ${p === page ? 'border-primary bg-primary/10 text-primary' : 'border-outline-variant/20 text-on-surface-variant hover:border-primary/30'}`}
                 >
                   {p + 1}
                 </button>
@@ -767,7 +767,7 @@ const Pipelines: FC = () => {
             <button
               onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
               disabled={page >= totalPages - 1}
-              className="px-3 py-2 border border-outline-variant/20 text-[9px] font-label uppercase tracking-widest text-on-surface-variant hover:text-primary hover:border-primary/30 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              className="px-3 py-2 border border-outline-variant/20 text-[10px] font-label uppercase tracking-widest text-on-surface-variant hover:text-primary hover:border-primary/30 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             >
               Next →
             </button>
@@ -778,13 +778,13 @@ const Pipelines: FC = () => {
       {/* Chargement incrémental depuis le serveur : plus de troncature muette à 1000. */}
       {hasNextPage && (
         <div className="flex items-center justify-center gap-3 border border-outline-variant/10 p-4 bg-surface-container">
-          <span className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">
+          <span className="text-[11px] font-label uppercase tracking-widest text-on-surface-variant">
             {documents.length} of {totalDocuments} loaded
           </span>
           <button
             onClick={() => fetchNextPage()}
             disabled={isFetchingNextPage}
-            className="px-4 py-2 border border-primary/40 text-[9px] font-label uppercase tracking-widest text-primary hover:bg-primary/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            className="px-4 py-2 border border-primary/40 text-[10px] font-label uppercase tracking-widest text-primary hover:bg-primary/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {isFetchingNextPage ? 'Loading…' : `Load ${Math.min(FETCH_SIZE, totalDocuments - documents.length)} more`}
           </button>
@@ -795,17 +795,17 @@ const Pipelines: FC = () => {
       {someSelected && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom duration-300">
           <div className="flex items-center gap-4 bg-surface-container-high border border-primary/30 px-6 py-4 shadow-2xl">
-            <span className="text-[10px] font-label uppercase tracking-widest text-primary font-bold">
+            <span className="text-[11px] font-label uppercase tracking-widest text-primary font-bold">
               {bulkSelected.size} selected
             </span>
             <div className="w-px h-6 bg-outline-variant/20" />
-            <span className="text-[9px] font-label uppercase tracking-widest text-on-surface-variant">Move to:</span>
+            <span className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">Move to:</span>
             {(['INGESTED', 'QUALIFIED', 'TRAINED', 'ARCHIVED'] as DocumentLifecycle[]).map(lc => (
               <button
                 key={lc}
                 onClick={() => bulkLifecycleMutation.mutate({ sha256List: Array.from(bulkSelected), lifecycle: lc })}
                 disabled={bulkLifecycleMutation.isPending}
-                className={`px-3 py-2 border text-[9px] font-bold tracking-widest uppercase transition-all disabled:opacity-50 ${LIFECYCLE_COLORS[lc]} hover:bg-primary/10`}
+                className={`px-3 py-2 border text-[10px] font-bold tracking-widest uppercase transition-all disabled:opacity-50 ${LIFECYCLE_COLORS[lc]} hover:bg-primary/10`}
               >
                 {lc}
               </button>
@@ -814,11 +814,11 @@ const Pipelines: FC = () => {
             <button
               onClick={() => bulkDeleteMutation.mutate(Array.from(bulkSelected))}
               disabled={bulkDeleteMutation.isPending}
-              className="px-3 py-2 border border-error/30 text-error text-[9px] font-bold tracking-widest uppercase hover:bg-error hover:text-white transition-all disabled:opacity-50"
+              className="px-3 py-2 border border-error/30 text-error text-[10px] font-bold tracking-widest uppercase hover:bg-error hover:text-white transition-all disabled:opacity-50"
             >
               Delete
             </button>
-            <button onClick={() => setBulkSelected(new Set())} className="w-8 h-8 flex items-center justify-center text-outline-variant hover:text-on-surface transition-colors">
+            <button onClick={() => setBulkSelected(new Set())} className="w-8 h-8 flex items-center justify-center text-outline hover:text-on-surface transition-colors">
               <span className="material-symbols-outlined text-sm">close</span>
             </button>
           </div>
@@ -836,7 +836,7 @@ const Pipelines: FC = () => {
           className="fixed inset-y-0 right-0 w-full lg:w-[520px] bg-surface-container-high shadow-[-20px_0_40px_rgba(0,0,0,0.5)] z-50 animate-in slide-in-from-right duration-300 border-l border-outline-variant/20 flex flex-col outline-none">
           <header className="p-6 border-b border-outline-variant/20 flex justify-between items-center">
             <div className="min-w-0">
-              <p className="text-[9px] font-label uppercase tracking-widest text-outline">Document Sheet</p>
+              <p className="text-[10px] font-label uppercase tracking-widest text-outline">Document Sheet</p>
               <h3 className="font-headline text-lg font-bold truncate max-w-[380px]">{sheet?.fileName ?? '—'}</h3>
             </div>
             <button onClick={() => setSelectedSha(null)} aria-label="Close document panel" className="w-10 h-10 flex items-center justify-center hover:bg-surface-variant transition-colors shrink-0">
@@ -854,43 +854,43 @@ const Pipelines: FC = () => {
               {/* Metadata grid */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="p-4 bg-surface-container-lowest border-l-2 border-primary">
-                  <p className="text-[8px] uppercase tracking-widest text-outline mb-1">Status</p>
+                  <p className="text-[10px] uppercase tracking-widest text-outline mb-1">Status</p>
                   <p className="font-headline font-bold text-sm text-primary uppercase">{sheet.lifecycle}</p>
                 </div>
                 <div className="p-4 bg-surface-container-lowest border-l-2 border-secondary">
-                  <p className="text-[8px] uppercase tracking-widest text-outline mb-1">Quality</p>
+                  <p className="text-[10px] uppercase tracking-widest text-outline mb-1">Quality</p>
                   <p className="font-headline font-bold text-sm text-secondary uppercase">{((sheet.qualityScore ?? 0) * 100).toFixed(0)}%</p>
                 </div>
                 <div className="p-4 bg-surface-container-lowest border-l-2 border-outline-variant">
-                  <p className="text-[8px] uppercase tracking-widest text-outline mb-1">Format</p>
+                  <p className="text-[10px] uppercase tracking-widest text-outline mb-1">Format</p>
                   <p className="font-headline font-bold text-sm uppercase truncate">{sheet.format}</p>
                 </div>
                 <div className="p-4 bg-surface-container-lowest border-l-2 border-outline-variant">
-                  <p className="text-[8px] uppercase tracking-widest text-outline mb-1">Chunks</p>
+                  <p className="text-[10px] uppercase tracking-widest text-outline mb-1">Chunks</p>
                   <p className="font-headline font-bold text-sm">{sheet.chunksCreated}</p>
                 </div>
                 {sheet.collectionName && (
                   <div className="col-span-2 p-4 bg-surface-container-lowest border-l-2 border-primary/40">
-                    <p className="text-[8px] uppercase tracking-widest text-outline mb-1">Collection</p>
+                    <p className="text-[10px] uppercase tracking-widest text-outline mb-1">Collection</p>
                     <p className="font-headline font-bold text-sm text-primary/80 truncate">{sheet.collectionName}</p>
                   </div>
                 )}
                 <div className="col-span-2 p-4 bg-surface-container-lowest border-l-2 border-outline-variant/40">
-                  <p className="text-[8px] uppercase tracking-widest text-outline mb-1">SHA-256</p>
-                  <p className="font-mono text-[10px] text-on-surface-variant break-all">{sheet.sha256}</p>
+                  <p className="text-[10px] uppercase tracking-widest text-outline mb-1">SHA-256</p>
+                  <p className="font-mono text-[11px] text-on-surface-variant break-all">{sheet.sha256}</p>
                 </div>
               </div>
 
               {/* Lifecycle transitions */}
               <div className="space-y-3">
-                <h4 className="text-[10px] font-bold uppercase tracking-widest text-outline">Transitions</h4>
+                <h4 className="text-[11px] font-bold uppercase tracking-widest text-outline">Transitions</h4>
                 <div className="flex flex-wrap gap-2">
                   {(['INGESTED', 'QUALIFIED', 'TRAINED', 'ARCHIVED'] as DocumentLifecycle[]).map(lc => (
                     <button
                       key={lc}
                       disabled={lc === sheet.lifecycle || transitionMutation.isPending}
                       onClick={() => transitionMutation.mutate({ sha: sheet.sha256, lc })}
-                      className={`px-3 py-2 border text-[9px] font-bold tracking-widest uppercase transition-all ${lc === sheet.lifecycle ? 'opacity-30 cursor-not-allowed border-outline' : 'border-primary/30 text-primary hover:bg-primary/10'}`}
+                      className={`px-3 py-2 border text-[10px] font-bold tracking-widest uppercase transition-all ${lc === sheet.lifecycle ? 'opacity-30 cursor-not-allowed border-outline' : 'border-primary/30 text-primary hover:bg-primary/10'}`}
                     >
                       {lc === sheet.lifecycle ? '✓ ' : ''}{lc}
                     </button>
@@ -900,20 +900,20 @@ const Pipelines: FC = () => {
 
               {/* Tag management */}
               <div className="space-y-3">
-                <h4 className="text-[10px] font-bold uppercase tracking-widest text-outline">Tags</h4>
+                <h4 className="text-[11px] font-bold uppercase tracking-widest text-outline">Tags</h4>
                 <div className="flex flex-wrap gap-2 min-h-[2rem]">
                   {sheet.tags.length === 0 && (
                     <p className="text-xs italic text-outline">No tags.</p>
                   )}
                   {sheet.tags.map(tag => (
-                    <span key={tag} className="flex items-center gap-1 text-[9px] border border-outline-variant/30 px-2 py-1 text-outline-variant uppercase">
+                    <span key={tag} className="flex items-center gap-1 text-[10px] border border-outline-variant/30 px-2 py-1 text-outline uppercase">
                       #{tag}
                       <button
                         onClick={() => removeTagMutation.mutate({ sha: sheet.sha256, tags: [tag] })}
                         disabled={removeTagMutation.isPending}
                         className="hover:text-error transition-colors ml-1"
                       >
-                        <span className="material-symbols-outlined text-[10px]">close</span>
+                        <span className="material-symbols-outlined text-[11px]">close</span>
                       </button>
                     </span>
                   ))}
@@ -936,7 +936,7 @@ const Pipelines: FC = () => {
                       if (newTagInput.trim()) addTagMutation.mutate({ sha: sheet.sha256, tags: [newTagInput.trim().toLowerCase()] });
                     }}
                     disabled={!newTagInput.trim() || addTagMutation.isPending}
-                    className="px-4 py-2 bg-primary/10 border border-primary/30 text-primary text-[9px] font-bold tracking-widest uppercase hover:bg-primary/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="px-4 py-2 bg-primary/10 border border-primary/30 text-primary text-[10px] font-bold tracking-widest uppercase hover:bg-primary/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     + Tag
                   </button>
@@ -945,7 +945,7 @@ const Pipelines: FC = () => {
 
               {/* Model links */}
               <div className="space-y-3">
-                <h4 className="text-[10px] font-bold uppercase tracking-widest text-outline">Model Associations</h4>
+                <h4 className="text-[11px] font-bold uppercase tracking-widest text-outline">Model Associations</h4>
                 {sheet.modelLinks.length === 0 ? (
                   <p className="text-xs italic text-outline">No model associations.</p>
                 ) : (
@@ -956,7 +956,7 @@ const Pipelines: FC = () => {
                           <span className="material-symbols-outlined text-sm text-primary">hub</span>
                           <span className="text-xs font-bold truncate max-w-[240px]">{l.model}</span>
                         </div>
-                        <span className="text-[9px] font-bold uppercase text-outline shrink-0">{l.type.replace('_', ' ')}</span>
+                        <span className="text-[10px] font-bold uppercase text-outline shrink-0">{l.type.replace('_', ' ')}</span>
                       </div>
                     ))}
                   </div>
@@ -966,13 +966,13 @@ const Pipelines: FC = () => {
               {/* Comments — RAG generation + DPO rating */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <h4 className="text-[10px] font-bold uppercase tracking-widest text-outline">Comments</h4>
+                  <h4 className="text-[11px] font-bold uppercase tracking-widest text-outline">Comments</h4>
                   <div className="flex gap-1">
                     {(['list', 'add', 'generate'] as const).map(tab => (
                       <button
                         key={tab}
                         onClick={() => setCommentTab(tab)}
-                        className={`px-2 py-1 text-[8px] font-bold uppercase tracking-widest border transition-all ${
+                        className={`px-2 py-1 text-[10px] font-bold uppercase tracking-widest border transition-all ${
                           commentTab === tab
                             ? 'border-primary/60 text-primary bg-primary/10'
                             : 'border-outline-variant/20 text-outline hover:border-primary/30 hover:text-primary'
@@ -985,7 +985,7 @@ const Pipelines: FC = () => {
                       <button
                         onClick={() => exportDpoMutation.mutate()}
                         disabled={exportDpoMutation.isPending}
-                        className="px-2 py-1 text-[8px] font-bold uppercase border border-secondary/30 text-secondary hover:bg-secondary/10 transition-all disabled:opacity-40"
+                        className="px-2 py-1 text-[10px] font-bold uppercase border border-secondary/30 text-secondary hover:bg-secondary/10 transition-all disabled:opacity-40"
                       >
                         DPO↓
                       </button>
@@ -1008,26 +1008,26 @@ const Pipelines: FC = () => {
                         }`}>
                           <div className="flex items-start justify-between gap-2">
                             <div className="flex items-center gap-2 shrink-0">
-                              <span className={`text-[8px] font-bold uppercase px-1.5 py-0.5 border ${
+                              <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 border ${
                                 c.type === 'AI_GENERATED'
                                   ? 'border-secondary/40 text-secondary bg-secondary/10'
                                   : 'border-outline-variant/30 text-outline'
                               }`}>
                                 {c.type === 'AI_GENERATED' ? '✦ AI' : '👤'}
                               </span>
-                              <span className="text-[9px] text-outline">{c.author}</span>
+                              <span className="text-[10px] text-outline">{c.author}</span>
                             </div>
-                            <span className="text-[8px] font-mono text-outline shrink-0">{formatDate(c.createdAt)}</span>
+                            <span className="text-[10px] font-mono text-outline shrink-0">{formatDate(c.createdAt)}</span>
                           </div>
                           {c.focus && (
-                            <p className="text-[9px] italic text-on-surface-variant border-l-2 border-secondary/30 pl-2">
+                            <p className="text-[10px] italic text-on-surface-variant border-l-2 border-secondary/30 pl-2">
                               Focus: {c.focus}
                             </p>
                           )}
                           <p className="text-[11px] text-on-surface leading-relaxed whitespace-pre-line">{c.content}</p>
                           {c.type === 'AI_GENERATED' && (
                             <div className="flex items-center gap-2 pt-1">
-                              <span className="text-[8px] uppercase text-outline tracking-widest">DPO Rating:</span>
+                              <span className="text-[10px] uppercase text-outline tracking-widest">DPO Rating:</span>
                               {(['APPROVED', 'NONE', 'REJECTED'] as const).map(r => (
                                 <button
                                   key={r}
@@ -1035,7 +1035,7 @@ const Pipelines: FC = () => {
                                   disabled={rateCommentMutation.isPending}
                                   aria-pressed={c.rating === r}
                                   aria-label={r === 'APPROVED' ? 'Approve comment' : r === 'REJECTED' ? 'Reject comment' : 'No rating'}
-                                  className={`px-2 py-0.5 text-[8px] font-bold uppercase border transition-all disabled:opacity-40 flex items-center ${
+                                  className={`px-2 py-0.5 text-[10px] font-bold uppercase border transition-all disabled:opacity-40 flex items-center ${
                                     c.rating === r
                                       ? r === 'APPROVED' ? 'border-primary bg-primary/20 text-primary'
                                         : r === 'REJECTED' ? 'border-error bg-error/20 text-error'
@@ -1053,7 +1053,7 @@ const Pipelines: FC = () => {
                               <button
                                 onClick={() => deleteCommentMutation.mutate({ sha: sheet!.sha256, id: c.id })}
                                 disabled={deleteCommentMutation.isPending}
-                                className="ml-auto text-[8px] text-outline hover:text-error transition-colors"
+                                className="ml-auto text-[10px] text-outline hover:text-error transition-colors"
                               >
                                 <span className="material-symbols-outlined text-[12px]">delete</span>
                               </button>
@@ -1064,7 +1064,7 @@ const Pipelines: FC = () => {
                               <button
                                 onClick={() => deleteCommentMutation.mutate({ sha: sheet!.sha256, id: c.id })}
                                 disabled={deleteCommentMutation.isPending}
-                                className="text-[8px] text-outline hover:text-error transition-colors"
+                                className="text-[10px] text-outline hover:text-error transition-colors"
                               >
                                 <span className="material-symbols-outlined text-[12px]">delete</span>
                               </button>
@@ -1092,7 +1092,7 @@ const Pipelines: FC = () => {
                         }
                       }}
                       disabled={!commentInput.trim() || addCommentMutation.isPending}
-                      className="w-full py-2 bg-primary/10 border border-primary/30 text-primary text-[9px] font-bold uppercase tracking-widest hover:bg-primary/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="w-full py-2 bg-primary/10 border border-primary/30 text-primary text-[10px] font-bold uppercase tracking-widest hover:bg-primary/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       {addCommentMutation.isPending ? 'Saving…' : '+ Add comment'}
                     </button>
@@ -1101,7 +1101,7 @@ const Pipelines: FC = () => {
 
                 {commentTab === 'generate' && (
                   <div className="space-y-2">
-                    <p className="text-[9px] text-on-surface-variant">
+                    <p className="text-[10px] text-on-surface-variant">
                       Describe the angle of analysis. The LLM will use RAG to retrieve
                       the relevant passages and generate a comment grounded in the document.
                     </p>
@@ -1119,13 +1119,13 @@ const Pipelines: FC = () => {
                         }
                       }}
                       disabled={generateCommentMutation.isPending}
-                      className="w-full py-2 bg-secondary/10 border border-secondary/30 text-secondary text-[9px] font-bold uppercase tracking-widest hover:bg-secondary/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="w-full py-2 bg-secondary/10 border border-secondary/30 text-secondary text-[10px] font-bold uppercase tracking-widest hover:bg-secondary/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       {generateCommentMutation.isPending
                         ? '✦ RAG generation in progress…'
                         : '✦ Generate with RAG'}
                     </button>
-                    <p className="text-[8px] text-outline">
+                    <p className="text-[10px] text-outline">
                       Approved comments (👍) can be exported as DPO pairs
                       to fine-tune the model with your preferences.
                     </p>
@@ -1135,17 +1135,17 @@ const Pipelines: FC = () => {
 
               {/* Audit Trail */}
               <div className="space-y-3">
-                <h4 className="text-[10px] font-bold uppercase tracking-widest text-outline">Audit Trail</h4>
+                <h4 className="text-[11px] font-bold uppercase tracking-widest text-outline">Audit Trail</h4>
                 <div className="space-y-1 relative before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-px before:bg-outline-variant/20">
                   {sheet.auditTrail.map((a, i) => (
                     <div key={i} className="pl-8 relative py-3 group">
                       <div className="absolute left-[8px] top-5 w-2 h-2 rounded-full bg-outline-variant group-first:bg-primary" />
                       <div className="flex justify-between items-start mb-1">
-                        <p className="text-[10px] font-bold uppercase tracking-tighter">{a.action.replace(/_/g, ' ')}</p>
-                        <p className="text-[8px] text-outline font-mono shrink-0 ml-2">{formatDate(a.timestamp)}</p>
+                        <p className="text-[11px] font-bold uppercase tracking-tighter">{a.action.replace(/_/g, ' ')}</p>
+                        <p className="text-[10px] text-outline font-mono shrink-0 ml-2">{formatDate(a.timestamp)}</p>
                       </div>
-                      <p className="text-[10px] text-on-surface-variant italic">by {a.actor}</p>
-                      {a.details && <p className="text-[9px] text-outline mt-1 font-mono break-all">{a.details}</p>}
+                      <p className="text-[11px] text-on-surface-variant italic">by {a.actor}</p>
+                      {a.details && <p className="text-[10px] text-outline mt-1 font-mono break-all">{a.details}</p>}
                     </div>
                   ))}
                 </div>
@@ -1157,7 +1157,7 @@ const Pipelines: FC = () => {
             <button
               onClick={() => { if (sheet) deleteMutation.mutate(sheet.sha256); }}
               disabled={deleteMutation.isPending || !sheet}
-              className="w-full py-3 bg-error/10 border border-error/30 text-error font-bold text-[10px] tracking-widest uppercase hover:bg-error hover:text-white transition-all disabled:opacity-50"
+              className="w-full py-3 bg-error/10 border border-error/30 text-error font-bold text-[11px] tracking-widest uppercase hover:bg-error hover:text-white transition-all disabled:opacity-50"
             >
               Delete permanently
             </button>
@@ -1176,4 +1176,4 @@ const Pipelines: FC = () => {
   );
 };
 
-export default Pipelines;
+export default Documents;
