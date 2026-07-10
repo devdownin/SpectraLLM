@@ -1,7 +1,7 @@
 # Déploiement automatique sur Google Kubernetes Engine (GKE)
 
 Ce document décrit la configuration GCP nécessaire au workflow
-[`.github/workflows/deploy-gke.yml`](../.github/workflows/deploy-gke.yml), qui
+[`.github/workflows/deploy-gke.yml`](../../.github/workflows/deploy-gke.yml), qui
 construit les images Docker, les pousse vers **Artifact Registry** et déploie la
 stack complète sur **GKE** à chaque push sur `main` (ou manuellement via
 *Run workflow*).
@@ -21,9 +21,9 @@ push main ─▶ GitHub Actions
               └─ kubectl apply -k k8s/base/  ─▶  cluster GKE (namespace `spectra`)
 ```
 
-Le workflow déploie les manifests de [`k8s/`](../k8s/). Les modèles GGUF et les
+Le workflow déploie les manifests de [`k8s/`](../../deploy/k8s/). Les modèles GGUF et les
 PVC doivent être préparés **une fois** sur le cluster — voir
-[`k8s/README.md`](../k8s/README.md) (sections 2 et 5).
+[`k8s/README.md`](../../deploy/k8s/README.md) (sections 2 et 5).
 
 ---
 
@@ -96,7 +96,7 @@ echo "projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/github/p
 ### 2.3 Cluster GKE
 
 Le workflow déploie sur un cluster **existant** : il faut donc le créer une fois.
-Le script [`scripts/gke-create-cluster.sh`](../scripts/gke-create-cluster.sh) s'en
+Le script [`scripts/gke-create-cluster.sh`](../../scripts/gke-create-cluster.sh) s'en
 charge (idempotent — sans danger à relancer) : il active les APIs, crée le cluster
 puis récupère les credentials `kubectl`.
 
@@ -192,7 +192,7 @@ de `deploy-gke.yml` : `file: Dockerfile.llama.cuda`.
 
 ### 5.3 Déployer l'overlay GPU
 
-L'overlay [`k8s/overlays/gpu`](../k8s/overlays/gpu) patche le ConfigMap
+L'overlay [`k8s/overlays/gpu`](../../deploy/k8s/overlays/gpu) patche le ConfigMap
 (`LLAMA_NGL: "-1"`) et ajoute `nvidia.com/gpu: 1` + la toleration au déploiement
 `llama-cpp-chat` :
 
@@ -249,7 +249,7 @@ embedding nomic-embed-text → `spectra-models-pvc:/embed.gguf`.
 
 ## 8. Ingress HTTPS avec TLS managé (GKE natif)
 
-L'overlay [`k8s/overlays/gke`](../k8s/overlays/gke) remplace l'Ingress nginx et le
+L'overlay [`k8s/overlays/gke`](../../deploy/k8s/overlays/gke) remplace l'Ingress nginx et le
 LoadBalancer du frontend par un **Ingress GKE natif** avec **certificat TLS managé
 par Google** (provision et renouvellement automatiques) :
 
@@ -280,7 +280,7 @@ kubectl -n spectra describe managedcertificate spectra-cert
 
 Les métriques sont déjà exposées sur `/actuator/prometheus` (tag commun
 `application=spectrallm`, histogrammes HTTP et RAG). Avec un **Prometheus Operator**
-(kube-prometheus-stack), l'overlay [`k8s/monitoring`](../k8s/monitoring) ajoute :
+(kube-prometheus-stack), l'overlay [`k8s/monitoring`](../../deploy/k8s/monitoring) ajoute :
 
 - `ServiceMonitor` — scrape de spectra-api.
 - `PrometheusRule` — alertes (API down, taux 5xx, latence RAG p95, heap JVM).
