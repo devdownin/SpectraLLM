@@ -76,7 +76,7 @@ Quatre étapes, un flux continu — le tout piloté par une interface web guidé
 | <img src="docs/assets/playground.png" alt="Dialoguer avec vos documents, réponses sourcées" width="100%"> | <img src="docs/assets/training.png" alt="Fine-tuner un modèle local sur votre corpus" width="100%"> |
 | **Interrogez** vos documents — réponses avec sources citées | **Fine-tunez** un modèle local qui garde le savoir |
 
-*Curieux du fonctionnement réel de la fusion hybride, du re-ranking et des recettes de fine-tuning ? → **[Architecture & internals](docs/ARCHITECTURE.md)***
+*Curieux du fonctionnement réel de la fusion hybride, du re-ranking et de la compression de contexte — et du **pourquoi** ? → **[Les internes du pipeline RAG](docs/tech/RAG_PIPELINE.md)** · **[Architecture](docs/ARCHITECTURE.md)***
 
 ## 📚 Documentation
 

@@ -16,6 +16,7 @@ New here? Start with **[Getting Started](GETTING_STARTED.md)**.
 | Guide | Inside |
 |---|---|
 | **[Architecture & Services](ARCHITECTURE.md)** | Every container and service in depth: RAG internals, ingestion, GED, evaluation, tech stack. |
+| **[RAG pipeline internals](tech/RAG_PIPELINE.md)** | Why each retrieval step exists — chunking, Multi-Query, RRF fusion, reranking, context compression, long-context bypass. |
 | **[Configuration](CONFIGURATION.md)** | All environment variables, health endpoints, Prometheus metrics. |
 | **[Technical Reference](tech/TECHNICAL_DOC.md)** | Implementation-level detail across the platform. |
 | **[Diagrams](tech/)** | C4 container/component views and the technical-stack diagram (`*.html`). |

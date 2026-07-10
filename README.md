@@ -76,7 +76,7 @@ Four stages, one continuous flow — all driven from a guided web interface (FR/
 | <img src="docs/assets/playground.png" alt="Chat over your documents with cited sources" width="100%"> | <img src="docs/assets/training.png" alt="Fine-tune a local model on your corpus" width="100%"> |
 | **Ask** your documents — answers with cited sources | **Fine-tune** a local model that keeps the knowledge |
 
-*Curious how the hybrid fusion, reranking and fine-tuning recipes actually work under the hood? → **[Architecture & internals](docs/ARCHITECTURE.md)***
+*Curious how the hybrid fusion, reranking and context compression actually work — and **why**? → **[RAG pipeline internals](docs/tech/RAG_PIPELINE.md)** · **[Architecture](docs/ARCHITECTURE.md)***
 
 ## 📚 Documentation
 
