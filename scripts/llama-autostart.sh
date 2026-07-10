@@ -6,7 +6,7 @@
 # Détecte automatiquement les ressources disponibles (CPU, RAM, GPU)
 # et calcule les paramètres optimaux pour llama-server.
 #
-# NB : en mode docker-compose, le dimensionnement CPU/RAM appartient à
+# NB : en mode deploy/docker/docker-compose, le dimensionnement CPU/RAM appartient à
 # spectra-api (ResourceAdvisorService), qui matérialise ses recommandations
 # dans data/models/active-chat-params, consommées par llm-chat-entrypoint.sh.
 # Ce script reste l'implémentation de repli pour les environnements où l'API
@@ -223,7 +223,7 @@ if [ ! -f "${MODEL_PATH}" ]; then
   log "ERREUR: Fichier modèle introuvable : ${MODEL_PATH}"
   log "  → Mode chat  : placez votre GGUF dans data/fine-tuning/merged/model.gguf"
   log "  → Mode embed : placez votre GGUF dans data/models/embed.gguf"
-  log "  → Ou surchargez MODEL_PATH dans docker-compose.yml"
+  log "  → Ou surchargez MODEL_PATH dans deploy/docker/docker-compose.yml"
   exit 1
 fi
 

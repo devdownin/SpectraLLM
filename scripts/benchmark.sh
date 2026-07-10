@@ -11,15 +11,15 @@
 #   ./scripts/benchmark.sh [--api-only] [--llama-only] [--question="..."] [--followup="..."]
 #
 # Prérequis :
-#   - docker compose up -d (Spectra opérationnel)
+#   - docker compose --project-directory . -f deploy/docker/deploy/docker/docker-compose.yml up -d (Spectra opérationnel)
 #   - Les binaires llama-bench et llama-perplexity doivent être dans l'image
-#     (reconstruire avec : docker compose build llama-cpp-chat)
+#     (reconstruire avec : docker compose --project-directory . -f deploy/docker/deploy/docker/docker-compose.yml build llama-cpp-chat)
 # =============================================================================
 
 set -euo pipefail
 
 API_BASE="${SPECTRA_API:-http://localhost:8080}"
-# Noms des conteneurs et chemin du modèle alignés sur docker-compose.yml
+# Noms des conteneurs et chemin du modèle alignés sur deploy/docker/docker-compose.yml
 # (container_name: spectra-llm-chat / spectra-llm-embed ; ./data/models monté sur /models).
 CHAT_CONTAINER="${CHAT_CONTAINER:-spectra-llm-chat}"
 EMBED_CONTAINER="${EMBED_CONTAINER:-spectra-llm-embed}"

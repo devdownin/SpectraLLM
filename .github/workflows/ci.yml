@@ -19,12 +19,12 @@ jobs:
         distribution: 'temurin'
         cache: maven
     - name: Build and Test with Maven
-      run: mvn -B package --file pom.xml
+      run: mvn -B package -f backend/pom.xml -f backend/pom.xml
     - name: Upload Jacoco Report
       uses: actions/upload-artifact@v4
       with:
         name: jacoco-report
-        path: target/site/jacoco/jacoco.xml
+        path: backend/target/site/jacoco/jacoco.xml
 
   static-analysis:
     name: Static analysis (SpotBugs)
@@ -41,13 +41,13 @@ jobs:
     # (see spotbugs-include.xml) plus all security findings. Runs off the default
     # build via the `static-analysis` profile so `mvn package` stays fast.
     - name: SpotBugs check
-      run: mvn -B -Pstatic-analysis -DskipTests compile spotbugs:check --file pom.xml
+      run: mvn -B -Pstatic-analysis -DskipTests compile spotbugs:check -f backend/pom.xml
     - name: Upload SpotBugs report
       if: always()
       uses: actions/upload-artifact@v4
       with:
         name: spotbugs-report
-        path: target/spotbugs*
+        path: backend/target/spotbugs*
         if-no-files-found: ignore
 
   frontend:
@@ -84,7 +84,7 @@ jobs:
         npx playwright install --with-deps chromium
         npm run preview &
         npx wait-on http://localhost:5173
-        node ../test_pw.js
+        node ../tests/test_pw.js
 
   e2e:
     name: E2E tests (Playwright)
@@ -93,8 +93,8 @@ jobs:
     - uses: actions/checkout@v4
     - name: Set up Docker Compose
       run: |
-        docker compose -f docker-compose.yml build
-        docker compose -f docker-compose.yml up -d
+        docker compose --project-directory . -f deploy/docker/docker-compose.yml build
+        docker compose --project-directory . -f deploy/docker/docker-compose.yml up -d
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
@@ -107,7 +107,7 @@ jobs:
       run: |
         npm install playwright core-js
         npx playwright install --with-deps chromium
-        node test_pw.js
+        node tests/test_pw.js
     - name: Stop services
       if: always()
       run: docker compose down
@@ -122,25 +122,25 @@ jobs:
       with:
         python-version: '3.11'
         cache: pip
-        cache-dependency-path: requirements-test.txt
+        cache-dependency-path: services/requirements-test.txt
     - name: Install test dependencies
-      run: pip install -r requirements-test.txt
+      run: pip install -r services/requirements-test.txt
     - name: Lint (Ruff)
-      run: ruff check docparser reranker
+      run: ruff check services/docparser services/reranker
     - name: Unit tests (pytest)
       run: |
-        (cd docparser && python -m pytest tests/ -q --cov=app --cov-report=xml)
-        (cd reranker && python -m pytest tests/ -q --cov=app --cov-report=xml)
+        (cd services/docparser && python -m pytest tests/ -q --cov=app --cov-report=xml)
+        (cd services/reranker && python -m pytest tests/ -q --cov=app --cov-report=xml)
     - name: Upload docparser coverage
       uses: actions/upload-artifact@v4
       with:
         name: docparser-coverage
-        path: docparser/coverage.xml
+        path: services/docparser/coverage.xml
     - name: Upload reranker coverage
       uses: actions/upload-artifact@v4
       with:
         name: reranker-coverage
-        path: reranker/coverage.xml
+        path: services/reranker/coverage.xml
 
   codecov:
     name: Upload coverage to Codecov
@@ -177,6 +177,6 @@ jobs:
       - name: Upload to Codecov
         uses: codecov/codecov-action@v5
         with:
-          files: jacoco/jacoco.xml,vitest/lcov.info,docparser/coverage.xml,reranker/coverage.xml
+          files: jacoco/jacoco.xml,vitest/lcov.info,services/docparser/coverage.xml,services/reranker/coverage.xml
           fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}
