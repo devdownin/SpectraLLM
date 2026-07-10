@@ -5,6 +5,7 @@
 # Only the light web-framework layer that the request-handling logic actually
 # uses is installed here.
 pytest==8.4.1
+pytest-cov==6.0.0
 httpx==0.28.1
 fastapi==0.136.1
 pydantic==2.13.4

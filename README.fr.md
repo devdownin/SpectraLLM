@@ -20,6 +20,8 @@ Spectra est une plateforme complète conçue pour construire, optimiser et dépl
 
 Spectra n'est pas seulement un outil RAG ; c'est une **usine à intelligence spécialisée**.
 
+![Spectra Application Flow](./assets/images/spectraflux.png)
+
 ```mermaid
 graph LR
     A[Docs Bruts] --> B[Ingestion Intelligente]

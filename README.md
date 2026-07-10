@@ -58,6 +58,8 @@ No cloud APIs. No data leaving your infrastructure. No ongoing costs.
 
 ## The Full Pipeline at a Glance
 
+![Spectra Application Flow](./assets/images/spectraflux.png)
+
 ```
 Raw documents
      │
