@@ -80,6 +80,8 @@ Quatre étapes, un flux continu — le tout piloté par une interface web guidé
 
 ## 📚 Documentation
 
+Tout est accessible depuis l'**[index de la documentation](docs/README.md)**, ou allez directement au but :
+
 | Guide | Contenu |
 |---|---|
 | **[Getting Started](docs/GETTING_STARTED.md)** | Installation pas-à-pas, téléchargement des modèles, profils Docker, déploiement Kubernetes/GKE |

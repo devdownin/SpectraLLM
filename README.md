@@ -80,6 +80,8 @@ Four stages, one continuous flow — all driven from a guided web interface (FR/
 
 ## 📚 Documentation
 
+Browse everything from the **[documentation index](docs/README.md)**, or jump straight in:
+
 | Guide | What's inside |
 |---|---|
 | **[Getting Started](docs/GETTING_STARTED.md)** | Step-by-step install, model downloads, Docker profiles, Kubernetes/GKE deploy |
