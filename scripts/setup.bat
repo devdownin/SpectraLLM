@@ -14,7 +14,9 @@ setlocal enabledelayedexpansion
 :: premier lancement. À exécuter une seule fois.
 :: ────────────────────────────────────────────────────────────────────────────
 
-cd /d "%~dp0"
+:: Les scripts vivent dans scripts\ mais operent sur la racine du depot
+:: (data\, .env, .env.example).
+cd /d "%~dp0.."
 
 set DOWNLOAD_EMBED=0
 set DOWNLOAD_CHAT=0
@@ -150,10 +152,10 @@ if !ERRORS!==0 (
     echo   [OK] Configuration terminee — tout est en place !
     echo.
     echo   Pour demarrer Spectra :
-    echo     start.bat --detach
+    echo     scripts\start.bat --detach
     echo.
     echo   Pour tester avec des exemples :
-    echo     adddoc.bat examples
+    echo     scripts\adddoc.bat examples
 ) else (
     echo   [!] Configuration incomplete — !ERRORS! element(s) a corriger.
     echo   Relancez setup.bat apres avoir resolu les problemes ci-dessus.

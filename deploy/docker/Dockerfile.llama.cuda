@@ -6,7 +6,8 @@
 # llama-autostart.sh détecte nvidia-smi au runtime et offload toutes les
 # couches sur le GPU (NGL=-1).
 #
-#   docker build -f Dockerfile.llama.cuda -t spectra-llama-cpp:latest .
+#   (depuis la racine du dépôt — le contexte doit inclure scripts/)
+#   docker build -f deploy/docker/Dockerfile.llama.cuda -t spectra-llama-cpp:latest .
 #
 # À utiliser avec l'overlay k8s/overlays/gpu (qui demande nvidia.com/gpu)
 # sur un node pool GKE équipé de GPU. Voir docs/DEPLOY_GKE.md §GPU.

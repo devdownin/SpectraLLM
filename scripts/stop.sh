@@ -7,7 +7,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$SCRIPT_DIR"
+# Opère sur la racine du dépôt (docker-compose via --project-directory .).
+cd "$SCRIPT_DIR/.."
+
+COMPOSE=(docker compose --project-directory . -f deploy/docker/docker-compose.yml)
 
 echo "► Arrêt des services Spectra..."
 
@@ -17,9 +20,9 @@ echo "► Arrêt des services Spectra..."
 export COMPOSE_PROFILES="layout-parser,reranker,kafka"
 
 if [[ "${1:-}" == "--clean" ]]; then
-    docker compose down -v --remove-orphans
+    "${COMPOSE[@]}" down -v --remove-orphans
     echo "  ✓ Services arrêtés et volumes supprimés"
 else
-    docker compose down --remove-orphans
+    "${COMPOSE[@]}" down --remove-orphans
     echo "  ✓ Services arrêtés (volumes conservés)"
 fi

@@ -11,9 +11,9 @@
 #   ./scripts/benchmark.sh [--api-only] [--llama-only] [--question="..."] [--followup="..."]
 #
 # Prérequis :
-#   - docker compose --project-directory . -f deploy/docker/deploy/docker/docker-compose.yml up -d (Spectra opérationnel)
+#   - docker compose --project-directory . -f deploy/docker/docker-compose.yml up -d (Spectra opérationnel)
 #   - Les binaires llama-bench et llama-perplexity doivent être dans l'image
-#     (reconstruire avec : docker compose --project-directory . -f deploy/docker/deploy/docker/docker-compose.yml build llama-cpp-chat)
+#     (reconstruire avec : docker compose --project-directory . -f deploy/docker/docker-compose.yml build llama-cpp-chat)
 # =============================================================================
 
 set -euo pipefail

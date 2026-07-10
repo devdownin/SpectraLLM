@@ -11,7 +11,12 @@ REM                  telechargement des modeles, demarrage en arriere-plan
 REM                  puis ouverture du navigateur sur l'UI.
 REM  ────────────────────────────────────────────────────────
 
-cd /d "%~dp0"
+REM  Les scripts vivent dans scripts\ mais la stack (docker-compose, data\, .env)
+REM  est ancree a la racine du depot. %SCRIPT_DIR% pointe vers scripts\.
+set "SCRIPT_DIR=%~dp0"
+cd /d "%~dp0.."
+
+set COMPOSE=docker compose --project-directory . -f deploy/docker/docker-compose.yml
 
 set DETACH=
 set GPU_FLAG=
@@ -38,7 +43,7 @@ REM  0. Premier lancement : setup complet (repertoires, .env, modeles)
 if defined FIRST_RUN (
     echo.
     echo ^> Premier lancement : configuration initiale + telechargement des modeles...
-    call setup.bat --download-embed --download-chat
+    call "%SCRIPT_DIR%setup.bat" --download-embed --download-chat
 )
 
 REM  1. Creer les repertoires de donnees
@@ -53,13 +58,12 @@ echo   [OK] data\documents, data\dataset, data\fine-tuning, data\models
 REM  2. Detection automatique de la configuration serveur
 echo.
 echo ^> Detection de la configuration serveur...
-call detect-env.bat %GPU_FLAG%
+call "%SCRIPT_DIR%detect-env.bat" %GPU_FLAG%
 
-REM  Lire si GPU active dans .env
-set COMPOSE_FILES=-f docker-compose.yml
+REM  Lire si GPU active dans .env (racine du depot)
 findstr /C:"SPECTRA_GPU_ENABLED=true" .env >nul 2>&1
 if !errorlevel!==0 (
-    set COMPOSE_FILES=-f docker-compose.yml -f docker-compose.gpu.yml
+    set COMPOSE=!COMPOSE! -f deploy/docker/docker-compose.gpu.yml
     echo   [OK] GPU active, docker-compose.gpu.yml inclus
 )
 
@@ -68,7 +72,7 @@ docker image inspect spectra-spectra-api >nul 2>&1
 if %errorlevel% neq 0 (
     echo.
     echo ^> Image spectra-api non trouvee, build en cours...
-    docker compose %COMPOSE_FILES% build
+    !COMPOSE! build
 )
 
 REM  En mode premier plan, docker compose bloque le terminal : afficher les
@@ -84,7 +88,7 @@ if "%DETACH%"=="" (
 REM  4. Demarrage des services
 echo.
 echo ^> Demarrage des services Docker...
-docker compose %COMPOSE_FILES% up %DETACH%
+%COMPOSE% up %DETACH%
 
 REM  Si mode detache, on continue avec le post-setup
 if "%DETACH%"=="" goto eof
@@ -167,8 +171,8 @@ echo  Swagger     :  http://localhost:8080/swagger-ui.html
 echo  LLM server  :  http://localhost:8081
 echo  ChromaDB    :  http://localhost:8000
 echo.
-echo  Arret       :  stop.bat
-echo  Logs        :  docker compose logs -f
+echo  Arret       :  scripts\stop.bat
+echo  Logs        :  %COMPOSE% logs -f
 echo ======================================
 
 REM  7. Premier lancement : ouvrir le navigateur sur l'UI

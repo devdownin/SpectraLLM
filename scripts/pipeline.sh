@@ -22,7 +22,9 @@
 # ────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail
-cd "$(dirname "$0")"
+# Les chemins de documents (data/documents par défaut) sont relatifs à la
+# racine du dépôt, pas au dossier scripts/ où vit ce fichier.
+cd "$(dirname "$0")/.."
 
 # ── Couleurs ─────────────────────────────────────────────────────────────────
 green()  { echo -e "\033[32m  [OK] $*\033[0m"; }

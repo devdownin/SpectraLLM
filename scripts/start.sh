@@ -13,7 +13,12 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$SCRIPT_DIR"
+# Les scripts vivent dans scripts/ mais la stack (docker-compose via
+# --project-directory ., data/, .env) est ancrée à la racine du dépôt.
+cd "$SCRIPT_DIR/.."
+
+# Invocation Compose : fichier sous deploy/docker/, contexte projet = racine.
+COMPOSE=(docker compose --project-directory . -f deploy/docker/docker-compose.yml)
 
 bold()  { echo -e "\033[1m$*\033[0m"; }
 green() { echo -e "\033[1;32m$*\033[0m"; }
@@ -53,20 +58,19 @@ echo ""
 echo "► Détection de la configuration serveur..."
 bash "$SCRIPT_DIR/detect-env.sh" $GPU_FLAG
 
-# Lire le .env pour déterminer si le GPU est activé
-COMPOSE_FILES="-f docker-compose.yml"
-if grep -q 'SPECTRA_GPU_ENABLED=true' "$SCRIPT_DIR/.env" 2>/dev/null; then
-    COMPOSE_FILES="-f docker-compose.yml -f docker-compose.gpu.yml"
+# Lire le .env (racine du dépôt) pour déterminer si le GPU est activé
+if grep -q 'SPECTRA_GPU_ENABLED=true' .env 2>/dev/null; then
+    COMPOSE+=(-f deploy/docker/docker-compose.gpu.yml)
     echo "  ✓ GPU activé → docker-compose.gpu.yml inclus"
 fi
 
 # 3. Build si l'image n'existe pas
 # On interroge Compose lui-même plutôt qu'un nom d'image codé en dur (qui dépend du nom
 # de projet dérivé du répertoire, p. ex. « spectrallm-spectra-api »).
-if ! docker compose $COMPOSE_FILES images -q spectra-api 2>/dev/null | grep -q .; then
+if ! "${COMPOSE[@]}" images -q spectra-api 2>/dev/null | grep -q .; then
     echo ""
     echo "► Image spectra-api non trouvée, build en cours..."
-    docker compose $COMPOSE_FILES build
+    "${COMPOSE[@]}" build
 fi
 
 # En mode premier plan, docker compose bloque le terminal : afficher les URLs
@@ -82,7 +86,7 @@ fi
 # 4. Démarrage des services
 echo ""
 echo "► Démarrage des services Docker..."
-docker compose $COMPOSE_FILES up $DETACH
+"${COMPOSE[@]}" up $DETACH
 
 # Si mode détaché, on continue avec le post-setup
 if [[ -n "$DETACH" ]]; then
@@ -148,8 +152,8 @@ if [[ -n "$DETACH" ]]; then
     echo " LLM server  :  http://localhost:8081"
     echo " ChromaDB    :  http://localhost:8000"
     echo ""
-    echo " Arrêt       :  ./stop.sh"
-    echo " Logs        :  docker compose logs -f"
+    echo " Arrêt       :  ./scripts/stop.sh"
+    echo " Logs        :  ${COMPOSE[*]} logs -f"
     echo "══════════════════════════════════════"
 
     # 7. Premier lancement : ouvrir le navigateur sur l'UI (best effort)

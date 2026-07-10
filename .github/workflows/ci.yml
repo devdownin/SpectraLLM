@@ -19,7 +19,7 @@ jobs:
         distribution: 'temurin'
         cache: maven
     - name: Build and Test with Maven
-      run: mvn -B package -f backend/pom.xml -f backend/pom.xml
+      run: mvn -B package -f backend/pom.xml
     - name: Upload Jacoco Report
       uses: actions/upload-artifact@v4
       with:
@@ -110,7 +110,7 @@ jobs:
         node tests/test_pw.js
     - name: Stop services
       if: always()
-      run: docker compose down
+      run: docker compose --project-directory . -f deploy/docker/docker-compose.yml down
 
   python-services:
     name: Python services (docparser, reranker)

@@ -1,8 +1,8 @@
 <div align="center">
 
-# ⚡ Spectra
+<img src="docs/assets/logo.png" alt="Spectra LLM — turn any document into an expert AI" width="360">
 
-### Turn your documents into a private, fine-tuned AI assistant — in one command.
+### Turn your documents into a private, fine-tuned AI — in one command.
 
 **100% local · No cloud · No API keys · No subscriptions**
 
@@ -13,78 +13,85 @@
 
 [Quick start](#-quick-start) · [Why Spectra](#-why-spectra) · [How it works](#-how-it-works) · [Documentation](#-documentation) · [Français](./README.fr.md)
 
+<img src="docs/assets/dashboard.png" alt="Spectra — the local document-to-model workspace" width="100%">
+
 </div>
 
 ---
 
-Your organization's knowledge is locked inside PDFs, Word documents, wikis and data exports. Generic LLMs know none of it — and sending internal documents to a cloud API is often not an option.
+Your organization's knowledge lives in PDFs, Word docs, wikis and exports. Generic LLMs know none of it — and shipping internal documents to a cloud API is often a non-starter.
 
-**Spectra ingests your documents, answers questions from them (RAG), then goes further: it fine-tunes a local model that permanently knows your domain** — and exports it as a single GGUF file you can deploy anywhere, even air-gapped.
+> **Spectra reads your documents, answers questions from them, then fine-tunes a local model that permanently knows your domain — exported as a single file you can run anywhere, even air-gapped.**
 
-Most tools make you choose between RAG *or* fine-tuning, then leave the integration to you. Spectra does both, in sequence, automatically, on your own hardware:
+Most tools give you RAG *or* fine-tuning and leave the wiring to you. Spectra does the whole journey — automatically, on your own hardware:
 
 ```
- your documents ─► 📥 ingest ─► 🔍 search & ask (RAG) ─► 🧪 generate dataset
-                                                              │
-      deploy anywhere ◄─ 📦 export GGUF ◄─ 🎓 fine-tune ◄─────┘
+ your documents ─► 📥 ingest ─► 🔍 ask (RAG) ─► 🧪 build dataset
+                                                      │
+     deploy anywhere ◄─ 📦 export ◄─ 🎓 fine-tune ◄───┘
 ```
 
-One Docker stack. A web interface for the whole journey. Your data never leaves your machine.
+One `docker compose up`. One web interface for the whole journey. Your data never leaves your machine.
 
 ## 🚀 Quick start
 
 ```bash
 git clone https://github.com/devdownin/SpectraLLM.git && cd SpectraLLM
-./start.sh --first-run        # Windows: start.bat --first-run
+./scripts/start.sh --first-run      # Windows: scripts\start.bat --first-run
 ```
 
-That's it. Spectra downloads the default models (~1.2 GB total), starts the stack, and opens the web UI at **http://localhost**. Drop a PDF on the Ingestion page and start asking questions.
+Spectra downloads the default models (~1.2 GB), starts the stack, and opens the web UI at **http://localhost**. Drop a PDF on the Ingestion page and start asking questions.
 
-> **Requirements:** Docker (Compose v2) and 16 GB RAM. GPU optional — NVIDIA, AMD/ROCm and Vulkan supported, auto-detected. Prefer step-by-step control? See **[Getting Started](docs/GETTING_STARTED.md)**.
+> **Requirements:** Docker (Compose v2) and 16 GB RAM. GPU optional — NVIDIA, AMD/ROCm and Vulkan supported, auto-detected. Prefer step-by-step control? → **[Getting Started](docs/GETTING_STARTED.md)**
 
 ## 🏆 Why Spectra
 
-| Feature | Spectra | LangChain | Haystack | Open WebUI |
-|---------|:--------:|:---------:|:---------:|:---------:|
+| | Spectra | LangChain | Haystack | Open WebUI |
+|---|:--------:|:---------:|:---------:|:---------:|
 | End-to-end platform | ✅ | ❌ | ❌ | ❌ |
-| Advanced Hybrid RAG | ✅ | ⚠️ | ✅ | ❌ |
+| Advanced hybrid RAG | ✅ | ⚠️ | ✅ | ❌ |
 | Agentic RAG | ✅ | ⚠️ | ⚠️ | ❌ |
-| Synthetic Dataset Generation | ✅ | ❌ | ❌ | ❌ |
-| QLoRA Fine-tuning | ✅ | ❌ | ❌ | ❌ |
-| DPO Training | ✅ | ❌ | ❌ | ❌ |
-| Continuous Learning | ✅ | ❌ | ❌ | ❌ |
-| Model Evaluation | ✅ | ❌ | ❌ | ❌ |
-| GGUF Deployment | ✅ | ❌ | ❌ | ⚠️ |
-| Kubernetes Ready | ✅ | ⚠️ | ⚠️ | ⚠️ |
-| 100% Local | ✅ | ✅ | ✅ | ✅ |
+| Synthetic dataset generation | ✅ | ❌ | ❌ | ❌ |
+| QLoRA fine-tuning | ✅ | ❌ | ❌ | ❌ |
+| DPO / continuous learning | ✅ | ❌ | ❌ | ❌ |
+| Built-in model evaluation | ✅ | ❌ | ❌ | ❌ |
+| One-file GGUF deployment | ✅ | ❌ | ❌ | ⚠️ |
+| 100% local | ✅ | ✅ | ✅ | ✅ |
 
-> ✅ Built-in &nbsp;&nbsp; ⚠️ Requires custom integration &nbsp;&nbsp; ❌ Not available
+> ✅ Built-in &nbsp; ⚠️ Requires custom integration &nbsp; ❌ Not available
 
-Building this yourself means stitching together an orchestration framework, a vector database, a chunker, an embedding server, a fine-tuning pipeline, an evaluation harness and a frontend — each with its own configuration model and failure modes. Spectra ships all of it in a single `docker compose up`.
+Building this yourself means stitching together an orchestration framework, a vector database, a chunker, an embedding server, a fine-tuning pipeline, an evaluation harness and a frontend — each with its own config and failure modes. Spectra ships all of it, integrated.
 
 ## ⚙️ How it works
 
-1. **📥 Ingest** — PDF, DOCX, HTML, JSON, XML, TXT, ZIP, URLs, even live Kafka streams. Layout-aware PDF parsing keeps tables and headings intact; an 8-step cleaner and semantic chunking prepare the text.
-2. **🔍 Retrieve** — Hybrid search: BM25 keyword matching + vector similarity, fused with Reciprocal Rank Fusion, then cross-encoder reranking, semantic dedup and context compression.
-3. **💬 Answer** — Six RAG strategies, picked adaptively per question: Standard, Hybrid, Multi-Query, Corrective, Self-RAG, and an Agentic ReAct loop for multi-hop questions. Streaming answers with cited sources.
-4. **🧪 Synthesize** — Spectra generates a Q&A / DPO training dataset from your own corpus, scored by an LLM-as-a-judge.
-5. **🎓 Fine-tune** — QLoRA/DPO recipes for CPU or GPU bake the knowledge into the model's weights. Approved answers feed a continuous-learning loop that retrains automatically.
-6. **📦 Export & measure** — One GGUF file out, deployable anywhere (llama.cpp, Ollama, LM Studio…). Built-in evaluation, A/B model comparison and ablation benchmarks prove the gain at every step.
+Four stages, one continuous flow — all driven from a guided web interface (FR/EN):
 
-Everything is driven from a guided web interface (FR/EN) — dashboard, ingestion, document management, fine-tuning, playground, evaluation — with hardware auto-detection choosing sane inference parameters for your machine.
+- **📥 Ingest** — PDF, DOCX, HTML, JSON, XML, TXT, ZIP, URLs, even live Kafka streams. Layout-aware parsing keeps tables and headings intact.
+- **🔍 Ask** — Hybrid search (keyword + vector) with reranking and **cited sources**. Six retrieval strategies, picked adaptively per question — up to an agentic ReAct loop for multi-hop reasoning.
+- **🎓 Fine-tune** — Spectra builds a training dataset from your own corpus, then bakes the knowledge into the model's weights (QLoRA/DPO, CPU or GPU). Approved answers feed a continuous-learning loop.
+- **📦 Deploy** — Out comes a single GGUF file, runnable anywhere (llama.cpp, Ollama, LM Studio…). Built-in evaluation, A/B comparison and ablation benchmarks prove the gain at every step.
+
+| | |
+|:---:|:---:|
+| <img src="docs/assets/playground.png" alt="Chat over your documents with cited sources" width="100%"> | <img src="docs/assets/training.png" alt="Fine-tune a local model on your corpus" width="100%"> |
+| **Ask** your documents — answers with cited sources | **Fine-tune** a local model that keeps the knowledge |
+
+*Curious how the hybrid fusion, reranking and context compression actually work — and **why**? → **[RAG pipeline internals](docs/tech/RAG_PIPELINE.md)** · **[Architecture](docs/ARCHITECTURE.md)***
 
 ## 📚 Documentation
+
+Browse everything from the **[documentation index](docs/README.md)**, or jump straight in:
 
 | Guide | What's inside |
 |---|---|
 | **[Getting Started](docs/GETTING_STARTED.md)** | Step-by-step install, model downloads, Docker profiles, Kubernetes/GKE deploy |
-| **[Architecture & Services](docs/ARCHITECTURE.md)** | Every container and service in depth: RAG internals, ingestion, GED, evaluation, tech stack |
+| **[Architecture & Services](docs/ARCHITECTURE.md)** | Every service in depth: RAG internals, ingestion, evaluation, tech stack |
 | **[Configuration](docs/CONFIGURATION.md)** | All environment variables, health endpoints, Prometheus metrics |
-| **[User Manual](USER_MANUAL.md)** | Complete walkthrough of the web interface |
-| **[Technical Doc](TECHNICAL_DOC.md)** | Implementation-level reference |
-| **[Pedagogical Mini-Book (FR)](DOCUMENTATION_PEDAGOGIQUE.fr.md)** | The ideas behind Spectra: embeddings, HNSW, BM25 + RRF, the six RAG strategies, DPO/QLoRA — each with a concrete example |
-| **[llama.cpp Guide](llama.cpp.md)** | Inference engine details and tuning |
-| **[Reliability](RELIABILITY.md)** · **[Security](SECURITY.md)** | Operational guarantees and security policy |
+| **[User Manual](docs/user/USER_MANUAL.md)** | Complete walkthrough of the web interface |
+| **[Technical Reference](docs/tech/TECHNICAL_DOC.md)** | Implementation-level detail |
+| **[How Spectra works (FR)](docs/user/DOCUMENTATION_PEDAGOGIQUE.fr.md)** | The ideas in plain language: embeddings, BM25 + RRF, the RAG strategies, DPO/QLoRA |
+| **[llama.cpp Guide](docs/tech/llama.cpp.md)** | Inference engine details and tuning |
+| **[Reliability](docs/process/RELIABILITY.md)** · **[Security](SECURITY.md)** | Operational guarantees and security policy |
 
 **Stack:** Java 25 / Spring Boot 4 · React 19 · llama.cpp · ChromaDB · Python (fine-tuning, parsing, reranking) — detailed in [Architecture](docs/ARCHITECTURE.md#technology-stack).
 
