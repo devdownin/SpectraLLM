@@ -1,6 +1,6 @@
 <div align="center">
 
-# ⚡ Spectra
+<img src="docs/assets/logo.png" alt="Spectra LLM — turn any document into an expert AI" width="360">
 
 ### Turn your documents into a private, fine-tuned AI — in one command.
 

@@ -1,6 +1,6 @@
 <div align="center">
 
-# ⚡ Spectra
+<img src="docs/assets/logo.png" alt="Spectra LLM — transformez n'importe quel document en IA experte" width="360">
 
 ### Transformez vos documents en IA privée et fine-tunée — en une commande.
 
