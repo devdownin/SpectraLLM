@@ -9,7 +9,10 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail
-cd "$(dirname "$0")"
+# Les scripts vivent dans scripts/ mais opèrent sur la racine du dépôt
+# (data/, .env, .env.example, docker-compose via --project-directory .).
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR/.."
 
 DOWNLOAD_EMBED=0
 DOWNLOAD_CHAT=0
@@ -54,8 +57,8 @@ echo
 
 # ── 1. Java ───────────────────────────────────────────────────────────────
 echo "> [1/6] Vérification de Java 25..."
-if [ -f "./scripts/setup-java.sh" ]; then
-  if ! ./scripts/setup-java.sh; then
+if [ -f "$SCRIPT_DIR/setup-java.sh" ]; then
+  if ! "$SCRIPT_DIR/setup-java.sh"; then
     ERRORS=$((ERRORS + 1))
   fi
 fi
@@ -171,13 +174,13 @@ if [ "$ERRORS" -eq 0 ]; then
   green "  [OK] Configuration terminée — tout est en place !"
   echo
   echo "  Pour compiler (nécessite Java 25 local) :"
-  echo "    ./build.sh"
+  echo "    ./scripts/build.sh"
   echo
   echo "  Pour démarrer Spectra :"
-  echo "    docker compose up -d"
+  echo "    ./scripts/start.sh"
   echo
   echo "  Pour tester avec des exemples :"
-  echo "    bash adddoc.sh examples"
+  echo "    bash scripts/adddoc.sh examples"
 else
   red "  [!] Configuration incomplète — $ERRORS élément(s) à corriger."
   echo "  Relancez ./setup.sh après avoir résolu les problèmes ci-dessus."

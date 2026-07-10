@@ -7,7 +7,8 @@
 # Elle embarque le script scripts/llama-autostart.sh, qui détecte les
 # ressources (CPU/RAM/GPU) et calcule les paramètres optimaux de llama-server.
 #
-#   docker build -f Dockerfile.llama -t spectra-llama-cpp:latest .
+#   (depuis la racine du dépôt — le contexte doit inclure scripts/)
+#   docker build -f deploy/docker/Dockerfile.llama -t spectra-llama-cpp:latest .
 # ─────────────────────────────────────────────────────────────────────────────
 FROM ghcr.io/ggml-org/llama.cpp:server
 

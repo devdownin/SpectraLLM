@@ -6,14 +6,17 @@ chcp 65001 >nul 2>&1
 ::   --clean : supprime aussi les volumes Docker (données)
 :: ────────────────────────────────────────────────────────
 
-cd /d "%~dp0"
+:: Opère sur la racine du dépôt (docker-compose sous deploy\docker\).
+cd /d "%~dp0.."
+
+set COMPOSE=docker compose --project-directory . -f deploy/docker/docker-compose.yml
 
 echo ^> Arret des services Spectra...
 
 if "%~1"=="--clean" (
-    docker compose down -v
+    %COMPOSE% down -v
     echo   [OK] Services arretes et volumes supprimes
 ) else (
-    docker compose down
+    %COMPOSE% down
     echo   [OK] Services arretes (volumes conserves^)
 )
