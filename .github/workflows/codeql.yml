@@ -42,7 +42,7 @@ jobs:
     # Manual build for Java to ensure JDK 25 is used and avoid autobuild issues
     - name: Build Java
       if: matrix.language == 'java-kotlin'
-      run: mvn -B package -DskipTests
+      run: mvn -f backend/pom.xml -B package -DskipTests
 
     # Autobuild for other languages (like javascript-typescript)
     - name: Autobuild
