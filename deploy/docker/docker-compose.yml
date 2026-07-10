@@ -7,8 +7,8 @@ services:
     image: alpine:3.20
     container_name: spectra-model-init
     volumes:
-      - ./data/models:/models:ro
-      - ./scripts/check-models.sh:/check-models.sh:ro
+      - ../../data/models:/models:ro
+      - ../../scripts/check-models.sh:/check-models.sh:ro
     environment:
       - LLM_CHAT_MODEL_FILE=${LLM_CHAT_MODEL_FILE:-Phi-4-mini-reasoning-UD-IQ1_S.gguf}
       - LLM_EMBED_MODEL_FILE=${LLM_EMBED_MODEL_FILE:-embed.gguf}
@@ -29,8 +29,8 @@ services:
     ports:
       - "8081:8081"
     volumes:
-      - ./data/models:/models
-      - ./scripts/llm-chat-entrypoint.sh:/llm-chat-entrypoint.sh:ro
+      - ../../data/models:/models
+      - ../../scripts/llm-chat-entrypoint.sh:/llm-chat-entrypoint.sh:ro
     entrypoint: ["/bin/sh", "/llm-chat-entrypoint.sh"]
     environment:
       - LLM_CHAT_MODEL_FILE=${LLM_CHAT_MODEL_FILE:-Phi-4-mini-reasoning-UD-IQ1_S.gguf}
@@ -62,7 +62,7 @@ services:
     ports:
       - "8082:8082"
     volumes:
-      - ./data/models:/models
+      - ../../data/models:/models
     command: >
       --host 0.0.0.0
       --port 8082
@@ -103,7 +103,7 @@ services:
   docparser:
     profiles: [layout-parser]
     build:
-      context: ./docparser
+      context: ../.../../services/docparser
       dockerfile: Dockerfile
       args:
         USE_DOCLING: ${USE_DOCLING:-false}
@@ -127,7 +127,7 @@ services:
   reranker:
     profiles: [reranker]
     build:
-      context: ./reranker
+      context: ../.../../services/reranker
       dockerfile: Dockerfile
       args:
         RERANKER_MODEL: ${RERANKER_MODEL:-cross-encoder/mmarco-mMiniLMv2-L12-H384-v1}
@@ -182,8 +182,8 @@ services:
   # ── API Backend ───────────────────────────────────────────────────────────
   spectra-api:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
     container_name: spectra-api
     ports:
       - "8080:8080"
@@ -244,7 +244,7 @@ services:
       - SPECTRA_KAFKA_SASL_MECHANISM=${SPECTRA_KAFKA_SASL_MECHANISM:-}
       - SPECTRA_KAFKA_SASL_JAAS_CONFIG=${SPECTRA_KAFKA_SASL_JAAS_CONFIG:-}
     volumes:
-      - ./data:/app/data
+      - ../../data:/app/data
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health/readiness"]
       interval: 20s
@@ -263,7 +263,7 @@ services:
   # ── Frontend (Nginx + React) ──────────────────────────────────────────────
   frontend:
     build:
-      context: ./frontend
+      context: ../../frontend
       dockerfile: Dockerfile
     container_name: spectra-frontend
     ports:
