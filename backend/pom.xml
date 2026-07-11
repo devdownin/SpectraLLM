@@ -18,7 +18,7 @@
     <description>Spectra LLM Domain Builder API</description>
 
     <properties>
-        <java.version>25</java.version>
+        <java.version>21</java.version>
     </properties>
 
     <dependencies>
@@ -254,7 +254,7 @@
                                 </plugin>
                             </plugins>
                         </configuration>
-                        <!-- Épingle le moteur SpotBugs à une version qui lit le bytecode Java 25. -->
+                        <!-- Épingle le moteur SpotBugs à une version qui lit le bytecode Java 21. -->
                         <dependencies>
                             <dependency>
                                 <groupId>com.github.spotbugs</groupId>
