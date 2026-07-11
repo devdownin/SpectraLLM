@@ -126,7 +126,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          file: Dockerfile
+          file: deploy/docker/Dockerfile
           load: true
           tags: spectra-api:latest
           cache-from: type=gha
@@ -146,7 +146,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          file: Dockerfile.llama
+          file: deploy/docker/Dockerfile.llama
           load: true
           tags: spectra-llama-cpp:latest
           cache-from: type=gha
@@ -217,7 +217,7 @@ jobs:
           set -euo pipefail
           IMG="${GAR_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}"
           TAG="${{ steps.tag.outputs.sha }}"
-          cd k8s/base
+          cd deploy/k8s/base
           kustomize edit set image \
             "spectra-api=${IMG}/spectra-api:${TAG}" \
             "spectra-frontend=${IMG}/spectra-frontend:${TAG}" \

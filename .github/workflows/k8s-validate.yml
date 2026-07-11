@@ -8,12 +8,12 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
-      - 'k8s/**'
+      - 'deploy/k8s/**'
       - '.github/workflows/k8s-validate.yml'
   push:
     branches: [ "main", "master" ]
     paths:
-      - 'k8s/**'
+      - 'deploy/k8s/**'
 
 jobs:
   validate:
@@ -36,32 +36,32 @@ jobs:
           sudo mv kubeconform /usr/local/bin/
           kubeconform -v
 
-      - name: Build & validate base (k8s/base/)
+      - name: Build & validate base (deploy/k8s/base/)
         run: |
           set -euo pipefail
-          kustomize build k8s/base/ > /tmp/base.yaml
+          kustomize build deploy/k8s/base/ > /tmp/base.yaml
           kubeconform -strict -summary -ignore-missing-schemas /tmp/base.yaml
 
-      - name: Build & validate GPU overlay (k8s/overlays/gpu)
+      - name: Build & validate GPU overlay (deploy/k8s/overlays/gpu)
         run: |
           set -euo pipefail
-          kustomize build k8s/overlays/gpu/ > /tmp/gpu.yaml
+          kustomize build deploy/k8s/overlays/gpu/ > /tmp/gpu.yaml
           kubeconform -strict -summary -ignore-missing-schemas /tmp/gpu.yaml
 
-      - name: Build & validate GKE ingress overlay (k8s/overlays/gke)
+      - name: Build & validate GKE ingress overlay (deploy/k8s/overlays/gke)
         run: |
           set -euo pipefail
-          kustomize build k8s/overlays/gke/ > /tmp/gke.yaml
+          kustomize build deploy/k8s/overlays/gke/ > /tmp/gke.yaml
           kubeconform -strict -summary -ignore-missing-schemas /tmp/gke.yaml
 
-      - name: Build & validate model-seed (k8s/seed)
+      - name: Build & validate model-seed (deploy/k8s/seed)
         run: |
           set -euo pipefail
-          kustomize build k8s/seed/ > /tmp/seed.yaml
+          kustomize build deploy/k8s/seed/ > /tmp/seed.yaml
           kubeconform -strict -summary -ignore-missing-schemas /tmp/seed.yaml
 
-      - name: Build & validate monitoring (k8s/monitoring)
+      - name: Build & validate monitoring (deploy/k8s/monitoring)
         run: |
           set -euo pipefail
-          kustomize build k8s/monitoring/ > /tmp/monitoring.yaml
+          kustomize build deploy/k8s/monitoring/ > /tmp/monitoring.yaml
           kubeconform -strict -summary -ignore-missing-schemas /tmp/monitoring.yaml
