@@ -103,7 +103,7 @@ services:
   docparser:
     profiles: [layout-parser]
     build:
-      context: ../../services/docparser
+      context: ./services/docparser
       dockerfile: Dockerfile
       args:
         USE_DOCLING: ${USE_DOCLING:-false}
@@ -127,7 +127,7 @@ services:
   reranker:
     profiles: [reranker]
     build:
-      context: ../../services/reranker
+      context: ./services/reranker
       dockerfile: Dockerfile
       args:
         RERANKER_MODEL: ${RERANKER_MODEL:-cross-encoder/mmarco-mMiniLMv2-L12-H384-v1}
@@ -182,7 +182,7 @@ services:
   # ── API Backend ───────────────────────────────────────────────────────────
   spectra-api:
     build:
-      context: ../..
+      context: .
       dockerfile: deploy/docker/Dockerfile
     container_name: spectra-api
     ports:
@@ -263,7 +263,7 @@ services:
   # ── Frontend (Nginx + React) ──────────────────────────────────────────────
   frontend:
     build:
-      context: ../../frontend
+      context: ./frontend
       dockerfile: Dockerfile
     container_name: spectra-frontend
     ports:
