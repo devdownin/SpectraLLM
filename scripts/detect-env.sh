@@ -7,7 +7,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ENV_FILE="$SCRIPT_DIR/.env"
+# Les scripts vivent dans scripts/ ; le .env (et docker-compose via
+# --project-directory .) est ancré à la racine du dépôt, à côté de .env.example.
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+ENV_FILE="$PROJECT_ROOT/.env"
 GPU_TYPE="none"   # none | nvidia | amd | vulkan
 FORCE=0
 

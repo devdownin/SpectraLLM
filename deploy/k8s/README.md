@@ -18,7 +18,7 @@ spectra-api (:8080)
 
 > 🤖 **Déploiement automatisé (GKE)** : un workflow CI construit les images,
 > les pousse sur Artifact Registry et applique ces manifests à chaque push sur
-> `main`. Voir [`docs/DEPLOY_GKE.md`](../docs/DEPLOY_GKE.md).
+> `main`. Voir [`docs/tech/DEPLOY_GKE.md`](../../docs/tech/DEPLOY_GKE.md).
 
 Tous les services sont en `ClusterIP` — seul le frontend est exposé.  
 Le proxy nginx du frontend (`/api/ → spectra-api:8080`) fonctionne sans modification car les noms de services K8s dans le même namespace sont résolus directement.

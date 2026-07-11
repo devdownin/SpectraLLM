@@ -7,7 +7,9 @@ REM  Genere un fichier .env adapte aux ressources disponibles.
 REM  Usage: detect-env.bat [--gpu]
 REM  ────────────────────────────────────────────────────────
 
-cd /d "%~dp0"
+REM  Le .env est ancre a la racine du depot (a cote de .env.example, et lu par
+REM  docker-compose via --project-directory .).
+cd /d "%~dp0.."
 
 set GPU_TYPE=none
 set GPU_VRAM_MB=0

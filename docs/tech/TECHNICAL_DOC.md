@@ -557,6 +557,11 @@ PENDING → EXPORTING_DATASET → TRAINING → IMPORTING_MODEL → COMPLETED
 
 ## 6. RAG (`RagService`)
 
+> 📖 **Le raisonnement de conception** (pourquoi chaque étape existe : chunking, Multi-Query,
+> fusion RRF, re-ranking, compression de contexte, long-context bypass) est détaillé dans
+> **[Le pipeline RAG — pourquoi chaque étape](RAG_PIPELINE.md)**. La présente section est la
+> référence d'implémentation.
+
 ### `RagContext` — record interne
 
 La phase de retrieval (embed → ChromaDB → rerank → sources) est encapsulée dans un record `RagContext` retourné par `retrieveContext(QueryRequest)`. Ce record est consommé par `query()` (réponse synchrone) et `queryStream()` (streaming SSE), évitant toute duplication de la logique de retrieval.

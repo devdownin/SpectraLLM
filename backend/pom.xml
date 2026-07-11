@@ -153,7 +153,7 @@
                  scripts/ (lu par les scripts Python voisins) et est embarqué tel quel dans
                  le classpath pour le backend (BaseModelCatalog). Une seule source de vérité. -->
             <resource>
-                <directory>scripts</directory>
+                <directory>../scripts</directory>
                 <includes>
                     <include>base_models.json</include>
                 </includes>

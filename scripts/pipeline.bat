@@ -23,7 +23,9 @@ setlocal enabledelayedexpansion
 ::   --dpo          Active l'alignement DPO (requiert une generation DPO prealable)
 :: ────────────────────────────────────────────────────────────────
 
-cd /d "%~dp0"
+:: Les chemins de documents (data\documents par defaut) sont relatifs a la
+:: racine du depot, pas au dossier scripts\ ou vit ce fichier.
+cd /d "%~dp0.."
 
 set API_URL=http://localhost:8080
 set POLL_INTERVAL=5

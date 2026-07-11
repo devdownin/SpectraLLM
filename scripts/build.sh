@@ -6,7 +6,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$SCRIPT_DIR"
+# Opère sur la racine du dépôt : pom sous backend/, docker-compose sous
+# deploy/docker/ (contexte projet = racine via --project-directory .).
+cd "$SCRIPT_DIR/.."
+
+COMPOSE=(docker compose --project-directory . -f deploy/docker/docker-compose.yml)
 
 SKIP_TESTS=""
 if [[ "${1:-}" == "--skip-tests" ]]; then
@@ -21,8 +25,8 @@ echo "╚═══════════════════════�
 if command -v mvn &>/dev/null; then
     echo ""
     echo "► Maven build..."
-    mvn clean package $SKIP_TESTS -B -q
-    echo "  ✓ JAR construit: target/spectra-api-0.1.0-SNAPSHOT.jar"
+    mvn clean package $SKIP_TESTS -B -q -f backend/pom.xml
+    echo "  ✓ JAR construit: backend/target/spectra-api-1.1.0-SNAPSHOT.jar"
 else
     echo ""
     echo "► Maven non trouvé localement, le build sera fait dans Docker."
@@ -31,11 +35,11 @@ fi
 # 2. Build Docker
 echo ""
 echo "► Docker build..."
-docker compose build --no-cache
+"${COMPOSE[@]}" build --no-cache
 echo "  ✓ Images Docker construites"
 
 echo ""
 echo "══════════════════════════════════════"
 echo " Build terminé."
-echo " Lancez: ./start.sh"
+echo " Lancez: ./scripts/start.sh"
 echo "══════════════════════════════════════"
