@@ -202,12 +202,17 @@ public class QualityBenchmarkService {
         // basculer le modèle actif entre baseline et candidate.
         modelSwitch.lock();
         try {
+            // Les jalons du passage (chargement du GGUF, génération, notation) remontent dans
+            // currentStep : l'UI montre où en est le job au lieu d'une attente muette.
+            java.util.function.Consumer<String> progress =
+                    step -> updateCompareJob(jobId, j -> j.running(step));
+
             updateCompareJob(jobId, j -> j.running("Évaluation du modèle de référence « " + baseline + " »…"));
-            QualityBenchmarkReport baselineReport = run(baseline);
+            QualityBenchmarkReport baselineReport = run(baseline, progress);
 
             updateCompareJob(jobId, j -> j.withBaselineReport(baselineReport,
                     "Évaluation du modèle candidat « " + candidate + " »…"));
-            QualityBenchmarkReport candidateReport = run(candidate);
+            QualityBenchmarkReport candidateReport = run(candidate, progress);
 
             updateCompareJob(jobId, j -> j.completed(candidateReport));
             log.info("Comparaison qualité {} terminée : {} ({}/10) vs {} ({}/10)", jobId,
@@ -252,6 +257,16 @@ public class QualityBenchmarkService {
      * bascule (une seule mesure à la fois, tous harnais confondus).</p>
      */
     public QualityBenchmarkReport run(String model) {
+        return run(model, step -> { });
+    }
+
+    /**
+     * Variante suivie de {@link #run(String)} : {@code progress} reçoit les jalons du passage
+     * (chargement du modèle, génération, notation) — affichés par l'UI via le
+     * {@code currentStep} des jobs de comparaison, pour que l'attente du chargement d'un
+     * GGUF (plusieurs minutes possibles) ne ressemble pas à un blocage.
+     */
+    public QualityBenchmarkReport run(String model, java.util.function.Consumer<String> progress) {
         Instant started = Instant.now();
         List<JsonNode> entries = loadBenchmark();
         if (entries.isEmpty()) {
@@ -268,10 +283,13 @@ public class QualityBenchmarkService {
                 if (evaluatedModel != null && !evaluatedModel.equals(previous)) {
                     log.info("Benchmark qualité : bascule temporaire du modèle actif {} → {}",
                             previous, evaluatedModel);
+                    progress.accept("Chargement du modèle « " + evaluatedModel + " »…");
                     modelSwitch.activate(evaluatedModel);
                 }
 
                 // ── Phase 1 : génération des réponses avec le modèle évalué ──
+                progress.accept("Génération des réponses (« " + evaluatedModel + " », "
+                        + entries.size() + " questions)…");
                 List<GeneratedEntry> generated = new ArrayList<>(entries.size());
                 for (JsonNode entry : entries) {
                     generated.add(generateEntry(entry));
@@ -281,14 +299,16 @@ public class QualityBenchmarkService {
                 String judge = resolveJudge(evaluatedModel);
                 if (judge != null && !judge.equals(chatClient.getActiveModel())) {
                     log.info("Benchmark qualité : notation par le juge neutre '{}'", judge);
+                    progress.accept("Chargement du juge « " + judge + " »…");
                     modelSwitch.activate(judge);
                 }
+                progress.accept("Notation des réponses (juge « " + judge + " »)…");
                 List<QualityBenchmarkItem> items = new ArrayList<>(generated.size());
                 for (GeneratedEntry g : generated) {
                     items.add(judgeEntry(g));
                 }
 
-                QualityBenchmarkReport report = aggregate(evaluatedModel, items, started);
+                QualityBenchmarkReport report = aggregate(evaluatedModel, judge, items, started);
                 log.info("Benchmark qualité '{}' (juge: {}) : score moyen {}/10, hallucination {} %",
                         evaluatedModel, judge, String.format("%.2f", report.avgScore()),
                         String.format("%.0f", report.hallucinationRate() * 100));
@@ -400,9 +420,11 @@ public class QualityBenchmarkService {
 
     /**
      * Agrège une liste d'items en rapport qualité (score moyen, hallucination, refus, par catégorie).
-     * Exposé pour réutilisation par {@code RagAblationService}.
+     * {@code judgeModel} trace le modèle qui a noté : deux rapports ne sont équitablement
+     * comparables qu'à juge identique. Exposé pour réutilisation par {@code RagAblationService}.
      */
-    public QualityBenchmarkReport aggregate(String model, List<QualityBenchmarkItem> items, Instant started) {
+    public QualityBenchmarkReport aggregate(String model, String judgeModel,
+                                            List<QualityBenchmarkItem> items, Instant started) {
         int answerable = 0, unanswerable = 0, hallucinated = 0, refused = 0;
         int scoredCount = 0;   // items answerable RÉELLEMENT notés (score non nul)
         double scoreSum = 0;
@@ -430,6 +452,7 @@ public class QualityBenchmarkService {
 
         return new QualityBenchmarkReport(
                 model,
+                judgeModel,
                 items.size(),
                 answerable,
                 unanswerable,

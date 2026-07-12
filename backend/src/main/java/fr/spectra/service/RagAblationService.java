@@ -149,7 +149,7 @@ public class RagAblationService {
             RunResult first = rr.getFirst();
             QualityBenchmarkReport q0 = first.quality();
             QualityBenchmarkReport quality = new QualityBenchmarkReport(
-                    evaluatedModel, q0.total(), q0.answerableCount(), q0.unanswerableCount(),
+                    evaluatedModel, q0.judgeModel(), q0.total(), q0.answerableCount(), q0.unanswerableCount(),
                     mean(avgScores), mean(hallucs), mean(refusals),
                     meanScoresByCategory(rr), q0.items(), started, Instant.now());
             RetrievalMetrics retrieval = new RetrievalMetrics(
@@ -197,6 +197,7 @@ public class RagAblationService {
      */
     private RunResult runOnce(AblationRequest.Arm arm, List<JsonNode> entries,
                               int maxChunks, String evaluatedModel, Instant started) {
+        String judge = qualityBenchmarkService.resolveJudge(evaluatedModel);
         // La phase de notation de la répétition précédente a pu laisser le juge neutre servi :
         // s'assurer que le modèle évalué est bien celui qui répond (attente de convergence).
         if (evaluatedModel != null && !evaluatedModel.isBlank()
@@ -253,7 +254,6 @@ public class RagAblationService {
 
         // ── Phase 2 : notation (une seule bascule vers le juge neutre s'il y a lieu) ──
         if (!pending.isEmpty()) {
-            String judge = qualityBenchmarkService.resolveJudge(evaluatedModel);
             if (judge != null && !judge.isBlank() && !judge.equals(chatClient.getActiveModel())) {
                 log.info("Ablation '{}' : notation par le juge neutre '{}'", arm.label(), judge);
                 modelSwitch.activate(judge);
@@ -265,7 +265,7 @@ public class RagAblationService {
         }
 
         QualityBenchmarkReport quality =
-                qualityBenchmarkService.aggregate(evaluatedModel, items, started);
+                qualityBenchmarkService.aggregate(evaluatedModel, judge, items, started);
         RetrievalMetrics retrieval = new RetrievalMetrics(
                 retrievalEvaluated, maxChunks,
                 retrievalEvaluated > 0 ? hitSum / retrievalEvaluated : 0.0,

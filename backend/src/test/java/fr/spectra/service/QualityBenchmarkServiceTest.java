@@ -76,6 +76,8 @@ class QualityBenchmarkServiceTest {
         // Toutes les questions answerable notées 8/10, toutes les non-answerable correctement refusées.
         assertThat(job.candidateReport().avgScore()).isEqualTo(8.0);
         assertThat(job.candidateReport().hallucinationRate()).isEqualTo(0.0);
+        // Sans juge neutre configuré, chaque modèle s'auto-juge — tracé dans le rapport.
+        assertThat(job.candidateReport().judgeModel()).isEqualTo("modele-nouveau");
         // Le job est persisté sur disque (survit à un redémarrage).
         assertThat(Files.exists(workDir.resolve("quality-compare-jobs.json"))).isTrue();
     }
@@ -90,6 +92,7 @@ class QualityBenchmarkServiceTest {
         var report = service.run("modele-evalue");
 
         assertThat(report.model()).isEqualTo("modele-evalue");
+        assertThat(report.judgeModel()).isEqualTo("judge-x");
         assertThat(report.avgScore()).isEqualTo(8.0);
         org.mockito.InOrder order = org.mockito.Mockito.inOrder(chat);
         order.verify(chat).setActiveModel("modele-evalue");
