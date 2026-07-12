@@ -23,6 +23,7 @@ All settings have environment variable overrides. The table below shows the most
 | `LLM_CHAT_MODEL_FILE` | `Phi-4-mini-reasoning-UD-IQ1_S.gguf` | Chat GGUF filename in `data/models/` |
 | `LLM_EMBED_MODEL_FILE` | `embed.gguf` | Embedding GGUF filename in `data/models/` |
 | `LLM_PARALLEL` | `2` | Parallel inference slots per server |
+| `LLAMA_CPP_IMAGE_TAG` | `server-b9828` | Pinned `ghcr.io/ggml-org/llama.cpp` image tag for llm-chat/llm-embed (the floating `server` tag tracks llama.cpp master and can break without warning) |
 
 ### Ingestion pipeline
 
