@@ -25,11 +25,7 @@ Your organization's knowledge lives in PDFs, Word docs, wikis and exports. Gener
 
 Most tools give you RAG *or* fine-tuning and leave the wiring to you. Spectra does the whole journey — automatically, on your own hardware:
 
-```
- your documents ─► 📥 ingest ─► 🔍 ask (RAG) ─► 🧪 build dataset
-                                                      │
-     deploy anywhere ◄─ 📦 export ◄─ 🎓 fine-tune ◄───┘
-```
+<img src="docs/assets/spectraflux.png" alt="Spectra Workflow Architecture" width="100%">
 
 One `docker compose up`. One web interface for the whole journey. Your data never leaves your machine.
 

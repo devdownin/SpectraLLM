@@ -12,12 +12,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    - name: Set up JDK 25
-      uses: actions/setup-java@v5
-      with:
-        java-version: '25'
-        distribution: 'temurin'
-        cache: maven
+    - name: Set up Java and Maven
+      uses: ./.github/actions/setup-java-maven
     - name: Build and Test with Maven
       run: mvn -B package -f backend/pom.xml
     - name: Upload Jacoco Report
@@ -31,12 +27,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    - name: Set up JDK 25
-      uses: actions/setup-java@v5
-      with:
-        java-version: '25'
-        distribution: 'temurin'
-        cache: maven
+    - name: Set up Java and Maven
+      uses: ./.github/actions/setup-java-maven
     # SpotBugs + find-sec-bugs, restricted to a curated high-confidence rule set
     # (see spotbugs-include.xml) plus all security findings. Runs off the default
     # build via the `static-analysis` profile so `mvn package` stays fast.
@@ -77,14 +69,6 @@ jobs:
         path: frontend/coverage/lcov.info
     - name: Build (tsc + vite)
       run: npm run build
-    - name: E2E tests (Playwright)
-      run: |
-        npm install -g playwright
-        npm install playwright core-js wait-on
-        npx playwright install --with-deps chromium
-        npm run preview &
-        npx wait-on http://localhost:5173
-        node ../tests/test_pw.js
 
   e2e:
     name: E2E tests (Playwright)
@@ -113,8 +97,11 @@ jobs:
       run: docker compose --project-directory . -f deploy/docker/docker-compose.yml down
 
   python-services:
-    name: Python services (docparser, reranker)
+    name: Python service (${{ matrix.service }})
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [docparser, reranker]
     steps:
     - uses: actions/checkout@v4
     - name: Set up Python
@@ -126,21 +113,14 @@ jobs:
     - name: Install test dependencies
       run: pip install -r services/requirements-test.txt
     - name: Lint (Ruff)
-      run: ruff check services/docparser services/reranker
+      run: ruff check services/${{ matrix.service }}
     - name: Unit tests (pytest)
-      run: |
-        (cd services/docparser && python -m pytest tests/ -q --cov=app --cov-report=xml)
-        (cd services/reranker && python -m pytest tests/ -q --cov=app --cov-report=xml)
-    - name: Upload docparser coverage
+      run: (cd services/${{ matrix.service }} && python -m pytest tests/ -q --cov=app --cov-report=xml)
+    - name: Upload coverage
       uses: actions/upload-artifact@v4
       with:
-        name: docparser-coverage
-        path: services/docparser/coverage.xml
-    - name: Upload reranker coverage
-      uses: actions/upload-artifact@v4
-      with:
-        name: reranker-coverage
-        path: services/reranker/coverage.xml
+        name: ${{ matrix.service }}-coverage
+        path: services/${{ matrix.service }}/coverage.xml
 
   codecov:
     name: Upload coverage to Codecov
@@ -166,17 +146,17 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: docparser-coverage
-          path: docparser
+          path: docparser-coverage
 
       - name: Download reranker coverage report
         uses: actions/download-artifact@v4
         with:
           name: reranker-coverage
-          path: reranker
+          path: reranker-coverage
 
       - name: Upload to Codecov
         uses: codecov/codecov-action@v5
         with:
-          files: jacoco/jacoco.xml,vitest/lcov.info,services/docparser/coverage.xml,services/reranker/coverage.xml
+          files: jacoco/jacoco.xml,vitest/lcov.info,docparser-coverage/coverage.xml,reranker-coverage/coverage.xml
           fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}

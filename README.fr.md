@@ -25,11 +25,7 @@ Le savoir de votre organisation vit dans des PDF, des documents Word, des wikis 
 
 La plupart des outils vous donnent le RAG *ou* le fine-tuning, et vous laissent l'intégration. Spectra fait tout le parcours — automatiquement, sur votre matériel :
 
-```
- vos documents ─► 📥 ingestion ─► 🔍 questions (RAG) ─► 🧪 dataset
-                                                            │
-    déployez partout ◄─ 📦 export ◄─ 🎓 fine-tuning ◄───────┘
-```
+<img src="docs/assets/spectraflux.png" alt="Architecture et Workflow Spectra" width="100%">
 
 Un seul `docker compose up`. Une interface web pour tout le parcours. Vos données ne quittent jamais votre machine.
 

@@ -1,0 +1,11 @@
+name: "Setup Java & Maven"
+description: "Sets up JDK 21 and caches Maven dependencies"
+runs:
+  using: "composite"
+  steps:
+    - name: Set up JDK 21
+      uses: actions/setup-java@v5
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+        cache: maven
