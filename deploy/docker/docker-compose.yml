@@ -20,8 +20,13 @@ services:
   # llama-server automatiquement quand il change (POST /api/config/model,
   # activation post-fine-tuning) — plus de « restart llm-chat » manuel.
   # Repli sur LLM_CHAT_MODEL_FILE tant que le pointeur n'existe pas (1er boot).
+  # Image ÉPINGLÉE sur un build versionné : le tag mobile « server » est reconstruit
+  # en continu depuis le master de llama.cpp (plusieurs fois par jour) — un build
+  # cassé faisait mourir les conteneurs au démarrage (constaté en CI E2E) alors que
+  # les machines locales tournaient sur un vieux pull en cache. Surcharge possible
+  # via LLAMA_CPP_IMAGE_TAG (ex. server-b9976, ou server pour suivre master).
   llm-chat:
-    image: ghcr.io/ggml-org/llama.cpp:server
+    image: ghcr.io/ggml-org/llama.cpp:${LLAMA_CPP_IMAGE_TAG:-server-b9828}
     container_name: spectra-llm-chat
     depends_on:
       model-init:
@@ -54,7 +59,8 @@ services:
 
   # ── Serveur LLM — Embedding ───────────────────────────────────────────────
   llm-embed:
-    image: ghcr.io/ggml-org/llama.cpp:server
+    # Même épinglage que llm-chat (tag mobile « server » = risque de casse silencieuse).
+    image: ghcr.io/ggml-org/llama.cpp:${LLAMA_CPP_IMAGE_TAG:-server-b9828}
     container_name: spectra-llm-embed
     depends_on:
       model-init:

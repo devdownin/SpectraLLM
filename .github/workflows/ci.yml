@@ -118,6 +118,13 @@ jobs:
         npm install playwright core-js
         npx playwright install --with-deps chromium
         node tests/test_pw.js
+    # Sans cette capture, un conteneur qui meurt au démarrage (ex. build llama.cpp
+    # cassé) est indiagnosticable : `down` supprime les conteneurs et leurs logs.
+    - name: Dump container logs (on failure)
+      if: failure()
+      run: |
+        docker compose --project-directory . -f deploy/docker/docker-compose.yml ps -a
+        docker compose --project-directory . -f deploy/docker/docker-compose.yml logs --no-color --tail=200
     - name: Stop services
       if: always()
       run: docker compose --project-directory . -f deploy/docker/docker-compose.yml down
