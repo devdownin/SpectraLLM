@@ -38,8 +38,8 @@ En amont de tout cela, à l'**ingestion**, le texte est découpé en chunks → 
 | Compression | `ContextCompressionService` | `spectra.context-compression.enabled` | — |
 | Long-Context Bypass | inline dans `RagService` | `spectra.long-context-rag.enabled` | ≤ 100 chunks |
 
-> Liste exhaustive des variables d'environnement : **[Configuration](../CONFIGURATION.md)**.
-> Version « idées » en langage clair : **[Guide des idées et des algorithmes](../user/DOCUMENTATION_PEDAGOGIQUE.fr.md)**.
+> Liste exhaustive des variables d'environnement : **[Configuration](../configuration.en.md)**.
+> Version « idées » en langage clair : **[Guide des idées et des algorithmes](../user/documentation-pedagogique.fr.md)**.
 
 ---
 
@@ -207,12 +207,12 @@ Inline dans [`RagService.retrieveContext`](../../backend/src/main/java/fr/spectr
 
 ## Voir aussi
 
-- **[Documentation technique §6 — RAG](TECHNICAL_DOC.md)** : la référence d'implémentation complète
+- **[Documentation technique §6 — RAG](technical-doc.en.md)** : la référence d'implémentation complète
   (streaming SSE, Adaptive / Corrective / Self / Agentic RAG, déduplication sémantique).
-- **[Architecture & Services](../ARCHITECTURE.md)** : chaque conteneur et service en contexte.
-- **[Guide des idées et des algorithmes](../user/DOCUMENTATION_PEDAGOGIQUE.fr.md)** : les mêmes
+- **[Architecture & Services](../architecture.en.md)** : chaque conteneur et service en contexte.
+- **[Guide des idées et des algorithmes](../user/documentation-pedagogique.fr.md)** : les mêmes
   concepts en langage clair, avec des exemples.
 
 Vous voulez *mesurer* le gain de chacune de ces étapes sur votre corpus ? Spectra intègre un banc
 d'**ablation A/B** (`RagAblationService`) qui active/désactive chaque option et compare les
-réponses — voir [Architecture › RagAblationService](../ARCHITECTURE.md).
+réponses — voir [Architecture › RagAblationService](../architecture.en.md).

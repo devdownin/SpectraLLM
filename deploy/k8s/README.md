@@ -18,7 +18,7 @@ spectra-api (:8080)
 
 > 🤖 **Déploiement automatisé (GKE)** : un workflow CI construit les images,
 > les pousse sur Artifact Registry et applique ces manifests à chaque push sur
-> `main`. Voir [`docs/tech/DEPLOY_GKE.md`](../../docs/tech/DEPLOY_GKE.md).
+> `main`. Voir [`docs/tech/deploy-gke.en.md`](../../docs/tech/deploy-gke.en.md).
 
 Tous les services sont en `ClusterIP` — seul le frontend est exposé.  
 Le proxy nginx du frontend (`/api/ → spectra-api:8080`) fonctionne sans modification car les noms de services K8s dans le même namespace sont résolus directement.
@@ -109,8 +109,8 @@ kubectl get pods -n spectra -w
 | Cible | Effet |
 |-------|-------|
 | `kubectl apply -k k8s/overlays/gpu` | Accélération GPU NVIDIA (image CUDA + `nvidia.com/gpu`) — voir §5 |
-| `kubectl apply -k k8s/overlays/gke` | Ingress GKE natif + **TLS managé** Google (HTTP→HTTPS, timeouts SSE) — voir `docs/DEPLOY_GKE.md` §8 |
-| `kubectl apply -k k8s/monitoring` | **Observabilité** : `ServiceMonitor` + alertes Prometheus + dashboard Grafana — voir `docs/DEPLOY_GKE.md` §9 |
+| `kubectl apply -k k8s/overlays/gke` | Ingress GKE natif + **TLS managé** Google (HTTP→HTTPS, timeouts SSE) — voir `docs/deploy-gke.en.md` §8 |
+| `kubectl apply -k k8s/monitoring` | **Observabilité** : `ServiceMonitor` + alertes Prometheus + dashboard Grafana — voir `docs/deploy-gke.en.md` §9 |
 
 Les overlays incluent la base ; appliquer **soit** `k8s/base`, **soit** un overlay (qui le contient), pas les deux.
 

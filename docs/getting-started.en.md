@@ -114,6 +114,6 @@ A GitHub Actions workflow (`.github/workflows/deploy-gke.yml`) builds and pushes
 - **Managed HTTPS** — `ManagedCertificate` + HTTP→HTTPS redirect, with SSE-friendly backend timeouts.
 - **Observability** — `/actuator/prometheus` metrics, ready-to-apply `ServiceMonitor`, alert rules and a Grafana dashboard.
 
-See **[DEPLOY_GKE.md](tech/DEPLOY_GKE.md)** for the full GCP setup, cluster creation, and the GPU / TLS / monitoring variants.
+See **[deploy-gke.en.md](tech/deploy-gke.en.md)** for the full GCP setup, cluster creation, and the GPU / TLS / monitoring variants.
 
 ---

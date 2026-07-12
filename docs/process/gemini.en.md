@@ -1,4 +1,4 @@
-# GEMINI.md - SpectraLLM
+# gemini.en.md - SpectraLLM
 
 ## Project Overview
 SpectraLLM is a comprehensive, 100% local platform designed to turn business documents into specialized, production-ready AI assistants. It uniquely combines **RAG (Retrieval-Augmented Generation)** and **Fine-Tuning** in a single, automated pipeline.

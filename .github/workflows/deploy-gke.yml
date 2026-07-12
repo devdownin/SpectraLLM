@@ -16,7 +16,7 @@ name: Deploy to GKE
 #   GCP_PROJECT_ID, GCP_REGION, GAR_REPOSITORY, GKE_CLUSTER, GKE_LOCATION
 #     (valeurs non sensibles → variables, pas secrets)
 #
-# Voir docs/DEPLOY_GKE.md pour la procédure complète de configuration GCP.
+# Voir docs/deploy-gke.en.md pour la procédure complète de configuration GCP.
 
 on:
   push:
@@ -125,7 +125,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .trivycache/
-          key: ${{ runner.os }}-trivy-db
+          key: ${{ runner.os }}-trivy-db-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-trivy-db-
 
       - name: Run Trivy vulnerability scanner on api
         uses: aquasecurity/trivy-action@master

@@ -59,8 +59,8 @@ Points de couplage actuels a `Ollama` identifies dans le code:
 - `docker-compose.yml`
 - `scripts/export_gguf.py`
 - `README.md`
-- `USER_MANUAL.md`
-- `TECHNICAL_DOC.md`
+- `user-manual.en.md`
+- `technical-doc.en.md`
 
 Fonctions actuellement assurees par `Ollama`:
 
@@ -284,8 +284,8 @@ Remplacer le service `ollama` par une infra `llama.cpp`.
 ### Taches
 
 - [x] Mettre a jour `README.md` — complete: quickstart sans Ollama, architecture 5 services, section `.env`, contrainte `maxContextChunks`, table API et configuration mise a jour
-- [x] Mettre a jour `USER_MANUAL.md` — complete: prerequis GGUF, download HuggingFace, 5 services, avertissement incompatibilite vecteurs, `maxContextChunks=2`, gestion modeles, troubleshooting
-- [x] Mettre a jour `TECHNICAL_DOC.md` — complete: stack llama-cpp-turboquant, architecture 5 services, section Provider LLM (coherence alias, params critiques), Dockerfile multi-stage, analyse contrainte contexte RAG, table limitations
+- [x] Mettre a jour `user-manual.en.md` — complete: prerequis GGUF, download HuggingFace, 5 services, avertissement incompatibilite vecteurs, `maxContextChunks=2`, gestion modeles, troubleshooting
+- [x] Mettre a jour `technical-doc.en.md` — complete: stack llama-cpp-turboquant, architecture 5 services, section Provider LLM (coherence alias, params critiques), Dockerfile multi-stage, analyse contrainte contexte RAG, table limitations
 - [x] Mettre a jour les pages frontend qui mentionnent `Ollama` — selecteur de modele dans Playground mis a jour; tableau de bord sans reference Ollama
 - [x] Mettre a jour les graphes d'architecture — diagrammes ASCII mis a jour dans README, USER_MANUAL et TECHNICAL_DOC
 - [x] Remplacer la terminologie "import Ollama" par "enregistrement local" — terminologie neutre dans tous les fichiers docs et UI
@@ -380,8 +380,8 @@ Remplacer le service `ollama` par une infra `llama.cpp`.
 #### Phase 7 : Documentation
 
 - `README.md` entierement reecrit: quickstart GGUF, architecture 5 services, section `.env`, contraintes contexte
-- `USER_MANUAL.md` entierement reecrit: prerequis, download HuggingFace, avertissement incompatibilite vecteurs, troubleshooting llama.cpp
-- `TECHNICAL_DOC.md` entierement reecrit: section Provider LLM, coherence alias, params critiques, analyse token budget RAG
+- `user-manual.en.md` entierement reecrit: prerequis, download HuggingFace, avertissement incompatibilite vecteurs, troubleshooting llama.cpp
+- `technical-doc.en.md` entierement reecrit: section Provider LLM, coherence alias, params critiques, analyse token budget RAG
 
 ## Notes ouvertes
 

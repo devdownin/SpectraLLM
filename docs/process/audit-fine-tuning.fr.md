@@ -284,12 +284,12 @@ La fusion+quantization (`export_gguf.py`) produit un GGUF autonome par modèle. 
 
 ## Documentation
 
-- `DOCUMENTATION_PEDAGOGIQUE.fr.md` (§ 8-10) : sections étendues pour **expliquer et justifier**
+- `documentation-pedagogique.fr.md` (§ 8-10) : sections étendues pour **expliquer et justifier**
   les choix et algorithmes — score de confiance ancré, exemples de refus, masquage du prompt,
   packing/padding dynamique, auto-détection des `target_modules`, SFT vs DPO vs ORPO,
   NEFTune/warmup/validation, fusion vs LoRA à chaud, cohérence persona, benchmark tenu à l'écart
   + taux d'hallucination, et stratégie fine-tuning vs RAG.
-- `USER_MANUAL.md` : recette ORPO, exemples d'API (ORPO, quality-benchmark), leviers CLI
+- `user-manual.en.md` : recette ORPO, exemples d'API (ORPO, quality-benchmark), leviers CLI
   (`LORA_TARGET`/`NEFTUNE_ALPHA`/`WARMUP_RATIO`/`VAL_SPLIT`), config serveur, LoRA à chaud.
 
 ## Reste à faire (non bloquant)

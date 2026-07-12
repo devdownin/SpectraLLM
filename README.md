@@ -38,7 +38,7 @@ git clone https://github.com/devdownin/SpectraLLM.git && cd SpectraLLM
 
 Spectra downloads the default models (~1.2 GB), starts the stack, and opens the web UI at **http://localhost**. Drop a PDF on the Ingestion page and start asking questions.
 
-> **Requirements:** Docker (Compose v2) and 16 GB RAM. GPU optional — NVIDIA, AMD/ROCm and Vulkan supported, auto-detected. Prefer step-by-step control? → **[Getting Started](docs/GETTING_STARTED.md)**
+> **Requirements:** Docker (Compose v2) and 16 GB RAM. GPU optional — NVIDIA, AMD/ROCm and Vulkan supported, auto-detected. Prefer step-by-step control? → **[Getting Started](docs/getting-started.en.md)**
 
 ## 🏆 Why Spectra
 
@@ -72,7 +72,7 @@ Four stages, one continuous flow — all driven from a guided web interface (FR/
 | <img src="docs/assets/playground.png" alt="Chat over your documents with cited sources" width="100%"> | <img src="docs/assets/training.png" alt="Fine-tune a local model on your corpus" width="100%"> |
 | **Ask** your documents — answers with cited sources | **Fine-tune** a local model that keeps the knowledge |
 
-*Curious how the hybrid fusion, reranking and context compression actually work — and **why**? → **[RAG pipeline internals](docs/tech/RAG_PIPELINE.md)** · **[Architecture](docs/ARCHITECTURE.md)***
+*Curious how the hybrid fusion, reranking and context compression actually work — and **why**? → **[RAG pipeline internals](docs/tech/rag-pipeline.en.md)** · **[Architecture](docs/architecture.en.md)***
 
 ## 📚 Documentation
 
@@ -80,16 +80,16 @@ Browse everything from the **[documentation index](docs/README.md)**, or jump st
 
 | Guide | What's inside |
 |---|---|
-| **[Getting Started](docs/GETTING_STARTED.md)** | Step-by-step install, model downloads, Docker profiles, Kubernetes/GKE deploy |
-| **[Architecture & Services](docs/ARCHITECTURE.md)** | Every service in depth: RAG internals, ingestion, evaluation, tech stack |
-| **[Configuration](docs/CONFIGURATION.md)** | All environment variables, health endpoints, Prometheus metrics |
-| **[User Manual](docs/user/USER_MANUAL.md)** | Complete walkthrough of the web interface |
-| **[Technical Reference](docs/tech/TECHNICAL_DOC.md)** | Implementation-level detail |
-| **[How Spectra works (FR)](docs/user/DOCUMENTATION_PEDAGOGIQUE.fr.md)** | The ideas in plain language: embeddings, BM25 + RRF, the RAG strategies, DPO/QLoRA |
-| **[llama.cpp Guide](docs/tech/llama.cpp.md)** | Inference engine details and tuning |
-| **[Reliability](docs/process/RELIABILITY.md)** · **[Security](SECURITY.md)** | Operational guarantees and security policy |
+| **[Getting Started](docs/getting-started.en.md)** | Step-by-step install, model downloads, Docker profiles, Kubernetes/GKE deploy |
+| **[Architecture & Services](docs/architecture.en.md)** | Every service in depth: RAG internals, ingestion, evaluation, tech stack |
+| **[Configuration](docs/configuration.en.md)** | All environment variables, health endpoints, Prometheus metrics |
+| **[User Manual](docs/user/user-manual.en.md)** | Complete walkthrough of the web interface |
+| **[Technical Reference](docs/tech/technical-doc.en.md)** | Implementation-level detail |
+| **[How Spectra works (FR)](docs/user/documentation-pedagogique.fr.md)** | The ideas in plain language: embeddings, BM25 + RRF, the RAG strategies, DPO/QLoRA |
+| **[llama.cpp Guide](docs/tech/llama-cpp.en.md)** | Inference engine details and tuning |
+| **[Reliability](docs/process/reliability.en.md)** · **[Security](SECURITY.md)** | Operational guarantees and security policy |
 
-**Stack:** Java 25 / Spring Boot 4 · React 19 · llama.cpp · ChromaDB · Python (fine-tuning, parsing, reranking) — detailed in [Architecture](docs/ARCHITECTURE.md#technology-stack).
+**Stack:** Java 25 / Spring Boot 4 · React 19 · llama.cpp · ChromaDB · Python (fine-tuning, parsing, reranking) — detailed in [Architecture](docs/architecture.en.md#technology-stack).
 
 ## 🤝 Contributing
 
