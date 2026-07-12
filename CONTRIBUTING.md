@@ -4,6 +4,42 @@ First off, thanks for taking the time to contribute! It's people like you that m
 
 The following is a set of guidelines for contributing to Spectra.
 
+## Local development
+
+For the full install (models, Docker profiles, GPU), see **[Getting Started](docs/GETTING_STARTED.md)**. To build and test the code the way CI does, you need:
+
+- **JDK 25** (Temurin recommended — `.sdkmanrc` pins `25-tem`, use `sdk env` if you have SDKMAN!)
+- **Node.js 22** (frontend)
+- **Python 3.11** (docparser / reranker services)
+
+### Backend (Java / Spring Boot)
+
+```bash
+mvn -B package -f backend/pom.xml            # compile + run tests
+mvn -Pstatic-analysis -DskipTests spotbugs:check -f backend/pom.xml   # SpotBugs + find-sec-bugs
+```
+
+### Frontend (React / Vite)
+
+```bash
+cd frontend
+npm ci
+npm run lint            # ESLint
+npm run test:coverage   # Vitest
+npm run build           # tsc + vite
+```
+
+### Python services
+
+```bash
+pip install -r services/requirements-test.txt
+ruff check services/docparser services/reranker
+(cd services/docparser && python -m pytest tests/ -q)
+(cd services/reranker && python -m pytest tests/ -q)
+```
+
+Please run the relevant checks above before opening a pull request — they mirror what the CI enforces.
+
 ## How Can I Contribute?
 
 ### Reporting Bugs
