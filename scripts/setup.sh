@@ -154,6 +154,14 @@ else
     # Aligner .env pour que la stack Docker charge bien ce fichier.
     set_env_var LLM_CHAT_MODEL_FILE "$CHAT_MODEL_FILE"
     echo "  LLM_CHAT_MODEL_FILE=$CHAT_MODEL_FILE écrit dans .env"
+    # Aligner aussi l'alias (registre local + interface) sur le modèle réellement
+    # téléchargé : le défaut « phi-4-mini » étiquetterait un Phi-3.5 de façon trompeuse.
+    # Un alias personnalisé par l'utilisateur n'est jamais écrasé.
+    CHAT_MODEL_NAME="$(read_env_var LLM_CHAT_MODEL_NAME)"
+    if [ -z "$CHAT_MODEL_NAME" ] || [ "$CHAT_MODEL_NAME" = "phi-4-mini" ]; then
+      set_env_var LLM_CHAT_MODEL_NAME "phi-3.5-mini"
+      echo "  LLM_CHAT_MODEL_NAME=phi-3.5-mini écrit dans .env"
+    fi
   else
     yellow "  [MANQUANT] $CHAT_MODEL_PATH absent"
     echo

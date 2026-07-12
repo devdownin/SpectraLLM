@@ -18,7 +18,8 @@ class RagAblationServiceTest {
     private RagAblationService newService() {
         LlmChatClient chat = mock(LlmChatClient.class);
         when(chat.getActiveModel()).thenReturn("active-model");
-        return new RagAblationService(mock(RagService.class), mock(QualityBenchmarkService.class), chat);
+        return new RagAblationService(mock(RagService.class), mock(QualityBenchmarkService.class),
+                chat, new ModelSwitchCoordinator(chat, 2, 1));
     }
 
     private QueryResponse.Source source(String file) {

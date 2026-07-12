@@ -37,12 +37,12 @@ if [ ! -f "/models/${EMBED}" ] || [ "${SIZE_EMBED}" -lt 1048576 ]; then
   echo ""
   echo "  Téléchargement (huggingface-cli) :"
   echo "    huggingface-cli download nomic-ai/nomic-embed-text-v1.5-GGUF \\"
-  echo "      nomic-embed-text-v1.5.Q4_0.gguf --local-dir ./data/models/"
-  echo "    mv ./data/models/nomic-embed-text-v1.5.Q4_0.gguf ./data/models/embed.gguf"
+  echo "      nomic-embed-text-v1.5.Q4_K_M.gguf --local-dir ./data/models/"
+  echo "    mv ./data/models/nomic-embed-text-v1.5.Q4_K_M.gguf ./data/models/embed.gguf"
   echo ""
   echo "  Téléchargement (wget) :"
   echo "    wget -O ./data/models/embed.gguf \\"
-  echo "      https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_0.gguf"
+  echo "      https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf"
   OK=0
 else
   echo "[OK] Embed : ${EMBED} ($(( SIZE_EMBED / 1048576 )) Mo)"

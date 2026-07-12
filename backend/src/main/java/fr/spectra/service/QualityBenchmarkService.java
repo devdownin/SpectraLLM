@@ -48,8 +48,15 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * </ol>
  *
  * <p>Le passage est <b>bloquant</b> (le benchmark est petit). Un {@code model} peut être fourni
- * pour évaluer un modèle précis : le modèle actif est alors basculé temporairement puis restauré,
- * ce qui permet de comparer base vs fine-tuné.</p>
+ * pour évaluer un modèle précis : le modèle actif est alors basculé temporairement (avec attente
+ * que le serveur le serve réellement, cf. {@link ModelSwitchCoordinator}) puis restauré, ce qui
+ * permet de comparer base vs fine-tuné.</p>
+ *
+ * <p><b>Juge.</b> Comme dans {@link EvaluationService}, si {@code spectra.evaluation.judge-model}
+ * est configuré (et distinct du modèle évalué), la notation se fait en deux phases : génération de
+ * toutes les réponses avec le modèle évalué, puis une seule bascule vers le juge neutre pour noter.
+ * Sans juge neutre, le modèle évalué se note lui-même — dans une comparaison, chaque modèle serait
+ * alors son propre juge, ce qui biaise les scores.</p>
  */
 @Service
 public class QualityBenchmarkService {
@@ -78,14 +85,18 @@ public class QualityBenchmarkService {
             .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
     private final LlmChatClient chatClient;
+    private final ModelSwitchCoordinator modelSwitch;
+    /** Modèle-juge neutre (vide = le modèle évalué se juge lui-même, comportement par défaut). */
+    private final String judgeModel;
     private final String benchmarkPath;
     private final Path workDir;
 
     /** Jobs de comparaison suivis (en mémoire + persistés en JSON), à l'image d'EvaluationService. */
     private final Map<String, QualityCompareJob> compareJobs = new ConcurrentHashMap<>();
     /**
-     * Une seule comparaison à la fois : chaque {@link #run(String)} bascule le modèle actif servi
-     * globalement puis le restaure ; deux comparaisons concurrentes se voleraient le modèle actif.
+     * Une seule comparaison asynchrone à la fois (409 sinon) — réponse immédiate côté API.
+     * La protection d'exécution proprement dite (vis-à-vis des évaluations, ablations et
+     * benchmarks lancés par ailleurs) est le verrou global de {@link ModelSwitchCoordinator}.
      */
     private final AtomicBoolean compareRunning = new AtomicBoolean(false);
     private final Object persistLock = new Object();
@@ -96,9 +107,13 @@ public class QualityBenchmarkService {
     private QualityBenchmarkService self;
 
     public QualityBenchmarkService(LlmChatClient chatClient,
+                                   ModelSwitchCoordinator modelSwitch,
+                                   @Value("${spectra.evaluation.judge-model:}") String judgeModel,
                                    @Value("${spectra.benchmark.quality-file:}") String benchmarkPath,
                                    @Value("${spectra.fine-tuning.work-dir:./data/fine-tuning}") String workDir) {
         this.chatClient = chatClient;
+        this.modelSwitch = modelSwitch;
+        this.judgeModel = judgeModel != null ? judgeModel.trim() : "";
         this.benchmarkPath = benchmarkPath;
         this.workDir = Path.of(workDir);
     }
@@ -183,6 +198,9 @@ public class QualityBenchmarkService {
     /** Exécute la comparaison en tâche de fond : baseline puis candidate, avec suivi de statut. */
     @Async
     protected void runCompareAsync(String jobId, String baseline, String candidate) {
+        // Verrou (réentrant) tenu sur les DEUX passages : aucun autre harnais ne doit
+        // basculer le modèle actif entre baseline et candidate.
+        modelSwitch.lock();
         try {
             updateCompareJob(jobId, j -> j.running("Évaluation du modèle de référence « " + baseline + " »…"));
             QualityBenchmarkReport baselineReport = run(baseline);
@@ -199,6 +217,7 @@ public class QualityBenchmarkService {
             log.error("Comparaison qualité {} échouée: {}", jobId, e.getMessage());
             updateCompareJob(jobId, j -> j.failed(e.getMessage() != null ? e.getMessage() : e.toString()));
         } finally {
+            modelSwitch.unlock();
             compareRunning.set(false);
         }
     }
@@ -224,7 +243,13 @@ public class QualityBenchmarkService {
 
     /**
      * Exécute le benchmark qualité. {@code model} optionnel : si fourni, bascule temporairement
-     * le modèle actif (puis le restaure) pour permettre la comparaison base vs fine-tuné.
+     * le modèle actif (avec attente que le serveur le serve réellement) puis le restaure, pour
+     * permettre la comparaison base vs fine-tuné.
+     *
+     * <p>Deux phases : génération de toutes les réponses avec le modèle évalué, puis notation —
+     * par le juge neutre ({@code spectra.evaluation.judge-model}) s'il est configuré et distinct,
+     * sinon par le modèle évalué lui-même. Tout le passage se déroule sous le verrou global de
+     * bascule (une seule mesure à la fois, tous harnais confondus).</p>
      */
     public QualityBenchmarkReport run(String model) {
         Instant started = Instant.now();
@@ -235,56 +260,95 @@ public class QualityBenchmarkService {
                             + "(spectra.benchmark.quality-file) ou complétez benchmarks/highway_benchmark.jsonl.");
         }
 
-        String previous = chatClient.getActiveModel();
-        boolean switched = model != null && !model.isBlank() && !model.equals(previous);
-        if (switched) {
-            log.info("Benchmark qualité : bascule temporaire du modèle actif {} → {}", previous, model);
-            chatClient.setActiveModel(model);
-        }
-        String evaluatedModel = (model != null && !model.isBlank()) ? model : previous;
-
+        modelSwitch.lock();
         try {
-            List<QualityBenchmarkItem> items = new ArrayList<>();
-            for (JsonNode entry : entries) {
-                items.add(evaluateEntry(entry));
+            String previous = chatClient.getActiveModel();
+            String evaluatedModel = (model != null && !model.isBlank()) ? model : previous;
+            try {
+                if (evaluatedModel != null && !evaluatedModel.equals(previous)) {
+                    log.info("Benchmark qualité : bascule temporaire du modèle actif {} → {}",
+                            previous, evaluatedModel);
+                    modelSwitch.activate(evaluatedModel);
+                }
+
+                // ── Phase 1 : génération des réponses avec le modèle évalué ──
+                List<GeneratedEntry> generated = new ArrayList<>(entries.size());
+                for (JsonNode entry : entries) {
+                    generated.add(generateEntry(entry));
+                }
+
+                // ── Phase 2 : notation (une seule bascule vers le juge neutre s'il y a lieu) ──
+                String judge = resolveJudge(evaluatedModel);
+                if (judge != null && !judge.equals(chatClient.getActiveModel())) {
+                    log.info("Benchmark qualité : notation par le juge neutre '{}'", judge);
+                    modelSwitch.activate(judge);
+                }
+                List<QualityBenchmarkItem> items = new ArrayList<>(generated.size());
+                for (GeneratedEntry g : generated) {
+                    items.add(judgeEntry(g));
+                }
+
+                QualityBenchmarkReport report = aggregate(evaluatedModel, items, started);
+                log.info("Benchmark qualité '{}' (juge: {}) : score moyen {}/10, hallucination {} %",
+                        evaluatedModel, judge, String.format("%.2f", report.avgScore()),
+                        String.format("%.0f", report.hallucinationRate() * 100));
+                return report;
+            } finally {
+                // Best-effort : un échec de restauration ne doit pas détruire le rapport calculé.
+                modelSwitch.restore(previous);
             }
-            QualityBenchmarkReport report = aggregate(evaluatedModel, items, started);
-            log.info("Benchmark qualité '{}' : score moyen {}/10, hallucination {} %",
-                    evaluatedModel, String.format("%.2f", report.avgScore()),
-                    String.format("%.0f", report.hallucinationRate() * 100));
-            return report;
         } finally {
-            if (switched) {
-                chatClient.setActiveModel(previous);
-                log.info("Benchmark qualité : modèle actif restauré → {}", previous);
-            }
+            modelSwitch.unlock();
         }
     }
 
     /** Compare deux modèles sur le même benchmark (base vs fine-tuné). */
     public Map<String, QualityBenchmarkReport> compare(String baseline, String candidate) {
-        Map<String, QualityBenchmarkReport> out = new LinkedHashMap<>();
-        out.put("baseline", run(baseline));
-        out.put("candidate", run(candidate));
-        return out;
+        // Verrou (réentrant) tenu sur TOUTE la comparaison : aucun autre harnais ne doit
+        // basculer le modèle actif entre les deux passages.
+        modelSwitch.lock();
+        try {
+            Map<String, QualityBenchmarkReport> out = new LinkedHashMap<>();
+            out.put("baseline", run(baseline));
+            out.put("candidate", run(candidate));
+            return out;
+        } finally {
+            modelSwitch.unlock();
+        }
     }
 
-    private QualityBenchmarkItem evaluateEntry(JsonNode entry) {
+    /** Modèle qui notera les réponses : juge neutre si configuré et distinct, sinon auto-jugement. */
+    String resolveJudge(String evaluatedModel) {
+        return (!judgeModel.isEmpty() && !judgeModel.equals(evaluatedModel)) ? judgeModel : evaluatedModel;
+    }
+
+    /** Réponse produite (ou erreur rencontrée) par le modèle évalué pour une entrée du benchmark. */
+    private record GeneratedEntry(JsonNode entry, String answer, String error) {}
+
+    /** Phase 1 — interroge le modèle évalué (actif) ; l'échec est consigné, pas propagé. */
+    private GeneratedEntry generateEntry(JsonNode entry) {
+        String question = entry.path("question").asText("");
+        try {
+            return new GeneratedEntry(entry, chatClient.chat(SYSTEM_PROMPT, question), null);
+        } catch (Exception e) {
+            log.warn("Échec appel modèle évalué: {}", e.getMessage());
+            return new GeneratedEntry(entry, null, "Échec appel modèle: " + e.getMessage());
+        }
+    }
+
+    /** Phase 2 — note une réponse générée avec le modèle-juge actif. */
+    private QualityBenchmarkItem judgeEntry(GeneratedEntry g) {
+        JsonNode entry = g.entry();
         String question  = entry.path("question").asText("");
         String category  = entry.path("category").asText("inconnu");
         boolean answerable = entry.path("answerable").asBoolean(true);
         String reference = entry.hasNonNull("reference") ? entry.get("reference").asText() : null;
 
-        String modelAnswer;
-        try {
-            modelAnswer = chatClient.chat(SYSTEM_PROMPT, question);
-        } catch (Exception e) {
-            log.warn("Échec appel modèle évalué: {}", e.getMessage());
+        if (g.error() != null) {
             return new QualityBenchmarkItem(question, category, answerable, reference,
-                    null, null, null, null, "Échec appel modèle: " + e.getMessage());
+                    null, null, null, null, g.error());
         }
-
-        return judgeAnswer(question, category, answerable, reference, modelAnswer);
+        return judgeAnswer(question, category, answerable, reference, g.answer());
     }
 
     /**

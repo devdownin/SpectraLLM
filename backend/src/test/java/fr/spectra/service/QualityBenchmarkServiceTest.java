@@ -24,14 +24,26 @@ class QualityBenchmarkServiceTest {
     Path workDir;
 
     private QualityBenchmarkService newService(LlmChatClient chat) {
+        return newService(chat, "");
+    }
+
+    private QualityBenchmarkService newService(LlmChatClient chat, String judgeModel) {
         // benchmarkPath vide → ressource embarquée benchmarks/highway_benchmark.jsonl.
-        return new QualityBenchmarkService(chat, "", workDir.toString());
+        return new QualityBenchmarkService(chat, new ModelSwitchCoordinator(chat, 2, 1),
+                judgeModel, "", workDir.toString());
     }
 
     /** Chat mocké : réponse JSON valide pour le juge, texte quelconque pour le modèle évalué. */
     private LlmChatClient deterministicChat(String activeModel) {
         LlmChatClient chat = mock(LlmChatClient.class);
-        when(chat.getActiveModel()).thenReturn(activeModel);
+        java.util.concurrent.atomic.AtomicReference<String> active =
+                new java.util.concurrent.atomic.AtomicReference<>(activeModel);
+        when(chat.getActiveModel()).thenAnswer(i -> active.get());
+        org.mockito.Mockito.doAnswer(i -> { active.set(i.getArgument(0)); return null; })
+                .when(chat).setActiveModel(anyString());
+        // Serveur "convergé" immédiatement : l'attente de convergence du coordinateur passe.
+        when(chat.checkHealth()).thenReturn(new fr.spectra.dto.ServiceStatus(
+                "llama-cpp", "http://test", true, "ok", 1, java.util.Map.of()));
         when(chat.chat(anyString(), anyString())).thenAnswer(inv -> {
             String system = inv.getArgument(0);
             if (system.contains("évaluateur expert")) {
@@ -66,6 +78,24 @@ class QualityBenchmarkServiceTest {
         assertThat(job.candidateReport().hallucinationRate()).isEqualTo(0.0);
         // Le job est persisté sur disque (survit à un redémarrage).
         assertThat(Files.exists(workDir.resolve("quality-compare-jobs.json"))).isTrue();
+    }
+
+    @Test
+    void run_avecJugeNeutre_generePuisNoteEnDeuxPhases() {
+        // Juge neutre configuré : génération avec le modèle évalué, puis UNE bascule vers le
+        // juge pour noter, puis restauration du modèle initial — même schéma qu'EvaluationService.
+        LlmChatClient chat = deterministicChat("modele-initial");
+        QualityBenchmarkService service = newService(chat, "judge-x");
+
+        var report = service.run("modele-evalue");
+
+        assertThat(report.model()).isEqualTo("modele-evalue");
+        assertThat(report.avgScore()).isEqualTo(8.0);
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(chat);
+        order.verify(chat).setActiveModel("modele-evalue");
+        order.verify(chat).setActiveModel("judge-x");
+        order.verify(chat).setActiveModel("modele-initial");
+        assertThat(chat.getActiveModel()).isEqualTo("modele-initial");
     }
 
     @Test
