@@ -1,0 +1,77 @@
+site_name: Spectra Documentation
+site_description: Transformez vos documents en IA privée et fine-tunée.
+site_author: Spectra
+repo_url: https://github.com/devdownin/SpectraLLM
+
+theme:
+  name: material
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - toc.integrate
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+extra_css:
+  - stylesheets/extra.css
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - admonition
+  - pymdownx.details
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Accueil: index.md
+  - Guide de Démarrage: getting-started.en.md
+  - Manuel Utilisateur:
+      - Utilisation (EN): user/user-manual.en.md
+      - Pédagogie (FR): user/documentation-pedagogique.fr.md
+  - Architecture & Configuration:
+      - Architecture: architecture.en.md
+      - RAG Pipeline: tech/rag-pipeline.en.md
+      - Configuration: configuration.en.md
+      - Technical Doc: tech/technical-doc.en.md
+      - Modèle C4 (Conteneurs): tech/c4-level2-containers.en.md
+      - Modèle C4 (Composants): tech/c4-level3-components.en.md
+  - API & Intégration:
+      - Référence API: api/api-reference.en.md
+  - Déploiement:
+      - Llama.cpp: tech/llama-cpp.en.md
+      - Google Kubernetes Engine: tech/deploy-gke.en.md
+  - Process & Audit:
+      - Sécurité: process/security-audit.en.md
+      - Fiabilité: process/reliability.en.md
+      - Audit Fine-Tuning: process/audit-fine-tuning.fr.md
+      - Test Ingestion: process/test-plan-ingestion.en.md
