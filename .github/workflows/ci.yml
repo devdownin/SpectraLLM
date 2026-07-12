@@ -101,6 +101,13 @@ jobs:
           "https://huggingface.co/unsloth/Phi-4-mini-reasoning-GGUF/resolve/main/Phi-4-mini-reasoning-UD-IQ1_S.gguf" \
           -o data/models/Phi-4-mini-reasoning-UD-IQ1_S.gguf
         ls -lh data/models/
+    # spectra-api tourne en utilisateur système « spectra » (uid ≠ runner) et monte
+    # ./data:/app/data : sans droits d'écriture pour autrui, Logback ne peut pas
+    # créer data/logs/ et l'API meurt au boot. Miroir des répertoires de setup.sh.
+    - name: Prepare writable data directories
+      run: |
+        mkdir -p data/documents data/dataset data/fine-tuning/merged data/source data/logs
+        chmod -R a+rwX data
     - name: Set up Docker Compose
       run: |
         docker compose --project-directory . -f deploy/docker/docker-compose.yml build
