@@ -18,6 +18,8 @@ import { toast } from 'sonner';
 
 interface Report {
   model: string;
+  /** Model that scored the answers — equal to `model` when self-judged. */
+  judgeModel?: string | null;
   total: number;
   answerableCount: number;
   unanswerableCount: number;
@@ -86,6 +88,13 @@ const QualityBenchmarkCta: FC<{ candidate: string; baseline: string; onDismiss: 
 
   const scoreDelta = done ? job!.candidateReport!.avgScore - job!.baselineReport!.avgScore : 0;
   const hallucDelta = done ? job!.candidateReport!.hallucinationRate - job!.baselineReport!.hallucinationRate : 0;
+  // Un juge neutre unique note les deux modèles → scores équitablement comparables.
+  // Sinon chaque modèle s'est auto-jugé (rapports antérieurs sans le champ : indéterminé).
+  const judge = done ? job!.candidateReport!.judgeModel ?? null : null;
+  const neutralJudge = !!judge
+    && judge === job!.baselineReport!.judgeModel
+    && judge !== job!.candidateReport!.model
+    && judge !== job!.baselineReport!.model;
 
   return (
     <section className="bg-secondary/5 border border-secondary/30 p-4 space-y-3">
@@ -155,6 +164,13 @@ const QualityBenchmarkCta: FC<{ candidate: string; baseline: string; onDismiss: 
                 ? <>✗ <strong className="text-error">{candidate}</strong> scores lower on accuracy ({scoreDelta.toFixed(2)}/10) — the previous model may be a safer choice.</>
                 : <>≈ Both models score similarly on accuracy; decide on hallucination rate, speed and hardware fit.</>}
           </div>
+          {judge && (
+            <div className="px-4 py-1.5 border-t border-outline-variant/10 text-[10px] text-outline">
+              {neutralJudge
+                ? <>Scored by neutral judge <code className="font-mono">{judge}</code> — scores are directly comparable.</>
+                : <>Each model scored its own answers (self-judged) — set <code className="font-mono">SPECTRA_EVALUATION_JUDGE_MODEL</code> for a fairer comparison.</>}
+            </div>
+          )}
         </div>
       )}
     </section>

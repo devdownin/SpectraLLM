@@ -39,6 +39,7 @@ class EvaluationServiceBatchTest {
 
     private DatasetGeneratorService datasetGenerator;
     private LlmChatClient chatClient;
+    private ModelSwitchCoordinator modelSwitch;
     private AtomicReference<String> activeModel;
 
     @BeforeEach
@@ -49,6 +50,10 @@ class EvaluationServiceBatchTest {
         when(chatClient.getActiveModel()).thenAnswer(i -> activeModel.get());
         doAnswer(i -> { activeModel.set(i.getArgument(0)); return null; })
                 .when(chatClient).setActiveModel(anyString());
+        // Serveur "convergé" immédiatement : l'attente de convergence du coordinateur passe.
+        when(chatClient.checkHealth()).thenReturn(new fr.spectra.dto.ServiceStatus(
+                "llama-cpp", "http://test", true, "ok", 1, Map.of()));
+        modelSwitch = new ModelSwitchCoordinator(chatClient, 2, 1);
         // Réponse du modèle ET du juge : JSON parseable → score 8.
         when(chatClient.chat(anyString(), anyString()))
                 .thenReturn("{\"score\": 8, \"justification\": \"ok\"}");
@@ -67,7 +72,7 @@ class EvaluationServiceBatchTest {
         when(datasetGenerator.getAllPairs()).thenReturn(pairs);
 
         EvaluationService service = new EvaluationService(
-                datasetGenerator, chatClient, mock(DocumentModelLinkRepository.class),
+                datasetGenerator, chatClient, modelSwitch, mock(DocumentModelLinkRepository.class),
                 tempDir.toString(), 200, "");
         service.init();
 
@@ -104,7 +109,7 @@ class EvaluationServiceBatchTest {
         when(datasetGenerator.getAllPairs()).thenReturn(pairs);
 
         EvaluationService service = new EvaluationService(
-                datasetGenerator, chatClient, mock(DocumentModelLinkRepository.class),
+                datasetGenerator, chatClient, modelSwitch, mock(DocumentModelLinkRepository.class),
                 tempDir.toString(), 200, "judge-x");   // juge neutre configuré
         service.init();
 
@@ -141,7 +146,7 @@ class EvaluationServiceBatchTest {
 
         when(datasetGenerator.getAllPairs()).thenReturn(List.of());
         EvaluationService service = new EvaluationService(
-                datasetGenerator, chatClient, mock(DocumentModelLinkRepository.class),
+                datasetGenerator, chatClient, modelSwitch, mock(DocumentModelLinkRepository.class),
                 tempDir.toString(), 2, "");   // cap COMPLETED à 2
         service.init();
 

@@ -31,6 +31,7 @@ class EvaluationServiceAbTest {
 
     private DatasetGeneratorService datasetGenerator;
     private LlmChatClient chatClient;
+    private ModelSwitchCoordinator modelSwitch;
     private AtomicReference<String> activeModel;
 
     @BeforeEach
@@ -41,6 +42,10 @@ class EvaluationServiceAbTest {
         when(chatClient.getActiveModel()).thenAnswer(i -> activeModel.get());
         doAnswer(i -> { activeModel.set(i.getArgument(0)); return null; })
                 .when(chatClient).setActiveModel(anyString());
+        // Serveur "convergé" immédiatement : l'attente de convergence du coordinateur passe.
+        when(chatClient.checkHealth()).thenReturn(new fr.spectra.dto.ServiceStatus(
+                "llama-cpp", "http://test", true, "ok", 1, java.util.Map.of()));
+        modelSwitch = new ModelSwitchCoordinator(chatClient, 2, 1);
         // Génération : réponse quelconque. Jugement A/B (prompt contenant "Réponse 1") : gagnant 1.
         when(chatClient.chat(anyString(), anyString())).thenReturn("réponse du modèle");
         when(chatClient.chat(argThat(s -> s != null && s.contains("Réponse 1")), anyString()))
@@ -53,7 +58,7 @@ class EvaluationServiceAbTest {
 
     private EvaluationService newService() {
         EvaluationService service = new EvaluationService(
-                datasetGenerator, chatClient, mock(DocumentModelLinkRepository.class),
+                datasetGenerator, chatClient, modelSwitch, mock(DocumentModelLinkRepository.class),
                 tempDir.toString(), 200, "judge-x");
         service.init();
         return service;

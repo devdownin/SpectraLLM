@@ -18,6 +18,8 @@ All settings have environment variable overrides. The table below shows the most
 | `SPECTRA_LLM_MODEL` | `phi-4-mini` | Model alias for chat |
 | `SPECTRA_LLM_EMBEDDING_MODEL` | `nomic-embed-text` | Model alias for embeddings |
 | `SPECTRA_GENERATION_TIMEOUT` | `120` | Generation timeout (seconds) |
+| `SPECTRA_LLM_SWITCH_TIMEOUT` | `300` | Max wait (seconds) for the server to actually serve a newly activated model before an evaluation/benchmark starts measuring — must cover loading the heaviest GGUF |
+| `SPECTRA_LLM_SWITCH_POLL_MS` | `2000` | Poll interval (ms) while waiting for that model-switch convergence |
 | `LLM_CHAT_MODEL_FILE` | `Phi-4-mini-reasoning-UD-IQ1_S.gguf` | Chat GGUF filename in `data/models/` |
 | `LLM_EMBED_MODEL_FILE` | `embed.gguf` | Embedding GGUF filename in `data/models/` |
 | `LLM_PARALLEL` | `2` | Parallel inference slots per server |

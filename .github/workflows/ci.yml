@@ -75,6 +75,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
+    # La stack exige les GGUF (model-init échoue sinon et llm-chat/llm-embed ne
+    # démarrent jamais) : on télécharge les modèles PAR DÉFAUT du projet, mis en
+    # cache entre les runs (~1,2 Go au premier passage seulement).
+    - name: Cache GGUF models
+      uses: actions/cache@v4
+      with:
+        path: data/models
+        key: e2e-gguf-phi4mini-ud-iq1s-nomic-q4km
+    - name: Download default GGUF models (cache miss only)
+      run: |
+        mkdir -p data/models
+        [ -f data/models/embed.gguf ] || curl -sSL --fail --retry 3 \
+          "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf" \
+          -o data/models/embed.gguf
+        [ -f data/models/Phi-4-mini-reasoning-UD-IQ1_S.gguf ] || curl -sSL --fail --retry 3 \
+          "https://huggingface.co/unsloth/Phi-4-mini-reasoning-GGUF/resolve/main/Phi-4-mini-reasoning-UD-IQ1_S.gguf" \
+          -o data/models/Phi-4-mini-reasoning-UD-IQ1_S.gguf
+        ls -lh data/models/
     - name: Set up Docker Compose
       run: |
         docker compose --project-directory . -f deploy/docker/docker-compose.yml build

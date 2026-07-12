@@ -75,6 +75,7 @@ public class EvaluationService {
 
     private final DatasetGeneratorService datasetGenerator;
     private final LlmChatClient chatClient;
+    private final ModelSwitchCoordinator modelSwitch;
     private final DocumentModelLinkRepository linkRepository;
     private final Path workDir;
     /** Nombre maximal de rapports COMPLETED conservés (les plus anciens sont évincés). */
@@ -84,14 +85,6 @@ public class EvaluationService {
     private final Map<String, EvaluationReport> reports = new ConcurrentHashMap<>();
     private final Map<String, AbComparisonReport> abReports = new ConcurrentHashMap<>();
     private final Set<String> cancelledEvals = ConcurrentHashMap.newKeySet();
-    /**
-     * Sérialise les évaluations qui basculent le modèle servi globalement
-     * ({@code chatClient.setActiveModel}). Sans ce verrou, deux évaluations
-     * asynchrones concurrentes se voleraient mutuellement le modèle actif, faisant
-     * générer/scorer les réponses d'une évaluation par le modèle d'une autre.
-     */
-    private final java.util.concurrent.locks.ReentrantLock modelLock =
-            new java.util.concurrent.locks.ReentrantLock(true);
     /** Sérialise les écritures des fichiers JSON de rapports (sinon écritures concurrentes = fichier corrompu). */
     private final Object persistLock = new Object();
     private Path reportsFile;
@@ -102,12 +95,14 @@ public class EvaluationService {
 
     public EvaluationService(DatasetGeneratorService datasetGenerator,
                               LlmChatClient chatClient,
+                              ModelSwitchCoordinator modelSwitch,
                               DocumentModelLinkRepository linkRepository,
                               @Value("${spectra.fine-tuning.work-dir:./data/fine-tuning}") String workDir,
                               @Value("${spectra.evaluation.max-completed-reports:200}") int maxCompletedReports,
                               @Value("${spectra.evaluation.judge-model:}") String judgeModel) {
         this.datasetGenerator = datasetGenerator;
         this.chatClient = chatClient;
+        this.modelSwitch = modelSwitch;
         this.linkRepository = linkRepository;
         this.workDir = Path.of(workDir);
         this.maxCompletedReports = maxCompletedReports > 0 ? maxCompletedReports : 200;
@@ -200,9 +195,9 @@ public class EvaluationService {
      * Lance l'évaluation d'une liste de modèles sur un <strong>même jeu de test</strong>,
      * de façon séquentielle, pour permettre une comparaison équitable de leurs gains.
      *
-     * <p>Chaque modèle est chargé tour à tour (bascule du modèle actif), évalué, puis
-     * le modèle initialement actif est restauré à la fin. La bascule n'est réellement
-     * effective que si l'orchestrateur runtime llama.cpp est activé.
+     * <p>Chaque modèle est chargé tour à tour (bascule du modèle actif <b>avec attente que
+     * le serveur le serve réellement</b>, cf. {@link ModelSwitchCoordinator}), évalué, puis
+     * le modèle initialement actif est restauré à la fin.
      *
      * @param modelNames modèles à évaluer (les doublons sont ignorés, l'ordre est conservé)
      * @param testSetSize taille du jeu de test commun (défaut : 5 % du dataset)
@@ -441,7 +436,8 @@ public class EvaluationService {
                 testPairs.size(), 0, 0, 0, 0, 0.0, 0.0, 0.0,
                 List.of(), null, r.startedAt(), null));
 
-        modelLock.lock();
+        // Verrou GLOBAL de bascule (partagé avec QualityBenchmarkService et RagAblationService).
+        modelSwitch.lock();
         try {
         String original = chatClient.getActiveModel();
         try {
@@ -508,15 +504,18 @@ public class EvaluationService {
             restoreModel(original);
         }
         } finally {
-            modelLock.unlock();
+            modelSwitch.unlock();
         }
     }
 
-    /** Active un modèle pour la comparaison A/B ; marque le rapport FAILED en cas d'échec. */
+    /**
+     * Active un modèle pour la comparaison A/B — bascule <b>et</b> attente que le serveur le
+     * serve réellement (cf. {@link ModelSwitchCoordinator#activate}) ; FAILED en cas d'échec.
+     */
     private boolean activateAbModel(String abId, String modelName, String current) {
         if (modelName == null || modelName.equals(current)) return true;
         try {
-            chatClient.setActiveModel(modelName);
+            modelSwitch.activate(modelName);
             return true;
         } catch (Exception e) {
             log.warn("Comparaison A/B {} : impossible d'activer '{}' : {}", abId, modelName, e.getMessage());
@@ -691,7 +690,8 @@ public class EvaluationService {
 
         log.info("Évaluation par lot : {} modèles sur {} paires de test partagées",
                 evalIdByModel.size(), testPairs.size());
-        modelLock.lock();
+        // Verrou GLOBAL de bascule (partagé avec QualityBenchmarkService et RagAblationService).
+        modelSwitch.lock();
         try {
             String original = chatClient.getActiveModel();
             try {
@@ -715,7 +715,7 @@ public class EvaluationService {
                 restoreModel(original);
             }
         } finally {
-            modelLock.unlock();
+            modelSwitch.unlock();
         }
     }
 
@@ -727,7 +727,8 @@ public class EvaluationService {
         }
 
         String modelName = reportModelName(evalId);
-        modelLock.lock();
+        // Verrou GLOBAL de bascule (partagé avec QualityBenchmarkService et RagAblationService).
+        modelSwitch.lock();
         try {
             String original = chatClient.getActiveModel();
             if (!activateTargetModel(evalId, modelName, original)) {
@@ -739,7 +740,7 @@ public class EvaluationService {
                 restoreModel(original);
             }
         } finally {
-            modelLock.unlock();
+            modelSwitch.unlock();
         }
     }
 
@@ -923,7 +924,10 @@ public class EvaluationService {
     }
 
     /**
-     * Bascule le modèle servi vers {@code modelName} s'il diffère du modèle courant.
+     * Bascule le modèle servi vers {@code modelName} s'il diffère du modèle courant, et
+     * attend que le serveur le serve réellement avant de mesurer (sans cette attente, en
+     * mode conteneurs séparés, les premières réponses seraient produites par l'ancien
+     * modèle encore chargé — cf. {@link ModelSwitchCoordinator#activate}).
      * @return vrai si le modèle est prêt à être évalué ; faux en cas d'échec (rapport marqué FAILED)
      */
     private boolean activateTargetModel(String evalId, String modelName, String current) {
@@ -931,7 +935,7 @@ public class EvaluationService {
             return true;
         }
         try {
-            chatClient.setActiveModel(modelName);
+            modelSwitch.activate(modelName);
             return true;
         } catch (Exception e) {
             log.warn("Évaluation {} : impossible d'activer le modèle '{}' : {}", evalId, modelName, e.getMessage());
@@ -942,13 +946,7 @@ public class EvaluationService {
 
     /** Restaure le modèle initialement actif (best-effort). */
     private void restoreModel(String original) {
-        try {
-            if (original != null && !original.equals(chatClient.getActiveModel())) {
-                chatClient.setActiveModel(original);
-            }
-        } catch (Exception e) {
-            log.warn("Impossible de restaurer le modèle actif '{}' : {}", original, e.getMessage());
-        }
+        modelSwitch.restore(original);
     }
 
     /** Marque un rapport comme FAILED avec un message d'erreur. */

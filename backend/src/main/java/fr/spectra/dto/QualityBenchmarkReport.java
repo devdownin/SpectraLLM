@@ -8,6 +8,9 @@ import java.util.Map;
  * Rapport d'un passage du benchmark qualité sur un modèle donné.
  *
  * <ul>
+ *   <li>{@code judgeModel} — modèle qui a noté les réponses. Égal à {@code model} en
+ *       auto-jugement ; distinct quand {@code spectra.evaluation.judge-model} est configuré.
+ *       Deux rapports ne sont équitablement comparables qu'à juge identique.</li>
  *   <li>{@code avgScore} — score moyen (1-10) sur les questions answerable (fidélité/exactitude).</li>
  *   <li>{@code hallucinationRate} — part des questions non-answerable où le modèle a inventé une
  *       réponse au lieu de s'abstenir (0 = parfait).</li>
@@ -16,6 +19,7 @@ import java.util.Map;
  */
 public record QualityBenchmarkReport(
         String model,
+        String judgeModel,
         int total,
         int answerableCount,
         int unanswerableCount,
