@@ -55,13 +55,16 @@ public class RagAblationService {
     private final RagService ragService;
     private final QualityBenchmarkService qualityBenchmarkService;
     private final LlmChatClient chatClient;
+    private final ModelSwitchCoordinator modelSwitch;
 
     public RagAblationService(RagService ragService,
                               QualityBenchmarkService qualityBenchmarkService,
-                              LlmChatClient chatClient) {
+                              LlmChatClient chatClient,
+                              ModelSwitchCoordinator modelSwitch) {
         this.ragService = ragService;
         this.qualityBenchmarkService = qualityBenchmarkService;
         this.chatClient = chatClient;
+        this.modelSwitch = modelSwitch;
     }
 
     /** Exécute tous les bras de la requête sur le benchmark et retourne le rapport comparatif. */
@@ -83,11 +86,19 @@ public class RagAblationService {
         int runs = (request != null && request.runs() != null)
                 ? Math.max(1, Math.min(10, request.runs())) : 1;
 
-        List<AblationArmReport> armReports = new ArrayList<>();
-        for (AblationRequest.Arm arm : arms) {
-            armReports.add(runArm(arm, entries, maxChunks, runs, started));
+        // Verrou global tenu sur TOUS les bras : les deltas d'une ablation ne sont comparables
+        // que si aucun autre harnais (évaluation, benchmark qualité) ne bascule le modèle actif
+        // au milieu du passage.
+        modelSwitch.lock();
+        try {
+            List<AblationArmReport> armReports = new ArrayList<>();
+            for (AblationRequest.Arm arm : arms) {
+                armReports.add(runArm(arm, entries, maxChunks, runs, started));
+            }
+            return new AblationReport(armReports, entries.size(), started, Instant.now());
+        } finally {
+            modelSwitch.unlock();
         }
-        return new AblationReport(armReports, entries.size(), started, Instant.now());
     }
 
     /** Matrice par défaut : LLM seul vs RAG, sur le modèle actif. */
@@ -109,12 +120,14 @@ public class RagAblationService {
     private AblationArmReport runArm(AblationRequest.Arm arm, List<JsonNode> entries,
                                      int maxChunks, int runs, Instant started) {
         String previous = chatClient.getActiveModel();
-        boolean switched = arm.model() != null && !arm.model().isBlank() && !arm.model().equals(previous);
-        if (switched) {
-            log.info("Ablation '{}' : bascule temporaire du modèle {} → {}", arm.label(), previous, arm.model());
-            chatClient.setActiveModel(arm.model());
-        }
         String evaluatedModel = (arm.model() != null && !arm.model().isBlank()) ? arm.model() : previous;
+        if (evaluatedModel != null && !evaluatedModel.equals(previous)) {
+            log.info("Ablation '{}' : bascule temporaire du modèle {} → {}",
+                    arm.label(), previous, evaluatedModel);
+        }
+        // La bascule effective (avec attente que le serveur serve le modèle) est faite par
+        // runOnce, qui doit de toute façon revenir au modèle évalué après chaque phase de
+        // notation par un juge neutre.
 
         try {
             List<RunResult> rr = new ArrayList<>();
@@ -136,7 +149,7 @@ public class RagAblationService {
             RunResult first = rr.getFirst();
             QualityBenchmarkReport q0 = first.quality();
             QualityBenchmarkReport quality = new QualityBenchmarkReport(
-                    evaluatedModel, q0.total(), q0.answerableCount(), q0.unanswerableCount(),
+                    evaluatedModel, q0.judgeModel(), q0.total(), q0.answerableCount(), q0.unanswerableCount(),
                     mean(avgScores), mean(hallucs), mean(refusals),
                     meanScoresByCategory(rr), q0.items(), started, Instant.now());
             RetrievalMetrics retrieval = new RetrievalMetrics(
@@ -167,17 +180,33 @@ public class RagAblationService {
                     quality, retrieval, avgLatency, mean(p50s), mean(tokens), runs,
                     stdDev, first.applied());
         } finally {
-            if (switched) {
-                chatClient.setActiveModel(previous);
-                log.info("Ablation '{}' : modèle actif restauré → {}", arm.label(), previous);
-            }
+            // Best-effort : un échec de restauration ne doit pas détruire le rapport calculé.
+            modelSwitch.restore(previous);
         }
     }
 
-    /** Une passe du benchmark : interroge le pipeline, juge, score le retrieval et le coût. */
+    /** Réponse en attente de notation (produite en phase 1, jugée en phase 2). */
+    private record PendingJudgment(int index, String question, String category,
+                                   boolean answerable, String reference, String answer) {}
+
+    /**
+     * Une passe du benchmark en deux phases : (1) toutes les questions passent dans le pipeline
+     * avec le modèle évalué (latence, retrieval, coût mesurés ici) ; (2) les réponses sont
+     * notées — par le juge neutre ({@code spectra.evaluation.judge-model}) s'il est configuré
+     * et distinct, sinon par le modèle évalué lui-même.
+     */
     private RunResult runOnce(AblationRequest.Arm arm, List<JsonNode> entries,
                               int maxChunks, String evaluatedModel, Instant started) {
+        String judge = qualityBenchmarkService.resolveJudge(evaluatedModel);
+        // La phase de notation de la répétition précédente a pu laisser le juge neutre servi :
+        // s'assurer que le modèle évalué est bien celui qui répond (attente de convergence).
+        if (evaluatedModel != null && !evaluatedModel.isBlank()
+                && !evaluatedModel.equals(chatClient.getActiveModel())) {
+            modelSwitch.activate(evaluatedModel);
+        }
+
         List<QualityBenchmarkItem> items = new ArrayList<>();
+        List<PendingJudgment> pending = new ArrayList<>();
         List<Long> latencies = new ArrayList<>();
         int retrievalEvaluated = 0;
         double hitSum = 0, rrSum = 0, recallSum = 0;
@@ -185,6 +214,7 @@ public class RagAblationService {
         int answered = 0;
         Map<String, Integer> applied = new LinkedHashMap<>();
 
+        // ── Phase 1 : génération via le pipeline (modèle évalué) ──
         for (JsonNode entry : entries) {
             String question   = entry.path("question").asText("");
             String category   = entry.path("category").asText("inconnu");
@@ -209,7 +239,8 @@ public class RagAblationService {
             tokenSum += estimateContextTokens(resp.sources());
             answered++;
             tallyApplied(applied, resp);
-            items.add(qualityBenchmarkService.judgeAnswer(
+            items.add(null); // réservé — rempli en phase 2 pour préserver l'ordre des entrées
+            pending.add(new PendingJudgment(items.size() - 1,
                     question, category, answerable, reference, resp.answer()));
 
             if (arm.useRag() && !expected.isEmpty()) {
@@ -221,8 +252,20 @@ public class RagAblationService {
             }
         }
 
+        // ── Phase 2 : notation (une seule bascule vers le juge neutre s'il y a lieu) ──
+        if (!pending.isEmpty()) {
+            if (judge != null && !judge.isBlank() && !judge.equals(chatClient.getActiveModel())) {
+                log.info("Ablation '{}' : notation par le juge neutre '{}'", arm.label(), judge);
+                modelSwitch.activate(judge);
+            }
+            for (PendingJudgment p : pending) {
+                items.set(p.index(), qualityBenchmarkService.judgeAnswer(
+                        p.question(), p.category(), p.answerable(), p.reference(), p.answer()));
+            }
+        }
+
         QualityBenchmarkReport quality =
-                qualityBenchmarkService.aggregate(evaluatedModel, items, started);
+                qualityBenchmarkService.aggregate(evaluatedModel, judge, items, started);
         RetrievalMetrics retrieval = new RetrievalMetrics(
                 retrievalEvaluated, maxChunks,
                 retrievalEvaluated > 0 ? hitSum / retrievalEvaluated : 0.0,

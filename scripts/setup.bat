@@ -109,38 +109,66 @@ if exist "data\models\embed.gguf" (
 )
 
 :: ── 5. Modèle de chat ─────────────────────────────────────────────────────
-echo.
-echo ^> [5/5] Modele de chat (data\fine-tuning\merged\model.gguf^)...
-if exist "data\fine-tuning\merged\model.gguf" (
-    for %%S in ("data\fine-tuning\merged\model.gguf") do (
-        set /a SIZE_MB=%%~zS / 1048576
-        echo   [OK] model.gguf present — !SIZE_MB! Mo
+:: Le modele doit resider dans data\models\ sous le nom que la stack Docker lit
+:: (data\models\%%LLM_CHAT_MODEL_FILE%%), sinon model-init / llm-chat ne le
+:: trouvent pas — miroir de la section 6 de setup.sh.
+set "CHAT_DOWNLOAD_NAME=Phi-3.5-mini-instruct-Q4_K_M.gguf"
+set "CHAT_MODEL_FILE="
+set "CHAT_MODEL_NAME="
+if exist ".env" (
+    for /f "usebackq eol=# tokens=1,* delims==" %%A in (".env") do (
+        if "%%A"=="LLM_CHAT_MODEL_FILE" set "CHAT_MODEL_FILE=%%B"
+        if "%%A"=="LLM_CHAT_MODEL_NAME" set "CHAT_MODEL_NAME=%%B"
     )
+)
+if "!CHAT_MODEL_FILE!"=="" set "CHAT_MODEL_FILE=%CHAT_DOWNLOAD_NAME%"
+echo.
+echo ^> [5/5] Modele de chat (data\models\!CHAT_MODEL_FILE!^)...
+if exist "data\models\!CHAT_MODEL_FILE!" (
+    for %%S in ("data\models\!CHAT_MODEL_FILE!") do (
+        set /a SIZE_MB=%%~zS / 1048576
+        echo   [OK] !CHAT_MODEL_FILE! present — !SIZE_MB! Mo
+    )
+    call :set_env_var LLM_CHAT_MODEL_FILE "!CHAT_MODEL_FILE!"
 ) else (
     if !DOWNLOAD_CHAT!==1 (
-        echo   Telechargement de Phi-3.5-mini-instruct-Q4_K_M.gguf (~2.4 Go^)...
+        echo   Telechargement de %CHAT_DOWNLOAD_NAME% (~2.4 Go^)...
         echo   (cela peut prendre plusieurs minutes selon votre connexion^)
         curl -L --progress-bar ^
             "https://huggingface.co/bartowski/Phi-3.5-mini-instruct-GGUF/resolve/main/Phi-3.5-mini-instruct-Q4_K_M.gguf" ^
-            -o "data\fine-tuning\merged\model.gguf"
+            -o "data\models\%CHAT_DOWNLOAD_NAME%"
         if errorlevel 1 (
-            echo   [ERREUR] Echec du telechargement de model.gguf
+            echo   [ERREUR] Echec du telechargement de %CHAT_DOWNLOAD_NAME%
             set /a ERRORS+=1
         ) else (
-            echo   [OK] model.gguf telecharge
+            echo   [OK] %CHAT_DOWNLOAD_NAME% telecharge
+            rem Aligner .env pour que la stack Docker charge bien ce fichier.
+            call :set_env_var LLM_CHAT_MODEL_FILE "%CHAT_DOWNLOAD_NAME%"
+            echo   LLM_CHAT_MODEL_FILE=%CHAT_DOWNLOAD_NAME% ecrit dans .env
+            rem Aligner aussi l'alias sur le modele telecharge : le defaut
+            rem « phi-4-mini » etiquetterait un Phi-3.5 de facon trompeuse.
+            rem Un alias personnalise n'est jamais ecrase.
+            if "!CHAT_MODEL_NAME!"=="" (
+                call :set_env_var LLM_CHAT_MODEL_NAME "phi-3.5-mini"
+                echo   LLM_CHAT_MODEL_NAME=phi-3.5-mini ecrit dans .env
+            ) else if "!CHAT_MODEL_NAME!"=="phi-4-mini" (
+                call :set_env_var LLM_CHAT_MODEL_NAME "phi-3.5-mini"
+                echo   LLM_CHAT_MODEL_NAME=phi-3.5-mini ecrit dans .env
+            )
         )
     ) else (
-        echo   [MANQUANT] data\fine-tuning\merged\model.gguf absent
+        echo   [MANQUANT] data\models\!CHAT_MODEL_FILE! absent
         echo.
         echo   Option 1 — Telechargement automatique (Phi-3.5-mini ~2.4 Go^) :
         echo     setup.bat --download-chat
         echo.
         echo   Option 2 — Telechargement manuel :
         echo     curl -L https://huggingface.co/bartowski/Phi-3.5-mini-instruct-GGUF/resolve/main/Phi-3.5-mini-instruct-Q4_K_M.gguf ^
-        echo       -o data\fine-tuning\merged\model.gguf
+        echo       -o data\models\%CHAT_DOWNLOAD_NAME%
         echo.
-        echo   Option 3 — Tout modele GGUF instruction-tuned fonctionne.
-        echo     Placez votre fichier dans data\fine-tuning\merged\model.gguf
+        echo   Option 3 — Tout modele GGUF instruction-tuned fonctionne :
+        echo     placez votre fichier dans data\models\ et renseignez
+        echo     LLM_CHAT_MODEL_FILE=^<nom-du-fichier.gguf^> dans .env
         set /a ERRORS+=1
     )
 )
@@ -164,3 +192,13 @@ echo ======================================
 echo.
 
 endlocal
+exit /b 0
+
+:: ── Sous-routine : insère ou met à jour une variable KEY=VALUE dans .env ────
+:: Miroir de set_env_var de setup.sh. Usage : call :set_env_var CLE "valeur"
+:set_env_var
+if not exist ".env" type nul > ".env"
+findstr /v /b /c:"%~1=" ".env" > ".env.setup.tmp"
+>> ".env.setup.tmp" echo %~1=%~2
+move /y ".env.setup.tmp" ".env" >nul
+goto :eof

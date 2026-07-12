@@ -1208,13 +1208,27 @@ POST /api/ablation
 sert aussi de juge. Si `spectra.evaluation.judge-model` est défini, un **juge neutre** fixe
 note tous les modèles ; l'évaluation passe alors en **deux phases** (génération de toutes
 les réponses avec le modèle évalué, puis un unique changement de modèle vers le juge pour
-noter — évite de recharger `llama-server` à chaque paire). Les comparaisons batch/A/B
-réutilisent ce mécanisme (`sampleTestSet`, `generateAnswer`, bascule + restauration du
-modèle actif). La significativité (`compareReports`) est un test à deux échantillons :
-`|Δ| > 1,96·√(SEM² + SEM_baseline²)`, ≥ 2 paires notées de part et d'autre. Rétention : les
-rapports COMPLETED sont conservés (cap `spectra.evaluation.max-completed-reports`,
-défaut 200) et seuls les FAILED/CANCELLED anciens sont purgés ; persistance dans
-`evaluations.json` et `ab-comparisons.json` (répertoire `spectra.fine-tuning.work-dir`).
+noter — évite de recharger `llama-server` à chaque paire). Ce schéma s'applique aussi à
+`QualityBenchmarkService` (benchmark tenu à l'écart) et `RagAblationService`. Les
+comparaisons batch/A/B réutilisent ce mécanisme (`sampleTestSet`, `generateAnswer`, bascule
++ restauration du modèle actif). La significativité (`compareReports`) est un test à deux
+échantillons : `|Δ| > 1,96·√(SEM² + SEM_baseline²)`, ≥ 2 paires notées de part et d'autre.
+Rétention : les rapports COMPLETED sont conservés (cap
+`spectra.evaluation.max-completed-reports`, défaut 200) et seuls les FAILED/CANCELLED
+anciens sont purgés ; persistance dans `evaluations.json` et `ab-comparisons.json`
+(répertoire `spectra.fine-tuning.work-dir`).
+
+**`ModelSwitchCoordinator` — bascule fiable du modèle actif.** Tous les harnais
+ci-dessus basculent temporairement le modèle servi globalement : ils sérialisent leurs
+passages sur le **verrou global** de ce bean (deux mesures concurrentes se voleraient le
+modèle actif), et chaque activation **attend que le serveur serve réellement** le modèle
+demandé avant de mesurer (`activeModelLoaded` de `/v1/models`). Sans cette attente, en
+mode conteneurs séparés (le superviseur `llm-chat` suit le pointeur du registre ~10 s puis
+recharge le GGUF), les premières réponses seraient produites par l'ancien modèle encore
+chargé. Timeout `spectra.llm.switch.convergence-timeout-seconds` (défaut 300 s, doit
+couvrir le chargement du GGUF le plus lourd), sonde toutes les
+`spectra.llm.switch.poll-interval-millis` (défaut 2 s). La restauration du modèle initial
+reste best-effort : son échec n'invalide jamais le rapport calculé.
 
 `RagAblationService` réutilise `QualityBenchmarkService` (`judgeAnswer`, `aggregate`,
 `loadBenchmark`) et `RagService.query(request, overrides)`. Les requêtes sont émises à

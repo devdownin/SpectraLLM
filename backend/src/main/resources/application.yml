@@ -48,9 +48,17 @@ spectra:
       base-url: ${SPECTRA_LLM_EMBEDDING_BASE_URL:http://llm-embed:8082}
       # Fichier GGUF servi par llm-embed (même volume partagé).
       file: ${SPECTRA_LLM_EMBEDDING_FILE:}
+    # Bascule du modèle actif par les harnais d'évaluation (ModelSwitchCoordinator) :
+    # attente que llama-server serve RÉELLEMENT le modèle demandé avant de mesurer.
+    # En mode conteneurs séparés, llm-chat suit le pointeur du registre (~10 s) puis
+    # recharge le modèle — le timeout doit couvrir le chargement du GGUF le plus lourd.
+    switch:
+      convergence-timeout-seconds: ${SPECTRA_LLM_SWITCH_TIMEOUT:300}
+      poll-interval-millis: ${SPECTRA_LLM_SWITCH_POLL_MS:2000}
   evaluation:
-    # Modèle-juge neutre pour l'évaluation LLM-as-a-judge. Vide = le modèle évalué
-    # se juge lui-même (biais possible). Renseigner un modèle distinct et fixe rend
+    # Modèle-juge neutre pour l'évaluation LLM-as-a-judge (EvaluationService,
+    # QualityBenchmarkService et RagAblationService). Vide = le modèle évalué se juge
+    # lui-même (biais possible). Renseigner un modèle distinct et fixe rend
     # la comparaison multi-modèles plus équitable (évaluation en 2 phases :
     # génération avec le modèle évalué, puis notation avec le juge).
     judge-model: ${SPECTRA_EVALUATION_JUDGE_MODEL:}

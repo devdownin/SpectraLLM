@@ -40,7 +40,7 @@ git clone https://github.com/devdownin/SpectraLLM.git && cd SpectraLLM
 ./scripts/start.sh --first-run      # Windows: scripts\start.bat --first-run
 ```
 
-Spectra downloads the default models (~1.2 GB), starts the stack, and opens the web UI at **http://localhost**. Drop a PDF on the Ingestion page and start asking questions.
+Spectra downloads the default models (~2.5 GB), starts the stack, and opens the web UI at **http://localhost**. Drop a PDF on the Ingestion page and start asking questions.
 
 > **Requirements:** Docker (Compose v2) and 16 GB RAM. GPU optional — NVIDIA, AMD/ROCm and Vulkan supported, auto-detected. Prefer step-by-step control? → **[Getting Started](docs/GETTING_STARTED.md)**
 

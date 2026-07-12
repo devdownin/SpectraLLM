@@ -67,7 +67,8 @@ class EvaluationServiceComparisonTest {
                 link("model-tuned", LinkType.EVALUATED_ON)
         ));
 
-        service = new EvaluationService(datasetGenerator, chatClient, linkRepository, tempDir.toString(), 200, "");
+        service = new EvaluationService(datasetGenerator, chatClient,
+                new ModelSwitchCoordinator(chatClient, 2, 1), linkRepository, tempDir.toString(), 200, "");
         service.init();
     }
 
@@ -149,8 +150,10 @@ class EvaluationServiceComparisonTest {
         MAPPER.writerWithDefaultPrettyPrinter().writeValue(dir.resolve("evaluations.json").toFile(), seed);
         DocumentModelLinkRepository links = mock(DocumentModelLinkRepository.class);
         when(links.findByModelName(anyString())).thenReturn(List.of());
+        LlmChatClient chat = mock(LlmChatClient.class);
         EvaluationService svc = new EvaluationService(
-                mock(DatasetGeneratorService.class), mock(LlmChatClient.class), links, dir.toString(), 200, "");
+                mock(DatasetGeneratorService.class), chat,
+                new ModelSwitchCoordinator(chat, 2, 1), links, dir.toString(), 200, "");
         svc.init();
         return svc;
     }
