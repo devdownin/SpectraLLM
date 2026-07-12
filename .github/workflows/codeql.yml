@@ -26,20 +26,16 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Set up JDK 25
+    - name: Set up Java and Maven
       if: matrix.language == 'java-kotlin'
-      uses: actions/setup-java@v5
-      with:
-        java-version: '25'
-        distribution: 'temurin'
-        cache: maven
+      uses: ./.github/actions/setup-java-maven
 
     - name: Initialize CodeQL
       uses: github/codeql-action/init@v4
       with:
         languages: ${{ matrix.language }}
 
-    # Manual build for Java to ensure JDK 25 is used and avoid autobuild issues
+    # Manual build for Java to ensure JDK 21 is used and avoid autobuild issues
     - name: Build Java
       if: matrix.language == 'java-kotlin'
       run: mvn -f backend/pom.xml -B package -DskipTests

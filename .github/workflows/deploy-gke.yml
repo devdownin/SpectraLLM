@@ -86,38 +86,6 @@ jobs:
 
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker "${GAR_LOCATION}-docker.pkg.dev" --quiet
-
-      # ── Scan des images avec Trivy ──────────────────
-      - name: Run Trivy vulnerability scanner on api
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: 'spectra-api:latest'
-          format: 'table'
-          exit-code: '1'
-          ignore-unfixed: true
-          vuln-type: 'os,library'
-          severity: 'CRITICAL,HIGH'
-
-      - name: Run Trivy vulnerability scanner on frontend
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: 'spectra-frontend:latest'
-          format: 'table'
-          exit-code: '1'
-          ignore-unfixed: true
-          vuln-type: 'os,library'
-          severity: 'CRITICAL,HIGH'
-
-      - name: Run Trivy vulnerability scanner on llama-cpp
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: 'spectra-llama-cpp:latest'
-          format: 'table'
-          exit-code: '1'
-          ignore-unfixed: true
-          vuln-type: 'os,library'
-          severity: 'CRITICAL,HIGH'
-
       # ── Build & push des images (api, frontend, llama.cpp) ──────────────────
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -153,6 +121,14 @@ jobs:
           cache-to: type=gha,mode=max
 
       # ── Scan des images avec Trivy ──────────────────
+      - name: Cache Trivy vulnerability database
+        uses: actions/cache@v4
+        with:
+          path: .trivycache/
+          key: ${{ runner.os }}-trivy-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-trivy-
+
       - name: Run Trivy vulnerability scanner on api
         uses: aquasecurity/trivy-action@master
         with:
@@ -162,6 +138,8 @@ jobs:
           ignore-unfixed: true
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
+        env:
+          TRIVY_CACHE_DIR: .trivycache/
 
       - name: Run Trivy vulnerability scanner on frontend
         uses: aquasecurity/trivy-action@master
@@ -172,6 +150,8 @@ jobs:
           ignore-unfixed: true
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
+        env:
+          TRIVY_CACHE_DIR: .trivycache/
 
       - name: Run Trivy vulnerability scanner on llama-cpp
         uses: aquasecurity/trivy-action@master
@@ -182,6 +162,8 @@ jobs:
           ignore-unfixed: true
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
+        env:
+          TRIVY_CACHE_DIR: .trivycache/
 
       # ── Push des images ──────────────────
       - name: Tag and push spectra-api
