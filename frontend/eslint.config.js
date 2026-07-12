@@ -26,8 +26,11 @@ export default tseslint.config(
       'react-refresh': reactRefresh,
     },
     rules: {
-      ...reactHooks.configs.recommended.rules,
       // Rules of Hooks and dependency correctness are the bug class this gate exists for.
+      // Deliberately NOT spreading configs.recommended: since eslint-plugin-react-hooks v6
+      // it enables the React Compiler rule set (purity, refs, immutability, …) as errors,
+      // which is a much stricter gate than this lean config intends. In v5 the spread
+      // added exactly the two rules below, so behaviour is unchanged.
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
