@@ -22,7 +22,7 @@ jobs:
       - name: OWASP Dependency Check
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY || '' }}
-        run: mvn -Pdep-check verify -DskipTests -f backend/pom.xml
+        run: if [ -z "${NVD_API_KEY}" ]; then mvn -Pdep-check verify -DskipTests -f backend/pom.xml; else mvn -Pdep-check verify -DskipTests -DnvdApiKey="${NVD_API_KEY}" -f backend/pom.xml; fi
       - name: Upload Report
         uses: actions/upload-artifact@v4
         with:
