@@ -25,11 +25,7 @@ Le savoir de votre organisation vit dans des PDF, des documents Word, des wikis 
 
 La plupart des outils vous donnent le RAG *ou* le fine-tuning, et vous laissent l'intégration. Spectra fait tout le parcours — automatiquement, sur votre matériel :
 
-```
- vos documents ─► 📥 ingestion ─► 🔍 questions (RAG) ─► 🧪 dataset
-                                                            │
-    déployez partout ◄─ 📦 export ◄─ 🎓 fine-tuning ◄───────┘
-```
+<img src="docs/assets/spectraflux.png" alt="Architecture et Workflow Spectra" width="100%">
 
 Un seul `docker compose up`. Une interface web pour tout le parcours. Vos données ne quittent jamais votre machine.
 
@@ -40,9 +36,9 @@ git clone https://github.com/devdownin/SpectraLLM.git && cd SpectraLLM
 ./scripts/start.sh --first-run      # Windows : scripts\start.bat --first-run
 ```
 
-Spectra télécharge les modèles par défaut (~2,5 Go), démarre la stack et ouvre l'interface sur **http://localhost**. Déposez un PDF sur la page Ingestion et posez vos questions.
+Spectra télécharge les modèles par défaut (~1,2 Go), démarre la stack et ouvre l'interface sur **http://localhost**. Déposez un PDF sur la page Ingestion et posez vos questions.
 
-> **Prérequis :** Docker (Compose v2) et 16 Go de RAM. GPU optionnel — NVIDIA, AMD/ROCm et Vulkan supportés, détection automatique. Vous préférez le pas-à-pas ? → **[Getting Started](docs/GETTING_STARTED.md)**
+> **Prérequis :** Docker (Compose v2) et 16 Go de RAM. GPU optionnel — NVIDIA, AMD/ROCm et Vulkan supportés, détection automatique. Vous préférez le pas-à-pas ? → **[Getting Started](docs/getting-started.en.md)**
 
 ## 🏆 Pourquoi Spectra
 
@@ -76,7 +72,7 @@ Quatre étapes, un flux continu — le tout piloté par une interface web guidé
 | <img src="docs/assets/playground.png" alt="Dialoguer avec vos documents, réponses sourcées" width="100%"> | <img src="docs/assets/training.png" alt="Fine-tuner un modèle local sur votre corpus" width="100%"> |
 | **Interrogez** vos documents — réponses avec sources citées | **Fine-tunez** un modèle local qui garde le savoir |
 
-*Curieux du fonctionnement réel de la fusion hybride, du re-ranking et de la compression de contexte — et du **pourquoi** ? → **[Les internes du pipeline RAG](docs/tech/RAG_PIPELINE.md)** · **[Architecture](docs/ARCHITECTURE.md)***
+*Curieux du fonctionnement réel de la fusion hybride, du re-ranking et de la compression de contexte — et du **pourquoi** ? → **[Les internes du pipeline RAG](docs/tech/rag-pipeline.en.md)** · **[Architecture](docs/architecture.en.md)***
 
 ## 📚 Documentation
 
@@ -84,16 +80,16 @@ Tout est accessible depuis l'**[index de la documentation](docs/README.md)**, ou
 
 | Guide | Contenu |
 |---|---|
-| **[Getting Started](docs/GETTING_STARTED.md)** | Installation pas-à-pas, téléchargement des modèles, profils Docker, déploiement Kubernetes/GKE |
-| **[Architecture & Services](docs/ARCHITECTURE.md)** | Chaque service en détail : internals RAG, ingestion, évaluation, stack technique |
-| **[Configuration](docs/CONFIGURATION.md)** | Toutes les variables d'environnement, endpoints de santé, métriques Prometheus |
-| **[Manuel utilisateur](docs/user/USER_MANUAL.md)** | Parcours complet de l'interface web |
-| **[Référence technique](docs/tech/TECHNICAL_DOC.md)** | Détail au niveau implémentation |
-| **[Comment marche Spectra (FR)](docs/user/DOCUMENTATION_PEDAGOGIQUE.fr.md)** | Les idées en clair : embeddings, BM25 + RRF, les stratégies RAG, DPO/QLoRA |
-| **[Guide llama.cpp](docs/tech/llama.cpp.md)** | Détails et réglages du moteur d'inférence |
-| **[Fiabilité](docs/process/RELIABILITY.md)** · **[Sécurité](SECURITY.md)** | Garanties opérationnelles et politique de sécurité |
+| **[Getting Started](docs/getting-started.en.md)** | Installation pas-à-pas, téléchargement des modèles, profils Docker, déploiement Kubernetes/GKE |
+| **[Architecture & Services](docs/architecture.en.md)** | Chaque service en détail : internals RAG, ingestion, évaluation, stack technique |
+| **[Configuration](docs/configuration.en.md)** | Toutes les variables d'environnement, endpoints de santé, métriques Prometheus |
+| **[Manuel utilisateur](docs/user/user-manual.en.md)** | Parcours complet de l'interface web |
+| **[Référence technique](docs/tech/technical-doc.en.md)** | Détail au niveau implémentation |
+| **[Comment marche Spectra (FR)](docs/user/documentation-pedagogique.fr.md)** | Les idées en clair : embeddings, BM25 + RRF, les stratégies RAG, DPO/QLoRA |
+| **[Guide llama.cpp](docs/tech/llama-cpp.en.md)** | Détails et réglages du moteur d'inférence |
+| **[Fiabilité](docs/process/reliability.en.md)** · **[Sécurité](SECURITY.md)** | Garanties opérationnelles et politique de sécurité |
 
-**Stack :** Java 25 / Spring Boot 4 · React 19 · llama.cpp · ChromaDB · Python (fine-tuning, parsing, re-ranking) — détaillée dans [Architecture](docs/ARCHITECTURE.md#technology-stack).
+**Stack :** Java 25 / Spring Boot 4 · React 19 · llama.cpp · ChromaDB · Python (fine-tuning, parsing, re-ranking) — détaillée dans [Architecture](docs/architecture.en.md#technology-stack).
 
 ## 🤝 Contribuer
 
