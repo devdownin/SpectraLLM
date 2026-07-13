@@ -30,6 +30,9 @@
     "etaLeft": "~{{time}} restant",
     "live": "Flux temps réel connecté",
     "pollingFallback": "Flux temps réel indisponible — repli sur le polling",
+    "notifications": "Me notifier quand une tâche se termine pendant que cet onglet est en arrière-plan",
+    "notifyEnabled": "Notifications navigateur activées",
+    "notifyDenied": "Notifications bloquées par le navigateur — autorisez-les dans les réglages du site",
     "kinds": {
       "ingestion": "Ingestion",
       "dataset": "Génération de dataset",

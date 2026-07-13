@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import type { FC } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { queryApi, configApi, fineTuningApi, ingestApi, healthApi } from '../services/api';
@@ -200,6 +200,7 @@ const Playground: FC = () => {
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
 
   const [activeModel, setActiveModel] = useState<string>('');
+  const queryClient = useQueryClient();
 
   // Santé des services (polling 20 s) — pour signaler une panne et bloquer l'envoi
   // quand le LLM de chat est down, plutôt que de laisser la requête échouer en timeout.
@@ -269,14 +270,23 @@ const Playground: FC = () => {
     if (modelsData?.activeModel && !activeModel) setActiveModel(modelsData.activeModel);
   }, [modelsData?.activeModel, activeModel]);
 
+  // Bascule optimiste : le sélecteur reflète le choix immédiatement (état local + cache
+  // React Query), l'appel réseau part en arrière-plan. En cas d'échec (alias inconnu du
+  // registre, API down), on restaure le modèle précédent partout.
   const handleModelSwitch = async (modelName: string) => {
+    const previous = modelsData?.activeModel ?? activeModel;
+    setActiveModel(modelName);
+    queryClient.setQueryData(['playground-models'], (d: typeof modelsData) =>
+      d ? { ...d, activeModel: modelName } : d);
     try {
       await configApi.setModelConfig({ model: modelName });
-      setActiveModel(modelName);
       toast.info('Active model updated', {
         description: `llm-chat reloads "${modelName}" automatically within a few seconds.`,
       });
     } catch (error: any) {
+      setActiveModel(previous);
+      queryClient.setQueryData(['playground-models'], (d: typeof modelsData) =>
+        d ? { ...d, activeModel: previous } : d);
       // 400 : alias inconnu du registre — le détail liste les modèles enregistrés.
       toast.error('Failed to switch model', {
         description: error?.response?.data?.error ?? error?.response?.data?.detail ?? error?.message,

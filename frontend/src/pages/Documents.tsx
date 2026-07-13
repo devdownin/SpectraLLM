@@ -174,15 +174,65 @@ const Documents: FC = () => {
 
   // ── Mutations ──────────────────────────────────────────────────────────────
 
+  // Mutations optimistes : le cache React Query (listes paginées + fiche document) est
+  // patché immédiatement, l'appel réseau part en arrière-plan. En cas d'échec, l'instantané
+  // pris dans onMutate est restauré ; onSettled réconcilie toujours avec le serveur
+  // (indispensable pour les listes filtrées par lifecycle, où un document patché doit
+  // en réalité changer de liste).
+
+  /** Applique un patch à un ensemble de documents dans TOUS les caches (listes + fiches). */
+  const patchDocsInCaches = (shaList: string[], patch: (d: IngestedFile) => IngestedFile) => {
+    queryClient.setQueriesData({ queryKey: ['ged-documents'] }, (data: any) => {
+      if (!data?.pages) return data;
+      return {
+        ...data,
+        pages: data.pages.map((p: any) => ({
+          ...p,
+          content: p.content.map((d: IngestedFile) => (shaList.includes(d.sha256) ? patch(d) : d)),
+        })),
+      };
+    });
+    shaList.forEach((sha) => {
+      queryClient.setQueryData(['ged-document', sha], (s: any) => (s ? patch(s) : s));
+    });
+  };
+
+  /** Instantané des caches documents, pour rollback si la mutation échoue. */
+  const snapshotDocCaches = async () => {
+    await queryClient.cancelQueries({ queryKey: ['ged-documents'] });
+    await queryClient.cancelQueries({ queryKey: ['ged-document'] });
+    return {
+      lists: queryClient.getQueriesData({ queryKey: ['ged-documents'] }),
+      sheets: queryClient.getQueriesData({ queryKey: ['ged-document'] }),
+    };
+  };
+
+  type DocCachesSnapshot = Awaited<ReturnType<typeof snapshotDocCaches>>;
+
+  const restoreDocCaches = (snapshot?: DocCachesSnapshot) => {
+    snapshot?.lists.forEach(([key, data]) => queryClient.setQueryData(key, data));
+    snapshot?.sheets.forEach(([key, data]) => queryClient.setQueryData(key, data));
+  };
+
+  const reconcileDocCaches = () => {
+    queryClient.invalidateQueries({ queryKey: ['ged-documents'] });
+    queryClient.invalidateQueries({ queryKey: ['ged-document'] });
+    queryClient.invalidateQueries({ queryKey: ['ged-stats'] });
+  };
+
   const transitionMutation = useMutation({
     mutationFn: ({ sha, lc }: { sha: string; lc: string }) => gedApi.updateLifecycle(sha, lc),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['ged-documents'] });
-      queryClient.invalidateQueries({ queryKey: ['ged-document'] });
-      queryClient.invalidateQueries({ queryKey: ['ged-stats'] });
-      toast.success('Lifecycle updated');
+    onMutate: async ({ sha, lc }) => {
+      const snapshot = await snapshotDocCaches();
+      patchDocsInCaches([sha], (d) => ({ ...d, lifecycle: lc as DocumentLifecycle }));
+      return snapshot;
     },
-    onError: (err: any) => toast.error('Transition failed', { description: err.response?.data?.error }),
+    onSuccess: () => toast.success('Lifecycle updated'),
+    onError: (err: any, _vars, snapshot) => {
+      restoreDocCaches(snapshot);
+      toast.error('Transition failed', { description: err.response?.data?.error });
+    },
+    onSettled: reconcileDocCaches,
   });
 
   const deleteMutation = useMutation({
@@ -198,13 +248,18 @@ const Documents: FC = () => {
   const bulkLifecycleMutation = useMutation({
     mutationFn: ({ sha256List, lifecycle }: { sha256List: string[]; lifecycle: string }) =>
       gedApi.bulkLifecycle(sha256List, lifecycle),
-    onSuccess: (_, { sha256List }) => {
-      queryClient.invalidateQueries({ queryKey: ['ged-documents'] });
-      queryClient.invalidateQueries({ queryKey: ['ged-stats'] });
+    onMutate: async ({ sha256List, lifecycle }) => {
+      const snapshot = await snapshotDocCaches();
+      patchDocsInCaches(sha256List, (d) => ({ ...d, lifecycle: lifecycle as DocumentLifecycle }));
       setBulkSelected(new Set());
-      toast.success(`${sha256List.length} document(s) updated`);
+      return snapshot;
     },
-    onError: () => toast.error('Bulk update failed'),
+    onSuccess: (_, { sha256List }) => toast.success(`${sha256List.length} document(s) updated`),
+    onError: (_err, _vars, snapshot) => {
+      restoreDocCaches(snapshot);
+      toast.error('Bulk update failed');
+    },
+    onSettled: reconcileDocCaches,
   });
 
   const bulkDeleteMutation = useMutation({
@@ -221,21 +276,33 @@ const Documents: FC = () => {
 
   const addTagMutation = useMutation({
     mutationFn: ({ sha, tags }: { sha: string; tags: string[] }) => gedApi.addTags(sha, tags),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['ged-document', selectedSha] });
-      queryClient.invalidateQueries({ queryKey: ['ged-documents'] });
+    onMutate: async ({ sha, tags }) => {
+      const snapshot = await snapshotDocCaches();
+      patchDocsInCaches([sha], (d) => ({ ...d, tags: [...new Set([...(d.tags ?? []), ...tags])] }));
       setNewTagInput('');
-      toast.success('Tag added');
+      return snapshot;
     },
+    onSuccess: () => toast.success('Tag added'),
+    onError: (_err, _vars, snapshot) => {
+      restoreDocCaches(snapshot);
+      toast.error('Failed to add tag');
+    },
+    onSettled: reconcileDocCaches,
   });
 
   const removeTagMutation = useMutation({
     mutationFn: ({ sha, tags }: { sha: string; tags: string[] }) => gedApi.removeTags(sha, tags),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['ged-document', selectedSha] });
-      queryClient.invalidateQueries({ queryKey: ['ged-documents'] });
-      toast.success('Tag removed');
+    onMutate: async ({ sha, tags }) => {
+      const snapshot = await snapshotDocCaches();
+      patchDocsInCaches([sha], (d) => ({ ...d, tags: (d.tags ?? []).filter((tag) => !tags.includes(tag)) }));
+      return snapshot;
     },
+    onSuccess: () => toast.success('Tag removed'),
+    onError: (_err, _vars, snapshot) => {
+      restoreDocCaches(snapshot);
+      toast.error('Failed to remove tag');
+    },
+    onSettled: reconcileDocCaches,
   });
 
   // ── Comments ───────────────────────────────────────────────────────────────
