@@ -55,19 +55,26 @@ check_and_download() {
 }
 
 # ── Chat model ──────────────────────────────────────────────────────────────
-CHAT_URL="${LLM_CHAT_MODEL_URL:-https://huggingface.co/unsloth/Phi-4-mini-reasoning-GGUF/resolve/main/Phi-4-mini-reasoning-UD-IQ1_S.gguf}"
-CHAT_SHA256="325758ced3f234b5debfab7b97b040545f018438fb201ba670a1127d7a75e927"
-# Disable sha256 check if custom URL is provided
-if [ "${CHAT_URL}" != "https://huggingface.co/unsloth/Phi-4-mini-reasoning-GGUF/resolve/main/Phi-4-mini-reasoning-UD-IQ1_S.gguf" ]; then
-    CHAT_SHA256=""
+SIZE_CHAT=$(stat -c %s "/models/${CHAT}" 2>/dev/null || echo 0)
+if [ ! -f "/models/${CHAT}" ] || [ "${SIZE_CHAT}" -lt 1048576 ]; then
+  echo ""
+  echo "[MANQUANT] Modèle de chat : ${CHAT} absent ou incomplet."
+  echo "Téléchargement automatique en cours..."
+  wget -q --show-progress -O "/models/${CHAT}" "https://huggingface.co/unsloth/Phi-4-mini-reasoning-GGUF/resolve/main/Phi-4-mini-reasoning-UD-IQ1_S.gguf" || { echo "[ERREUR] Échec du téléchargement"; OK=0; }
+else
+  echo "[OK] Chat  : ${CHAT} ($(( SIZE_CHAT / 1048576 )) Mo)"
 fi
 check_and_download "${CHAT}" "${CHAT_URL}" "${CHAT_SHA256}" 1048576 "Chat"
 
 # ── Embedding model ─────────────────────────────────────────────────────────
-EMBED_URL="${LLM_EMBED_MODEL_URL:-https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf}"
-EMBED_SHA256="d4e388894e09cf3816e8b0896d81d265b55e7a9fff9ab03fe8bf4ef5e11295ac"
-if [ "${EMBED_URL}" != "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf" ]; then
-    EMBED_SHA256=""
+SIZE_EMBED=$(stat -c %s "/models/${EMBED}" 2>/dev/null || echo 0)
+if [ ! -f "/models/${EMBED}" ] || [ "${SIZE_EMBED}" -lt 1048576 ]; then
+  echo ""
+  echo "[MANQUANT] Modèle d'embedding : ${EMBED} absent ou incomplet."
+  echo "Téléchargement automatique en cours..."
+  wget -q --show-progress -O "/models/${EMBED}" "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf" || { echo "[ERREUR] Échec du téléchargement"; OK=0; }
+else
+  echo "[OK] Embed : ${EMBED} ($(( SIZE_EMBED / 1048576 )) Mo)"
 fi
 check_and_download "${EMBED}" "${EMBED_URL}" "${EMBED_SHA256}" 1048576 "Embed"
 
