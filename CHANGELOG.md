@@ -36,7 +36,7 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 - **Rétention** (`KafkaStreamRetentionService`) : cron nocturne purgeant les sources non mises à jour depuis `retention-ttl-days` jours (0 = désactivé).
 - **Métriques Micrometer** : `spectra.kafka.messages{topic,result}` et `spectra.kafka.processing{topic}` sur `/actuator/prometheus`.
 - **Déploiement** : profil Docker `kafka` (Apache Kafka mode KRaft mono-nœud) dans `docker-compose.yml`, variables `SPECTRA_KAFKA_*` (`.env.example`). Dépendance `spring-kafka` (gérée par le BOM Spring Boot).
-- **Documentation** : `docs/design-kafka-streaming-upsert.fr.md` (design détaillé), sections dédiées dans le README, la doc technique, le manuel utilisateur et le mini-livre pédagogique.
+- **Documentation** : `docs/DESIGN_KAFKA_STREAMING_UPSERT.fr.md` (design détaillé), sections dédiées dans le README, la doc technique, le manuel utilisateur et le mini-livre pédagogique.
 
 ### Évaluation — mesure des gains des enrichissements LLM
 
@@ -66,11 +66,11 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 ### Observabilité
 
 - **Alertes Prometheus + dashboard Grafana** : overlay `k8s/monitoring/` — `ServiceMonitor`, `PrometheusRule` (API down, taux 5xx, latence RAG p95, heap JVM), dashboard Grafana auto-importé. Exploite les métriques `/actuator/prometheus` (tag `application=spectrallm`) de la v0.6.
-- **Pas d'HPA sur `spectra-api`** (volontaire) : le backend est *stateful* (H2 fichier, BM25 en mémoire, PVC RWO en écriture, `Recreate`) et doit rester à 1 réplica ; l'autoscaling se fait au niveau des nœuds. Rationale dans `docs/deploy-gke.en.md` §9.
+- **Pas d'HPA sur `spectra-api`** (volontaire) : le backend est *stateful* (H2 fichier, BM25 en mémoire, PVC RWO en écriture, `Recreate`) et doit rester à 1 réplica ; l'autoscaling se fait au niveau des nœuds. Rationale dans `docs/DEPLOY_GKE.md` §9.
 
 ### Documentation
 
-- `deploy-gke.en.md` : nouvelles sections seeding (§7), TLS managé (§8), observabilité (§9).
+- `DEPLOY_GKE.md` : nouvelles sections seeding (§7), TLS managé (§8), observabilité (§9).
 - README (EN/FR) + `k8s/README.md` : section déploiement enrichie (seeding, overlays GPU/GKE/monitoring) ; correction du chemin `kubectl apply -k k8s/base`.
 - Commentaires pédagogiques (Javadoc) sur les classes cœur du backend (ingestion, RAG, ChromaDB, chunking, dataset, extraction…).
 
@@ -85,13 +85,13 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 ### Nouvelles fonctionnalités — Déploiement Cloud (GKE)
 
 - **Déploiement automatisé sur Google Kubernetes Engine** : workflow `.github/workflows/deploy-gke.yml` — authentification **Workload Identity Federation** (OIDC, sans clé JSON de compte de service), build & push des images `spectra-api` / `spectra-frontend` / `spectra-llama-cpp` vers Artifact Registry, puis `kustomize`-apply de `k8s/` sur push vers `main`. `concurrency` annule le run précédent sur le même ref ; l'étape de rollout attend `llama-cpp-embed` / `llama-cpp-chat` (timeouts généreux pour le chargement du modèle).
-- **`docs/deploy-gke.en.md`** : guide complet de mise en place GCP (Artifact Registry, compte de service deployer, Workload Identity Federation) et liste exacte des secrets/variables à créer.
+- **`docs/DEPLOY_GKE.md`** : guide complet de mise en place GCP (Artifact Registry, compte de service deployer, Workload Identity Federation) et liste exacte des secrets/variables à créer.
 - **`Dockerfile.llama`** : nouvelle image `spectra-llama-cpp` avec l'entrypoint `llama-autostart.sh` intégré (l'ancien `--target llama_cpp_runtime` n'existait plus dans le `Dockerfile` racine).
 
 ### Nouvelles fonctionnalités — Accélération GPU (opt-in)
 
 - **`Dockerfile.llama.cuda`** : variante CUDA de l'image llama (base `ghcr.io/ggml-org/llama.cpp:server-cuda`) avec le même entrypoint autostart.
-- **Overlay kustomize `k8s/overlays/gpu/`** : patche le ConfigMap (`LLAMA_NGL=-1`) et ajoute `nvidia.com/gpu: 1` + toleration au déploiement `llama-cpp-chat`. Appliqué via `kubectl apply -k k8s/overlays/gpu`. Le déploiement reste **CPU par défaut** ; l'embedding GPU est laissé en option commentée (2ᵉ GPU requis). Section GPU ajoutée à `docs/deploy-gke.en.md` (création du node pool GPU, build de l'image CUDA, dépannage).
+- **Overlay kustomize `k8s/overlays/gpu/`** : patche le ConfigMap (`LLAMA_NGL=-1`) et ajoute `nvidia.com/gpu: 1` + toleration au déploiement `llama-cpp-chat`. Appliqué via `kubectl apply -k k8s/overlays/gpu`. Le déploiement reste **CPU par défaut** ; l'embedding GPU est laissé en option commentée (2ᵉ GPU requis). Section GPU ajoutée à `docs/DEPLOY_GKE.md` (création du node pool GPU, build de l'image CUDA, dépannage).
 
 ### Nouvelles fonctionnalités — Observabilité
 
@@ -130,7 +130,7 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ### Documentation
 
-- **Guide pédagogique réécrit** : `documentation-pedagogique.fr.md` réorganisé en « mini-livre » des idées et algorithmes ; cross-links EN/FR ajoutés depuis le README.
+- **Guide pédagogique réécrit** : `DOCUMENTATION_PEDAGOGIQUE.fr.md` réorganisé en « mini-livre » des idées et algorithmes ; cross-links EN/FR ajoutés depuis le README.
 
 ---
 
@@ -413,7 +413,7 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ### Modifié
 - `pipeline.bat` : support des flags `--packing` et `--dpo` (transmission à `train_host.py`)
-- Documentation : `IMPROVEMENTS.md`, `README.md`, `user-manual.en.md` mis à jour avec H1–H4
+- Documentation : `IMPROVEMENTS.md`, `README.md`, `USER_MANUAL.md` mis à jour avec H1–H4
 
 ---
 
