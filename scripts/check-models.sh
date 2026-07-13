@@ -32,18 +32,9 @@ fi
 SIZE_EMBED=$(stat -c %s "/models/${EMBED}" 2>/dev/null || echo 0)
 if [ ! -f "/models/${EMBED}" ] || [ "${SIZE_EMBED}" -lt 1048576 ]; then
   echo ""
-  echo "[MANQUANT] Modèle d'embedding : ${EMBED}"
-  echo "  Placez-le dans ./data/models/ puis relancez."
-  echo ""
-  echo "  Téléchargement (huggingface-cli) :"
-  echo "    huggingface-cli download nomic-ai/nomic-embed-text-v1.5-GGUF \\"
-  echo "      nomic-embed-text-v1.5.Q4_K_M.gguf --local-dir ./data/models/"
-  echo "    mv ./data/models/nomic-embed-text-v1.5.Q4_K_M.gguf ./data/models/embed.gguf"
-  echo ""
-  echo "  Téléchargement (wget) :"
-  echo "    wget -O ./data/models/embed.gguf \\"
-  echo "      https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf"
-  OK=0
+  echo "[MANQUANT] Modèle d'embedding : ${EMBED} absent ou incomplet."
+  echo "Téléchargement automatique en cours..."
+  wget -q --show-progress -O "/models/${EMBED}" "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf" || { echo "[ERREUR] Échec du téléchargement"; OK=0; }
 else
   echo "[OK] Embed : ${EMBED} ($(( SIZE_EMBED / 1048576 )) Mo)"
 fi
