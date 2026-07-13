@@ -30,6 +30,9 @@
     "etaLeft": "~{{time}} left",
     "live": "Real-time stream connected",
     "pollingFallback": "Real-time stream unavailable — falling back to polling",
+    "notifications": "Notify me when a task finishes while this tab is in the background",
+    "notifyEnabled": "Browser notifications enabled",
+    "notifyDenied": "Notifications are blocked by the browser — allow them in the site settings",
     "kinds": {
       "ingestion": "Ingestion",
       "dataset": "Dataset generation",

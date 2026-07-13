@@ -18,6 +18,7 @@ import type { GlobalTask, GlobalTaskStatus } from '../hooks/useGlobalTasks';
  */
 
 const BASE_TITLE = 'Spectra | AI Architect';
+const NOTIFY_STORAGE_KEY = 'spectra-task-notifications';
 
 const STATUS_ICON: Record<GlobalTaskStatus, string> = {
   pending: 'hourglass_empty',
@@ -137,9 +138,39 @@ const TaskCenter: FC = () => {
     };
   }, [open]);
 
+  // ── Notifications navigateur (opt-in) ─────────────────────────────────────
+  // Complément du titre d'onglet pour les tâches longues (fine-tuning CPU…) :
+  // quand l'onglet n'a pas le focus, une notification système signale la fin.
+  const notificationsSupported = typeof window !== 'undefined' && 'Notification' in window;
+  const [notifyEnabled, setNotifyEnabled] = useState(
+    () => notificationsSupported && localStorage.getItem(NOTIFY_STORAGE_KEY) === '1',
+  );
+  const notifyEnabledRef = useRef(notifyEnabled);
+  notifyEnabledRef.current = notifyEnabled;
+
+  const toggleNotifications = async () => {
+    if (!notificationsSupported) return;
+    if (notifyEnabled) {
+      setNotifyEnabled(false);
+      localStorage.removeItem(NOTIFY_STORAGE_KEY);
+      return;
+    }
+    const permission = Notification.permission === 'granted'
+      ? 'granted'
+      : await Notification.requestPermission();
+    if (permission !== 'granted') {
+      toast.error(t('taskCenter.notifyDenied'));
+      return;
+    }
+    setNotifyEnabled(true);
+    localStorage.setItem(NOTIFY_STORAGE_KEY, '1');
+    toast.success(t('taskCenter.notifyEnabled'));
+  };
+
   // Toast de fin de tâche, seulement pour les transitions observées EN SESSION
   // (pas l'historique du premier chargement) et hors de la page concernée
-  // (elle notifie déjà elle-même).
+  // (elle notifie déjà elle-même). Les notifications système, elles, partent
+  // quelle que soit la page — mais uniquement onglet masqué (sinon le toast suffit).
   const prevStatuses = useRef<Map<string, GlobalTaskStatus> | null>(null);
   const pathnameRef = useRef(location.pathname);
   pathnameRef.current = location.pathname;
@@ -150,20 +181,31 @@ const TaskCenter: FC = () => {
     for (const task of tasks) {
       const before = prev.get(task.id);
       const wasActive = before === 'running' || before === 'pending';
-      if (!wasActive || pathnameRef.current === task.path) continue;
-      if (task.status === 'completed') {
-        toast.success(t('taskCenter.taskCompleted'), {
-          id: `task-${task.id}`,
-          description: `${t(`taskCenter.kinds.${task.kind}`)} — ${task.label}`,
-        });
-      } else if (task.status === 'failed') {
-        toast.error(t('taskCenter.taskFailed'), {
-          id: `task-${task.id}`,
-          description: task.error ?? `${t(`taskCenter.kinds.${task.kind}`)} — ${task.label}`,
-        });
+      if (!wasActive || (task.status !== 'completed' && task.status !== 'failed')) continue;
+
+      const description = task.status === 'failed'
+        ? (task.error ?? `${t(`taskCenter.kinds.${task.kind}`)} — ${task.label}`)
+        : `${t(`taskCenter.kinds.${task.kind}`)} — ${task.label}`;
+
+      if (pathnameRef.current !== task.path) {
+        if (task.status === 'completed') {
+          toast.success(t('taskCenter.taskCompleted'), { id: `task-${task.id}`, description });
+        } else {
+          toast.error(t('taskCenter.taskFailed'), { id: `task-${task.id}`, description });
+        }
+      }
+
+      if (notifyEnabledRef.current && notificationsSupported
+          && Notification.permission === 'granted' && document.hidden) {
+        try {
+          new Notification(
+            task.status === 'completed' ? t('taskCenter.taskCompleted') : t('taskCenter.taskFailed'),
+            { body: description, tag: `spectra-${task.id}` }, // tag : pas de doublon si re-émis
+          );
+        } catch { /* notification refusée par l'OS : le toast reste */ }
       }
     }
-  }, [tasks, t]);
+  }, [tasks, t, notificationsSupported]);
 
   // Tâches terminées les plus récentes en tête de section (l'API renvoie
   // l'historique complet ; on n'en montre qu'un extrait, trié par date).
@@ -211,12 +253,31 @@ const TaskCenter: FC = () => {
                 aria-label={liveStatus === 'open' ? t('taskCenter.live') : t('taskCenter.pollingFallback')}
               />
             </div>
-            {activeCount > 0 && (
-              <span className="flex items-center gap-1.5 text-[10px] font-bold text-secondary uppercase tracking-widest">
-                <span className="w-1.5 h-1.5 bg-secondary animate-pulse" aria-hidden="true" />
-                {t('taskCenter.activeCount', { count: activeCount })}
-              </span>
-            )}
+            <div className="flex items-center gap-3">
+              {activeCount > 0 && (
+                <span className="flex items-center gap-1.5 text-[10px] font-bold text-secondary uppercase tracking-widest">
+                  <span className="w-1.5 h-1.5 bg-secondary animate-pulse" aria-hidden="true" />
+                  {t('taskCenter.activeCount', { count: activeCount })}
+                </span>
+              )}
+              {/* Opt-in notifications système : signale la fin d'une tâche onglet masqué. */}
+              {notificationsSupported && (
+                <button
+                  type="button"
+                  onClick={toggleNotifications}
+                  aria-pressed={notifyEnabled}
+                  aria-label={t('taskCenter.notifications')}
+                  title={t('taskCenter.notifications')}
+                  className={`p-0.5 transition-colors ${
+                    notifyEnabled ? 'text-primary' : 'text-outline hover:text-on-surface-variant'
+                  }`}
+                >
+                  <span aria-hidden="true" className="material-symbols-outlined text-[15px]">
+                    {notifyEnabled ? 'notifications_active' : 'notifications_off'}
+                  </span>
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="max-h-96 overflow-y-auto custom-scrollbar">
