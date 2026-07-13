@@ -16,6 +16,31 @@
     "switchLanguage": "Changer de langue",
     "help": "Aide sur cette page"
   },
+  "taskCenter": {
+    "title": "Activité",
+    "open": "Tâches en arrière-plan",
+    "empty": "Aucune tâche en cours",
+    "emptyHint": "Les ingestions, générations de dataset, entraînements, évaluations et téléchargements de modèles apparaîtront ici.",
+    "inProgress": "En cours",
+    "recent": "Récent",
+    "activeCount_one": "{{count}} active",
+    "activeCount_other": "{{count}} actives",
+    "taskCompleted": "Tâche terminée",
+    "taskFailed": "Tâche échouée",
+    "etaLeft": "~{{time}} restant",
+    "live": "Flux temps réel connecté",
+    "pollingFallback": "Flux temps réel indisponible — repli sur le polling",
+    "kinds": {
+      "ingestion": "Ingestion",
+      "dataset": "Génération de dataset",
+      "dpo": "Paires DPO",
+      "training": "Fine-tuning",
+      "evaluation": "Évaluation",
+      "ab": "Comparaison A/B",
+      "install": "Téléchargement de modèle",
+      "benchmark": "Benchmark qualité"
+    }
+  },
   "wizard": {
     "ingestion": "Ingestion",
     "ingestionDone": "{{count}} chunks indexés",

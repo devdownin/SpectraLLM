@@ -16,6 +16,31 @@
     "switchLanguage": "Switch language",
     "help": "Help for this page"
   },
+  "taskCenter": {
+    "title": "Activity",
+    "open": "Background tasks",
+    "empty": "No task running",
+    "emptyHint": "Ingestions, dataset generations, trainings, evaluations and model downloads will show up here.",
+    "inProgress": "In progress",
+    "recent": "Recent",
+    "activeCount_one": "{{count}} active",
+    "activeCount_other": "{{count}} active",
+    "taskCompleted": "Task completed",
+    "taskFailed": "Task failed",
+    "etaLeft": "~{{time}} left",
+    "live": "Real-time stream connected",
+    "pollingFallback": "Real-time stream unavailable — falling back to polling",
+    "kinds": {
+      "ingestion": "Ingestion",
+      "dataset": "Dataset generation",
+      "dpo": "DPO pairs",
+      "training": "Fine-tuning",
+      "evaluation": "Evaluation",
+      "ab": "A/B comparison",
+      "install": "Model download",
+      "benchmark": "Quality benchmark"
+    }
+  },
   "wizard": {
     "ingestion": "Ingestion",
     "ingestionDone": "{{count}} chunks indexed",

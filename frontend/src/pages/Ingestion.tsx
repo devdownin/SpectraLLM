@@ -1,10 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import type { FC } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import Tooltip from '../components/Tooltip';
 import Skeleton from '../components/Skeleton';
 import { ingestApi, datasetApi } from '../services/api';
+import { etaMs, formatEta } from '../hooks/useGlobalTasks';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -16,6 +18,8 @@ interface IngestEntry {
   fileName: string;
   status: IngestStatus;
   chunksCreated: number;
+  /** Total de chunks découvert au fil du chunking (0 = encore inconnu). */
+  chunksExpected: number;
   error?: string;
 }
 
@@ -26,6 +30,7 @@ interface GenerationTask {
   chunksProcessed: number;
   totalChunks: number;
   error: string | null;
+  createdAt?: string;
 }
 
 interface IngestionTask {
@@ -33,6 +38,7 @@ interface IngestionTask {
   status: IngestStatus;
   files: string[];
   chunksCreated: number;
+  chunksExpected?: number;
   error: string | null;
 }
 
@@ -125,6 +131,7 @@ const PipelineStep: FC<PipelineStepProps> = ({ icon, label, state, nextState, is
 // ── Main component ───────────────────────────────────────────────────────────
 
 const Ingestion: FC = () => {
+  const { t } = useTranslation();
   const [dragActive, setDragActive] = useState(false);
   const [syntheticQA, setSyntheticQA] = useState(true);
   const [maxChunks, setMaxChunks] = useState(10);
@@ -197,16 +204,16 @@ const Ingestion: FC = () => {
           });
         }
         setIngestEntries(prev => {
+          const patch = {
+            status: t.status,
+            chunksCreated: t.chunksCreated,
+            chunksExpected: t.chunksExpected ?? 0,
+            error: t.error ?? undefined,
+          };
           if (entryId === taskId) {
-            return prev.map(e => e.taskId === taskId
-              ? { ...e, status: t.status, chunksCreated: t.chunksCreated, error: t.error ?? undefined }
-              : e
-            );
+            return prev.map(e => e.taskId === taskId ? { ...e, ...patch } : e);
           }
-          return prev.map(e => e.id === entryId
-            ? { ...e, status: t.status, chunksCreated: t.chunksCreated, error: t.error ?? undefined }
-            : e
-          );
+          return prev.map(e => e.id === entryId ? { ...e, ...patch } : e);
         });
         if (t.status === 'COMPLETED' || t.status === 'FAILED') {
           clearInterval(interval);
@@ -228,7 +235,7 @@ const Ingestion: FC = () => {
   // ── Upload file ───────────────────────────────────────────────────────────
   const uploadFile = useCallback(async (file: File) => {
     const id = `${Date.now()}-${Math.random()}`;
-    const entry: IngestEntry = { id, taskId: null, fileName: file.name, status: 'UPLOADING', chunksCreated: 0 };
+    const entry: IngestEntry = { id, taskId: null, fileName: file.name, status: 'UPLOADING', chunksCreated: 0, chunksExpected: 0 };
     setIngestEntries(prev => [...prev, entry]);
 
     try {
@@ -267,7 +274,7 @@ const Ingestion: FC = () => {
     }
 
     const id = `${Date.now()}-${Math.random()}`;
-    const entry: IngestEntry = { id, taskId: null, fileName: trimmed, status: 'UPLOADING', chunksCreated: 0 };
+    const entry: IngestEntry = { id, taskId: null, fileName: trimmed, status: 'UPLOADING', chunksCreated: 0, chunksExpected: 0 };
     setIngestEntries(prev => [...prev, entry]);
     setUrlInput('');
 
@@ -334,7 +341,8 @@ const Ingestion: FC = () => {
                 taskId: t.taskId,
                 fileName,
                 status: t.status,
-                chunksCreated: t.chunksCreated
+                chunksCreated: t.chunksCreated,
+                chunksExpected: t.chunksExpected ?? 0,
               });
             });
             pollIngest(t.taskId, t.taskId); // entryId matches taskId for restored group
@@ -401,6 +409,16 @@ const Ingestion: FC = () => {
     || (stats?.chunksInStore ?? 0) > 0;
   const genDone = genTask?.status === 'COMPLETED' || (stats?.totalPairs ?? 0) > 0;
   const genActive = genTask?.status === 'PENDING' || genTask?.status === 'PROCESSING';
+
+  // Temps restant estimé de la génération (extrapolation linéaire depuis le lancement) ;
+  // recalculé à chaque poll de la tâche (5 s), suffisant pour un compte à rebours indicatif.
+  const genEta = genTask && genTask.status === 'PROCESSING' && genTask.createdAt && genTask.totalChunks > 0
+    ? etaMs({
+        status: 'running',
+        progress: Math.min(1, genTask.chunksProcessed / genTask.totalChunks),
+        startedAt: genTask.createdAt,
+      }, Date.now())
+    : null;
 
   const pipelineState = (step: string): 'idle' | 'active' | 'done' => {
     if (step === 'ingest')   return hasIngestedDocs ? 'done' : ingestEntries.length > 0 ? 'active' : 'idle';
@@ -698,16 +716,26 @@ const Ingestion: FC = () => {
                         className={`text-[10px] font-bold uppercase tracking-widest shrink-0 ${statusColor[entry.status]} ${entry.status === 'COMPLETED' ? 'count-flash' : ''}`}>
                         {entry.status === 'COMPLETED'
                           ? `${entry.chunksCreated} chunks`
-                          : entry.status === 'PROCESSING' && entry.chunksCreated > 0
-                            ? `${entry.chunksCreated} chunks…`
-                            : entry.status}
+                          : entry.status === 'PROCESSING' && entry.chunksExpected > 0
+                            ? `${entry.chunksCreated}/${entry.chunksExpected} chunks`
+                            : entry.status === 'PROCESSING' && entry.chunksCreated > 0
+                              ? `${entry.chunksCreated} chunks…`
+                              : entry.status}
                       </span>
                     </div>
                     {(entry.status === 'PROCESSING' || entry.status === 'COMPLETED') && (
                       <div className="relative w-full bg-outline-variant/20 h-0.5 overflow-hidden">
+                        {/* Barre déterminée dès que le total de chunks est connu (chunking fait),
+                            sinon balayage indéterminé le temps de l'extraction. */}
                         <div className={`h-full transition-all duration-700 ${
-                          entry.status === 'COMPLETED' ? 'bg-primary w-full' : 'bg-secondary/50 w-2/3'
-                        }`} />
+                          entry.status === 'COMPLETED' ? 'bg-primary w-full' : 'bg-secondary/50'
+                        }`}
+                          style={entry.status === 'PROCESSING' ? {
+                            width: entry.chunksExpected > 0
+                              ? `${Math.min(100, (entry.chunksCreated / entry.chunksExpected) * 100)}%`
+                              : '0%',
+                          } : undefined}
+                        />
                         {/* Scanning beam overlay during processing */}
                         {entry.status === 'PROCESSING' && <div className="scan-beam" />}
                       </div>
@@ -805,6 +833,11 @@ const Ingestion: FC = () => {
                       <span className="text-on-surface-variant">Chunks Processed</span>
                       <span className="font-bold">
                         {genTask.chunksProcessed} / {genTask.totalChunks}
+                        {genEta !== null && (
+                          <span className="ml-2 font-normal text-outline tabular-nums normal-case">
+                            {t('taskCenter.etaLeft', { time: formatEta(genEta) })}
+                          </span>
+                        )}
                       </span>
                     </div>
                     <div className="relative w-full bg-outline-variant/20 h-1.5 overflow-hidden">

@@ -21,6 +21,8 @@ public class IngestionTaskEntity {
 
     private int chunksCreated;
 
+    private int chunksExpected;
+
     @Column(columnDefinition = "TEXT")
     private String error;
 
@@ -33,13 +35,14 @@ public class IngestionTaskEntity {
     protected IngestionTaskEntity() {}
 
     public IngestionTaskEntity(String taskId, String status, List<String> files,
-                               int chunksCreated, String error,
+                               int chunksCreated, int chunksExpected, String error,
                                Instant createdAt, Instant completedAt,
                                String parserUsed, int layoutAwareChunks) {
         this.taskId = taskId;
         this.status = status;
         this.files = files;
         this.chunksCreated = chunksCreated;
+        this.chunksExpected = chunksExpected;
         this.error = error;
         this.createdAt = createdAt;
         this.completedAt = completedAt;
@@ -50,7 +53,7 @@ public class IngestionTaskEntity {
     public static IngestionTaskEntity fromDto(IngestionTask dto) {
         return new IngestionTaskEntity(
                 dto.taskId(), dto.status().name(), dto.files(),
-                dto.chunksCreated(), dto.error(),
+                dto.chunksCreated(), dto.chunksExpected(), dto.error(),
                 dto.createdAt(), dto.completedAt(),
                 dto.parserUsed(), dto.layoutAwareChunks());
     }
@@ -61,6 +64,7 @@ public class IngestionTaskEntity {
                 IngestionTask.Status.valueOf(status),
                 files,
                 chunksCreated,
+                chunksExpected,
                 error,
                 createdAt,
                 completedAt,
