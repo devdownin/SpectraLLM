@@ -3,7 +3,7 @@ import type { FC } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { useGlobalTasks } from '../hooks/useGlobalTasks';
+import { useGlobalTasks, etaMs, formatEta } from '../hooks/useGlobalTasks';
 import type { GlobalTask, GlobalTaskStatus } from '../hooks/useGlobalTasks';
 
 /**
@@ -33,9 +33,10 @@ const STATUS_COLOR: Record<GlobalTaskStatus, string> = {
   failed: 'text-error',
 };
 
-const TaskRow: FC<{ task: GlobalTask; onNavigate: () => void }> = ({ task, onNavigate }) => {
+const TaskRow: FC<{ task: GlobalTask; now: number; onNavigate: () => void }> = ({ task, now, onNavigate }) => {
   const { t } = useTranslation();
   const active = task.status === 'running' || task.status === 'pending';
+  const eta = etaMs(task, now);
 
   return (
     <Link
@@ -75,16 +76,24 @@ const TaskRow: FC<{ task: GlobalTask; onNavigate: () => void }> = ({ task, onNav
       </div>
       {/* Barre de progression : déterminée si un ratio existe, sinon balayage. */}
       {active && (
-        <div className="relative w-full bg-outline-variant/20 h-0.5 mt-2 overflow-hidden">
-          {task.progress !== null ? (
-            <div
-              className="absolute top-0 left-0 h-full bg-secondary transition-all duration-500"
-              style={{ width: `${Math.round(task.progress * 100)}%` }}
-            />
-          ) : (
-            task.status === 'running' && <div className="scan-beam" />
+        <>
+          <div className="relative w-full bg-outline-variant/20 h-0.5 mt-2 overflow-hidden">
+            {task.progress !== null ? (
+              <div
+                className="absolute top-0 left-0 h-full bg-secondary transition-all duration-500"
+                style={{ width: `${Math.round(task.progress * 100)}%` }}
+              />
+            ) : (
+              task.status === 'running' && <div className="scan-beam" />
+            )}
+          </div>
+          {/* Temps restant estimé (extrapolation linéaire depuis le début de la tâche). */}
+          {eta !== null && (
+            <p className="text-right text-[9px] text-outline tabular-nums mt-1">
+              {t('taskCenter.etaLeft', { time: formatEta(eta) })}
+            </p>
           )}
-        </div>
+        </>
       )}
     </Link>
   );
@@ -93,9 +102,19 @@ const TaskRow: FC<{ task: GlobalTask; onNavigate: () => void }> = ({ task, onNav
 const TaskCenter: FC = () => {
   const { t } = useTranslation();
   const location = useLocation();
-  const { tasks, activeTasks, activeCount } = useGlobalTasks();
+  const { tasks, activeTasks, activeCount, liveStatus } = useGlobalTasks();
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Horloge pour l'ETA : ne tourne que panneau ouvert (le flux SSE n'émet que sur
+  // changement d'état, il ne suffit donc pas à rafraîchir un compte à rebours).
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!open) return;
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [open]);
 
   // Titre d'onglet : signale l'activité même quand l'onglet est en arrière-plan.
   useEffect(() => {
@@ -181,9 +200,17 @@ const TaskCenter: FC = () => {
       {open && (
         <div className="absolute right-0 top-full mt-2 w-80 max-w-[calc(100vw-2rem)] bg-surface-container border border-outline-variant/20 shadow-xl shadow-black/30 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
           <div className="px-4 py-3 border-b border-outline-variant/10 flex items-center justify-between">
-            <span className="font-headline text-[11px] font-bold uppercase tracking-widest">
-              {t('taskCenter.title')}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="font-headline text-[11px] font-bold uppercase tracking-widest">
+                {t('taskCenter.title')}
+              </span>
+              {/* Mode temps réel (SSE) ou repli polling — même sémantique que le Telemetry Stream. */}
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${liveStatus === 'open' ? 'bg-primary animate-pulse' : 'bg-outline'}`}
+                title={liveStatus === 'open' ? t('taskCenter.live') : t('taskCenter.pollingFallback')}
+                aria-label={liveStatus === 'open' ? t('taskCenter.live') : t('taskCenter.pollingFallback')}
+              />
+            </div>
             {activeCount > 0 && (
               <span className="flex items-center gap-1.5 text-[10px] font-bold text-secondary uppercase tracking-widest">
                 <span className="w-1.5 h-1.5 bg-secondary animate-pulse" aria-hidden="true" />
@@ -208,7 +235,7 @@ const TaskCenter: FC = () => {
                     </p>
                     <div className="divide-y divide-outline-variant/5">
                       {activeTasks.map((task) => (
-                        <TaskRow key={task.id} task={task} onNavigate={() => setOpen(false)} />
+                        <TaskRow key={task.id} task={task} now={now} onNavigate={() => setOpen(false)} />
                       ))}
                     </div>
                   </div>
@@ -220,7 +247,7 @@ const TaskCenter: FC = () => {
                     </p>
                     <div className="divide-y divide-outline-variant/5">
                       {recent.map((task) => (
-                        <TaskRow key={task.id} task={task} onNavigate={() => setOpen(false)} />
+                        <TaskRow key={task.id} task={task} now={now} onNavigate={() => setOpen(false)} />
                       ))}
                     </div>
                   </div>

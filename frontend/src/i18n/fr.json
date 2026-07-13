@@ -27,6 +27,9 @@
     "activeCount_other": "{{count}} actives",
     "taskCompleted": "Tâche terminée",
     "taskFailed": "Tâche échouée",
+    "etaLeft": "~{{time}} restant",
+    "live": "Flux temps réel connecté",
+    "pollingFallback": "Flux temps réel indisponible — repli sur le polling",
     "kinds": {
       "ingestion": "Ingestion",
       "dataset": "Génération de dataset",

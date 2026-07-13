@@ -17,6 +17,8 @@ export interface IngestionTask {
   taskId: string;
   status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
   chunksCreated: number;
+  /** Total de chunks découvert au fil du chunking (0 = encore inconnu). */
+  chunksExpected: number;
   error?: string;
 }
 

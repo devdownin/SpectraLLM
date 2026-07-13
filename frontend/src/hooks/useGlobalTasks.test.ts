@@ -2,7 +2,10 @@ import { describe, it, expect } from 'vitest';
 import {
   toStatus,
   ratio,
+  etaMs,
+  formatEta,
   isActiveTask,
+  normalizeSnapshot,
   normalizeIngestTasks,
   normalizeDatasetTasks,
   normalizeDpoTasks,
@@ -65,7 +68,7 @@ describe('normalizers', () => {
     expect(dataset.id).toBe('dataset:abc');
   });
 
-  it('normalizes an ingestion task (file names, chunk count, no determinate progress)', () => {
+  it('normalizes an ingestion task (indeterminate while the chunk total is unknown)', () => {
     const [task] = normalizeIngestTasks([{
       taskId: 't1', status: 'PROCESSING', files: ['a.pdf', 'b.docx'], chunksCreated: 12, error: null,
     }]);
@@ -73,6 +76,16 @@ describe('normalizers', () => {
       kind: 'ingestion', label: 'a.pdf, b.docx', detail: '12 chunks',
       status: 'running', progress: null, path: '/ingestion',
     });
+  });
+
+  it('gives an ingestion task determinate progress once chunksExpected is known', () => {
+    const [task] = normalizeIngestTasks([{
+      taskId: 't1', status: 'PROCESSING', files: ['a.pdf'],
+      chunksCreated: 10, chunksExpected: 40, createdAt: '2026-07-13T10:00:00Z',
+    }]);
+    expect(task.progress).toBe(0.25);
+    expect(task.detail).toBe('10/40 chunks');
+    expect(task.startedAt).toBe('2026-07-13T10:00:00Z');
   });
 
   it('normalizes a dataset generation task with chunk-based progress', () => {
@@ -141,6 +154,64 @@ describe('normalizers', () => {
     expect(task.label).toBe('—');
     expect(task.status).toBe('pending');
     expect(task.progress).toBeNull();
+  });
+});
+
+describe('normalizeSnapshot', () => {
+  it('normalizes every task family of the SSE snapshot with the same normalizers', () => {
+    const tasks = normalizeSnapshot({
+      ingest: [{ taskId: 'a', status: 'PROCESSING' }],
+      dataset: [{ taskId: 'b', status: 'PENDING' }],
+      dpo: [{ taskId: 'c', status: 'COMPLETED' }],
+      training: [{ jobId: 'd', status: 'TRAINING', modelName: 'm' }],
+      evaluations: [{ evalId: 'e', status: 'RUNNING', modelName: 'm' }],
+      ab: [{ abId: 'f', status: 'RUNNING', modelA: 'x', modelB: 'y' }],
+      installs: [{ jobId: 'g', status: 'DOWNLOADING', modelName: 'phi3', progress: 10 }],
+      benchmarks: [{ jobId: 'h', status: 'PENDING', baseline: 'x', candidate: 'y' }],
+    });
+    expect(tasks).toHaveLength(8);
+    expect(new Set(tasks.map((t) => t.kind))).toEqual(new Set([
+      'ingestion', 'dataset', 'dpo', 'training', 'evaluation', 'ab', 'install', 'benchmark',
+    ]));
+  });
+
+  it('tolerates a malformed or partial snapshot', () => {
+    expect(normalizeSnapshot(null)).toEqual([]);
+    expect(normalizeSnapshot(undefined)).toEqual([]);
+    expect(normalizeSnapshot({})).toEqual([]);
+    expect(normalizeSnapshot({ ingest: 'boom' } as never)).toEqual([]);
+  });
+});
+
+describe('etaMs', () => {
+  // Démarrée il y a 60 s, 25 % fait → il reste 3× le temps écoulé = 180 s.
+  const startedAt = new Date(Date.UTC(2026, 6, 13, 10, 0, 0)).toISOString();
+  const now = Date.UTC(2026, 6, 13, 10, 1, 0);
+
+  it('extrapolates the remaining time from elapsed time and progress', () => {
+    expect(etaMs({ status: 'running', progress: 0.25, startedAt }, now)).toBe(180_000);
+    expect(etaMs({ status: 'running', progress: 0.5, startedAt }, now)).toBe(60_000);
+  });
+
+  it('returns null when no meaningful estimate exists', () => {
+    expect(etaMs({ status: 'pending', progress: 0.5, startedAt }, now)).toBeNull();
+    expect(etaMs({ status: 'running', progress: null, startedAt }, now)).toBeNull();
+    expect(etaMs({ status: 'running', progress: 0, startedAt }, now)).toBeNull();
+    expect(etaMs({ status: 'running', progress: 1, startedAt }, now)).toBeNull();
+    expect(etaMs({ status: 'running', progress: 0.5, startedAt: null }, now)).toBeNull();
+    expect(etaMs({ status: 'running', progress: 0.5, startedAt: 'not-a-date' }, now)).toBeNull();
+    // Horloge serveur en avance : pas d'ETA négative.
+    expect(etaMs({ status: 'running', progress: 0.5, startedAt }, now - 120_000)).toBeNull();
+  });
+});
+
+describe('formatEta', () => {
+  it('formats seconds, minutes and hours compactly', () => {
+    expect(formatEta(500)).toBe('1s');
+    expect(formatEta(45_000)).toBe('45s');
+    expect(formatEta(3 * 60_000)).toBe('3 min');
+    expect(formatEta(65 * 60_000)).toBe('1 h 05');
+    expect(formatEta(120 * 60_000)).toBe('2 h');
   });
 });
 

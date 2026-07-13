@@ -27,6 +27,9 @@
     "activeCount_other": "{{count}} active",
     "taskCompleted": "Task completed",
     "taskFailed": "Task failed",
+    "etaLeft": "~{{time}} left",
+    "live": "Real-time stream connected",
+    "pollingFallback": "Real-time stream unavailable — falling back to polling",
     "kinds": {
       "ingestion": "Ingestion",
       "dataset": "Dataset generation",

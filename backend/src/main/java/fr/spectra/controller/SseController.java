@@ -1,5 +1,6 @@
 package fr.spectra.controller;
 
+import fr.spectra.service.TaskActivityService;
 import fr.spectra.service.TrainingLogBroadcaster;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -8,6 +9,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import java.time.Duration;
 import java.time.LocalTime;
@@ -20,9 +22,11 @@ public class SseController {
     private static final Logger log = LoggerFactory.getLogger(SseController.class);
 
     private final TrainingLogBroadcaster broadcaster;
+    private final TaskActivityService taskActivity;
 
-    public SseController(TrainingLogBroadcaster broadcaster) {
+    public SseController(TrainingLogBroadcaster broadcaster, TaskActivityService taskActivity) {
         this.broadcaster = broadcaster;
+        this.taskActivity = taskActivity;
     }
 
     /**
@@ -51,5 +55,23 @@ public class SseController {
         return broadcaster.stream()
                 .onErrorContinue((err, obj) ->
                         log.warn("SSE training-logs error (ignored): {}", err.getMessage()));
+    }
+
+    /**
+     * Activité globale des tâches de fond (ingestion, dataset, DPO, fine-tuning, évaluations,
+     * A/B, installations, benchmarks) : instantané compact poussé à chaque changement d'état.
+     * Le client reçoit l'état courant dès la connexion (pas d'attente du premier changement),
+     * puis les instantanés qui diffèrent — remplace le polling REST multiple. Un battement de
+     * cœur (ré-émission toutes les 25 s même sans changement) garde la connexion vivante à
+     * travers les proxys et signale au client que le flux est bien actif.
+     */
+    @GetMapping(value = "/tasks", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Flux<Map<String, Object>> getTaskActivity() {
+        return Flux.merge(
+                        Mono.fromCallable(taskActivity::snapshot),
+                        taskActivity.stream(),
+                        Flux.interval(Duration.ofSeconds(25)).map(i -> taskActivity.snapshot()))
+                .onErrorContinue((err, obj) ->
+                        log.warn("SSE tasks error (ignored): {}", err.getMessage()));
     }
 }

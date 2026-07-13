@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useSse } from './useSse';
 import {
   ingestApi,
   datasetApi,
@@ -17,8 +18,12 @@ import {
  *
  * Chaque page suit déjà SES tâches localement ; ce hook donne la vue globale
  * qui manquait : naviguer ailleurs ne fait plus « disparaître » un run en cours.
- * Le polling est adaptatif : rapide (4 s) tant qu'une tâche est active,
- * lent (30 s) sinon — même logique que InstallationHistoryPanel.
+ *
+ * Source primaire : le flux SSE `/api/sse/tasks` (instantané compact poussé par le
+ * backend à chaque changement d'état — latence ~2 s, une seule connexion). Les mêmes
+ * normaliseurs s'appliquent au SSE et au REST, car le backend émet les mêmes noms de
+ * champs. Repli : le polling REST multi-endpoints (adaptatif 4 s / 30 s) couvre la
+ * fenêtre avant la première connexion et une coupure définitive du flux.
  */
 
 export type GlobalTaskKind =
@@ -51,6 +56,8 @@ export interface GlobalTask {
   error: string | null;
   /** Horodatage le plus pertinent (fin > début > création), pour trier « Récent ». */
   timestamp: string | null;
+  /** Début de la tâche (création/lancement), pour estimer le temps restant. */
+  startedAt: string | null;
 }
 
 // ── Helpers de normalisation ─────────────────────────────────────────────────
@@ -93,12 +100,16 @@ export function normalizeIngestTasks(raw: unknown): GlobalTask[] {
     kind: 'ingestion' as const,
     icon: 'cloud_upload',
     label: Array.isArray(t.files) && t.files.length > 0 ? t.files.join(', ') : shortId(t.taskId),
-    detail: typeof t.chunksCreated === 'number' && t.chunksCreated > 0 ? `${t.chunksCreated} chunks` : null,
+    detail: typeof t.chunksExpected === 'number' && t.chunksExpected > 0
+      ? `${t.chunksCreated ?? 0}/${t.chunksExpected} chunks`
+      : typeof t.chunksCreated === 'number' && t.chunksCreated > 0 ? `${t.chunksCreated} chunks` : null,
     status: toStatus(t.status),
-    progress: null, // le backend ne fournit pas de total pour l'ingestion
+    // Dénominateur découvert au fil du chunking (0 tant qu'inconnu → barre indéterminée).
+    progress: ratio(t.chunksCreated, t.chunksExpected),
     path: '/ingestion',
     error: t.error ?? null,
-    timestamp: null,
+    timestamp: pickTimestamp(t.completedAt, t.createdAt),
+    startedAt: pickTimestamp(t.createdAt),
   }));
 }
 
@@ -115,7 +126,8 @@ export function normalizeDatasetTasks(raw: unknown): GlobalTask[] {
     progress: ratio(t.chunksProcessed, t.totalChunks),
     path: '/ingestion',
     error: t.error ?? null,
-    timestamp: null,
+    timestamp: pickTimestamp(t.completedAt, t.createdAt),
+    startedAt: pickTimestamp(t.createdAt),
   }));
 }
 
@@ -131,6 +143,7 @@ export function normalizeDpoTasks(raw: unknown): GlobalTask[] {
     path: '/ingestion',
     error: t.error ?? null,
     timestamp: pickTimestamp(t.completedAt, t.startedAt),
+    startedAt: pickTimestamp(t.startedAt),
   }));
 }
 
@@ -150,6 +163,7 @@ export function normalizeTrainingJobs(raw: unknown): GlobalTask[] {
       path: '/fine-tuning',
       error: j.error ?? null,
       timestamp: pickTimestamp(j.completedAt, j.createdAt),
+      startedAt: pickTimestamp(j.createdAt),
     };
   });
 }
@@ -167,6 +181,7 @@ export function normalizeEvaluations(raw: unknown): GlobalTask[] {
     path: '/comparison',
     error: e.error ?? null,
     timestamp: pickTimestamp(e.completedAt, e.startedAt),
+    startedAt: pickTimestamp(e.startedAt),
   }));
 }
 
@@ -183,6 +198,7 @@ export function normalizeAbComparisons(raw: unknown): GlobalTask[] {
     path: '/comparison',
     error: ab.error ?? null,
     timestamp: pickTimestamp(ab.completedAt, ab.startedAt),
+    startedAt: pickTimestamp(ab.startedAt),
   }));
 }
 
@@ -201,6 +217,7 @@ export function normalizeInstallations(raw: unknown): GlobalTask[] {
       path: '/model-hub',
       error: j.error ?? null,
       timestamp: pickTimestamp(j.completedAt, j.createdAt),
+      startedAt: pickTimestamp(j.createdAt),
     };
   });
 }
@@ -217,11 +234,70 @@ export function normalizeBenchmarkJobs(raw: unknown): GlobalTask[] {
     path: '/model-hub',
     error: j.error ?? null,
     timestamp: pickTimestamp(j.completedAt, j.createdAt, j.startedAt),
+    startedAt: pickTimestamp(j.startedAt, j.createdAt),
   }));
 }
 
 export const isActiveTask = (t: GlobalTask): boolean =>
   t.status === 'running' || t.status === 'pending';
+
+// ── Estimation du temps restant (ETA) ────────────────────────────────────────
+
+/**
+ * Temps restant estimé (ms) par extrapolation linéaire : temps écoulé × (1−p)/p.
+ * Null si la tâche ne tourne pas, n'a pas de progression exploitable ou pas de début.
+ */
+export function etaMs(
+  task: Pick<GlobalTask, 'status' | 'progress' | 'startedAt'>,
+  nowMs: number,
+): number | null {
+  if (task.status !== 'running' || task.progress === null || !task.startedAt) return null;
+  if (task.progress <= 0 || task.progress >= 1) return null;
+  const started = Date.parse(task.startedAt);
+  if (Number.isNaN(started)) return null;
+  const elapsed = nowMs - started;
+  if (elapsed <= 0) return null;
+  return elapsed * (1 - task.progress) / task.progress;
+}
+
+/** Formatage compact d'une durée : "45s", "3 min", "1 h 05". */
+export function formatEta(ms: number): string {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${Math.max(s, 1)}s`;
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  const rem = m % 60;
+  return rem > 0 ? `${h} h ${String(rem).padStart(2, '0')}` : `${h} h`;
+}
+
+// ── Instantané SSE ───────────────────────────────────────────────────────────
+
+/** Instantané compact émis par `/api/sse/tasks` (mêmes noms de champs que le REST). */
+export interface TasksSnapshot {
+  ingest?: unknown;
+  dataset?: unknown;
+  dpo?: unknown;
+  training?: unknown;
+  evaluations?: unknown;
+  ab?: unknown;
+  installs?: unknown;
+  benchmarks?: unknown;
+}
+
+export function normalizeSnapshot(snap: TasksSnapshot | null | undefined): GlobalTask[] {
+  if (!snap || typeof snap !== 'object') return [];
+  return [
+    ...normalizeIngestTasks(snap.ingest),
+    ...normalizeDatasetTasks(snap.dataset),
+    ...normalizeDpoTasks(snap.dpo),
+    ...normalizeTrainingJobs(snap.training),
+    ...normalizeEvaluations(snap.evaluations),
+    ...normalizeAbComparisons(snap.ab),
+    ...normalizeInstallations(snap.installs),
+    ...normalizeBenchmarkJobs(snap.benchmarks),
+  ];
+}
 
 // ── Collecte best-effort ─────────────────────────────────────────────────────
 
@@ -252,18 +328,43 @@ const ACTIVE_POLL_MS = 4_000;
 const IDLE_POLL_MS = 30_000;
 
 export function useGlobalTasks() {
-  const { data, isLoading } = useQuery({
+  // Source primaire : le flux SSE poussé par le backend (latence ~2 s, une connexion).
+  // maxRetries élevé : le hook survit à un redémarrage de l'API (~3 min de backoff)
+  // avant de basculer définitivement sur le polling.
+  const { data: sseSnapshot, status: sseStatus } = useSse<TasksSnapshot>('/api/sse/tasks', { maxRetries: 12 });
+  const sseTasks = useMemo(
+    () => (sseSnapshot ? normalizeSnapshot(sseSnapshot) : null),
+    [sseSnapshot],
+  );
+
+  // Repli REST : actif tant que le flux n'est pas ouvert (démarrage, reconnexion,
+  // abandon après épuisement des tentatives). Poll rapide seulement quand quelque
+  // chose tourne : l'UI réagit vite sans marteler l'API au repos.
+  const pollingEnabled = sseStatus !== 'open';
+  const { data: polledTasks, isLoading: pollLoading } = useQuery({
     queryKey: ['global-tasks'],
     queryFn: fetchGlobalTasks,
-    // Poll rapide seulement quand quelque chose tourne : l'UI réagit vite sans
-    // marteler l'API au repos.
+    enabled: pollingEnabled,
     refetchInterval: (query) =>
       (query.state.data ?? []).some(isActiveTask) ? ACTIVE_POLL_MS : IDLE_POLL_MS,
     retry: false,
   });
 
-  const tasks = useMemo(() => data ?? [], [data]);
+  const tasks = useMemo(() => {
+    if (sseStatus === 'open' && sseTasks) return sseTasks;
+    // Flux coupé : le polling reprend ; en attendant sa 1re réponse, on garde le
+    // dernier instantané SSE plutôt que de vider le panneau.
+    return polledTasks ?? sseTasks ?? [];
+  }, [sseStatus, sseTasks, polledTasks]);
+
   const activeTasks = useMemo(() => tasks.filter(isActiveTask), [tasks]);
 
-  return { tasks, activeTasks, activeCount: activeTasks.length, isLoading };
+  return {
+    tasks,
+    activeTasks,
+    activeCount: activeTasks.length,
+    isLoading: !sseSnapshot && pollLoading,
+    /** 'open' = flux temps réel actif ; sinon repli sur le polling REST. */
+    liveStatus: sseStatus,
+  };
 }

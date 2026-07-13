@@ -135,6 +135,15 @@ public class IngestionTaskExecutor {
                 tasks.computeIfPresent(taskId, (k, t) ->
                         t.status() == IngestionTask.Status.CANCELLED ? t : t.progress(now));
             };
+            // Dénominateur live : dès qu'un fichier (ou une entrée ZIP) est découpé, son total de
+            // chunks s'ajoute au « attendu » — l'UI peut afficher une barre déterminée pendant
+            // la phase d'embedding, la plus longue.
+            final int[] expectedSoFar = {0};
+            final IntConsumer discovered = count -> {
+                final int now = (expectedSoFar[0] += count);
+                tasks.computeIfPresent(taskId, (k, t) ->
+                        t.status() == IngestionTask.Status.CANCELLED ? t : t.expecting(now));
+            };
 
             for (int i = 0; i < tempFiles.size(); i++) {
                 // Point de contrôle d'annulation : interrompt proprement la boucle.
@@ -151,7 +160,7 @@ public class IngestionTaskExecutor {
                 final int[] layoutHolder = new int[1];
                 ingestionTimer.record(() -> {
                     try {
-                        IngestOneResult r = ingestOne(name, currentTempFile, collectionId, collectionName, progress);
+                        IngestOneResult r = ingestOne(name, currentTempFile, collectionId, collectionName, progress, discovered);
                         resultHolder[0] = r.chunks();
                         parserHolder[0] = r.parserUsed();
                         layoutHolder[0] = r.layoutAwareChunks();
@@ -206,11 +215,20 @@ public class IngestionTaskExecutor {
      *  réutilisé par {@link IngestionService} (URL / batch) pour éviter un pipeline dupliqué. */
     IngestOneResult ingestOne(String fileName, Path tempFile, String collectionId, String collectionName,
                                       IntConsumer progress) throws Exception {
+        return ingestOne(fileName, tempFile, collectionId, collectionName, progress, NOOP_PROGRESS);
+    }
+
+    /**
+     * @param discovered notifié du nombre total de chunks d'un fichier dès le découpage terminé
+     *   (avant l'embedding) — alimente {@link IngestionTask#chunksExpected()} pour la progression.
+     */
+    IngestOneResult ingestOne(String fileName, Path tempFile, String collectionId, String collectionName,
+                                      IntConsumer progress, IntConsumer discovered) throws Exception {
         log.info("Ingestion de: {}", fileName);
 
         if (fileName.toLowerCase().endsWith(".zip")) {
             try (InputStream is = Files.newInputStream(tempFile)) {
-                int chunks = ingestZip(is, fileName, collectionId, collectionName, 0, progress);
+                int chunks = ingestZip(is, fileName, fileName, collectionId, collectionName, 0, progress, discovered);
                 // L'archive est enregistrée comme une unité (dédup au niveau archive).
                 return new IngestOneResult(chunks, null, 0, true);
             }
@@ -240,6 +258,7 @@ public class IngestionTaskExecutor {
             log.warn("Aucun chunk produit pour: {}", fileName);
             return new IngestOneResult(0, parserUsed, 0, true);
         }
+        discovered.accept(chunks.size());
 
         // Embed + envoie à ChromaDB par lot : on n'accumule jamais toutes les
         // embeddings ni un gros payload d'ajout en mémoire (réduit le pic mémoire).
@@ -295,7 +314,7 @@ public class IngestionTaskExecutor {
     /** Surcharge (utilisée par les tests) : la source racine par défaut est le nom d'archive. */
     int ingestZip(InputStream zipStream, String archiveName, String collectionId,
                   String collectionName, int depth, IntConsumer progress) throws Exception {
-        return ingestZip(zipStream, archiveName, archiveName, collectionId, collectionName, depth, progress);
+        return ingestZip(zipStream, archiveName, archiveName, collectionId, collectionName, depth, progress, NOOP_PROGRESS);
     }
 
     /**
@@ -305,7 +324,7 @@ public class IngestionTaskExecutor {
      *   chunks. Le chemin réel de l'entrée est conservé dans la métadonnée {@code zipEntry}.
      */
     int ingestZip(InputStream zipStream, String archiveName, String rootSource, String collectionId,
-                  String collectionName, int depth, IntConsumer progress) throws Exception {
+                  String collectionName, int depth, IntConsumer progress, IntConsumer discovered) throws Exception {
         if (depth >= MAX_ZIP_DEPTH) {
             log.warn("Profondeur ZIP max ({}) atteinte — archive imbriquée ignorée: {}", MAX_ZIP_DEPTH, archiveName);
             return 0;
@@ -346,7 +365,7 @@ public class IngestionTaskExecutor {
                         @Override public void close() {}
                     }, maxEntryUncompressedBytes);
                     totalChunks += ingestZip(nonClosing, archiveName + "/" + entryName, rootSource,
-                            collectionId, collectionName, depth + 1, progress);
+                            collectionId, collectionName, depth + 1, progress, discovered);
                     continue;
                 }
                 if (!isSupportedFile(fileName)) {
@@ -361,7 +380,7 @@ public class IngestionTaskExecutor {
                     InputStream entryStream = new LimitedInputStream(new FilterInputStream(zis) {
                         @Override public void close() { /* ne pas fermer le ZipInputStream parent */ }
                     }, maxEntryUncompressedBytes);
-                    totalChunks += ingestEntry(qualifiedName, rootSource, entryStream, collectionId, collectionName, progress);
+                    totalChunks += ingestEntry(qualifiedName, rootSource, entryStream, collectionId, collectionName, progress, discovered);
                 } catch (ExtractionException e) {
                     log.warn("Erreur sur entrée ZIP {}: {}", qualifiedName, e.getMessage());
                 }
@@ -376,7 +395,8 @@ public class IngestionTaskExecutor {
      *   {@code zipEntry} pour la traçabilité de la provenance.
      */
     private int ingestEntry(String fileName, String rootSource, InputStream inputStream,
-                            String collectionId, String collectionName, IntConsumer progress) throws Exception {
+                            String collectionId, String collectionName, IntConsumer progress,
+                            IntConsumer discovered) throws Exception {
         String shortName = fileName.contains("/") ? fileName.substring(fileName.lastIndexOf('/') + 1) : fileName;
         String contentType = extractorFactory.resolveContentType(shortName);
         var extractor = extractorFactory.getExtractor(contentType);
@@ -393,6 +413,7 @@ public class IngestionTaskExecutor {
             log.warn("Aucun chunk produit pour l'entrée ZIP: {}", fileName);
             return 0;
         }
+        discovered.accept(chunks.size());
 
         int embedded = embedAndStore(chunks, collectionId, collectionName, fileName, progress);
         log.info("Entrée ZIP {} traitée: {} chunks{}", fileName, embedded,
