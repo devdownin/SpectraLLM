@@ -2,6 +2,7 @@ import type { FC } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { NAV_BY_PATH } from '../navigation';
+import TaskCenter from './TaskCenter';
 
 interface HeaderProps {
   onMenuClick?: () => void;
@@ -37,6 +38,7 @@ const Header: FC<HeaderProps> = ({ onMenuClick }) => {
         )}
       </div>
       <div className="flex items-center gap-1">
+      <TaskCenter />
       {navItem?.docSection && (
         <button
           type="button"
