@@ -9,7 +9,8 @@ const { chromium } = require('playwright');
   page.on('requestfailed', request => console.log(`[REQUEST FAILED] ${request.url()} - ${request.failure().errorText}`));
 
   console.log("Navigating to http://localhost/...");
-  await page.goto('http://localhost/', { waitUntil: 'networkidle' });
+  // Use 'load' instead of 'networkidle' because SSE connection (/api/sse/tasks) keeps the network active
+  await page.goto('http://localhost/', { waitUntil: 'load' });
   
   const content = await page.content();
   console.log("=== DOM ===");
