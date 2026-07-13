@@ -10,8 +10,9 @@
 [![Code Coverage](https://codecov.io/gh/devdownin/SpectraLLM/branch/main/graph/badge.svg)](https://codecov.io/gh/devdownin/SpectraLLM)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/devdownin/SpectraLLM/badge)](https://securityscorecards.dev/viewer/?uri=github.com/devdownin/SpectraLLM)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+[![Documentation](https://img.shields.io/badge/docs-GitHub_Pages-blue.svg)](https://devdownin.github.io/SpectraLLM/)
 
-[Quick start](#-quick-start) · [Why Spectra](#-why-spectra) · [How it works](#-how-it-works) · [Documentation](#-documentation) · [Français](./README.fr.md)
+[Quick start](#-quick-start) · [Why Spectra](#-why-spectra) · [How it works](#-how-it-works) · [Documentation](https://devdownin.github.io/SpectraLLM/) · [Français](./README.fr.md)
 
 <img src="docs/assets/dashboard.png" alt="Spectra — the local document-to-model workspace" width="100%">
 
@@ -76,7 +77,7 @@ Four stages, one continuous flow — all driven from a guided web interface (FR/
 
 ## 📚 Documentation
 
-Browse everything from the **[documentation index](docs/README.md)**, or jump straight in:
+Browse everything from the **[online documentation (GitHub Pages)](https://devdownin.github.io/SpectraLLM/)**, or jump straight in:
 
 | Guide | What's inside |
 |---|---|

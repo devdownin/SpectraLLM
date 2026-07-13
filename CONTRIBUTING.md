@@ -21,6 +21,13 @@ Enhancements are also tracked as GitHub issues. Please use the [Feature Request 
 
 ## Styleguides
 
+### Documentation Guidelines
+When contributing to the documentation in the `docs/` folder, please adhere to the following rules to maintain consistency with our MkDocs setup:
+- **File Naming:** Always use lowercase `kebab-case` for markdown files (e.g., `getting-started.en.md`).
+- **Language Suffixes:** Always append the language code to the file name (`.en.md` for English, `.fr.md` for French) to manage multilingual content.
+- **Architecture Diagrams:** Use embedded [Mermaid.js](https://mermaid.js.org/) code blocks (` ```mermaid `) inside your markdown files instead of static images or raw HTML.
+- **Local Testing:** You can preview your documentation changes locally by installing MkDocs (`pip install mkdocs-material mkdocs-mermaid2-plugin`) and running `mkdocs serve` in the repository root.
+
 ### Git Commit Messages
 - Use the present tense ("Add feature" not "Added feature").
 - Use the imperative mood ("Move cursor to..." not "Moves cursor to...").

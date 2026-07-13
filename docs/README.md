@@ -19,7 +19,7 @@ New here? Start with **[Getting Started](getting-started.en.md)**.
 | **[RAG pipeline internals](tech/rag-pipeline.en.md)** | Why each retrieval step exists — chunking, Multi-Query, RRF fusion, reranking, context compression, long-context bypass. |
 | **[Configuration](configuration.en.md)** | All environment variables, health endpoints, Prometheus metrics. |
 | **[Technical Reference](tech/technical-doc.en.md)** | Implementation-level detail across the platform. |
-| **[Diagrams](tech/)** | C4 container/component views and the technical-stack diagram (`*.html`). |
+| **[Diagrams](tech/)** | C4 container/component views and the technical-stack diagram (`*.md`). |
 
 ## Deployment & operations
 

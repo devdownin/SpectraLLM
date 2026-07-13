@@ -10,8 +10,9 @@
 [![Code Coverage](https://codecov.io/gh/devdownin/SpectraLLM/branch/main/graph/badge.svg)](https://codecov.io/gh/devdownin/SpectraLLM)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/devdownin/SpectraLLM/badge)](https://securityscorecards.dev/viewer/?uri=github.com/devdownin/SpectraLLM)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+[![Documentation](https://img.shields.io/badge/docs-GitHub_Pages-blue.svg)](https://devdownin.github.io/SpectraLLM/)
 
-[Démarrage rapide](#-démarrage-rapide) · [Pourquoi Spectra](#-pourquoi-spectra) · [Comment ça marche](#-comment-ça-marche) · [Documentation](#-documentation) · [English](./README.md)
+[Démarrage rapide](#-démarrage-rapide) · [Pourquoi Spectra](#-pourquoi-spectra) · [Comment ça marche](#-comment-ça-marche) · [Documentation](https://devdownin.github.io/SpectraLLM/) · [English](./README.md)
 
 <img src="docs/assets/dashboard.png" alt="Spectra — l'atelier local pour transformer vos documents en modèle" width="100%">
 
@@ -76,7 +77,7 @@ Quatre étapes, un flux continu — le tout piloté par une interface web guidé
 
 ## 📚 Documentation
 
-Tout est accessible depuis l'**[index de la documentation](docs/README.md)**, ou allez directement au but :
+Tout est accessible depuis la **[documentation en ligne (GitHub Pages)](https://devdownin.github.io/SpectraLLM/)**, ou allez directement au but :
 
 | Guide | Contenu |
 |---|---|
