@@ -13,17 +13,9 @@ echo "=== Spectra — Vérification des modèles ==="
 SIZE_CHAT=$(stat -c %s "/models/${CHAT}" 2>/dev/null || echo 0)
 if [ ! -f "/models/${CHAT}" ] || [ "${SIZE_CHAT}" -lt 1048576 ]; then
   echo ""
-  echo "[MANQUANT] Modèle de chat : ${CHAT}"
-  echo "  Placez-le dans ./data/models/ puis relancez."
-  echo ""
-  echo "  Téléchargement (huggingface-cli) :"
-  echo "    huggingface-cli download unsloth/Phi-4-mini-reasoning-GGUF \\"
-  echo "      Phi-4-mini-reasoning-UD-IQ1_S.gguf --local-dir ./data/models/"
-  echo ""
-  echo "  Téléchargement (wget) :"
-  echo "    wget -P ./data/models/ \\"
-  echo "      https://huggingface.co/unsloth/Phi-4-mini-reasoning-GGUF/resolve/main/Phi-4-mini-reasoning-UD-IQ1_S.gguf"
-  OK=0
+  echo "[MANQUANT] Modèle de chat : ${CHAT} absent ou incomplet."
+  echo "Téléchargement automatique en cours..."
+  wget -q --show-progress -O "/models/${CHAT}" "https://huggingface.co/unsloth/Phi-4-mini-reasoning-GGUF/resolve/main/Phi-4-mini-reasoning-UD-IQ1_S.gguf" || { echo "[ERREUR] Échec du téléchargement"; OK=0; }
 else
   echo "[OK] Chat  : ${CHAT} ($(( SIZE_CHAT / 1048576 )) Mo)"
 fi
