@@ -13,17 +13,9 @@ echo "=== Spectra — Vérification des modèles ==="
 SIZE_CHAT=$(stat -c %s "/models/${CHAT}" 2>/dev/null || echo 0)
 if [ ! -f "/models/${CHAT}" ] || [ "${SIZE_CHAT}" -lt 1048576 ]; then
   echo ""
-  echo "[MANQUANT] Modèle de chat : ${CHAT}"
-  echo "  Placez-le dans ./data/models/ puis relancez."
-  echo ""
-  echo "  Téléchargement (huggingface-cli) :"
-  echo "    huggingface-cli download unsloth/Phi-4-mini-reasoning-GGUF \\"
-  echo "      Phi-4-mini-reasoning-UD-IQ1_S.gguf --local-dir ./data/models/"
-  echo ""
-  echo "  Téléchargement (wget) :"
-  echo "    wget -P ./data/models/ \\"
-  echo "      https://huggingface.co/unsloth/Phi-4-mini-reasoning-GGUF/resolve/main/Phi-4-mini-reasoning-UD-IQ1_S.gguf"
-  OK=0
+  echo "[MANQUANT] Modèle de chat : ${CHAT} absent ou incomplet."
+  echo "Téléchargement automatique en cours..."
+  wget -q --show-progress -O "/models/${CHAT}" "https://huggingface.co/unsloth/Phi-4-mini-reasoning-GGUF/resolve/main/Phi-4-mini-reasoning-UD-IQ1_S.gguf" || { echo "[ERREUR] Échec du téléchargement"; OK=0; }
 else
   echo "[OK] Chat  : ${CHAT} ($(( SIZE_CHAT / 1048576 )) Mo)"
 fi
@@ -32,18 +24,9 @@ fi
 SIZE_EMBED=$(stat -c %s "/models/${EMBED}" 2>/dev/null || echo 0)
 if [ ! -f "/models/${EMBED}" ] || [ "${SIZE_EMBED}" -lt 1048576 ]; then
   echo ""
-  echo "[MANQUANT] Modèle d'embedding : ${EMBED}"
-  echo "  Placez-le dans ./data/models/ puis relancez."
-  echo ""
-  echo "  Téléchargement (huggingface-cli) :"
-  echo "    huggingface-cli download nomic-ai/nomic-embed-text-v1.5-GGUF \\"
-  echo "      nomic-embed-text-v1.5.Q4_K_M.gguf --local-dir ./data/models/"
-  echo "    mv ./data/models/nomic-embed-text-v1.5.Q4_K_M.gguf ./data/models/embed.gguf"
-  echo ""
-  echo "  Téléchargement (wget) :"
-  echo "    wget -O ./data/models/embed.gguf \\"
-  echo "      https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf"
-  OK=0
+  echo "[MANQUANT] Modèle d'embedding : ${EMBED} absent ou incomplet."
+  echo "Téléchargement automatique en cours..."
+  wget -q --show-progress -O "/models/${EMBED}" "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf" || { echo "[ERREUR] Échec du téléchargement"; OK=0; }
 else
   echo "[OK] Embed : ${EMBED} ($(( SIZE_EMBED / 1048576 )) Mo)"
 fi
