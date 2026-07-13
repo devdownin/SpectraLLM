@@ -32,6 +32,13 @@ theme:
 extra_css:
   - stylesheets/extra.css
 
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [services/docparser, services/reranker]
+
 markdown_extensions:
   - pymdownx.highlight:
       anchor_linenums: true
@@ -66,7 +73,9 @@ nav:
       - Modèle C4 (Conteneurs): tech/c4-level2-containers.en.md
       - Modèle C4 (Composants): tech/c4-level3-components.en.md
   - API & Intégration:
-      - Référence API: api/api-reference.en.md
+      - Référence API (Spring Boot): api/api-reference.en.md
+      - Service Python Docparser: api/python-docparser.en.md
+      - Service Python Reranker: api/python-reranker.en.md
   - Déploiement:
       - Llama.cpp: tech/llama-cpp.en.md
       - Google Kubernetes Engine: tech/deploy-gke.en.md
