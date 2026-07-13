@@ -364,7 +364,7 @@ SPECTRA_KAFKA_ENABLED=true SPECTRA_KAFKA_TOPICS=my-topic \
 | `SPECTRA_KAFKA_SASL_MECHANISM` | *(empty)* | e.g. `SCRAM-SHA-512`, `PLAIN` (if SASL) |
 | `SPECTRA_KAFKA_SASL_JAAS_CONFIG` | *(empty)* | Full JAAS config (holds credentials) |
 
-See **[design-kafka-streaming-upsert.fr.md](tech/design-kafka-streaming-upsert.fr.md)**
+See **[design-kafka-streaming-upsert.fr.md](adr/design-kafka-streaming-upsert.fr.md)**
 for the detailed design (upsert algorithm, tombstones, idempotency, performance notes).
 
 ---

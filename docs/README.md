@@ -34,10 +34,10 @@ New here? Start with **[Getting Started](getting-started.en.md)**.
 
 | Document | Inside |
 |---|---|
-| **[Kafka streaming ingestion (FR)](tech/design-kafka-streaming-upsert.fr.md)** | Design of streaming ingestion → RAG with upsert. |
+| **[Kafka streaming ingestion (FR)](adr/design-kafka-streaming-upsert.fr.md)** | Design of streaming ingestion → RAG with upsert. |
 | **[Fine-tuning audit (FR)](process/audit-fine-tuning.fr.md)** | Audit of the fine-tuning process. |
 | **[Ingestion test plan](process/test-plan-ingestion.en.md)** | Test plan for DOCX and JSON ingestion. |
-| **[GED design notes (FR)](user/ged.en.md)** | Requirements for the document ↔ model linkage layer. |
+| **[GED design notes (FR)](adr/ged.en.md)** | Requirements for the document ↔ model linkage layer. |
 
 ---
 

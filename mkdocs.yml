@@ -75,3 +75,7 @@ nav:
       - Fiabilité: process/reliability.en.md
       - Audit Fine-Tuning: process/audit-fine-tuning.fr.md
       - Test Ingestion: process/test-plan-ingestion.en.md
+  - Architecture Decision Records (ADR):
+      - Spécifications Initiales: adr/spec.en.md
+      - Conception GED: adr/ged.en.md
+      - Ingestion Kafka Streaming: adr/design-kafka-streaming-upsert.fr.md
