@@ -4,8 +4,8 @@
 #
 # Usage : ./setup.sh [--download-embed] [--download-chat]
 #
-#   --download-embed   Télécharge nomic-embed-text
-#   --download-chat    Télécharge Phi-4-mini-reasoning-UD-IQ1_S.gguf si absent
+#   --download-embed   Télécharge nomic-embed-text (~81 Mo) si absent
+#   --download-chat    Télécharge Phi-3.5-mini Q4_K_M (~2.4 Go) si absent
 # ─────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail
@@ -130,7 +130,7 @@ fi
 # ── 6. Modèle de chat ─────────────────────────────────────────────────────
 # Le modèle doit résider dans data/models/ sous le nom que la stack Docker lit
 # (data/models/${LLM_CHAT_MODEL_FILE}), sinon model-init / llm-chat ne le trouvent pas.
-CHAT_DOWNLOAD_NAME="Phi-4-mini-reasoning-UD-IQ1_S.gguf"
+CHAT_DOWNLOAD_NAME="Phi-3.5-mini-instruct-Q4_K_M.gguf"
 CHAT_MODEL_FILE="$(read_env_var LLM_CHAT_MODEL_FILE)"
 CHAT_MODEL_FILE="${CHAT_MODEL_FILE:-$CHAT_DOWNLOAD_NAME}"
 CHAT_MODEL_PATH="data/models/$CHAT_MODEL_FILE"
@@ -145,27 +145,27 @@ else
     # Téléchargement dans data/models/ sous le nom attendu par la stack.
     CHAT_MODEL_FILE="$CHAT_DOWNLOAD_NAME"
     CHAT_MODEL_PATH="data/models/$CHAT_MODEL_FILE"
-    echo "  Téléchargement de $CHAT_DOWNLOAD_NAME..."
+    echo "  Téléchargement de $CHAT_DOWNLOAD_NAME (~2.4 Go)..."
     echo "  (cela peut prendre plusieurs minutes selon votre connexion)"
     curl -L --fail --progress-bar \
-      "https://huggingface.co/unsloth/Phi-4-mini-reasoning-GGUF/resolve/main/Phi-4-mini-reasoning-UD-IQ1_S.gguf" \
+      "https://huggingface.co/bartowski/Phi-3.5-mini-instruct-GGUF/resolve/main/Phi-3.5-mini-instruct-Q4_K_M.gguf" \
       -o "$CHAT_MODEL_PATH"
     green "  [OK] $CHAT_MODEL_FILE téléchargé"
     # Aligner .env pour que la stack Docker charge bien ce fichier.
     set_env_var LLM_CHAT_MODEL_FILE "$CHAT_MODEL_FILE"
     echo "  LLM_CHAT_MODEL_FILE=$CHAT_MODEL_FILE écrit dans .env"
     # Aligner aussi l'alias (registre local + interface) sur le modèle réellement
-    # téléchargé.
+    # téléchargé : le défaut « phi-4-mini » étiquetterait un Phi-3.5 de façon trompeuse.
     # Un alias personnalisé par l'utilisateur n'est jamais écrasé.
     CHAT_MODEL_NAME="$(read_env_var LLM_CHAT_MODEL_NAME)"
-    if [ -z "$CHAT_MODEL_NAME" ] || [ "$CHAT_MODEL_NAME" = "phi-3.5-mini" ]; then
-      set_env_var LLM_CHAT_MODEL_NAME "phi-4-mini"
-      echo "  LLM_CHAT_MODEL_NAME=phi-4-mini écrit dans .env"
+    if [ -z "$CHAT_MODEL_NAME" ] || [ "$CHAT_MODEL_NAME" = "phi-4-mini" ]; then
+      set_env_var LLM_CHAT_MODEL_NAME "phi-3.5-mini"
+      echo "  LLM_CHAT_MODEL_NAME=phi-3.5-mini écrit dans .env"
     fi
   else
     yellow "  [MANQUANT] $CHAT_MODEL_PATH absent"
     echo
-    echo "  Option 1 — Téléchargement automatique :"
+    echo "  Option 1 — Téléchargement automatique (Phi-3.5-mini ~2.4 Go) :"
     echo "    ./setup.sh --download-chat"
     echo
     echo "  Option 2 — Tout modèle GGUF instruction-tuned fonctionne :"
