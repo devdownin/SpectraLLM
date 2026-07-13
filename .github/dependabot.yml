@@ -11,6 +11,13 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
+    ignore:
+      # TypeScript 7 (compilateur natif, API JS différente) n'est pas encore supporté
+      # par typescript-eslint (peer "<6.1.0", crash à l'exécution) : le bump #193 avait
+      # cassé `npm ci` et le lint sur toute la CI. Débloquer quand typescript-eslint
+      # publiera le support de TS 7.
+      - dependency-name: "typescript"
+        versions: [">=7.0.0"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
