@@ -26,7 +26,7 @@ const Header: FC<HeaderProps> = ({ onMenuClick }) => {
   const getStatusColor = (s: any) => {
     if (!s) return 'bg-outline'; // Unknown
     if (!s.available) return 'bg-error'; // Missing/Down
-    if (s.details?.activeModelLoaded === false) return 'bg-warning'; // Loading
+    if (s.details?.activeModelLoaded === false) return 'bg-warning animate-pulse'; // Loading
     return 'bg-success'; // OK
   };
 
@@ -52,11 +52,11 @@ const Header: FC<HeaderProps> = ({ onMenuClick }) => {
       </div>
       <div className="flex items-center gap-1">
         <div className="flex items-center gap-2 mr-4 border-r border-border pr-4 hidden md:flex">
-          <div className="flex items-center gap-1.5" title={`Chat: ${chatStatus?.details?.activeModel || 'Unknown'}`}>
+          <div className="flex items-center gap-1.5" title={`Chat Server\nStatus: ${chatStatus?.available ? (chatStatus.details?.activeModelLoaded === false ? 'Loading Model' : 'Ready') : 'Offline'}\nModel: ${chatStatus?.details?.activeModel || 'None'}`}>
             <div className={`w-2 h-2 rounded-full ${getStatusColor(chatStatus)}`} />
             <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Chat</span>
           </div>
-          <div className="flex items-center gap-1.5" title={`Embed: ${embedStatus?.details?.activeModel || 'Unknown'}`}>
+          <div className="flex items-center gap-1.5" title={`Embedding Server\nStatus: ${embedStatus?.available ? (embedStatus.details?.activeModelLoaded === false ? 'Loading Model' : 'Ready') : 'Offline'}\nModel: ${embedStatus?.details?.activeModel || 'None'}`}>
             <div className={`w-2 h-2 rounded-full ${getStatusColor(embedStatus)}`} />
             <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Embed</span>
           </div>
