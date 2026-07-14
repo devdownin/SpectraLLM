@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 
 
 export const StartupOverlay: React.FC = () => {
@@ -17,6 +18,11 @@ export const StartupOverlay: React.FC = () => {
                     setInstallations(active);
                     setIsVisible(true);
                 } else {
+                    if (document.getElementById('startup-overlay')) {
+                        toast.success("Modèles prêts", {
+                            description: "Démarrage du moteur d'inférence en cours... Cela peut prendre quelques secondes."
+                        });
+                    }
                     setIsVisible(false);
                 }
             } catch (err) {
@@ -32,7 +38,7 @@ export const StartupOverlay: React.FC = () => {
     if (!isVisible) return null;
 
     return (
-        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center">
+        <div id="startup-overlay" className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center">
             <div className="bg-card p-8 rounded-lg shadow-lg max-w-lg w-full text-center border border-border">
                 <Loader2 className="w-12 h-12 animate-spin text-primary mx-auto mb-6" />
                 <h2 className="text-2xl font-bold mb-2">Préparation de Spectra</h2>
