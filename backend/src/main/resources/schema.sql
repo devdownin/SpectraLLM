@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS ingestion_tasks (
     status               VARCHAR(50),
     files                TEXT,
     chunks_created       INTEGER                  NOT NULL DEFAULT 0,
+    chunks_expected      INTEGER                  NOT NULL DEFAULT 0,
     error                TEXT,
     created_at           TIMESTAMP WITH TIME ZONE,
     completed_at         TIMESTAMP WITH TIME ZONE,
@@ -31,6 +32,9 @@ CREATE TABLE IF NOT EXISTS ingestion_tasks (
     layout_aware_chunks  INTEGER                  NOT NULL DEFAULT 0,
     PRIMARY KEY (task_id)
 );
+
+-- Migration : bases créées avant l'ajout de chunks_expected (idempotent sous H2)
+ALTER TABLE ingestion_tasks ADD COLUMN IF NOT EXISTS chunks_expected INTEGER NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS generation_tasks (
     task_id          VARCHAR(255) NOT NULL,
