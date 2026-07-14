@@ -24,7 +24,6 @@ CREATE TABLE IF NOT EXISTS ingestion_tasks (
     status               VARCHAR(50),
     files                TEXT,
     chunks_created       INTEGER                  NOT NULL DEFAULT 0,
-    chunks_expected      INTEGER                  NOT NULL DEFAULT 0,
     error                TEXT,
     created_at           TIMESTAMP WITH TIME ZONE,
     completed_at         TIMESTAMP WITH TIME ZONE,

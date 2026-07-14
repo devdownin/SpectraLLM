@@ -19,16 +19,8 @@ services:
 
   llm-embed:
     image: ghcr.io/ggml-org/llama.cpp:server-cuda
-    command: >
-      --host 0.0.0.0
-      --port 8082
-      --model /models/${LLM_EMBED_MODEL_FILE:-embed.gguf}
-      --embedding
-      -c 8192
-      -b 2048
-      -ub 2048
-      --parallel ${LLM_EMBED_PARALLEL:-4}
-      --n-gpu-layers 99
+    environment:
+      - LLM_EMBED_EXTRA_ARGS=--n-gpu-layers 99
     deploy:
       resources:
         reservations:
