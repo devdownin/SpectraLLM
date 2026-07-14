@@ -1896,7 +1896,7 @@ La valeur `LLAMA_CHAT_CONTEXT_SIZE=2048` peut sembler conservatrice, mais elle e
 2. **Usage RAG** : avec `maxContextChunks=2`, le prompt complet (system + 2 chunks + question + réponse) consomme ~1500 tokens. Un contexte de 2048 est suffisant.
 3. **Mémoire** : le KV cache croît linéairement avec la taille de contexte. Réduire de 8192 à 2048 réduit la consommation mémoire d'un facteur 4, ce qui permet de faire tourner le service sur des machines avec 4–8 Go de RAM.
 
-Pour des contextes plus longs, utilisez un modèle de base avec une fenêtre plus large (ex. Phi-3-mini-4k → 4096 tokens) et augmentez `LLAMA_CHAT_CONTEXT_SIZE=4096`.
+Pour des contextes plus longs, utilisez un modèle de base avec une fenêtre plus large (ex. Phi-4-mini → 4096 tokens) et augmentez `LLAMA_CHAT_CONTEXT_SIZE=4096`.
 
 ---
 
@@ -1949,7 +1949,7 @@ Ce script envoie des requêtes réelles à l'API Spectra et mesure les temps de 
 
 | Limitation | Impact | Contournement |
 |------------|--------|---------------|
-| Contexte modèle fine-tuné = 2048 tokens | RAG limité à ~2 chunks par requête | Utiliser un modèle avec contexte plus large (Phi-3 4k) ou `maxContextChunks=2` |
+| Contexte modèle fine-tuné = 2048 tokens | RAG limité à ~2 chunks par requête | Utiliser un modèle avec contexte plus large (Phi-4-mini) ou `maxContextChunks=2` |
 | Inférence CPU uniquement | 20–60 s par réponse RAG | GPU via `nvidia` runtime Docker (non configuré par défaut) |
 | Rechargement du modèle de **chat** : automatique | L'entrypoint superviseur de `llm-chat` suit le pointeur `active-chat-model` du registre (~10 s) | Rien à faire ; pour l'**embedding**, `docker compose restart llm-embed` reste requis (et impose une ré-ingestion) |
 | Vecteurs non portables entre modèles d'embedding | Changement de modèle = ré-ingestion complète | Prévoir une plage de maintenance pour la ré-ingestion |

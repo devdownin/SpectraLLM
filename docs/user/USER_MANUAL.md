@@ -492,7 +492,7 @@ Puis, lors du lancement du fine-tuning (étape 3), cochez **Alignement DPO** pou
 2. Cliquez sur **New Training Job** (bouton en haut à droite).
 3. (Optionnel) Sélectionnez une **recette prédéfinie** en haut du formulaire :
    - **CPU Rapide** : TinyLlama, LoRA rank 8, 1 époque, multipacking activé — idéal pour un premier test
-   - **GPU Qualité** : Phi-3, LoRA rank 64, 3 époques — pour un modèle de production
+   - **GPU Qualité** : Phi-4-mini, LoRA rank 64, 3 époques — pour un modèle de production
    - **DPO Alignement** : alignement DPO, rank 32, 2 époques — pour réduire les hallucinations
    - **ORPO Alignement** : alignement ORPO (SFT + préférence en une passe, sans modèle de référence) — alternative plus simple/légère au DPO
 4. Remplissez (ou ajustez) le formulaire :
@@ -1015,7 +1015,7 @@ Chaque job de fine-tuning produit un rapport `REPORT.md` dans `data/fine-tuning/
 
 **Contexte RAG et taille de modèle**
 - Le modèle fine-tuné standard a un contexte de 2048 tokens. Avec `maxContextChunks=2`, chaque chunk fait ~600 tokens, laissant ~800 tokens pour le prompt système et la réponse.
-- Pour des contextes plus longs, utilisez un modèle de base avec une fenêtre de contexte plus grande (ex. Phi-3 4k = 4096 tokens).
+- Pour des contextes plus longs, utilisez un modèle de base avec une fenêtre de contexte plus grande (ex. Phi-4-mini = 4096 tokens).
 
 **Workflow recommandé**
 1. Testez d'abord le RAG avec `maxContextChunks=2` pour vérifier que Spectra retrouve les bons documents.
