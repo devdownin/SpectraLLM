@@ -8,8 +8,8 @@ const { chromium } = require('playwright');
   page.on('pageerror', exception => console.log(`[PAGE ERROR] ${exception}`));
   page.on('requestfailed', request => console.log(`[REQUEST FAILED] ${request.url()} - ${request.failure().errorText}`));
 
-  console.log("Navigating to http://localhost/...");
-  await page.goto('http://localhost/', { waitUntil: 'networkidle' });
+  console.log("Navigating to http://127.0.0.1/...");
+  await page.goto('http://127.0.0.1/', { waitUntil: 'networkidle' });
   
   const content = await page.content();
   console.log("=== DOM ===");

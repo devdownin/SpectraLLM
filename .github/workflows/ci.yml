@@ -111,7 +111,7 @@ jobs:
     - name: Wait for services to be ready
       run: |
         npm install -g wait-on
-        wait-on http://localhost:80 http://localhost:8080/actuator/health --timeout 120000
+        wait-on http://127.0.0.1:80 http://127.0.0.1:8080/actuator/health --timeout 120000
     - name: Run E2E tests
       run: |
         npm install playwright core-js
