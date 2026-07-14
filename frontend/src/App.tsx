@@ -4,6 +4,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'r
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Layout from './components/Layout';
 import ErrorBoundary from './components/ErrorBoundary';
+import { StartupOverlay } from './components/StartupOverlay';
 import { LEGACY_ROUTE_REDIRECTS } from './navigation';
 
 // Suggestion 4: Lazy Loading for code splitting
@@ -46,6 +47,7 @@ function App() {
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <Router basename="/">
+          <StartupOverlay />
           <Layout>
             <Suspense fallback={<LoadingState />}>
               <Routes>
