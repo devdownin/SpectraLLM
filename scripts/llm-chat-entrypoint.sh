@@ -105,7 +105,7 @@ resolve() {
 start_server() {
   MODEL_PATH="${MODELS_DIR}/${RESOLVED_FILE}"
   if [ ! -f "${MODEL_PATH}" ]; then
-    log "ERREUR: modèle introuvable : ${MODEL_PATH} (placez-le dans ./data/models/)"
+    log "EN ATTENTE: modèle introuvable : ${MODEL_PATH} (téléchargement en cours par l'API...)"
     return 1
   fi
 
@@ -152,7 +152,7 @@ trap on_term TERM INT
 resolve
 CURRENT_ALIAS="${RESOLVED_ALIAS}"
 CURRENT_FILE="${RESOLVED_FILE}"
-start_server || exit 1
+start_server || true
 
 while :; do
   # sleep en tâche de fond + wait : les signaux TERM/INT restent traités sans délai
@@ -160,7 +160,7 @@ while :; do
   wait $! 2>/dev/null || true
 
   if [ -z "${CHILD}" ] || ! kill -0 "${CHILD}" 2>/dev/null; then
-    log "llama-server s'est arrêté — nouvelle tentative dans 5s"
+    log "llama-server est arrêté ou en attente de modèle — nouvelle tentative dans 5s"
     sleep 5
     resolve
     CURRENT_ALIAS="${RESOLVED_ALIAS}"
