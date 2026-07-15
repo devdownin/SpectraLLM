@@ -86,6 +86,31 @@ class LlmFitServiceTest {
         assertThat(newService().installModel("llama3.2:3b", null, false)).isNotNull();
     }
 
+    // ── Verrou par modèle : pas de double téléchargement concurrent ─────────────
+
+    @Test
+    @org.junit.jupiter.api.condition.EnabledOnOs({
+            org.junit.jupiter.api.condition.OS.LINUX, org.junit.jupiter.api.condition.OS.MAC})
+    void installModel_memeModeleDejaEnTelechargement_rejeteEnConflit() throws Exception {
+        // Sous-processus factice qui « télécharge » 5 s : le verrou reste posé pendant ce temps.
+        LlmFitService service = newService();
+        Path slow = modelsDir.resolve("slow-llmfit.sh");
+        Files.writeString(slow, "#!/bin/sh\nsleep 5\n");
+        assertThat(slow.toFile().setExecutable(true)).isTrue();
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "llmfitPath", slow.toString());
+
+        service.installModel("llama3.2:3b", null, false);
+
+        // Même modèle pendant le téléchargement → 409 (deux sous-processus écriraient le
+        // même fichier cible et le repli findRecentGguf pourrait croiser les alias).
+        assertThatThrownBy(() -> service.installModel("llama3.2:3b", null, false))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("déjà en cours");
+
+        // Un modèle DIFFÉRENT reste autorisé en parallèle.
+        assertThat(service.installModel("qwen2.5:7b", null, false)).isNotNull();
+    }
+
     // ── Recommandations : validation du simulateur et croisement registre ───────
 
     @Test
@@ -161,6 +186,32 @@ class LlmFitServiceTest {
     @Test
     void findRecentGguf_repertoireInexistant_retourneVide() {
         assertThat(LlmFitService.findRecentGguf(modelsDir.resolve("absent"), Instant.now())).isEmpty();
+    }
+
+    @Test
+    void findRecentGguf_prefereLeFichierCorrespondantAuModeleDemande() throws Exception {
+        // Deux téléchargements parallèles : le GGUF de l'AUTRE modèle est le plus récent.
+        // Sans corrélation par nom, l'alias serait enregistré vers le mauvais fichier.
+        Instant start = Instant.now().minusSeconds(10);
+        Path wanted = Files.writeString(modelsDir.resolve("llama-2-7b.Q4_K_M.gguf"), "fake");
+        Path other  = Files.writeString(modelsDir.resolve("qwen2.5-7b-instruct-q4_k_m.gguf"), "fake");
+        Files.setLastModifiedTime(other,
+                java.nio.file.attribute.FileTime.from(Instant.now().plusSeconds(5)));
+
+        assertThat(LlmFitService.findRecentGguf(modelsDir, start, "TheBloke/Llama-2-7B-GGUF"))
+                .contains(wanted);
+    }
+
+    @Test
+    void findRecentGguf_aucuneCorrespondanceDeNom_repliSurLePlusRecent() throws Exception {
+        Instant start = Instant.now().minusSeconds(10);
+        Files.writeString(modelsDir.resolve("ancien-inconnu.gguf"), "fake");
+        Path recent = Files.writeString(modelsDir.resolve("recent-inconnu.gguf"), "fake");
+        Files.setLastModifiedTime(recent,
+                java.nio.file.attribute.FileTime.from(Instant.now().plusSeconds(5)));
+
+        assertThat(LlmFitService.findRecentGguf(modelsDir, start, "org/ModeleSansFichier"))
+                .contains(recent);
     }
 
     // ── Persistance des installations (H2) + réconciliation au démarrage ─────────
