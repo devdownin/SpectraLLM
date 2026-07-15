@@ -208,6 +208,9 @@ public class IngestionTaskExecutor {
                 try { Files.deleteIfExists(tempDir); }
                 catch (Exception e) { log.warn("Impossible de supprimer le répertoire temp {}: {}", tempDir, e.getMessage()); }
             }
+            if (onIngested != null) {
+                try { onIngested.onFinished(); } catch (Exception ignored) {}
+            }
         }
     }
 
@@ -437,5 +440,13 @@ public class IngestionTaskExecutor {
 
     public interface IngestionCallback {
         void onIngested(String hash, String fileName, int chunks);
+
+        /**
+         * Appelé une fois la tâche terminée (succès, échec partiel ou total). Permet à
+         * l'appelant de libérer immédiatement ses réservations (hash in-flight) pour les
+         * fichiers qui ont ÉCHOUÉ — sans ce signal, une ré-ingestion du même contenu
+         * restait bloquée jusqu'à l'expiration du TTL (15 min).
+         */
+        default void onFinished() {}
     }
 }

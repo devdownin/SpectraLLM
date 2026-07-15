@@ -221,9 +221,20 @@ public class IngestionService {
 
         tasks.put(taskId, IngestionTask.pending(taskId, allFileNames));
         executor.execute(taskId, toProcessNames, tempFiles, tasks, defaultCollection, tempFileToHash,
-                (hash, fileName, chunks) -> {
-                    recordIngestion(hash, fileName, chunks);
-                    inFlightHashes.remove(hash); // libère la réservation : la dédup DB prend le relais
+                new IngestionTaskExecutor.IngestionCallback() {
+                    @Override
+                    public void onIngested(String hash, String fileName, int chunks) {
+                        recordIngestion(hash, fileName, chunks);
+                        inFlightHashes.remove(hash); // libère la réservation : la dédup DB prend le relais
+                    }
+
+                    @Override
+                    public void onFinished() {
+                        // Libère les réservations restantes (fichiers en ÉCHEC) dès la fin de la
+                        // tâche : sans cela, une nouvelle tentative d'ingestion du même contenu
+                        // était rejetée jusqu'à l'expiration du TTL (15 min).
+                        tempFileToHash.values().forEach(inFlightHashes::remove);
+                    }
                 }, tempDir);
 
         return taskId;

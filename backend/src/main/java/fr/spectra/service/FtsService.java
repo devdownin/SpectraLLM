@@ -50,6 +50,17 @@ public class FtsService {
     private final Map<String, BM25Index> indices = new ConcurrentHashMap<>();
 
     /**
+     * Collections dont l'index en mémoire a divergé du fichier {@code .bin}.
+     * La persistance est différée ({@link #flushDirtyIndices}, toutes les 5 s) : sérialiser
+     * l'index COMPLET à chaque lot de 10 chunks — qui plus est sous le verrou de la map —
+     * rendait l'ingestion quadratique en I/O sur les grosses collections. La sérialisation
+     * hors verrou est sûre : {@link BM25Index} se sérialise sous son verrou de lecture.
+     * Fenêtre de perte max en cas d'arrêt brutal : 5 s (l'index se reconstruit de toute
+     * façon depuis ChromaDB s'il est absent/périmé).
+     */
+    private final Set<String> dirtyIndices = ConcurrentHashMap.newKeySet();
+
+    /**
      * Empêche deux rebuilds simultanés de la MÊME collection (PostConstruct + retry planifié)
      * de se concurrencer — par collection, pour ne pas bloquer le rebuild d'une autre
      * collection (ré-indexation) pendant celui de la collection par défaut.
@@ -160,9 +171,9 @@ public class FtsService {
             for (TextChunk chunk : chunks) {
                 index.add(chunk.id(), chunk.text(), chunk.sourceFile());
             }
-            saveIndexToDisk(collectionName, index);
             return index;
         });
+        dirtyIndices.add(collectionName);
         log.debug("FTS: indexed {} chunks into '{}'", chunks.size(), collectionName);
     }
 
@@ -171,11 +182,31 @@ public class FtsService {
         indices.compute(collectionName, (k, existing) -> {
             if (existing != null) {
                 existing.removeBySource(sourceFile);
-                saveIndexToDisk(collectionName, existing);
             }
             return existing;
         });
+        if (indices.containsKey(collectionName)) {
+            dirtyIndices.add(collectionName);
+        }
         log.debug("FTS: removed '{}' from index '{}'", sourceFile, collectionName);
+    }
+
+    /** Persiste les index modifiés depuis le dernier passage (voir {@link #dirtyIndices}). */
+    @Scheduled(fixedDelay = 5_000)
+    public void flushDirtyIndices() {
+        for (String collectionName : dirtyIndices) {
+            if (dirtyIndices.remove(collectionName)) {
+                BM25Index index = indices.get(collectionName);
+                if (index != null) {
+                    saveIndexToDisk(collectionName, index);
+                }
+            }
+        }
+    }
+
+    @jakarta.annotation.PreDestroy
+    void flushOnShutdown() {
+        flushDirtyIndices();
     }
 
     private BM25Index loadIndexFromDisk(String collectionName) {
