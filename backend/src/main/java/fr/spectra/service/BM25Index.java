@@ -31,8 +31,6 @@ public class BM25Index implements Serializable {
     /** Caractères non significatifs (tiret conservé à l'intérieur des tokens). */
     private static final java.util.regex.Pattern NON_WORD =
             java.util.regex.Pattern.compile("[^a-z0-9àâäéèêëîïôùûüçœæ\\-]");
-    private static final java.util.regex.Pattern EDGE_HYPHENS =
-            java.util.regex.Pattern.compile("^-+|-+$");
 
     private transient ReadWriteLock lock = new ReentrantReadWriteLock();
 
@@ -196,7 +194,7 @@ public class BM25Index implements Serializable {
         for (String raw : TOKEN_SPLIT.split(text.toLowerCase(Locale.ROOT))) {
             // Nettoyer les caractères non significatifs en conservant le tiret à l'intérieur
             String cleaned = NON_WORD.matcher(raw).replaceAll("");
-            cleaned = EDGE_HYPHENS.matcher(cleaned).replaceAll(""); // tirets en début/fin
+            cleaned = trimHyphens(cleaned); // tirets en début/fin
             if (cleaned.length() < MIN_TOKEN_LEN) continue;
             freq.merge(cleaned, 1, Integer::sum);   // terme complet (ex: "porte-à-faux")
             if (cleaned.contains("-")) {
@@ -208,5 +206,19 @@ public class BM25Index implements Serializable {
             }
         }
         return freq;
+    }
+
+    /**
+     * Retire les tirets en début et fin de token. Balayage linéaire plutôt qu'une regex
+     * {@code ^-+|-+$} : l'alternative {@code -+$} backtracke en O(n²) sur une longue suite
+     * de tirets (ReDoS polynomial signalé par CodeQL), et le trim manuel est de toute
+     * façon plus rapide sur ce chemin chaud.
+     */
+    private static String trimHyphens(String s) {
+        int start = 0;
+        int end = s.length();
+        while (start < end && s.charAt(start) == '-') start++;
+        while (end > start && s.charAt(end - 1) == '-') end--;
+        return (start == 0 && end == s.length()) ? s : s.substring(start, end);
     }
 }
