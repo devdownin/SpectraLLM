@@ -30,6 +30,7 @@ class TaskActivityServiceTest {
     private FineTuningService fineTuningService;
     private EvaluationService evaluationService;
     private QualityBenchmarkService qualityBenchmarkService;
+    private RagAblationService ragAblationService;
     private LlmFitService llmFitService;
     private TaskActivityService service;
 
@@ -41,6 +42,7 @@ class TaskActivityServiceTest {
         fineTuningService = mock(FineTuningService.class);
         evaluationService = mock(EvaluationService.class);
         qualityBenchmarkService = mock(QualityBenchmarkService.class);
+        ragAblationService = mock(RagAblationService.class);
         llmFitService = mock(LlmFitService.class);
 
         when(ingestionService.getAllTasks()).thenReturn(List.of());
@@ -50,10 +52,12 @@ class TaskActivityServiceTest {
         when(evaluationService.getAllReports()).thenReturn(List.of());
         when(evaluationService.getAllAbReports()).thenReturn(List.of());
         when(qualityBenchmarkService.getCompareJobs()).thenReturn(List.of());
+        when(ragAblationService.getJobs()).thenReturn(List.of());
         when(llmFitService.getInstallations()).thenReturn(List.of());
 
         service = new TaskActivityService(ingestionService, datasetGenerator, dpoService,
-                fineTuningService, evaluationService, qualityBenchmarkService, llmFitService);
+                fineTuningService, evaluationService, qualityBenchmarkService, ragAblationService,
+                llmFitService);
     }
 
     @Test
@@ -61,7 +65,7 @@ class TaskActivityServiceTest {
     void snapshotContainsAllTaskFamilies() {
         Map<String, Object> snap = service.snapshot();
         assertThat(snap).containsKeys("ingest", "dataset", "dpo", "training",
-                "evaluations", "ab", "installs", "benchmarks");
+                "evaluations", "ab", "installs", "benchmarks", "ablations");
         assertThat((List<Map<String, Object>>) snap.get("ingest")).isEmpty();
     }
 
