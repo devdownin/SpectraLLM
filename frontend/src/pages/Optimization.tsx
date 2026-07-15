@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FC } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { ablationApi, fineTuningApi } from '../services/api';
+import { etaMs, formatEta } from '../hooks/useGlobalTasks';
 import AblationCharts from '../components/charts/AblationCharts';
 import type {
   AblationArmConfig,
   AblationArmReport,
+  AblationJobDto,
   AblationReport,
   RagOverrides,
 } from '../types/api';
@@ -215,7 +217,18 @@ const Optimization: FC = () => {
   const [tunedModel, setTunedModel] = useState<string>('');
   const [maxChunks, setMaxChunks] = useState<number>(5);
   const [runs, setRuns] = useState<number>(1);
-  const [report, setReport] = useState<AblationReport | null>(null);
+  const [jobId, setJobId] = useState<string | null>(null);
+
+  // Restauration au montage : reprend le passage le plus récent (rechargement / navigation
+  // pendant un run — le job et son rapport sont persistés côté serveur).
+  useEffect(() => {
+    ablationApi.listJobs()
+      .then(res => {
+        const last = (res.data ?? [])[0] as AblationJobDto | undefined;
+        if (last?.jobId) setJobId(last.jobId);
+      })
+      .catch(() => { /* historique optionnel */ });
+  }, []);
 
   useEffect(() => {
     fineTuningApi.getModels()
@@ -243,14 +256,59 @@ const Optimization: FC = () => {
     }
   }, [preset, baseModel, tunedModel]);
 
-  const mutation = useMutation({
-    mutationFn: async (): Promise<AblationReport> => {
-      const res = await ablationApi.run({ arms, maxContextChunks: maxChunks, runs });
-      return res.data as AblationReport;
+  // Suivi du job asynchrone : polling 2 s tant qu'il tourne, arrêt une fois terminal.
+  const { data: job } = useQuery<AblationJobDto>({
+    queryKey: ['ablation-job', jobId],
+    queryFn: async () => (await ablationApi.getJob(jobId!)).data,
+    enabled: !!jobId,
+    refetchInterval: (query) => {
+      const s = query.state.data?.status;
+      return s === 'PENDING' || s === 'RUNNING' ? 2000 : false;
     },
-    onSuccess: (data) => { setReport(data); toast.success('Ablation terminée'); },
-    onError: () => { toast.error('Échec de l’ablation', { description: 'Vérifiez que le LLM et le benchmark sont disponibles.' }); },
   });
+
+  const submit = useMutation({
+    mutationFn: async () =>
+      (await ablationApi.runAsync({ arms, maxContextChunks: maxChunks, runs })).data as { jobId: string },
+    onSuccess: (data) => setJobId(data.jobId),
+    onError: (error: any) => {
+      const conflict = error?.response?.status === 409;
+      toast.error(conflict ? 'Une ablation est déjà en cours' : 'Échec du lancement de l’ablation', {
+        description: conflict ? undefined
+          : error?.response?.data?.detail ?? 'Vérifiez que le LLM et le benchmark sont disponibles.',
+      });
+    },
+  });
+
+  const cancel = useMutation({
+    mutationFn: () => ablationApi.cancelJob(jobId!),
+    onSuccess: () => toast.info('Annulation demandée — prise en compte à la prochaine question'),
+    onError: () => toast.error('Impossible d’annuler ce passage'),
+  });
+
+  const running = submit.isPending || job?.status === 'PENDING' || job?.status === 'RUNNING';
+  const report: AblationReport | null = job?.status === 'COMPLETED' ? (job.report ?? null) : null;
+
+  // Toast de fin sur transition observée en session (pas au chargement d'un vieux rapport).
+  const prevStatusRef = useRef<AblationJobDto['status'] | null>(null);
+  useEffect(() => {
+    const prev = prevStatusRef.current;
+    prevStatusRef.current = job?.status ?? null;
+    if (!job || prev === null || prev === job.status) return;
+    if (job.status === 'COMPLETED') toast.success('Ablation terminée');
+    else if (job.status === 'FAILED') {
+      toast.error('Échec de l’ablation', { description: job.error ?? undefined });
+    } else if (job.status === 'CANCELLED') toast.info('Ablation annulée');
+  }, [job]);
+
+  // Temps restant estimé (extrapolation linéaire, comme le TaskCenter).
+  const eta = job && job.status === 'RUNNING' && job.totalUnits > 0
+    ? etaMs({
+        status: 'running',
+        progress: Math.min(1, job.processedUnits / job.totalUnits),
+        startedAt: job.createdAt,
+      }, Date.now())
+    : null;
 
   const baseArm = report?.arms?.[0];
   const noRetrieval = report?.arms?.every(a => !a.retrieval.evaluatedQuestions);
@@ -358,31 +416,66 @@ const Optimization: FC = () => {
               className="w-16 bg-surface-container border border-outline-variant/20 px-2 py-1 text-on-surface text-xs" />
           </label>
           <button
-            onClick={() => mutation.mutate()}
-            disabled={mutation.isPending}
+            onClick={() => submit.mutate()}
+            disabled={running}
             className="px-5 py-2 bg-primary text-on-primary font-headline text-xs uppercase tracking-widest disabled:opacity-50 hover:bg-primary/90 transition-colors"
           >
-            {mutation.isPending ? 'Ablation en cours…' : 'Lancer l’ablation'}
+            {running ? 'Ablation en cours…' : 'Lancer l’ablation'}
           </button>
           <span className="text-[11px] text-on-surface-variant">
-            Bloquant et lent sur CPU : {arms.length} bras × {runs} run(s) × benchmark, plusieurs appels LLM par question.
+            Lent sur CPU : {arms.length} bras × {runs} run(s) × benchmark, plusieurs appels LLM par question.
+            Le passage tourne en tâche de fond — vous pouvez naviguer, le suivi reste visible ici et dans le centre d'activité.
           </span>
         </div>
       </section>
 
-      {/* Résultats */}
-      {mutation.isPending && (
-        <div className="flex flex-col items-center justify-center h-40 space-y-3">
-          <div className="w-12 h-1 bg-primary/20 relative overflow-hidden">
-            <div className="absolute inset-0 bg-primary animate-progress-fast" />
+      {/* Suivi du passage en cours : progression réelle + jalon + ETA + annulation. */}
+      {running && (
+        <section className="bg-surface-container-low border border-outline-variant/10 p-5 space-y-3">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="material-symbols-outlined text-sm text-secondary animate-spin">progress_activity</span>
+              <span className="text-xs text-on-surface truncate">
+                {job?.currentStep ?? 'Démarrage du passage…'}
+              </span>
+            </div>
+            <button
+              onClick={() => cancel.mutate()}
+              disabled={cancel.isPending || !jobId}
+              className="shrink-0 px-3 py-1.5 border border-error/40 text-error font-headline text-[11px] uppercase tracking-widest hover:bg-error/10 transition-colors disabled:opacity-40"
+            >
+              Annuler
+            </button>
           </div>
-          <span className="font-headline text-[11px] uppercase tracking-widest text-primary animate-pulse">
-            Évaluation des bras…
-          </span>
-        </div>
+          <div className="relative w-full bg-outline-variant/20 h-1.5 overflow-hidden">
+            {job && job.totalUnits > 0 ? (
+              <div
+                className="absolute top-0 left-0 h-full bg-secondary transition-all duration-500"
+                style={{ width: `${Math.round((job.processedUnits / job.totalUnits) * 100)}%` }}
+              />
+            ) : null}
+            <div className="scan-beam" />
+          </div>
+          <div className="flex items-center justify-between text-[11px] text-on-surface-variant tabular-nums">
+            <span>{job ? `${job.processedUnits} / ${job.totalUnits} unités (génération + notation)` : '…'}</span>
+            {eta !== null && <span>~{formatEta(eta)} restant (estimation)</span>}
+          </div>
+        </section>
       )}
 
-      {report && baseArm && !mutation.isPending && (
+      {/* Passage interrompu : cause affichée plutôt qu'un écran qui redevient muet. */}
+      {!running && job?.status === 'FAILED' && (
+        <p className="text-xs text-error bg-error/10 border border-error/30 px-3 py-2">
+          Ablation échouée : {job.error ?? 'erreur inconnue'}
+        </p>
+      )}
+      {!running && job?.status === 'CANCELLED' && (
+        <p className="text-xs text-on-surface-variant bg-surface-container-low border border-outline-variant/20 px-3 py-2">
+          Passage annulé après {job.processedUnits} / {job.totalUnits} unités. Relancez l'ablation pour un rapport complet.
+        </p>
+      )}
+
+      {report && baseArm && !running && (
         <section className="space-y-4">
           <div className="flex items-end justify-between flex-wrap gap-2">
             <h3 className="font-headline text-xs uppercase tracking-widest text-on-surface-variant">

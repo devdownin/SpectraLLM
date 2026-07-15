@@ -48,6 +48,7 @@ public class TaskActivityService {
     private final FineTuningService fineTuningService;
     private final EvaluationService evaluationService;
     private final QualityBenchmarkService qualityBenchmarkService;
+    private final RagAblationService ragAblationService;
     private final LlmFitService llmFitService;
 
     private final Flux<Map<String, Object>> shared;
@@ -58,6 +59,7 @@ public class TaskActivityService {
                                FineTuningService fineTuningService,
                                EvaluationService evaluationService,
                                QualityBenchmarkService qualityBenchmarkService,
+                               RagAblationService ragAblationService,
                                LlmFitService llmFitService) {
         this.ingestionService = ingestionService;
         this.datasetGenerator = datasetGenerator;
@@ -65,6 +67,7 @@ public class TaskActivityService {
         this.fineTuningService = fineTuningService;
         this.evaluationService = evaluationService;
         this.qualityBenchmarkService = qualityBenchmarkService;
+        this.ragAblationService = ragAblationService;
         this.llmFitService = llmFitService;
         this.shared = Flux.interval(Duration.ofSeconds(POLL_SECONDS))
                 .onBackpressureDrop()
@@ -111,6 +114,11 @@ public class TaskActivityService {
         snap.put("benchmarks", safe("benchmarks", () -> qualityBenchmarkService.getCompareJobs().stream().map(j -> compact(
                 "jobId", j.jobId(), "status", name(j.status()), "baseline", j.baseline(),
                 "candidate", j.candidate(), "currentStep", j.currentStep(),
+                "error", j.error(), "createdAt", j.createdAt(), "completedAt", j.completedAt())).toList()));
+        snap.put("ablations", safe("ablations", () -> ragAblationService.getJobs().stream().map(j -> compact(
+                "jobId", j.jobId(), "status", name(j.status()), "label", j.label(),
+                "processedUnits", j.processedUnits(), "totalUnits", j.totalUnits(),
+                "currentStep", j.currentStep(),
                 "error", j.error(), "createdAt", j.createdAt(), "completedAt", j.completedAt())).toList()));
         return snap;
     }

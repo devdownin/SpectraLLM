@@ -271,6 +271,20 @@ export interface AblationReport {
   completedAt: string;
 }
 
+/** Job d'ablation asynchrone (progression réelle + rapport persisté côté serveur). */
+export interface AblationJobDto {
+  jobId: string;
+  status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+  label: string;
+  totalUnits: number;
+  processedUnits: number;
+  currentStep: string | null;
+  report: AblationReport | null;
+  error: string | null;
+  createdAt: string;
+  completedAt: string | null;
+}
+
 export type CommentType = 'HUMAN' | 'AI_GENERATED';
 export type CommentRating = 'NONE' | 'APPROVED' | 'REJECTED';
 
