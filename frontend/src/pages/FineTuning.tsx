@@ -7,6 +7,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { toast } from 'sonner';
 import { useSse } from '../hooks/useSse';
+import { useGlobalTasks, etaMs, formatEta } from '../hooks/useGlobalTasks';
 import type { TrainingLog } from '../types/api';
 import { fineTuningApi, recipeApi } from '../services/api';
 import LossChart from '../components/charts/LossChart';
@@ -269,7 +270,6 @@ const FineTuning: FC = () => {
         return [...prev, { epoch, loss }];
       });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [newLog]);
 
   useEffect(() => {
@@ -297,19 +297,28 @@ const FineTuning: FC = () => {
 
   useEffect(() => { loadJobs(); }, [loadJobs]);
 
-  // ── Poll active job ───────────────────────────────────────────────────────
+  // ── Rafraîchissement du job actif piloté par le suivi global ────────────────
+  // Remplace l'ancien setInterval 4 s qui abandonnait en silence après 5 échecs :
+  // le hook global (flux SSE + repli polling adaptatif, reconnexion incluse) signale
+  // les changements d'état ; on ne re-fetch le job complet (loss, datasetSize,
+  // outputPath — absents de l'instantané compact) que lorsque quelque chose a bougé.
+  const { tasks: globalTasks } = useGlobalTasks();
+  const activeGlobal = activeJob
+    ? globalTasks.find(task => task.id === `training:${activeJob.jobId}`)
+    : undefined;
+
   useEffect(() => {
     if (!activeJob) return;
     if (activeJob.status === 'COMPLETED' || activeJob.status === 'FAILED') return;
+    let cancelled = false;
 
-    let failures = 0;
-    const interval = setInterval(async () => {
+    (async () => {
       try {
         const res = await fineTuningApi.getJob(activeJob.jobId);
-        failures = 0;
+        if (cancelled) return;
         const job: FineTuningJob = res.data;
         setActiveJob(job);
-        // Accumulate loss from polling when SSE doesn't carry it
+        // Accumulate loss from the fetched job when SSE logs don't carry it
         if (job.loss !== null && job.currentEpoch !== null) {
           setLossHistory(prev => {
             const epoch = job.currentEpoch!;
@@ -320,7 +329,6 @@ const FineTuning: FC = () => {
           });
         }
         if (job.status === 'COMPLETED' || job.status === 'FAILED') {
-          clearInterval(interval);
           loadJobs();
           if (job.status === 'COMPLETED') {
             // Le job produit un adaptateur LoRA sur disque ; l'export GGUF + l'enregistrement
@@ -333,14 +341,41 @@ const FineTuning: FC = () => {
           }
         }
       } catch {
-        // Tolérer les erreurs transitoires (API occupée pendant l'entraînement CPU) :
-        // ne stopper le monitoring qu'après plusieurs échecs consécutifs.
-        if (++failures >= 5) clearInterval(interval);
+        // Erreur transitoire (API occupée pendant l'entraînement CPU) : le prochain
+        // changement d'état signalé par le suivi global re-déclenchera un fetch.
       }
-    }, 4000);
+    })();
 
-    return () => clearInterval(interval);
-  }, [activeJob?.jobId, activeJob?.status, loadJobs, i18n]);
+    return () => { cancelled = true; };
+    // Dépendances = les champs COMPACTS du suivi global (valeurs primitives, stables
+    // entre deux instantanés identiques) : le fetch ne part que sur un vrai changement.
+    // L'objet activeJob entier est volontairement exclu : chaque fetch le remplace
+    // (nouvelle identité) et l'inclure transformerait l'effet en boucle de polling.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeJob?.jobId, activeJob?.status,
+      activeGlobal?.status, activeGlobal?.detail, activeGlobal?.error,
+      loadJobs, i18n]);
+
+  // Horloge pour l'ETA : le suivi global n'émet que sur changement d'état (une fois
+  // par époque au mieux) — il ne suffit pas à faire vivre un compte à rebours.
+  const jobRunning = !!activeJob && activeJob.status !== 'COMPLETED' && activeJob.status !== 'FAILED';
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!jobRunning) return;
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [jobRunning]);
+
+  // Temps restant estimé par extrapolation linéaire sur les époques (constat #17 :
+  // avec 3 époques la barre saute 0→33→66→100 % — l'ETA comble entre deux sauts).
+  const eta = jobRunning && activeJob!.currentEpoch && activeJob!.totalEpochs
+    ? etaMs({
+        status: 'running',
+        progress: Math.min(1, activeJob!.currentEpoch / activeJob!.totalEpochs),
+        startedAt: activeJob!.createdAt,
+      }, now)
+    : null;
 
   // ── Submit new job ────────────────────────────────────────────────────────
   const onFormSubmit = async (data: TrainingFormValues) => {
@@ -561,7 +596,14 @@ const FineTuning: FC = () => {
                   <div className="space-y-2">
                     <div className="flex justify-between items-end">
                       <span className="text-[10px] font-label uppercase text-on-surface-variant">{t('fineTuning.trainingProgress')}</span>
-                      <span className="font-headline font-bold text-sm">{epochProgress.toFixed(0)}%</span>
+                      <span className="font-headline font-bold text-sm">
+                        {epochProgress.toFixed(0)}%
+                        {eta !== null && (
+                          <span className="ml-2 font-label font-normal text-[10px] text-outline tabular-nums normal-case">
+                            {t('taskCenter.etaLeft', { time: formatEta(eta) })}
+                          </span>
+                        )}
+                      </span>
                     </div>
                     <div className="w-full bg-outline-variant/20 h-1.5 relative">
                       <div className="absolute top-0 left-0 h-full bg-secondary transition-all" style={{ width: `${epochProgress}%` }} />

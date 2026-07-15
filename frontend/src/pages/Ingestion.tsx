@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import type { FC } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -7,15 +7,19 @@ import Tooltip from '../components/Tooltip';
 import Skeleton from '../components/Skeleton';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { ingestApi, datasetApi } from '../services/api';
-import { etaMs, formatEta } from '../hooks/useGlobalTasks';
+import { useGlobalTasks, etaMs, formatEta } from '../hooks/useGlobalTasks';
+import type { GlobalTask } from '../hooks/useGlobalTasks';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type IngestStatus = 'UPLOADING' | 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
+type IngestStatus = 'UPLOADING' | 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
 
-interface IngestEntry {
-  id: string;           // local ID (Date.now + random)
-  taskId: string | null;
+/**
+ * Entrée du flux d'ingestion affiché : soit un envoi local encore sans taskId
+ * (optimiste, le temps du POST), soit une tâche du suivi global (SSE + repli REST).
+ */
+interface StreamEntry {
+  id: string;
   fileName: string;
   status: IngestStatus;
   chunksCreated: number;
@@ -24,23 +28,13 @@ interface IngestEntry {
   error?: string;
 }
 
-interface GenerationTask {
-  taskId: string;
-  status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
-  pairsGenerated: number;
-  chunksProcessed: number;
-  totalChunks: number;
-  error: string | null;
-  createdAt?: string;
-}
-
-interface IngestionTask {
-  taskId: string;
-  status: IngestStatus;
-  files: string[];
-  chunksCreated: number;
-  chunksExpected?: number;
-  error: string | null;
+/** Envoi local en cours (avant que la tâche n'apparaisse dans le suivi global). */
+interface LocalUpload {
+  id: string;
+  fileName: string;
+  status: 'UPLOADING' | 'FAILED';
+  taskId?: string;
+  error?: string;
 }
 
 interface IngestedFile {
@@ -66,6 +60,7 @@ const statusColor: Record<IngestStatus, string> = {
   PROCESSING: 'text-secondary',
   COMPLETED: 'text-primary',
   FAILED: 'text-error',
+  CANCELLED: 'text-outline',
 };
 
 const statusIcon: Record<IngestStatus, string> = {
@@ -74,6 +69,7 @@ const statusIcon: Record<IngestStatus, string> = {
   PROCESSING: 'sync',
   COMPLETED: 'check_circle',
   FAILED: 'error',
+  CANCELLED: 'cancel',
 };
 
 // ── Pipeline step indicator ──────────────────────────────────────────────────
@@ -140,25 +136,28 @@ const Ingestion: FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const queryClient = useQueryClient();
-  const [ingestEntries, setIngestEntries] = useState<IngestEntry[]>([]);
-  const [genTask, setGenTask] = useState<GenerationTask | null>(null);
   const [history, setHistory] = useState<IngestedFile[]>([]);
   const [historyTotal, setHistoryTotal] = useState(0);
   const [historyPage, setHistoryPage] = useState(0);
   const [historySearch, setHistorySearch] = useState('');
-  // Mirror historySearch in a ref so pollIngest can read the latest value without
-  // taking it as a dependency (which would rebuild pollIngest on every keystroke and
-  // re-trigger the mount-only restore effect).
+  // Mirror historySearch in a ref so the transition effect can read the latest value
+  // without depending on it (which would re-run the effect on every keystroke).
   const historySearchRef = useRef(historySearch);
   historySearchRef.current = historySearch;
   const [historyLoading, setHistoryLoading] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
 
-  const pollingTasks   = useRef<Set<string>>(new Set());
-  const activeIntervals = useRef<Set<ReturnType<typeof setInterval>>>(new Set());
+  // ── Suivi des tâches : LE hook global (SSE + repli polling) remplace les anciens
+  //    pollers setInterval locaux — plus de suivi qui s'arrête en silence après
+  //    5 échecs, plus de double logique page/TaskCenter.
+  const { tasks } = useGlobalTasks();
+  const ingestTasks = useMemo(() => tasks.filter(task => task.kind === 'ingestion'), [tasks]);
+  const datasetTasks = useMemo(() => tasks.filter(task => task.kind === 'dataset'), [tasks]);
 
-  // Cleanup all intervals on unmount (Fix 7)
-  useEffect(() => () => { activeIntervals.current.forEach(clearInterval); }, []);
+  // Envois locaux en attente d'apparition dans le suivi global (latence SSE ~2 s).
+  const [localUploads, setLocalUploads] = useState<LocalUpload[]>([]);
+  // Génération demandée mais pas encore visible dans le suivi global.
+  const [pendingGen, setPendingGen] = useState(false);
 
   // ── Stats — React Query, polling 10 s ─────────────────────────────────────
   const { data: statsData } = useQuery({
@@ -187,69 +186,69 @@ const Ingestion: FC = () => {
     finally { setHistoryLoading(false); }
   }, []);
 
-  // ── Ingest task polling ───────────────────────────────────────────────────
-  const pollIngest = useCallback((entryId: string, taskId: string) => {
-    if (pollingTasks.current.has(taskId) && entryId !== taskId) return;
-    pollingTasks.current.add(taskId);
+  useEffect(() => { loadHistory(0, ''); }, [loadHistory]);
 
-    let failures = 0;
-    const interval = setInterval(async () => {
-      try {
-        const res = await ingestApi.getTaskStatus(taskId);
-        failures = 0;
-        const t = res.data;
-        if (t.status === 'FAILED' && t.error?.includes('OOM')) {
-          toast.error(i18n.t('ingestion.oomTitle', { id: taskId.slice(0, 8) }), {
+  // ── Réactions aux transitions de tâches (observées via le suivi global) ────
+  // Remplace les callbacks des anciens pollers : rafraîchir stats/historique à la
+  // fin d'une ingestion ou d'une génération, signaler les échecs (cas OOM dédié).
+  // Le TaskCenter ne toaste pas quand on est SUR cette page : c'est elle qui notifie.
+  const prevStatuses = useRef<Map<string, string> | null>(null);
+  useEffect(() => {
+    const watched = [...ingestTasks, ...datasetTasks];
+    const prev = prevStatuses.current;
+    prevStatuses.current = new Map(watched.map(task => [task.id, task.status]));
+    if (!prev) return; // premier instantané = historique, pas des transitions
+    for (const task of watched) {
+      const before = prev.get(task.id);
+      const wasActive = before === 'running' || before === 'pending';
+      if (!wasActive || (task.status !== 'completed' && task.status !== 'failed')) continue;
+
+      if (task.status === 'completed') {
+        loadStats();
+        if (task.kind === 'ingestion') loadHistory(0, historySearchRef.current);
+      } else if (task.kind === 'ingestion') {
+        if (task.error?.includes('OOM')) {
+          toast.error(i18n.t('ingestion.oomTitle', { id: task.label.slice(0, 24) }), {
             description: i18n.t('ingestion.oomDesc'),
             duration: 10000,
           });
+        } else {
+          toast.error(i18n.t('ingestion.ingestFailed', { name: task.label }), {
+            description: task.error ?? undefined,
+          });
         }
-        setIngestEntries(prev => {
-          const patch = {
-            status: t.status,
-            chunksCreated: t.chunksCreated,
-            chunksExpected: t.chunksExpected ?? 0,
-            error: t.error ?? undefined,
-          };
-          if (entryId === taskId) {
-            return prev.map(e => e.taskId === taskId ? { ...e, ...patch } : e);
-          }
-          return prev.map(e => e.id === entryId ? { ...e, ...patch } : e);
-        });
-        if (t.status === 'COMPLETED' || t.status === 'FAILED') {
-          clearInterval(interval);
-          activeIntervals.current.delete(interval);
-          pollingTasks.current.delete(taskId);
-          if (t.status === 'COMPLETED') { loadStats(); loadHistory(0, historySearchRef.current); }
-        }
-      } catch {
-        if (++failures >= 5) {
-          clearInterval(interval);
-          activeIntervals.current.delete(interval);
-          pollingTasks.current.delete(taskId);
-        }
+      } else {
+        toast.error(i18n.t('ingestion.generationError'), { description: task.error ?? undefined });
       }
-    }, 3000);
-    activeIntervals.current.add(interval);
-  }, [loadStats, loadHistory, i18n]);
+    }
+  }, [ingestTasks, datasetTasks, loadStats, loadHistory, i18n]);
+
+  // Purge les envois locaux dont la tâche est désormais suivie globalement.
+  useEffect(() => {
+    setLocalUploads(prev => {
+      const next = prev.filter(u =>
+        u.status === 'FAILED' || !u.taskId || !ingestTasks.some(task => task.id === `ingestion:${u.taskId}`));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [ingestTasks]);
 
   // ── Upload file ───────────────────────────────────────────────────────────
   const uploadFile = useCallback(async (file: File) => {
     const id = `${Date.now()}-${Math.random()}`;
-    const entry: IngestEntry = { id, taskId: null, fileName: file.name, status: 'UPLOADING', chunksCreated: 0, chunksExpected: 0 };
-    setIngestEntries(prev => [...prev, entry]);
+    setLocalUploads(prev => [...prev, { id, fileName: file.name, status: 'UPLOADING' }]);
 
     try {
       const res = await ingestApi.uploadFile(file);
       const taskId: string = res.data.taskId;
-      setIngestEntries(prev => prev.map(e => e.id === id ? { ...e, taskId, status: 'PENDING' } : e));
-      pollIngest(id, taskId);
+      // L'entrée locale reste visible (avec le taskId) jusqu'à ce que le suivi
+      // global reprenne la main — aucun trou d'affichage pendant la latence SSE.
+      setLocalUploads(prev => prev.map(u => u.id === id ? { ...u, taskId } : u));
     } catch (err: any) {
       const msg = err?.response?.data?.detail ?? err.message;
-      setIngestEntries(prev => prev.map(e => e.id === id ? { ...e, status: 'FAILED', error: msg } : e));
+      setLocalUploads(prev => prev.map(u => u.id === id ? { ...u, status: 'FAILED', error: msg } : u));
       toast.error(i18n.t('ingestion.ingestFailed', { name: file.name }), { description: msg });
     }
-  }, [pollIngest, i18n]);
+  }, [i18n]);
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault(); e.stopPropagation();
@@ -275,113 +274,43 @@ const Ingestion: FC = () => {
     }
 
     const id = `${Date.now()}-${Math.random()}`;
-    const entry: IngestEntry = { id, taskId: null, fileName: trimmed, status: 'UPLOADING', chunksCreated: 0, chunksExpected: 0 };
-    setIngestEntries(prev => [...prev, entry]);
+    setLocalUploads(prev => [...prev, { id, fileName: trimmed, status: 'UPLOADING' }]);
     setUrlInput('');
 
     try {
       const res = await ingestApi.ingestUrls([trimmed]);
       const taskId: string = res.data.taskId;
-      setIngestEntries(prev => prev.map(e => e.id === id ? { ...e, taskId, status: 'PENDING' } : e));
-      pollIngest(id, taskId);
+      setLocalUploads(prev => prev.map(u => u.id === id ? { ...u, taskId } : u));
     } catch (err: any) {
       const msg = err?.response?.data?.detail ?? err.message;
-      setIngestEntries(prev => prev.map(e => e.id === id ? { ...e, status: 'FAILED', error: msg } : e));
+      setLocalUploads(prev => prev.map(u => u.id === id ? { ...u, status: 'FAILED', error: msg } : u));
       toast.error(i18n.t('ingestion.urlIngestFailed'), { description: msg });
     }
-  }, [pollIngest, i18n]);
+  }, [i18n]);
 
   // ── Dataset generation ────────────────────────────────────────────────────
-  const pollGenTask = useCallback((taskId: string) => {
-    if (pollingTasks.current.has(taskId)) return;
-    pollingTasks.current.add(taskId);
 
-    let failures = 0;
-    const interval = setInterval(async () => {
-      try {
-        const res = await datasetApi.getGenerationStatus(taskId);
-        failures = 0;
-        setGenTask(res.data);
-        if (res.data.status === 'COMPLETED' || res.data.status === 'FAILED') {
-          clearInterval(interval);
-          activeIntervals.current.delete(interval);
-          pollingTasks.current.delete(taskId);
-          loadStats();
-        }
-      } catch {
-        if (++failures >= 5) {
-          clearInterval(interval);
-          activeIntervals.current.delete(interval);
-          pollingTasks.current.delete(taskId);
-        }
-      }
-    }, 5000);
-    activeIntervals.current.add(interval);
-  }, [loadStats]);
+  /** Tâche de génération la plus récente (le suivi global remonte tout l'historique). */
+  const genTask: GlobalTask | null = useMemo(() => {
+    if (datasetTasks.length === 0) return null;
+    return [...datasetTasks].sort((a, b) =>
+      (b.startedAt ?? '').localeCompare(a.startedAt ?? ''))[0];
+  }, [datasetTasks]);
 
-  // ── Restore tasks on mount ────────────────────────────────────────────────
-  const didRestore = useRef(false);
+  const genActive = pendingGen || genTask?.status === 'pending' || genTask?.status === 'running';
+  // Le flag local ne sert que le temps que la tâche apparaisse dans le suivi global.
   useEffect(() => {
-    if (didRestore.current) return;
-    didRestore.current = true;
-    const restoreTasks = async () => {
-      loadHistory(0, '');
-      try {
-        // Restore Ingestion Tasks
-        const ingestRes = await ingestApi.getAllTasks();
-        const ingestTasks: IngestionTask[] = ingestRes.data;
-        
-        const newEntries: IngestEntry[] = [];
-        ingestTasks.forEach(t => {
-          // Only show recent or active tasks
-          if (t.status === 'PROCESSING' || t.status === 'PENDING' || t.status === 'UPLOADING') {
-            t.files.forEach(fileName => {
-              const id = `restored-${t.taskId}-${fileName}`;
-              newEntries.push({
-                id,
-                taskId: t.taskId,
-                fileName,
-                status: t.status,
-                chunksCreated: t.chunksCreated,
-                chunksExpected: t.chunksExpected ?? 0,
-              });
-            });
-            pollIngest(t.taskId, t.taskId); // entryId matches taskId for restored group
-          }
-        });
-        if (newEntries.length > 0) setIngestEntries(newEntries);
-
-        // Restore Generation Task (most recent active one)
-        const genRes = await datasetApi.getAllTasks();
-        const genTasks: GenerationTask[] = genRes.data;
-        const activeGenTask = genTasks
-          .filter(t => t.status === 'PROCESSING' || t.status === 'PENDING')
-          .sort((a, b) => b.taskId.localeCompare(a.taskId))[0]; 
-
-        if (activeGenTask) {
-          setGenTask(activeGenTask);
-          pollGenTask(activeGenTask.taskId);
-        }
-      } catch (err) {
-        console.error("Failed to restore tasks", err);
-      }
-    };
-
-    restoreTasks();
-    // Run exactly once on mount; pollIngest/pollGenTask/loadHistory are stable and the
-    // didRestore guard prevents re-entry. Depending on them here caused the effect to
-    // re-run on every history-search keystroke, clobbering results and spawning
-    // duplicate pollers.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (pendingGen && genTask && (genTask.status === 'pending' || genTask.status === 'running')) {
+      setPendingGen(false);
+    }
+  }, [pendingGen, genTask]);
 
   const startGeneration = async () => {
     try {
       // maxChunks=0 = préréglage « tout le corpus ».
       const res = await datasetApi.generateDataset(maxChunks);
       const taskId: string = res.data.taskId;
-      setGenTask({ taskId, status: 'PENDING', pairsGenerated: 0, chunksProcessed: 0, totalChunks: 0, error: null });
-      pollGenTask(taskId);
+      setPendingGen(true);
       toast.success(t('ingestion.generationStarted'), { description: t('ingestion.generationTask', { id: taskId.slice(0, 8) }) });
     } catch (err: any) {
       toast.error(t('ingestion.generationError'), { description: err?.response?.data?.detail ?? err.message });
@@ -389,37 +318,66 @@ const Ingestion: FC = () => {
   };
 
   const handleGenerateDataset = () => {
-    const hasActiveIngestion = ingestEntries.some(
-      e => e.status === 'PENDING' || e.status === 'PROCESSING'
-    );
+    const hasActiveIngestion = localUploads.some(u => u.status === 'UPLOADING')
+      || ingestTasks.some(task => task.status === 'pending' || task.status === 'running');
     // Générer pendant une ingestion produit un dataset incomplet : on demande confirmation
     // (dialogue maison, cohérent avec le reste de l'app — pas de window.confirm).
     if (hasActiveIngestion) setConfirmGenerate(true);
     else startGeneration();
   };
 
-  // ── Pipeline state derivation ─────────────────────────────────────────────
-  const hasIngestedDocs = ingestEntries.some(e => e.status === 'COMPLETED')
-    || (stats?.chunksInStore ?? 0) > 0;
-  const genDone = genTask?.status === 'COMPLETED' || (stats?.totalPairs ?? 0) > 0;
-  const genActive = genTask?.status === 'PENDING' || genTask?.status === 'PROCESSING';
+  // ── Flux d'ingestion affiché : envois locaux + tâches globales (actives puis récentes) ──
+  const streamEntries: StreamEntry[] = useMemo(() => {
+    const fromLocal: StreamEntry[] = localUploads.map(u => ({
+      id: u.id,
+      fileName: u.fileName,
+      status: u.status,
+      chunksCreated: 0,
+      chunksExpected: 0,
+      error: u.error,
+    }));
+    const trackedIds = new Set(localUploads.map(u => u.taskId && `ingestion:${u.taskId}`).filter(Boolean));
+    const fromGlobal: StreamEntry[] = ingestTasks
+      .filter(task => !trackedIds.has(task.id))
+      .sort((a, b) => {
+        const activeA = a.status === 'running' || a.status === 'pending';
+        const activeB = b.status === 'running' || b.status === 'pending';
+        if (activeA !== activeB) return activeA ? -1 : 1;
+        return (b.timestamp ?? '').localeCompare(a.timestamp ?? '');
+      })
+      .slice(0, 8)
+      .map(task => ({
+        id: task.id,
+        fileName: task.label,
+        status: (task.raw.status ?? 'PENDING') as IngestStatus,
+        chunksCreated: typeof task.raw.chunksCreated === 'number' ? task.raw.chunksCreated : 0,
+        chunksExpected: typeof task.raw.chunksExpected === 'number' ? task.raw.chunksExpected : 0,
+        error: task.error ?? undefined,
+      }));
+    return [...fromLocal, ...fromGlobal];
+  }, [localUploads, ingestTasks]);
 
-  // Temps restant estimé de la génération (extrapolation linéaire depuis le lancement) ;
-  // recalculé à chaque poll de la tâche (5 s), suffisant pour un compte à rebours indicatif.
-  const genEta = genTask && genTask.status === 'PROCESSING' && genTask.createdAt && genTask.totalChunks > 0
-    ? etaMs({
-        status: 'running',
-        progress: Math.min(1, genTask.chunksProcessed / genTask.totalChunks),
-        startedAt: genTask.createdAt,
-      }, Date.now())
-    : null;
+  // ── Pipeline state derivation ─────────────────────────────────────────────
+  const hasIngestedDocs = (stats?.chunksInStore ?? 0) > 0
+    || ingestTasks.some(task => task.status === 'completed');
+  const ingestActive = localUploads.some(u => u.status === 'UPLOADING')
+    || ingestTasks.some(task => task.status === 'pending' || task.status === 'running');
+  const genDone = genTask?.status === 'completed' || (stats?.totalPairs ?? 0) > 0;
+
+  // Temps restant estimé de la génération (extrapolation linéaire) ; recalculé à
+  // chaque instantané du suivi global (~2 s pendant un run), suffisant pour un
+  // compte à rebours indicatif.
+  const genEta = genTask && genTask.status === 'running' ? etaMs(genTask, Date.now()) : null;
 
   const pipelineState = (step: string): 'idle' | 'active' | 'done' => {
-    if (step === 'ingest')   return hasIngestedDocs ? 'done' : ingestEntries.length > 0 ? 'active' : 'idle';
+    if (step === 'ingest')   return hasIngestedDocs ? 'done' : ingestActive ? 'active' : 'idle';
     if (step === 'generate') return genDone ? 'done' : genActive ? 'active' : 'idle';
     if (step === 'ready')    return genDone ? 'done' : 'idle';
     return 'idle';
   };
+
+  const genRaw = genTask?.raw ?? null;
+  const genStatusLabel = pendingGen ? 'PENDING' : (genRaw?.status ?? '');
 
   return (
     <div className="space-y-12 animate-in fade-in duration-700">
@@ -666,7 +624,7 @@ const Ingestion: FC = () => {
                   </button>
                 )}
               </div>
-            ) : ingestEntries.length === 0 ? (
+            ) : streamEntries.length === 0 ? (
               <div className="flex-1 flex items-center justify-center">
                 <p className="text-[11px] text-outline uppercase tracking-widest italic text-center">
                   {t('ingestion.noActiveIngest1')}<br />{t('ingestion.noActiveIngest2')}
@@ -674,7 +632,7 @@ const Ingestion: FC = () => {
               </div>
             ) : (
               <div className="flex-1 space-y-3 overflow-y-auto custom-scrollbar">
-                {ingestEntries.map(entry => (
+                {streamEntries.map(entry => (
                   <div key={entry.id} className={`space-y-1.5 transition-colors duration-300 ${entry.status === 'PROCESSING' ? 'bg-secondary/3 -mx-1 px-1' : ''}`}>
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 min-w-0">
@@ -683,7 +641,7 @@ const Ingestion: FC = () => {
                           style={entry.status === 'PROCESSING' ? { animation: 'rotate-slow 1.2s linear infinite' } : undefined}>
                           {statusIcon[entry.status]}
                         </span>
-                        <span className="text-[11px] font-label truncate">{entry.fileName}</span>
+                        <span className="text-[11px] font-label truncate" title={entry.fileName}>{entry.fileName}</span>
                       </div>
                       <span key={`${entry.status}-${entry.chunksCreated}`}
                         className={`text-[10px] font-bold uppercase tracking-widest shrink-0 ${statusColor[entry.status]} ${entry.status === 'COMPLETED' ? 'count-flash' : ''}`}>
@@ -714,7 +672,7 @@ const Ingestion: FC = () => {
                       </div>
                     )}
                     {entry.error && (
-                      <p className="text-[10px] text-error truncate">{entry.error}</p>
+                      <p className="text-[10px] text-error truncate" title={entry.error}>{entry.error}</p>
                     )}
                   </div>
                 ))}
@@ -795,7 +753,7 @@ const Ingestion: FC = () => {
 
           {/* Progress */}
           <div className="lg:col-span-2 bg-surface-container p-6 space-y-5">
-            {!genTask ? (
+            {!genTask && !pendingGen ? (
               <div className="h-full flex items-center justify-center">
                 <p className="text-[11px] text-outline uppercase tracking-widest italic text-center">
                   {t('ingestion.noGeneration1')}<br />
@@ -807,25 +765,26 @@ const Ingestion: FC = () => {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">{t('ingestion.taskId')}</p>
-                    <p className="font-headline font-bold text-sm">{genTask.taskId.slice(0, 8).toUpperCase()}…</p>
+                    <p className="font-headline font-bold text-sm">{genTask ? genTask.label : '…'}</p>
                   </div>
                   <span className={`font-label text-[11px] font-bold uppercase tracking-widest px-3 py-1 border ${
-                    genTask.status === 'COMPLETED' ? 'border-primary text-primary' :
-                    genTask.status === 'FAILED'    ? 'border-error text-error' :
-                    genTask.status === 'PROCESSING'? 'border-secondary text-secondary' :
+                    genStatusLabel === 'COMPLETED' ? 'border-primary text-primary' :
+                    genStatusLabel === 'FAILED'    ? 'border-error text-error' :
+                    genStatusLabel === 'CANCELLED' ? 'border-outline text-outline' :
+                    genStatusLabel === 'PROCESSING'? 'border-secondary text-secondary' :
                                                      'border-outline text-outline'
                   }`}>
-                    {genTask.status}
+                    {genStatusLabel}
                   </span>
                 </div>
 
                 {/* Chunks progress */}
-                {genTask.totalChunks > 0 && (
+                {genRaw && genRaw.totalChunks > 0 && (
                   <div className="space-y-2">
                     <div className="flex justify-between text-[11px] font-label uppercase tracking-widest">
                       <span className="text-on-surface-variant">{t('ingestion.chunksProcessed')}</span>
                       <span className="font-bold">
-                        {genTask.chunksProcessed} / {genTask.totalChunks}
+                        {genRaw.chunksProcessed ?? 0} / {genRaw.totalChunks}
                         {genEta !== null && (
                           <span className="ml-2 font-normal text-outline tabular-nums normal-case">
                             {t('taskCenter.etaLeft', { time: formatEta(genEta) })}
@@ -836,10 +795,10 @@ const Ingestion: FC = () => {
                     <div className="relative w-full bg-outline-variant/20 h-1.5 overflow-hidden">
                       <div
                         className="absolute top-0 left-0 h-full bg-primary transition-all duration-500"
-                        style={{ width: `${(genTask.chunksProcessed / genTask.totalChunks) * 100}%` }}
+                        style={{ width: `${((genRaw.chunksProcessed ?? 0) / genRaw.totalChunks) * 100}%` }}
                       />
                       {/* Scan beam travels ahead of the fill when active */}
-                      {genTask.status === 'PROCESSING' && <div className="scan-beam-primary" />}
+                      {genStatusLabel === 'PROCESSING' && <div className="scan-beam-primary" />}
                     </div>
                   </div>
                 )}
@@ -849,17 +808,17 @@ const Ingestion: FC = () => {
                   <div className="bg-surface-container-lowest p-4 border-l-2 border-primary">
                     <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">{t('ingestion.pairsGenerated')}</p>
                     {/* key forces re-mount → count-flash animation replays on each new value */}
-                    <p key={genTask.pairsGenerated} className={`font-headline font-bold text-2xl ${genTask.status === 'PROCESSING' ? 'count-flash' : ''}`}>
-                      {genTask.pairsGenerated}
+                    <p key={genRaw?.pairsGenerated ?? 0} className={`font-headline font-bold text-2xl ${genStatusLabel === 'PROCESSING' ? 'count-flash' : ''}`}>
+                      {genRaw?.pairsGenerated ?? 0}
                     </p>
                   </div>
                   <div className="bg-surface-container-lowest p-4 border-l-2 border-secondary">
                     <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">{t('ingestion.chunksTotal')}</p>
-                    <p className="font-headline font-bold text-2xl">{genTask.totalChunks || '—'}</p>
+                    <p className="font-headline font-bold text-2xl">{genRaw?.totalChunks || '—'}</p>
                   </div>
                 </div>
 
-                {genTask.error && (
+                {genTask?.error && (
                   <div className="p-3 bg-error/10 border border-error/30">
                     <p className="text-[11px] text-error">{genTask.error}</p>
                   </div>
