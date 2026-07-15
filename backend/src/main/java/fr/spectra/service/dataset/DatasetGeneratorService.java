@@ -149,7 +149,10 @@ public class DatasetGeneratorService {
         tasks.put(taskId, new GenerationTask(taskId, GenerationTask.Status.CANCELLED,
                 task.pairsGenerated(), task.chunksProcessed(), task.totalChunks(),
                 "Annulé par l'utilisateur", task.createdAt()));
-        generationRunning.set(false);
+        // NE PAS libérer generationRunning ici : le thread de génération le fait dans son
+        // finally quand il atteint le point d'annulation. Le libérer prématurément permettait
+        // de démarrer une 2e génération concurrente pendant que la 1re tournait encore
+        // (deux threads mutant generatedPairs et le fichier JSONL simultanément).
         return true;
     }
 
@@ -197,8 +200,13 @@ public class DatasetGeneratorService {
 
     @SuppressWarnings("unchecked")
     private void runGeneration(String taskId, int maxChunks) {
+        // Accumulation LOCALE : le dataset courant (generatedPairs) n'est remplacé qu'en fin
+        // de génération réussie. Auparavant, un clear() immédiat détruisait le dataset en
+        // mémoire dès le lancement — une génération échouée (ChromaDB indisponible…) ou
+        // annulée laissait getAllPairs() vide/partiel alors que le JSONL sur disque était
+        // intact, faussant évaluations et exports de fine-tuning jusqu'au redémarrage.
+        List<TrainingPair> newPairs = new ArrayList<>();
         try {
-            generatedPairs.clear();
             String collectionId = chromaDbClient.getOrCreateCollection(COLLECTION_NAME);
 
             Map<String, Object> allDocs = chromaDbClient.getAllDocuments(collectionId);
@@ -252,14 +260,14 @@ public class DatasetGeneratorService {
 
                 try {
                     List<TrainingPair> pairs = generatePairsFromChunk(chunkText, sourceFile);
-                    generatedPairs.addAll(pairs);
+                    newPairs.addAll(pairs);
                     pairsCount += pairs.size();
 
                     // Exemple de refus périodique : apprend l'abstention (anti-hallucination).
                     if (refusalEveryN > 0 && i % refusalEveryN == 0) {
                         TrainingPair refusal = generateRefusalPair(chunkText, sourceFile, i / refusalEveryN);
                         if (refusal != null) {
-                            generatedPairs.add(refusal);
+                            newPairs.add(refusal);
                             pairsCount++;
                         }
                     }
@@ -272,11 +280,14 @@ public class DatasetGeneratorService {
                         taskId, GenerationTask.Status.PROCESSING, fp, i + 1, total, null, Instant.now()));
             }
 
-            int uniqueCount = deduplicate();
+            List<TrainingPair> unique = deduplicate(newPairs);
+            // Remplacement atomique du dataset courant, uniquement en cas de succès complet.
+            generatedPairs.clear();
+            generatedPairs.addAll(unique);
             tasks.put(taskId, new GenerationTask(
-                    taskId, GenerationTask.Status.COMPLETED, uniqueCount, total, total, null, Instant.now()));
+                    taskId, GenerationTask.Status.COMPLETED, unique.size(), total, total, null, Instant.now()));
             log.info("Génération terminée: {} paires uniques (sur {} générées) depuis {} chunks",
-                    uniqueCount, pairsCount, total);
+                    unique.size(), pairsCount, total);
             persistPairs();
 
         } catch (Exception e) {
@@ -451,14 +462,14 @@ public class DatasetGeneratorService {
     }
 
     /**
-     * Supprime les paires en double (même instruction + même réponse) accumulées dans
-     * {@link #generatedPairs}, en conservant la première occurrence. Renvoie le nombre de
-     * paires uniques restantes. Évite de sur-pondérer un contenu répété lors du fine-tuning.
+     * Supprime les paires en double (même instruction + même réponse), en conservant la
+     * première occurrence. Renvoie la liste des paires uniques. Évite de sur-pondérer un
+     * contenu répété lors du fine-tuning.
      */
-    private int deduplicate() {
+    private List<TrainingPair> deduplicate(List<TrainingPair> pairs) {
         Set<String> seen = new java.util.HashSet<>();
         List<TrainingPair> unique = new ArrayList<>();
-        for (TrainingPair pair : generatedPairs) {
+        for (TrainingPair pair : pairs) {
             String user = pair.conversations().stream()
                     .filter(m -> "user".equals(m.role())).map(TrainingPair.Message::content)
                     .findFirst().orElse("");
@@ -470,11 +481,7 @@ public class DatasetGeneratorService {
                 unique.add(pair);
             }
         }
-        if (unique.size() != generatedPairs.size()) {
-            generatedPairs.clear();
-            generatedPairs.addAll(unique);
-        }
-        return unique.size();
+        return unique;
     }
 
     private void persistPairs() {

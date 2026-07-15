@@ -593,8 +593,15 @@ public class EvaluationService {
                 r.startedAt(), Instant.now());
     }
 
+    /** Statuts terminaux : un rapport dans l'un de ces états ne doit plus jamais être réécrit. */
+    private static final Set<String> TERMINAL_STATUSES = Set.of("COMPLETED", "FAILED", "CANCELLED");
+
     private void updateAb(String abId, UnaryOperator<AbComparisonReport> updater) {
-        abReports.computeIfPresent(abId, (k, v) -> updater.apply(v));
+        // Ne pas ressusciter un rapport terminal : un instantané RUNNING publié par le thread
+        // d'évaluation juste après un cancelAb() écrasait le statut CANCELLED — le rapport
+        // restait alors « RUNNING » pour toujours (le thread sort de la boucle sans le reposer).
+        abReports.computeIfPresent(abId, (k, v) ->
+                TERMINAL_STATUSES.contains(v.status()) ? v : updater.apply(v));
         persistAbReports();
     }
 
@@ -1070,7 +1077,10 @@ public class EvaluationService {
     }
 
     private void updateReport(String evalId, UnaryOperator<EvaluationReport> updater) {
-        reports.computeIfPresent(evalId, (k, v) -> updater.apply(v));
+        // Même protection que updateAb : un publishRunning tardif ne doit pas écraser
+        // le CANCELLED posé par cancelEvaluation (rapport sinon figé en RUNNING).
+        reports.computeIfPresent(evalId, (k, v) ->
+                TERMINAL_STATUSES.contains(v.status()) ? v : updater.apply(v));
         persistReports();
     }
 }

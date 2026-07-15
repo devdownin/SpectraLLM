@@ -95,10 +95,9 @@ public class ChunkingService {
             if (bufferTokens.size() + sepTokens + paraTokens.size() > maxChunkTokens) {
                 chunks.add(createChunk(buffer.toString(), chunkIndex++, sourceFile, extraMetadata));
 
-                // Chevauchement : on garde la fin du buffer précédent
-                IntArrayList currentTokens = encoding.encode(buffer.toString());
-                int startIdx = Math.max(0, currentTokens.size() - overlapTokens);
-                String overlap = encoding.decode(subList(currentTokens, startIdx, currentTokens.size()));
+                // Chevauchement : on garde la fin du buffer précédent (tokens déjà encodés)
+                int startIdx = Math.max(0, bufferTokens.size() - overlapTokens);
+                String overlap = encoding.decode(subList(bufferTokens, startIdx, bufferTokens.size()));
                 buffer.setLength(0);
                 buffer.append(overlap);
             }
@@ -177,10 +176,9 @@ public class ChunkingService {
             if (currentChunkTokens.size() + spaceTokens + sentenceTokens.size() > maxChunkTokens) {
                 chunks.add(createChunk(currentChunk.toString(), index++, sourceFile, meta));
 
-                // Application du chevauchement (overlap)
-                IntArrayList currentTokens = encoding.encode(currentChunk.toString());
-                int startIdx = Math.max(0, currentTokens.size() - overlapTokens);
-                String overlap = encoding.decode(subList(currentTokens, startIdx, currentTokens.size()));
+                // Application du chevauchement (overlap) — tokens déjà encodés ci-dessus
+                int startIdx = Math.max(0, currentChunkTokens.size() - overlapTokens);
+                String overlap = encoding.decode(subList(currentChunkTokens, startIdx, currentChunkTokens.size()));
                 currentChunk.setLength(0);
                 currentChunk.append(overlap);
             }

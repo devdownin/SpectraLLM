@@ -13,9 +13,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Full-Text Search service backed by in-memory BM25 indices (one per ChromaDB collection).
@@ -49,8 +49,12 @@ public class FtsService {
     /** One BM25 index per collection name. */
     private final Map<String, BM25Index> indices = new ConcurrentHashMap<>();
 
-    /** Empêche deux rebuilds simultanés (PostConstruct + retry planifié) de se concurrencer. */
-    private final AtomicBoolean rebuilding = new AtomicBoolean(false);
+    /**
+     * Empêche deux rebuilds simultanés de la MÊME collection (PostConstruct + retry planifié)
+     * de se concurrencer — par collection, pour ne pas bloquer le rebuild d'une autre
+     * collection (ré-indexation) pendant celui de la collection par défaut.
+     */
+    private final Set<String> rebuilding = ConcurrentHashMap.newKeySet();
 
     public FtsService(ChromaDbClient chromaDbClient, SpectraProperties props) {
         this.chromaDbClient = chromaDbClient;
@@ -93,7 +97,7 @@ public class FtsService {
      * Runs in the background; does not block startup.
      */
     public void rebuildCollection(String collectionName) {
-        if (!rebuilding.compareAndSet(false, true)) {
+        if (!rebuilding.add(collectionName)) {
             log.debug("FTS: rebuild déjà en cours — '{}' ignoré", collectionName);
             return;
         }
@@ -145,7 +149,7 @@ public class FtsService {
         } catch (Exception e) {
             log.warn("FTS: could not rebuild index for '{}': {}", collectionName, e.getMessage());
         } finally {
-            rebuilding.set(false);
+            rebuilding.remove(collectionName);
         }
     }
 

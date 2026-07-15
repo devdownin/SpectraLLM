@@ -263,14 +263,21 @@ public class IngestionService {
      * point de contrôle dans l'exécuteur.
      */
     public boolean cancelTask(String taskId) {
-        IngestionTask task = tasks.get(taskId);
-        if (task == null) return false;
-        if (task.status() == IngestionTask.Status.COMPLETED
-                || task.status() == IngestionTask.Status.FAILED
-                || task.status() == IngestionTask.Status.CANCELLED) return false;
+        // Mise à jour ATOMIQUE : l'ancien enchaînement get() puis put() pouvait écraser un
+        // statut COMPLETED/FAILED posé entre-temps par l'exécuteur (course annulation/fin).
         cancelledTaskIds.add(taskId);
-        tasks.put(taskId, task.cancelled());
-        return true;
+        final boolean[] cancelled = {false};
+        tasks.computeIfPresent(taskId, (k, t) -> {
+            if (t.status() == IngestionTask.Status.COMPLETED
+                    || t.status() == IngestionTask.Status.FAILED
+                    || t.status() == IngestionTask.Status.CANCELLED) {
+                return t;
+            }
+            cancelled[0] = true;
+            return t.cancelled();
+        });
+        if (!cancelled[0]) cancelledTaskIds.remove(taskId);
+        return cancelled[0];
     }
 
     public boolean isCancelled(String taskId) {
