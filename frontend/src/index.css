@@ -60,6 +60,10 @@
   --color-border: #40485d;              /* = outline-variant */
   --color-primary-foreground: #005d63;  /* = on-primary (texte sombre sur primary cyan) */
   --color-card: #0f1930;                /* = surface-container */
+  /* États de santé (pastilles Chat/Embed du header) : sans ces tokens, bg-success et
+     bg-warning ne généraient AUCUNE classe Tailwind → pastilles invisibles à l'état OK. */
+  --color-success: #4cffb3;             /* = teinte TRAINED du donut lifecycle */
+  --color-warning: #ffc266;             /* ambre lisible sur fond sombre */
 
   --font-headline: "Space Grotesk";
   --font-body: "Inter";

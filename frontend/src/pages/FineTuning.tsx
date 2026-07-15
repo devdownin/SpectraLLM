@@ -687,7 +687,12 @@ const FineTuning: FC = () => {
                 <tr
                   key={job.jobId}
                   onClick={() => setActiveJob(job)}
-                  className="hover:bg-surface-container-highest transition-colors cursor-pointer"
+                  // Ligne focalisable au clavier : Entrée/Espace charge le job dans le moniteur.
+                  tabIndex={0}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveJob(job); }
+                  }}
+                  className="hover:bg-surface-container-highest transition-colors cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary focus-visible:-outline-offset-2"
                 >
                   <td className="px-5 py-3">
                     <span className="font-headline font-medium text-xs">{job.jobId.slice(0, 8).toUpperCase()}</span>

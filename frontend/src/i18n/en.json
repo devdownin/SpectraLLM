@@ -112,14 +112,243 @@
     "categories": "Categories",
     "pipelineReady": "Pipeline ready — {{chunks}} chunks · {{pairs}} pairs · model ready to fine-tune",
     "pipelineChunksOnly": "Chunks indexed — run dataset generation (step 2)",
-    "pipelineEmpty": "Empty knowledge base — ingest documents to get started (step 1)"
+    "pipelineEmpty": "Empty knowledge base — ingest documents to get started (step 1)",
+    "docsAnnotations": "Documents & Annotations",
+    "manageDocs": "Manage documents",
+    "docsCard": "Documents",
+    "aiComments": "AI Comments",
+    "totalComments": "{{count}} total (human + AI)",
+    "reviewed": "Reviewed",
+    "approved": "Approved",
+    "rejected": "Rejected",
+    "pendingTitle": "Pending",
+    "dpoReady": "DPO Ready",
+    "exportablePairs": "{{count}} exportable pairs",
+    "noApproved": "No approved comments",
+    "reviewHint": "{{count}} AI comment(s) generated — review them (👍/👎) in the document view to build your DPO pairs.",
+    "dpoHint": "{{count}} DPO pair(s) available — export them from the Documents page, then run a fine-tuning job with DPO alignment.",
+    "visualizations": "Visualizations",
+    "docsByLifecycle": "Documents by lifecycle",
+    "pairsByCategory": "Pairs by category",
+    "personalization": "Personalization Cycle",
+    "personalizationTooltip": "Continuous loop: approved comments → DPO pairs → fine-tuning → evaluation.",
+    "kbTooltip": "Data stored in ChromaDB and in API memory.",
+    "datasetStatsError": "Unable to load dataset stats — the API may be unavailable.",
+    "gedStatsError": "Unable to load document stats — check the API.",
+    "metricsError": "Unable to load personalization metrics.",
+    "noAiComments": "no AI comments",
+    "dpoPairs": "DPO Pairs",
+    "dpoGuard": "ready · Jaccard > 0.85 guard active",
+    "noDpoPairs": "no filtered pairs available",
+    "fineTunings": "Fine-Tunings",
+    "completedTotal": "completed · {{count}} total",
+    "evalScore": "Eval Score",
+    "evalMeta": "/10 · {{time}}",
+    "noEval": "no evaluation",
+    "nextRetrain": "Next automatic retraining",
+    "threshold": "threshold: {{count}} approvals",
+    "moreApprovals": "{{count}} more approval(s)",
+    "triggerImminent": "↺ triggering imminent",
+    "cyclesCompleted": "{{count}} retraining cycle(s) completed",
+    "recentJobs": "Recent jobs",
+    "viewAllJobs": "View all jobs",
+    "scoreEvolution": "Score Evolution",
+    "details": "Details",
+    "goodRef": "Good",
+    "evalLabel": "Eval {{index}}",
+    "noPersonalization": "No personalization data — generate AI comments on your documents (Documents → document view → ✦ AI), then review them to start the cycle.",
+    "ragCapabilities": "RAG Capabilities",
+    "caps": {
+      "hybrid": {
+        "label": "Hybrid Search",
+        "desc": "BM25 + RRF vectors"
+      },
+      "rerank": {
+        "label": "Re-ranking",
+        "desc": "Two-stage Cross-Encoder"
+      },
+      "multiQuery": {
+        "label": "Multi-Query",
+        "desc": "N rewrites + fusion"
+      },
+      "agentic": {
+        "label": "Agentic RAG",
+        "desc": "Multi-hop ReAct loop"
+      },
+      "corrective": {
+        "label": "Corrective RAG",
+        "desc": "LLM chunk grading"
+      },
+      "comments": {
+        "label": "AI Comments",
+        "desc": "RAG → comment → DPO"
+      }
+    },
+    "pipeline": "Pipeline",
+    "actions": {
+      "ingest": {
+        "label": "Ingest",
+        "sub": "Upload documents"
+      },
+      "generate": {
+        "label": "Generate",
+        "sub": "Build dataset"
+      },
+      "annotate": {
+        "label": "Annotate",
+        "sub": "RAG comments + DPO"
+      },
+      "finetune": {
+        "label": "Fine-Tune",
+        "sub": "Train model"
+      },
+      "query": {
+        "label": "Query",
+        "sub": "RAG playground"
+      }
+    },
+    "statusOk": "OK",
+    "statusRunning": "Running",
+    "statusFailed": "Failed",
+    "lossLabel": "loss {{value}}"
   },
   "playground": {
     "expertMode": "Expert mode",
     "expertModeHint": "Show technical details: RAG strategy badges, vector distances and latency metrics.",
     "expertModeOn": "Expert mode enabled",
     "expertModeOff": "Simple mode — technical details hidden",
-    "relevance": "Relevance"
+    "relevance": "Relevance",
+    "welcome": "Welcome to the Spectra Playground. I am ready to answer questions based on your ingested documents. How can I help you today?",
+    "cleared": "Discussion cleared. System ready.",
+    "chatCleared": "Chat history cleared",
+    "strategyTooltip": "Strategy: {{name}}",
+    "badges": {
+      "CONV": "Conversational RAG — question rephrased using conversation history",
+      "CORR": "Corrective RAG — irrelevant chunks filtered out",
+      "SELF": "Self-RAG — self-evaluated and refined answer",
+      "RRNK": "Cross-Encoder re-ranking applied",
+      "HYB": "Hybrid Search (Vector + BM25) used",
+      "MQ": "Multi-Query — N question variants merged",
+      "CMPR": "Context Compression — relevant passages extracted",
+      "DEDUP": "Semantic Dedup — near-duplicate passages removed",
+      "FULL": "Long-Context RAG — full corpus loaded"
+    },
+    "trace": "Trace",
+    "traceAria": "View algorithm trace details",
+    "noPreview": "No preview available.",
+    "openInDocuments": "Open in Documents",
+    "docNotFound": "Document not found in Documents",
+    "docOpenFailed": "Could not open the document",
+    "sourcesTitle": "Sources ({{count}})",
+    "system": "System",
+    "chatModel": "Chat Model",
+    "knowledgeBase": "Knowledge Base",
+    "online": "online",
+    "offline": "offline",
+    "llmDownHint": "Chat model unreachable — start <1>llama-cpp-chat</1> to send messages.",
+    "ragDegradedHint": "Vector DB unreachable — retrieval may fail. Disable the Knowledge Base for a direct answer.",
+    "modelParameters": "Model Parameters",
+    "temperature": "Temperature",
+    "temperatureTooltip": "Controls randomness: Lower is more deterministic, higher is more creative.",
+    "topP": "Top P",
+    "topPTooltip": "Limits the cumulative probability of the most likely tokens.",
+    "activeModel": "Active Model",
+    "modelUpdated": "Active model updated",
+    "modelUpdatedDesc": "llm-chat reloads \"{{name}}\" automatically within a few seconds.",
+    "modelSwitchFailed": "Failed to switch model",
+    "ragConfig": "RAG Configuration",
+    "enableKb": "Enable Knowledge Base",
+    "kbLinked": "Knowledge Base Linked",
+    "kbDisconnected": "Knowledge Base Disconnected",
+    "convHistory": "Conversational History",
+    "convTooltip": "Sends the conversation history to rephrase the question before retrieval (Conversational RAG).",
+    "convEnabled": "Conversational RAG enabled",
+    "convDisabled": "Conversational RAG disabled",
+    "advanced": "Advanced",
+    "topCandidates": "Top Candidates",
+    "topCandidatesTooltip": "Number of candidates sent to the re-ranker (higher = better coverage, slower).",
+    "ragAdvisor": "RAG Advisor",
+    "exportConversation": "Export Conversation",
+    "exportMd": "As Markdown",
+    "exportJson": "As JSON",
+    "nothingToExport": "Nothing to export yet",
+    "exported": "Conversation exported ({{format}})",
+    "clearChat": "Clear Chat History",
+    "roleUser": "Architect",
+    "roleAssistant": "Spectra Core",
+    "ttftTitle": "Time to first token",
+    "totalTitle": "Total time",
+    "tokensTitle": "Tokens (approx.)",
+    "stopped": "stopped",
+    "stoppedTitle": "Generation stopped — answer may be incomplete",
+    "goodAnswer": "Good answer",
+    "badAnswer": "Bad answer",
+    "upRecorded": "Thanks — 👍 recorded",
+    "downRecorded": "Feedback noted — 👎",
+    "copied": "Answer copied",
+    "copy": "Copy",
+    "regenerate": "Regenerate",
+    "regenSame": "Same temperature",
+    "regenFactual": "More factual",
+    "regenCreative": "More creative",
+    "edit": "Edit",
+    "retry": "Retry",
+    "processing": "Processing...",
+    "scrollNew": "New",
+    "scrollLatest": "Latest",
+    "scrollAria": "Scroll to latest message",
+    "conversationalBar": "Conversational — {{count}} messages in history",
+    "inputPlaceholder": "Ask a question…  (Enter to send · Shift+Enter for a new line)",
+    "inputPlaceholderOffline": "Chat model offline — start llama-cpp-chat to send messages",
+    "send": "Send message",
+    "stop": "Stop generation",
+    "messageLabel": "Message",
+    "conversationAria": "Conversation",
+    "modelOffline": "Model offline",
+    "modelOfflineDesc": "The chat model service is unreachable. Check llama-cpp-chat.",
+    "queryFailed": "Query Uplink Failed",
+    "queryFailedDesc": "Spectra core is currently unreachable or timed out.",
+    "timedOut": "Generation timed out (stalled)",
+    "generationStopped": "Generation stopped",
+    "traceTitle": "Algorithm Trace",
+    "traceSubtitle": "Execution details for the selected response",
+    "traceClose": "Close trace panel",
+    "strategyApplied": "Strategy Applied",
+    "stratAgentic": "The LLM actively reasoned and queried the index in a loop to answer the question.",
+    "stratStandard": "Standard retrieve-and-generate pipeline.",
+    "stratDirect": "The question bypassed the index.",
+    "iterations": "Iterations",
+    "optimizationsTriggered": "Optimizations Triggered",
+    "opts": {
+      "hybrid": {
+        "label": "Hybrid Search",
+        "desc": "Merged BM25 (exact text) + ChromaDB (semantic vectors) via Reciprocal Rank Fusion."
+      },
+      "rerank": {
+        "label": "Cross-Encoder",
+        "desc": "Candidates rescored jointly with the query by a Cross-Encoder for higher accuracy."
+      },
+      "multiQuery": {
+        "label": "Multi-Query",
+        "desc": "LLM generated query variations to broaden the search net."
+      },
+      "compression": {
+        "label": "Context Compression",
+        "desc": "Extracted only the relevant sentences from large chunks."
+      },
+      "dedup": {
+        "label": "Semantic Dedup",
+        "desc": "Filtered out near-duplicate chunks via Jaccard similarity."
+      },
+      "corrective": {
+        "label": "Corrective RAG",
+        "desc": "LLM graded retrieved chunks and discarded irrelevant ones."
+      }
+    },
+    "finalContext": "Final Context Rendered to LLM",
+    "relevancePct": "{{pct}}% relevance",
+    "mdSources": "Sources:",
+    "mdPipeline": "Pipeline:"
   },
   "docs": {
     "searchPlaceholder": "Search the documentation…",
@@ -703,7 +932,8 @@
     "ratingFailed": "Rating failed",
     "commentDeleted": "Comment deleted",
     "dpoExported": "DPO export: {{count}} pair(s) exported",
-    "dpoExportFailed": "DPO export failed"
+    "dpoExportFailed": "DPO export failed",
+    "openSheet": "Open sheet for {{name}}"
   },
   "batchEval": {
     "kicker": "Compare models",

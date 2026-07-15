@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import type { FC } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useTranslation } from 'react-i18next';
+import { Trans, useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { queryApi, configApi, fineTuningApi, ingestApi, healthApi } from '../services/api';
 import type { StreamDoneMeta } from '../services/api';
@@ -10,6 +10,7 @@ import type { ServiceStatus } from '../types/api';
 import Tooltip from '../components/Tooltip';
 import RagAdvisor from '../components/RagAdvisor';
 import ChatMarkdown from '../components/ChatMarkdown';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 interface Source {
   preview?: string;
@@ -56,34 +57,37 @@ const STRATEGY_COLORS: Record<string, string> = {
   AGENTIC:  'border-primary/40 text-primary bg-primary/5',
 };
 
-const RagBadges: FC<{ meta: RagMeta; onShowTrace?: () => void }> = ({ meta, onShowTrace }) => {
-  const badges: { label: string; active: boolean; tooltip: string }[] = [
-    { label: 'CONV',  active: meta.conversationalApplied, tooltip: 'Conversational RAG — question rephrased using conversation history' },
-    { label: 'CORR',  active: meta.correctiveApplied,     tooltip: 'Corrective RAG — irrelevant chunks filtered out' },
-    { label: 'SELF',  active: meta.selfRagApplied,        tooltip: 'Self-RAG — self-evaluated and refined answer' },
-    { label: 'RRNK',  active: meta.rerankApplied,         tooltip: 'Cross-Encoder re-ranking applied' },
-    { label: 'HYB',   active: meta.hybridSearchApplied,   tooltip: 'Hybrid Search (Vector + BM25) used' },
-    { label: 'MQ',    active: meta.multiQueryApplied,     tooltip: 'Multi-Query — N question variants merged' },
-    { label: 'CMPR',  active: meta.compressionApplied,    tooltip: 'Context Compression — relevant passages extracted' },
-    { label: 'DEDUP', active: meta.semanticDedupApplied,  tooltip: 'Semantic Dedup — near-duplicate passages removed' },
-    { label: 'FULL',  active: meta.longContextApplied,    tooltip: 'Long-Context RAG — full corpus loaded' },
-  ];
+const BADGE_LABELS = ['CONV', 'CORR', 'SELF', 'RRNK', 'HYB', 'MQ', 'CMPR', 'DEDUP', 'FULL'] as const;
 
-  const activeBadges = badges.filter(b => b.active);
+const RagBadges: FC<{ meta: RagMeta; onShowTrace?: () => void }> = ({ meta, onShowTrace }) => {
+  const { t } = useTranslation();
+  const activeByLabel: Record<(typeof BADGE_LABELS)[number], boolean> = {
+    CONV:  meta.conversationalApplied,
+    CORR:  meta.correctiveApplied,
+    SELF:  meta.selfRagApplied,
+    RRNK:  meta.rerankApplied,
+    HYB:   meta.hybridSearchApplied,
+    MQ:    meta.multiQueryApplied,
+    CMPR:  meta.compressionApplied,
+    DEDUP: meta.semanticDedupApplied,
+    FULL:  meta.longContextApplied,
+  };
+
+  const activeBadges = BADGE_LABELS.filter(label => activeByLabel[label]);
   if (activeBadges.length === 0 && meta.ragStrategy === 'STANDARD') return null;
 
   return (
     <div className="mt-3 pt-3 border-t border-outline-variant/20 flex flex-wrap items-center justify-between gap-2">
       <div className="flex flex-wrap items-center gap-1.5">
-        <Tooltip content={`Strategy: ${meta.ragStrategy}`}>
+        <Tooltip content={t('playground.strategyTooltip', { name: meta.ragStrategy })}>
           <span className={`text-[10px] font-bold px-1.5 py-0.5 border uppercase tracking-wider cursor-help ${STRATEGY_COLORS[meta.ragStrategy] ?? STRATEGY_COLORS.STANDARD}`}>
             {meta.ragStrategy}
           </span>
         </Tooltip>
-        {activeBadges.map(b => (
-          <Tooltip key={b.label} content={b.tooltip}>
+        {activeBadges.map(label => (
+          <Tooltip key={label} content={t(`playground.badges.${label}`)}>
             <span className="text-[10px] font-bold px-1.5 py-0.5 border border-primary/30 text-primary bg-primary/5 uppercase tracking-wider cursor-help">
-              {b.label}
+              {label}
             </span>
           </Tooltip>
         ))}
@@ -93,10 +97,10 @@ const RagBadges: FC<{ meta: RagMeta; onShowTrace?: () => void }> = ({ meta, onSh
           type="button"
           onClick={onShowTrace}
           className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-outline hover:text-primary transition-colors px-1.5 py-0.5"
-          aria-label="View algorithm trace details"
+          aria-label={t('playground.traceAria')}
         >
           <span className="material-symbols-outlined text-[13px]">insights</span>
-          Trace
+          {t('playground.trace')}
         </button>
       )}
     </div>
@@ -117,9 +121,9 @@ const SourceItem: FC<{ src: Source; expert?: boolean }> = ({ src, expert = false
       const items: any[] = res.data?.content ?? res.data ?? [];
       const match = items.find(d => d.fileName === src.sourceFile) ?? items[0];
       if (match?.sha256) navigate(`/documents?doc=${encodeURIComponent(match.sha256)}`);
-      else toast.error('Document not found in Documents');
+      else toast.error(t('playground.docNotFound'));
     } catch {
-      toast.error('Could not open the document');
+      toast.error(t('playground.docOpenFailed'));
     }
   };
 
@@ -140,7 +144,7 @@ const SourceItem: FC<{ src: Source; expert?: boolean }> = ({ src, expert = false
         <div className="pl-5 pb-2 space-y-1.5">
           {snippet
             ? <p className="text-[11px] text-on-surface-variant leading-relaxed whitespace-pre-wrap">{snippet}</p>
-            : <p className="text-[11px] text-outline italic">No preview available.</p>}
+            : <p className="text-[11px] text-outline italic">{t('playground.noPreview')}</p>}
           <div className={`flex items-center ${expert ? 'justify-between' : 'justify-end'}`}>
             {expert && (
               <span className="text-[10px] font-mono text-outline">distance: {typeof src.distance === 'number' ? src.distance.toFixed(3) : '—'}</span>
@@ -150,7 +154,7 @@ const SourceItem: FC<{ src: Source; expert?: boolean }> = ({ src, expert = false
               onClick={openInDatabase}
               className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-primary hover:text-primary/70 transition-colors"
             >
-              <span aria-hidden="true" className="material-symbols-outlined text-[11px]">open_in_new</span>Open in Documents
+              <span aria-hidden="true" className="material-symbols-outlined text-[11px]">open_in_new</span>{t('playground.openInDocuments')}
             </button>
           </div>
         </div>
@@ -161,9 +165,11 @@ const SourceItem: FC<{ src: Source; expert?: boolean }> = ({ src, expert = false
 
 const Playground: FC = () => {
   const { t } = useTranslation();
-  const defaultWelcome: Message = { role: 'assistant', content: 'Welcome to the Spectra Playground. I am ready to answer questions based on your ingested documents. How can I help you today?', status: 'SENT' };
   const [traceMsg, setTraceMsg] = useState<Message | null>(null);
+  // Piège de focus + Échap sur la modale de trace — même comportement que la fiche Documents.
+  const traceRef = useFocusTrap<HTMLDivElement>(traceMsg !== null, () => setTraceMsg(null));
   const [messages, setMessages] = useState<Message[]>(() => {
+    const defaultWelcome: Message = { role: 'assistant', content: t('playground.welcome'), status: 'SENT' };
     const saved = localStorage.getItem('spectra_chat_history');
     if (!saved) return [defaultWelcome];
     try {
@@ -280,23 +286,23 @@ const Playground: FC = () => {
       d ? { ...d, activeModel: modelName } : d);
     try {
       await configApi.setModelConfig({ model: modelName });
-      toast.info('Active model updated', {
-        description: `llm-chat reloads "${modelName}" automatically within a few seconds.`,
+      toast.info(t('playground.modelUpdated'), {
+        description: t('playground.modelUpdatedDesc', { name: modelName }),
       });
     } catch (error: any) {
       setActiveModel(previous);
       queryClient.setQueryData(['playground-models'], (d: typeof modelsData) =>
         d ? { ...d, activeModel: previous } : d);
       // 400 : alias inconnu du registre — le détail liste les modèles enregistrés.
-      toast.error('Failed to switch model', {
+      toast.error(t('playground.modelSwitchFailed'), {
         description: error?.response?.data?.error ?? error?.response?.data?.detail ?? error?.message,
       });
     }
   };
 
   const clearChat = () => {
-    setMessages([{ role: 'assistant', content: 'Discussion cleared. System ready.', status: 'SENT' }]);
-    toast.info('Chat history cleared');
+    setMessages([{ role: 'assistant', content: t('playground.cleared'), status: 'SENT' }]);
+    toast.info(t('playground.chatCleared'));
   };
 
   /** Déclenche le téléchargement d'un blob texte côté navigateur. */
@@ -320,10 +326,10 @@ const Playground: FC = () => {
     ];
     for (const m of messages) {
       if (!m.content?.trim()) continue;
-      lines.push(m.role === 'user' ? '## 🧑 Architect' : '## 🤖 Spectra Core', '', m.content.trim(), '');
+      lines.push(m.role === 'user' ? `## 🧑 ${t('playground.roleUser')}` : `## 🤖 ${t('playground.roleAssistant')}`, '', m.content.trim(), '');
       if (m.role === 'assistant') {
         if (m.sources?.length) {
-          lines.push('**Sources:**');
+          lines.push(`**${t('playground.mdSources')}**`);
           for (const s of m.sources) {
             const pct = typeof s.distance === 'number' ? ` (${Math.max(0, Math.min(100, Math.round((1 - s.distance) * 100)))}%)` : '';
             lines.push(`- ${s.sourceFile}${pct}`);
@@ -334,10 +340,10 @@ const Playground: FC = () => {
           const flags = Object.entries(m.ragMeta)
             .filter(([k, v]) => v === true && k.endsWith('Applied'))
             .map(([k]) => k.replace('Applied', ''));
-          lines.push(`**Pipeline:** ${m.ragMeta.ragStrategy}${flags.length ? ` · ${flags.join(', ')}` : ''}`, '');
+          lines.push(`**${t('playground.mdPipeline')}** ${m.ragMeta.ragStrategy}${flags.length ? ` · ${flags.join(', ')}` : ''}`, '');
         }
         if (m.metrics) {
-          lines.push(`_TTFT ${(m.metrics.ttftMs / 1000).toFixed(1)}s · ${(m.metrics.totalMs / 1000).toFixed(1)}s · ${m.metrics.tokens} tok${m.stopped ? ' · stopped' : ''}_`, '');
+          lines.push(`_TTFT ${(m.metrics.ttftMs / 1000).toFixed(1)}s · ${(m.metrics.totalMs / 1000).toFixed(1)}s · ${m.metrics.tokens} tok${m.stopped ? ` · ${t('playground.stopped')}` : ''}_`, '');
         }
       }
       lines.push('---', '');
@@ -349,14 +355,14 @@ const Playground: FC = () => {
   const exportConversation = (format: 'md' | 'json') => {
     setExportMenuOpen(false);
     const real = messages.filter(m => m.content?.trim());
-    if (real.length <= 1) { toast.info('Nothing to export yet'); return; }
+    if (real.length <= 1) { toast.info(t('playground.nothingToExport')); return; }
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
     if (format === 'md') {
       downloadFile(`spectra-chat-${stamp}.md`, 'text/markdown', conversationToMarkdown());
     } else {
       downloadFile(`spectra-chat-${stamp}.json`, 'application/json', JSON.stringify(messages, null, 2));
     }
-    toast.success(`Conversation exported (${format.toUpperCase()})`);
+    toast.success(t('playground.exported', { format: format.toUpperCase() }));
   };
 
   /** Builds the conversation history from SENT messages to send to the backend. */
@@ -379,7 +385,7 @@ const Playground: FC = () => {
   const submitQuery = async (text: string, regenerate = false, tempOverride?: number) => {
     if (!text.trim() || isTyping) return;
     if (llmDown) {
-      toast.error('Model offline', { description: 'The chat model service is unreachable. Check llama-cpp-chat.' });
+      toast.error(t('playground.modelOffline'), { description: t('playground.modelOfflineDesc') });
       return;
     }
     const effTemperature = tempOverride ?? temperature;
@@ -474,9 +480,9 @@ const Playground: FC = () => {
             });
           });
         } else if (event.type === 'error') {
-          let msg = 'Spectra core is currently unreachable or timed out.';
+          let msg = t('playground.queryFailedDesc');
           try { msg = JSON.parse(event.data).message ?? msg; } catch { /* ignore */ }
-          toast.error('Query Uplink Failed', { description: msg });
+          toast.error(t('playground.queryFailed'), { description: msg });
           setMessages(prev => {
             const lastUserIdx = prev.findLastIndex(m => m.role === 'user' && m.content === currentInput);
             const lastAsstIdx = prev.findLastIndex(m => m.role === 'assistant');
@@ -514,12 +520,12 @@ const Playground: FC = () => {
               return m;
             });
         });
-        if (timedOut) toast.warning('Generation timed out (stalled)');
-        else toast.info('Generation stopped');
+        if (timedOut) toast.warning(t('playground.timedOut'));
+        else toast.info(t('playground.generationStopped'));
         return;
       }
-      toast.error('Query Uplink Failed', {
-        description: 'Spectra core is currently unreachable or timed out.'
+      toast.error(t('playground.queryFailed'), {
+        description: t('playground.queryFailedDesc'),
       });
       setMessages(prev => {
         const lastUserIdx = prev.findLastIndex(m => m.role === 'user' && m.content === currentInput);
@@ -559,12 +565,12 @@ const Playground: FC = () => {
     if (lastUser) submitQuery(lastUser.content, true, tempOverride);
   };
 
-  const clamp = (t: number) => Math.max(0, Math.min(2, Math.round(t * 10) / 10));
+  const clamp = (v: number) => Math.max(0, Math.min(2, Math.round(v * 10) / 10));
   /** Variantes de régénération : décale la température autour du réglage courant. */
   const regenVariants = [
-    { label: 'Same temperature', icon: 'refresh',     temp: undefined as number | undefined },
-    { label: 'More factual',     icon: 'target',      temp: clamp(temperature - 0.4) },
-    { label: 'More creative',    icon: 'auto_awesome', temp: clamp(temperature + 0.4) },
+    { label: t('playground.regenSame'),     icon: 'refresh',      temp: undefined as number | undefined },
+    { label: t('playground.regenFactual'),  icon: 'target',       temp: clamp(temperature - 0.4) },
+    { label: t('playground.regenCreative'), icon: 'auto_awesome', temp: clamp(temperature + 0.4) },
   ];
 
   /** Charge un message user dans la saisie et tronque la conversation pour le réécrire. */
@@ -579,7 +585,7 @@ const Playground: FC = () => {
   const stopGeneration = () => abortRef.current?.abort();
 
   const copyAnswer = (text: string) => {
-    navigator.clipboard.writeText(text).then(() => toast.success('Answer copied')).catch(() => {});
+    navigator.clipboard.writeText(text).then(() => toast.success(t('playground.copied'))).catch(() => {});
   };
 
   /** Note une réponse (👍/👎) — toggle + envoi au backend (signal de préférence DPO). */
@@ -591,7 +597,7 @@ const Playground: FC = () => {
     setMessages(prev => prev.map((m, i) => i === index ? { ...m, feedback: next } : m));
     if (next) {
       queryApi.feedback(question, msg.content, next).catch(() => { /* non bloquant */ });
-      toast.success(next === 'UP' ? 'Thanks — 👍 recorded' : 'Feedback noted — 👎');
+      toast.success(next === 'UP' ? t('playground.upRecorded') : t('playground.downRecorded'));
     }
   };
 
@@ -608,40 +614,42 @@ const Playground: FC = () => {
       <aside className="w-80 bg-surface-container p-6 space-y-8 overflow-y-auto custom-scrollbar">
         {services && (
           <div>
-            <h3 className="font-headline text-sm font-bold tracking-tight mb-4 uppercase">System</h3>
+            <h3 className="font-headline text-sm font-bold tracking-tight mb-4 uppercase">{t('playground.system')}</h3>
             <div className="space-y-2">
               {[
-                { label: 'Chat Model', svc: chatService, warn: llmDown },
-                ...(ragEnabled ? [{ label: 'Knowledge Base', svc: chromaService, warn: ragDegraded }] : []),
+                { label: t('playground.chatModel'), svc: chatService, warn: llmDown },
+                ...(ragEnabled ? [{ label: t('playground.knowledgeBase'), svc: chromaService, warn: ragDegraded }] : []),
               ].map(({ label, svc, warn }) => (
                 <div key={label} className="flex items-center justify-between">
                   <span className="text-[11px] font-label uppercase tracking-widest text-on-surface-variant">{label}</span>
                   <span className={`flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider ${warn ? 'text-error' : 'text-primary'}`}>
                     <span className={`w-1.5 h-1.5 rounded-full ${warn ? 'bg-error animate-pulse' : 'bg-primary'}`} />
-                    {svc?.available ? 'online' : 'offline'}
+                    {svc?.available ? t('playground.online') : t('playground.offline')}
                   </span>
                 </div>
               ))}
               {llmDown && (
                 <p className="text-[10px] text-error leading-relaxed pt-1">
-                  Chat model unreachable — start <span className="font-mono">llama-cpp-chat</span> to send messages.
+                  <Trans i18nKey="playground.llmDownHint">
+                    Chat model unreachable — start <span className="font-mono">llama-cpp-chat</span> to send messages.
+                  </Trans>
                 </p>
               )}
               {ragDegraded && !llmDown && (
                 <p className="text-[10px] text-error leading-relaxed pt-1">
-                  Vector DB unreachable — retrieval may fail. Disable the Knowledge Base for a direct answer.
+                  {t('playground.ragDegradedHint')}
                 </p>
               )}
             </div>
           </div>
         )}
         <div>
-          <h3 className="font-headline text-sm font-bold tracking-tight mb-4 uppercase">Model Parameters</h3>
+          <h3 className="font-headline text-sm font-bold tracking-tight mb-4 uppercase">{t('playground.modelParameters')}</h3>
           <div className="space-y-6">
             <div className="space-y-2">
               <div className="flex justify-between items-center">
-                <Tooltip content="Controls randomness: Lower is more deterministic, higher is more creative.">
-                  <label className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant cursor-help">Temperature</label>
+                <Tooltip content={t('playground.temperatureTooltip')}>
+                  <label className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant cursor-help">{t('playground.temperature')}</label>
                 </Tooltip>
                 <span className="text-[11px] font-mono text-primary">{temperature.toFixed(1)}</span>
               </div>
@@ -656,8 +664,8 @@ const Playground: FC = () => {
 
             <div className="space-y-2">
               <div className="flex justify-between items-center">
-                <Tooltip content="Limits the cumulative probability of the most likely tokens.">
-                  <label className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant cursor-help">Top P</label>
+                <Tooltip content={t('playground.topPTooltip')}>
+                  <label className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant cursor-help">{t('playground.topP')}</label>
                 </Tooltip>
                 <span className="text-[11px] font-mono text-primary">{topP.toFixed(2)}</span>
               </div>
@@ -674,7 +682,7 @@ const Playground: FC = () => {
 
         {availableModels.length > 0 && (
           <div>
-            <h3 className="font-headline text-sm font-bold tracking-tight mb-4 uppercase">Active Model</h3>
+            <h3 className="font-headline text-sm font-bold tracking-tight mb-4 uppercase">{t('playground.activeModel')}</h3>
             <div className="space-y-3">
               {availableModels.map(m => (
                 <button
@@ -692,17 +700,14 @@ const Playground: FC = () => {
                   )}
                 </button>
               ))}
-              {availableModels.length > 1 && (
-                <p className="text-[10px] text-outline uppercase tracking-widest leading-relaxed">
-                  Effective on the next chat service restart.
-                </p>
-              )}
+              {/* La note « effectif au prochain redémarrage » a été retirée : elle contredisait
+                  le toast (llm-chat recharge le modèle automatiquement, cf. superviseur). */}
             </div>
           </div>
         )}
 
         <div>
-          <h3 className="font-headline text-sm font-bold tracking-tight mb-4 uppercase">RAG Configuration</h3>
+          <h3 className="font-headline text-sm font-bold tracking-tight mb-4 uppercase">{t('playground.ragConfig')}</h3>
           <div className="space-y-3">
             <label className="flex items-center gap-3 cursor-pointer group">
               <input
@@ -711,14 +716,14 @@ const Playground: FC = () => {
                 onChange={(e) => {
                   const next = e.target.checked;
                   setRagEnabled(next);
-                  toast.info(next ? 'Knowledge Base Linked' : 'Knowledge Base Disconnected');
+                  toast.info(next ? t('playground.kbLinked') : t('playground.kbDisconnected'));
                 }}
                 className="sr-only peer"
               />
               <div className="w-4 h-4 border border-primary flex items-center justify-center group-hover:bg-primary/10 transition-colors peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-primary peer-focus-visible:outline-offset-2">
                 {ragEnabled && <div className="w-2 h-2 bg-primary"></div>}
               </div>
-              <span className="text-xs font-label uppercase tracking-widest">Enable Knowledge Base</span>
+              <span className="text-xs font-label uppercase tracking-widest">{t('playground.enableKb')}</span>
             </label>
 
             {ragEnabled && (
@@ -730,15 +735,15 @@ const Playground: FC = () => {
                     onChange={(e) => {
                       const next = e.target.checked;
                       setConvEnabled(next);
-                      toast.info(next ? 'Conversational RAG enabled' : 'Conversational RAG disabled');
+                      toast.info(next ? t('playground.convEnabled') : t('playground.convDisabled'));
                     }}
                     className="sr-only peer"
                   />
                   <div className="w-4 h-4 border border-secondary flex items-center justify-center group-hover:bg-secondary/10 transition-colors peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-secondary peer-focus-visible:outline-offset-2">
                     {convEnabled && <div className="w-2 h-2 bg-secondary"></div>}
                   </div>
-                  <Tooltip content="Sends the conversation history to rephrase the question before retrieval (Conversational RAG).">
-                    <span className="text-xs font-label uppercase tracking-widest cursor-help">Conversational History</span>
+                  <Tooltip content={t('playground.convTooltip')}>
+                    <span className="text-xs font-label uppercase tracking-widest cursor-help">{t('playground.convHistory')}</span>
                   </Tooltip>
                 </label>
 
@@ -748,15 +753,15 @@ const Playground: FC = () => {
                     onClick={() => setShowAdvanced(v => !v)}
                   >
                     <span className="material-symbols-outlined text-[11px]">{showAdvanced ? 'expand_less' : 'expand_more'}</span>
-                    Advanced
+                    {t('playground.advanced')}
                   </button>
 
                   {showAdvanced && (
                     <div className="mt-3 space-y-2">
                       <div className="flex justify-between items-center">
-                        <Tooltip content="Number of candidates sent to the re-ranker (higher = better coverage, slower).">
+                        <Tooltip content={t('playground.topCandidatesTooltip')}>
                           <label className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant cursor-help">
-                            Top Candidates
+                            {t('playground.topCandidates')}
                           </label>
                         </Tooltip>
                         <span className="text-[11px] font-mono text-primary">{topCandidates}</span>
@@ -800,7 +805,7 @@ const Playground: FC = () => {
             className="w-full py-3 px-4 border border-primary/30 text-primary text-[11px] font-headline uppercase tracking-widest hover:bg-primary/5 transition-colors flex items-center justify-center gap-2"
           >
             <span className="material-symbols-outlined text-sm">psychology</span>
-            RAG Advisor
+            {t('playground.ragAdvisor')}
           </button>
           <div className="relative">
             <button
@@ -809,7 +814,7 @@ const Playground: FC = () => {
               className="w-full py-3 px-4 border border-outline-variant/40 text-on-surface-variant text-[11px] font-headline uppercase tracking-widest hover:border-primary/40 hover:text-primary transition-colors flex items-center justify-center gap-2"
             >
               <span className="material-symbols-outlined text-sm">download</span>
-              Export Conversation
+              {t('playground.exportConversation')}
             </button>
             {exportMenuOpen && (
               <>
@@ -819,11 +824,11 @@ const Playground: FC = () => {
                   className="absolute left-0 right-0 bottom-full mb-1 z-20 bg-surface-container-high border border-outline-variant/30 shadow-lg py-1 animate-in fade-in slide-in-from-bottom-1">
                   <button type="button" role="menuitem" onClick={() => exportConversation('md')}
                     className="w-full flex items-center gap-2 px-3 py-2 text-left text-[11px] uppercase tracking-widest text-on-surface-variant hover:bg-primary/10 hover:text-primary transition-colors">
-                    <span aria-hidden="true" className="material-symbols-outlined text-[14px]">description</span>As Markdown
+                    <span aria-hidden="true" className="material-symbols-outlined text-[14px]">description</span>{t('playground.exportMd')}
                   </button>
                   <button type="button" role="menuitem" onClick={() => exportConversation('json')}
                     className="w-full flex items-center gap-2 px-3 py-2 text-left text-[11px] uppercase tracking-widest text-on-surface-variant hover:bg-primary/10 hover:text-primary transition-colors">
-                    <span aria-hidden="true" className="material-symbols-outlined text-[14px]">data_object</span>As JSON
+                    <span aria-hidden="true" className="material-symbols-outlined text-[14px]">data_object</span>{t('playground.exportJson')}
                   </button>
                 </div>
               </>
@@ -834,7 +839,7 @@ const Playground: FC = () => {
             className="w-full py-3 px-4 border border-error/30 text-error text-[11px] font-headline uppercase tracking-widest hover:bg-error/5 transition-colors flex items-center justify-center gap-2"
           >
             <span className="material-symbols-outlined text-sm">delete_sweep</span>
-            Clear Chat History
+            {t('playground.clearChat')}
           </button>
         </div>
       </aside>
@@ -846,7 +851,7 @@ const Playground: FC = () => {
           role="log"
           aria-live="polite"
           aria-busy={isTyping}
-          aria-label="Conversation"
+          aria-label={t('playground.conversationAria')}
           className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar"
         >
           {messages.map((msg, i) => (
@@ -866,7 +871,7 @@ const Playground: FC = () => {
                 )}
 
                 <p className="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-3">
-                  {msg.role === 'user' ? 'Architect' : 'Spectra Core'}
+                  {msg.role === 'user' ? t('playground.roleUser') : t('playground.roleAssistant')}
                 </p>
                 {msg.role === 'assistant' ? (
                   <div className="text-sm">
@@ -881,7 +886,7 @@ const Playground: FC = () => {
 
                 {msg.sources && msg.sources.length > 0 && (
                   <div className="mt-4 pt-4 border-t border-outline-variant/20">
-                    <p className="font-label text-[10px] uppercase tracking-widest text-outline mb-1">Sources ({msg.sources.length})</p>
+                    <p className="font-label text-[10px] uppercase tracking-widest text-outline mb-1">{t('playground.sourcesTitle', { count: msg.sources.length })}</p>
                     {msg.sources.map((src, j) => <SourceItem key={j} src={src} expert={expertMode} />)}
                   </div>
                 )}
@@ -895,40 +900,40 @@ const Playground: FC = () => {
                   <div className="mt-3 flex items-center justify-between gap-3">
                     {msg.metrics && expertMode ? (
                       <div className="flex items-center gap-3 text-[10px] font-mono text-outline">
-                        <span title="Time to first token">TTFT {(msg.metrics.ttftMs / 1000).toFixed(1)}s</span>
-                        <span title="Total time">{(msg.metrics.totalMs / 1000).toFixed(1)}s</span>
-                        <span title="Tokens (approx.)">{msg.metrics.tokens} tok</span>
+                        <span title={t('playground.ttftTitle')}>TTFT {(msg.metrics.ttftMs / 1000).toFixed(1)}s</span>
+                        <span title={t('playground.totalTitle')}>{(msg.metrics.totalMs / 1000).toFixed(1)}s</span>
+                        <span title={t('playground.tokensTitle')}>{msg.metrics.tokens} tok</span>
                         {msg.stopped && (
-                          <span className="text-error font-bold uppercase tracking-wider" title="Generation stopped — answer may be incomplete">
-                            stopped
+                          <span className="text-error font-bold uppercase tracking-wider" title={t('playground.stoppedTitle')}>
+                            {t('playground.stopped')}
                           </span>
                         )}
                       </div>
                     ) : msg.stopped ? (
-                      <span className="text-[10px] font-mono text-error font-bold uppercase tracking-wider" title="Generation stopped — answer may be incomplete">
-                        stopped
+                      <span className="text-[10px] font-mono text-error font-bold uppercase tracking-wider" title={t('playground.stoppedTitle')}>
+                        {t('playground.stopped')}
                       </span>
                     ) : <span />}
 
                     <div className="flex items-center gap-1">
                       <button type="button" onClick={() => sendFeedback(i, 'UP')}
-                        aria-label="Good answer" aria-pressed={msg.feedback === 'UP'}
+                        aria-label={t('playground.goodAnswer')} aria-pressed={msg.feedback === 'UP'}
                         className={`material-symbols-outlined text-[14px] px-1 transition-colors ${msg.feedback === 'UP' ? 'text-primary' : 'text-outline hover:text-primary'}`}>thumb_up</button>
                       <button type="button" onClick={() => sendFeedback(i, 'DOWN')}
-                        aria-label="Bad answer" aria-pressed={msg.feedback === 'DOWN'}
+                        aria-label={t('playground.badAnswer')} aria-pressed={msg.feedback === 'DOWN'}
                         className={`material-symbols-outlined text-[14px] px-1 transition-colors ${msg.feedback === 'DOWN' ? 'text-error' : 'text-outline hover:text-error'}`}>thumb_down</button>
 
                       <span className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-                        <button type="button" onClick={() => copyAnswer(msg.content)} aria-label="Copy answer"
+                        <button type="button" onClick={() => copyAnswer(msg.content)} aria-label={t('playground.copy')}
                           className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-outline hover:text-primary transition-colors px-1.5 py-0.5">
-                          <span aria-hidden="true" className="material-symbols-outlined text-[13px]">content_copy</span>Copy
+                          <span aria-hidden="true" className="material-symbols-outlined text-[13px]">content_copy</span>{t('playground.copy')}
                         </button>
                         {i === lastAssistantIdx && (
                           <div className="relative">
                             <button type="button" onClick={() => setRegenMenuOpen(o => !o)} disabled={isTyping}
-                              aria-label="Regenerate" aria-haspopup="menu" aria-expanded={regenMenuOpen}
+                              aria-label={t('playground.regenerate')} aria-haspopup="menu" aria-expanded={regenMenuOpen}
                               className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-outline hover:text-primary transition-colors px-1.5 py-0.5 disabled:opacity-40">
-                              <span aria-hidden="true" className="material-symbols-outlined text-[13px]">refresh</span>Regenerate
+                              <span aria-hidden="true" className="material-symbols-outlined text-[13px]">refresh</span>{t('playground.regenerate')}
                               <span aria-hidden="true" className={`material-symbols-outlined text-[12px] transition-transform ${regenMenuOpen ? 'rotate-180' : ''}`}>expand_more</span>
                             </button>
                             {regenMenuOpen && (
@@ -958,14 +963,14 @@ const Playground: FC = () => {
                 )}
                 {msg.role === 'user' && (
                   <div className="mt-2 flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-                    <button type="button" onClick={() => editMessage(i)} disabled={isTyping} aria-label="Edit message"
+                    <button type="button" onClick={() => editMessage(i)} disabled={isTyping} aria-label={t('playground.edit')}
                       className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-outline hover:text-secondary transition-colors px-1.5 py-0.5 disabled:opacity-40">
-                      <span aria-hidden="true" className="material-symbols-outlined text-[13px]">edit</span>Edit
+                      <span aria-hidden="true" className="material-symbols-outlined text-[13px]">edit</span>{t('playground.edit')}
                     </button>
                     {msg.status === 'ERROR' && (
-                      <button type="button" onClick={() => regenerateLast()} disabled={isTyping} aria-label="Retry"
+                      <button type="button" onClick={() => regenerateLast()} disabled={isTyping} aria-label={t('playground.retry')}
                         className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-error hover:text-error/80 transition-colors px-1.5 py-0.5 disabled:opacity-40">
-                        <span aria-hidden="true" className="material-symbols-outlined text-[13px]">replay</span>Retry
+                        <span aria-hidden="true" className="material-symbols-outlined text-[13px]">replay</span>{t('playground.retry')}
                       </button>
                     )}
                   </div>
@@ -981,7 +986,7 @@ const Playground: FC = () => {
                   <div className="w-1 h-1 bg-primary animate-bounce [animation-delay:0.2s]"></div>
                   <div className="w-1 h-1 bg-primary animate-bounce [animation-delay:0.4s]"></div>
                 </div>
-                <span className="text-[10px] uppercase tracking-widest text-outline">Processing...</span>
+                <span className="text-[10px] uppercase tracking-widest text-outline">{t('playground.processing')}</span>
               </div>
             </div>
           )}
@@ -993,11 +998,11 @@ const Playground: FC = () => {
           <button
             type="button"
             onClick={scrollToBottom}
-            aria-label="Scroll to latest message"
+            aria-label={t('playground.scrollAria')}
             className="absolute bottom-28 right-6 z-10 flex items-center gap-1 bg-surface-container-high border border-outline-variant/30 text-on-surface-variant hover:text-primary px-2.5 py-1.5 shadow-lg text-[10px] uppercase tracking-widest transition-colors animate-in fade-in slide-in-from-bottom-2"
           >
             <span aria-hidden="true" className={`material-symbols-outlined text-[14px] ${isTyping ? 'text-primary animate-bounce' : ''}`}>arrow_downward</span>
-            {isTyping ? 'New' : 'Latest'}
+            {isTyping ? t('playground.scrollNew') : t('playground.scrollLatest')}
           </button>
         )}
 
@@ -1005,17 +1010,17 @@ const Playground: FC = () => {
           {convEnabled && messages.filter(m => m.status === 'SENT').length > 1 && (
             <p className="text-[10px] font-label uppercase tracking-widest text-secondary mb-2 flex items-center gap-1">
               <span className="material-symbols-outlined text-[11px]">forum</span>
-              Conversational — {messages.filter(m => m.status === 'SENT').length} messages in history
+              {t('playground.conversationalBar', { count: messages.filter(m => m.status === 'SENT').length })}
             </p>
           )}
           <div className="flex items-end gap-3 bg-surface-container-lowest border border-outline-variant/20 p-2">
-            <label htmlFor="chat-input" className="sr-only">Message</label>
+            <label htmlFor="chat-input" className="sr-only">{t('playground.messageLabel')}</label>
             <textarea
               id="chat-input"
               ref={textareaRef}
               rows={1}
               className="flex-1 bg-transparent border-none focus:ring-0 focus:outline-none text-sm font-body px-4 py-2 resize-none max-h-40 custom-scrollbar"
-              placeholder={llmDown ? 'Chat model offline — start llama-cpp-chat to send messages' : 'Ask a question…  (Enter to send · Shift+Enter for a new line)'}
+              placeholder={llmDown ? t('playground.inputPlaceholderOffline') : t('playground.inputPlaceholder')}
               value={input}
               onChange={(e) => {
                 setInput(e.target.value);
@@ -1034,7 +1039,7 @@ const Playground: FC = () => {
               <button
                 type="button"
                 onClick={stopGeneration}
-                aria-label="Stop generation"
+                aria-label={t('playground.stop')}
                 className="bg-error/90 text-on-error p-2 transition-all hover:bg-error flex items-center justify-center"
               >
                 <span aria-hidden="true" className="material-symbols-outlined">stop</span>
@@ -1044,7 +1049,7 @@ const Playground: FC = () => {
                 type="button"
                 onClick={handleSend}
                 disabled={!input.trim() || llmDown}
-                aria-label="Send message"
+                aria-label={t('playground.send')}
                 className="bg-primary text-on-primary-fixed p-2 transition-all hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center"
               >
                 <span aria-hidden="true" className="material-symbols-outlined">send</span>
@@ -1055,22 +1060,33 @@ const Playground: FC = () => {
       </div>
       <RagAdvisor open={advisorOpen} onClose={() => setAdvisorOpen(false)} />
       {traceMsg && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
-          <div className="bg-surface-container border border-outline-variant/30 shadow-2xl w-full max-w-4xl max-h-full flex flex-col rounded-xl overflow-hidden animate-in zoom-in-95 duration-300">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300"
+          onClick={() => setTraceMsg(null)}
+        >
+          <div
+            ref={traceRef}
+            tabIndex={-1}
+            role="dialog"
+            aria-modal="true"
+            aria-label={t('playground.traceTitle')}
+            onClick={e => e.stopPropagation()}
+            className="bg-surface-container border border-outline-variant/30 shadow-2xl w-full max-w-4xl max-h-full flex flex-col rounded-xl overflow-hidden outline-none animate-in zoom-in-95 duration-300"
+          >
             <header className="px-6 py-4 border-b border-outline-variant/10 flex items-center justify-between bg-surface-container-high shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-lg bg-primary/20 text-primary flex items-center justify-center">
                   <span className="material-symbols-outlined text-sm">insights</span>
                 </div>
                 <div>
-                  <h2 className="font-headline font-bold text-lg text-on-surface">Algorithm Trace</h2>
-                  <p className="text-[11px] uppercase tracking-widest text-on-surface-variant">Execution details for the selected response</p>
+                  <h2 className="font-headline font-bold text-lg text-on-surface">{t('playground.traceTitle')}</h2>
+                  <p className="text-[11px] uppercase tracking-widest text-on-surface-variant">{t('playground.traceSubtitle')}</p>
                 </div>
               </div>
               <button
                 onClick={() => setTraceMsg(null)}
                 className="w-8 h-8 flex items-center justify-center text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest transition-colors rounded-full"
-                aria-label="Close trace panel"
+                aria-label={t('playground.traceClose')}
               >
                 <span className="material-symbols-outlined text-sm">close</span>
               </button>
@@ -1080,22 +1096,22 @@ const Playground: FC = () => {
               <div className="space-y-3">
                 <h3 className="font-headline font-bold text-sm text-primary uppercase tracking-widest flex items-center gap-2">
                   <span className="material-symbols-outlined text-base">route</span>
-                  Strategy Applied
+                  {t('playground.strategyApplied')}
                 </h3>
                 <div className="bg-surface-container-low border border-outline-variant/10 rounded-lg p-4">
                   <div className="flex flex-col md:flex-row gap-6 md:items-center justify-between">
                     <div>
                        <p className="text-xl font-headline font-bold text-on-surface">{traceMsg.ragMeta?.ragStrategy}</p>
                        <p className="text-xs text-on-surface-variant mt-1">
-                         {traceMsg.ragMeta?.ragStrategy === 'AGENTIC' ? "The LLM actively reasoned and queried the index in a loop to answer the question." :
-                          traceMsg.ragMeta?.ragStrategy === 'STANDARD' ? "Standard retrieve-and-generate pipeline." :
-                          "The question bypassed the index."}
+                         {traceMsg.ragMeta?.ragStrategy === 'AGENTIC' ? t('playground.stratAgentic') :
+                          traceMsg.ragMeta?.ragStrategy === 'STANDARD' ? t('playground.stratStandard') :
+                          t('playground.stratDirect')}
                        </p>
                     </div>
                     {traceMsg.ragMeta?.ragStrategy === 'AGENTIC' && traceMsg.ragMeta?.agenticIterations && (
                       <div className="text-right">
                         <p className="text-2xl font-mono text-primary">{traceMsg.ragMeta?.agenticIterations}</p>
-                        <p className="text-[11px] uppercase tracking-widest text-on-surface-variant mt-1">Iterations</p>
+                        <p className="text-[11px] uppercase tracking-widest text-on-surface-variant mt-1">{t('playground.iterations')}</p>
                       </div>
                     )}
                   </div>
@@ -1105,25 +1121,25 @@ const Playground: FC = () => {
               <div className="space-y-3">
                 <h3 className="font-headline font-bold text-sm text-secondary uppercase tracking-widest flex items-center gap-2">
                   <span className="material-symbols-outlined text-base">filter_alt</span>
-                  Optimizations Triggered
+                  {t('playground.optimizationsTriggered')}
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                    {[
-                      { active: traceMsg.ragMeta?.hybridSearchApplied, label: 'Hybrid Search', desc: 'Merged BM25 (exact text) + ChromaDB (semantic vectors) via Reciprocal Rank Fusion.' },
-                      { active: traceMsg.ragMeta?.rerankApplied, label: 'Cross-Encoder', desc: 'Candidates rescored jointly with the query by a Cross-Encoder for higher accuracy.' },
-                      { active: traceMsg.ragMeta?.multiQueryApplied, label: 'Multi-Query', desc: 'LLM generated query variations to broaden the search net.' },
-                      { active: traceMsg.ragMeta?.compressionApplied, label: 'Context Compression', desc: 'Extracted only the relevant sentences from large chunks.' },
-                      { active: traceMsg.ragMeta?.semanticDedupApplied, label: 'Semantic Dedup', desc: 'Filtered out near-duplicate chunks via Jaccard similarity.' },
-                      { active: traceMsg.ragMeta?.correctiveApplied, label: 'Corrective RAG', desc: 'LLM graded retrieved chunks and discarded irrelevant ones.' },
+                      { active: traceMsg.ragMeta?.hybridSearchApplied, key: 'hybrid' },
+                      { active: traceMsg.ragMeta?.rerankApplied, key: 'rerank' },
+                      { active: traceMsg.ragMeta?.multiQueryApplied, key: 'multiQuery' },
+                      { active: traceMsg.ragMeta?.compressionApplied, key: 'compression' },
+                      { active: traceMsg.ragMeta?.semanticDedupApplied, key: 'dedup' },
+                      { active: traceMsg.ragMeta?.correctiveApplied, key: 'corrective' },
                    ].map(opt => (
-                     <div key={opt.label} className={`p-4 rounded-lg border ${opt.active ? 'bg-secondary/10 border-secondary/30' : 'bg-surface-container-low border-outline-variant/10 opacity-50'}`}>
+                     <div key={opt.key} className={`p-4 rounded-lg border ${opt.active ? 'bg-secondary/10 border-secondary/30' : 'bg-surface-container-low border-outline-variant/10 opacity-50'}`}>
                         <div className="flex items-center gap-2 mb-2">
                           <span className={`material-symbols-outlined text-sm ${opt.active ? 'text-secondary' : 'text-on-surface-variant'}`}>
                             {opt.active ? 'check_circle' : 'cancel'}
                           </span>
-                          <span className={`font-bold text-xs ${opt.active ? 'text-secondary' : 'text-on-surface-variant'}`}>{opt.label}</span>
+                          <span className={`font-bold text-xs ${opt.active ? 'text-secondary' : 'text-on-surface-variant'}`}>{t(`playground.opts.${opt.key}.label`)}</span>
                         </div>
-                        <p className="text-[11px] text-on-surface-variant leading-relaxed">{opt.desc}</p>
+                        <p className="text-[11px] text-on-surface-variant leading-relaxed">{t(`playground.opts.${opt.key}.desc`)}</p>
                      </div>
                    ))}
                 </div>
@@ -1133,7 +1149,7 @@ const Playground: FC = () => {
                 <div className="space-y-3">
                   <h3 className="font-headline font-bold text-sm text-primary uppercase tracking-widest flex items-center gap-2">
                     <span className="material-symbols-outlined text-base">format_list_numbered</span>
-                    Final Context Rendered to LLM
+                    {t('playground.finalContext')}
                   </h3>
                   <div className="space-y-2">
                      {traceMsg.sources.map((src, i) => {
@@ -1143,7 +1159,7 @@ const Playground: FC = () => {
                            <div className="flex items-center justify-between">
                              <span className="font-bold text-on-surface break-all">{src.sourceFile}</span>
                              {pct !== null && (
-                               <span className="text-[11px] bg-primary/20 text-primary px-1.5 rounded">{pct}% relevance</span>
+                               <span className="text-[11px] bg-primary/20 text-primary px-1.5 rounded">{t('playground.relevancePct', { pct })}</span>
                              )}
                            </div>
                            <p className="text-on-surface-variant line-clamp-2" title={src.text || src.preview}>{src.text || src.preview}</p>

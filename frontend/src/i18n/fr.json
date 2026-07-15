@@ -112,14 +112,243 @@
     "categories": "Catégories",
     "pipelineReady": "Pipeline prêt — {{chunks}} chunks · {{pairs}} paires · modèle prêt pour le fine-tuning",
     "pipelineChunksOnly": "Chunks indexés — lancez la génération du dataset (étape 2)",
-    "pipelineEmpty": "Base de connaissances vide — ingérez des documents pour commencer (étape 1)"
+    "pipelineEmpty": "Base de connaissances vide — ingérez des documents pour commencer (étape 1)",
+    "docsAnnotations": "Documents & annotations",
+    "manageDocs": "Gérer les documents",
+    "docsCard": "Documents",
+    "aiComments": "Commentaires IA",
+    "totalComments": "{{count}} au total (humains + IA)",
+    "reviewed": "Relus",
+    "approved": "Approuvés",
+    "rejected": "Rejetés",
+    "pendingTitle": "En attente",
+    "dpoReady": "DPO prêt",
+    "exportablePairs": "{{count}} paires exportables",
+    "noApproved": "Aucun commentaire approuvé",
+    "reviewHint": "{{count}} commentaire(s) IA généré(s) — relisez-les (👍/👎) dans la fiche document pour constituer vos paires DPO.",
+    "dpoHint": "{{count}} paire(s) DPO disponible(s) — exportez-les depuis la page Documents, puis lancez un fine-tuning avec alignement DPO.",
+    "visualizations": "Visualisations",
+    "docsByLifecycle": "Documents par cycle de vie",
+    "pairsByCategory": "Paires par catégorie",
+    "personalization": "Cycle de personnalisation",
+    "personalizationTooltip": "Boucle continue : commentaires approuvés → paires DPO → fine-tuning → évaluation.",
+    "kbTooltip": "Données stockées dans ChromaDB et en mémoire de l'API.",
+    "datasetStatsError": "Impossible de charger les stats du dataset — l'API est peut-être indisponible.",
+    "gedStatsError": "Impossible de charger les stats des documents — vérifiez l'API.",
+    "metricsError": "Impossible de charger les métriques de personnalisation.",
+    "noAiComments": "aucun commentaire IA",
+    "dpoPairs": "Paires DPO",
+    "dpoGuard": "prêtes · garde Jaccard > 0,85 active",
+    "noDpoPairs": "aucune paire filtrée disponible",
+    "fineTunings": "Fine-tunings",
+    "completedTotal": "terminés · {{count}} au total",
+    "evalScore": "Score d'éval.",
+    "evalMeta": "/10 · {{time}}",
+    "noEval": "aucune évaluation",
+    "nextRetrain": "Prochain ré-entraînement automatique",
+    "threshold": "seuil : {{count}} approbations",
+    "moreApprovals": "{{count}} approbation(s) restante(s)",
+    "triggerImminent": "↺ déclenchement imminent",
+    "cyclesCompleted": "{{count}} cycle(s) de ré-entraînement terminé(s)",
+    "recentJobs": "Entraînements récents",
+    "viewAllJobs": "Voir tous les entraînements",
+    "scoreEvolution": "Évolution du score",
+    "details": "Détails",
+    "goodRef": "Bon",
+    "evalLabel": "Éval {{index}}",
+    "noPersonalization": "Aucune donnée de personnalisation — générez des commentaires IA sur vos documents (Documents → fiche → ✦ IA), puis relisez-les pour démarrer le cycle.",
+    "ragCapabilities": "Capacités RAG",
+    "caps": {
+      "hybrid": {
+        "label": "Recherche hybride",
+        "desc": "BM25 + vecteurs RRF"
+      },
+      "rerank": {
+        "label": "Re-ranking",
+        "desc": "Cross-Encoder en deux étages"
+      },
+      "multiQuery": {
+        "label": "Multi-Query",
+        "desc": "N réécritures + fusion"
+      },
+      "agentic": {
+        "label": "RAG agentique",
+        "desc": "Boucle ReAct multi-sauts"
+      },
+      "corrective": {
+        "label": "Corrective RAG",
+        "desc": "Notation LLM des chunks"
+      },
+      "comments": {
+        "label": "Commentaires IA",
+        "desc": "RAG → commentaire → DPO"
+      }
+    },
+    "pipeline": "Pipeline",
+    "actions": {
+      "ingest": {
+        "label": "Ingérer",
+        "sub": "Déposer des documents"
+      },
+      "generate": {
+        "label": "Générer",
+        "sub": "Construire le dataset"
+      },
+      "annotate": {
+        "label": "Annoter",
+        "sub": "Commentaires RAG + DPO"
+      },
+      "finetune": {
+        "label": "Fine-tuner",
+        "sub": "Entraîner le modèle"
+      },
+      "query": {
+        "label": "Interroger",
+        "sub": "Playground RAG"
+      }
+    },
+    "statusOk": "OK",
+    "statusRunning": "En cours",
+    "statusFailed": "Échoué",
+    "lossLabel": "loss {{value}}"
   },
   "playground": {
     "expertMode": "Mode expert",
     "expertModeHint": "Affiche les détails techniques : badges de stratégie RAG, distances vectorielles et métriques de latence.",
     "expertModeOn": "Mode expert activé",
     "expertModeOff": "Mode simple — détails techniques masqués",
-    "relevance": "Pertinence"
+    "relevance": "Pertinence",
+    "welcome": "Bienvenue dans le Playground Spectra. Je suis prêt à répondre à vos questions à partir de vos documents ingérés. Comment puis-je vous aider ?",
+    "cleared": "Discussion effacée. Système prêt.",
+    "chatCleared": "Historique de conversation effacé",
+    "strategyTooltip": "Stratégie : {{name}}",
+    "badges": {
+      "CONV": "Conversational RAG — question reformulée à partir de l'historique",
+      "CORR": "Corrective RAG — chunks non pertinents écartés",
+      "SELF": "Self-RAG — réponse auto-évaluée puis raffinée",
+      "RRNK": "Re-ranking Cross-Encoder appliqué",
+      "HYB": "Recherche hybride (vecteurs + BM25) utilisée",
+      "MQ": "Multi-Query — N variantes de la question fusionnées",
+      "CMPR": "Compression de contexte — passages pertinents extraits",
+      "DEDUP": "Déduplication sémantique — passages quasi identiques retirés",
+      "FULL": "RAG long-contexte — corpus complet chargé"
+    },
+    "trace": "Trace",
+    "traceAria": "Voir le détail de la trace d'algorithme",
+    "noPreview": "Aucun aperçu disponible.",
+    "openInDocuments": "Ouvrir dans Documents",
+    "docNotFound": "Document introuvable dans Documents",
+    "docOpenFailed": "Impossible d'ouvrir le document",
+    "sourcesTitle": "Sources ({{count}})",
+    "system": "Système",
+    "chatModel": "Modèle de chat",
+    "knowledgeBase": "Base de connaissances",
+    "online": "en ligne",
+    "offline": "hors ligne",
+    "llmDownHint": "Modèle de chat injoignable — démarrez <1>llama-cpp-chat</1> pour envoyer des messages.",
+    "ragDegradedHint": "Base vectorielle injoignable — le retrieval peut échouer. Désactivez la base de connaissances pour une réponse directe.",
+    "modelParameters": "Paramètres du modèle",
+    "temperature": "Température",
+    "temperatureTooltip": "Contrôle l'aléa : plus bas = plus déterministe, plus haut = plus créatif.",
+    "topP": "Top P",
+    "topPTooltip": "Limite la probabilité cumulée des tokens les plus probables.",
+    "activeModel": "Modèle actif",
+    "modelUpdated": "Modèle actif mis à jour",
+    "modelUpdatedDesc": "llm-chat recharge « {{name}} » automatiquement en quelques secondes.",
+    "modelSwitchFailed": "Échec du changement de modèle",
+    "ragConfig": "Configuration RAG",
+    "enableKb": "Activer la base de connaissances",
+    "kbLinked": "Base de connaissances connectée",
+    "kbDisconnected": "Base de connaissances déconnectée",
+    "convHistory": "Historique conversationnel",
+    "convTooltip": "Envoie l'historique de conversation pour reformuler la question avant le retrieval (Conversational RAG).",
+    "convEnabled": "Conversational RAG activé",
+    "convDisabled": "Conversational RAG désactivé",
+    "advanced": "Avancé",
+    "topCandidates": "Candidats top-k",
+    "topCandidatesTooltip": "Nombre de candidats envoyés au re-ranker (plus haut = meilleure couverture, plus lent).",
+    "ragAdvisor": "Conseiller RAG",
+    "exportConversation": "Exporter la conversation",
+    "exportMd": "En Markdown",
+    "exportJson": "En JSON",
+    "nothingToExport": "Rien à exporter pour l'instant",
+    "exported": "Conversation exportée ({{format}})",
+    "clearChat": "Effacer l'historique",
+    "roleUser": "Architecte",
+    "roleAssistant": "Spectra Core",
+    "ttftTitle": "Délai jusqu'au premier token",
+    "totalTitle": "Temps total",
+    "tokensTitle": "Tokens (approx.)",
+    "stopped": "interrompue",
+    "stoppedTitle": "Génération interrompue — la réponse peut être incomplète",
+    "goodAnswer": "Bonne réponse",
+    "badAnswer": "Mauvaise réponse",
+    "upRecorded": "Merci — 👍 enregistré",
+    "downRecorded": "Retour noté — 👎",
+    "copied": "Réponse copiée",
+    "copy": "Copier",
+    "regenerate": "Régénérer",
+    "regenSame": "Même température",
+    "regenFactual": "Plus factuel",
+    "regenCreative": "Plus créatif",
+    "edit": "Modifier",
+    "retry": "Réessayer",
+    "processing": "Traitement…",
+    "scrollNew": "Nouveau",
+    "scrollLatest": "Dernier",
+    "scrollAria": "Aller au dernier message",
+    "conversationalBar": "Conversationnel — {{count}} messages dans l'historique",
+    "inputPlaceholder": "Posez une question…  (Entrée pour envoyer · Maj+Entrée pour une nouvelle ligne)",
+    "inputPlaceholderOffline": "Modèle de chat hors ligne — démarrez llama-cpp-chat pour envoyer des messages",
+    "send": "Envoyer le message",
+    "stop": "Arrêter la génération",
+    "messageLabel": "Message",
+    "conversationAria": "Conversation",
+    "modelOffline": "Modèle hors ligne",
+    "modelOfflineDesc": "Le service du modèle de chat est injoignable. Vérifiez llama-cpp-chat.",
+    "queryFailed": "Échec de la requête",
+    "queryFailedDesc": "Le cœur Spectra est injoignable ou en timeout.",
+    "timedOut": "Génération expirée (bloquée)",
+    "generationStopped": "Génération arrêtée",
+    "traceTitle": "Trace d'algorithme",
+    "traceSubtitle": "Détail d'exécution de la réponse sélectionnée",
+    "traceClose": "Fermer la trace",
+    "strategyApplied": "Stratégie appliquée",
+    "stratAgentic": "Le LLM a raisonné activement et interrogé l'index en boucle pour répondre.",
+    "stratStandard": "Pipeline standard retrieve-and-generate.",
+    "stratDirect": "La question a contourné l'index.",
+    "iterations": "Itérations",
+    "optimizationsTriggered": "Optimisations déclenchées",
+    "opts": {
+      "hybrid": {
+        "label": "Recherche hybride",
+        "desc": "Fusion BM25 (texte exact) + ChromaDB (vecteurs sémantiques) via Reciprocal Rank Fusion."
+      },
+      "rerank": {
+        "label": "Cross-Encoder",
+        "desc": "Candidats re-notés conjointement avec la requête par un Cross-Encoder pour plus de précision."
+      },
+      "multiQuery": {
+        "label": "Multi-Query",
+        "desc": "Le LLM a généré des variantes de la requête pour élargir la recherche."
+      },
+      "compression": {
+        "label": "Compression de contexte",
+        "desc": "Seules les phrases pertinentes des gros chunks ont été extraites."
+      },
+      "dedup": {
+        "label": "Déduplication sémantique",
+        "desc": "Chunks quasi identiques filtrés via similarité de Jaccard."
+      },
+      "corrective": {
+        "label": "Corrective RAG",
+        "desc": "Le LLM a noté les chunks récupérés et écarté les non pertinents."
+      }
+    },
+    "finalContext": "Contexte final envoyé au LLM",
+    "relevancePct": "{{pct}} % de pertinence",
+    "mdSources": "Sources :",
+    "mdPipeline": "Pipeline :"
   },
   "docs": {
     "searchPlaceholder": "Rechercher dans la documentation…",
@@ -703,7 +932,8 @@
     "ratingFailed": "Échec de la notation",
     "commentDeleted": "Commentaire supprimé",
     "dpoExported": "Export DPO : {{count}} paire(s) exportée(s)",
-    "dpoExportFailed": "Échec de l'export DPO"
+    "dpoExportFailed": "Échec de l'export DPO",
+    "openSheet": "Ouvrir la fiche de {{name}}"
   },
   "batchEval": {
     "kicker": "Comparer des modèles",
