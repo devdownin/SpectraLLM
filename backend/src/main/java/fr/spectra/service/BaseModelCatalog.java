@@ -43,30 +43,33 @@ public class BaseModelCatalog {
 
     private static Map<String, BaseModel> loadManifest() {
         Map<String, BaseModel> loaded = new LinkedHashMap<>();
-        try (InputStream in = BaseModelCatalog.class.getResourceAsStream(MANIFEST_RESOURCE)) {
-            if (in == null) {
-                log.warn("Manifeste {} introuvable au classpath — catalogue de modèles de base vide "
-                        + "(seuls les repos HuggingFace complets seront acceptés).", MANIFEST_RESOURCE);
+        try {
+            org.springframework.core.io.Resource resource = new org.springframework.core.io.ClassPathResource("base_models.json");
+            if (!resource.exists()) {
+                log.warn("Manifeste base_models.json introuvable au classpath — catalogue de modèles de base vide "
+                        + "(seuls les repos HuggingFace complets seront acceptés).");
                 return loaded;
             }
-            JsonNode root = new ObjectMapper().readTree(in);
-            JsonNode modelsNode = root.path("models");
-            modelsNode.properties().forEach(property -> {
-                String alias = property.getKey();
-                JsonNode entry = property.getValue();
-                String hfRepo = entry.path("hfRepo").asText(null);
-                if (hfRepo == null || hfRepo.isBlank()) {
-                    log.warn("Entrée '{}' du manifeste sans hfRepo — ignorée", alias);
-                    return;
-                }
-                Integer contextLength = entry.hasNonNull("contextLength")
-                        ? entry.get("contextLength").asInt() : null;
-                loaded.put(alias, new BaseModel(alias, hfRepo,
-                        contextLength, entry.path("description").asText(null)));
-            });
-            log.info("Catalogue des modèles de base chargé : {}", loaded.keySet());
+            try (InputStream in = resource.getInputStream()) {
+                JsonNode root = new ObjectMapper().readTree(in);
+                JsonNode modelsNode = root.path("models");
+                modelsNode.properties().forEach(property -> {
+                    String alias = property.getKey();
+                    JsonNode entry = property.getValue();
+                    String hfRepo = entry.path("hfRepo").asText(null);
+                    if (hfRepo == null || hfRepo.isBlank()) {
+                        log.warn("Entrée '{}' du manifeste sans hfRepo — ignorée", alias);
+                        return;
+                    }
+                    Integer contextLength = entry.hasNonNull("contextLength")
+                            ? entry.get("contextLength").asInt() : null;
+                    loaded.put(alias, new BaseModel(alias, hfRepo,
+                            contextLength, entry.path("description").asText(null)));
+                });
+                log.info("Catalogue des modèles de base chargé : {}", loaded.keySet());
+            }
         } catch (Exception e) {
-            log.warn("Lecture du manifeste {} impossible : {} — catalogue vide", MANIFEST_RESOURCE, e.getMessage());
+            log.warn("Lecture du manifeste base_models.json impossible : {} — catalogue vide", e.getMessage());
         }
         return loaded;
     }

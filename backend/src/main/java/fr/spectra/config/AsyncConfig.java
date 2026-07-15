@@ -1,5 +1,6 @@
 package fr.spectra.config;
 
+import org.springframework.core.task.AsyncTaskExecutor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -19,7 +20,7 @@ public class AsyncConfig {
      * Au-delà du plafond, la soumission bloque brièvement (backpressure).
      */
     @Bean
-    public Executor taskExecutor(@Value("${spectra.async.concurrency-limit:50}") int concurrencyLimit) {
+    public AsyncTaskExecutor taskExecutor(@Value("${spectra.async.concurrency-limit:50}") int concurrencyLimit) {
         SimpleAsyncTaskExecutor executor = new SimpleAsyncTaskExecutor("spectra-async-");
         executor.setVirtualThreads(true);
         executor.setConcurrencyLimit(Math.max(1, concurrencyLimit));

@@ -383,7 +383,11 @@ public class ChromaDbClient {
      */
     @SuppressWarnings("unchecked")
     public Map<String, Object> getAllDocuments(String collectionId) {
-        Map<String, Object> body = Map.of("include", List.of("documents", "metadatas"));
+        // P2 — On demande explicitement une grande limite pour éviter la limite par défaut de 10
+        Map<String, Object> body = Map.of(
+                "limit", 1000000,
+                "include", List.of("documents", "metadatas")
+        );
 
         return webClient.post()
                 .uri(COLLECTIONS_BASE + "/{id}/get", collectionId)
@@ -440,6 +444,7 @@ public class ChromaDbClient {
         // P2 — filtre where : seuls les IDs du fichier source sont récupérés
         Map<String, Object> body = Map.of(
                 "where",   Map.of("sourceFile", Map.of("$eq", sourceFile)),
+                "limit",   1000000,
                 "include", List.of()  // IDs uniquement, pas de documents ni métadonnées
         );
 

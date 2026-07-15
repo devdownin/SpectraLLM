@@ -4,6 +4,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+import org.springframework.web.servlet.config.annotation.AsyncSupportConfigurer;
+import org.springframework.core.task.AsyncTaskExecutor;
 
 /**
  * CORS configuration — nécessaire en développement (Vite :5173 → Spring :8080).
@@ -17,12 +19,20 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 public class WebConfig implements WebMvcConfigurer {
 
     private final String[] allowedOriginPatterns;
+    private final AsyncTaskExecutor taskExecutor;
 
     public WebConfig(@Value("${spectra.cors.allowed-origin-patterns:http://localhost:*,http://127.0.0.1:*}")
-                     String allowedOriginPatterns) {
+                     String allowedOriginPatterns,
+                     AsyncTaskExecutor taskExecutor) {
         this.allowedOriginPatterns = allowedOriginPatterns.isBlank()
                 ? new String[0]
                 : allowedOriginPatterns.split("\\s*,\\s*");
+        this.taskExecutor = taskExecutor;
+    }
+
+    @Override
+    public void configureAsyncSupport(AsyncSupportConfigurer configurer) {
+        configurer.setTaskExecutor(taskExecutor);
     }
 
     @Override

@@ -8,7 +8,9 @@ import fr.spectra.persistence.InstallationJobRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -248,10 +250,14 @@ public class LlmFitService {
 
                 String downloadedFile = null;
                 int lastPersistedProgress = -1;
+                String lastOutputLine = null;
                 try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
                     String line;
                     while ((line = reader.readLine()) != null) {
                         log.debug("[llmfit] {}", line);
+                        if (!line.isBlank()) {
+                            lastOutputLine = line.trim();
+                        }
 
                         // Progress tracking
                         Matcher m = PROGRESS_PATTERN.matcher(line);
@@ -286,7 +292,7 @@ public class LlmFitService {
                 if (!finished) {
                     process.destroyForcibly();
                     log.error("Timeout installation du modèle {} — process tué", modelName);
-                    sink.tryEmitError(new RuntimeException("Timeout after 60 minutes"));
+                    sink.tryEmitError(new ResponseStatusException(HttpStatus.GATEWAY_TIMEOUT, "Timeout after 60 minutes"));
                     updateInstallation(jobId, j -> j.failed("Délai dépassé (60 minutes) — process interrompu"));
                     return false;
                 }
@@ -380,14 +386,15 @@ public class LlmFitService {
 
                     return true;
                 } else {
-                    log.error("Échec de l'installation du modèle {} (exit code: {})", modelName, process.exitValue());
-                    sink.tryEmitError(new RuntimeException("Exit code: " + process.exitValue()));
-                    updateInstallation(jobId, j -> j.failed("llmfit a retourné le code " + process.exitValue()));
+                    String errorMsg = lastOutputLine != null ? lastOutputLine : ("Exit code " + process.exitValue());
+                    log.error("Échec de l'installation du modèle {} : {}", modelName, errorMsg);
+                    sink.tryEmitError(new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, errorMsg));
+                    updateInstallation(jobId, j -> j.failed(errorMsg));
                     return false;
                 }
             } catch (Exception e) {
                 log.error("Erreur lors de l'installation du modèle " + modelName, e);
-                sink.tryEmitError(e);
+                sink.tryEmitError(new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Erreur d'installation: " + e.getMessage(), e));
                 updateInstallation(jobId, j -> j.failed(e.getMessage() != null ? e.getMessage() : e.toString()));
                 return false;
             }
