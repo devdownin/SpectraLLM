@@ -88,6 +88,32 @@ public class LlmFitService {
     private final InstallationJobRepository installationRepository;
     private final Map<String, Sinks.Many<Integer>> progressSinks = new ConcurrentHashMap<>();
 
+    /**
+     * Modèles dont une installation est en cours. Sans ce verrou par modèle, deux POST
+     * concurrents du même modèle lançaient deux sous-processus llmfit écrivant le même
+     * fichier cible, écrasaient le sink SSE du premier et pouvaient, via le repli
+     * {@link #findRecentGguf}, enregistrer l'alias vers le mauvais GGUF.
+     */
+    private final java.util.Set<String> installsInProgress = ConcurrentHashMap.newKeySet();
+
+    /**
+     * Exécuteur dédié aux installations : chaque téléchargement BLOQUE un thread jusqu'à
+     * 60 minutes (lecture du sous-processus + copie de plusieurs Go). Les exécuter sur le
+     * {@code ForkJoinPool.commonPool} (défaut de {@code supplyAsync}) affamerait tout autre
+     * usage du pool commun de la JVM — même piège que celui documenté dans
+     * {@link HybridSearchService}. Threads virtuels : parfaits pour de l'I/O bloquante.
+     */
+    private final java.util.concurrent.ExecutorService installExecutor =
+            java.util.concurrent.Executors.newThreadPerTaskExecutor(
+                    Thread.ofVirtual().name("model-install-", 0).factory());
+
+    @jakarta.annotation.PreDestroy
+    void shutdownInstallExecutor() {
+        // Interrompt les téléchargements en cours à l'arrêt de la JVM : la réconciliation
+        // au prochain démarrage marquera leurs jobs FAILED.
+        installExecutor.shutdownNow();
+    }
+
     @Value("${llmfit.path:llmfit}")
     private String llmfitPath;
 
@@ -212,6 +238,13 @@ public class LlmFitService {
             requireSafeArg(quant, SAFE_OPTION, "quant");
         }
 
+        // Un seul téléchargement à la fois PAR modèle (cf. installsInProgress). Le verrou est
+        // relâché dans le finally de la tâche asynchrone, quel que soit le dénouement.
+        if (!installsInProgress.add(modelName)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Un téléchargement de « " + modelName + " » est déjà en cours");
+        }
+
         // Sink neuf à chaque install (remplace un éventuel sink terminé d'un run précédent
         // pour ce modèle). On le CONSERVE après complétion : le navigateur ne s'abonne au
         // flux SSE qu'après le retour du POST, donc un téléchargement rapide ou en cache
@@ -225,8 +258,14 @@ public class LlmFitService {
         // le marquera FAILED. Le sink SSE en mémoire ne survivant pas à la JVM, la base est la
         // seule trace durable du téléchargement (cf. FineTuningService).
         String jobId = UUID.randomUUID().toString();
-        installationRepository.save(InstallationJobEntity.fromDto(
-                InstallationJob.pending(jobId, modelName, quant, autoActivate)));
+        try {
+            installationRepository.save(InstallationJobEntity.fromDto(
+                    InstallationJob.pending(jobId, modelName, quant, autoActivate)));
+        } catch (RuntimeException e) {
+            // Échec avant la prise en charge asynchrone : ne pas laisser le verrou posé.
+            installsInProgress.remove(modelName);
+            throw e;
+        }
 
         return CompletableFuture.supplyAsync(() -> {
             try {
@@ -263,7 +302,11 @@ public class LlmFitService {
                         Matcher m = PROGRESS_PATTERN.matcher(line);
                         if (m.find()) {
                             try {
-                                int progress = (int) Double.parseDouble(m.group(1));
+                                // Plafonné à 99 : le « 100 % » de llmfit ne marque que la fin du
+                                // TÉLÉCHARGEMENT — la copie dans le volume partagé (plusieurs Go)
+                                // et l'enregistrement restent à faire. L'UI traite 100 comme
+                                // terminal ; le vrai 100 est émis après l'enregistrement.
+                                int progress = Math.min(99, (int) Double.parseDouble(m.group(1)));
                                 sink.tryEmitNext(progress);
                                 // Persiste la progression seulement quand l'entier avance :
                                 // borne les écritures (~100 max) et garde l'historique à jour
@@ -298,8 +341,6 @@ public class LlmFitService {
                 }
                 if (process.exitValue() == 0) {
                     log.info("Modèle {} installé avec succès", modelName);
-                    sink.tryEmitNext(100);
-                    sink.tryEmitComplete();
                     updateInstallation(jobId, j -> j.withStatus(InstallationJob.Status.REGISTERING,
                             "Enregistrement du modèle"));
 
@@ -307,7 +348,7 @@ public class LlmFitService {
                         // Repli : la sortie de llmfit n'a pas permis d'extraire le chemin
                         // (format de log changé ?). Si llmfit a écrit directement dans
                         // models-dir, un scan des GGUF récents retrouve le fichier.
-                        downloadedFile = findRecentGguf(Path.of(modelsDirPath), downloadStart)
+                        downloadedFile = findRecentGguf(Path.of(modelsDirPath), downloadStart, modelName)
                                 .map(Path::toString)
                                 .orElse(null);
                         if (downloadedFile != null) {
@@ -384,6 +425,12 @@ public class LlmFitService {
                                 "Téléchargé mais fichier GGUF introuvable — non enregistré"));
                     }
 
+                    // 100 % + complete émis SEULEMENT une fois copie + enregistrement (+ éventuelle
+                    // activation) terminés : avant, l'UI annonçait « saved to the registry » pendant
+                    // que la copie de plusieurs Go tournait encore, et le CTA benchmark interrogeait
+                    // l'historique trop tôt (job encore REGISTERING → jamais proposé).
+                    sink.tryEmitNext(100);
+                    sink.tryEmitComplete();
                     return true;
                 } else {
                     String errorMsg = lastOutputLine != null ? lastOutputLine : ("Exit code " + process.exitValue());
@@ -397,11 +444,15 @@ public class LlmFitService {
                 sink.tryEmitError(new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Erreur d'installation: " + e.getMessage(), e));
                 updateInstallation(jobId, j -> j.failed(e.getMessage() != null ? e.getMessage() : e.toString()));
                 return false;
+            } finally {
+                // Relâche le verrou par modèle quel que soit le dénouement — un nouveau
+                // téléchargement du même modèle redevient possible immédiatement.
+                installsInProgress.remove(modelName);
             }
             // Le sink n'est volontairement pas retiré ici (cf. note à la création) :
             // il est conservé pour rejouer l'état terminal aux abonnés tardifs et sera
             // remplacé au prochain install du même modèle.
-        });
+        }, installExecutor);
     }
 
     /** Historique des installations Model Hub (les plus récentes d'abord). */
@@ -502,19 +553,79 @@ public class LlmFitService {
      * télécharge dans son propre cache, seul le parsing de sa sortie connaît le chemin).
      */
     static Optional<Path> findRecentGguf(Path dir, Instant since) {
+        return findRecentGguf(dir, since, null);
+    }
+
+    /**
+     * Variante corrélée au modèle demandé : parmi les GGUF récents, préfère un fichier dont
+     * le nom correspond à {@code modelName}. Sans cette corrélation, deux téléchargements
+     * parallèles de modèles différents pouvaient se voler leur fichier (« le plus récent »
+     * étant celui de l'AUTRE install) et enregistrer un alias vers le mauvais GGUF.
+     * Repli sur le plus récent si aucun nom ne correspond.
+     */
+    static Optional<Path> findRecentGguf(Path dir, Instant since, String modelName) {
         if (!Files.isDirectory(dir)) {
             return Optional.empty();
         }
         try (Stream<Path> files = Files.list(dir)) {
-            return files
+            List<Path> recents = files
                     .filter(Files::isRegularFile)
                     .filter(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".gguf"))
                     .filter(p -> lastModified(p).isAfter(since.minusSeconds(1)))
-                    .max(Comparator.comparing(LlmFitService::lastModified));
+                    .toList();
+            if (recents.isEmpty()) {
+                return Optional.empty();
+            }
+            String base = normalizedBaseName(modelName);
+            if (base != null) {
+                Optional<Path> nameMatch = recents.stream()
+                        .filter(p -> normalizeToken(p.getFileName().toString()).contains(base))
+                        .max(Comparator.comparing(LlmFitService::lastModified));
+                if (nameMatch.isPresent()) {
+                    return nameMatch;
+                }
+            }
+            return recents.stream().max(Comparator.comparing(LlmFitService::lastModified));
         } catch (Exception e) {
             log.debug("Scan de {} impossible : {}", dir, e.getMessage());
             return Optional.empty();
         }
+    }
+
+    /**
+     * Nom de base normalisé d'un identifiant de modèle (« TheBloke/Llama-2-7B-GGUF » →
+     * « llama27bgguf », « llama3.2:3b » → « llama32 ») pour une comparaison tolérante
+     * avec les noms de fichiers GGUF. {@code null} si rien d'exploitable.
+     */
+    private static String normalizedBaseName(String modelName) {
+        if (modelName == null || modelName.isBlank()) {
+            return null;
+        }
+        String base = modelName.substring(modelName.lastIndexOf('/') + 1);
+        int colon = base.indexOf(':');
+        if (colon > 0) {
+            base = base.substring(0, colon);
+        }
+        String normalized = normalizeToken(base);
+        // Les repos HF se terminent souvent par « -GGUF » alors que le fichier insère la
+        // quantisation avant l'extension (« llama-2-7b.Q4_K_M.gguf ») : on retire ce suffixe
+        // du nom de base pour que la comparaison par inclusion fonctionne.
+        if (normalized.endsWith("gguf") && normalized.length() > 4) {
+            normalized = normalized.substring(0, normalized.length() - 4);
+        }
+        return normalized.isBlank() ? null : normalized;
+    }
+
+    /** Minuscules + alphanumérique uniquement, pour comparer identifiants et noms de fichiers. */
+    private static String normalizeToken(String value) {
+        StringBuilder sb = new StringBuilder(value.length());
+        for (int i = 0; i < value.length(); i++) {
+            char c = Character.toLowerCase(value.charAt(i));
+            if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
     }
 
     private static Instant lastModified(Path path) {
