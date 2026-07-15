@@ -121,6 +121,24 @@ public class DpoGenerationService {
         return tasks.get(taskId);
     }
 
+    /**
+     * Annulation coopérative d'une génération DPO : le statut passe immédiatement à
+     * CANCELLED, la boucle s'arrête à la prochaine paire (les paires déjà générées
+     * sont conservées). Même convention que {@code DatasetGeneratorService.cancelTask}.
+     *
+     * @return {@code false} si la tâche est inconnue ou déjà terminale
+     */
+    public boolean cancelTask(String taskId) {
+        DpoTask task = tasks.get(taskId);
+        if (task == null || "COMPLETED".equals(task.status())
+                || "FAILED".equals(task.status()) || "CANCELLED".equals(task.status())) {
+            return false;
+        }
+        tasks.put(taskId, new DpoTask(taskId, "CANCELLED", task.processed(), task.total(),
+                "Annulé par l'utilisateur", task.startedAt(), Instant.now()));
+        return true;
+    }
+
     public List<DpoTask> getAllTasks() {
         return new ArrayList<>(tasks.values());
     }
@@ -161,6 +179,15 @@ public class DpoGenerationService {
                 java.nio.file.StandardOpenOption.TRUNCATE_EXISTING)) {
 
             for (int i = 0; i < total; i++) {
+                // Annulation coopérative : on s'arrête à la prochaine paire, les paires
+                // déjà écrites dans dpo_pairs.jsonl sont conservées.
+                DpoTask current = tasks.get(taskId);
+                if (current != null && "CANCELLED".equals(current.status())) {
+                    dpoPairs.clear();
+                    dpoPairs.addAll(localPairs);
+                    log.info("Génération DPO {} annulée après {} paires", taskId, localPairs.size());
+                    return;
+                }
                 TrainingPair sft = sftPairs.get(i);
                 DpoPair dpo = generateRejected(sft);
                 if (dpo != null) {
@@ -170,16 +197,17 @@ public class DpoGenerationService {
                     writer.flush();
                 }
                 int done = i + 1;
-                tasks.computeIfPresent(taskId, (k, t) ->
-                        new DpoTask(taskId, "RUNNING", done, total, null, t.startedAt(), null));
+                // Ne pas écraser un statut CANCELLED positionné pendant l'appel LLM.
+                tasks.computeIfPresent(taskId, (k, t) -> "CANCELLED".equals(t.status()) ? t
+                        : new DpoTask(taskId, "RUNNING", done, total, null, t.startedAt(), null));
             }
         }
 
         dpoPairs.clear();
         dpoPairs.addAll(localPairs);
 
-        tasks.computeIfPresent(taskId, (k, t) ->
-                new DpoTask(taskId, "COMPLETED", localPairs.size(), total, null, t.startedAt(), Instant.now()));
+        tasks.computeIfPresent(taskId, (k, t) -> "CANCELLED".equals(t.status()) ? t
+                : new DpoTask(taskId, "COMPLETED", localPairs.size(), total, null, t.startedAt(), Instant.now()));
         log.info("Génération DPO {} terminée: {} paires", taskId, localPairs.size());
     }
 

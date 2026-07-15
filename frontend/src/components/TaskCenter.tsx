@@ -4,7 +4,17 @@ import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { useGlobalTasks, etaMs, formatEta } from '../hooks/useGlobalTasks';
-import type { GlobalTask, GlobalTaskStatus } from '../hooks/useGlobalTasks';
+import type { GlobalTask, GlobalTaskKind, GlobalTaskStatus } from '../hooks/useGlobalTasks';
+import {
+  ingestApi,
+  datasetApi,
+  dpoApi,
+  fineTuningApi,
+  evaluationApi,
+  modelsHubApi,
+  ablationApi,
+} from '../services/api';
+import ConfirmDialog from './ConfirmDialog';
 
 /**
  * Centre d'activité global (header) : rend visibles TOUTES les tâches de fond
@@ -34,10 +44,29 @@ const STATUS_COLOR: Record<GlobalTaskStatus, string> = {
   failed: 'text-error',
 };
 
-const TaskRow: FC<{ task: GlobalTask; now: number; onNavigate: () => void }> = ({ task, now, onNavigate }) => {
+/**
+ * Annulation par famille de tâche → endpoint DELETE correspondant. Une famille absente
+ * (benchmark qualité) n'affiche pas de bouton. L'id brut est extrait de `${kind}:${id}`.
+ */
+const CANCEL_BY_KIND: Partial<Record<GlobalTaskKind, (id: string) => Promise<unknown>>> = {
+  ingestion:  (id) => ingestApi.cancelTask(id),
+  dataset:    (id) => datasetApi.cancelGeneration(id),
+  dpo:        (id) => dpoApi.cancelTask(id),
+  training:   (id) => fineTuningApi.cancelJob(id),
+  evaluation: (id) => evaluationApi.cancel(id),
+  ab:         (id) => evaluationApi.cancelAb(id),
+  install:    (id) => modelsHubApi.cancelInstallation(id),
+  ablation:   (id) => ablationApi.cancelJob(id),
+};
+
+const rawTaskId = (task: GlobalTask): string => task.id.slice(task.kind.length + 1);
+
+const TaskRow: FC<{ task: GlobalTask; now: number; onNavigate: () => void; onCancel?: (task: GlobalTask) => void }> =
+    ({ task, now, onNavigate, onCancel }) => {
   const { t } = useTranslation();
   const active = task.status === 'running' || task.status === 'pending';
   const eta = etaMs(task, now);
+  const cancellable = active && onCancel && CANCEL_BY_KIND[task.kind] !== undefined;
 
   return (
     <Link
@@ -58,11 +87,24 @@ const TaskRow: FC<{ task: GlobalTask; now: number; onNavigate: () => void }> = (
             <span className="text-[11px] font-bold truncate group-hover:text-primary transition-colors" title={task.label}>
               {task.label}
             </span>
-            {task.detail && (
-              <span className={`text-[10px] tabular-nums shrink-0 ${STATUS_COLOR[task.status]}`}>
-                {task.detail}
-              </span>
-            )}
+            <span className="flex items-center gap-1.5 shrink-0">
+              {task.detail && (
+                <span className={`text-[10px] tabular-nums ${STATUS_COLOR[task.status]}`}>
+                  {task.detail}
+                </span>
+              )}
+              {cancellable && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); onCancel!(task); }}
+                  aria-label={t('taskCenter.cancel')}
+                  title={t('taskCenter.cancel')}
+                  className="p-0.5 text-outline hover:text-error transition-colors"
+                >
+                  <span aria-hidden="true" className="material-symbols-outlined text-[14px]">stop_circle</span>
+                </button>
+              )}
+            </span>
           </div>
           <div className="flex items-center gap-1.5 text-outline">
             <span className="material-symbols-outlined text-[11px] shrink-0" aria-hidden="true">{task.icon}</span>
@@ -105,7 +147,24 @@ const TaskCenter: FC = () => {
   const location = useLocation();
   const { tasks, activeTasks, activeCount, liveStatus } = useGlobalTasks();
   const [open, setOpen] = useState(false);
+  const [pendingCancel, setPendingCancel] = useState<GlobalTask | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const confirmCancel = async () => {
+    const task = pendingCancel;
+    setPendingCancel(null);
+    if (!task) return;
+    const cancel = CANCEL_BY_KIND[task.kind];
+    if (!cancel) return;
+    try {
+      await cancel(rawTaskId(task));
+      toast.info(t('taskCenter.cancelRequested'), { description: task.label });
+    } catch (err: any) {
+      toast.error(t('taskCenter.cancelFailed'), {
+        description: err?.response?.data?.detail ?? err?.response?.data?.error ?? err?.message,
+      });
+    }
+  };
 
   // Horloge pour l'ETA : ne tourne que panneau ouvert (le flux SSE n'émet que sur
   // changement d'état, il ne suffit donc pas à rafraîchir un compte à rebours).
@@ -296,7 +355,8 @@ const TaskCenter: FC = () => {
                     </p>
                     <div className="divide-y divide-outline-variant/5">
                       {activeTasks.map((task) => (
-                        <TaskRow key={task.id} task={task} now={now} onNavigate={() => setOpen(false)} />
+                        <TaskRow key={task.id} task={task} now={now} onNavigate={() => setOpen(false)}
+                          onCancel={setPendingCancel} />
                       ))}
                     </div>
                   </div>
@@ -318,6 +378,21 @@ const TaskCenter: FC = () => {
           </div>
         </div>
       )}
+
+      {/* Confirmation d'annulation — évite d'interrompre un long entraînement par mégarde. */}
+      <ConfirmDialog
+        open={pendingCancel !== null}
+        title={t('taskCenter.cancelTitle')}
+        message={pendingCancel
+          ? t('taskCenter.cancelMessage', {
+              kind: t(`taskCenter.kinds.${pendingCancel.kind}`),
+              label: pendingCancel.label,
+            })
+          : ''}
+        confirmLabel={t('taskCenter.cancelConfirm')}
+        onCancel={() => setPendingCancel(null)}
+        onConfirm={confirmCancel}
+      />
     </div>
   );
 };

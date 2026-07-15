@@ -95,6 +95,10 @@ public class LlmFitService {
      * {@link #findRecentGguf}, enregistrer l'alias vers le mauvais GGUF.
      */
     private final java.util.Set<String> installsInProgress = ConcurrentHashMap.newKeySet();
+    /** Processus llmfit en cours, par jobId — pour pouvoir interrompre un téléchargement. */
+    private final Map<String, Process> runningInstallProcesses = new ConcurrentHashMap<>();
+    /** Annulations demandées, par jobId : distingue « annulé » d'un échec après destroy(). */
+    private final java.util.Set<String> cancelRequestedInstalls = ConcurrentHashMap.newKeySet();
 
     /**
      * Exécuteur dédié aux installations : chaque téléchargement BLOQUE un thread jusqu'à
@@ -286,6 +290,7 @@ public class LlmFitService {
                 ProcessBuilder pb = new ProcessBuilder(command);
                 pb.redirectErrorStream(true); // Merge stdout and stderr for progress tracking
                 Process process = pb.start();
+                runningInstallProcesses.put(jobId, process);
 
                 String downloadedFile = null;
                 int lastPersistedProgress = -1;
@@ -337,6 +342,14 @@ public class LlmFitService {
                     log.error("Timeout installation du modèle {} — process tué", modelName);
                     sink.tryEmitError(new ResponseStatusException(HttpStatus.GATEWAY_TIMEOUT, "Timeout after 60 minutes"));
                     updateInstallation(jobId, j -> j.failed("Délai dépassé (60 minutes) — process interrompu"));
+                    return false;
+                }
+                if (cancelRequestedInstalls.contains(jobId)) {
+                    // Annulé pendant le téléchargement (process tué) ou juste avant
+                    // l'enregistrement : ne pas copier/enregistrer un modèle non voulu.
+                    log.info("Installation de {} annulée par l'utilisateur (job {})", modelName, jobId);
+                    sink.tryEmitError(new ResponseStatusException(HttpStatus.CONFLICT,
+                            "Téléchargement annulé par l'utilisateur"));
                     return false;
                 }
                 if (process.exitValue() == 0) {
@@ -448,6 +461,8 @@ public class LlmFitService {
                 // Relâche le verrou par modèle quel que soit le dénouement — un nouveau
                 // téléchargement du même modèle redevient possible immédiatement.
                 installsInProgress.remove(modelName);
+                runningInstallProcesses.remove(jobId);
+                cancelRequestedInstalls.remove(jobId);
             }
             // Le sink n'est volontairement pas retiré ici (cf. note à la création) :
             // il est conservé pour rejouer l'état terminal aux abonnés tardifs et sera
@@ -478,9 +493,33 @@ public class LlmFitService {
         installationRepository.findById(jobId).ifPresent(entity -> {
             InstallationJob current = entity.toDto();
             if (current.status() == InstallationJob.Status.COMPLETED
-                    || current.status() == InstallationJob.Status.FAILED) return;
+                    || current.status() == InstallationJob.Status.FAILED
+                    || current.status() == InstallationJob.Status.CANCELLED) return;
             installationRepository.save(InstallationJobEntity.fromDto(updater.apply(current)));
         });
+    }
+
+    /**
+     * Annule un téléchargement en cours : le processus llmfit est tué, le job passe à
+     * CANCELLED, le fichier partiellement téléchargé du cache llmfit est réutilisable
+     * au prochain essai. Sans effet ({@code false}) si le job est inconnu ou déjà terminal.
+     */
+    public boolean cancelInstall(String jobId) {
+        InstallationJob job = getInstallation(jobId);
+        if (job == null || job.status() == InstallationJob.Status.COMPLETED
+                || job.status() == InstallationJob.Status.FAILED
+                || job.status() == InstallationJob.Status.CANCELLED) {
+            return false;
+        }
+        cancelRequestedInstalls.add(jobId);
+        updateInstallation(jobId, InstallationJob::cancelled);
+        Process process = runningInstallProcesses.get(jobId);
+        if (process != null) {
+            process.destroy();
+            log.info("Téléchargement {} ({}) : processus llmfit interrompu à la demande de "
+                    + "l'utilisateur", jobId, job.modelName());
+        }
+        return true;
     }
 
     /**
