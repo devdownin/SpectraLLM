@@ -41,12 +41,17 @@ public class ChunkingService {
     private final Encoding encoding;
     private final int maxChunkTokens;
     private final int overlapTokens;
+    /** Coût en tokens des séparateurs, précalculé (constants pour un encodage donné). */
+    private final int sepTokenCount;
+    private final int spaceTokenCount;
 
     public ChunkingService(SpectraProperties properties) {
         EncodingRegistry registry = Encodings.newDefaultEncodingRegistry();
         this.encoding = registry.getEncoding(EncodingType.CL100K_BASE);
         this.maxChunkTokens = properties.pipeline().chunkMaxTokens();
         this.overlapTokens = properties.pipeline().chunkOverlapTokens();
+        this.sepTokenCount = encoding.encode("\n\n").size();
+        this.spaceTokenCount = encoding.encode(" ").size();
     }
 
     /** Constructor with default chunk/overlap sizes — used in tests. */
@@ -55,6 +60,8 @@ public class ChunkingService {
         this.encoding = registry.getEncoding(EncodingType.CL100K_BASE);
         this.maxChunkTokens = 512;
         this.overlapTokens = 64;
+        this.sepTokenCount = encoding.encode("\n\n").size();
+        this.spaceTokenCount = encoding.encode(" ").size();
     }
 
     public List<TextChunk> chunk(String text, String sourceFile, Map<String, String> extraMetadata) {
@@ -67,6 +74,11 @@ public class ChunkingService {
         // Découpage par paragraphes d'abord
         String[] paragraphs = text.split("\\n\\n+");
         StringBuilder buffer = new StringBuilder();
+        // Compte de tokens du buffer maintenu INCRÉMENTALEMENT (somme des parties + séparateurs)
+        // au lieu de ré-encoder tout le buffer à chaque paragraphe — l'ancien schéma rendait le
+        // chunking quadratique sur les gros documents. La somme des parties majore légèrement le
+        // compte réel (BPE peut fusionner aux frontières) : les chunks restent donc ≤ max.
+        int bufferTokenCount = 0;
         int chunkIndex = 0;
 
         for (String paragraph : paragraphs) {
@@ -81,6 +93,7 @@ public class ChunkingService {
                 if (!buffer.isEmpty()) {
                     chunks.add(createChunk(buffer.toString(), chunkIndex++, sourceFile, extraMetadata));
                     buffer.setLength(0);
+                    bufferTokenCount = 0;
                 }
                 // Découpe le grand paragraphe
                 chunks.addAll(splitLargeParagraph(trimmed, chunkIndex, sourceFile, extraMetadata));
@@ -89,24 +102,27 @@ public class ChunkingService {
             }
 
             // Si ajouter ce paragraphe dépasse la taille, on flush
-            IntArrayList bufferTokens = encoding.encode(buffer.toString());
-            int sepTokens = buffer.isEmpty() ? 0 : encoding.encode("\n\n").size();
-            
-            if (bufferTokens.size() + sepTokens + paraTokens.size() > maxChunkTokens) {
+            int sepTokens = buffer.isEmpty() ? 0 : sepTokenCount;
+
+            if (bufferTokenCount + sepTokens + paraTokens.size() > maxChunkTokens) {
                 chunks.add(createChunk(buffer.toString(), chunkIndex++, sourceFile, extraMetadata));
 
-                // Chevauchement : on garde la fin du buffer précédent
-                IntArrayList currentTokens = encoding.encode(buffer.toString());
-                int startIdx = Math.max(0, currentTokens.size() - overlapTokens);
-                String overlap = encoding.decode(subList(currentTokens, startIdx, currentTokens.size()));
+                // Chevauchement : on garde la fin du buffer précédent — seul point où le
+                // buffer complet est encodé (une fois par chunk émis, pas par paragraphe).
+                IntArrayList bufferTokens = encoding.encode(buffer.toString());
+                int startIdx = Math.max(0, bufferTokens.size() - overlapTokens);
+                String overlap = encoding.decode(subList(bufferTokens, startIdx, bufferTokens.size()));
                 buffer.setLength(0);
                 buffer.append(overlap);
+                bufferTokenCount = bufferTokens.size() - startIdx;
             }
 
             if (!buffer.isEmpty()) {
                 buffer.append("\n\n");
+                bufferTokenCount += sepTokenCount;
             }
             buffer.append(trimmed);
+            bufferTokenCount += paraTokens.size();
         }
 
         // Dernier chunk
@@ -151,6 +167,9 @@ public class ChunkingService {
 
         List<TextChunk> chunks = new ArrayList<>();
         StringBuilder currentChunk = new StringBuilder();
+        // Compte incrémental — même principe que chunk() : pas de ré-encodage du chunk
+        // courant à chaque phrase (le majorant somme-des-parties garantit chunk ≤ max).
+        int currentTokenCount = 0;
         int index = startIndex;
 
         for (String sentence : sentences) {
@@ -162,6 +181,7 @@ public class ChunkingService {
                 if (!currentChunk.isEmpty()) {
                     chunks.add(createChunk(currentChunk.toString(), index++, sourceFile, meta));
                     currentChunk.setLength(0);
+                    currentTokenCount = 0;
                 }
                 // Découpage par tokens
                 List<TextChunk> subChunks = splitLargeTextByTokens(sentence, index, sourceFile, meta);
@@ -170,25 +190,28 @@ public class ChunkingService {
                 continue;
             }
 
-            IntArrayList currentChunkTokens = encoding.encode(currentChunk.toString());
-            int spaceTokens = currentChunk.isEmpty() ? 0 : encoding.encode(" ").size();
+            int spaceTokens = currentChunk.isEmpty() ? 0 : spaceTokenCount;
 
             // Si l'ajout de cette phrase dépasse la limite du chunk
-            if (currentChunkTokens.size() + spaceTokens + sentenceTokens.size() > maxChunkTokens) {
+            if (currentTokenCount + spaceTokens + sentenceTokens.size() > maxChunkTokens) {
                 chunks.add(createChunk(currentChunk.toString(), index++, sourceFile, meta));
 
-                // Application du chevauchement (overlap)
+                // Application du chevauchement (overlap) — unique encodage du chunk complet,
+                // effectué une fois par chunk émis.
                 IntArrayList currentTokens = encoding.encode(currentChunk.toString());
                 int startIdx = Math.max(0, currentTokens.size() - overlapTokens);
                 String overlap = encoding.decode(subList(currentTokens, startIdx, currentTokens.size()));
                 currentChunk.setLength(0);
                 currentChunk.append(overlap);
+                currentTokenCount = currentTokens.size() - startIdx;
             }
 
             if (!currentChunk.isEmpty() && !currentChunk.toString().endsWith(" ") && !sentence.startsWith(" ")) {
                 currentChunk.append(" ");
+                currentTokenCount += spaceTokenCount;
             }
             currentChunk.append(sentence);
+            currentTokenCount += sentenceTokens.size();
         }
 
         if (!currentChunk.isEmpty()) {

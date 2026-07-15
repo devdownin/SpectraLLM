@@ -90,6 +90,22 @@ public class EvaluationService {
     private Path reportsFile;
     private Path abReportsFile;
 
+    /**
+     * Persistance THROTTLÉE : chaque paire jugée publiait un instantané qui réécrivait
+     * l'intégralité des rapports (pretty-printed, scores inclus) sur disque — un coût I/O
+     * quadratique au fil des évaluations. On marque désormais l'état « sale » et on écrit
+     * au plus toutes les {@link #PERSIST_INTERVAL_MS} ms (+ flush planifié et à l'arrêt).
+     * La fenêtre de perte de 5 s est couverte par la réconciliation au démarrage, qui marque
+     * FAILED tout rapport resté non-terminal.
+     */
+    private static final long PERSIST_INTERVAL_MS = 5_000;
+    private final java.util.concurrent.atomic.AtomicBoolean reportsDirty =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+    private final java.util.concurrent.atomic.AtomicBoolean abReportsDirty =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+    private volatile long lastReportsWrite;
+    private volatile long lastAbReportsWrite;
+
     @Autowired @Lazy
     private EvaluationService self;
 
@@ -136,30 +152,103 @@ public class EvaluationService {
                 log.warn("Impossible de charger les comparaisons A/B persistées: {}", e.getMessage());
             }
         }
+
+        reconcileInterruptedReports();
+    }
+
+    /**
+     * Tout rapport restauré dans un état non-terminal est orphelin : son thread d'évaluation
+     * a disparu avec l'ancienne JVM. On le marque FAILED pour que l'UI ne le suive pas
+     * indéfiniment (même politique que FineTuningService.reconcileInterruptedJobs).
+     */
+    private void reconcileInterruptedReports() {
+        boolean changed = false;
+        for (Map.Entry<String, EvaluationReport> e : reports.entrySet()) {
+            EvaluationReport r = e.getValue();
+            if (!TERMINAL_STATUSES.contains(r.status())) {
+                e.setValue(new EvaluationReport(
+                        r.evalId(), "FAILED", r.modelName(), r.jobId(),
+                        r.testSetSize(), r.processed(), r.averageScore(),
+                        r.scoresByCategory(), r.scores(), r.avgLatencyMs(), r.avgTokensPerSec(),
+                        "Interrompu par un redémarrage du serveur", r.startedAt(), Instant.now(), r.judgeModel()));
+                changed = true;
+            }
+        }
+        boolean abChanged = false;
+        for (Map.Entry<String, AbComparisonReport> e : abReports.entrySet()) {
+            AbComparisonReport r = e.getValue();
+            if (!TERMINAL_STATUSES.contains(r.status())) {
+                e.setValue(withStatus(r, "FAILED", "Interrompu par un redémarrage du serveur"));
+                abChanged = true;
+            }
+        }
+        if (changed) {
+            log.warn("Évaluations non terminées marquées FAILED après redémarrage");
+            reportsDirty.set(true);
+            flushReports();
+        }
+        if (abChanged) {
+            log.warn("Comparaisons A/B non terminées marquées FAILED après redémarrage");
+            abReportsDirty.set(true);
+            flushAbReports();
+        }
     }
 
     private void persistReports() {
-        if (reportsFile == null) return;
+        reportsDirty.set(true);
+        if (System.currentTimeMillis() - lastReportsWrite >= PERSIST_INTERVAL_MS) {
+            flushReports();
+        }
+    }
+
+    private void persistAbReports() {
+        abReportsDirty.set(true);
+        if (System.currentTimeMillis() - lastAbReportsWrite >= PERSIST_INTERVAL_MS) {
+            flushAbReports();
+        }
+    }
+
+    /** Écrit les rapports d'évaluation sur disque s'ils ont changé depuis la dernière écriture. */
+    private void flushReports() {
+        if (reportsFile == null || !reportsDirty.compareAndSet(true, false)) return;
         synchronized (persistLock) {
             try {
                 Files.createDirectories(workDir);
                 writeJsonAtomically(reportsFile, reports);
+                lastReportsWrite = System.currentTimeMillis();
             } catch (Exception e) {
+                reportsDirty.set(true); // retentera au prochain flush planifié
                 log.warn("Échec persistance évaluations: {}", e.getMessage());
             }
         }
     }
 
-    private void persistAbReports() {
-        if (abReportsFile == null) return;
+    /** Écrit les comparaisons A/B sur disque si elles ont changé depuis la dernière écriture. */
+    private void flushAbReports() {
+        if (abReportsFile == null || !abReportsDirty.compareAndSet(true, false)) return;
         synchronized (persistLock) {
             try {
                 Files.createDirectories(workDir);
                 writeJsonAtomically(abReportsFile, abReports);
+                lastAbReportsWrite = System.currentTimeMillis();
             } catch (Exception e) {
+                abReportsDirty.set(true);
                 log.warn("Échec persistance comparaisons A/B: {}", e.getMessage());
             }
         }
+    }
+
+    /** Flush périodique des états marqués sales (borne la fenêtre de perte à ~5 s). */
+    @Scheduled(fixedDelay = 5_000)
+    public void flushPendingReports() {
+        flushReports();
+        flushAbReports();
+    }
+
+    @jakarta.annotation.PreDestroy
+    void flushOnShutdown() {
+        flushReports();
+        flushAbReports();
     }
 
     /** Écrit le JSON dans un fichier temporaire puis le renomme, pour ne jamais laisser un fichier tronqué. */
@@ -593,8 +682,15 @@ public class EvaluationService {
                 r.startedAt(), Instant.now());
     }
 
+    /** Statuts terminaux : un rapport dans l'un de ces états ne doit plus jamais être réécrit. */
+    private static final Set<String> TERMINAL_STATUSES = Set.of("COMPLETED", "FAILED", "CANCELLED");
+
     private void updateAb(String abId, UnaryOperator<AbComparisonReport> updater) {
-        abReports.computeIfPresent(abId, (k, v) -> updater.apply(v));
+        // Ne pas ressusciter un rapport terminal : un instantané RUNNING publié par le thread
+        // d'évaluation juste après un cancelAb() écrasait le statut CANCELLED — le rapport
+        // restait alors « RUNNING » pour toujours (le thread sort de la boucle sans le reposer).
+        abReports.computeIfPresent(abId, (k, v) ->
+                TERMINAL_STATUSES.contains(v.status()) ? v : updater.apply(v));
         persistAbReports();
     }
 
@@ -1070,7 +1166,10 @@ public class EvaluationService {
     }
 
     private void updateReport(String evalId, UnaryOperator<EvaluationReport> updater) {
-        reports.computeIfPresent(evalId, (k, v) -> updater.apply(v));
+        // Même protection que updateAb : un publishRunning tardif ne doit pas écraser
+        // le CANCELLED posé par cancelEvaluation (rapport sinon figé en RUNNING).
+        reports.computeIfPresent(evalId, (k, v) ->
+                TERMINAL_STATUSES.contains(v.status()) ? v : updater.apply(v));
         persistReports();
     }
 }

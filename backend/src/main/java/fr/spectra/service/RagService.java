@@ -794,7 +794,14 @@ public class RagService {
 
         // Distance 0.0 : tous les chunks sont directement pertinents (pas de filtrage vectoriel)
         List<Double> distances = new ArrayList<>(Collections.nCopies(documents.size(), 0.0));
-        return buildRagContext(documents, metadatas != null ? metadatas : List.of(), distances,
+        // Métadonnées alignées sur documents : une réponse Chroma sans metadatas (ou avec des
+        // entrées nulles) provoquait un IndexOutOfBounds/NPE dans buildRagContext.
+        List<Map<String, String>> safeMetadatas = new ArrayList<>(documents.size());
+        for (int i = 0; i < documents.size(); i++) {
+            Map<String, String> m = (metadatas != null && i < metadatas.size()) ? metadatas.get(i) : null;
+            safeMetadatas.add(m != null ? m : Map.of());
+        }
+        return buildRagContext(documents, safeMetadatas, distances,
                 null, null, false, false, false, false, true);
     }
 

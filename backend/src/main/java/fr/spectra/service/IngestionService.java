@@ -221,9 +221,20 @@ public class IngestionService {
 
         tasks.put(taskId, IngestionTask.pending(taskId, allFileNames));
         executor.execute(taskId, toProcessNames, tempFiles, tasks, defaultCollection, tempFileToHash,
-                (hash, fileName, chunks) -> {
-                    recordIngestion(hash, fileName, chunks);
-                    inFlightHashes.remove(hash); // libère la réservation : la dédup DB prend le relais
+                new IngestionTaskExecutor.IngestionCallback() {
+                    @Override
+                    public void onIngested(String hash, String fileName, int chunks) {
+                        recordIngestion(hash, fileName, chunks);
+                        inFlightHashes.remove(hash); // libère la réservation : la dédup DB prend le relais
+                    }
+
+                    @Override
+                    public void onFinished() {
+                        // Libère les réservations restantes (fichiers en ÉCHEC) dès la fin de la
+                        // tâche : sans cela, une nouvelle tentative d'ingestion du même contenu
+                        // était rejetée jusqu'à l'expiration du TTL (15 min).
+                        tempFileToHash.values().forEach(inFlightHashes::remove);
+                    }
                 }, tempDir);
 
         return taskId;
@@ -263,14 +274,21 @@ public class IngestionService {
      * point de contrôle dans l'exécuteur.
      */
     public boolean cancelTask(String taskId) {
-        IngestionTask task = tasks.get(taskId);
-        if (task == null) return false;
-        if (task.status() == IngestionTask.Status.COMPLETED
-                || task.status() == IngestionTask.Status.FAILED
-                || task.status() == IngestionTask.Status.CANCELLED) return false;
+        // Mise à jour ATOMIQUE : l'ancien enchaînement get() puis put() pouvait écraser un
+        // statut COMPLETED/FAILED posé entre-temps par l'exécuteur (course annulation/fin).
         cancelledTaskIds.add(taskId);
-        tasks.put(taskId, task.cancelled());
-        return true;
+        final boolean[] cancelled = {false};
+        tasks.computeIfPresent(taskId, (k, t) -> {
+            if (t.status() == IngestionTask.Status.COMPLETED
+                    || t.status() == IngestionTask.Status.FAILED
+                    || t.status() == IngestionTask.Status.CANCELLED) {
+                return t;
+            }
+            cancelled[0] = true;
+            return t.cancelled();
+        });
+        if (!cancelled[0]) cancelledTaskIds.remove(taskId);
+        return cancelled[0];
     }
 
     public boolean isCancelled(String taskId) {

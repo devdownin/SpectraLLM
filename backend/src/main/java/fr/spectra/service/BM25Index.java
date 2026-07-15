@@ -23,11 +23,35 @@ public class BM25Index implements Serializable {
     private static final float B  = 0.75f;
     private static final int   MIN_TOKEN_LEN = 2;
 
+    // Patterns précompilés : buildTermFreq est sur le chemin chaud (indexation ET recherche) ;
+    // les replaceAll(String) recompilaient ces regex pour chaque token.
+    /** Séparateurs de tokens : blancs + apostrophes (élisions françaises « l'énergie » → « énergie »). */
+    private static final java.util.regex.Pattern TOKEN_SPLIT =
+            java.util.regex.Pattern.compile("[\\s'’]+");
+    /** Caractères non significatifs (tiret conservé à l'intérieur des tokens). */
+    private static final java.util.regex.Pattern NON_WORD =
+            java.util.regex.Pattern.compile("[^a-z0-9àâäéèêëîïôùûüçœæ\\-]");
+
     private transient ReadWriteLock lock = new ReentrantReadWriteLock();
 
     private void readObject(java.io.ObjectInputStream in) throws IOException, ClassNotFoundException {
         in.defaultReadObject();
         this.lock = new ReentrantReadWriteLock();
+    }
+
+    /**
+     * Sérialisation sous verrou de lecture : permet de persister l'index sur disque
+     * PENDANT que d'autres threads indexent (la persistance différée de FtsService
+     * n'est plus faite sous le verrou de la map) sans risquer une
+     * ConcurrentModificationException ni un instantané incohérent.
+     */
+    private void writeObject(java.io.ObjectOutputStream out) throws IOException {
+        lock.readLock().lock();
+        try {
+            out.defaultWriteObject();
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
     // docId → token frequency map
@@ -164,11 +188,13 @@ public class BM25Index implements Serializable {
     private static Map<String, Integer> buildTermFreq(String text) {
         if (text == null || text.isBlank()) return Map.of();
         Map<String, Integer> freq = new HashMap<>();
-        // Split sur les espaces uniquement pour conserver les tirets dans les tokens bruts
-        for (String raw : text.toLowerCase(Locale.ROOT).split("\\s+")) {
+        // Split sur blancs + apostrophes (les élisions « l' », « d' »… n'apportent rien et
+        // fusionnaient auparavant en tokens inexistants : « l'énergie » → « lénergie »,
+        // introuvable par une recherche « énergie »). Les tirets restent dans les tokens bruts.
+        for (String raw : TOKEN_SPLIT.split(text.toLowerCase(Locale.ROOT))) {
             // Nettoyer les caractères non significatifs en conservant le tiret à l'intérieur
-            String cleaned = raw.replaceAll("[^a-zA-Z0-9àâäéèêëîïôùûüçœæ\\-]", "")
-                                 .replaceAll("^-+|-+$", ""); // supprimer tirets en début/fin
+            String cleaned = NON_WORD.matcher(raw).replaceAll("");
+            cleaned = trimHyphens(cleaned); // tirets en début/fin
             if (cleaned.length() < MIN_TOKEN_LEN) continue;
             freq.merge(cleaned, 1, Integer::sum);   // terme complet (ex: "porte-à-faux")
             if (cleaned.contains("-")) {
@@ -180,5 +206,19 @@ public class BM25Index implements Serializable {
             }
         }
         return freq;
+    }
+
+    /**
+     * Retire les tirets en début et fin de token. Balayage linéaire plutôt qu'une regex
+     * {@code ^-+|-+$} : l'alternative {@code -+$} backtracke en O(n²) sur une longue suite
+     * de tirets (ReDoS polynomial signalé par CodeQL), et le trim manuel est de toute
+     * façon plus rapide sur ce chemin chaud.
+     */
+    private static String trimHyphens(String s) {
+        int start = 0;
+        int end = s.length();
+        while (start < end && s.charAt(start) == '-') start++;
+        while (end > start && s.charAt(end - 1) == '-') end--;
+        return (start == 0 && end == s.length()) ? s : s.substring(start, end);
     }
 }

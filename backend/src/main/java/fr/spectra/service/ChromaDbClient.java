@@ -378,23 +378,42 @@ public class ChromaDbClient {
                 .block(TIMEOUT_QUERY);  // P3 — timeout étendu pour grandes collections
     }
 
+    /** Taille de page pour les récupérations complètes (borne chaque réponse HTTP). */
+    private static final int BULK_PAGE_SIZE = 1000;
+
     /**
      * Récupère tous les documents d'une collection (sans embeddings).
+     *
+     * <p>Implémenté par pagination ({@link #getDocumentsPaged}) plutôt qu'un unique appel
+     * {@code limit=1000000} : sur une grosse collection, la réponse monolithique explosait
+     * le timeout (30 s) et le pic mémoire côté ChromaDB comme côté client. Le résultat agrégé
+     * conserve la même forme ({@code ids}, {@code documents}, {@code metadatas}).</p>
      */
     @SuppressWarnings("unchecked")
     public Map<String, Object> getAllDocuments(String collectionId) {
-        // P2 — On demande explicitement une grande limite pour éviter la limite par défaut de 10
-        Map<String, Object> body = Map.of(
-                "limit", 1000000,
-                "include", List.of("documents", "metadatas")
-        );
+        List<Object> ids       = new java.util.ArrayList<>();
+        List<Object> documents = new java.util.ArrayList<>();
+        List<Object> metadatas = new java.util.ArrayList<>();
 
-        return webClient.post()
-                .uri(COLLECTIONS_BASE + "/{id}/get", collectionId)
-                .bodyValue(body)
-                .retrieve()
-                .bodyToMono(Map.class)
-                .block(TIMEOUT_BULK_GET);
+        int offset = 0;
+        while (true) {
+            Map<String, Object> page = getDocumentsPaged(collectionId, BULK_PAGE_SIZE, offset);
+            List<Object> pageIds = page != null ? (List<Object>) page.get("ids") : null;
+            if (pageIds == null || pageIds.isEmpty()) break;
+
+            ids.addAll(pageIds);
+            if (page.get("documents") instanceof List<?> pageDocs) documents.addAll(pageDocs);
+            if (page.get("metadatas") instanceof List<?> pageMetas) metadatas.addAll(pageMetas);
+
+            if (pageIds.size() < BULK_PAGE_SIZE) break;
+            offset += BULK_PAGE_SIZE;
+        }
+
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        result.put("ids", ids);
+        result.put("documents", documents);
+        result.put("metadatas", metadatas);
+        return result;
     }
 
     /**
