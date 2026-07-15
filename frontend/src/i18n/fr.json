@@ -41,8 +41,15 @@
       "evaluation": "Évaluation",
       "ab": "Comparaison A/B",
       "install": "Téléchargement de modèle",
-      "benchmark": "Benchmark qualité"
-    }
+      "benchmark": "Benchmark qualité",
+      "ablation": "Passage d'ablation"
+    },
+    "cancel": "Annuler cette tâche",
+    "cancelTitle": "Annuler cette tâche ?",
+    "cancelMessage": "{{kind}} — « {{label}} » sera arrêtée. Le travail déjà effectué est conservé quand c'est possible ; la tâche ne pourra pas reprendre.",
+    "cancelConfirm": "Arrêter la tâche",
+    "cancelRequested": "Annulation demandée",
+    "cancelFailed": "Impossible d'annuler la tâche"
   },
   "wizard": {
     "ingestion": "Ingestion",
@@ -119,5 +126,20 @@
     "noResults": "Aucun résultat pour",
     "matches_one": "{{count}} occurrence",
     "matches_other": "{{count}} occurrences"
+  },
+  "confirm": {
+    "cancel": "Annuler",
+    "confirm": "Confirmer",
+    "working": "En cours…",
+    "delete": "Supprimer",
+    "deleteDocTitle": "Supprimer ce document ?",
+    "deleteDocMessage": "« {{name}} » et ses {{chunks}} chunks indexés seront définitivement retirés de la base de connaissances. Cette action est irréversible.",
+    "deleteBulkTitle": "Supprimer {{count}} document(s) ?",
+    "deleteBulkMessage": "Les documents sélectionnés et leurs chunks indexés seront définitivement retirés de la base de connaissances. Cette action est irréversible.",
+    "deleteModelTitle": "Supprimer ce modèle ?",
+    "deleteModelMessage": "« {{name}} » sera retiré du registre et son fichier GGUF ({{size}}) supprimé du disque, sauf s'il est encore référencé par un autre modèle.",
+    "generateWhileIngestingTitle": "Ingestion en cours",
+    "generateWhileIngestingMessage": "Une ingestion est encore en cours. Lancer la génération maintenant peut produire un dataset incomplet.",
+    "generateWhileIngestingConfirm": "Générer quand même"
   }
 }

@@ -41,8 +41,15 @@
       "evaluation": "Evaluation",
       "ab": "A/B comparison",
       "install": "Model download",
-      "benchmark": "Quality benchmark"
-    }
+      "benchmark": "Quality benchmark",
+      "ablation": "Ablation run"
+    },
+    "cancel": "Cancel this task",
+    "cancelTitle": "Cancel this task?",
+    "cancelMessage": "{{kind}} — “{{label}}” will be stopped. Work already done is kept where possible; the task cannot be resumed.",
+    "cancelConfirm": "Stop the task",
+    "cancelRequested": "Cancellation requested",
+    "cancelFailed": "Could not cancel the task"
   },
   "wizard": {
     "ingestion": "Ingestion",
@@ -119,5 +126,20 @@
     "noResults": "No results for",
     "matches_one": "{{count}} match",
     "matches_other": "{{count}} matches"
+  },
+  "confirm": {
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "working": "Working…",
+    "delete": "Delete",
+    "deleteDocTitle": "Delete this document?",
+    "deleteDocMessage": "“{{name}}” and its {{chunks}} indexed chunks will be permanently removed from the knowledge base. This cannot be undone.",
+    "deleteBulkTitle": "Delete {{count}} document(s)?",
+    "deleteBulkMessage": "The selected documents and their indexed chunks will be permanently removed from the knowledge base. This cannot be undone.",
+    "deleteModelTitle": "Delete this model?",
+    "deleteModelMessage": "“{{name}}” will be removed from the registry and its GGUF file ({{size}}) deleted from disk, unless another model still references it.",
+    "generateWhileIngestingTitle": "Ingestion in progress",
+    "generateWhileIngestingMessage": "An ingestion is still running. Starting the generation now may produce an incomplete dataset.",
+    "generateWhileIngestingConfirm": "Generate anyway"
   }
 }

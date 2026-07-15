@@ -1,8 +1,10 @@
 import type { FC } from 'react';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { modelsHubApi } from '../services/api';
 import { toast } from 'sonner';
+import ConfirmDialog from './ConfirmDialog';
 
 const formatSize = (bytes: number) => {
   if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
@@ -18,7 +20,9 @@ const formatSize = (bytes: number) => {
  * n'est effacé que s'il n'est référencé par aucun autre modèle.
  */
 const ModelStoragePanel: FC = () => {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<{ name: string; type: string; size: string } | null>(null);
   const queryClient = useQueryClient();
 
   const { data: storage, isLoading } = useQuery({
@@ -95,7 +99,7 @@ const ModelStoragePanel: FC = () => {
                 </div>
                 {primaryRef && (
                   <button
-                    onClick={() => deleteMutation.mutate({ name: primaryRef.name, type: primaryRef.type })}
+                    onClick={() => setPendingDelete({ name: primaryRef.name, type: primaryRef.type, size: formatSize(f.sizeBytes) })}
                     disabled={f.active || deleteMutation.isPending}
                     title={f.active ? 'Active model — activate another one first' : 'Remove from registry and delete the GGUF'}
                     className="shrink-0 flex items-center gap-1 px-3 py-1.5 border border-error/40 text-error text-[11px] font-black uppercase tracking-widest disabled:opacity-30 hover:bg-error/10 transition-colors"
@@ -109,6 +113,20 @@ const ModelStoragePanel: FC = () => {
           })}
         </div>
       )}
+
+      {/* Confirmation : le GGUF pèse plusieurs Go, la suppression est irréversible. */}
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title={t('confirm.deleteModelTitle')}
+        message={pendingDelete ? t('confirm.deleteModelMessage', { name: pendingDelete.name, size: pendingDelete.size }) : ''}
+        confirmLabel={t('confirm.delete')}
+        busy={deleteMutation.isPending}
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={() => {
+          if (pendingDelete) deleteMutation.mutate({ name: pendingDelete.name, type: pendingDelete.type });
+          setPendingDelete(null);
+        }}
+      />
     </section>
   );
 };

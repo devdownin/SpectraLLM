@@ -1,10 +1,12 @@
 import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import type { FC } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import Skeleton from '../components/Skeleton';
 import Tooltip from '../components/Tooltip';
+import ConfirmDialog from '../components/ConfirmDialog';
 import { gedApi, commentApi } from '../services/api';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import type { IngestedFile, IngestedFileSheet, DocumentLifecycle, ArticleComment } from '../types/api';
@@ -87,10 +89,17 @@ function getGroupLabel(key: string, groupBy: GroupBy): string {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** Suppression en attente de confirmation (ligne, fiche ou sélection multiple). */
+type PendingDelete =
+  | { kind: 'single'; sha: string; name: string; chunks: number }
+  | { kind: 'bulk'; shaList: string[] };
+
 const Documents: FC = () => {
   const queryClient = useQueryClient();
+  const { t } = useTranslation();
 
   const [search, setSearch] = useState('');
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
   const [selectedLifecycle, setSelectedLifecycle] = useState<string>('all');
   const [sortMode, setSortMode] = useState<SortMode>('recent');
   const [selectedSha, setSelectedSha] = useState<string | null>(null);
@@ -243,6 +252,7 @@ const Documents: FC = () => {
       setSelectedSha(null);
       toast.success('Document deleted');
     },
+    onError: (err: any) => toast.error('Deletion failed', { description: err.response?.data?.error }),
   });
 
   const bulkLifecycleMutation = useMutation({
@@ -516,10 +526,14 @@ const Documents: FC = () => {
 
         <div className="flex justify-end">
           <button
-            onClick={e => { e.stopPropagation(); deleteMutation.mutate(doc.sha256); }}
+            onClick={e => {
+              e.stopPropagation();
+              setPendingDelete({ kind: 'single', sha: doc.sha256, name: doc.fileName, chunks: doc.chunksCreated });
+            }}
+            aria-label={`Delete ${doc.fileName}`}
             className="w-8 h-8 flex items-center justify-center text-outline hover:text-error transition-colors"
           >
-            <span className="material-symbols-outlined text-sm">delete</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-sm">delete</span>
           </button>
         </div>
       </div>
@@ -879,7 +893,7 @@ const Documents: FC = () => {
             ))}
             <div className="w-px h-6 bg-outline-variant/20" />
             <button
-              onClick={() => bulkDeleteMutation.mutate(Array.from(bulkSelected))}
+              onClick={() => setPendingDelete({ kind: 'bulk', shaList: Array.from(bulkSelected) })}
               disabled={bulkDeleteMutation.isPending}
               className="px-3 py-2 border border-error/30 text-error text-[10px] font-bold tracking-widest uppercase hover:bg-error hover:text-white transition-all disabled:opacity-50"
             >
@@ -1222,7 +1236,9 @@ const Documents: FC = () => {
 
           <footer className="p-6 border-t border-outline-variant/20">
             <button
-              onClick={() => { if (sheet) deleteMutation.mutate(sheet.sha256); }}
+              onClick={() => {
+                if (sheet) setPendingDelete({ kind: 'single', sha: sheet.sha256, name: sheet.fileName, chunks: sheet.chunksCreated });
+              }}
               disabled={deleteMutation.isPending || !sheet}
               className="w-full py-3 bg-error/10 border border-error/30 text-error font-bold text-[11px] tracking-widest uppercase hover:bg-error hover:text-white transition-all disabled:opacity-50"
             >
@@ -1239,6 +1255,28 @@ const Documents: FC = () => {
           onClick={() => setSelectedSha(null)}
         />
       )}
+
+      {/* Confirmation de suppression (ligne, fiche ou sélection multiple) */}
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title={pendingDelete?.kind === 'bulk'
+          ? t('confirm.deleteBulkTitle', { count: pendingDelete.shaList.length })
+          : t('confirm.deleteDocTitle')}
+        message={pendingDelete?.kind === 'bulk'
+          ? t('confirm.deleteBulkMessage')
+          : pendingDelete
+            ? t('confirm.deleteDocMessage', { name: pendingDelete.name, chunks: pendingDelete.chunks })
+            : ''}
+        confirmLabel={t('confirm.delete')}
+        busy={deleteMutation.isPending || bulkDeleteMutation.isPending}
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={() => {
+          if (!pendingDelete) return;
+          if (pendingDelete.kind === 'bulk') bulkDeleteMutation.mutate(pendingDelete.shaList);
+          else deleteMutation.mutate(pendingDelete.sha);
+          setPendingDelete(null);
+        }}
+      />
     </div>
   );
 };

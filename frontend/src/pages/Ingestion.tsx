@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import Tooltip from '../components/Tooltip';
 import Skeleton from '../components/Skeleton';
+import ConfirmDialog from '../components/ConfirmDialog';
 import { ingestApi, datasetApi } from '../services/api';
 import { etaMs, formatEta } from '../hooks/useGlobalTasks';
 
@@ -133,8 +134,8 @@ const PipelineStep: FC<PipelineStepProps> = ({ icon, label, state, nextState, is
 const Ingestion: FC = () => {
   const { t } = useTranslation();
   const [dragActive, setDragActive] = useState(false);
-  const [syntheticQA, setSyntheticQA] = useState(true);
   const [maxChunks, setMaxChunks] = useState(10);
+  const [confirmGenerate, setConfirmGenerate] = useState(false);
   const [urlInput, setUrlInput] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -374,26 +375,9 @@ const Ingestion: FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleGenerateDataset = async () => {
-    if (!syntheticQA) {
-      // Dataset generation IS synthetic Q/A generation; there is no other mode here.
-      // Passing maxChunks=0 to the backend means "ALL chunks", the opposite of disabling.
-      toast.error('Synthetic Q&A is disabled', {
-        description: 'Enable Synthetic Q&A to generate a dataset.',
-      });
-      return;
-    }
-    const hasActiveIngestion = ingestEntries.some(
-      e => e.status === 'PENDING' || e.status === 'PROCESSING'
-    );
-    if (hasActiveIngestion) {
-      const ok = window.confirm(
-        'An ingestion is in progress. Starting generation now may produce an incomplete dataset. Continue anyway?'
-      );
-      if (!ok) return;
-    }
+  const startGeneration = async () => {
     try {
-      // maxChunks=0 is the slider's deliberate "ALL" setting (shown as ALL in the UI).
+      // maxChunks=0 = préréglage « tout le corpus ».
       const res = await datasetApi.generateDataset(maxChunks);
       const taskId: string = res.data.taskId;
       setGenTask({ taskId, status: 'PENDING', pairsGenerated: 0, chunksProcessed: 0, totalChunks: 0, error: null });
@@ -402,6 +386,16 @@ const Ingestion: FC = () => {
     } catch (err: any) {
       toast.error('Generation error', { description: err?.response?.data?.detail ?? err.message });
     }
+  };
+
+  const handleGenerateDataset = () => {
+    const hasActiveIngestion = ingestEntries.some(
+      e => e.status === 'PENDING' || e.status === 'PROCESSING'
+    );
+    // Générer pendant une ingestion produit un dataset incomplet : on demande confirmation
+    // (dialogue maison, cohérent avec le reste de l'app — pas de window.confirm).
+    if (hasActiveIngestion) setConfirmGenerate(true);
+    else startGeneration();
   };
 
   // ── Pipeline state derivation ─────────────────────────────────────────────
@@ -566,42 +560,21 @@ const Ingestion: FC = () => {
               </button>
             </div>
 
-            {/* Extraction config */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-surface-container p-5 space-y-3">
-                <div className="flex items-center gap-2">
-                  <h4 className="font-headline text-xs font-bold uppercase tracking-tight">Extraction Strategy</h4>
-                  <Tooltip content="Method for splitting documents into semantic chunks.">
-                    <span className="material-symbols-outlined text-xs text-outline cursor-help">help</span>
-                  </Tooltip>
-                </div>
-                <div className="p-3 bg-surface-container-lowest border-l-2 border-primary">
-                  <p className="text-xs font-bold mb-0.5">SEMANTIC_CHUNK_V2</p>
-                  <p className="text-[11px] text-on-surface-variant uppercase tracking-widest leading-relaxed">
-                    Context-aware partitioning
-                  </p>
-                </div>
+            {/* Extraction config.
+                (L'ancien toggle « Synthetic Q&A » a été retiré : la génération de dataset EST
+                la génération de Q/A synthétiques — la case ne servait qu'à bloquer le bouton.) */}
+            <div className="bg-surface-container p-5 space-y-3">
+              <div className="flex items-center gap-2">
+                <h4 className="font-headline text-xs font-bold uppercase tracking-tight">Extraction Strategy</h4>
+                <Tooltip content="Method for splitting documents into semantic chunks.">
+                  <span className="material-symbols-outlined text-xs text-outline cursor-help">help</span>
+                </Tooltip>
               </div>
-
-              <div className="bg-surface-container p-5 space-y-3">
-                <div className="flex items-center gap-2">
-                  <h4 className="font-headline text-xs font-bold uppercase tracking-tight">Augmentation</h4>
-                  <Tooltip content="Enables on-the-fly generation of synthetic Q/A pairs.">
-                    <span className="material-symbols-outlined text-xs text-outline cursor-help">help</span>
-                  </Tooltip>
-                </div>
-                <label className="flex items-center gap-3 cursor-pointer group">
-                  <input
-                    type="checkbox"
-                    checked={syntheticQA}
-                    onChange={(e) => setSyntheticQA(e.target.checked)}
-                    className="sr-only peer"
-                  />
-                  <div className="w-4 h-4 border border-primary flex items-center justify-center group-hover:bg-primary/10 transition-colors peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-primary peer-focus-visible:outline-offset-2">
-                    {syntheticQA && <div className="w-2 h-2 bg-primary"></div>}
-                  </div>
-                  <span className="text-xs font-label uppercase tracking-widest">Synthetic Q&amp;A</span>
-                </label>
+              <div className="p-3 bg-surface-container-lowest border-l-2 border-primary">
+                <p className="text-xs font-bold mb-0.5">SEMANTIC_CHUNK_V2</p>
+                <p className="text-[11px] text-on-surface-variant uppercase tracking-widest leading-relaxed">
+                  Context-aware partitioning
+                </p>
               </div>
             </div>
           </div>
@@ -764,25 +737,44 @@ const Ingestion: FC = () => {
           {/* Controls */}
           <div className="bg-surface-container p-6 space-y-6">
             <div className="space-y-3">
-              <div className="flex justify-between items-center">
-                <div className="flex items-center gap-2">
-                  <label className="font-label text-[11px] uppercase tracking-widest">Max Chunks</label>
-                  <Tooltip content="Number of chunks to process (0 = all). Limit for a quick test.">
-                    <span className="material-symbols-outlined text-xs text-outline cursor-help">help</span>
-                  </Tooltip>
-                </div>
-                <span className="font-headline font-bold text-sm">
-                  {maxChunks === 0 ? 'ALL' : maxChunks}
-                </span>
+              <div className="flex items-center gap-2">
+                <label className="font-label text-[11px] uppercase tracking-widest">Corpus size</label>
+                <Tooltip content="Number of chunks used to generate Q/A pairs. Start with a small sample to validate quality, then run the full corpus.">
+                  <span className="material-symbols-outlined text-xs text-outline cursor-help">help</span>
+                </Tooltip>
               </div>
-              <input
-                type="range" min={0} max={100} step={5} value={maxChunks}
-                onChange={e => setMaxChunks(parseInt(e.target.value))}
-                className="w-full accent-primary"
-              />
-              <div className="flex justify-between text-[10px] text-outline uppercase tracking-widest">
-                <span>All</span><span>50</span><span>100</span>
+              {/* Presets explicites (remplacent l'ancien slider où min = 0 = « tout » était
+                  contre-intuitif) : l'option la plus lourde est clairement nommée, à droite. */}
+              <div className="grid grid-cols-4 gap-2">
+                {[
+                  { value: 10, label: '10', sub: 'quick test' },
+                  { value: 50, label: '50', sub: 'sample' },
+                  { value: 100, label: '100', sub: 'large' },
+                  { value: 0, label: 'ALL', sub: 'full corpus' },
+                ].map(p => (
+                  <button
+                    key={p.value}
+                    type="button"
+                    onClick={() => setMaxChunks(p.value)}
+                    aria-pressed={maxChunks === p.value}
+                    className={`py-2 border text-center transition-all ${
+                      maxChunks === p.value
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-outline-variant/20 text-on-surface-variant hover:border-primary/30'
+                    }`}
+                  >
+                    <span className="block font-headline font-bold text-sm">{p.label}</span>
+                    <span className="block text-[9px] uppercase tracking-widest">{p.sub}</span>
+                  </button>
+                ))}
               </div>
+              {/* Ordre de grandeur du travail : ~1 appel LLM par chunk traité. */}
+              {stats && stats.chunksInStore > 0 && (
+                <p className="text-[10px] text-outline uppercase tracking-widest">
+                  ≈ {maxChunks === 0 ? stats.chunksInStore : Math.min(maxChunks, stats.chunksInStore)} chunks
+                  processed (~1 LLM call each)
+                </p>
+              )}
             </div>
 
             <button
@@ -938,6 +930,17 @@ const Ingestion: FC = () => {
           )}
         </section>
       )}
+
+      {/* Confirmation : générer pendant une ingestion produit un dataset incomplet. */}
+      <ConfirmDialog
+        open={confirmGenerate}
+        title={t('confirm.generateWhileIngestingTitle')}
+        message={t('confirm.generateWhileIngestingMessage')}
+        confirmLabel={t('confirm.generateWhileIngestingConfirm')}
+        danger={false}
+        onCancel={() => setConfirmGenerate(false)}
+        onConfirm={() => { setConfirmGenerate(false); startGeneration(); }}
+      />
     </div>
   );
 };
