@@ -1,5 +1,7 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import type { FC } from 'react';
+import type { TFunction } from 'i18next';
+import { useTranslation } from 'react-i18next';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -39,12 +41,12 @@ interface FineTuningJob {
 
 // ── Pipeline step definitions ─────────────────────────────────────────────
 
-const PIPELINE_STEPS: { status: JobStatus; label: string; icon: string }[] = [
-  { status: 'PENDING',           label: 'Queued',     icon: 'hourglass_empty' },
-  { status: 'EXPORTING_DATASET', label: 'Export',     icon: 'dataset' },
-  { status: 'TRAINING',          label: 'Training',   icon: 'model_training' },
-  { status: 'IMPORTING_MODEL',   label: 'Import',     icon: 'upload_file' },
-  { status: 'COMPLETED',         label: 'Complete',   icon: 'check_circle' },
+const PIPELINE_STEPS: { status: JobStatus; icon: string }[] = [
+  { status: 'PENDING',           icon: 'hourglass_empty' },
+  { status: 'EXPORTING_DATASET', icon: 'dataset' },
+  { status: 'TRAINING',          icon: 'model_training' },
+  { status: 'IMPORTING_MODEL',   icon: 'upload_file' },
+  { status: 'COMPLETED',         icon: 'check_circle' },
 ];
 
 const stepIndex = (status: JobStatus): number =>
@@ -53,6 +55,7 @@ const stepIndex = (status: JobStatus): number =>
 interface StepBarProps { job: FineTuningJob }
 
 const StepBar: FC<StepBarProps> = ({ job }) => {
+  const { t } = useTranslation();
   const current = job.status === 'FAILED'
     ? stepIndex('COMPLETED') - 1
     : stepIndex(job.status);
@@ -96,7 +99,7 @@ const StepBar: FC<StepBarProps> = ({ job }) => {
                 isDone    ? 'text-primary' :
                 isActive  ? 'text-secondary' :
                             'text-outline'
-              }`}>{step.label}</span>
+              }`}>{t(`fineTuning.steps.${step.status}`)}</span>
             </div>
             {i < PIPELINE_STEPS.length - 1 && (
               <div className={`relative flex-1 h-px mx-1 mb-5 overflow-hidden ${
@@ -129,12 +132,13 @@ const jobStatusColor = (s: JobStatus) => {
 };
 
 // ── Validation Schema ────────────────────────────────────────────────────────
+// Construit avec t() pour que les messages de validation suivent la langue.
 
-const trainingSchema = z.object({
+const makeTrainingSchema = (t: TFunction) => z.object({
   modelName: z.string()
-    .min(3, 'Name must be at least 3 characters')
-    .regex(/^[a-z0-9-_]+$/, 'Lowercase letters, digits, - and _ only'),
-  baseModel: z.string().min(1, 'Base model required'),
+    .min(3, t('fineTuning.nameMin'))
+    .regex(/^[a-z0-9-_]+$/, t('fineTuning.namePattern')),
+  baseModel: z.string().min(1, t('fineTuning.baseRequired')),
   epochs: z.number().min(1).max(50),
   loraRank: z.number().min(4).max(256),
   minConfidence: z.number().min(0).max(1),
@@ -143,7 +147,7 @@ const trainingSchema = z.object({
   exportGguf: z.boolean().optional(),
 });
 
-type TrainingFormValues = z.infer<typeof trainingSchema>;
+type TrainingFormValues = z.infer<ReturnType<typeof makeTrainingSchema>>;
 
 interface Recipe {
   name: string;
@@ -154,6 +158,7 @@ interface Recipe {
 // ── Main component ───────────────────────────────────────────────────────────
 
 const FineTuning: FC = () => {
+  const { t, i18n } = useTranslation();
   const { data: newLog, status: sseStatus } = useSse<TrainingLog>('/api/sse/training-logs');
   const [logs, setLogs] = useState<TrainingLog[]>([]);
   const listRef = useRef<HTMLDivElement>(null);
@@ -165,6 +170,8 @@ const FineTuning: FC = () => {
   const jobRestoredRef = useRef(false);
   const [submitting, setSubmitting] = useState(false);
   const [lossHistory, setLossHistory] = useState<{ epoch: number; loss: number }[]>([]);
+
+  const trainingSchema = useMemo(() => makeTrainingSchema(t), [t]);
 
   const { register, handleSubmit, watch, reset, formState: { errors } } = useForm<TrainingFormValues>({
     resolver: zodResolver(trainingSchema),
@@ -201,7 +208,10 @@ const FineTuning: FC = () => {
         packingEnabled: r.packingEnabled ?? false,
         dpoEnabled: r.dpoEnabled ?? false,
       });
-    } catch { /* ignore */ }
+    } catch {
+      // Action utilisateur explicite : signaler l'échec plutôt que de ne rien faire.
+      toast.error(t('fineTuning.recipeLoadFailed'));
+    }
     finally { setLoadingRecipe(false); }
   };
 
@@ -224,7 +234,9 @@ const FineTuning: FC = () => {
       a.download = `${formValues.modelName || 'recipe'}.yml`;
       a.click();
       URL.revokeObjectURL(url);
-    } catch { /* ignore */ }
+    } catch {
+      toast.error(t('fineTuning.exportRecipeFailed'));
+    }
   };
 
   const formValues = watch();
@@ -313,11 +325,11 @@ const FineTuning: FC = () => {
           if (job.status === 'COMPLETED') {
             // Le job produit un adaptateur LoRA sur disque ; l'export GGUF + l'enregistrement
             // dans llama-server sont des étapes distinctes (ne pas prétendre qu'il est déployé).
-            toast.success('Fine-tuning complete!', {
-              description: `Adapter for ${job.modelName} trained — export to GGUF & register to deploy`,
+            toast.success(i18n.t('fineTuning.complete'), {
+              description: i18n.t('fineTuning.completeDesc', { name: job.modelName }),
             });
           } else {
-            toast.error('Fine-tuning failed', { description: job.error ?? undefined });
+            toast.error(i18n.t('fineTuning.failed'), { description: job.error ?? undefined });
           }
         }
       } catch {
@@ -328,7 +340,7 @@ const FineTuning: FC = () => {
     }, 4000);
 
     return () => clearInterval(interval);
-  }, [activeJob?.jobId, activeJob?.status, loadJobs]);
+  }, [activeJob?.jobId, activeJob?.status, loadJobs, i18n]);
 
   // ── Submit new job ────────────────────────────────────────────────────────
   const onFormSubmit = async (data: TrainingFormValues) => {
@@ -339,9 +351,9 @@ const FineTuning: FC = () => {
       setActiveJob(job);
       setLossHistory([]);
       setShowForm(false);
-      toast.success('Job submitted', { description: `ID: ${job.jobId.slice(0, 8)}…` });
+      toast.success(t('fineTuning.submitted'), { description: t('fineTuning.submittedId', { id: job.jobId.slice(0, 8) }) });
     } catch (err: any) {
-      toast.error('Submission error', { description: err?.response?.data?.detail ?? err.message });
+      toast.error(t('fineTuning.submitError'), { description: err?.response?.data?.detail ?? err.message });
     } finally {
       setSubmitting(false);
     }
@@ -358,15 +370,15 @@ const FineTuning: FC = () => {
       {/* Header */}
       <header className="flex justify-between items-end">
         <div>
-          <p className="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-1">Architecture Evolution</p>
-          <h2 className="font-headline text-3xl font-bold tracking-tighter">FINE-TUNING COMMAND</h2>
+          <p className="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-1">{t('fineTuning.kicker')}</p>
+          <h2 className="font-headline text-3xl font-bold tracking-tighter">{t('fineTuning.title')}</h2>
         </div>
         <button
           onClick={() => setShowForm(v => !v)}
           className="bg-primary text-on-primary-fixed font-bold py-3 px-6 text-[11px] uppercase tracking-widest hover:opacity-90 transition-opacity flex items-center gap-2"
         >
           <span className="material-symbols-outlined text-sm">{showForm ? 'close' : 'add'}</span>
-          {showForm ? 'Cancel' : 'New Training Job'}
+          {showForm ? t('fineTuning.cancel') : t('fineTuning.newJob')}
         </button>
       </header>
 
@@ -374,17 +386,17 @@ const FineTuning: FC = () => {
       {showForm && (
         <section className="bg-surface-container p-8 border-l-4 border-primary animate-in slide-in-from-top-2 duration-300">
           <div className="flex items-center justify-between mb-6">
-            <h3 className="font-headline text-lg font-bold uppercase tracking-tight">Configure Training Job</h3>
+            <h3 className="font-headline text-lg font-bold uppercase tracking-tight">{t('fineTuning.configure')}</h3>
             <button type="button" onClick={exportRecipe}
               className="text-[11px] font-label uppercase tracking-widest text-on-surface-variant hover:text-on-surface flex items-center gap-1 transition-colors">
-              <span className="material-symbols-outlined text-sm">download</span>Export Recipe
+              <span className="material-symbols-outlined text-sm">download</span>{t('fineTuning.exportRecipe')}
             </button>
           </div>
 
           {recipes.length > 0 && (
             <div className="mb-6 p-4 bg-surface-container-high/50 border border-outline-variant/20">
               <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-3">
-                Recipes {loadingRecipe ? '— loading…' : ''}
+                {t('fineTuning.recipes')} {loadingRecipe ? t('fineTuning.recipesLoading') : ''}
               </p>
               <div className="flex flex-wrap gap-2">
                 {recipes.map(r => (
@@ -402,7 +414,7 @@ const FineTuning: FC = () => {
           <form onSubmit={handleSubmit(onFormSubmit)} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
 
             <div className="space-y-2">
-              <label className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">Model Name</label>
+              <label className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">{t('fineTuning.modelName')}</label>
               <input
                 type="text" {...register('modelName')}
                 className={`w-full bg-surface-container-lowest border ${errors.modelName ? 'border-error' : 'border-outline-variant/30'} px-4 py-2.5 text-sm font-label focus:outline-none focus:border-primary transition-colors`}
@@ -412,7 +424,7 @@ const FineTuning: FC = () => {
             </div>
 
             <div className="space-y-2">
-              <label className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">Base Model</label>
+              <label className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">{t('fineTuning.baseModel')}</label>
               <input
                 type="text" {...register('baseModel')}
                 className={`w-full bg-surface-container-lowest border ${errors.baseModel ? 'border-error' : 'border-outline-variant/30'} px-4 py-2.5 text-sm font-label focus:outline-none focus:border-primary transition-colors`}
@@ -423,7 +435,7 @@ const FineTuning: FC = () => {
 
             <div className="space-y-2">
               <label className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">
-                Epochs — <span className="text-primary font-bold">{formValues.epochs}</span>
+                {t('fineTuning.epochs')} — <span className="text-primary font-bold">{formValues.epochs}</span>
               </label>
               <input
                 type="range" min={1} max={10} {...register('epochs', { valueAsNumber: true })}
@@ -433,7 +445,7 @@ const FineTuning: FC = () => {
 
             <div className="space-y-2">
               <label className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">
-                LoRA Rank — <span className="text-primary font-bold">{formValues.loraRank}</span>
+                {t('fineTuning.loraRank')} — <span className="text-primary font-bold">{formValues.loraRank}</span>
               </label>
               <input
                 type="range" min={8} max={128} step={8} {...register('loraRank', { valueAsNumber: true })}
@@ -443,7 +455,7 @@ const FineTuning: FC = () => {
 
             <div className="space-y-2">
               <label className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">
-                Min Confidence — <span className="text-primary font-bold">{(formValues.minConfidence || 0).toFixed(1)}</span>
+                {t('fineTuning.minConfidence')} — <span className="text-primary font-bold">{(formValues.minConfidence || 0).toFixed(1)}</span>
               </label>
               <input
                 type="range" min={0.5} max={1.0} step={0.05} {...register('minConfidence', { valueAsNumber: true })}
@@ -452,21 +464,21 @@ const FineTuning: FC = () => {
             </div>
 
             <div className="space-y-3">
-              <label className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">Options</label>
+              <label className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">{t('fineTuning.options')}</label>
               <label className="flex items-center gap-2 cursor-pointer select-none">
                 <input type="checkbox" {...register('packingEnabled')} className="accent-primary" />
-                <span className="font-label text-[11px] uppercase tracking-widest">Multipacking</span>
-                <span className="text-[10px] text-on-surface-variant">(-30% padding)</span>
+                <span className="font-label text-[11px] uppercase tracking-widest">{t('fineTuning.multipacking')}</span>
+                <span className="text-[10px] text-on-surface-variant">{t('fineTuning.multipackingHint')}</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer select-none">
                 <input type="checkbox" {...register('dpoEnabled')} className="accent-secondary" />
-                <span className="font-label text-[11px] uppercase tracking-widest">DPO Alignment</span>
-                <span className="text-[10px] text-on-surface-variant">(requires DPO pairs)</span>
+                <span className="font-label text-[11px] uppercase tracking-widest">{t('fineTuning.dpoAlignment')}</span>
+                <span className="text-[10px] text-on-surface-variant">{t('fineTuning.dpoHint')}</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer select-none">
                 <input type="checkbox" {...register('exportGguf')} className="accent-primary" />
-                <span className="font-label text-[11px] uppercase tracking-widest">Export GGUF &amp; register</span>
-                <span className="text-[10px] text-on-surface-variant">(merge + convert + deploy)</span>
+                <span className="font-label text-[11px] uppercase tracking-widest">{t('fineTuning.exportGguf')}</span>
+                <span className="text-[10px] text-on-surface-variant">{t('fineTuning.exportGgufHint')}</span>
               </label>
             </div>
 
@@ -478,7 +490,7 @@ const FineTuning: FC = () => {
                 <span className={`material-symbols-outlined text-sm ${submitting ? 'animate-spin' : ''}`}>
                   {submitting ? 'sync' : 'rocket_launch'}
                 </span>
-                {submitting ? 'Submitting…' : 'Launch Training'}
+                {submitting ? t('fineTuning.submitting') : t('fineTuning.launch')}
               </button>
             </div>
 
@@ -495,12 +507,12 @@ const FineTuning: FC = () => {
               autoScroll ? 'bg-primary/10 border-primary text-primary' : 'border-outline text-outline'
             }`}
           >
-            Auto-Scroll: {autoScroll ? 'ON' : 'OFF'}
+            {t('fineTuning.autoScroll', { state: autoScroll ? t('fineTuning.on') : t('fineTuning.off') })}
           </button>
           {activeJob && (activeJob.status !== 'COMPLETED' && activeJob.status !== 'FAILED') && (
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 bg-secondary animate-pulse"></div>
-              <span className="text-[11px] font-bold text-secondary uppercase tracking-widest">Live</span>
+              <span className="text-[11px] font-bold text-secondary uppercase tracking-widest">{t('fineTuning.live')}</span>
             </div>
           )}
         </div>
@@ -509,7 +521,7 @@ const FineTuning: FC = () => {
           <div className="py-12 flex flex-col items-center justify-center gap-3">
             <span className="material-symbols-outlined text-4xl text-outline">model_training</span>
             <p className="text-[11px] text-outline uppercase tracking-widest italic text-center">
-              No active job.<br />Click "New Training Job" to start training.
+              {t('fineTuning.noActiveJob1')}<br />{t('fineTuning.noActiveJob2')}
             </p>
           </div>
         ) : (
@@ -521,42 +533,42 @@ const FineTuning: FC = () => {
               {/* Left: Job details */}
               <div className="lg:col-span-1 space-y-5">
                 <div>
-                  <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">Model</p>
+                  <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">{t('fineTuning.model')}</p>
                   <h3 className="font-headline text-lg font-bold uppercase">{activeJob.modelName}</h3>
-                  <p className="text-[11px] text-on-surface-variant">from {activeJob.baseModel}</p>
+                  <p className="text-[11px] text-on-surface-variant">{t('fineTuning.fromBase', { base: activeJob.baseModel })}</p>
                 </div>
 
                 <div>
-                  <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">Status</p>
+                  <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">{t('fineTuning.status')}</p>
                   <span className={`font-label text-[11px] font-bold uppercase tracking-widest px-2 py-0.5 border ${jobStatusColor(activeJob.status)}`}>
                     {activeJob.status}
                   </span>
                 </div>
 
                 <div>
-                  <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">Current Step</p>
+                  <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">{t('fineTuning.currentStep')}</p>
                   <p className="text-xs font-label">{activeJob.currentStep}</p>
                 </div>
 
                 {activeJob.datasetSize > 0 && (
                   <div>
-                    <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">Dataset</p>
-                    <p className="font-headline font-bold text-xl">{activeJob.datasetSize} <span className="text-xs font-label text-on-surface-variant">pairs</span></p>
+                    <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">{t('fineTuning.dataset')}</p>
+                    <p className="font-headline font-bold text-xl">{activeJob.datasetSize} <span className="text-xs font-label text-on-surface-variant">{t('fineTuning.pairs')}</span></p>
                   </div>
                 )}
 
                 {epochProgress !== null && (
                   <div className="space-y-2">
                     <div className="flex justify-between items-end">
-                      <span className="text-[10px] font-label uppercase text-on-surface-variant">Training Progress</span>
+                      <span className="text-[10px] font-label uppercase text-on-surface-variant">{t('fineTuning.trainingProgress')}</span>
                       <span className="font-headline font-bold text-sm">{epochProgress.toFixed(0)}%</span>
                     </div>
                     <div className="w-full bg-outline-variant/20 h-1.5 relative">
                       <div className="absolute top-0 left-0 h-full bg-secondary transition-all" style={{ width: `${epochProgress}%` }} />
                     </div>
                     <div className="flex justify-between text-[10px] text-outline">
-                      <span>Epoch {activeJob.currentEpoch}/{activeJob.totalEpochs}</span>
-                      {activeJob.loss !== null && <span>Loss: {activeJob.loss.toFixed(4)}</span>}
+                      <span>{t('fineTuning.epochOf', { current: activeJob.currentEpoch, total: activeJob.totalEpochs })}</span>
+                      {activeJob.loss !== null && <span>{t('fineTuning.loss', { value: activeJob.loss.toFixed(4) })}</span>}
                     </div>
                   </div>
                 )}
@@ -569,7 +581,7 @@ const FineTuning: FC = () => {
 
                 {activeJob.status === 'COMPLETED' && activeJob.outputPath && (
                   <div className="p-3 bg-primary/5 border border-primary/20">
-                    <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">Output</p>
+                    <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">{t('fineTuning.output')}</p>
                     <p className="text-[11px] text-primary break-all">{activeJob.outputPath}</p>
                   </div>
                 )}
@@ -582,8 +594,8 @@ const FineTuning: FC = () => {
                 {(lossHistory.length > 0 || activeJob.status === 'TRAINING') && (
                   <div className="bg-surface-container-lowest border border-outline-variant/10">
                     <div className="px-4 py-2.5 border-b border-outline-variant/10 flex justify-between items-center">
-                      <span className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant font-bold">Training Loss</span>
-                      <span className="text-[10px] text-outline">{lossHistory.length} points</span>
+                      <span className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant font-bold">{t('fineTuning.trainingLoss')}</span>
+                      <span className="text-[10px] text-outline">{t('fineTuning.points', { count: lossHistory.length })}</span>
                     </div>
                     <div className="h-32">
                       <LossChart data={lossHistory} totalEpochs={activeJob.totalEpochs} />
@@ -594,7 +606,7 @@ const FineTuning: FC = () => {
               {/* Telemetry stream */}
               <div className="h-48 bg-surface-container-lowest font-mono text-[11px] flex flex-col">
                 <div className="px-4 py-2.5 bg-surface-container-lowest/80 backdrop-blur-sm border-b border-outline-variant/10 flex justify-between items-center shrink-0">
-                  <span className="uppercase tracking-widest text-on-surface-variant font-bold text-[10px]">Telemetry Stream</span>
+                  <span className="uppercase tracking-widest text-on-surface-variant font-bold text-[10px]">{t('fineTuning.telemetry')}</span>
                   <div className="flex items-center gap-3">
                     {/* État de la connexion SSE (live / reconnexion / coupée) */}
                     <span
@@ -603,26 +615,26 @@ const FineTuning: FC = () => {
                           : sseStatus === 'connecting' ? 'text-secondary'
                           : 'text-error'
                       }`}
-                      title={`Flux télémétrie : ${sseStatus}`}
+                      title={t('fineTuning.telemetryState', { state: sseStatus })}
                     >
                       <span className={`w-1.5 h-1.5 rounded-full ${
                         sseStatus === 'open' ? 'bg-primary animate-pulse'
                           : sseStatus === 'connecting' ? 'bg-secondary animate-pulse'
                           : 'bg-error'
                       }`} aria-hidden="true" />
-                      {sseStatus === 'open' ? 'Live' : sseStatus === 'connecting' ? 'Connecting…' : 'Disconnected'}
+                      {sseStatus === 'open' ? t('fineTuning.live') : sseStatus === 'connecting' ? t('fineTuning.connecting') : t('fineTuning.disconnected')}
                     </span>
-                    <span className="text-[10px] text-outline">{logs.length} events</span>
+                    <span className="text-[10px] text-outline">{t('fineTuning.events', { count: logs.length })}</span>
                   </div>
                 </div>
                 {logs.length === 0 ? (
                   <div className="flex-1 flex items-center justify-center">
                     <p className="text-outline italic text-[11px]">
                       {sseStatus === 'closed'
-                        ? 'Telemetry stream interrupted — reconnection failed.'
+                        ? t('fineTuning.streamInterrupted')
                         : sseStatus === 'connecting'
-                          ? 'Connecting to telemetry stream…'
-                          : 'Waiting for events…'}
+                          ? t('fineTuning.streamConnecting')
+                          : t('fineTuning.streamWaiting')}
                     </p>
                   </div>
                 ) : (
@@ -646,12 +658,12 @@ const FineTuning: FC = () => {
       {/* ── Training History ── */}
       <section className="space-y-6">
         <div className="flex items-center justify-between">
-          <h3 className="font-headline text-xl font-bold tracking-tight uppercase">Training History</h3>
+          <h3 className="font-headline text-xl font-bold tracking-tight uppercase">{t('fineTuning.history')}</h3>
           <button
             onClick={loadJobs}
             className="text-[11px] font-label uppercase tracking-widest text-on-surface-variant hover:text-on-surface transition-colors flex items-center gap-1"
           >
-            <span className="material-symbols-outlined text-sm">refresh</span>Refresh
+            <span className="material-symbols-outlined text-sm">refresh</span>{t('fineTuning.refresh')}
           </button>
         </div>
 
@@ -659,8 +671,8 @@ const FineTuning: FC = () => {
           <table className="w-full min-w-[640px] text-left border-collapse">
             <thead>
               <tr className="bg-surface-container-high">
-                {['Job ID', 'Model', 'Base', 'Dataset', 'Epochs', 'Status', 'Date'].map(h => (
-                  <th key={h} className="px-5 py-3 font-label text-[11px] uppercase tracking-widest text-on-surface-variant">{h}</th>
+                {['colJobId', 'colModel', 'colBase', 'colDataset', 'colEpochs', 'colStatus', 'colDate'].map(h => (
+                  <th key={h} className="px-5 py-3 font-label text-[11px] uppercase tracking-widest text-on-surface-variant">{t(`fineTuning.${h}`)}</th>
                 ))}
               </tr>
             </thead>
@@ -668,7 +680,7 @@ const FineTuning: FC = () => {
               {jobs.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-5 py-8 text-center text-[11px] text-outline uppercase tracking-widest italic">
-                    No jobs in history
+                    {t('fineTuning.noJobs')}
                   </td>
                 </tr>
               ) : jobs.map(job => (
@@ -682,7 +694,7 @@ const FineTuning: FC = () => {
                   </td>
                   <td className="px-5 py-3 font-label text-xs uppercase">{job.modelName}</td>
                   <td className="px-5 py-3 font-label text-xs uppercase text-on-surface-variant">{job.baseModel}</td>
-                  <td className="px-5 py-3 font-label text-xs">{job.datasetSize} pairs</td>
+                  <td className="px-5 py-3 font-label text-xs">{t('fineTuning.pairsCount', { count: job.datasetSize })}</td>
                   <td className="px-5 py-3 font-label text-xs">{job.parameters?.epochs ?? '—'}</td>
                   <td className="px-5 py-3">
                     <span className={`text-[11px] font-bold uppercase tracking-widest ${
@@ -692,7 +704,7 @@ const FineTuning: FC = () => {
                     }`}>{job.status}</span>
                   </td>
                   <td className="px-5 py-3 font-label text-xs text-on-surface-variant">
-                    {job.createdAt ? new Date(job.createdAt).toLocaleDateString('en-US') : '—'}
+                    {job.createdAt ? new Date(job.createdAt).toLocaleDateString(i18n.language) : '—'}
                   </td>
                 </tr>
               ))}

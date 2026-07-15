@@ -118,6 +118,21 @@ public class DatasetController {
         return task;
     }
 
+    @DeleteMapping("/dpo/generate/{taskId}")
+    @Operation(summary = "Annuler une génération DPO en cours",
+            description = "Annulation coopérative : la boucle s'arrête à la prochaine paire, "
+                    + "les paires déjà générées sont conservées. 409 si la tâche est terminée.")
+    public Map<String, String> cancelDpoGeneration(@PathVariable String taskId) {
+        boolean cancelled = dpoService.cancelTask(taskId);
+        if (!cancelled) {
+            DpoTask task = dpoService.getTask(taskId);
+            if (task == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Tâche inconnue: " + taskId);
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Impossible d'annuler (status=" + task.status() + ")");
+        }
+        return Map.of("taskId", taskId, "status", "CANCELLED");
+    }
+
     @GetMapping("/dpo/stats")
     @Operation(summary = "Statistiques des paires DPO générées")
     public Map<String, Object> getDpoStats() {

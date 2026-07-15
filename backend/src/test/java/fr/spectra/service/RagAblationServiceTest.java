@@ -23,7 +23,7 @@ class RagAblationServiceTest {
         LlmChatClient chat = mock(LlmChatClient.class);
         when(chat.getActiveModel()).thenReturn("active-model");
         return new RagAblationService(mock(RagService.class), mock(QualityBenchmarkService.class),
-                chat, new ModelSwitchCoordinator(chat, 2, 1));
+                chat, new ModelSwitchCoordinator(chat, 2, 1), workDir.toString());
     }
 
     // ── Flux d'ablation (deux phases + juge neutre + restauration) ──────────────
@@ -56,7 +56,7 @@ class RagAblationServiceTest {
         when(rag.query(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
                 .thenReturn(new fr.spectra.dto.QueryResponse("réponse pipeline", List.of(), 42L));
 
-        RagAblationService svc = new RagAblationService(rag, quality, chat, coordinator);
+        RagAblationService svc = new RagAblationService(rag, quality, chat, coordinator, workDir.toString());
         fr.spectra.dto.AblationReport report = svc.run(new fr.spectra.dto.AblationRequest(
                 List.of(new fr.spectra.dto.AblationRequest.Arm("bras-ft", "modele-arm", true, null)),
                 5, 1));

@@ -1,7 +1,11 @@
 package fr.spectra.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import fr.spectra.dto.AblationArmReport;
+import fr.spectra.dto.AblationJob;
 import fr.spectra.dto.AblationReport;
 import fr.spectra.dto.AblationRequest;
 import fr.spectra.dto.QualityBenchmarkItem;
@@ -9,19 +13,32 @@ import fr.spectra.dto.QualityBenchmarkReport;
 import fr.spectra.dto.QueryRequest;
 import fr.spectra.dto.QueryResponse;
 import fr.spectra.dto.RetrievalMetrics;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Harnais d'<b>ablation A/B</b> pour quantifier le gain marginal de chaque enrichissement
@@ -56,19 +73,207 @@ public class RagAblationService {
     private final QualityBenchmarkService qualityBenchmarkService;
     private final LlmChatClient chatClient;
     private final ModelSwitchCoordinator modelSwitch;
+    private final Path workDir;
+
+    /** Jobs d'ablation suivis (en mémoire + persistés en JSON), comme les comparaisons qualité. */
+    private final Map<String, AblationJob> jobs = new ConcurrentHashMap<>();
+    /** Une seule ablation asynchrone à la fois (409 sinon) — le passage bascule le modèle actif. */
+    private final AtomicBoolean running = new AtomicBoolean(false);
+    /** Annulation coopérative : jobIds dont l'arrêt a été demandé (vérifié entre chaque question). */
+    private final Set<String> cancelRequested = ConcurrentHashMap.newKeySet();
+    private final Object persistLock = new Object();
+    private final ObjectMapper jobMapper = new ObjectMapper()
+            .registerModule(new JavaTimeModule())
+            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+    private Path jobsFile;
+
+    // Proxy Spring pour que @Async prenne effet sur l'appel interne (fallback `this` hors Spring).
+    @Autowired @Lazy
+    private RagAblationService self;
 
     public RagAblationService(RagService ragService,
                               QualityBenchmarkService qualityBenchmarkService,
                               LlmChatClient chatClient,
-                              ModelSwitchCoordinator modelSwitch) {
+                              ModelSwitchCoordinator modelSwitch,
+                              @Value("${spectra.fine-tuning.work-dir:./data/fine-tuning}") String workDir) {
         this.ragService = ragService;
         this.qualityBenchmarkService = qualityBenchmarkService;
         this.chatClient = chatClient;
         this.modelSwitch = modelSwitch;
+        this.workDir = Path.of(workDir);
+    }
+
+    /**
+     * Restaure les jobs persistés et réconcilie ceux restés non-terminaux (orphelins d'une
+     * ancienne JVM) en FAILED — même logique que les comparaisons qualité.
+     */
+    @PostConstruct
+    void init() {
+        jobsFile = workDir.resolve("ablation-jobs.json");
+        if (Files.exists(jobsFile)) {
+            try {
+                var type = jobMapper.getTypeFactory()
+                        .constructMapType(Map.class, String.class, AblationJob.class);
+                Map<String, AblationJob> loaded = jobMapper.readValue(jobsFile.toFile(), type);
+                jobs.putAll(loaded);
+                log.info("Ablations restaurées: {} jobs", loaded.size());
+            } catch (Exception e) {
+                log.warn("Impossible de charger les ablations persistées: {}", e.getMessage());
+            }
+        }
+        boolean reconciled = false;
+        for (AblationJob j : jobs.values()) {
+            if (j.status() == AblationJob.Status.PENDING || j.status() == AblationJob.Status.RUNNING) {
+                jobs.put(j.jobId(), j.failed("Interrompu par un redémarrage du serveur"));
+                reconciled = true;
+            }
+        }
+        if (reconciled) persistJobs();
+    }
+
+    private void persistJobs() {
+        if (jobsFile == null) return;
+        synchronized (persistLock) {
+            try {
+                Files.createDirectories(workDir);
+                Path tmp = jobsFile.resolveSibling(jobsFile.getFileName() + ".tmp");
+                jobMapper.writerWithDefaultPrettyPrinter().writeValue(tmp.toFile(), jobs);
+                try {
+                    Files.move(tmp, jobsFile,
+                            java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                            java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+                } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                    Files.move(tmp, jobsFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                }
+            } catch (Exception e) {
+                log.warn("Échec persistance des ablations: {}", e.getMessage());
+            }
+        }
+    }
+
+    private void updateJob(String jobId, java.util.function.UnaryOperator<AblationJob> updater) {
+        AblationJob current = jobs.get(jobId);
+        if (current == null) return;
+        jobs.put(jobId, updater.apply(current));
+        persistJobs();
+    }
+
+    /**
+     * Lance un passage d'ablation asynchrone (suivi + annulable). Un seul passage à la fois
+     * (bascule du modèle actif) : renvoie {@code null} si une ablation tourne déjà (409 côté API).
+     */
+    public String submit(AblationRequest request) {
+        List<JsonNode> entries = qualityBenchmarkService.loadBenchmark();
+        if (entries.isEmpty()) {
+            throw new IllegalStateException(
+                    "Benchmark vide ou introuvable. Fournissez un fichier JSONL "
+                            + "(spectra.benchmark.quality-file) ou complétez benchmarks/highway_benchmark.jsonl.");
+        }
+        if (!running.compareAndSet(false, true)) {
+            return null;
+        }
+        try {
+            int armCount = (request != null && request.arms() != null && !request.arms().isEmpty())
+                    ? request.arms().size() : defaultArms().size();
+            int runs = (request != null && request.runs() != null)
+                    ? Math.max(1, Math.min(10, request.runs())) : 1;
+            String jobId = UUID.randomUUID().toString();
+            String label = armCount + " bras × " + runs + " run(s) · " + entries.size() + " questions";
+            // Une unité = une question générée OU notée : bras × runs × questions × 2 phases.
+            int totalUnits = armCount * runs * entries.size() * 2;
+            jobs.put(jobId, AblationJob.pending(jobId, label, totalUnits));
+            persistJobs();
+            (self != null ? self : this).runJobAsync(jobId, request);
+            return jobId;
+        } catch (RuntimeException ex) {
+            running.set(false);
+            throw ex;
+        }
+    }
+
+    /** Exécute le passage en tâche de fond, avec progression, annulation et rapport persisté. */
+    @Async
+    protected void runJobAsync(String jobId, AblationRequest request) {
+        try {
+            updateJob(jobId, j -> j.progress(0, "Démarrage du passage…"));
+            AblationReport report = run(request, new Monitor(jobId));
+            updateJob(jobId, j -> j.completed(report));
+            log.info("Ablation {} terminée ({} bras)", jobId, report.arms().size());
+        } catch (CancellationException e) {
+            updateJob(jobId, AblationJob::cancelled);
+            log.info("Ablation {} annulée à la demande de l'utilisateur", jobId);
+        } catch (Exception e) {
+            log.error("Ablation {} échouée: {}", jobId, e.getMessage());
+            updateJob(jobId, j -> j.failed(e.getMessage() != null ? e.getMessage() : e.toString()));
+        } finally {
+            cancelRequested.remove(jobId);
+            running.set(false);
+        }
+    }
+
+    /**
+     * Demande l'arrêt coopératif d'un job en cours (pris en compte entre deux questions).
+     *
+     * @return {@code false} si le job est inconnu ou déjà terminal
+     */
+    public boolean requestCancel(String jobId) {
+        AblationJob job = jobs.get(jobId);
+        if (job == null || (job.status() != AblationJob.Status.PENDING
+                && job.status() != AblationJob.Status.RUNNING)) {
+            return false;
+        }
+        cancelRequested.add(jobId);
+        return true;
+    }
+
+    public AblationJob getJob(String jobId) {
+        return jobs.get(jobId);
+    }
+
+    /** Historique des jobs, les plus récents d'abord. */
+    public List<AblationJob> getJobs() {
+        return jobs.values().stream()
+                .sorted(Comparator.comparing(AblationJob::createdAt).reversed())
+                .toList();
+    }
+
+    /**
+     * Progression + annulation coopérative d'un passage. {@code jobId == null} = passage
+     * synchrone historique : toutes les méthodes sont des no-ops.
+     */
+    private final class Monitor {
+        private final String jobId;
+        private final AtomicInteger processed = new AtomicInteger();
+
+        Monitor(String jobId) { this.jobId = jobId; }
+
+        /** Une unité de travail terminée (question générée ou notée). */
+        void tick(String step) {
+            if (jobId == null) return;
+            int p = processed.incrementAndGet();
+            updateJob(jobId, j -> j.progress(p, step));
+        }
+
+        /** Change le jalon affiché sans avancer la progression. */
+        void step(String step) {
+            if (jobId == null) return;
+            updateJob(jobId, j -> j.progress(processed.get(), step));
+        }
+
+        /** Interrompt le passage si l'annulation a été demandée. */
+        void checkCancelled() {
+            if (jobId != null && cancelRequested.contains(jobId)) {
+                throw new CancellationException("Ablation annulée");
+            }
+        }
     }
 
     /** Exécute tous les bras de la requête sur le benchmark et retourne le rapport comparatif. */
     public AblationReport run(AblationRequest request) {
+        return run(request, new Monitor(null));
+    }
+
+    private AblationReport run(AblationRequest request, Monitor monitor) {
         Instant started = Instant.now();
         List<JsonNode> entries = qualityBenchmarkService.loadBenchmark();
         if (entries.isEmpty()) {
@@ -92,8 +297,10 @@ public class RagAblationService {
         modelSwitch.lock();
         try {
             List<AblationArmReport> armReports = new ArrayList<>();
-            for (AblationRequest.Arm arm : arms) {
-                armReports.add(runArm(arm, entries, maxChunks, runs, started));
+            for (int a = 0; a < arms.size(); a++) {
+                monitor.checkCancelled();
+                monitor.step("Bras " + (a + 1) + "/" + arms.size() + " · « " + arms.get(a).label() + " »…");
+                armReports.add(runArm(arms.get(a), entries, maxChunks, runs, started, monitor));
             }
             return new AblationReport(armReports, entries.size(), started, Instant.now());
         } finally {
@@ -118,7 +325,7 @@ public class RagAblationService {
             Map<String, Integer> applied) {}
 
     private AblationArmReport runArm(AblationRequest.Arm arm, List<JsonNode> entries,
-                                     int maxChunks, int runs, Instant started) {
+                                     int maxChunks, int runs, Instant started, Monitor monitor) {
         String previous = chatClient.getActiveModel();
         String evaluatedModel = (arm.model() != null && !arm.model().isBlank()) ? arm.model() : previous;
         if (evaluatedModel != null && !evaluatedModel.equals(previous)) {
@@ -132,7 +339,8 @@ public class RagAblationService {
         try {
             List<RunResult> rr = new ArrayList<>();
             for (int i = 0; i < runs; i++) {
-                rr.add(runOnce(arm, entries, maxChunks, evaluatedModel, started));
+                monitor.checkCancelled();
+                rr.add(runOnce(arm, entries, maxChunks, evaluatedModel, started, monitor));
             }
 
             // Moyennes (et écarts-types) sur les répétitions.
@@ -196,7 +404,7 @@ public class RagAblationService {
      * et distinct, sinon par le modèle évalué lui-même.
      */
     private RunResult runOnce(AblationRequest.Arm arm, List<JsonNode> entries,
-                              int maxChunks, String evaluatedModel, Instant started) {
+                              int maxChunks, String evaluatedModel, Instant started, Monitor monitor) {
         String judge = qualityBenchmarkService.resolveJudge(evaluatedModel);
         // La phase de notation de la répétition précédente a pu laisser le juge neutre servi :
         // s'assurer que le modèle évalué est bien celui qui répond (attente de convergence).
@@ -215,7 +423,11 @@ public class RagAblationService {
         Map<String, Integer> applied = new LinkedHashMap<>();
 
         // ── Phase 1 : génération via le pipeline (modèle évalué) ──
+        int generated = 0;
         for (JsonNode entry : entries) {
+            monitor.checkCancelled();
+            generated++;
+            monitor.tick("« " + arm.label() + " » · génération " + generated + "/" + entries.size());
             String question   = entry.path("question").asText("");
             String category   = entry.path("category").asText("inconnu");
             boolean answerable = entry.path("answerable").asBoolean(true);
@@ -258,7 +470,11 @@ public class RagAblationService {
                 log.info("Ablation '{}' : notation par le juge neutre '{}'", arm.label(), judge);
                 modelSwitch.activate(judge);
             }
+            int judged = 0;
             for (PendingJudgment p : pending) {
+                monitor.checkCancelled();
+                judged++;
+                monitor.tick("« " + arm.label() + " » · notation " + judged + "/" + pending.size());
                 items.set(p.index(), qualityBenchmarkService.judgeAnswer(
                         p.question(), p.category(), p.answerable(), p.reference(), p.answer()));
             }

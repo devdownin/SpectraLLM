@@ -31,7 +31,7 @@ public record InstallationJob(
         Instant completedAt
 ) {
     public enum Status {
-        PENDING, DOWNLOADING, REGISTERING, COMPLETED, FAILED
+        PENDING, DOWNLOADING, REGISTERING, COMPLETED, FAILED, CANCELLED
     }
 
     public static InstallationJob pending(String jobId, String modelName, String quant, boolean autoActivate) {
@@ -70,5 +70,12 @@ public record InstallationJob(
         return new InstallationJob(
                 jobId, Status.FAILED, modelName, quant, autoActivate,
                 progress, "Échoué", outputPath, previousActiveModel, error, createdAt, Instant.now());
+    }
+
+    /** Téléchargement interrompu à la demande de l'utilisateur. */
+    public InstallationJob cancelled() {
+        return new InstallationJob(
+                jobId, Status.CANCELLED, modelName, quant, autoActivate,
+                progress, "Annulé", outputPath, previousActiveModel, null, createdAt, Instant.now());
     }
 }

@@ -1,5 +1,6 @@
 import type { FC } from 'react';
 import { useState } from 'react';
+import { Trans, useTranslation } from 'react-i18next';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { qualityBenchmarkApi } from '../services/api';
 import { toast } from 'sonner';
@@ -59,6 +60,7 @@ const MetricRow: FC<{ label: string; baseline: number; candidate: number; higher
 };
 
 const QualityBenchmarkCta: FC<{ candidate: string; baseline: string; onDismiss: () => void }> = ({ candidate, baseline, onDismiss }) => {
+  const { t } = useTranslation();
   const [jobId, setJobId] = useState<string | null>(null);
 
   const start = useMutation({
@@ -66,7 +68,7 @@ const QualityBenchmarkCta: FC<{ candidate: string; baseline: string; onDismiss: 
     onSuccess: (res) => setJobId(res.data.jobId),
     onError: (error: any) => {
       const conflict = error?.response?.status === 409;
-      toast.error(conflict ? 'A quality benchmark is already running' : 'Failed to start the quality benchmark', {
+      toast.error(conflict ? t('qualityBench.alreadyRunning') : t('qualityBench.startFailed'), {
         description: error?.response?.data?.error ?? error?.response?.data?.detail ?? error.message,
       });
     },
@@ -103,19 +105,21 @@ const QualityBenchmarkCta: FC<{ candidate: string; baseline: string; onDismiss: 
           <span className="material-symbols-outlined text-secondary text-sm mt-0.5 shrink-0">experiment</span>
           <div className="space-y-1">
             <p className="text-[11px] font-label font-bold uppercase tracking-widest text-secondary">
-              Measure quality on your corpus
+              {t('qualityBench.title')}
             </p>
             <p className="text-[10px] text-on-surface-variant leading-relaxed max-w-2xl">
-              The Model Hub score rates <strong>hardware fit</strong>. To choose on real numbers, run the held-out
-              quality benchmark of the newly activated model
-              (<code className="font-mono bg-surface-container px-1">{candidate}</code>) against the one it replaced
-              (<code className="font-mono bg-surface-container px-1">{baseline}</code>).
+              <Trans i18nKey="qualityBench.body" values={{ candidate, baseline }}>
+                The Model Hub score rates <strong>hardware fit</strong>. To choose on real numbers, run the held-out
+                quality benchmark of the newly activated model
+                (<code className="font-mono bg-surface-container px-1">{candidate}</code>) against the one it replaced
+                (<code className="font-mono bg-surface-container px-1">{baseline}</code>).
+              </Trans>
             </p>
           </div>
         </div>
         <button
           onClick={onDismiss}
-          aria-label="Dismiss quality benchmark suggestion"
+          aria-label={t('qualityBench.dismiss')}
           className="shrink-0 text-outline hover:text-on-surface transition-colors"
         >
           <span className="material-symbols-outlined text-sm">close</span>
@@ -128,47 +132,57 @@ const QualityBenchmarkCta: FC<{ candidate: string; baseline: string; onDismiss: 
           className="flex items-center gap-2 px-4 py-2 bg-secondary text-on-secondary font-headline uppercase tracking-widest text-[11px] font-black hover:bg-secondary/90 transition-colors"
         >
           <span className="material-symbols-outlined text-sm">play_arrow</span>
-          Run quality benchmark
+          {t('qualityBench.run')}
         </button>
       )}
 
       {running && (
         <div className="flex items-center gap-2 text-[11px] text-secondary">
           <span className="material-symbols-outlined text-sm animate-spin">sync</span>
-          <span>{job?.currentStep ?? 'Starting…'}</span>
-          <span className="text-outline">(held-out benchmark, slow on CPU)</span>
+          <span>{job?.currentStep ?? t('qualityBench.startingStep')}</span>
+          <span className="text-outline">{t('qualityBench.slowHint')}</span>
         </div>
       )}
 
       {failed && (
         <p className="text-xs text-error bg-error/10 px-3 py-2">
-          Benchmark failed: {job?.error ?? 'unknown error'}
+          {t('qualityBench.failed', { error: job?.error ?? t('qualityBench.unknownError') })}
         </p>
       )}
 
       {done && (
         <div className="bg-surface-container-lowest border border-outline-variant/10">
           <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 items-center px-4 py-2 text-[10px] uppercase tracking-widest text-outline font-bold border-b border-outline-variant/10">
-            <span>Metric</span>
+            <span>{t('qualityBench.metric')}</span>
             <span className="text-right w-16 truncate" title={baseline}>{baseline}</span>
             <span className="text-right w-16 truncate" title={candidate}>{candidate}</span>
             <span className="text-right w-16">Δ</span>
           </div>
-          <MetricRow label="Accuracy (answerable)" baseline={job!.baselineReport!.avgScore} candidate={job!.candidateReport!.avgScore} higherIsBetter format="score" />
-          <MetricRow label="Hallucination rate" baseline={job!.baselineReport!.hallucinationRate} candidate={job!.candidateReport!.hallucinationRate} higherIsBetter={false} format="pct" />
-          <MetricRow label="Refusal accuracy" baseline={job!.baselineReport!.refusalAccuracy} candidate={job!.candidateReport!.refusalAccuracy} higherIsBetter format="pct" />
+          <MetricRow label={t('qualityBench.accuracy')} baseline={job!.baselineReport!.avgScore} candidate={job!.candidateReport!.avgScore} higherIsBetter format="score" />
+          <MetricRow label={t('qualityBench.hallucination')} baseline={job!.baselineReport!.hallucinationRate} candidate={job!.candidateReport!.hallucinationRate} higherIsBetter={false} format="pct" />
+          <MetricRow label={t('qualityBench.refusal')} baseline={job!.baselineReport!.refusalAccuracy} candidate={job!.candidateReport!.refusalAccuracy} higherIsBetter format="pct" />
           <div className="px-4 py-2 border-t border-outline-variant/10 text-[11px] text-on-surface-variant">
             {scoreDelta > 0.05
-              ? <>✓ <strong className="text-primary">{candidate}</strong> is more accurate on your corpus (+{scoreDelta.toFixed(2)}/10){hallucDelta < -0.01 ? ` and hallucinates less` : ''}.</>
+              ? <Trans i18nKey="qualityBench.verdictBetter"
+                  values={{ candidate, delta: scoreDelta.toFixed(2), halluc: hallucDelta < -0.01 ? t('qualityBench.verdictBetterHalluc') : '' }}>
+                  ✓ <strong className="text-primary">{candidate}</strong> is more accurate on your corpus.
+                </Trans>
               : scoreDelta < -0.05
-                ? <>✗ <strong className="text-error">{candidate}</strong> scores lower on accuracy ({scoreDelta.toFixed(2)}/10) — the previous model may be a safer choice.</>
-                : <>≈ Both models score similarly on accuracy; decide on hallucination rate, speed and hardware fit.</>}
+                ? <Trans i18nKey="qualityBench.verdictWorse"
+                    values={{ candidate, delta: scoreDelta.toFixed(2) }}>
+                    ✗ <strong className="text-error">{candidate}</strong> scores lower on accuracy.
+                  </Trans>
+                : <>{t('qualityBench.verdictSimilar')}</>}
           </div>
           {judge && (
             <div className="px-4 py-1.5 border-t border-outline-variant/10 text-[10px] text-outline">
               {neutralJudge
-                ? <>Scored by neutral judge <code className="font-mono">{judge}</code> — scores are directly comparable.</>
-                : <>Each model scored its own answers (self-judged) — set <code className="font-mono">SPECTRA_EVALUATION_JUDGE_MODEL</code> for a fairer comparison.</>}
+                ? <Trans i18nKey="qualityBench.neutralJudge" values={{ judge }}>
+                    Scored by neutral judge <code className="font-mono">{judge}</code> — scores are directly comparable.
+                  </Trans>
+                : <Trans i18nKey="qualityBench.selfJudge">
+                    Each model scored its own answers (self-judged) — set <code className="font-mono">SPECTRA_EVALUATION_JUDGE_MODEL</code> for a fairer comparison.
+                  </Trans>}
             </div>
           )}
         </div>

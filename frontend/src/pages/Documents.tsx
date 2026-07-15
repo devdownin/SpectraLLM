@@ -1,10 +1,12 @@
 import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import type { FC } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import Skeleton from '../components/Skeleton';
 import Tooltip from '../components/Tooltip';
+import ConfirmDialog from '../components/ConfirmDialog';
 import { gedApi, commentApi } from '../services/api';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import type { IngestedFile, IngestedFileSheet, DocumentLifecycle, ArticleComment } from '../types/api';
@@ -46,7 +48,7 @@ const LIFECYCLE_BAR_COLORS: Record<string, string> = {
 };
 
 const QUALITY_THRESHOLDS = [
-  { label: 'All',  value: 0 },
+  { label: null,    value: 0 },
   { label: '≥ 25%', value: 0.25 },
   { label: '≥ 50%', value: 0.50 },
   { label: '≥ 75%', value: 0.75 },
@@ -69,10 +71,6 @@ function getDocumentType(file: IngestedFile): DocumentTypeMeta {
   return DOCUMENT_TYPES.other;
 }
 
-function formatDate(value: string): string {
-  return new Date(value).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
-}
-
 function getGroupKey(doc: IngestedFile, groupBy: GroupBy): string {
   if (groupBy === 'type') return getDocumentType(doc).key;
   if (groupBy === 'lifecycle') return doc.lifecycle;
@@ -87,10 +85,21 @@ function getGroupLabel(key: string, groupBy: GroupBy): string {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** Suppression en attente de confirmation (ligne, fiche ou sélection multiple). */
+type PendingDelete =
+  | { kind: 'single'; sha: string; name: string; chunks: number }
+  | { kind: 'bulk'; shaList: string[] };
+
 const Documents: FC = () => {
   const queryClient = useQueryClient();
+  const { t, i18n } = useTranslation();
+
+  // Format de date unique, branché sur la langue de l'interface.
+  const formatDate = (value: string): string =>
+    new Date(value).toLocaleString(i18n.language, { dateStyle: 'medium', timeStyle: 'short' });
 
   const [search, setSearch] = useState('');
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
   const [selectedLifecycle, setSelectedLifecycle] = useState<string>('all');
   const [sortMode, setSortMode] = useState<SortMode>('recent');
   const [selectedSha, setSelectedSha] = useState<string | null>(null);
@@ -227,10 +236,10 @@ const Documents: FC = () => {
       patchDocsInCaches([sha], (d) => ({ ...d, lifecycle: lc as DocumentLifecycle }));
       return snapshot;
     },
-    onSuccess: () => toast.success('Lifecycle updated'),
+    onSuccess: () => toast.success(t('documents.lifecycleUpdated')),
     onError: (err: any, _vars, snapshot) => {
       restoreDocCaches(snapshot);
-      toast.error('Transition failed', { description: err.response?.data?.error });
+      toast.error(t('documents.transitionFailed'), { description: err.response?.data?.error });
     },
     onSettled: reconcileDocCaches,
   });
@@ -241,8 +250,9 @@ const Documents: FC = () => {
       queryClient.invalidateQueries({ queryKey: ['ged-documents'] });
       queryClient.invalidateQueries({ queryKey: ['ged-stats'] });
       setSelectedSha(null);
-      toast.success('Document deleted');
+      toast.success(t('documents.docDeleted'));
     },
+    onError: (err: any) => toast.error(t('documents.deleteFailed'), { description: err.response?.data?.error }),
   });
 
   const bulkLifecycleMutation = useMutation({
@@ -254,10 +264,10 @@ const Documents: FC = () => {
       setBulkSelected(new Set());
       return snapshot;
     },
-    onSuccess: (_, { sha256List }) => toast.success(`${sha256List.length} document(s) updated`),
+    onSuccess: (_, { sha256List }) => toast.success(t('documents.bulkUpdated', { count: sha256List.length })),
     onError: (_err, _vars, snapshot) => {
       restoreDocCaches(snapshot);
-      toast.error('Bulk update failed');
+      toast.error(t('documents.bulkUpdateFailed'));
     },
     onSettled: reconcileDocCaches,
   });
@@ -269,9 +279,9 @@ const Documents: FC = () => {
       queryClient.invalidateQueries({ queryKey: ['ged-stats'] });
       setBulkSelected(new Set());
       if (selectedSha && sha256List.includes(selectedSha)) setSelectedSha(null);
-      toast.success(`${sha256List.length} document(s) deleted`);
+      toast.success(t('documents.bulkDeleted', { count: sha256List.length }));
     },
-    onError: () => toast.error('Bulk deletion failed'),
+    onError: () => toast.error(t('documents.bulkDeleteFailed')),
   });
 
   const addTagMutation = useMutation({
@@ -282,10 +292,10 @@ const Documents: FC = () => {
       setNewTagInput('');
       return snapshot;
     },
-    onSuccess: () => toast.success('Tag added'),
+    onSuccess: () => toast.success(t('documents.tagAdded')),
     onError: (_err, _vars, snapshot) => {
       restoreDocCaches(snapshot);
-      toast.error('Failed to add tag');
+      toast.error(t('documents.tagAddFailed'));
     },
     onSettled: reconcileDocCaches,
   });
@@ -297,10 +307,10 @@ const Documents: FC = () => {
       patchDocsInCaches([sha], (d) => ({ ...d, tags: (d.tags ?? []).filter((tag) => !tags.includes(tag)) }));
       return snapshot;
     },
-    onSuccess: () => toast.success('Tag removed'),
+    onSuccess: () => toast.success(t('documents.tagRemoved')),
     onError: (_err, _vars, snapshot) => {
       restoreDocCaches(snapshot);
-      toast.error('Failed to remove tag');
+      toast.error(t('documents.tagRemoveFailed'));
     },
     onSettled: reconcileDocCaches,
   });
@@ -320,9 +330,9 @@ const Documents: FC = () => {
       queryClient.invalidateQueries({ queryKey: ['comments', selectedSha] });
       setCommentInput('');
       setCommentTab('list');
-      toast.success('Comment added');
+      toast.success(t('documents.commentAdded'));
     },
-    onError: () => toast.error('Failed to add comment'),
+    onError: () => toast.error(t('documents.commentAddFailed')),
   });
 
   const generateCommentMutation = useMutation({
@@ -332,31 +342,31 @@ const Documents: FC = () => {
       queryClient.invalidateQueries({ queryKey: ['comments', selectedSha] });
       setFocusInput('');
       setCommentTab('list');
-      toast.success('AI comment generated');
+      toast.success(t('documents.aiCommentGenerated'));
     },
-    onError: (err: any) => toast.error('AI generation failed',
-      { description: err.response?.data?.error ?? 'LLM unavailable' }),
+    onError: (err: any) => toast.error(t('documents.aiCommentFailed'),
+      { description: err.response?.data?.error ?? t('documents.llmUnavailable') }),
   });
 
   const rateCommentMutation = useMutation({
     mutationFn: ({ sha, id, rating }: { sha: string; id: number; rating: 'APPROVED' | 'REJECTED' | 'NONE' }) =>
       commentApi.rate(sha, id, rating),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['comments', selectedSha] }),
-    onError: () => toast.error('Rating failed'),
+    onError: () => toast.error(t('documents.ratingFailed')),
   });
 
   const deleteCommentMutation = useMutation({
     mutationFn: ({ sha, id }: { sha: string; id: number }) => commentApi.delete(sha, id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['comments', selectedSha] });
-      toast.success('Comment deleted');
+      toast.success(t('documents.commentDeleted'));
     },
   });
 
   const exportDpoMutation = useMutation({
     mutationFn: () => commentApi.exportDpo(),
-    onSuccess: (res) => toast.success(`DPO export: ${res.data.pairs} pair(s) exported`),
-    onError: () => toast.error('DPO export failed'),
+    onSuccess: (res) => toast.success(t('documents.dpoExported', { count: res.data.pairs })),
+    onError: () => toast.error(t('documents.dpoExportFailed')),
   });
 
   // ── Filtering & Sorting ────────────────────────────────────────────────────
@@ -458,7 +468,7 @@ const Documents: FC = () => {
           type="button"
           role="checkbox"
           aria-checked={isChecked}
-          aria-label={`Select ${doc.fileName}`}
+          aria-label={t('documents.selectDoc', { name: doc.fileName })}
           onClick={e => toggleSelect(doc.sha256, e)}
           className="flex justify-center"
         >
@@ -500,7 +510,10 @@ const Documents: FC = () => {
             aria-valuenow={Math.round(score * 100)}
             aria-valuemin={0}
             aria-valuemax={100}
-            aria-label={`Quality ${(score * 100).toFixed(0)} % — ${score > 0.7 ? 'good' : score > 0.4 ? 'medium' : 'low'}`}
+            aria-label={t('documents.qualityAria', {
+              pct: (score * 100).toFixed(0),
+              level: score > 0.7 ? t('documents.qualityGood') : score > 0.4 ? t('documents.qualityMedium') : t('documents.qualityLow'),
+            })}
             className="flex-1 h-1 bg-outline-variant/20 rounded-full overflow-hidden"
           >
             <div
@@ -516,10 +529,14 @@ const Documents: FC = () => {
 
         <div className="flex justify-end">
           <button
-            onClick={e => { e.stopPropagation(); deleteMutation.mutate(doc.sha256); }}
+            onClick={e => {
+              e.stopPropagation();
+              setPendingDelete({ kind: 'single', sha: doc.sha256, name: doc.fileName, chunks: doc.chunksCreated });
+            }}
+            aria-label={t('documents.deleteDoc', { name: doc.fileName })}
             className="w-8 h-8 flex items-center justify-center text-outline hover:text-error transition-colors"
           >
-            <span className="material-symbols-outlined text-sm">delete</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-sm">delete</span>
           </button>
         </div>
       </div>
@@ -536,24 +553,23 @@ const Documents: FC = () => {
       {/* Header */}
       <header className="flex flex-col xl:flex-row xl:items-end justify-between gap-6">
         <div>
-          <p className="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-1">Knowledge & Records</p>
-          <h2 className="font-headline text-3xl font-bold tracking-tighter uppercase">DOCUMENTS</h2>
+          <p className="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-1">{t('documents.kicker')}</p>
+          <h2 className="font-headline text-3xl font-bold tracking-tighter uppercase">{t('documents.title')}</h2>
           <p className="text-sm text-on-surface-variant mt-3 max-w-3xl leading-relaxed">
-            Electronic Document Management: track the lifecycle, audit changes,
-            and manage the quality of the sources feeding your models.
+            {t('documents.subtitle')}
           </p>
         </div>
         <div className="flex items-center gap-3">
           <span className="text-[11px] font-label text-on-surface-variant uppercase tracking-widest">
-            {filtered.length} shown · {documents.length} loaded
-            {totalDocuments > documents.length ? ` / ${totalDocuments} total` : ''}
+            {t('documents.shownCount', { shown: filtered.length, loaded: documents.length })}
+            {totalDocuments > documents.length ? t('documents.ofTotal', { total: totalDocuments }) : ''}
           </span>
           <button
             onClick={() => refetch()}
             className="flex items-center gap-2 border border-outline-variant/20 px-4 py-3 text-[11px] font-label uppercase tracking-widest text-on-surface-variant hover:text-primary transition-colors"
           >
             <span className={`material-symbols-outlined text-sm ${isFetching ? 'animate-spin' : ''}`}>refresh</span>
-            Sync
+            {t('documents.sync')}
           </button>
         </div>
       </header>
@@ -561,19 +577,19 @@ const Documents: FC = () => {
       {/* Stats Cards */}
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-surface-container p-5 border-t-2 border-primary">
-          <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">Total Documents</p>
+          <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">{t('documents.totalDocs')}</p>
           <p className="font-headline font-bold text-3xl">{total || '—'}</p>
         </div>
         <div className="bg-surface-container p-5 border-t-2 border-secondary">
-          <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">Avg Quality</p>
+          <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">{t('documents.avgQuality')}</p>
           <p className="font-headline font-bold text-3xl">{stats?.avgQualityScore ? (stats.avgQualityScore * 100).toFixed(0) + '%' : '—'}</p>
         </div>
         <div className="bg-surface-container p-5 border-t-2 border-outline-variant">
-          <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">Total Chunks</p>
+          <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">{t('documents.totalChunks')}</p>
           <p className="font-headline font-bold text-3xl">{stats?.totalChunks ?? '—'}</p>
         </div>
         <div className="bg-surface-container p-5 border-t-2 border-outline-variant">
-          <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">Lifecycle</p>
+          <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">{t('documents.lifecycle')}</p>
           <div className="flex gap-0.5 mt-3 overflow-hidden">
             {['INGESTED', 'QUALIFIED', 'TRAINED', 'ARCHIVED'].map(lc => {
               const count = stats?.byLifecycle?.[lc] ?? 0;
@@ -598,14 +614,14 @@ const Documents: FC = () => {
         {/* Row 1 */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="space-y-2">
-            <label className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">Search</label>
+            <label className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">{t('documents.search')}</label>
             <div className="flex items-center gap-3 border border-outline-variant/20 bg-surface-container-lowest px-4 py-2.5">
               <span className="material-symbols-outlined text-base text-outline">search</span>
               <input
                 type="text"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                placeholder="Name, hash, tag, collection…"
+                placeholder={t('documents.searchPlaceholder')}
                 className="w-full bg-transparent outline-none text-sm font-body placeholder:text-outline"
               />
               {search && (
@@ -616,7 +632,7 @@ const Documents: FC = () => {
             </div>
           </div>
           <div className="space-y-2">
-            <label className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">Lifecycle</label>
+            <label className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">{t('documents.lifecycle')}</label>
             <div className="flex gap-2">
               {['all', 'INGESTED', 'QUALIFIED', 'TRAINED', 'ARCHIVED'].map(lc => (
                 <button
@@ -624,13 +640,13 @@ const Documents: FC = () => {
                   onClick={() => setSelectedLifecycle(lc)}
                   className={`flex-1 py-2 border text-[10px] font-label uppercase tracking-widest transition-all ${selectedLifecycle === lc ? 'border-primary bg-primary/10 text-primary' : 'border-outline-variant/20 text-on-surface-variant hover:border-primary/30'}`}
                 >
-                  {lc === 'all' ? 'All' : lc.slice(0, 1)}
+                  {lc === 'all' ? t('documents.qualityAll') : lc.slice(0, 1)}
                 </button>
               ))}
             </div>
           </div>
           <div className="space-y-2">
-            <label className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">Sort</label>
+            <label className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">{t('documents.sort')}</label>
             <div className="flex gap-2">
               {(['recent', 'name', 'chunks', 'quality'] as SortMode[]).map(m => (
                 <button
@@ -638,7 +654,7 @@ const Documents: FC = () => {
                   onClick={() => setSortMode(m)}
                   className={`flex-1 py-2 border text-[10px] font-label uppercase tracking-widest transition-all ${sortMode === m ? 'border-primary bg-primary/10 text-primary' : 'border-outline-variant/20 text-on-surface-variant hover:border-primary/30'}`}
                 >
-                  {m === 'recent' ? 'Date' : m === 'chunks' ? 'Chunks' : m === 'quality' ? 'Quality' : 'Name'}
+                  {m === 'recent' ? t('documents.sortDate') : m === 'chunks' ? t('documents.sortChunks') : m === 'quality' ? t('documents.sortQuality') : t('documents.sortName')}
                 </button>
               ))}
             </div>
@@ -649,7 +665,7 @@ const Documents: FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="space-y-2">
             <label className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">
-              Document type {selectedFormats.size > 0 && <span className="text-primary">({selectedFormats.size} active)</span>}
+              {t('documents.docType')} {selectedFormats.size > 0 && <span className="text-primary">{t('documents.activeFilters', { count: selectedFormats.size })}</span>}
             </label>
             <div className="flex flex-wrap gap-2">
               {availableFormats.map(fmt => {
@@ -668,14 +684,14 @@ const Documents: FC = () => {
               })}
               {selectedFormats.size > 0 && (
                 <button onClick={() => setSelectedFormats(new Set())} className="text-[10px] text-outline hover:text-error uppercase tracking-widest px-2">
-                  Reset
+                  {t('documents.reset')}
                 </button>
               )}
             </div>
           </div>
 
           <div className="space-y-2">
-            <label className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">Minimum quality score</label>
+            <label className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">{t('documents.minQuality')}</label>
             <div className="flex gap-2">
               {QUALITY_THRESHOLDS.map(({ label, value }) => (
                 <button
@@ -683,20 +699,20 @@ const Documents: FC = () => {
                   onClick={() => setQualityMin(value)}
                   className={`flex-1 py-2 border text-[10px] font-label uppercase tracking-widest transition-all ${qualityMin === value ? 'border-secondary bg-secondary/10 text-secondary' : 'border-outline-variant/20 text-on-surface-variant hover:border-secondary/30'}`}
                 >
-                  {label}
+                  {label ?? t('documents.qualityAll')}
                 </button>
               ))}
             </div>
           </div>
 
           <div className="space-y-2">
-            <label className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">Grouping</label>
+            <label className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">{t('documents.grouping')}</label>
             <div className="flex gap-2">
               {([
-                { key: 'none', label: 'None' },
-                { key: 'type', label: 'Type' },
-                { key: 'lifecycle', label: 'State' },
-                { key: 'collection', label: 'Collection' },
+                { key: 'none', label: t('documents.groupNone') },
+                { key: 'type', label: t('documents.groupType') },
+                { key: 'lifecycle', label: t('documents.groupLifecycle') },
+                { key: 'collection', label: t('documents.groupCollection') },
               ] as { key: GroupBy; label: string }[]).map(({ key, label }) => (
                 <button
                   key={key}
@@ -720,7 +736,7 @@ const Documents: FC = () => {
               type="button"
               role="checkbox"
               aria-checked={allSelected ? true : someSelected ? 'mixed' : false}
-              aria-label="Select all"
+              aria-label={t('documents.selectAll')}
               onClick={toggleSelectAll}
               className={`w-4 h-4 border flex items-center justify-center cursor-pointer transition-all ${allSelected ? 'bg-primary border-primary' : 'border-outline-variant/40 hover:border-primary/50'}`}
             >
@@ -728,12 +744,12 @@ const Documents: FC = () => {
               {!allSelected && someSelected && <span aria-hidden="true" className="material-symbols-outlined text-primary text-[11px]">remove</span>}
             </button>
           </div>
-          <span>Document</span>
-          <span className="text-center">Lifecycle</span>
-          <span>Quality</span>
-          <span>Ingested on</span>
-          <span className="text-right">Chunks</span>
-          <span className="text-right">Actions</span>
+          <span>{t('documents.colDocument')}</span>
+          <span className="text-center">{t('documents.colLifecycle')}</span>
+          <span>{t('documents.colQuality')}</span>
+          <span>{t('documents.colIngestedOn')}</span>
+          <span className="text-right">{t('documents.colChunks')}</span>
+          <span className="text-right">{t('documents.colActions')}</span>
         </div>
 
         <div className="max-h-[70vh] overflow-y-auto custom-scrollbar space-y-1 pr-1">
@@ -743,7 +759,7 @@ const Documents: FC = () => {
               {filtered.length === 0 && (
                 <div className="py-20 text-center text-on-surface-variant">
                   <span className="material-symbols-outlined text-4xl block mb-3 opacity-30">search_off</span>
-                  <p className="text-sm">No document matches the active filters.</p>
+                  <p className="text-sm">{t('documents.noMatch')}</p>
                 </div>
               )}
             </>
@@ -775,7 +791,7 @@ const Documents: FC = () => {
                         type="button"
                         role="checkbox"
                         aria-checked={allGroupSelected ? true : groupSelected > 0 ? 'mixed' : false}
-                        aria-label={`Select group ${label}`}
+                        aria-label={t('documents.selectGroup', { name: label })}
                         onClick={toggleGroupSelect}
                         className="flex justify-center"
                         style={{ width: 32 }}
@@ -787,9 +803,9 @@ const Documents: FC = () => {
                       </button>
                       <span className={`material-symbols-outlined text-base text-on-surface-variant transition-transform ${isCollapsed ? '-rotate-90' : ''}`}>expand_more</span>
                       <p className="font-headline font-bold text-sm uppercase tracking-tight flex-1">{label}</p>
-                      <span className="text-[11px] font-label text-on-surface-variant uppercase tracking-widest">{docs.length} doc{docs.length > 1 ? 's' : ''}</span>
+                      <span className="text-[11px] font-label text-on-surface-variant uppercase tracking-widest">{t('documents.docsCount', { count: docs.length })}</span>
                       {groupSelected > 0 && (
-                        <span className="text-[10px] font-label text-primary uppercase tracking-widest">{groupSelected} selected</span>
+                        <span className="text-[10px] font-label text-primary uppercase tracking-widest">{t('documents.selectedCount', { count: groupSelected })}</span>
                       )}
                     </div>
                     {!isCollapsed && (
@@ -808,7 +824,7 @@ const Documents: FC = () => {
       {groupBy === 'none' && totalPages > 1 && (
         <div className="flex items-center justify-between border border-outline-variant/10 p-4 bg-surface-container">
           <span className="text-[11px] font-label uppercase tracking-widest text-on-surface-variant">
-            Page {page + 1} / {totalPages} — {filtered.length} results
+            {t('documents.pageOf', { page: page + 1, total: totalPages, count: filtered.length })}
           </span>
           <div className="flex gap-2">
             <button
@@ -816,7 +832,7 @@ const Documents: FC = () => {
               disabled={page === 0}
               className="px-3 py-2 border border-outline-variant/20 text-[10px] font-label uppercase tracking-widest text-on-surface-variant hover:text-primary hover:border-primary/30 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             >
-              ← Previous
+              {t('documents.prev')}
             </button>
             {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
               const p = totalPages <= 7 ? i : (page < 4 ? i : page + i - 3);
@@ -836,7 +852,7 @@ const Documents: FC = () => {
               disabled={page >= totalPages - 1}
               className="px-3 py-2 border border-outline-variant/20 text-[10px] font-label uppercase tracking-widest text-on-surface-variant hover:text-primary hover:border-primary/30 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             >
-              Next →
+              {t('documents.next')}
             </button>
           </div>
         </div>
@@ -846,14 +862,16 @@ const Documents: FC = () => {
       {hasNextPage && (
         <div className="flex items-center justify-center gap-3 border border-outline-variant/10 p-4 bg-surface-container">
           <span className="text-[11px] font-label uppercase tracking-widest text-on-surface-variant">
-            {documents.length} of {totalDocuments} loaded
+            {t('documents.loadedOf', { loaded: documents.length, total: totalDocuments })}
           </span>
           <button
             onClick={() => fetchNextPage()}
             disabled={isFetchingNextPage}
             className="px-4 py-2 border border-primary/40 text-[10px] font-label uppercase tracking-widest text-primary hover:bg-primary/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            {isFetchingNextPage ? 'Loading…' : `Load ${Math.min(FETCH_SIZE, totalDocuments - documents.length)} more`}
+            {isFetchingNextPage
+              ? t('documents.loadingMore')
+              : t('documents.loadMore', { count: Math.min(FETCH_SIZE, totalDocuments - documents.length) })}
           </button>
         </div>
       )}
@@ -863,10 +881,10 @@ const Documents: FC = () => {
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom duration-300">
           <div className="flex items-center gap-4 bg-surface-container-high border border-primary/30 px-6 py-4 shadow-2xl">
             <span className="text-[11px] font-label uppercase tracking-widest text-primary font-bold">
-              {bulkSelected.size} selected
+              {t('documents.selectedCount', { count: bulkSelected.size })}
             </span>
             <div className="w-px h-6 bg-outline-variant/20" />
-            <span className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">Move to:</span>
+            <span className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">{t('documents.moveTo')}</span>
             {(['INGESTED', 'QUALIFIED', 'TRAINED', 'ARCHIVED'] as DocumentLifecycle[]).map(lc => (
               <button
                 key={lc}
@@ -879,11 +897,11 @@ const Documents: FC = () => {
             ))}
             <div className="w-px h-6 bg-outline-variant/20" />
             <button
-              onClick={() => bulkDeleteMutation.mutate(Array.from(bulkSelected))}
+              onClick={() => setPendingDelete({ kind: 'bulk', shaList: Array.from(bulkSelected) })}
               disabled={bulkDeleteMutation.isPending}
               className="px-3 py-2 border border-error/30 text-error text-[10px] font-bold tracking-widest uppercase hover:bg-error hover:text-white transition-all disabled:opacity-50"
             >
-              Delete
+              {t('documents.delete')}
             </button>
             <button onClick={() => setBulkSelected(new Set())} className="w-8 h-8 flex items-center justify-center text-outline hover:text-on-surface transition-colors">
               <span className="material-symbols-outlined text-sm">close</span>
@@ -899,14 +917,14 @@ const Documents: FC = () => {
           tabIndex={-1}
           role="dialog"
           aria-modal="true"
-          aria-label="Document panel"
+          aria-label={t('documents.sheetAria')}
           className="fixed inset-y-0 right-0 w-full lg:w-[520px] bg-surface-container-high shadow-[-20px_0_40px_rgba(0,0,0,0.5)] z-50 animate-in slide-in-from-right duration-300 border-l border-outline-variant/20 flex flex-col outline-none">
           <header className="p-6 border-b border-outline-variant/20 flex justify-between items-center">
             <div className="min-w-0">
-              <p className="text-[10px] font-label uppercase tracking-widest text-outline">Document Sheet</p>
+              <p className="text-[10px] font-label uppercase tracking-widest text-outline">{t('documents.sheetTitle')}</p>
               <h3 className="font-headline text-lg font-bold truncate max-w-[380px]">{sheet?.fileName ?? '—'}</h3>
             </div>
-            <button onClick={() => setSelectedSha(null)} aria-label="Close document panel" className="w-10 h-10 flex items-center justify-center hover:bg-surface-variant transition-colors shrink-0">
+            <button onClick={() => setSelectedSha(null)} aria-label={t('documents.closeSheet')} className="w-10 h-10 flex items-center justify-center hover:bg-surface-variant transition-colors shrink-0">
               <span aria-hidden="true" className="material-symbols-outlined">close</span>
             </button>
           </header>
@@ -921,24 +939,24 @@ const Documents: FC = () => {
               {/* Metadata grid */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="p-4 bg-surface-container-lowest border-l-2 border-primary">
-                  <p className="text-[10px] uppercase tracking-widest text-outline mb-1">Status</p>
+                  <p className="text-[10px] uppercase tracking-widest text-outline mb-1">{t('documents.status')}</p>
                   <p className="font-headline font-bold text-sm text-primary uppercase">{sheet.lifecycle}</p>
                 </div>
                 <div className="p-4 bg-surface-container-lowest border-l-2 border-secondary">
-                  <p className="text-[10px] uppercase tracking-widest text-outline mb-1">Quality</p>
+                  <p className="text-[10px] uppercase tracking-widest text-outline mb-1">{t('documents.quality')}</p>
                   <p className="font-headline font-bold text-sm text-secondary uppercase">{((sheet.qualityScore ?? 0) * 100).toFixed(0)}%</p>
                 </div>
                 <div className="p-4 bg-surface-container-lowest border-l-2 border-outline-variant">
-                  <p className="text-[10px] uppercase tracking-widest text-outline mb-1">Format</p>
+                  <p className="text-[10px] uppercase tracking-widest text-outline mb-1">{t('documents.format')}</p>
                   <p className="font-headline font-bold text-sm uppercase truncate">{sheet.format}</p>
                 </div>
                 <div className="p-4 bg-surface-container-lowest border-l-2 border-outline-variant">
-                  <p className="text-[10px] uppercase tracking-widest text-outline mb-1">Chunks</p>
+                  <p className="text-[10px] uppercase tracking-widest text-outline mb-1">{t('documents.chunks')}</p>
                   <p className="font-headline font-bold text-sm">{sheet.chunksCreated}</p>
                 </div>
                 {sheet.collectionName && (
                   <div className="col-span-2 p-4 bg-surface-container-lowest border-l-2 border-primary/40">
-                    <p className="text-[10px] uppercase tracking-widest text-outline mb-1">Collection</p>
+                    <p className="text-[10px] uppercase tracking-widest text-outline mb-1">{t('documents.collection')}</p>
                     <p className="font-headline font-bold text-sm text-primary/80 truncate">{sheet.collectionName}</p>
                   </div>
                 )}
@@ -950,7 +968,7 @@ const Documents: FC = () => {
 
               {/* Lifecycle transitions */}
               <div className="space-y-3">
-                <h4 className="text-[11px] font-bold uppercase tracking-widest text-outline">Transitions</h4>
+                <h4 className="text-[11px] font-bold uppercase tracking-widest text-outline">{t('documents.transitions')}</h4>
                 <div className="flex flex-wrap gap-2">
                   {(['INGESTED', 'QUALIFIED', 'TRAINED', 'ARCHIVED'] as DocumentLifecycle[]).map(lc => (
                     <button
@@ -967,10 +985,10 @@ const Documents: FC = () => {
 
               {/* Tag management */}
               <div className="space-y-3">
-                <h4 className="text-[11px] font-bold uppercase tracking-widest text-outline">Tags</h4>
+                <h4 className="text-[11px] font-bold uppercase tracking-widest text-outline">{t('documents.tags')}</h4>
                 <div className="flex flex-wrap gap-2 min-h-[2rem]">
                   {sheet.tags.length === 0 && (
-                    <p className="text-xs italic text-outline">No tags.</p>
+                    <p className="text-xs italic text-outline">{t('documents.noTags')}</p>
                   )}
                   {sheet.tags.map(tag => (
                     <span key={tag} className="flex items-center gap-1 text-[10px] border border-outline-variant/30 px-2 py-1 text-outline uppercase">
@@ -995,7 +1013,7 @@ const Documents: FC = () => {
                         addTagMutation.mutate({ sha: sheet.sha256, tags: [newTagInput.trim().toLowerCase()] });
                       }
                     }}
-                    placeholder="New tag…"
+                    placeholder={t('documents.newTag')}
                     className="flex-1 bg-surface-container-lowest border border-outline-variant/20 px-3 py-2 text-sm outline-none focus:border-primary/50 font-body placeholder:text-outline"
                   />
                   <button
@@ -1005,16 +1023,16 @@ const Documents: FC = () => {
                     disabled={!newTagInput.trim() || addTagMutation.isPending}
                     className="px-4 py-2 bg-primary/10 border border-primary/30 text-primary text-[10px] font-bold tracking-widest uppercase hover:bg-primary/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   >
-                    + Tag
+                    {t('documents.addTag')}
                   </button>
                 </div>
               </div>
 
               {/* Model links */}
               <div className="space-y-3">
-                <h4 className="text-[11px] font-bold uppercase tracking-widest text-outline">Model Associations</h4>
+                <h4 className="text-[11px] font-bold uppercase tracking-widest text-outline">{t('documents.modelLinks')}</h4>
                 {sheet.modelLinks.length === 0 ? (
-                  <p className="text-xs italic text-outline">No model associations.</p>
+                  <p className="text-xs italic text-outline">{t('documents.noModelLinks')}</p>
                 ) : (
                   <div className="space-y-2">
                     {sheet.modelLinks.map((l, i) => (
@@ -1033,7 +1051,7 @@ const Documents: FC = () => {
               {/* Comments — RAG generation + DPO rating */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <h4 className="text-[11px] font-bold uppercase tracking-widest text-outline">Comments</h4>
+                  <h4 className="text-[11px] font-bold uppercase tracking-widest text-outline">{t('documents.comments')}</h4>
                   <div className="flex gap-1">
                     {(['list', 'add', 'generate'] as const).map(tab => (
                       <button
@@ -1045,10 +1063,10 @@ const Documents: FC = () => {
                             : 'border-outline-variant/20 text-outline hover:border-primary/30 hover:text-primary'
                         }`}
                       >
-                        {tab === 'list' ? 'List' : tab === 'add' ? '+ Manual' : '✦ AI'}
+                        {tab === 'list' ? t('documents.tabList') : tab === 'add' ? t('documents.tabManual') : t('documents.tabAi')}
                       </button>
                     ))}
-                    <Tooltip content="Export DPO pairs">
+                    <Tooltip content={t('documents.exportDpoTooltip')}>
                       <button
                         onClick={() => exportDpoMutation.mutate()}
                         disabled={exportDpoMutation.isPending}
@@ -1065,7 +1083,7 @@ const Documents: FC = () => {
                     {isLoadingComments ? (
                       <Skeleton className="h-16" />
                     ) : !comments?.length ? (
-                      <p className="text-xs italic text-outline">No comments. Add one manually or generate one with AI.</p>
+                      <p className="text-xs italic text-outline">{t('documents.noComments')}</p>
                     ) : (
                       comments.map(c => (
                         <div key={c.id} className={`p-3 border text-xs space-y-2 ${
@@ -1088,20 +1106,20 @@ const Documents: FC = () => {
                           </div>
                           {c.focus && (
                             <p className="text-[10px] italic text-on-surface-variant border-l-2 border-secondary/30 pl-2">
-                              Focus: {c.focus}
+                              {t('documents.focusLabel', { focus: c.focus })}
                             </p>
                           )}
                           <p className="text-[11px] text-on-surface leading-relaxed whitespace-pre-line">{c.content}</p>
                           {c.type === 'AI_GENERATED' && (
                             <div className="flex items-center gap-2 pt-1">
-                              <span className="text-[10px] uppercase text-outline tracking-widest">DPO Rating:</span>
+                              <span className="text-[10px] uppercase text-outline tracking-widest">{t('documents.dpoRating')}</span>
                               {(['APPROVED', 'NONE', 'REJECTED'] as const).map(r => (
                                 <button
                                   key={r}
                                   onClick={() => rateCommentMutation.mutate({ sha: sheet!.sha256, id: c.id, rating: r })}
                                   disabled={rateCommentMutation.isPending}
                                   aria-pressed={c.rating === r}
-                                  aria-label={r === 'APPROVED' ? 'Approve comment' : r === 'REJECTED' ? 'Reject comment' : 'No rating'}
+                                  aria-label={r === 'APPROVED' ? t('documents.approveAria') : r === 'REJECTED' ? t('documents.rejectAria') : t('documents.noRatingAria')}
                                   className={`px-2 py-0.5 text-[10px] font-bold uppercase border transition-all disabled:opacity-40 flex items-center ${
                                     c.rating === r
                                       ? r === 'APPROVED' ? 'border-primary bg-primary/20 text-primary'
@@ -1148,7 +1166,7 @@ const Documents: FC = () => {
                     <textarea
                       value={commentInput}
                       onChange={e => setCommentInput(e.target.value)}
-                      placeholder="Write your comment…"
+                      placeholder={t('documents.writeComment')}
                       rows={4}
                       className="w-full bg-surface-container-lowest border border-outline-variant/20 px-3 py-2 text-sm outline-none focus:border-primary/50 font-body placeholder:text-outline resize-none"
                     />
@@ -1161,7 +1179,7 @@ const Documents: FC = () => {
                       disabled={!commentInput.trim() || addCommentMutation.isPending}
                       className="w-full py-2 bg-primary/10 border border-primary/30 text-primary text-[10px] font-bold uppercase tracking-widest hover:bg-primary/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      {addCommentMutation.isPending ? 'Saving…' : '+ Add comment'}
+                      {addCommentMutation.isPending ? t('documents.saving') : t('documents.addComment')}
                     </button>
                   </div>
                 )}
@@ -1169,14 +1187,13 @@ const Documents: FC = () => {
                 {commentTab === 'generate' && (
                   <div className="space-y-2">
                     <p className="text-[10px] text-on-surface-variant">
-                      Describe the angle of analysis. The LLM will use RAG to retrieve
-                      the relevant passages and generate a comment grounded in the document.
+                      {t('documents.generateHint')}
                     </p>
                     <input
                       type="text"
                       value={focusInput}
                       onChange={e => setFocusInput(e.target.value)}
-                      placeholder="e.g. safety points, emergency procedures…"
+                      placeholder={t('documents.focusPlaceholder')}
                       className="w-full bg-surface-container-lowest border border-outline-variant/20 px-3 py-2 text-sm outline-none focus:border-secondary/50 font-body placeholder:text-outline"
                     />
                     <button
@@ -1189,12 +1206,11 @@ const Documents: FC = () => {
                       className="w-full py-2 bg-secondary/10 border border-secondary/30 text-secondary text-[10px] font-bold uppercase tracking-widest hover:bg-secondary/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       {generateCommentMutation.isPending
-                        ? '✦ RAG generation in progress…'
-                        : '✦ Generate with RAG'}
+                        ? t('documents.generating')
+                        : t('documents.generateBtn')}
                     </button>
                     <p className="text-[10px] text-outline">
-                      Approved comments (👍) can be exported as DPO pairs
-                      to fine-tune the model with your preferences.
+                      {t('documents.dpoExportHint')}
                     </p>
                   </div>
                 )}
@@ -1202,7 +1218,7 @@ const Documents: FC = () => {
 
               {/* Audit Trail */}
               <div className="space-y-3">
-                <h4 className="text-[11px] font-bold uppercase tracking-widest text-outline">Audit Trail</h4>
+                <h4 className="text-[11px] font-bold uppercase tracking-widest text-outline">{t('documents.auditTrail')}</h4>
                 <div className="space-y-1 relative before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-px before:bg-outline-variant/20">
                   {sheet.auditTrail.map((a, i) => (
                     <div key={i} className="pl-8 relative py-3 group">
@@ -1211,7 +1227,7 @@ const Documents: FC = () => {
                         <p className="text-[11px] font-bold uppercase tracking-tighter">{a.action.replace(/_/g, ' ')}</p>
                         <p className="text-[10px] text-outline font-mono shrink-0 ml-2">{formatDate(a.timestamp)}</p>
                       </div>
-                      <p className="text-[11px] text-on-surface-variant italic">by {a.actor}</p>
+                      <p className="text-[11px] text-on-surface-variant italic">{t('documents.byActor', { actor: a.actor })}</p>
                       {a.details && <p className="text-[10px] text-outline mt-1 font-mono break-all">{a.details}</p>}
                     </div>
                   ))}
@@ -1222,11 +1238,13 @@ const Documents: FC = () => {
 
           <footer className="p-6 border-t border-outline-variant/20">
             <button
-              onClick={() => { if (sheet) deleteMutation.mutate(sheet.sha256); }}
+              onClick={() => {
+                if (sheet) setPendingDelete({ kind: 'single', sha: sheet.sha256, name: sheet.fileName, chunks: sheet.chunksCreated });
+              }}
               disabled={deleteMutation.isPending || !sheet}
               className="w-full py-3 bg-error/10 border border-error/30 text-error font-bold text-[11px] tracking-widest uppercase hover:bg-error hover:text-white transition-all disabled:opacity-50"
             >
-              Delete permanently
+              {t('documents.deletePermanently')}
             </button>
           </footer>
         </div>
@@ -1239,6 +1257,28 @@ const Documents: FC = () => {
           onClick={() => setSelectedSha(null)}
         />
       )}
+
+      {/* Confirmation de suppression (ligne, fiche ou sélection multiple) */}
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title={pendingDelete?.kind === 'bulk'
+          ? t('confirm.deleteBulkTitle', { count: pendingDelete.shaList.length })
+          : t('confirm.deleteDocTitle')}
+        message={pendingDelete?.kind === 'bulk'
+          ? t('confirm.deleteBulkMessage')
+          : pendingDelete
+            ? t('confirm.deleteDocMessage', { name: pendingDelete.name, chunks: pendingDelete.chunks })
+            : ''}
+        confirmLabel={t('confirm.delete')}
+        busy={deleteMutation.isPending || bulkDeleteMutation.isPending}
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={() => {
+          if (!pendingDelete) return;
+          if (pendingDelete.kind === 'bulk') bulkDeleteMutation.mutate(pendingDelete.shaList);
+          else deleteMutation.mutate(pendingDelete.sha);
+          setPendingDelete(null);
+        }}
+      />
     </div>
   );
 };

@@ -51,6 +51,7 @@ export const ingestApi = {
   ingestUrls: (urls: string[]) => api.post('/ingest/url', { urls }),
   getTaskStatus: (taskId: string) => api.get(`/ingest/${taskId}`),
   getAllTasks: () => api.get('/ingest'),
+  cancelTask: (taskId: string) => api.delete(`/ingest/${taskId}`),
   getHistory: (params?: { page?: number; size?: number; q?: string }) =>
     api.get('/ingest/files', { params }),
 };
@@ -82,12 +83,14 @@ export const datasetApi = {
   generateDataset: (maxChunks = 0) => api.post(`/dataset/generate?maxChunks=${maxChunks}`),
   getGenerationStatus: (taskId: string) => api.get(`/dataset/generate/${taskId}`),
   getAllTasks: () => api.get('/dataset/generate'),
+  cancelGeneration: (taskId: string) => api.delete(`/dataset/generate/${taskId}`),
 };
 
 export const fineTuningApi = {
   getJobs: () => api.get('/fine-tuning'),
   getJob: (jobId: string) => api.get(`/fine-tuning/${jobId}`),
   createJob: (job: any) => api.post('/fine-tuning', job),
+  cancelJob: (jobId: string) => api.delete(`/fine-tuning/${jobId}`),
   getModels: () => api.get('/fine-tuning/models'),
 };
 
@@ -106,6 +109,8 @@ export const evaluationApi = {
     api.post('/evaluation/ab', { modelA, modelB, testSetSize }),
   getAllAb: () => api.get('/evaluation/ab'),
   getAb: (abId: string) => api.get(`/evaluation/ab/${abId}`),
+  cancel: (evalId: string) => api.delete(`/evaluation/${evalId}`),
+  cancelAb: (abId: string) => api.delete(`/evaluation/ab/${abId}`),
 };
 
 export const recipeApi = {
@@ -119,6 +124,7 @@ export const dpoApi = {
   generate: (maxPairs = 0) => api.post(`/dataset/dpo/generate?maxPairs=${maxPairs}`),
   getTask: (taskId: string) => api.get(`/dataset/dpo/generate/${taskId}`),
   getAllTasks: () => api.get('/dataset/dpo/generate'),
+  cancelTask: (taskId: string) => api.delete(`/dataset/dpo/generate/${taskId}`),
   getStats: () => api.get('/dataset/dpo/stats'),
 };
 
@@ -251,9 +257,14 @@ export const metricsApi = {
 };
 
 export const ablationApi = {
-  // Passage bloquant et lent (plusieurs appels LLM par question × bras) : timeout large.
-  run: (body?: import('../types/api').AblationRequestBody) =>
-    api.post('/ablation', body ?? {}, { timeout: 30 * 60 * 1000 }),
+  // Le passage est lent (plusieurs appels LLM par question × bras) : il est piloté comme un
+  // job asynchrone suivi (progression réelle, annulable, rapport persisté côté serveur) —
+  // fini l'appel bloquant de 30 minutes dont le résultat se perdait au moindre refresh.
+  runAsync: (body?: import('../types/api').AblationRequestBody) =>
+    api.post('/ablation/async', body ?? {}),
+  getJob: (jobId: string) => api.get(`/ablation/jobs/${jobId}`),
+  listJobs: () => api.get('/ablation/jobs'),
+  cancelJob: (jobId: string) => api.delete(`/ablation/jobs/${jobId}`),
 };
 
 export const configApi = {
@@ -282,6 +293,7 @@ export const modelsHubApi = {
   getProgressSource: (modelName: string) =>
     new EventSource(`/api/models/hub/install/progress?modelName=${encodeURIComponent(modelName)}`),
   getInstallations: () => api.get('/models/hub/installations'),
+  cancelInstallation: (jobId: string) => api.delete(`/models/hub/installations/${jobId}`),
   getStorage: () => api.get('/models/hub/storage'),
   deleteModel: (name: string, type = 'chat', deleteFile = true) =>
     api.delete(`/fine-tuning/models/${encodeURIComponent(name)}`, { params: { type, deleteFile } }),

@@ -1,5 +1,6 @@
 import type { FC } from 'react';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { modelsHubApi } from '../services/api';
 
@@ -15,6 +16,7 @@ import { modelsHubApi } from '../services/api';
 const STATUS_STYLE: Record<string, string> = {
   COMPLETED: 'border-primary text-primary',
   FAILED: 'border-error text-error',
+  CANCELLED: 'border-outline-variant/40 text-outline',
   DOWNLOADING: 'border-secondary text-secondary',
   REGISTERING: 'border-secondary text-secondary',
   PENDING: 'border-outline-variant/40 text-outline',
@@ -26,6 +28,7 @@ const formatDate = (iso?: string) => {
 };
 
 const InstallationHistoryPanel: FC = () => {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
 
   const { data: installations, isLoading } = useQuery({
@@ -50,10 +53,10 @@ const InstallationHistoryPanel: FC = () => {
         <div className="flex items-center gap-3">
           <span className="material-symbols-outlined text-outline">history</span>
           <span className="text-[11px] font-black uppercase tracking-widest text-primary font-headline">
-            Installation history
+            {t('installs.title')}
           </span>
           {jobs.length > 0 && (
-            <span className="text-[11px] text-outline">{jobs.length} download{jobs.length > 1 ? 's' : ''}</span>
+            <span className="text-[11px] text-outline">{t('installs.count', { count: jobs.length })}</span>
           )}
         </div>
         <span className="material-symbols-outlined text-outline text-sm">
@@ -63,9 +66,9 @@ const InstallationHistoryPanel: FC = () => {
 
       {expanded && (
         <div className="border-t border-outline-variant/10 divide-y divide-outline-variant/10">
-          {isLoading && <div className="px-4 py-3 text-xs text-outline">Loading…</div>}
+          {isLoading && <div className="px-4 py-3 text-xs text-outline">{t('installs.loading')}</div>}
           {!isLoading && jobs.length === 0 && (
-            <div className="px-4 py-3 text-xs text-outline">No installation recorded yet.</div>
+            <div className="px-4 py-3 text-xs text-outline">{t('installs.empty')}</div>
           )}
           {jobs.map((j: any) => (
             <div key={j.jobId} className="px-4 py-2 flex items-center justify-between gap-4">

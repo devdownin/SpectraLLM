@@ -7,6 +7,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -77,6 +78,23 @@ public class ModelHubController {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Installation inconnue: " + jobId);
         }
         return job;
+    }
+
+    @DeleteMapping("/installations/{jobId}")
+    @Operation(summary = "Annuler un téléchargement de modèle en cours",
+            description = "Tue le processus llmfit et marque le job CANCELLED. Un fichier "
+                    + "partiellement téléchargé est réutilisé au prochain essai. "
+                    + "409 si le job est déjà terminé.")
+    public Map<String, String> cancelInstallation(@PathVariable String jobId) {
+        InstallationJob job = llmFitService.getInstallation(jobId);
+        if (job == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Installation inconnue: " + jobId);
+        }
+        if (!llmFitService.cancelInstall(jobId)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Impossible d'annuler (status=" + job.status() + ")");
+        }
+        return Map.of("jobId", jobId, "status", "CANCELLED");
     }
 
     /**

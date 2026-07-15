@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
+import { useTranslation } from 'react-i18next';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 
 export const StartupOverlay: React.FC = () => {
+    const { t } = useTranslation();
     const [installations, setInstallations] = useState<any[]>([]);
     const [isVisible, setIsVisible] = useState(false);
 
@@ -19,8 +21,8 @@ export const StartupOverlay: React.FC = () => {
                     setIsVisible(true);
                 } else {
                     if (document.getElementById('startup-overlay')) {
-                        toast.success("Modèles prêts", {
-                            description: "Démarrage du moteur d'inférence en cours... Cela peut prendre quelques secondes."
+                        toast.success(t('startup.modelsReady'), {
+                            description: t('startup.modelsReadyDesc'),
                         });
                     }
                     setIsVisible(false);
@@ -33,7 +35,7 @@ export const StartupOverlay: React.FC = () => {
         checkInstallations();
         const interval = setInterval(checkInstallations, 2000);
         return () => clearInterval(interval);
-    }, []);
+    }, [t]);
 
     if (!isVisible) return null;
 
@@ -41,10 +43,8 @@ export const StartupOverlay: React.FC = () => {
         <div id="startup-overlay" className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center">
             <div className="bg-card p-8 rounded-lg shadow-lg max-w-lg w-full text-center border border-border">
                 <Loader2 className="w-12 h-12 animate-spin text-primary mx-auto mb-6" />
-                <h2 className="text-2xl font-bold mb-2">Préparation de Spectra</h2>
-                <p className="text-muted-foreground mb-6">
-                    Téléchargement des modèles d'IA nécessaires pour le premier lancement...
-                </p>
+                <h2 className="text-2xl font-bold mb-2">{t('startup.title')}</h2>
+                <p className="text-muted-foreground mb-6">{t('startup.description')}</p>
 
                 <div className="space-y-4">
                     {installations.map((job) => (
@@ -65,9 +65,7 @@ export const StartupOverlay: React.FC = () => {
                         </div>
                     ))}
                 </div>
-                <p className="text-xs text-muted-foreground mt-6">
-                    Cela peut prendre plusieurs minutes selon votre connexion.
-                </p>
+                <p className="text-xs text-muted-foreground mt-6">{t('startup.eta')}</p>
             </div>
         </div>
     );

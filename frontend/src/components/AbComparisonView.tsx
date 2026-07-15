@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { FC } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { configApi, evaluationApi } from '../services/api';
@@ -8,20 +9,21 @@ import Skeleton from './Skeleton';
 
 interface RegisteredModel { id?: string; name?: string; type?: string; }
 
-const WINNER_LABEL: Record<string, string> = { A: 'A wins', B: 'B wins', TIE: 'Tie' };
+const WINNER_KEY: Record<string, string> = { A: 'ab.winA', B: 'ab.winB', TIE: 'ab.tie' };
 
 function WinBar({ a, t, b }: { a: number; t: number; b: number }) {
   const pct = (v: number) => `${Math.round(v * 100)}%`;
   return (
     <div className="flex h-3 w-full overflow-hidden bg-surface-container-low">
       <div className="bg-primary h-full" style={{ width: pct(a) }} title={`A ${pct(a)}`} />
-      <div className="bg-outline-variant/40 h-full" style={{ width: pct(t) }} title={`Tie ${pct(t)}`} />
+      <div className="bg-outline-variant/40 h-full" style={{ width: pct(t) }} title={`= ${pct(t)}`} />
       <div className="bg-secondary h-full" style={{ width: pct(b) }} title={`B ${pct(b)}`} />
     </div>
   );
 }
 
 function AbItemRow({ item, modelA, modelB }: { item: AbItem; modelA: string; modelB: string }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const color = item.winner === 'A' ? 'text-primary' : item.winner === 'B' ? 'text-secondary' : 'text-on-surface-variant';
   return (
@@ -32,7 +34,7 @@ function AbItemRow({ item, modelA, modelB }: { item: AbItem; modelA: string; mod
         aria-expanded={open}
       >
         <span className={`font-label text-[10px] uppercase tracking-widest w-16 shrink-0 ${color}`}>
-          {WINNER_LABEL[item.winner]}
+          {t(WINNER_KEY[item.winner], item.winner)}
         </span>
         <span className="text-xs text-on-surface truncate flex-1">{item.question}</span>
         <span className="text-[11px] text-on-surface-variant shrink-0">{open ? '▲' : '▼'}</span>
@@ -48,7 +50,7 @@ function AbItemRow({ item, modelA, modelB }: { item: AbItem; modelA: string; mod
             <p className="text-xs text-on-surface leading-relaxed">{item.answerB}</p>
           </div>
           <div className="md:col-span-2 bg-surface-container-low p-3 rounded border border-outline-variant/10">
-            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">Reference</p>
+            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">{t('ab.reference')}</p>
             <p className="text-xs text-on-surface-variant leading-relaxed">{item.reference}</p>
           </div>
         </div>
@@ -59,6 +61,7 @@ function AbItemRow({ item, modelA, modelB }: { item: AbItem; modelA: string; mod
 
 /** Comparaison directe A/B (head-to-head) entre deux modèles. */
 const AbComparisonView: FC = () => {
+  const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const [modelA, setModelA] = useState('');
   const [modelB, setModelB] = useState('');
@@ -96,9 +99,9 @@ const AbComparisonView: FC = () => {
       const res = await evaluationApi.submitAb(modelA, modelB, Number.isFinite(parsed) ? parsed : undefined);
       setSelectedId(res.data?.abId ?? null);
       await queryClient.invalidateQueries({ queryKey: ['ab-reports'] });
-      toast.success('A/B comparison started', { description: 'Generation runs per model, then a judge picks the winner per pair.' });
+      toast.success(t('ab.started'), { description: t('ab.startedDesc') });
     } catch (err: any) {
-      toast.error('Failed to start A/B comparison', { description: err?.response?.data?.message ?? err?.message });
+      toast.error(t('ab.startFailed'), { description: err?.response?.data?.message ?? err?.message });
     } finally {
       setSubmitting(false);
     }
@@ -108,37 +111,37 @@ const AbComparisonView: FC = () => {
     <div className="space-y-6">
       {/* Setup */}
       <div className="bg-surface-container p-6 space-y-4">
-        <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">New head-to-head</p>
+        <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">{t('ab.newRun')}</p>
         <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr_auto_auto] gap-3 items-end">
           <label className="space-y-1">
-            <span className="font-label text-[10px] uppercase tracking-widest text-primary">Model A</span>
+            <span className="font-label text-[10px] uppercase tracking-widest text-primary">{t('ab.modelA')}</span>
             <select value={modelA} onChange={e => setModelA(e.target.value)}
               className="w-full bg-surface-container-low text-sm px-2 py-2 outline-none border border-outline-variant/20 focus:border-primary/50">
-              <option value="">Select…</option>
+              <option value="">{t('ab.select')}</option>
               {models.map(m => <option key={nameOf(m)} value={nameOf(m)}>{nameOf(m)}</option>)}
             </select>
           </label>
-          <span className="text-on-surface-variant text-xs pb-2 text-center font-headline">vs</span>
+          <span className="text-on-surface-variant text-xs pb-2 text-center font-headline">{t('ab.vs')}</span>
           <label className="space-y-1">
-            <span className="font-label text-[10px] uppercase tracking-widest text-secondary">Model B</span>
+            <span className="font-label text-[10px] uppercase tracking-widest text-secondary">{t('ab.modelB')}</span>
             <select value={modelB} onChange={e => setModelB(e.target.value)}
               className="w-full bg-surface-container-low text-sm px-2 py-2 outline-none border border-outline-variant/20 focus:border-secondary/50">
-              <option value="">Select…</option>
+              <option value="">{t('ab.select')}</option>
               {models.map(m => <option key={nameOf(m)} value={nameOf(m)}>{nameOf(m)}</option>)}
             </select>
           </label>
           <label className="space-y-1">
-            <span className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Test size</span>
-            <input type="number" min={1} placeholder="auto" value={size} onChange={e => setSize(e.target.value)}
+            <span className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">{t('ab.testSize')}</span>
+            <input type="number" min={1} placeholder={t('ab.auto')} value={size} onChange={e => setSize(e.target.value)}
               className="w-20 bg-surface-container-low text-sm px-2 py-2 outline-none border border-outline-variant/20 focus:border-primary/50" />
           </label>
           <button onClick={run} disabled={!modelA || !modelB || modelA === modelB || submitting}
             className="px-4 py-2 bg-primary text-on-primary font-label text-[11px] uppercase tracking-widest hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity">
-            {submitting ? 'Starting…' : 'Run A/B'}
+            {submitting ? t('ab.starting') : t('ab.run')}
           </button>
         </div>
         {modelA && modelB && modelA === modelB && (
-          <p className="text-xs text-error">Pick two different models.</p>
+          <p className="text-xs text-error">{t('ab.samePick')}</p>
         )}
       </div>
 
@@ -146,19 +149,19 @@ const AbComparisonView: FC = () => {
         <Skeleton className="h-64" />
       ) : reports.length === 0 ? (
         <div className="bg-surface-container p-8 text-center text-sm text-on-surface-variant">
-          No A/B comparisons yet. Pick two models above and run one.
+          {t('ab.empty')}
         </div>
       ) : (
-        <div className="grid grid-cols-[240px_1fr] gap-6 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-6 items-start">
           {/* History */}
           <div className="bg-surface-container divide-y divide-outline-variant/10">
-            <p className="px-4 py-3 bg-surface-container-high font-label text-[11px] uppercase tracking-widest text-on-surface-variant">History</p>
+            <p className="px-4 py-3 bg-surface-container-high font-label text-[11px] uppercase tracking-widest text-on-surface-variant">{t('ab.history')}</p>
             {reports.map(r => (
               <button key={r.abId} onClick={() => setSelectedId(r.abId)}
                 className={`w-full text-left px-4 py-3 transition-colors hover:bg-surface-container-high/60 ${selected?.abId === r.abId ? 'bg-surface-container-high' : ''}`}>
-                <p className="font-headline font-bold text-xs truncate">{r.modelA} <span className="text-on-surface-variant">vs</span> {r.modelB}</p>
+                <p className="font-headline font-bold text-xs truncate">{r.modelA} <span className="text-on-surface-variant">{t('ab.vs')}</span> {r.modelB}</p>
                 <p className="font-label text-[10px] text-on-surface-variant mt-0.5">
-                  {new Date(r.startedAt).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' })} · {r.status}
+                  {new Date(r.startedAt).toLocaleString(i18n.language, { dateStyle: 'short', timeStyle: 'short' })} · {r.status}
                 </p>
                 {r.status === 'COMPLETED' && (
                   <p className="font-headline text-xs font-bold mt-1">{r.aWins}–{r.ties}–{r.bWins}</p>
@@ -174,11 +177,11 @@ const AbComparisonView: FC = () => {
                 <div className="flex items-center justify-between">
                   <p className="font-headline font-bold text-lg">
                     <span className="text-primary">{selected.modelA}</span>
-                    <span className="text-on-surface-variant mx-2">vs</span>
+                    <span className="text-on-surface-variant mx-2">{t('ab.vs')}</span>
                     <span className="text-secondary">{selected.modelB}</span>
                   </p>
                   <span className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">
-                    judge: {selected.judgeModel}
+                    {t('ab.judge', { name: selected.judgeModel })}
                   </span>
                 </div>
 
@@ -191,12 +194,12 @@ const AbComparisonView: FC = () => {
                     <WinBar a={selected.winRateA} t={selected.tieRate} b={selected.winRateB} />
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-primary font-bold">A · {selected.aWins} ({Math.round(selected.winRateA * 100)}%)</span>
-                      <span className="text-on-surface-variant">Ties · {selected.ties}</span>
+                      <span className="text-on-surface-variant">{t('ab.ties', { count: selected.ties })}</span>
                       <span className="text-secondary font-bold">{Math.round(selected.winRateB * 100)}% ({selected.bWins}) · B</span>
                     </div>
                     {selected.status !== 'COMPLETED' && (
                       <p className="font-label text-[11px] text-on-surface-variant text-right">
-                        {selected.processed} / {selected.testSetSize} pairs judged…
+                        {t('ab.pairsJudged', { done: selected.processed, total: selected.testSetSize })}
                       </p>
                     )}
                   </>
@@ -206,7 +209,7 @@ const AbComparisonView: FC = () => {
               {selected.items.length > 0 && (
                 <div className="bg-surface-container">
                   <p className="px-4 py-3 font-label text-[11px] uppercase tracking-widest text-on-surface-variant bg-surface-container-high border-b border-outline-variant/10">
-                    Per-pair verdicts ({selected.items.length})
+                    {t('ab.verdicts', { count: selected.items.length })}
                   </p>
                   {selected.items.map((it, i) => (
                     <AbItemRow key={i} item={it} modelA={selected.modelA} modelB={selected.modelB} />

@@ -1,5 +1,6 @@
 import type { FC } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
+import { Trans, useTranslation } from 'react-i18next';
 import { modelsHubApi, configApi } from '../services/api';
 import Skeleton from '../components/Skeleton';
 import ModelStoragePanel from '../components/ModelStoragePanel';
@@ -9,6 +10,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { toast } from 'sonner';
 
 const ModelHub: FC = () => {
+  const { t } = useTranslation();
   const [installingModels, setInstallingModels] = useState<Record<string, number>>({});
   const [installedModels, setInstalledModels] = useState<string[]>([]);
   const [autoActivate, setAutoActivate] = useState(false);
@@ -80,10 +82,10 @@ const ModelHub: FC = () => {
         setInstalledModels(prev => prev.includes(modelName) ? prev : [...prev, modelName]);
         // Rafraîchir les recommandations pour que `model.installed` reflète l'installation serveur.
         refetch();
-        toast.success(`Model "${modelName}" downloaded`, {
+        toast.success(t('modelHub.downloaded', { name: modelName }), {
           description: autoActivateRef.current
-            ? 'Activated — llm-chat reloads it automatically within a few seconds.'
-            : 'Saved to the registry. Activate it from the Playground — llm-chat will reload it automatically.',
+            ? t('modelHub.downloadedActive')
+            : t('modelHub.downloadedRegistered'),
           duration: 8000,
         });
         // Auto-activée : propose de mesurer la qualité vs le modèle remplacé (boucle comparatif→qualité).
@@ -96,13 +98,11 @@ const ModelHub: FC = () => {
     eventSource.onerror = () => {
       cleanupSource();
       setInstallingModels(prev => { const next = { ...prev }; delete next[modelName]; persistInstalling(next); return next; });
-      toast.error(`Progress tracking stopped for "${modelName}"`, {
-        description: 'The download failed or was interrupted (API restart). Check the logs '
-          + '(docker compose logs spectra-api) and relaunch the install if needed — an already '
-          + 'downloaded file is reused.',
+      toast.error(t('modelHub.progressLost', { name: modelName }), {
+        description: t('modelHub.progressLostDesc'),
       });
     };
-  }, [refetch, proposeBenchmark]);
+  }, [refetch, proposeBenchmark, t]);
 
   // Reprise au montage : ré-abonne les téléchargements en cours mémorisés (navigation / reload).
   useEffect(() => {
@@ -129,7 +129,7 @@ const ModelHub: FC = () => {
     },
     onError: (error: any) => {
       // L'API renvoie un ProblemDetail (RFC 9457) : le message utile est dans `detail`.
-      toast.error('Failed to start the download', {
+      toast.error(t('modelHub.installStartFailed'), {
         description: error?.response?.data?.detail ?? error?.response?.data?.message ?? error.message,
       });
     }
@@ -149,8 +149,8 @@ const ModelHub: FC = () => {
     return (
       <div className="p-8 space-y-6">
         <header>
-          <h1 className="text-3xl font-black text-primary font-headline tracking-tight uppercase">Model Hub</h1>
-          <p className="text-outline mt-2">Hardware optimization by llmfit</p>
+          <h1 className="text-3xl font-black text-primary font-headline tracking-tight uppercase">{t('nav.modelHub')}</h1>
+          <p className="text-outline mt-2">{t('modelHub.kicker')}</p>
         </header>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {[...Array(6)].map((_, i) => (
@@ -167,17 +167,19 @@ const ModelHub: FC = () => {
         <div>
           <div className="flex items-center gap-3 mb-1">
             <span className="material-symbols-outlined text-primary">hub</span>
-            <h1 className="text-3xl font-black text-primary font-headline tracking-tight uppercase">Model Hub</h1>
+            <h1 className="text-3xl font-black text-primary font-headline tracking-tight uppercase">{t('nav.modelHub')}</h1>
           </div>
           <p className="text-outline max-w-2xl">
-            Discover the LLM models best suited to your current or simulated hardware configuration.
-            Powered by <span className="text-primary font-bold">llmfit</span>.
+            <Trans i18nKey="modelHub.subtitle">
+              Discover the LLM models best suited to your current or simulated hardware configuration.
+              Powered by <span className="text-primary font-bold">llmfit</span>.
+            </Trans>
           </p>
         </div>
 
         <div className="flex flex-wrap gap-3">
           <div className="flex items-center gap-2 bg-surface-container-low px-3 py-1 border border-outline-variant/20">
-            <span className="text-[11px] font-black uppercase tracking-widest text-outline">Show</span>
+            <span className="text-[11px] font-black uppercase tracking-widest text-outline">{t('modelHub.show')}</span>
             <select
               value={limit}
               onChange={(e) => setLimit(parseInt(e.target.value))}
@@ -190,17 +192,17 @@ const ModelHub: FC = () => {
           </div>
 
           <div className="flex items-center gap-2 bg-surface-container-low px-3 py-1 border border-outline-variant/20">
-            <span className="text-[11px] font-black uppercase tracking-widest text-outline">Filter</span>
+            <span className="text-[11px] font-black uppercase tracking-widest text-outline">{t('modelHub.filter')}</span>
             <select
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
               className="bg-transparent text-xs font-bold text-primary focus:outline-none cursor-pointer"
             >
-              <option value="All">All</option>
-              <option value="Perfect">Perfect</option>
-              <option value="Good">Good</option>
-              <option value="Marginal">Marginal</option>
-              <option value="Runnable">Executables</option>
+              <option value="All">{t('modelHub.filterAll')}</option>
+              <option value="Perfect">{t('modelHub.filterPerfect')}</option>
+              <option value="Good">{t('modelHub.filterGood')}</option>
+              <option value="Marginal">{t('modelHub.filterMarginal')}</option>
+              <option value="Runnable">{t('modelHub.filterRunnable')}</option>
             </select>
           </div>
 
@@ -211,7 +213,7 @@ const ModelHub: FC = () => {
               onChange={(e) => setAutoActivate(e.target.checked)}
               className="accent-primary"
             />
-            <span className="text-[11px] font-black uppercase tracking-widest text-outline">Auto-activation</span>
+            <span className="text-[11px] font-black uppercase tracking-widest text-outline">{t('modelHub.autoActivate')}</span>
           </label>
 
           <button
@@ -219,7 +221,7 @@ const ModelHub: FC = () => {
             className={`flex items-center gap-2 px-4 py-2 transition-colors border border-outline-variant/20 ${isSimulating ? 'bg-primary text-on-primary' : 'bg-surface-container-high text-primary hover:bg-surface-variant'}`}
           >
             <span className="material-symbols-outlined text-sm">settings_input_component</span>
-            <span className="font-headline uppercase tracking-widest text-[11px] font-bold">Simulation</span>
+            <span className="font-headline uppercase tracking-widest text-[11px] font-bold">{t('modelHub.simulation')}</span>
           </button>
 
           <button
@@ -227,7 +229,7 @@ const ModelHub: FC = () => {
             className="flex items-center gap-2 px-4 py-2 bg-surface-container-high hover:bg-surface-variant text-primary transition-colors border border-outline-variant/20"
           >
             <span className={`material-symbols-outlined text-sm ${isFetching ? 'animate-spin' : ''}`}>refresh</span>
-            <span className="font-headline uppercase tracking-widest text-[11px] font-bold">Refresh</span>
+            <span className="font-headline uppercase tracking-widest text-[11px] font-bold">{t('modelHub.refresh')}</span>
           </button>
         </div>
       </header>
@@ -236,34 +238,34 @@ const ModelHub: FC = () => {
         <section className="bg-primary/5 p-6 border border-primary/20 animate-in slide-in-from-top-4 duration-300">
           <div className="flex items-center gap-3 mb-4">
              <span className="material-symbols-outlined text-primary">simulation</span>
-             <h2 className="text-sm font-black uppercase tracking-widest text-primary font-headline">Hardware Simulator</h2>
+             <h2 className="text-sm font-black uppercase tracking-widest text-primary font-headline">{t('modelHub.simulatorTitle')}</h2>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="space-y-2">
-              <label className="text-[11px] uppercase tracking-wider text-outline font-bold">VRAM GPU (ex: 12G, 24G)</label>
+              <label className="text-[11px] uppercase tracking-wider text-outline font-bold">{t('modelHub.simVram')}</label>
               <input
                 type="text"
-                placeholder="Auto"
+                placeholder={t('modelHub.simAuto')}
                 value={simulation.memory || ''}
                 onChange={(e) => setSimulation({...simulation, memory: e.target.value})}
                 className="w-full bg-surface-container-lowest border border-outline-variant/20 p-2 text-sm focus:border-primary outline-none"
               />
             </div>
             <div className="space-y-2">
-              <label className="text-[11px] uppercase tracking-wider text-outline font-bold">System RAM (e.g. 32G, 64G)</label>
+              <label className="text-[11px] uppercase tracking-wider text-outline font-bold">{t('modelHub.simRam')}</label>
               <input
                 type="text"
-                placeholder="Auto"
+                placeholder={t('modelHub.simAuto')}
                 value={simulation.ram || ''}
                 onChange={(e) => setSimulation({...simulation, ram: e.target.value})}
                 className="w-full bg-surface-container-lowest border border-outline-variant/20 p-2 text-sm focus:border-primary outline-none"
               />
             </div>
             <div className="space-y-2">
-              <label className="text-[11px] uppercase tracking-wider text-outline font-bold">CPU Cores</label>
+              <label className="text-[11px] uppercase tracking-wider text-outline font-bold">{t('modelHub.simCpu')}</label>
               <input
                 type="number"
-                placeholder="Auto"
+                placeholder={t('modelHub.simAuto')}
                 value={simulation.cpuCores || ''}
                 onChange={(e) => setSimulation({...simulation, cpuCores: e.target.value ? parseInt(e.target.value) : undefined})}
                 className="w-full bg-surface-container-lowest border border-outline-variant/20 p-2 text-sm focus:border-primary outline-none"
@@ -275,7 +277,7 @@ const ModelHub: FC = () => {
               onClick={() => { setSimulation({}); setIsSimulating(false); }}
               className="text-[11px] font-black uppercase tracking-widest text-outline hover:text-primary transition-colors"
             >
-              Réinitialiser
+              {t('modelHub.simReset')}
             </button>
           </div>
         </section>
@@ -286,23 +288,30 @@ const ModelHub: FC = () => {
           <div className="flex items-center gap-3">
             <span className="material-symbols-outlined text-outline">cpu</span>
             <div>
-              <div className="text-[11px] uppercase tracking-wider text-outline font-bold">CPU</div>
-              <div className="text-sm font-medium">{recommendations.system.cpu_name} ({recommendations.system.cpu_cores} cores)</div>
+              <div className="text-[11px] uppercase tracking-wider text-outline font-bold">{t('modelHub.sysCpu')}</div>
+              <div className="text-sm font-medium">
+                {recommendations.system.cpu_name} ({t('modelHub.sysCores', { count: recommendations.system.cpu_cores })})
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-3">
             <span className="material-symbols-outlined text-outline">memory</span>
             <div>
-              <div className="text-[11px] uppercase tracking-wider text-outline font-bold">RAM</div>
-              <div className="text-sm font-medium">{recommendations.system.total_ram_gb.toFixed(1)} GB ({recommendations.system.available_ram_gb.toFixed(1)} GB dispos)</div>
+              <div className="text-[11px] uppercase tracking-wider text-outline font-bold">{t('modelHub.sysRam')}</div>
+              <div className="text-sm font-medium">
+                {t('modelHub.sysRamValue', {
+                  total: recommendations.system.total_ram_gb.toFixed(1),
+                  available: recommendations.system.available_ram_gb.toFixed(1),
+                })}
+              </div>
             </div>
           </div>
           {(recommendations.system.has_gpu || simulation.memory) && (
             <div className="flex items-center gap-3">
               <span className="material-symbols-outlined text-secondary">memory_alt</span>
               <div>
-                <div className="text-[11px] uppercase tracking-wider text-secondary font-bold">GPU</div>
-                <div className="text-sm font-medium">{recommendations.system.gpu_name || 'Simulated'} ({recommendations.system.gpu_vram_gb?.toFixed(1) || simulation.memory} VRAM)</div>
+                <div className="text-[11px] uppercase tracking-wider text-secondary font-bold">{t('modelHub.sysGpu')}</div>
+                <div className="text-sm font-medium">{recommendations.system.gpu_name || t('modelHub.sysSimulated')} ({recommendations.system.gpu_vram_gb?.toFixed(1) || simulation.memory} VRAM)</div>
               </div>
             </div>
           )}
@@ -333,13 +342,15 @@ const ModelHub: FC = () => {
           <span className="material-symbols-outlined text-primary text-sm mt-0.5 shrink-0">info</span>
           <div className="space-y-1">
             <p className="text-[11px] font-label font-bold uppercase tracking-widest text-primary">
-              Model(s) downloaded and registered
+              {t('modelHub.postInstallTitle')}
             </p>
             <p className="text-[10px] text-on-surface-variant leading-relaxed">
-              The GGUF file was copied to <code className="font-mono bg-surface-container px-1">data/models/</code> and
-              saved to the model registry. Once <strong>activated</strong> (Auto-activation here, or from the
-              Playground), <strong>llm-chat</strong> reloads it automatically within a few seconds — no manual
-              restart needed.
+              <Trans i18nKey="modelHub.postInstallBody">
+                The GGUF file was copied to <code className="font-mono bg-surface-container px-1">data/models/</code> and
+                saved to the model registry. Once <strong>activated</strong> (Auto-activation here, or from the
+                Playground), <strong>llm-chat</strong> reloads it automatically within a few seconds — no manual
+                restart needed.
+              </Trans>
             </p>
           </div>
         </div>
@@ -357,7 +368,7 @@ const ModelHub: FC = () => {
                   <div className="text-2xl font-black text-primary font-headline leading-none">
                     {Math.round(model.score)}
                   </div>
-                  <div className="text-[10px] uppercase tracking-tighter text-outline font-bold">FIT SCORE</div>
+                  <div className="text-[10px] uppercase tracking-tighter text-outline font-bold">{t('modelHub.fitScore')}</div>
                 </div>
               </div>
 
@@ -366,34 +377,36 @@ const ModelHub: FC = () => {
 
               <div className="space-y-3 mt-6">
                 <div className="flex justify-between items-center text-xs">
-                  <span className="text-outline">Mode</span>
+                  <span className="text-outline">{t('modelHub.mode')}</span>
                   <span className={`font-bold uppercase tracking-wider ${model.run_mode === 'GPU' ? 'text-secondary' : 'text-primary'}`}>
                     {model.run_mode}
                   </span>
                 </div>
                 <div className="flex justify-between items-center text-xs">
-                  <span className="text-outline">Quantification</span>
+                  <span className="text-outline">{t('modelHub.quant')}</span>
                   <span className="font-medium">{model.best_quant}</span>
                 </div>
                 <div className="flex justify-between items-center text-xs">
-                  <span className="text-outline">Estimated speed</span>
+                  <span className="text-outline">{t('modelHub.speed')}</span>
                   <span className="font-medium">{model.estimated_tps?.toFixed(1)} tok/s</span>
                 </div>
                 <div className="flex justify-between items-center text-xs">
-                  <span className="text-outline">Required memory</span>
+                  <span className="text-outline">{t('modelHub.memory')}</span>
                   <span className="font-medium">{model.memory_required_gb?.toFixed(1)} GB</span>
                 </div>
               </div>
 
               <div className="mt-6 pt-6 border-t border-outline-variant/10">
-                 <div className="text-[11px] font-black uppercase tracking-widest text-outline mb-2">Capabilities</div>
+                 <div className="text-[11px] font-black uppercase tracking-widest text-outline mb-2">{t('modelHub.capabilities')}</div>
                  <div className="flex flex-wrap gap-2">
                     {model.score_components && Object.entries(model.score_components).map(([key, val]: [string, any]) => (
                       <div key={key} className="flex flex-col">
                          <div className="h-1 w-12 bg-surface-variant rounded-full overflow-hidden">
                             <div className="h-full bg-primary" style={{ width: `${val}%` }}></div>
                          </div>
-                         <span className="text-[10px] uppercase mt-1 text-outline">{key === 'fit' ? 'fit' : key === 'quality' ? 'quality' : key === 'speed' ? 'vitesse' : key}</span>
+                         <span className="text-[10px] uppercase mt-1 text-outline">
+                           {key === 'fit' ? t('modelHub.capFit') : key === 'quality' ? t('modelHub.capQuality') : key === 'speed' ? t('modelHub.capSpeed') : key}
+                         </span>
                       </div>
                     ))}
                  </div>
@@ -423,7 +436,11 @@ const ModelHub: FC = () => {
                 <span className="material-symbols-outlined text-sm">
                   {isInstalled ? 'check_circle' : isInstalling ? 'sync' : 'download'}
                 </span>
-                {isInstalled ? 'Installed' : isInstalling ? `Downloading (${installingModels[model.name]}%)` : 'Installer'}
+                {isInstalled
+                  ? t('modelHub.installed')
+                  : isInstalling
+                    ? t('modelHub.downloading', { pct: installingModels[model.name] })
+                    : t('modelHub.install')}
               </button>
                 );
               })()}
@@ -435,16 +452,16 @@ const ModelHub: FC = () => {
       {isError && (
         <div className="text-center py-20 bg-error/5 border border-dashed border-error/30 space-y-3">
           <span className="material-symbols-outlined text-error text-4xl">error</span>
-          <p className="text-error font-bold">Failed to load recommendations.</p>
+          <p className="text-error font-bold">{t('modelHub.loadError')}</p>
           <p className="text-outline text-xs">
             {(recommendationsError as any)?.response?.data?.detail
-              ?? 'Check the simulation values (e.g. "12G") and that llmfit is available on the server.'}
+              ?? t('modelHub.loadErrorHint')}
           </p>
           <button
             onClick={() => refetch()}
             className="px-4 py-2 bg-primary text-on-primary font-headline uppercase tracking-widest text-[11px] font-bold"
           >
-            Retry
+            {t('modelHub.retry')}
           </button>
         </div>
       )}
@@ -453,9 +470,11 @@ const ModelHub: FC = () => {
         <div className="text-center py-20 bg-surface-container-lowest border border-dashed border-outline-variant/30">
           <span className="material-symbols-outlined text-outline text-4xl mb-3">search_off</span>
           <p className="text-outline">
-            No model matches your filters — or llmfit returned no recommendation (check
-            <code className="font-mono bg-surface-container px-1 mx-1">docker compose logs spectra-api</code>
-            if the list stays empty without filters).
+            <Trans i18nKey="modelHub.emptyList">
+              No model matches your filters — or llmfit returned no recommendation (check
+              <code className="font-mono bg-surface-container px-1 mx-1">docker compose logs spectra-api</code>
+              if the list stays empty without filters).
+            </Trans>
           </p>
         </div>
       )}

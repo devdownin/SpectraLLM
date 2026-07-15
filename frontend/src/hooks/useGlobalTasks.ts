@@ -9,6 +9,7 @@ import {
   evaluationApi,
   modelsHubApi,
   qualityBenchmarkApi,
+  ablationApi,
 } from '../services/api';
 
 /**
@@ -34,7 +35,8 @@ export type GlobalTaskKind =
   | 'evaluation'
   | 'ab'
   | 'install'
-  | 'benchmark';
+  | 'benchmark'
+  | 'ablation';
 
 export type GlobalTaskStatus = 'pending' | 'running' | 'completed' | 'failed';
 
@@ -222,6 +224,23 @@ export function normalizeInstallations(raw: unknown): GlobalTask[] {
   });
 }
 
+export function normalizeAblationJobs(raw: unknown): GlobalTask[] {
+  return asArray(raw).map((j) => ({
+    id: `ablation:${j.jobId}`,
+    kind: 'ablation' as const,
+    icon: 'science',
+    label: j.label ?? shortId(j.jobId),
+    detail: typeof j.totalUnits === 'number' && j.totalUnits > 0
+      ? `${j.processedUnits ?? 0}/${j.totalUnits}` : (j.currentStep ?? null),
+    status: toStatus(j.status),
+    progress: ratio(j.processedUnits, j.totalUnits),
+    path: '/optimization',
+    error: j.error ?? null,
+    timestamp: pickTimestamp(j.completedAt, j.createdAt),
+    startedAt: pickTimestamp(j.createdAt),
+  }));
+}
+
 export function normalizeBenchmarkJobs(raw: unknown): GlobalTask[] {
   return asArray(raw).map((j) => ({
     id: `benchmark:${j.jobId}`,
@@ -283,6 +302,7 @@ export interface TasksSnapshot {
   ab?: unknown;
   installs?: unknown;
   benchmarks?: unknown;
+  ablations?: unknown;
 }
 
 export function normalizeSnapshot(snap: TasksSnapshot | null | undefined): GlobalTask[] {
@@ -296,6 +316,7 @@ export function normalizeSnapshot(snap: TasksSnapshot | null | undefined): Globa
     ...normalizeAbComparisons(snap.ab),
     ...normalizeInstallations(snap.installs),
     ...normalizeBenchmarkJobs(snap.benchmarks),
+    ...normalizeAblationJobs(snap.ablations),
   ];
 }
 
@@ -315,6 +336,7 @@ async function fetchGlobalTasks(): Promise<GlobalTask[]> {
     [() => evaluationApi.getAllAb(), normalizeAbComparisons],
     [() => modelsHubApi.getInstallations(), normalizeInstallations],
     [() => qualityBenchmarkApi.listCompareJobs(), normalizeBenchmarkJobs],
+    [() => ablationApi.listJobs(), normalizeAblationJobs],
   ];
   const results = await Promise.allSettled(sources.map(([fetch]) => fetch()));
   return results.flatMap((r, i) =>
