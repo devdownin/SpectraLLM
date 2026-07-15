@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import type { FC } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { evaluationApi } from '../services/api';
 import type { EvaluationReport, EvaluationScore, ModelComparisonReport } from '../types/api';
 import ScoreRadar from '../components/charts/ScoreRadar';
@@ -9,25 +11,12 @@ import BatchEvaluateDialog from '../components/BatchEvaluateDialog';
 import AbComparisonView from '../components/AbComparisonView';
 import Skeleton from '../components/Skeleton';
 
-const STATUS_LABEL: Record<string, string> = {
-  PENDING:   'Pending',
-  RUNNING:   'Running',
-  COMPLETED: 'Completed',
-  FAILED:    'Failed',
-};
-
 const STATUS_COLOR: Record<string, string> = {
   PENDING:   'text-on-surface-variant',
   RUNNING:   'text-secondary',
   COMPLETED: 'text-primary',
   FAILED:    'text-error',
-};
-
-const CATEGORY_LABEL: Record<string, string> = {
-  qa:             'Q&A',
-  summary:        'Summary',
-  classification: 'Classification',
-  negative:       'Negative',
+  CANCELLED: 'text-on-surface-variant',
 };
 
 function ScoreBar({ score, color = 'bg-primary' }: { score: number; color?: string }) {
@@ -56,21 +45,23 @@ function ProgressBar({ value, max }: { value: number; max: number }) {
 }
 
 function ScoreDetail({ score }: { score: EvaluationScore }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
+  const category = t(`comparison.category.${score.category}`, score.category);
   return (
     <div className="border-b border-outline-variant/10 last:border-0">
       <button
         onClick={() => setOpen(o => !o)}
         className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-surface-container-high/40 transition-colors"
         aria-expanded={open}
-        aria-label={`Toggle details for score ${score.score.toFixed(0)} out of 10 in category ${CATEGORY_LABEL[score.category] ?? score.category}`}
+        aria-label={t('comparison.scoreDetailAria', { score: score.score.toFixed(0), category })}
       >
         <span className="font-headline text-xs font-bold w-8 shrink-0"
               style={{ color: score.score >= 7 ? 'var(--color-primary)' : score.score >= 4 ? 'var(--color-secondary)' : 'var(--color-error)' }}>
           {score.score.toFixed(0)}/10
         </span>
         <span className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant w-20 shrink-0">
-          {CATEGORY_LABEL[score.category] ?? score.category}
+          {category}
         </span>
         <span className="text-xs text-on-surface truncate flex-1">{score.question}</span>
         <span className="text-[11px] text-on-surface-variant shrink-0">{open ? '▲' : '▼'}</span>
@@ -79,19 +70,19 @@ function ScoreDetail({ score }: { score: EvaluationScore }) {
         <div className="px-4 pb-4 space-y-3 bg-surface-container-low/20">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="bg-surface-container-low p-3 rounded border border-outline-variant/10">
-              <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">Reference answer</p>
+              <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">{t('comparison.referenceAnswer')}</p>
               <p className="text-xs text-on-surface-variant leading-relaxed">{score.referenceAnswer}</p>
             </div>
             <div className={`p-3 rounded border ${score.score >= 7 ? 'bg-primary/5 border-primary/20' : score.score >= 4 ? 'bg-secondary/5 border-secondary/20' : 'bg-error/5 border-error/20'}`}>
-              <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">Model answer</p>
+              <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">{t('comparison.modelAnswer')}</p>
               <p className="text-xs text-on-surface leading-relaxed">{score.modelAnswer}</p>
             </div>
           </div>
           <div className="bg-surface-container-low p-3 rounded border border-outline-variant/10 mt-3">
-            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">Judge justification</p>
+            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">{t('comparison.judgeJustification')}</p>
             <p className="text-xs italic text-on-surface-variant">{score.justification}</p>
           </div>
-          <p className="font-label text-[10px] text-on-surface-variant">Source: {score.source}</p>
+          <p className="font-label text-[10px] text-on-surface-variant">{t('comparison.source', { source: score.source })}</p>
         </div>
       )}
     </div>
@@ -99,9 +90,13 @@ function ScoreDetail({ score }: { score: EvaluationScore }) {
 }
 
 const Comparison: FC = () => {
+  const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState<EvaluationReport | null>(null);
   const [isTriggering, setIsTriggering] = useState(false);
+
+  const formatDate = (iso: string) =>
+    new Date(iso).toLocaleString(i18n.language, { dateStyle: 'short', timeStyle: 'short' });
 
   const { data: reports = [], isLoading } = useQuery({
     queryKey: ['evaluation-reports'],
@@ -187,8 +182,11 @@ const Comparison: FC = () => {
     try {
       await evaluationApi.submit();
       await queryClient.invalidateQueries({ queryKey: ['evaluation-reports'] });
-    } catch (err) {
-      alert("Failed to start a new evaluation. Make sure the backend is reachable.");
+    } catch (err: any) {
+      // Toast (et non alert natif) : cohérent avec le reste de l'application.
+      toast.error(t('comparison.startFailed'), {
+        description: err?.response?.data?.detail ?? t('comparison.startFailedHint'),
+      });
     } finally {
       setIsTriggering(false);
     }
@@ -220,9 +218,9 @@ const Comparison: FC = () => {
       <header className="flex items-end justify-between">
         <div>
           <p className="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-1">
-            LLM-as-a-Judge
+            {t('comparison.kicker')}
           </p>
-          <h2 className="font-headline text-3xl font-bold tracking-tighter">MODEL EVALUATION</h2>
+          <h2 className="font-headline text-3xl font-bold tracking-tighter">{t('comparison.title')}</h2>
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -232,9 +230,9 @@ const Comparison: FC = () => {
                           ? 'bg-secondary text-on-secondary border-secondary'
                           : 'bg-transparent text-on-surface-variant border-outline-variant/30 hover:text-on-surface hover:bg-surface-container-high'}`}
             aria-pressed={abMode}
-            title="Direct head-to-head comparison between two models"
+            title={t('comparison.abTitle')}
           >
-            {abMode ? 'Exit A/B' : 'A/B head-to-head'}
+            {abMode ? t('comparison.abExit') : t('comparison.abEnter')}
           </button>
           {!abMode && (
             <>
@@ -242,10 +240,10 @@ const Comparison: FC = () => {
                 onClick={() => setBatchOpen(true)}
                 className="px-4 py-2 bg-transparent text-on-surface-variant font-label text-[11px] uppercase tracking-widest
                            border border-outline-variant/30 hover:text-on-surface hover:bg-surface-container-high transition-colors"
-                aria-label="Evaluate several models at once on a shared test set"
-                title="Evaluate several models on a shared test set, then compare"
+                aria-label={t('comparison.batchTitle')}
+                title={t('comparison.batchTitle')}
               >
-                Batch evaluate
+                {t('comparison.batch')}
               </button>
               <button
                 onClick={() => setCompareMode(m => !m)}
@@ -256,19 +254,17 @@ const Comparison: FC = () => {
                               ? 'bg-secondary text-on-secondary border-secondary'
                               : 'bg-transparent text-on-surface-variant border-outline-variant/30 hover:text-on-surface hover:bg-surface-container-high'}`}
                 aria-pressed={compareMode}
-                aria-label="Toggle multi-model comparison"
-                title={compareIds.length < 2 ? 'Select at least 2 completed evaluations to compare' : 'Compare selected models'}
+                title={compareIds.length < 2 ? t('comparison.compareHintDisabled') : t('comparison.compareHintEnabled')}
               >
-                {compareMode ? 'Exit comparison' : `Compare (${compareIds.length})`}
+                {compareMode ? t('comparison.compareExit') : t('comparison.compareEnter', { count: compareIds.length })}
               </button>
               <button
                 onClick={handleNewEvaluation}
                 disabled={isTriggering}
                 className="px-4 py-2 bg-primary text-on-primary font-label text-[11px] uppercase tracking-widest
                            hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
-                aria-label="Launch a new model evaluation"
               >
-                {isTriggering ? 'Launching...' : '+ New evaluation'}
+                {isTriggering ? t('comparison.launching') : t('comparison.newEval')}
               </button>
             </>
           )}
@@ -284,25 +280,22 @@ const Comparison: FC = () => {
         </div>
       ) : reports.length === 0 ? (
         <div className="bg-surface-container p-8 text-center space-y-2">
-          <p className="font-headline text-lg">No evaluations</p>
-          <p className="text-sm text-on-surface-variant">
-            Click &quot;New evaluation&quot; to score the active model&apos;s quality
-            on a dataset sample.
-          </p>
+          <p className="font-headline text-lg">{t('comparison.empty')}</p>
+          <p className="text-sm text-on-surface-variant">{t('comparison.emptyHint')}</p>
         </div>
       ) : (
-        <div className="grid grid-cols-[260px_1fr] gap-6 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-6 items-start">
           {/* Evaluation list */}
           <div className="bg-surface-container divide-y divide-outline-variant/10">
             <div className="px-4 py-3 bg-surface-container-high flex flex-col gap-2">
-               <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">History</p>
+               <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">{t('comparison.history')}</p>
                <input
                  type="text"
-                 placeholder="Filter by model..."
+                 placeholder={t('comparison.filterPlaceholder')}
                  value={searchTerm}
                  onChange={e => setSearchTerm(e.target.value)}
                  className="bg-surface-container-low text-xs text-on-surface px-2 py-1 outline-none border border-outline-variant/20 focus:border-primary/50"
-                 aria-label="Filter evaluation history by model name"
+                 aria-label={t('comparison.filterPlaceholder')}
                />
             </div>
             {filteredReports.map(r => (
@@ -310,14 +303,14 @@ const Comparison: FC = () => {
               {r.status === 'COMPLETED' && (
                 <label
                   className="flex items-center px-3 cursor-pointer hover:bg-surface-container-high/60"
-                  title="Select for multi-model comparison"
+                  title={t('comparison.selectForCompare')}
                 >
                   <input
                     type="checkbox"
                     checked={compareIds.includes(r.evalId)}
                     onChange={() => toggleCompare(r.evalId)}
                     className="accent-secondary"
-                    aria-label={`Select ${r.modelName} for comparison`}
+                    aria-label={t('comparison.selectModelAria', { name: r.modelName })}
                   />
                 </label>
               )}
@@ -325,17 +318,17 @@ const Comparison: FC = () => {
                 onClick={() => setSelected(r)}
                 className={`flex-1 min-w-0 text-left px-4 py-3 transition-colors hover:bg-surface-container-high/60
                   ${selected?.evalId === r.evalId ? 'bg-surface-container-high' : ''}`}
-                aria-label={`Select report for model ${r.modelName} completed at ${new Date(r.startedAt).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' })}`}
+                aria-label={t('comparison.reportAria', { name: r.modelName, date: formatDate(r.startedAt) })}
                 aria-current={selected?.evalId === r.evalId ? 'true' : 'false'}
               >
                 <div className="flex items-center justify-between mb-0.5">
                   <span className="font-headline font-bold text-xs truncate pr-2">{r.modelName}</span>
                   <span className={`font-label text-[10px] uppercase tracking-widest shrink-0 ${STATUS_COLOR[r.status]}`}>
-                    {STATUS_LABEL[r.status]}
+                    {t(`comparison.status.${r.status}`, r.status)}
                   </span>
                 </div>
                 <p className="font-label text-[10px] text-on-surface-variant">
-                  {new Date(r.startedAt).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' })}
+                  {formatDate(r.startedAt)}
                 </p>
                 {r.status === 'COMPLETED' && (
                   <p className="font-headline text-sm font-bold mt-1">
@@ -354,13 +347,13 @@ const Comparison: FC = () => {
           {compareMode && (
             compareIds.length < 2 ? (
               <div className="bg-surface-container p-8 text-center text-sm text-on-surface-variant">
-                Select at least 2 completed evaluations (checkboxes on the left) to compare.
+                {t('comparison.needTwo')}
               </div>
             ) : isComparing ? (
               <Skeleton className="h-80" />
             ) : compareError ? (
               <div className="bg-error/10 text-error text-sm p-6">
-                Comparison failed. Make sure the selected evaluations are still available.
+                {t('comparison.compareFailed')}
               </div>
             ) : comparison ? (
               <ModelComparisonPanel
@@ -379,12 +372,12 @@ const Comparison: FC = () => {
               <div className="bg-surface-container p-6 space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">Evaluated model</p>
+                    <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">{t('comparison.evaluatedModel')}</p>
                     <p className="font-headline font-bold text-lg">{selected.modelName}</p>
                     {selected.judgeModel && (
                       <p className="font-label text-[11px] text-on-surface-variant mt-0.5">
-                        judge: <span className={selected.judgeModel === selected.modelName ? '' : 'text-secondary'}>{selected.judgeModel}</span>
-                        {selected.judgeModel === selected.modelName && ' (auto-jugement)'}
+                        {t('comparison.judge')} <span className={selected.judgeModel === selected.modelName ? '' : 'text-secondary'}>{selected.judgeModel}</span>
+                        {selected.judgeModel === selected.modelName && ` ${t('comparison.selfJudged')}`}
                       </p>
                     )}
                   </div>
@@ -393,14 +386,13 @@ const Comparison: FC = () => {
                       <button
                         onClick={handleExportSelected}
                         className="px-3 py-1 text-[11px] font-label uppercase tracking-widest border border-outline-variant/30 text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors"
-                        aria-label="Export report as JSON"
                       >
-                        Export JSON
+                        {t('comparison.exportJson')}
                       </button>
                     )}
                     <span className={`font-label text-[11px] uppercase tracking-widest px-3 py-1 border ${STATUS_COLOR[selected.status]}
                       ${selected.status === 'COMPLETED' ? 'border-primary/30' : 'border-outline-variant/30'}`}>
-                      {STATUS_LABEL[selected.status]}
+                      {t(`comparison.status.${selected.status}`, selected.status)}
                     </span>
                   </div>
                 </div>
@@ -408,10 +400,10 @@ const Comparison: FC = () => {
                 {(selected.status === 'RUNNING' || selected.status === 'PENDING') && (
                   <div>
                     <div className="flex items-center justify-between mb-1">
-                      <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">Progress</p>
+                      <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">{t('comparison.progress')}</p>
                       <span className="flex items-center gap-1 text-[10px] font-label uppercase tracking-widest text-secondary">
                         <span className="w-1.5 h-1.5 bg-secondary rounded-full animate-pulse inline-block" />
-                        {selected.status === 'PENDING' ? 'Pending…' : 'Running'}
+                        {selected.status === 'PENDING' ? t('comparison.pending') : t('comparison.running')}
                       </span>
                     </div>
                     <div className="relative w-full bg-outline-variant/20 h-1 overflow-hidden">
@@ -428,7 +420,7 @@ const Comparison: FC = () => {
                     </div>
                     {selected.testSetSize > 0 && (
                       <p className="font-label text-[10px] text-on-surface-variant mt-0.5 text-right">
-                        {selected.processed} / {selected.testSetSize} pairs
+                        {t('comparison.pairsProgress', { done: selected.processed, total: selected.testSetSize })}
                       </p>
                     )}
                   </div>
@@ -441,24 +433,24 @@ const Comparison: FC = () => {
                 {(selected.status === 'COMPLETED' || selected.status === 'RUNNING') && selected.processed > 0 && (
                   <>
                     <div>
-                      <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant mb-2">Global score</p>
+                      <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant mb-2">{t('comparison.globalScore')}</p>
                       <div className="flex items-baseline gap-2">
                         <span className="font-headline text-4xl font-bold">{selected.averageScore.toFixed(2)}</span>
                         <span className="text-on-surface-variant">/10</span>
                         <span className="font-label text-[11px] text-on-surface-variant ml-2">
-                          on {selected.processed} pair{selected.processed > 1 ? 's' : ''}
+                          {t('comparison.onPairs', { count: selected.processed })}
                         </span>
                       </div>
                       {(selected.avgLatencyMs > 0 || selected.avgTokensPerSec > 0) && (
                         <div className="flex items-center gap-4 mt-2">
                           {selected.avgLatencyMs > 0 && (
                             <span className="font-label text-[11px] text-on-surface-variant">
-                              Latency <span className="text-on-surface font-bold">{(selected.avgLatencyMs / 1000).toFixed(2)}s</span> / answer
+                              {t('comparison.latency')} <span className="text-on-surface font-bold">{(selected.avgLatencyMs / 1000).toFixed(2)}s</span> {t('comparison.perAnswer')}
                             </span>
                           )}
                           {selected.avgTokensPerSec > 0 && (
                             <span className="font-label text-[11px] text-on-surface-variant">
-                              ~<span className="text-on-surface font-bold">{selected.avgTokensPerSec.toFixed(1)}</span> tok/s (est.)
+                              ~<span className="text-on-surface font-bold">{selected.avgTokensPerSec.toFixed(1)}</span> {t('comparison.tokPerSec')}
                             </span>
                           )}
                         </div>
@@ -469,12 +461,12 @@ const Comparison: FC = () => {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
                         {/* Score bars */}
                         <div>
-                          <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant mb-3">By category</p>
+                          <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant mb-3">{t('comparison.byCategory')}</p>
                           <div className="space-y-2">
                             {categories.map(([cat, avg]) => (
                               <div key={cat} className="grid grid-cols-[100px_1fr] gap-3 items-center">
                                 <span className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">
-                                  {CATEGORY_LABEL[cat] ?? cat}
+                                  {t(`comparison.category.${cat}`, cat)}
                                 </span>
                                 <ScoreBar score={avg}
                                   color={cat === 'negative' ? 'bg-secondary' : 'bg-primary'} />
@@ -485,7 +477,7 @@ const Comparison: FC = () => {
                         {/* Radar chart */}
                         {categories.length >= 3 && (
                           <div className="h-48">
-                            <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant mb-1">Radar</p>
+                            <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant mb-1">{t('comparison.radar')}</p>
                             <ScoreRadar scoresByCategory={selected.scoresByCategory} />
                           </div>
                         )}
@@ -499,7 +491,7 @@ const Comparison: FC = () => {
               {selected.scores.length > 0 && (
                 <div className="bg-surface-container">
                   <p className="px-4 py-3 font-label text-[11px] uppercase tracking-widest text-on-surface-variant bg-surface-container-high border-b border-outline-variant/10 flex items-center justify-between">
-                    <span>Pair details ({selected.scores.length})</span>
+                    <span>{t('comparison.pairDetails', { count: selected.scores.length })}</span>
                   </p>
                   {selected.scores.map((s, i) => (
                     <ScoreDetail key={i} score={s} />

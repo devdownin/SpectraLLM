@@ -36,16 +36,16 @@ const ModelStoragePanel: FC = () => {
       modelsHubApi.deleteModel(name, type, true),
     onSuccess: (res) => {
       const data = res.data;
-      toast.success(`Model "${data.name}" removed from the registry`, {
+      toast.success(t('storage.deleted', { name: data.name }), {
         description: data.fileDeleted
-          ? 'GGUF file deleted from data/models/.'
-          : (data.fileSkippedReason ?? 'GGUF file kept.'),
+          ? t('storage.fileDeleted')
+          : (data.fileSkippedReason ?? t('storage.fileKept')),
       });
       queryClient.invalidateQueries({ queryKey: ['models-storage'] });
       queryClient.invalidateQueries({ queryKey: ['model-recommendations'] });
     },
     onError: (error: any) => {
-      toast.error('Failed to delete model', {
+      toast.error(t('storage.deleteFailed'), {
         description: error?.response?.data?.detail ?? error?.response?.data?.error ?? error?.message,
       });
     },
@@ -60,11 +60,11 @@ const ModelStoragePanel: FC = () => {
         <div className="flex items-center gap-3">
           <span className="material-symbols-outlined text-outline">hard_drive</span>
           <span className="text-[11px] font-black uppercase tracking-widest text-primary font-headline">
-            Storage — data/models/
+            {t('storage.title')}
           </span>
           {storage && (
             <span className="text-[11px] text-outline">
-              {storage.files?.length ?? 0} GGUF · {formatSize(storage.totalBytes ?? 0)}
+              {t('storage.summary', { count: storage.files?.length ?? 0, size: formatSize(storage.totalBytes ?? 0) })}
             </span>
           )}
         </div>
@@ -75,9 +75,9 @@ const ModelStoragePanel: FC = () => {
 
       {expanded && (
         <div className="border-t border-outline-variant/10 divide-y divide-outline-variant/10">
-          {isLoading && <div className="px-4 py-3 text-xs text-outline">Loading…</div>}
+          {isLoading && <div className="px-4 py-3 text-xs text-outline">{t('storage.loading')}</div>}
           {!isLoading && (storage?.files ?? []).length === 0 && (
-            <div className="px-4 py-3 text-xs text-outline">No GGUF file in the models volume.</div>
+            <div className="px-4 py-3 text-xs text-outline">{t('storage.empty')}</div>
           )}
           {(storage?.files ?? []).map((f: any) => {
             const primaryRef = f.registeredAs?.[0];
@@ -89,11 +89,11 @@ const ModelStoragePanel: FC = () => {
                     <span className="font-bold">{formatSize(f.sizeBytes)}</span>
                     {(f.registeredAs ?? []).map((r: any) => (
                       <span key={`${r.type}-${r.name}`} className={`px-1.5 py-0.5 border ${r.active ? 'border-primary text-primary font-bold' : 'border-outline-variant/30'}`}>
-                        {r.name} · {r.type}{r.active ? ' · ACTIVE' : ''}
+                        {r.name} · {r.type}{r.active ? ` · ${t('storage.active')}` : ''}
                       </span>
                     ))}
                     {(f.registeredAs ?? []).length === 0 && (
-                      <span className="italic">not in the registry (orphan file)</span>
+                      <span className="italic">{t('storage.orphan')}</span>
                     )}
                   </div>
                 </div>
@@ -101,11 +101,11 @@ const ModelStoragePanel: FC = () => {
                   <button
                     onClick={() => setPendingDelete({ name: primaryRef.name, type: primaryRef.type, size: formatSize(f.sizeBytes) })}
                     disabled={f.active || deleteMutation.isPending}
-                    title={f.active ? 'Active model — activate another one first' : 'Remove from registry and delete the GGUF'}
+                    title={f.active ? t('storage.deleteHintActive') : t('storage.deleteHint')}
                     className="shrink-0 flex items-center gap-1 px-3 py-1.5 border border-error/40 text-error text-[11px] font-black uppercase tracking-widest disabled:opacity-30 hover:bg-error/10 transition-colors"
                   >
                     <span className="material-symbols-outlined text-sm">delete</span>
-                    Delete
+                    {t('storage.delete')}
                   </button>
                 )}
               </div>

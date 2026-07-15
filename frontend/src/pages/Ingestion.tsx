@@ -79,9 +79,9 @@ const statusIcon: Record<IngestStatus, string> = {
 // ── Pipeline step indicator ──────────────────────────────────────────────────
 
 const PIPELINE_STEPS = [
-  { key: 'ingest',    label: 'Ingest',    icon: 'cloud_upload' },
-  { key: 'generate',  label: 'Generate',  icon: 'dataset' },
-  { key: 'ready',     label: 'Ready',     icon: 'check_circle' },
+  { key: 'ingest',    labelKey: 'ingestion.stepIngest',   icon: 'cloud_upload' },
+  { key: 'generate',  labelKey: 'ingestion.stepGenerate', icon: 'dataset' },
+  { key: 'ready',     labelKey: 'ingestion.stepReady',    icon: 'check_circle' },
 ];
 
 interface PipelineStepProps {
@@ -132,7 +132,7 @@ const PipelineStep: FC<PipelineStepProps> = ({ icon, label, state, nextState, is
 // ── Main component ───────────────────────────────────────────────────────────
 
 const Ingestion: FC = () => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [dragActive, setDragActive] = useState(false);
   const [maxChunks, setMaxChunks] = useState(10);
   const [confirmGenerate, setConfirmGenerate] = useState(false);
@@ -199,8 +199,8 @@ const Ingestion: FC = () => {
         failures = 0;
         const t = res.data;
         if (t.status === 'FAILED' && t.error?.includes('OOM')) {
-          toast.error(`Critical Memory Error: ${taskId.slice(0, 8)}`, {
-            description: 'The document is too large for the current memory configuration.',
+          toast.error(i18n.t('ingestion.oomTitle', { id: taskId.slice(0, 8) }), {
+            description: i18n.t('ingestion.oomDesc'),
             duration: 10000,
           });
         }
@@ -231,7 +231,7 @@ const Ingestion: FC = () => {
       }
     }, 3000);
     activeIntervals.current.add(interval);
-  }, [loadStats, loadHistory]);
+  }, [loadStats, loadHistory, i18n]);
 
   // ── Upload file ───────────────────────────────────────────────────────────
   const uploadFile = useCallback(async (file: File) => {
@@ -247,9 +247,9 @@ const Ingestion: FC = () => {
     } catch (err: any) {
       const msg = err?.response?.data?.detail ?? err.message;
       setIngestEntries(prev => prev.map(e => e.id === id ? { ...e, status: 'FAILED', error: msg } : e));
-      toast.error(`Ingestion failed: ${file.name}`, { description: msg });
+      toast.error(i18n.t('ingestion.ingestFailed', { name: file.name }), { description: msg });
     }
-  }, [pollIngest]);
+  }, [pollIngest, i18n]);
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault(); e.stopPropagation();
@@ -270,7 +270,7 @@ const Ingestion: FC = () => {
     const trimmed = url.trim();
     if (!trimmed) return;
     try { new URL(trimmed); } catch {
-      toast.error('Invalid URL', { description: trimmed });
+      toast.error(i18n.t('ingestion.invalidUrl'), { description: trimmed });
       return;
     }
 
@@ -287,9 +287,9 @@ const Ingestion: FC = () => {
     } catch (err: any) {
       const msg = err?.response?.data?.detail ?? err.message;
       setIngestEntries(prev => prev.map(e => e.id === id ? { ...e, status: 'FAILED', error: msg } : e));
-      toast.error('URL ingestion failed', { description: msg });
+      toast.error(i18n.t('ingestion.urlIngestFailed'), { description: msg });
     }
-  }, [pollIngest]);
+  }, [pollIngest, i18n]);
 
   // ── Dataset generation ────────────────────────────────────────────────────
   const pollGenTask = useCallback((taskId: string) => {
@@ -382,9 +382,9 @@ const Ingestion: FC = () => {
       const taskId: string = res.data.taskId;
       setGenTask({ taskId, status: 'PENDING', pairsGenerated: 0, chunksProcessed: 0, totalChunks: 0, error: null });
       pollGenTask(taskId);
-      toast.success('Generation started', { description: `Task ${taskId.slice(0, 8)}…` });
+      toast.success(t('ingestion.generationStarted'), { description: t('ingestion.generationTask', { id: taskId.slice(0, 8) }) });
     } catch (err: any) {
-      toast.error('Generation error', { description: err?.response?.data?.detail ?? err.message });
+      toast.error(t('ingestion.generationError'), { description: err?.response?.data?.detail ?? err.message });
     }
   };
 
@@ -427,8 +427,8 @@ const Ingestion: FC = () => {
       {/* Header */}
       <header className="flex justify-between items-end">
         <div>
-          <p className="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-1">Data Engineering</p>
-          <h2 className="font-headline text-3xl font-bold tracking-tighter">INGESTION &amp; DATASET</h2>
+          <p className="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-1">{t('ingestion.kicker')}</p>
+          <h2 className="font-headline text-3xl font-bold tracking-tighter">{t('ingestion.title')}</h2>
         </div>
         <div className="flex items-center gap-6">
         <button
@@ -436,11 +436,11 @@ const Ingestion: FC = () => {
           className="flex items-center gap-1.5 text-[10px] font-label uppercase tracking-widest text-on-surface-variant hover:text-primary transition-colors"
         >
           <span className="material-symbols-outlined text-sm">refresh</span>
-          Refresh
+          {t('ingestion.refresh')}
         </button>
         <div className="flex items-center gap-3">
           {PIPELINE_STEPS.map((s, i) => (
-            <PipelineStep key={s.key} icon={s.icon} label={s.label}
+            <PipelineStep key={s.key} icon={s.icon} label={t(s.labelKey)}
               state={pipelineState(s.key)}
               nextState={i < PIPELINE_STEPS.length - 1 ? pipelineState(PIPELINE_STEPS[i + 1].key) : undefined}
               isLast={i === PIPELINE_STEPS.length - 1} />
@@ -465,7 +465,7 @@ const Ingestion: FC = () => {
             <p className="font-headline font-bold text-xl">
               {stats ? stats.chunksInStore : '—'}
             </p>
-            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Indexed chunks</p>
+            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">{t('ingestion.indexedChunks')}</p>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -477,7 +477,7 @@ const Ingestion: FC = () => {
             <p className="font-headline font-bold text-xl">
               {stats ? stats.totalPairs : '—'}
             </p>
-            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Training pairs</p>
+            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">{t('ingestion.trainingPairs')}</p>
           </div>
         </div>
         <div className="flex items-center gap-3 justify-end">
@@ -485,15 +485,15 @@ const Ingestion: FC = () => {
             <Skeleton className="h-5 w-44" />
           ) : stats.chunksInStore === 0 ? (
             <span className="text-[10px] text-outline uppercase tracking-widest font-label border border-outline-variant/30 px-2 py-1">
-              Empty store — ingest documents
+              {t('ingestion.emptyStore')}
             </span>
           ) : stats.totalPairs === 0 ? (
             <span className="text-[10px] text-secondary uppercase tracking-widest font-label border border-secondary/30 px-2 py-1">
-              {stats.chunksInStore} chunks ready — start step 2
+              {t('ingestion.chunksReady', { count: stats.chunksInStore })}
             </span>
           ) : (
             <span className="text-[10px] text-primary uppercase tracking-widest font-label border border-primary/30 px-2 py-1">
-              Dataset ready — {stats.totalPairs} pairs
+              {t('ingestion.datasetReady', { count: stats.totalPairs })}
             </span>
           )}
         </div>
@@ -505,10 +505,10 @@ const Ingestion: FC = () => {
           <div className="w-6 h-6 bg-primary flex items-center justify-center">
             <span className="font-headline font-bold text-on-primary-fixed text-xs">1</span>
           </div>
-          <h3 className="font-headline text-lg font-bold uppercase tracking-tight">Document Ingestion</h3>
+          <h3 className="font-headline text-lg font-bold uppercase tracking-tight">{t('ingestion.step1Title')}</h3>
           {stats && stats.chunksInStore > 0 && (
             <span className="ml-auto font-label text-[11px] uppercase tracking-widest text-primary">
-              {stats.chunksInStore} chunks in store
+              {t('ingestion.chunksInStore', { count: stats.chunksInStore })}
             </span>
           )}
         </div>
@@ -526,9 +526,9 @@ const Ingestion: FC = () => {
               <span className={`material-symbols-outlined text-4xl mb-3 transition-colors ${dragActive ? 'text-secondary animate-bounce' : 'text-primary'}`}>
                 cloud_upload
               </span>
-              <h4 className="font-headline text-sm font-bold mb-1 uppercase tracking-tight">Inject Raw Intelligence</h4>
+              <h4 className="font-headline text-sm font-bold mb-1 uppercase tracking-tight">{t('ingestion.dropTitle')}</h4>
               <p className="text-on-surface-variant text-xs mb-4 text-center max-w-sm">
-                PDF, DOCX, TXT, JSON, XML, HTML, ZIP — drop files or click to select
+                {t('ingestion.dropHint')}
               </p>
               <input ref={fileInputRef} type="file" accept=".pdf,.docx,.doc,.txt,.json,.xml,.htm,.html,.zip" className="hidden"
                 onChange={handleFileChange} multiple />
@@ -536,7 +536,7 @@ const Ingestion: FC = () => {
                 onClick={e => { e.stopPropagation(); fileInputRef.current?.click(); }}
                 className="bg-outline-variant/20 hover:bg-outline-variant/40 text-on-surface font-bold py-2 px-8 text-[11px] uppercase tracking-widest transition-colors"
               >
-                Browse Files
+                {t('ingestion.browse')}
               </button>
             </div>
 
@@ -546,7 +546,7 @@ const Ingestion: FC = () => {
               <input
                 type="url"
                 className="flex-1 bg-transparent border-none focus:ring-0 text-xs font-body px-2 placeholder:text-outline"
-                placeholder="https://example.com/document.pdf or web page..."
+                placeholder={t('ingestion.urlPlaceholder')}
                 value={urlInput}
                 onChange={e => setUrlInput(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') ingestUrl(urlInput); }}
@@ -556,7 +556,7 @@ const Ingestion: FC = () => {
                 disabled={!urlInput.trim()}
                 className="text-[10px] font-headline uppercase tracking-widest px-3 py-1.5 border border-primary text-primary hover:bg-primary/5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
               >
-                Ingest URL
+                {t('ingestion.ingestUrl')}
               </button>
             </div>
 
@@ -565,15 +565,15 @@ const Ingestion: FC = () => {
                 la génération de Q/A synthétiques — la case ne servait qu'à bloquer le bouton.) */}
             <div className="bg-surface-container p-5 space-y-3">
               <div className="flex items-center gap-2">
-                <h4 className="font-headline text-xs font-bold uppercase tracking-tight">Extraction Strategy</h4>
-                <Tooltip content="Method for splitting documents into semantic chunks.">
+                <h4 className="font-headline text-xs font-bold uppercase tracking-tight">{t('ingestion.extractionStrategy')}</h4>
+                <Tooltip content={t('ingestion.extractionTooltip')}>
                   <span className="material-symbols-outlined text-xs text-outline cursor-help">help</span>
                 </Tooltip>
               </div>
               <div className="p-3 bg-surface-container-lowest border-l-2 border-primary">
                 <p className="text-xs font-bold mb-0.5">SEMANTIC_CHUNK_V2</p>
                 <p className="text-[11px] text-on-surface-variant uppercase tracking-widest leading-relaxed">
-                  Context-aware partitioning
+                  {t('ingestion.extractionDesc')}
                 </p>
               </div>
             </div>
@@ -583,7 +583,7 @@ const Ingestion: FC = () => {
           <div className="bg-surface-container p-5 flex flex-col min-h-[300px]">
             <div className="flex items-center justify-between mb-3">
               <h4 className="font-headline text-xs font-bold uppercase tracking-tight">
-                {showHistory ? 'Ingestion History' : 'Live Ingestion Stream'}
+                {showHistory ? t('ingestion.historyTitle') : t('ingestion.liveTitle')}
               </h4>
               <button
                 onClick={() => {
@@ -594,7 +594,7 @@ const Ingestion: FC = () => {
                 className="text-[10px] font-label uppercase tracking-widest text-primary hover:underline flex items-center gap-1"
               >
                 <span className="material-symbols-outlined text-sm">{showHistory ? 'sensors' : 'history'}</span>
-                {showHistory ? 'Live' : 'History'}
+                {showHistory ? t('ingestion.showLive') : t('ingestion.showHistory')}
               </button>
             </div>
             {showHistory ? (
@@ -605,7 +605,7 @@ const Ingestion: FC = () => {
                   <input
                     type="text"
                     className="flex-1 bg-transparent border-none focus:ring-0 text-[11px] font-body placeholder:text-outline"
-                    placeholder="Search for a file…"
+                    placeholder={t('ingestion.searchFile')}
                     value={historySearch}
                     onChange={e => {
                       setHistorySearch(e.target.value);
@@ -621,13 +621,13 @@ const Ingestion: FC = () => {
                 </div>
                 {/* Count */}
                 <p className="text-[10px] text-outline font-label uppercase tracking-widest">
-                  {historyTotal} file{historyTotal !== 1 ? 's' : ''}{historySearch ? ` · "${historySearch}"` : ''}
+                  {t('ingestion.fileCount', { count: historyTotal })}{historySearch ? ` · "${historySearch}"` : ''}
                 </p>
                 {/* List */}
                 <div className="flex-1 space-y-2 overflow-y-auto custom-scrollbar max-h-64">
                   {history.length === 0 && !historyLoading ? (
                     <p className="text-[11px] text-outline uppercase tracking-widest italic text-center py-4">
-                      {historySearch ? 'No results' : 'Empty history'}
+                      {historySearch ? t('ingestion.noResults') : t('ingestion.emptyHistory')}
                     </p>
                   ) : (
                     history.map(item => (
@@ -642,7 +642,7 @@ const Ingestion: FC = () => {
                               {item.format?.toUpperCase() ?? '?'}
                             </span>
                             <span className="text-[10px] text-outline">
-                              {new Date(item.ingestedAt).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })}
+                              {new Date(item.ingestedAt).toLocaleDateString(i18n.language, { day: '2-digit', month: 'short' })}
                             </span>
                           </div>
                           <span className="text-[10px] font-bold text-primary">{item.chunksCreated}ch</span>
@@ -652,7 +652,7 @@ const Ingestion: FC = () => {
                   )}
                   {historyLoading && (
                     <p className="text-[10px] text-outline font-label uppercase tracking-widest text-center animate-pulse py-2">
-                      Loading…
+                      {t('ingestion.loading')}
                     </p>
                   )}
                 </div>
@@ -662,14 +662,14 @@ const Ingestion: FC = () => {
                     onClick={() => loadHistory(historyPage + 1, historySearch, true)}
                     className="text-[10px] font-label uppercase tracking-widest text-primary border border-primary/30 px-3 py-1.5 hover:bg-primary/5 transition-colors w-full"
                   >
-                    Load more ({historyTotal - history.length} remaining)
+                    {t('ingestion.loadMore', { count: historyTotal - history.length })}
                   </button>
                 )}
               </div>
             ) : ingestEntries.length === 0 ? (
               <div className="flex-1 flex items-center justify-center">
                 <p className="text-[11px] text-outline uppercase tracking-widest italic text-center">
-                  No files<br />currently ingesting
+                  {t('ingestion.noActiveIngest1')}<br />{t('ingestion.noActiveIngest2')}
                 </p>
               </div>
             ) : (
@@ -688,11 +688,11 @@ const Ingestion: FC = () => {
                       <span key={`${entry.status}-${entry.chunksCreated}`}
                         className={`text-[10px] font-bold uppercase tracking-widest shrink-0 ${statusColor[entry.status]} ${entry.status === 'COMPLETED' ? 'count-flash' : ''}`}>
                         {entry.status === 'COMPLETED'
-                          ? `${entry.chunksCreated} chunks`
+                          ? t('ingestion.chunks', { count: entry.chunksCreated })
                           : entry.status === 'PROCESSING' && entry.chunksExpected > 0
-                            ? `${entry.chunksCreated}/${entry.chunksExpected} chunks`
+                            ? t('ingestion.chunksProgress', { done: entry.chunksCreated, total: entry.chunksExpected })
                             : entry.status === 'PROCESSING' && entry.chunksCreated > 0
-                              ? `${entry.chunksCreated} chunks…`
+                              ? t('ingestion.chunksSoFar', { count: entry.chunksCreated })
                               : entry.status}
                       </span>
                     </div>
@@ -730,7 +730,7 @@ const Ingestion: FC = () => {
           <div className="w-6 h-6 bg-secondary flex items-center justify-center">
             <span className="font-headline font-bold text-on-secondary text-xs">2</span>
           </div>
-          <h3 className="font-headline text-lg font-bold uppercase tracking-tight">Dataset Generation</h3>
+          <h3 className="font-headline text-lg font-bold uppercase tracking-tight">{t('ingestion.step2Title')}</h3>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -738,8 +738,8 @@ const Ingestion: FC = () => {
           <div className="bg-surface-container p-6 space-y-6">
             <div className="space-y-3">
               <div className="flex items-center gap-2">
-                <label className="font-label text-[11px] uppercase tracking-widest">Corpus size</label>
-                <Tooltip content="Number of chunks used to generate Q/A pairs. Start with a small sample to validate quality, then run the full corpus.">
+                <label className="font-label text-[11px] uppercase tracking-widest">{t('ingestion.corpusSize')}</label>
+                <Tooltip content={t('ingestion.corpusSizeTooltip')}>
                   <span className="material-symbols-outlined text-xs text-outline cursor-help">help</span>
                 </Tooltip>
               </div>
@@ -747,10 +747,10 @@ const Ingestion: FC = () => {
                   contre-intuitif) : l'option la plus lourde est clairement nommée, à droite. */}
               <div className="grid grid-cols-4 gap-2">
                 {[
-                  { value: 10, label: '10', sub: 'quick test' },
-                  { value: 50, label: '50', sub: 'sample' },
-                  { value: 100, label: '100', sub: 'large' },
-                  { value: 0, label: 'ALL', sub: 'full corpus' },
+                  { value: 10, label: '10', sub: t('ingestion.presetQuickTest') },
+                  { value: 50, label: '50', sub: t('ingestion.presetSample') },
+                  { value: 100, label: '100', sub: t('ingestion.presetLarge') },
+                  { value: 0, label: t('ingestion.presetAllLabel'), sub: t('ingestion.presetAll') },
                 ].map(p => (
                   <button
                     key={p.value}
@@ -771,8 +771,9 @@ const Ingestion: FC = () => {
               {/* Ordre de grandeur du travail : ~1 appel LLM par chunk traité. */}
               {stats && stats.chunksInStore > 0 && (
                 <p className="text-[10px] text-outline uppercase tracking-widest">
-                  ≈ {maxChunks === 0 ? stats.chunksInStore : Math.min(maxChunks, stats.chunksInStore)} chunks
-                  processed (~1 LLM call each)
+                  {t('ingestion.workEstimate', {
+                    count: maxChunks === 0 ? stats.chunksInStore : Math.min(maxChunks, stats.chunksInStore),
+                  })}
                 </p>
               )}
             </div>
@@ -788,7 +789,7 @@ const Ingestion: FC = () => {
               <span className={`material-symbols-outlined text-sm ${genActive ? 'animate-spin' : ''}`}>
                 {genActive ? 'sync' : 'rocket_launch'}
               </span>
-              {genActive ? 'Generating…' : 'Initialize Pipeline'}
+              {genActive ? t('ingestion.generating') : t('ingestion.generate')}
             </button>
           </div>
 
@@ -797,15 +798,15 @@ const Ingestion: FC = () => {
             {!genTask ? (
               <div className="h-full flex items-center justify-center">
                 <p className="text-[11px] text-outline uppercase tracking-widest italic text-center">
-                  No generation in progress.<br />
-                  Upload documents then start the pipeline.
+                  {t('ingestion.noGeneration1')}<br />
+                  {t('ingestion.noGeneration2')}
                 </p>
               </div>
             ) : (
               <>
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">Task ID</p>
+                    <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">{t('ingestion.taskId')}</p>
                     <p className="font-headline font-bold text-sm">{genTask.taskId.slice(0, 8).toUpperCase()}…</p>
                   </div>
                   <span className={`font-label text-[11px] font-bold uppercase tracking-widest px-3 py-1 border ${
@@ -822,7 +823,7 @@ const Ingestion: FC = () => {
                 {genTask.totalChunks > 0 && (
                   <div className="space-y-2">
                     <div className="flex justify-between text-[11px] font-label uppercase tracking-widest">
-                      <span className="text-on-surface-variant">Chunks Processed</span>
+                      <span className="text-on-surface-variant">{t('ingestion.chunksProcessed')}</span>
                       <span className="font-bold">
                         {genTask.chunksProcessed} / {genTask.totalChunks}
                         {genEta !== null && (
@@ -846,14 +847,14 @@ const Ingestion: FC = () => {
                 {/* Pairs count */}
                 <div className="grid grid-cols-2 gap-4">
                   <div className="bg-surface-container-lowest p-4 border-l-2 border-primary">
-                    <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">Pairs Generated</p>
+                    <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">{t('ingestion.pairsGenerated')}</p>
                     {/* key forces re-mount → count-flash animation replays on each new value */}
                     <p key={genTask.pairsGenerated} className={`font-headline font-bold text-2xl ${genTask.status === 'PROCESSING' ? 'count-flash' : ''}`}>
                       {genTask.pairsGenerated}
                     </p>
                   </div>
                   <div className="bg-surface-container-lowest p-4 border-l-2 border-secondary">
-                    <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">Chunks Total</p>
+                    <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">{t('ingestion.chunksTotal')}</p>
                     <p className="font-headline font-bold text-2xl">{genTask.totalChunks || '—'}</p>
                   </div>
                 </div>
@@ -876,35 +877,35 @@ const Ingestion: FC = () => {
             <div className="w-6 h-6 bg-surface-container-high border border-primary flex items-center justify-center">
               <span className="font-headline font-bold text-primary text-xs">3</span>
             </div>
-            <h3 className="font-headline text-lg font-bold uppercase tracking-tight">Dataset Ready</h3>
+            <h3 className="font-headline text-lg font-bold uppercase tracking-tight">{t('ingestion.step3Title')}</h3>
             <div className="w-2 h-2 bg-primary ml-1"></div>
           </div>
 
           {stats.totalPairs === 0 && stats.chunksInStore === 0 ? (
             <div className="bg-surface-container p-8 flex items-center justify-center">
               <p className="text-[11px] text-outline uppercase tracking-widest italic text-center">
-                No data in store.<br />
-                Ingest documents (step 1) then start generation (step 2).
+                {t('ingestion.noData1')}<br />
+                {t('ingestion.noData2')}
               </p>
             </div>
           ) : (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-surface-container p-5 border-t-2 border-primary">
-              <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">Training Pairs</p>
+              <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">{t('ingestion.statPairs')}</p>
               <p className="font-headline font-bold text-3xl">{stats.totalPairs}</p>
             </div>
             <div className="bg-surface-container p-5 border-t-2 border-secondary">
-              <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">Chunks in Store</p>
+              <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">{t('ingestion.statChunks')}</p>
               <p className="font-headline font-bold text-3xl">{stats.chunksInStore}</p>
             </div>
             <div className="bg-surface-container p-5 border-t-2 border-outline-variant">
-              <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">Avg Confidence</p>
+              <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">{t('ingestion.statConfidence')}</p>
               <p className="font-headline font-bold text-3xl">
                 {stats.avgConfidence > 0 ? (stats.avgConfidence * 100).toFixed(0) + '%' : '—'}
               </p>
             </div>
             <div className="bg-surface-container p-5 border-t-2 border-outline-variant">
-              <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">Categories</p>
+              <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">{t('ingestion.statCategories')}</p>
               <p className="font-headline font-bold text-3xl">{Object.keys(stats.byCategory).length}</p>
             </div>
           </div>
@@ -912,7 +913,7 @@ const Ingestion: FC = () => {
 
           {Object.keys(stats.byCategory).length > 0 && (
             <div className="bg-surface-container p-5 space-y-3">
-              <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">Category Distribution</p>
+              <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">{t('ingestion.categoryDistribution')}</p>
               <div className="space-y-2">
                 {Object.entries(stats.byCategory).map(([cat, count]) => (
                   <div key={cat} className="space-y-1">
