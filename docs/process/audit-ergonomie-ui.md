@@ -1,5 +1,17 @@
 # Audit ergonomique de l'interface web Spectra
 
+> **Suivi (mise à jour)** — Constats **#1 à #6 traités** :
+> #1 confirmations avant suppression (`ConfirmDialog` + Documents/Model Hub) ;
+> #2 ablation asynchrone suivie, annulable, persistée (`AblationJob`, `/api/ablation/async`) ;
+> #3 annulation des tâches depuis le TaskCenter (des endpoints DELETE existaient déjà pour
+> dataset/éval/A-B/fine-tuning/ingestion — l'audit les avait manqués ; ajoutés pour DPO,
+> installations et ablation ; il manque encore le benchmark qualité) ;
+> #4 migration i18n FR/EN des écrans Ingestion, Documents, Fine-Tuning, Comparison, Model Hub,
+> Optimization et de leurs panneaux (676 clés/langue) ;
+> #5 toggle « Synthetic Q&A » supprimé ; #6 « Max Chunks » remplacé par des presets explicites.
+> Traités au passage : #9 (`alert()` → toast), #12 (dates via `i18n.language`),
+> #13 (grilles Comparison/A-B responsives), partie de #18/#19.
+
 > Audit réalisé sur le code du frontend (`frontend/src/`, React 19 + TypeScript + Tailwind v4 +
 > React Query + SSE) et les contrôleurs backend concernés. Basé exclusivement sur la lecture du
 > code — les points nécessitant une vérification visuelle ou manuelle sont signalés par 👁.
