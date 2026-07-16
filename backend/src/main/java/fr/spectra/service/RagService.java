@@ -106,6 +106,8 @@ public class RagService {
             List<Map<String, String>> metadatas,
             List<Double> distances,
             List<Float> bm25Scores,
+            /** Scores RRF de la recherche hybride, alignés sur {@code chunks} ({@code null} en vectoriel pur). */
+            List<Double> rrfScores,
             boolean hybridApplied
     ) {}
 
@@ -304,7 +306,8 @@ public class RagService {
 
             if (RagOverrides.resolve(ov.selfRag(), selfRagService.isPresent())) {
                 SelfRagService.SelfRagResult result = selfRagService.get()
-                        .reflect(request.question(), ctx.contextChunks(), systemPrompt, userMessage);
+                        .reflect(request.question(), ctx.contextChunks(), systemPrompt, userMessage,
+                                request.temperature(), request.topP());
                 answer = result.answer();
                 selfRagApplied = result.reflectionApplied();
             } else {
@@ -507,9 +510,13 @@ public class RagService {
             try {
                 int collectionSize = chromaDbClient.count(collectionId);
                 if (collectionSize > 0 && collectionSize <= maxChunks) {
-                    log.info("Long-context RAG : {} chunks ≤ {} → chargement intégral sans retrieval vectoriel",
-                            collectionSize, maxChunks);
-                    return buildFullContextResult(collectionId);
+                    RagContext fullContext = buildFullContextResult(collectionId);
+                    // null = corpus au-delà du budget de tokens → retrieval standard
+                    if (fullContext != null) {
+                        log.info("Long-context RAG : {} chunks ≤ {} → chargement intégral sans retrieval vectoriel",
+                                collectionSize, maxChunks);
+                        return fullContext;
+                    }
                 }
             } catch (Exception e) {
                 log.warn("Long-context RAG : erreur lors du comptage, fallback retrieval standard — {}", e.getMessage());
@@ -701,13 +708,15 @@ public class RagService {
             List<Map<String, String>> metadatas = new ArrayList<>(results.size());
             List<Double>              distances = new ArrayList<>(results.size());
             List<Float>               bm25      = new ArrayList<>(results.size());
+            List<Double>              rrf       = new ArrayList<>(results.size());
             for (HybridSearchService.HybridChunk hc : results) {
                 chunks.add(hc.text());
                 metadatas.add(Map.of("sourceFile", hc.sourceFile()));
                 distances.add(hc.vectorDistance());
                 bm25.add(hc.bm25Score());
+                rrf.add(hc.rrfScore());
             }
-            return new SingleQueryResult(chunks, metadatas, distances, bm25, !results.isEmpty());
+            return new SingleQueryResult(chunks, metadatas, distances, bm25, rrf, !results.isEmpty());
         } else {
             Map<String, Object> results = chromaDbClient.query(collectionId, embedding, retrieveCount);
             List<List<String>>              documents = (List<List<String>>) results.get("documents");
@@ -717,14 +726,22 @@ public class RagService {
                     (documents == null || documents.isEmpty()) ? List.of() : documents.getFirst(),
                     (metadatas == null || metadatas.isEmpty()) ? List.of() : metadatas.getFirst(),
                     (distances == null || distances.isEmpty()) ? List.of() : distances.getFirst(),
-                    null, false);
+                    null, null, false);
         }
     }
 
     /**
      * Exécute le retrieval pour chaque requête de la liste, fusionne les résultats
-     * en déduplication exacte sur le texte du chunk (premier trouvé = meilleur score).
-     * Le résultat est limité à {@code retrieveCount} chunks triés par distance croissante.
+     * en déduplication exacte sur le texte du chunk.
+     *
+     * <p><b>Classement de la fusion.</b> En recherche hybride, chaque résultat porte un score
+     * RRF ; les scores d'un même chunk sont SOMMÉS entre les variantes (fusion RRF standard :
+     * un chunk retrouvé par plusieurs reformulations est renforcé) et le tri final se fait par
+     * score RRF décroissant. Trier par distance vectorielle écraserait le classement hybride :
+     * les chunks issus du BM25 seul portent une distance sentinelle (1.0) qui les reléguait
+     * systématiquement en queue. En vectoriel pur (pas de RRF), tri par distance croissante.</p>
+     *
+     * <p>Le résultat est limité à {@code retrieveCount} chunks.</p>
      */
     private MultiQueryMerge executeMultiQueryRetrieval(List<String> queries, String collectionId,
                                                         String collectionName, int retrieveCount, boolean useHybrid) {
@@ -734,13 +751,16 @@ public class RagService {
         List<Map<String, String>> mergedMetadatas = new ArrayList<>();
         List<Double>              mergedDistances = new ArrayList<>();
         List<Float>               mergedBm25      = new ArrayList<>();
+        List<Double>              mergedRrf       = new ArrayList<>();
         boolean hybridApplied = false;
         boolean trackBm25 = true; // désactivé si un résultat n'a pas de scores BM25
+        boolean trackRrf  = true; // désactivé si un résultat n'a pas de scores RRF (vectoriel pur)
 
         for (String query : queries) {
             SingleQueryResult r = executeSingleQuery(query, collectionId, collectionName, retrieveCount, useHybrid);
             hybridApplied = hybridApplied || r.hybridApplied();
             if (r.bm25Scores() == null) trackBm25 = false;
+            if (r.rrfScores()  == null) trackRrf  = false;
 
             for (int i = 0; i < r.chunks().size(); i++) {
                 String text = r.chunks().get(i);
@@ -750,20 +770,31 @@ public class RagService {
                     mergedMetadatas.add(r.metadatas().get(i));
                     mergedDistances.add(r.distances().get(i));
                     if (trackBm25 && r.bm25Scores() != null) mergedBm25.add(r.bm25Scores().get(i));
+                    if (trackRrf  && r.rrfScores()  != null) mergedRrf.add(r.rrfScores().get(i));
                 } else {
-                    // Conserve la meilleure distance (plus faible = plus proche) pour ce chunk
                     int existingIdx = indexByText.get(text);
+                    // Conserve la meilleure distance (plus faible = plus proche) pour ce chunk
                     if (r.distances().get(i) < mergedDistances.get(existingIdx)) {
                         mergedDistances.set(existingIdx, r.distances().get(i));
+                    }
+                    // Somme les contributions RRF des différentes variantes (fusion RRF standard)
+                    if (trackRrf && r.rrfScores() != null && existingIdx < mergedRrf.size()) {
+                        mergedRrf.set(existingIdx, mergedRrf.get(existingIdx) + r.rrfScores().get(i));
                     }
                 }
             }
         }
 
-        // Trier par distance croissante et limiter à retrieveCount
+        // Tri : score RRF décroissant si disponible (hybride), sinon distance croissante —
+        // puis limite à retrieveCount.
+        boolean sortByRrf = trackRrf && mergedRrf.size() == mergedChunks.size() && !mergedRrf.isEmpty();
         List<Integer> sortedIdx = new ArrayList<>();
         for (int i = 0; i < mergedChunks.size(); i++) sortedIdx.add(i);
-        sortedIdx.sort((a, b) -> Double.compare(mergedDistances.get(a), mergedDistances.get(b)));
+        if (sortByRrf) {
+            sortedIdx.sort((a, b) -> Double.compare(mergedRrf.get(b), mergedRrf.get(a)));
+        } else {
+            sortedIdx.sort((a, b) -> Double.compare(mergedDistances.get(a), mergedDistances.get(b)));
+        }
         List<Integer> topIdx = sortedIdx.subList(0, Math.min(retrieveCount, sortedIdx.size()));
 
         log.info("Multi-query : {} chunks uniques fusionnés depuis {} requêtes → {} retenus",
@@ -777,8 +808,17 @@ public class RagService {
                 hybridApplied);
     }
 
+    /** Heuristique d'estimation de tokens (identique à AgenticRagService) : 1 token ≈ 4 caractères. */
+    private static final int CHARS_PER_TOKEN = 4;
+
     /**
      * Charge tous les documents d'une collection pour le Long-Context RAG bypass.
+     *
+     * <p>Retourne {@code null} si le corpus dépasse le budget
+     * {@code spectra.long-context-rag.max-context-tokens} : injecter un corpus qui déborde
+     * de la fenêtre du modèle tronquerait silencieusement le prompt, et un préfixe
+     * arbitraire du corpus est moins pertinent qu'un retrieval vectoriel ciblé — l'appelant
+     * retombe alors sur le retrieval standard.</p>
      */
     @SuppressWarnings("unchecked")
     private RagContext buildFullContextResult(String collectionId) {
@@ -790,6 +830,18 @@ public class RagService {
             log.warn("Long-context RAG : collection vide, aucun document chargé");
             return buildRagContext(List.of(), List.of(), List.of(), null, null,
                     false, false, false, false, true);
+        }
+
+        int maxContextTokens = props.longContextRag().effectiveMaxContextTokens();
+        long totalChars = 0;
+        for (String doc : documents) {
+            if (doc != null) totalChars += doc.length();
+        }
+        long estimatedTokens = totalChars / CHARS_PER_TOKEN;
+        if (estimatedTokens > maxContextTokens) {
+            log.info("Long-context RAG : corpus estimé à ~{} tokens > budget {} → fallback retrieval standard",
+                    estimatedTokens, maxContextTokens);
+            return null;
         }
 
         // Distance 0.0 : tous les chunks sont directement pertinents (pas de filtrage vectoriel)
