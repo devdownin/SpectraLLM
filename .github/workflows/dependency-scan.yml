@@ -20,11 +20,14 @@ jobs:
       # On met la base en cache entre les runs : chaque passage ne télécharge que le
       # delta, et la sauvegarde en `if: always()` conserve les données partielles
       # d'un run échoué au lieu de repartir de zéro.
+      # run_attempt dans la clé : les caches Actions sont immuables, et un rerun du même
+      # run réutilise run_id — sans l'attempt, la sauvegarde du rerun échoue
+      # (« Unable to reserve cache ») et sa progression est perdue.
       - name: Restore OWASP dependency-check database
         uses: actions/cache/restore@v4
         with:
           path: ~/.m2/repository/org/owasp/dependency-check-data
-          key: depcheck-data-${{ runner.os }}-${{ github.run_id }}
+          key: depcheck-data-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             depcheck-data-${{ runner.os }}-
       - name: OWASP Dependency Check
@@ -36,7 +39,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ~/.m2/repository/org/owasp/dependency-check-data
-          key: depcheck-data-${{ runner.os }}-${{ github.run_id }}
+          key: depcheck-data-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Upload Report
         if: always()
         uses: actions/upload-artifact@v4
