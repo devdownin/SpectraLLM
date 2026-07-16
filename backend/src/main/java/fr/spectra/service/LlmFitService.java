@@ -626,7 +626,10 @@ public class LlmFitService {
         }
         Path modelsDir = Path.of(modelsDirPath).toAbsolutePath().normalize();
         Path file = modelsDir.resolve(fileName).normalize();
-        if (!modelsDir.equals(file.getParent())) {
+        // Double barrière anti-traversée : startsWith sur le chemin normalisé (la forme
+        // canonique reconnue par l'analyse statique — CodeQL java/path-injection) ET
+        // parent exact (interdit aussi un sous-répertoire de models-dir).
+        if (!file.startsWith(modelsDir) || !modelsDir.equals(file.getParent())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Le fichier doit être directement dans le répertoire des modèles");
         }
