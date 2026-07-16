@@ -14,7 +14,8 @@
   },
   "header": {
     "switchLanguage": "Switch language",
-    "help": "Help for this page"
+    "help": "Help for this page",
+    "activeModelHint": "Active model — open the Playground to switch"
   },
   "taskCenter": {
     "title": "Activity",
@@ -437,14 +438,27 @@
     "deleted": "Model “{{name}}” removed from the registry",
     "fileDeleted": "GGUF file deleted from data/models/.",
     "fileKept": "GGUF file kept.",
-    "deleteFailed": "Failed to delete model"
+    "deleteFailed": "Failed to delete model",
+    "llmfitCache": "llmfit cache",
+    "llmfitCacheSummary": "{{count}} GGUF · {{size}}",
+    "duplicate": "duplicate",
+    "notDuplicate": "partial / unknown",
+    "purge": "Purge duplicates ({{size}})",
+    "purged_one": "{{count}} duplicate removed from the llmfit cache — {{size}} freed",
+    "purged_other": "{{count}} duplicates removed from the llmfit cache — {{size}} freed",
+    "purgeSkipped": "Purge skipped",
+    "purgeFailed": "Failed to purge the llmfit cache"
   },
   "installs": {
     "title": "Installation history",
     "count_one": "{{count}} download",
     "count_other": "{{count}} downloads",
     "loading": "Loading…",
-    "empty": "No installation recorded yet."
+    "empty": "No installation recorded yet.",
+    "retry": "Retry",
+    "retryHint": "Relaunch this download with the same parameters",
+    "retryStarted": "Download of \"{{name}}\" relaunched",
+    "retryFailed": "Failed to relaunch the download"
   },
   "optimization": {
     "kicker": "A/B ablation · held-out benchmark",
@@ -755,6 +769,9 @@
     "recipeLoadFailed": "Failed to load the recipe",
     "modelName": "Model Name",
     "baseModel": "Base Model",
+    "activeModel": "Active model",
+    "prefilledHint": "fields prefilled from the active model (trainable base: {{base}})",
+    "baseCatalogHint": "Catalog aliases: {{aliases}} — or a full HuggingFace repo (\"org/name\")",
     "epochs": "Epochs",
     "loraRank": "LoRA Rank",
     "minConfidence": "Min Confidence",

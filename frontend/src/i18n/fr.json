@@ -14,7 +14,8 @@
   },
   "header": {
     "switchLanguage": "Changer de langue",
-    "help": "Aide sur cette page"
+    "help": "Aide sur cette page",
+    "activeModelHint": "Modèle actif — ouvrir le Playground pour en changer"
   },
   "taskCenter": {
     "title": "Activité",
@@ -437,14 +438,27 @@
     "deleted": "Modèle « {{name}} » retiré du registre",
     "fileDeleted": "Fichier GGUF supprimé de data/models/.",
     "fileKept": "Fichier GGUF conservé.",
-    "deleteFailed": "Échec de la suppression du modèle"
+    "deleteFailed": "Échec de la suppression du modèle",
+    "llmfitCache": "Cache llmfit",
+    "llmfitCacheSummary": "{{count}} GGUF · {{size}}",
+    "duplicate": "doublon",
+    "notDuplicate": "partiel / inconnu",
+    "purge": "Purger les doublons ({{size}})",
+    "purged_one": "{{count}} doublon supprimé du cache llmfit — {{size}} libérés",
+    "purged_other": "{{count}} doublons supprimés du cache llmfit — {{size}} libérés",
+    "purgeSkipped": "Purge non effectuée",
+    "purgeFailed": "Échec de la purge du cache llmfit"
   },
   "installs": {
     "title": "Historique des installations",
     "count_one": "{{count}} téléchargement",
     "count_other": "{{count}} téléchargements",
     "loading": "Chargement…",
-    "empty": "Aucune installation enregistrée pour l'instant."
+    "empty": "Aucune installation enregistrée pour l'instant.",
+    "retry": "Réessayer",
+    "retryHint": "Relancer ce téléchargement avec les mêmes paramètres",
+    "retryStarted": "Téléchargement de « {{name}} » relancé",
+    "retryFailed": "Impossible de relancer le téléchargement"
   },
   "optimization": {
     "kicker": "Ablation A/B · benchmark tenu à l'écart",
@@ -755,6 +769,9 @@
     "recipeLoadFailed": "Échec du chargement de la recette",
     "modelName": "Nom du modèle",
     "baseModel": "Modèle de base",
+    "activeModel": "Modèle actif",
+    "prefilledHint": "champs préremplis d'après le modèle actif (base entraînable : {{base}})",
+    "baseCatalogHint": "Alias du catalogue : {{aliases}} — ou un repo HuggingFace complet (« org/nom »)",
     "epochs": "Époques",
     "loraRank": "Rang LoRA",
     "minConfidence": "Confiance min.",

@@ -111,6 +111,160 @@ class LlmFitServiceTest {
         assertThat(service.installModel("qwen2.5:7b", null, false)).isNotNull();
     }
 
+    // ── Fin d'installation : déduplication du cache llmfit et faux succès ───────
+
+    /** Dépôt en mémoire : save/findById réels pour observer les transitions du job. */
+    private InstallationJobRepository inMemoryRepo(Map<String, InstallationJobEntity> store) {
+        InstallationJobRepository repo = mock(InstallationJobRepository.class);
+        when(repo.save(any())).thenAnswer(inv -> {
+            InstallationJobEntity e = inv.getArgument(0);
+            store.put(e.toDto().jobId(), e);
+            return e;
+        });
+        when(repo.findById(any())).thenAnswer(inv ->
+                Optional.ofNullable(store.get(inv.<String>getArgument(0))));
+        return repo;
+    }
+
+    @Test
+    @org.junit.jupiter.api.condition.EnabledOnOs({
+            org.junit.jupiter.api.condition.OS.LINUX, org.junit.jupiter.api.condition.OS.MAC})
+    void installModel_ggufDansLeCacheLlmfit_estDeplaceSansLaisserDeDoublon() throws Exception {
+        // Cache llmfit simulé : le GGUF téléchargé n'est PAS dans models-dir. Après
+        // installation, il doit être DÉPLACÉ (pas copié) — sinon chaque modèle occupe
+        // deux fois sa taille et le rapport de stockage (limité à models-dir) ne le voit pas.
+        Path cache  = Files.createDirectories(modelsDir.resolve("llmfit-cache"));
+        Path source = Files.writeString(cache.resolve("modele.Q4_K_M.gguf"), "poids");
+        Path target = modelsDir.resolve("models");
+        Path fake = modelsDir.resolve("fake-llmfit.sh");
+        Files.writeString(fake, "#!/bin/sh\necho \"Download complete: " + source + "\"\nexit 0\n");
+        assertThat(fake.toFile().setExecutable(true)).isTrue();
+
+        Map<String, InstallationJobEntity> store = new java.util.concurrent.ConcurrentHashMap<>();
+        LlmFitService service = newServiceWith(inMemoryRepo(store));
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "llmfitPath", fake.toString());
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "modelsDirPath", target.toString());
+
+        assertThat(service.installModel("llama3.2:3b", null, false)
+                .get(30, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+
+        assertThat(source).as("la source du cache llmfit ne doit pas survivre").doesNotExist();
+        assertThat(target.resolve("modele.Q4_K_M.gguf")).hasContent("poids");
+        InstallationJob job = store.values().iterator().next().toDto();
+        assertThat(job.status()).isEqualTo(InstallationJob.Status.COMPLETED);
+        assertThat(job.outputPath())
+                .isEqualTo(target.resolve("modele.Q4_K_M.gguf").toAbsolutePath().toString());
+    }
+
+    @Test
+    @org.junit.jupiter.api.condition.EnabledOnOs({
+            org.junit.jupiter.api.condition.OS.LINUX, org.junit.jupiter.api.condition.OS.MAC})
+    void installModel_exit0SansGgufDetecte_marqueLeJobFailedPasCompleted() throws Exception {
+        // llmfit sort en succès mais ni sa sortie ni le scan de models-dir ne révèlent de
+        // GGUF : le modèle n'est ni copié, ni enregistré, ni activable. Le job doit être
+        // FAILED — un COMPLETED afficherait un faux succès en vert dans l'historique.
+        Path fake = modelsDir.resolve("fake-llmfit.sh");
+        Files.writeString(fake, "#!/bin/sh\necho \"done\"\nexit 0\n");
+        assertThat(fake.toFile().setExecutable(true)).isTrue();
+
+        Map<String, InstallationJobEntity> store = new java.util.concurrent.ConcurrentHashMap<>();
+        LlmFitService service = newServiceWith(inMemoryRepo(store));
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "llmfitPath", fake.toString());
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "modelsDirPath",
+                modelsDir.resolve("empty-models").toString());
+
+        assertThat(service.installModel("llama3.2:3b", null, false)
+                .get(30, java.util.concurrent.TimeUnit.SECONDS)).isFalse();
+
+        InstallationJob job = store.values().iterator().next().toDto();
+        assertThat(job.status()).isEqualTo(InstallationJob.Status.FAILED);
+        assertThat(job.error()).contains("GGUF introuvable");
+    }
+
+    // ── Cache llmfit : inventaire et purge des doublons ─────────────────────────
+
+    /** Service dont models-dir et cache-dir pointent vers des sous-répertoires du @TempDir. */
+    private LlmFitService serviceWithDirs(Path models, Path cache) {
+        LlmFitService service = newService();
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "modelsDirPath", models.toString());
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "llmfitCacheDirPath", cache.toString());
+        return service;
+    }
+
+    @Test
+    void getStorageReport_inventorieLeCacheLlmfitEtMarqueLesDoublons() throws Exception {
+        Path models = Files.createDirectories(modelsDir.resolve("models"));
+        Path cache  = Files.createDirectories(modelsDir.resolve("cache"));
+        Files.writeString(models.resolve("a.gguf"), "poids-a");
+        Files.writeString(cache.resolve("a.gguf"), "poids-a");            // doublon (même nom, même taille)
+        Files.writeString(cache.resolve("partiel.gguf"), "tronc");        // inconnu de models-dir
+        Files.writeString(cache.resolve("notes.txt"), "pas un gguf");
+
+        Map<String, Object> report = serviceWithDirs(models, cache).getStorageReport();
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> cacheReport = (Map<String, Object>) report.get("llmfitCache");
+        assertThat(cacheReport.get("overlapsModelsDir")).isEqualTo(false);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> files = (List<Map<String, Object>>) cacheReport.get("files");
+        assertThat(files).hasSize(2);
+        assertThat(files).anySatisfy(f -> {
+            assertThat(f.get("file")).isEqualTo("a.gguf");
+            assertThat(f.get("duplicate")).isEqualTo(true);
+        });
+        assertThat(files).anySatisfy(f -> {
+            assertThat(f.get("file")).isEqualTo("partiel.gguf");
+            assertThat(f.get("duplicate")).isEqualTo(false);
+        });
+        assertThat(cacheReport.get("duplicateBytes")).isEqualTo((long) "poids-a".length());
+    }
+
+    @Test
+    void purgeLlmfitCacheDuplicates_supprimeSeulementLesDoublons() throws Exception {
+        Path models = Files.createDirectories(modelsDir.resolve("models"));
+        Path cache  = Files.createDirectories(modelsDir.resolve("cache"));
+        Files.writeString(models.resolve("a.gguf"), "poids-a");
+        Files.writeString(cache.resolve("a.gguf"), "poids-a");            // doublon → supprimé
+        Files.writeString(cache.resolve("partiel.gguf"), "tronc");        // conservé (pas dans models-dir)
+        // Même nom mais taille différente = téléchargement partiel → conservé.
+        Files.writeString(models.resolve("b.gguf"), "poids-b-complet");
+        Files.writeString(cache.resolve("b.gguf"), "poids");
+
+        Map<String, Object> result = serviceWithDirs(models, cache).purgeLlmfitCacheDuplicates();
+
+        assertThat(result.get("deletedCount")).isEqualTo(1);
+        assertThat(result.get("freedBytes")).isEqualTo((long) "poids-a".length());
+        assertThat(cache.resolve("a.gguf")).doesNotExist();
+        assertThat(cache.resolve("partiel.gguf")).exists();
+        assertThat(cache.resolve("b.gguf")).exists();
+        assertThat(models.resolve("a.gguf")).as("models-dir intact").exists();
+    }
+
+    @Test
+    void purgeLlmfitCacheDuplicates_cacheEtModelsDirConfondus_neSupprimeRien() throws Exception {
+        // Si llmfit télécharge DIRECTEMENT dans models-dir, chaque fichier serait son
+        // propre « doublon » : la purge doit refuser au lieu de supprimer les modèles servis.
+        Path models = Files.createDirectories(modelsDir.resolve("models"));
+        Files.writeString(models.resolve("a.gguf"), "poids-a");
+
+        Map<String, Object> result = serviceWithDirs(models, models).purgeLlmfitCacheDuplicates();
+
+        assertThat(result.get("deletedCount")).isEqualTo(0);
+        assertThat(result.get("skippedReason").toString()).contains("recouvrent");
+        assertThat(models.resolve("a.gguf")).exists();
+    }
+
+    @Test
+    void moveToSharedVolume_deplaceLeFichier_laSourceDisparait() throws Exception {
+        Path source = Files.writeString(modelsDir.resolve("a.gguf"), "poids");
+        Path target = Files.createDirectories(modelsDir.resolve("volume")).resolve("a.gguf");
+
+        LlmFitService.moveToSharedVolume(source, target);
+
+        assertThat(source).doesNotExist();
+        assertThat(target).hasContent("poids");
+    }
+
     // ── Recommandations : validation du simulateur et croisement registre ───────
 
     @Test

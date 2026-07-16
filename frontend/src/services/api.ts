@@ -92,6 +92,7 @@ export const fineTuningApi = {
   createJob: (job: any) => api.post('/fine-tuning', job),
   cancelJob: (jobId: string) => api.delete(`/fine-tuning/${jobId}`),
   getModels: () => api.get('/fine-tuning/models'),
+  getBaseModels: () => api.get('/fine-tuning/base-models'),
 };
 
 export const evaluationApi = {
@@ -297,6 +298,7 @@ export const modelsHubApi = {
   getInstallations: () => api.get('/models/hub/installations'),
   cancelInstallation: (jobId: string) => api.delete(`/models/hub/installations/${jobId}`),
   getStorage: () => api.get('/models/hub/storage'),
+  purgeLlmfitCache: () => api.post('/models/hub/storage/llmfit-cache/purge'),
   deleteModel: (name: string, type = 'chat', deleteFile = true) =>
     api.delete(`/fine-tuning/models/${encodeURIComponent(name)}`, { params: { type, deleteFile } }),
 };

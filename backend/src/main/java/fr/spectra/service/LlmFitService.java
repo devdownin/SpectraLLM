@@ -129,6 +129,15 @@ public class LlmFitService {
     @Value("${llmfit.models-dir:./data/models}")
     private String modelsDirPath;
 
+    /**
+     * Cache de téléchargement propre à llmfit (là où l'outil télécharge avant que
+     * Spectra ne déplace le GGUF vers models-dir). Inventorié par le rapport de
+     * stockage et purgeable de ses doublons — historiquement la copie (sans
+     * suppression) y laissait un double invisible de chaque modèle installé.
+     */
+    @Value("${llmfit.cache-dir:${user.home}/.llmfit}")
+    private String llmfitCacheDirPath;
+
     public LlmFitService(ObjectMapper objectMapper, ModelRegistryService modelRegistryService,
                          LlmChatClient chatClient, InstallationJobRepository installationRepository) {
         this.objectMapper = objectMapper;
@@ -379,15 +388,14 @@ public class LlmFitService {
                          * Ensure the GGUF is in the shared models volume so that
                          * llm-chat (mounted at ./data/models:/models) can serve it.
                          * llmfit may download to its own cache (e.g. ~/.llmfit/…);
-                         * we always copy to modelsDirPath so the path registered in
+                         * we always move to modelsDirPath so the path registered in
                          * registry.json is reachable by every container.
                          */
                         Path modelsDir = Path.of(modelsDirPath);
                         Path target    = modelsDir.resolve(fileName);
                         if (!source.toAbsolutePath().equals(target.toAbsolutePath())) {
                             Files.createDirectories(modelsDir);
-                            Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
-                            log.info("Modèle copié dans le volume partagé : {} → {}", source, target);
+                            moveToSharedVolume(source, target);
                         }
                         String registeredPath = target.toAbsolutePath().toString();
 
@@ -425,26 +433,32 @@ public class LlmFitService {
                         }
                         String finalPath = registeredPath;
                         updateInstallation(jobId, j -> j.completed(finalPath, "Terminé"));
-                    } else {
-                        // Téléchargement réussi mais chemin GGUF introuvable (ni dans la sortie
-                        // llmfit, ni par scan de models-dir) : le modèle n'a pu être ni copié dans
-                        // le volume partagé ni enregistré. On le signale explicitement plutôt que
-                        // de laisser un faux succès silencieux.
-                        log.warn("Modèle '{}' téléchargé (exit 0) mais aucun fichier .gguf détecté (sortie "
-                                + "llmfit et scan de {}) — enregistrement/activation ignorés. Vérifiez le "
-                                + "format de sortie de llmfit ou enregistrez le modèle manuellement.",
-                                modelName, modelsDirPath);
-                        updateInstallation(jobId, j -> j.completed(null,
-                                "Téléchargé mais fichier GGUF introuvable — non enregistré"));
-                    }
 
-                    // 100 % + complete émis SEULEMENT une fois copie + enregistrement (+ éventuelle
-                    // activation) terminés : avant, l'UI annonçait « saved to the registry » pendant
-                    // que la copie de plusieurs Go tournait encore, et le CTA benchmark interrogeait
-                    // l'historique trop tôt (job encore REGISTERING → jamais proposé).
-                    sink.tryEmitNext(100);
-                    sink.tryEmitComplete();
-                    return true;
+                        // 100 % + complete émis SEULEMENT une fois copie + enregistrement (+ éventuelle
+                        // activation) terminés : avant, l'UI annonçait « saved to the registry » pendant
+                        // que la copie de plusieurs Go tournait encore, et le CTA benchmark interrogeait
+                        // l'historique trop tôt (job encore REGISTERING → jamais proposé).
+                        sink.tryEmitNext(100);
+                        sink.tryEmitComplete();
+                        return true;
+                    } else {
+                        // Téléchargement « réussi » (exit 0) mais chemin GGUF introuvable (ni dans
+                        // la sortie llmfit, ni par scan de models-dir) : le modèle n'est ni copié
+                        // dans le volume partagé, ni enregistré, ni activable. Un COMPLETED serait
+                        // un faux succès (historique en vert) — on marque le job FAILED avec un
+                        // message actionnable.
+                        String errorMsg = "Téléchargement terminé mais fichier GGUF introuvable (sortie "
+                                + "llmfit et scan de " + modelsDirPath + ") — modèle non enregistré. "
+                                + "Vérifiez le format de sortie de llmfit ou enregistrez le modèle "
+                                + "manuellement.";
+                        log.warn("Modèle '{}' téléchargé (exit 0) mais aucun fichier .gguf détecté (sortie "
+                                + "llmfit et scan de {}) — job marqué FAILED. Vérifiez le format de sortie "
+                                + "de llmfit ou enregistrez le modèle manuellement.",
+                                modelName, modelsDirPath);
+                        sink.tryEmitError(new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, errorMsg));
+                        updateInstallation(jobId, j -> j.failed(errorMsg));
+                        return false;
+                    }
                 } else {
                     String errorMsg = lastOutputLine != null ? lastOutputLine : ("Exit code " + process.exitValue());
                     log.error("Échec de l'installation du modèle {} : {}", modelName, errorMsg);
@@ -583,7 +597,184 @@ public class LlmFitService {
         report.put("modelsDir", modelsDir.toString());
         report.put("totalBytes", totalBytes);
         report.put("files", files);
+        // Le cache llmfit fait partie de l'espace réellement consommé par les modèles :
+        // sans cette section, les doublons hérités (copie sans suppression) et les
+        // téléchargements partiels (installations annulées) restaient invisibles.
+        report.put("llmfitCache", buildLlmfitCacheReport(modelsDir));
         return report;
+    }
+
+    /**
+     * Inventaire du cache llmfit : chaque GGUF avec sa taille et un drapeau
+     * {@code duplicate} quand un fichier de même nom et même taille existe dans
+     * models-dir (doublon sûr à purger). Section vide si le cache n'existe pas,
+     * et neutralisée ({@code overlapsModelsDir}) si le cache et models-dir se
+     * recouvrent — dans ce cas les « doublons » seraient les fichiers servis
+     * eux-mêmes et la purge serait destructrice.
+     */
+    private Map<String, Object> buildLlmfitCacheReport(Path modelsDir) {
+        Map<String, Object> cache = new java.util.LinkedHashMap<>();
+        if (llmfitCacheDirPath == null || llmfitCacheDirPath.isBlank()) {
+            cache.put("dir", "");
+            cache.put("overlapsModelsDir", false);
+            cache.put("totalBytes", 0L);
+            cache.put("duplicateBytes", 0L);
+            cache.put("files", List.of());
+            return cache;
+        }
+        Path cacheDir = Path.of(llmfitCacheDirPath).toAbsolutePath().normalize();
+        boolean overlaps = cacheDir.startsWith(modelsDir) || modelsDir.startsWith(cacheDir);
+        cache.put("dir", cacheDir.toString());
+        cache.put("overlapsModelsDir", overlaps);
+
+        List<Map<String, Object>> files = new ArrayList<>();
+        long totalBytes = 0;
+        long duplicateBytes = 0;
+        if (!overlaps && Files.isDirectory(cacheDir)) {
+            Map<String, Long> registeredSizes = modelsDirSizes(modelsDir);
+            try (Stream<Path> walk = Files.walk(cacheDir, 8)) {
+                List<Path> ggufs = walk
+                        .filter(Files::isRegularFile)
+                        .filter(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".gguf"))
+                        .sorted()
+                        .toList();
+                for (Path gguf : ggufs) {
+                    long size;
+                    try {
+                        size = Files.size(gguf);
+                    } catch (Exception e) {
+                        size = 0;
+                    }
+                    boolean duplicate = Long.valueOf(size)
+                            .equals(registeredSizes.get(gguf.getFileName().toString()));
+                    totalBytes += size;
+                    if (duplicate) duplicateBytes += size;
+
+                    Map<String, Object> entry = new java.util.LinkedHashMap<>();
+                    entry.put("file", cacheDir.relativize(gguf).toString());
+                    entry.put("sizeBytes", size);
+                    entry.put("duplicate", duplicate);
+                    files.add(entry);
+                }
+            } catch (Exception e) {
+                log.warn("Inventaire du cache llmfit impossible : {}", e.getMessage());
+            }
+        }
+        cache.put("totalBytes", totalBytes);
+        cache.put("duplicateBytes", duplicateBytes);
+        cache.put("files", files);
+        return cache;
+    }
+
+    /** Tailles des GGUF de models-dir, indexées par nom de fichier. */
+    private static Map<String, Long> modelsDirSizes(Path modelsDir) {
+        Map<String, Long> sizes = new java.util.HashMap<>();
+        if (!Files.isDirectory(modelsDir)) {
+            return sizes;
+        }
+        try (Stream<Path> entries = Files.list(modelsDir)) {
+            entries.filter(Files::isRegularFile)
+                    .filter(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".gguf"))
+                    .forEach(p -> {
+                        try {
+                            sizes.put(p.getFileName().toString(), Files.size(p));
+                        } catch (Exception ignored) {}
+                    });
+        } catch (Exception e) {
+            log.debug("Lecture des tailles de {} impossible : {}", modelsDir, e.getMessage());
+        }
+        return sizes;
+    }
+
+    /**
+     * Purge les doublons du cache llmfit : seuls les GGUF dont un fichier de même
+     * nom ET même taille existe dans models-dir sont supprimés — ce sont les copies
+     * héritées d'avant le passage copie → déplacement. Les téléchargements partiels
+     * (taille différente) et les fichiers inconnus sont conservés : llmfit peut les
+     * reprendre au prochain essai. Refuse de purger si cache et models-dir se
+     * recouvrent (les « doublons » seraient les fichiers servis eux-mêmes).
+     */
+    public Map<String, Object> purgeLlmfitCacheDuplicates() {
+        if (llmfitCacheDirPath == null || llmfitCacheDirPath.isBlank()) {
+            return Map.of("dir", "", "deletedCount", 0, "freedBytes", 0L, "deletedFiles", List.of());
+        }
+        Path modelsDir = Path.of(modelsDirPath).toAbsolutePath().normalize();
+        Path cacheDir = Path.of(llmfitCacheDirPath).toAbsolutePath().normalize();
+
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        result.put("dir", cacheDir.toString());
+        List<String> deleted = new ArrayList<>();
+        long freedBytes = 0;
+
+        if (cacheDir.startsWith(modelsDir) || modelsDir.startsWith(cacheDir)) {
+            result.put("skippedReason", "Le cache llmfit et le répertoire des modèles se recouvrent — purge refusée");
+        } else if (Files.isDirectory(cacheDir)) {
+            Map<String, Long> registeredSizes = modelsDirSizes(modelsDir);
+            try (Stream<Path> walk = Files.walk(cacheDir, 8)) {
+                List<Path> duplicates = walk
+                        .filter(Files::isRegularFile)
+                        .filter(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".gguf"))
+                        .filter(p -> {
+                            try {
+                                return Long.valueOf(Files.size(p))
+                                        .equals(registeredSizes.get(p.getFileName().toString()));
+                            } catch (Exception e) {
+                                return false;
+                            }
+                        })
+                        .toList();
+                for (Path duplicate : duplicates) {
+                    try {
+                        long size = Files.size(duplicate);
+                        Files.delete(duplicate);
+                        freedBytes += size;
+                        deleted.add(cacheDir.relativize(duplicate).toString());
+                        log.info("Doublon du cache llmfit supprimé : {} ({} octets)", duplicate, size);
+                    } catch (Exception e) {
+                        log.warn("Suppression du doublon {} impossible : {}", duplicate, e.getMessage());
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Purge du cache llmfit impossible : {}", e.getMessage());
+            }
+        }
+
+        result.put("deletedCount", deleted.size());
+        result.put("freedBytes", freedBytes);
+        result.put("deletedFiles", deleted);
+        return result;
+    }
+
+    /**
+     * Déplace le GGUF téléchargé vers le volume partagé des modèles. {@link Files#move}
+     * d'abord (rename instantané sur le même système de fichiers, copie + suppression
+     * sinon) : la source — typiquement le cache llmfit ({@code ~/.llmfit/…}) — ne doit
+     * pas survivre, sans quoi chaque modèle occupe deux fois sa taille, et cet espace
+     * est invisible puisque le rapport de stockage n'inventorie que models-dir.
+     * Si le déplacement échoue (ex. droits insuffisants pour supprimer dans le cache),
+     * repli sur copie + suppression best-effort de la source, avec avertissement si
+     * elle subsiste.
+     */
+    static void moveToSharedVolume(Path source, Path target) throws java.io.IOException {
+        try {
+            Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
+            log.info("Modèle déplacé dans le volume partagé : {} → {}", source, target);
+        } catch (Exception moveFailed) {
+            Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
+            boolean sourceDeleted;
+            try {
+                sourceDeleted = Files.deleteIfExists(source);
+            } catch (Exception deleteFailed) {
+                sourceDeleted = false;
+            }
+            if (sourceDeleted) {
+                log.info("Modèle copié dans le volume partagé (source supprimée) : {} → {}", source, target);
+            } else {
+                log.warn("Modèle copié dans le volume partagé ({} → {}) mais la source n'a pas pu être "
+                        + "supprimée : le fichier occupe deux fois sa taille (cache llmfit + volume).",
+                        source, target);
+            }
+        }
     }
 
     /**
