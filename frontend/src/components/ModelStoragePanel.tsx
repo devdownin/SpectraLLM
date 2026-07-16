@@ -31,6 +31,27 @@ const ModelStoragePanel: FC = () => {
     enabled: expanded,
   });
 
+  // Purge des doublons du cache llmfit : ne supprime que les GGUF dont un fichier
+  // de même nom et même taille existe déjà dans data/models/ (le serveur conserve
+  // les téléchargements partiels, réutilisables au prochain essai).
+  const purgeMutation = useMutation({
+    mutationFn: () => modelsHubApi.purgeLlmfitCache(),
+    onSuccess: (res) => {
+      const data = res.data;
+      if (data.skippedReason) {
+        toast.warning(t('storage.purgeSkipped'), { description: data.skippedReason });
+      } else {
+        toast.success(t('storage.purged', { count: data.deletedCount ?? 0, size: formatSize(data.freedBytes ?? 0) }));
+      }
+      queryClient.invalidateQueries({ queryKey: ['models-storage'] });
+    },
+    onError: (error: any) => {
+      toast.error(t('storage.purgeFailed'), {
+        description: error?.response?.data?.detail ?? error?.response?.data?.error ?? error?.message,
+      });
+    },
+  });
+
   const deleteMutation = useMutation({
     mutationFn: ({ name, type }: { name: string; type: string }) =>
       modelsHubApi.deleteModel(name, type, true),
@@ -111,6 +132,53 @@ const ModelStoragePanel: FC = () => {
               </div>
             );
           })}
+
+          {/* Cache de téléchargement llmfit : espace consommé hors data/models/, invisible
+              auparavant. Les doublons (même nom + même taille qu'un GGUF du volume) sont
+              purgeables ; les autres fichiers (téléchargements partiels) sont conservés. */}
+          {storage?.llmfitCache && (storage.llmfitCache.files ?? []).length > 0 && (
+            <div className="px-4 py-3 space-y-2 bg-surface-container/60">
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="material-symbols-outlined text-outline text-sm">cached</span>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant">
+                    {t('storage.llmfitCache')}
+                  </span>
+                  <span className="text-[11px] text-outline truncate" title={storage.llmfitCache.dir}>
+                    {t('storage.llmfitCacheSummary', {
+                      count: storage.llmfitCache.files.length,
+                      size: formatSize(storage.llmfitCache.totalBytes ?? 0),
+                    })}
+                  </span>
+                </div>
+                {(storage.llmfitCache.duplicateBytes ?? 0) > 0 && (
+                  <button
+                    onClick={() => purgeMutation.mutate()}
+                    disabled={purgeMutation.isPending}
+                    className="shrink-0 flex items-center gap-1 px-3 py-1.5 border border-primary/40 text-primary text-[11px] font-black uppercase tracking-widest disabled:opacity-30 hover:bg-primary/10 transition-colors"
+                  >
+                    <span className={`material-symbols-outlined text-sm ${purgeMutation.isPending ? 'animate-spin' : ''}`}>
+                      {purgeMutation.isPending ? 'sync' : 'cleaning_services'}
+                    </span>
+                    {t('storage.purge', { size: formatSize(storage.llmfitCache.duplicateBytes) })}
+                  </button>
+                )}
+              </div>
+              <div className="space-y-1">
+                {storage.llmfitCache.files.map((f: any) => (
+                  <div key={f.file} className="flex items-center gap-2 text-[11px]">
+                    <span className="font-mono truncate text-on-surface-variant">{f.file}</span>
+                    <span className="font-bold text-outline shrink-0">{formatSize(f.sizeBytes)}</span>
+                    <span className={`px-1.5 py-0.5 border shrink-0 uppercase tracking-widest text-[10px] ${
+                      f.duplicate ? 'border-warning text-warning' : 'border-outline-variant/30 text-outline'
+                    }`}>
+                      {f.duplicate ? t('storage.duplicate') : t('storage.notDuplicate')}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

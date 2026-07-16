@@ -8,7 +8,8 @@ import * as z from 'zod';
 import { toast } from 'sonner';
 import { useSse } from '../hooks/useSse';
 import type { TrainingLog } from '../types/api';
-import { fineTuningApi, recipeApi } from '../services/api';
+import { configApi, fineTuningApi, recipeApi } from '../services/api';
+import { resolveTrainableBase, shouldReplace, suggestModelName } from '../lib/fineTuningPrefill';
 import LossChart from '../components/charts/LossChart';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -173,7 +174,7 @@ const FineTuning: FC = () => {
 
   const trainingSchema = useMemo(() => makeTrainingSchema(t), [t]);
 
-  const { register, handleSubmit, watch, reset, formState: { errors } } = useForm<TrainingFormValues>({
+  const { register, handleSubmit, watch, reset, setValue, getValues, formState: { errors } } = useForm<TrainingFormValues>({
     resolver: zodResolver(trainingSchema),
     defaultValues: {
       modelName: localStorage.getItem('spectra_ft_name') || 'spectra-domain',
@@ -192,6 +193,57 @@ const FineTuning: FC = () => {
 
   useEffect(() => {
     recipeApi.list().then(r => setRecipes(r.data ?? [])).catch(() => {});
+  }, []);
+
+  // ── Modèle actif → affichage + préremplissage des champs de nom ────────────
+  // Le GGUF actuellement servi n'est PAS ré-entraînable : le champ baseModel doit
+  // référencer une base du catalogue (base_models.json) ou un repo HF. On affiche
+  // donc le modèle actif et on en dérive : (1) un nom suggéré pour le modèle
+  // fine-tuné, (2) la base entraînable la plus plausible — métadonnée baseModel
+  // d'un modèle déjà fine-tuné, correspondance hfRepo, ou alias du catalogue
+  // contenu dans le nom. Une valeur SAISIE par l'utilisateur n'est jamais écrasée :
+  // seuls les défauts génériques et nos propres suggestions précédentes le sont.
+  const [activeModel, setActiveModel] = useState('');
+  const [suggestedBase, setSuggestedBase] = useState('');
+  /** Catalogue des bases entraînables (base_models.json) : alimente la datalist du champ. */
+  const [baseCatalog, setBaseCatalog] = useState<{ alias: string; hfRepo?: string; description?: string }[]>([]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [cfgRes, modelsRes, catalogRes] = await Promise.all([
+          configApi.getModelConfig(),
+          configApi.getModels().catch(() => ({ data: [] as any[] })),
+          fineTuningApi.getBaseModels().catch(() => ({ data: [] as any[] })),
+        ]);
+        const catalog: any[] = Array.isArray(catalogRes.data) ? catalogRes.data : [];
+        setBaseCatalog(catalog.filter(c => c?.alias));
+
+        const active: string = cfgRes.data?.model ?? '';
+        if (!active) return;
+        setActiveModel(active);
+
+        const registry: any[] = Array.isArray(modelsRes.data) ? modelsRes.data : [];
+        const base = resolveTrainableBase(active, registry, catalog);
+        if (base) setSuggestedBase(base);
+
+        const suggestedName = suggestModelName(active);
+        const prevName = localStorage.getItem('spectra_ft_suggested_name');
+        if (shouldReplace(getValues('modelName'), 'spectra-domain', prevName)) {
+          setValue('modelName', suggestedName, { shouldValidate: true });
+        }
+        localStorage.setItem('spectra_ft_suggested_name', suggestedName);
+
+        if (base) {
+          const prevBase = localStorage.getItem('spectra_ft_suggested_base');
+          if (shouldReplace(getValues('baseModel'), 'phi3', prevBase)) {
+            setValue('baseModel', base, { shouldValidate: true });
+          }
+          localStorage.setItem('spectra_ft_suggested_base', base);
+        }
+      } catch { /* API indisponible : le formulaire garde ses défauts */ }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadRecipe = async (name: string) => {
@@ -393,6 +445,17 @@ const FineTuning: FC = () => {
             </button>
           </div>
 
+          {activeModel && (
+            <div className="mb-6 flex flex-wrap items-center gap-2">
+              <span className="material-symbols-outlined text-sm text-primary">memory</span>
+              <span className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">{t('fineTuning.activeModel')}</span>
+              <span className="text-[11px] font-mono text-primary">{activeModel}</span>
+              {suggestedBase && (
+                <span className="text-[10px] text-outline">— {t('fineTuning.prefilledHint', { base: suggestedBase })}</span>
+              )}
+            </div>
+          )}
+
           {recipes.length > 0 && (
             <div className="mb-6 p-4 bg-surface-container-high/50 border border-outline-variant/20">
               <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-3">
@@ -425,11 +488,24 @@ const FineTuning: FC = () => {
 
             <div className="space-y-2">
               <label className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">{t('fineTuning.baseModel')}</label>
+              {/* Datalist plutôt que <select> : les alias du catalogue (base_models.json)
+                  sont proposés avec leur description, tout en gardant la saisie libre
+                  d'un repo HuggingFace complet (« org/nom »), accepté par le backend. */}
               <input
-                type="text" {...register('baseModel')}
+                type="text" {...register('baseModel')} list="base-model-catalog"
                 className={`w-full bg-surface-container-lowest border ${errors.baseModel ? 'border-error' : 'border-outline-variant/30'} px-4 py-2.5 text-sm font-label focus:outline-none focus:border-primary transition-colors`}
                 placeholder="phi3"
               />
+              <datalist id="base-model-catalog">
+                {baseCatalog.map(c => (
+                  <option key={c.alias} value={c.alias}>
+                    {c.description ?? c.hfRepo ?? ''}
+                  </option>
+                ))}
+              </datalist>
+              {baseCatalog.length > 0 && (
+                <p className="text-[10px] text-outline">{t('fineTuning.baseCatalogHint', { aliases: baseCatalog.map(c => c.alias).join(', ') })}</p>
+              )}
               {errors.baseModel && <p className="text-[10px] text-error uppercase tracking-wider">{errors.baseModel.message}</p>}
             </div>
 
