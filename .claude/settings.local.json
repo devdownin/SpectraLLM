@@ -54,7 +54,8 @@
       "Bash(docker exec:*)",
       "Bash(python3 -m json.tool)",
       "Bash(xargs cat *)",
-      "Bash(grep *)"
+      "Bash(grep *)",
+      "mcp__Claude_Code_Remote__send_later"
     ]
   }
 }
