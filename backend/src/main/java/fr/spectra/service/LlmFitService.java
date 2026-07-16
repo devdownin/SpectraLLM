@@ -290,10 +290,52 @@ public class LlmFitService {
                 // models-dir après cet instant est un candidat produit par ce téléchargement.
                 Instant downloadStart = Instant.now();
 
-                List<String> command = new ArrayList<>(List.of(llmfitPath, "download", modelName));
+                String resolvedModelName = modelName;
+                if (resolvedModelName.contains("/")) {
+                    try {
+                        String shortName = resolvedModelName.substring(resolvedModelName.indexOf('/') + 1);
+                        java.net.http.HttpClient client = java.net.http.HttpClient.newHttpClient();
+                        java.net.http.HttpRequest request = java.net.http.HttpRequest.newBuilder()
+                                .uri(java.net.URI.create("https://huggingface.co/api/models?search=" + java.net.URLEncoder.encode(shortName, java.nio.charset.StandardCharsets.UTF_8) + "&filter=gguf&sort=downloads&direction=-1&limit=1"))
+                                .GET()
+                                .build();
+                        java.net.http.HttpResponse<String> response = client.send(request, java.net.http.HttpResponse.BodyHandlers.ofString());
+                        if (response.statusCode() == 200 && response.body().contains("\"id\"")) {
+                            java.util.regex.Matcher m = java.util.regex.Pattern.compile("\"id\":\"([^\"]+)\"").matcher(response.body());
+                            if (m.find()) {
+                                String autoGgufRepo = m.group(1);
+                                if (!autoGgufRepo.equals(resolvedModelName)) {
+                                    log.info("Auto-discovery GGUF : {} remplacé automatiquement par {}", resolvedModelName, autoGgufRepo);
+                                    resolvedModelName = autoGgufRepo;
+                                    String finalName = resolvedModelName;
+                                    updateInstallation(jobId, j -> j.withStatus(InstallationJob.Status.DOWNLOADING, "Redirection vers " + finalName));
+                                }
+                            }
+                        }
+                    } catch (Exception e) {
+                        log.warn("Recherche automatique de GGUF échouée pour {} : {}", resolvedModelName, e.getMessage());
+                    }
+                }
+
+                String activeCacheDir = llmfitCacheDirPath;
+                if (activeCacheDir != null && !activeCacheDir.isBlank()) {
+                    try {
+                        Files.createDirectories(Path.of(activeCacheDir));
+                    } catch (Exception e) {
+                        log.warn("Impossible de créer le dossier de cache llmfit '{}' ({}), repli sur ./data/llmfit-cache", activeCacheDir, e.getMessage());
+                        activeCacheDir = "./data/llmfit-cache";
+                        Files.createDirectories(Path.of(activeCacheDir));
+                    }
+                }
+
+                List<String> command = new ArrayList<>(List.of(llmfitPath, "download", resolvedModelName));
                 if (quant != null && !quant.isBlank()) {
                     command.add("--quant");
                     command.add(quant);
+                }
+                if (activeCacheDir != null && !activeCacheDir.isBlank()) {
+                    command.add("--output-dir");
+                    command.add(activeCacheDir);
                 }
 
                 ProcessBuilder pb = new ProcessBuilder(command);

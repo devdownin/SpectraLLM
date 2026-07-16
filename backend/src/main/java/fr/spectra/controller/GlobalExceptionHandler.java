@@ -98,6 +98,11 @@ public class GlobalExceptionHandler {
         return problem;
     }
 
+    @ExceptionHandler(org.springframework.web.context.request.async.AsyncRequestNotUsableException.class)
+    public void handleAsyncRequestNotUsable(org.springframework.web.context.request.async.AsyncRequestNotUsableException e) {
+        log.debug("Le client s'est déconnecté (Broken pipe): {}", e.getMessage());
+    }
+
     @ExceptionHandler(Throwable.class)
     public ProblemDetail handleThrowable(Throwable e) {
         boolean isOom = e instanceof OutOfMemoryError || 
