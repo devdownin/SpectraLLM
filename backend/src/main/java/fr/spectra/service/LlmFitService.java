@@ -379,15 +379,14 @@ public class LlmFitService {
                          * Ensure the GGUF is in the shared models volume so that
                          * llm-chat (mounted at ./data/models:/models) can serve it.
                          * llmfit may download to its own cache (e.g. ~/.llmfit/…);
-                         * we always copy to modelsDirPath so the path registered in
+                         * we always move to modelsDirPath so the path registered in
                          * registry.json is reachable by every container.
                          */
                         Path modelsDir = Path.of(modelsDirPath);
                         Path target    = modelsDir.resolve(fileName);
                         if (!source.toAbsolutePath().equals(target.toAbsolutePath())) {
                             Files.createDirectories(modelsDir);
-                            Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
-                            log.info("Modèle copié dans le volume partagé : {} → {}", source, target);
+                            moveToSharedVolume(source, target);
                         }
                         String registeredPath = target.toAbsolutePath().toString();
 
@@ -425,26 +424,32 @@ public class LlmFitService {
                         }
                         String finalPath = registeredPath;
                         updateInstallation(jobId, j -> j.completed(finalPath, "Terminé"));
-                    } else {
-                        // Téléchargement réussi mais chemin GGUF introuvable (ni dans la sortie
-                        // llmfit, ni par scan de models-dir) : le modèle n'a pu être ni copié dans
-                        // le volume partagé ni enregistré. On le signale explicitement plutôt que
-                        // de laisser un faux succès silencieux.
-                        log.warn("Modèle '{}' téléchargé (exit 0) mais aucun fichier .gguf détecté (sortie "
-                                + "llmfit et scan de {}) — enregistrement/activation ignorés. Vérifiez le "
-                                + "format de sortie de llmfit ou enregistrez le modèle manuellement.",
-                                modelName, modelsDirPath);
-                        updateInstallation(jobId, j -> j.completed(null,
-                                "Téléchargé mais fichier GGUF introuvable — non enregistré"));
-                    }
 
-                    // 100 % + complete émis SEULEMENT une fois copie + enregistrement (+ éventuelle
-                    // activation) terminés : avant, l'UI annonçait « saved to the registry » pendant
-                    // que la copie de plusieurs Go tournait encore, et le CTA benchmark interrogeait
-                    // l'historique trop tôt (job encore REGISTERING → jamais proposé).
-                    sink.tryEmitNext(100);
-                    sink.tryEmitComplete();
-                    return true;
+                        // 100 % + complete émis SEULEMENT une fois copie + enregistrement (+ éventuelle
+                        // activation) terminés : avant, l'UI annonçait « saved to the registry » pendant
+                        // que la copie de plusieurs Go tournait encore, et le CTA benchmark interrogeait
+                        // l'historique trop tôt (job encore REGISTERING → jamais proposé).
+                        sink.tryEmitNext(100);
+                        sink.tryEmitComplete();
+                        return true;
+                    } else {
+                        // Téléchargement « réussi » (exit 0) mais chemin GGUF introuvable (ni dans
+                        // la sortie llmfit, ni par scan de models-dir) : le modèle n'est ni copié
+                        // dans le volume partagé, ni enregistré, ni activable. Un COMPLETED serait
+                        // un faux succès (historique en vert) — on marque le job FAILED avec un
+                        // message actionnable.
+                        String errorMsg = "Téléchargement terminé mais fichier GGUF introuvable (sortie "
+                                + "llmfit et scan de " + modelsDirPath + ") — modèle non enregistré. "
+                                + "Vérifiez le format de sortie de llmfit ou enregistrez le modèle "
+                                + "manuellement.";
+                        log.warn("Modèle '{}' téléchargé (exit 0) mais aucun fichier .gguf détecté (sortie "
+                                + "llmfit et scan de {}) — job marqué FAILED. Vérifiez le format de sortie "
+                                + "de llmfit ou enregistrez le modèle manuellement.",
+                                modelName, modelsDirPath);
+                        sink.tryEmitError(new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, errorMsg));
+                        updateInstallation(jobId, j -> j.failed(errorMsg));
+                        return false;
+                    }
                 } else {
                     String errorMsg = lastOutputLine != null ? lastOutputLine : ("Exit code " + process.exitValue());
                     log.error("Échec de l'installation du modèle {} : {}", modelName, errorMsg);
@@ -584,6 +589,38 @@ public class LlmFitService {
         report.put("totalBytes", totalBytes);
         report.put("files", files);
         return report;
+    }
+
+    /**
+     * Déplace le GGUF téléchargé vers le volume partagé des modèles. {@link Files#move}
+     * d'abord (rename instantané sur le même système de fichiers, copie + suppression
+     * sinon) : la source — typiquement le cache llmfit ({@code ~/.llmfit/…}) — ne doit
+     * pas survivre, sans quoi chaque modèle occupe deux fois sa taille, et cet espace
+     * est invisible puisque le rapport de stockage n'inventorie que models-dir.
+     * Si le déplacement échoue (ex. droits insuffisants pour supprimer dans le cache),
+     * repli sur copie + suppression best-effort de la source, avec avertissement si
+     * elle subsiste.
+     */
+    static void moveToSharedVolume(Path source, Path target) throws java.io.IOException {
+        try {
+            Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
+            log.info("Modèle déplacé dans le volume partagé : {} → {}", source, target);
+        } catch (Exception moveFailed) {
+            Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
+            boolean sourceDeleted;
+            try {
+                sourceDeleted = Files.deleteIfExists(source);
+            } catch (Exception deleteFailed) {
+                sourceDeleted = false;
+            }
+            if (sourceDeleted) {
+                log.info("Modèle copié dans le volume partagé (source supprimée) : {} → {}", source, target);
+            } else {
+                log.warn("Modèle copié dans le volume partagé ({} → {}) mais la source n'a pas pu être "
+                        + "supprimée : le fichier occupe deux fois sa taille (cache llmfit + volume).",
+                        source, target);
+            }
+        }
     }
 
     /**

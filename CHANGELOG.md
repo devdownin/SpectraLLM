@@ -8,6 +8,11 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Model Hub — fin du doublon du cache llmfit et des faux « COMPLETED »
+
+- **Le GGUF téléchargé est déplacé, plus copié** (`LlmFitService.moveToSharedVolume`) : quand `llmfit` télécharge dans son propre cache (`~/.llmfit/…`), le fichier était copié vers le volume des modèles et l'original restait — chaque modèle occupait **deux fois sa taille**, et cet espace était invisible puisque le rapport de stockage n'inventorie que `data/models/`. Le fichier est désormais déplacé (`Files.move`, rename instantané sur le même système de fichiers) avec repli copie + suppression best-effort de la source (avertissement dans les logs si elle subsiste).
+- **GGUF introuvable après un exit 0 = FAILED, plus COMPLETED** : si `llmfit` sortait en succès sans qu'aucun fichier `.gguf` ne soit détecté (ni dans sa sortie, ni par scan de `models-dir`), le job était marqué COMPLETED (« non enregistré ») et s'affichait **en vert** dans l'historique alors que le modèle n'était ni copié, ni enregistré, ni activable. Le job passe désormais en **FAILED** avec un message actionnable, et le flux SSE signale l'erreur au lieu d'émettre 100 % + succès.
+
 ### Déploiement k8s/GKE — le chat suit le modèle actif (fin de « modèle actif ≠ modèle servi »)
 
 - **Superviseur piloté par le registre en k8s** : `llama-cpp-chat` lance désormais `scripts/llm-chat-entrypoint.sh` (intégré aux images `Dockerfile.llama` / `Dockerfile.llama.cuda`) au lieu de servir un fichier figé. Il lit le pointeur `active-chat-model` du volume des modèles et redémarre llama-server à chaud à chaque changement (POST /api/config/model, activation post-fine-tuning, installation llmfit auto-activée) — même convergence automatique qu'en docker-compose, plus de redéploiement manuel.

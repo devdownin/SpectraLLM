@@ -111,6 +111,87 @@ class LlmFitServiceTest {
         assertThat(service.installModel("qwen2.5:7b", null, false)).isNotNull();
     }
 
+    // ── Fin d'installation : déduplication du cache llmfit et faux succès ───────
+
+    /** Dépôt en mémoire : save/findById réels pour observer les transitions du job. */
+    private InstallationJobRepository inMemoryRepo(Map<String, InstallationJobEntity> store) {
+        InstallationJobRepository repo = mock(InstallationJobRepository.class);
+        when(repo.save(any())).thenAnswer(inv -> {
+            InstallationJobEntity e = inv.getArgument(0);
+            store.put(e.toDto().jobId(), e);
+            return e;
+        });
+        when(repo.findById(any())).thenAnswer(inv ->
+                Optional.ofNullable(store.get(inv.<String>getArgument(0))));
+        return repo;
+    }
+
+    @Test
+    @org.junit.jupiter.api.condition.EnabledOnOs({
+            org.junit.jupiter.api.condition.OS.LINUX, org.junit.jupiter.api.condition.OS.MAC})
+    void installModel_ggufDansLeCacheLlmfit_estDeplaceSansLaisserDeDoublon() throws Exception {
+        // Cache llmfit simulé : le GGUF téléchargé n'est PAS dans models-dir. Après
+        // installation, il doit être DÉPLACÉ (pas copié) — sinon chaque modèle occupe
+        // deux fois sa taille et le rapport de stockage (limité à models-dir) ne le voit pas.
+        Path cache  = Files.createDirectories(modelsDir.resolve("llmfit-cache"));
+        Path source = Files.writeString(cache.resolve("modele.Q4_K_M.gguf"), "poids");
+        Path target = modelsDir.resolve("models");
+        Path fake = modelsDir.resolve("fake-llmfit.sh");
+        Files.writeString(fake, "#!/bin/sh\necho \"Download complete: " + source + "\"\nexit 0\n");
+        assertThat(fake.toFile().setExecutable(true)).isTrue();
+
+        Map<String, InstallationJobEntity> store = new java.util.concurrent.ConcurrentHashMap<>();
+        LlmFitService service = newServiceWith(inMemoryRepo(store));
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "llmfitPath", fake.toString());
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "modelsDirPath", target.toString());
+
+        assertThat(service.installModel("llama3.2:3b", null, false)
+                .get(30, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+
+        assertThat(source).as("la source du cache llmfit ne doit pas survivre").doesNotExist();
+        assertThat(target.resolve("modele.Q4_K_M.gguf")).hasContent("poids");
+        InstallationJob job = store.values().iterator().next().toDto();
+        assertThat(job.status()).isEqualTo(InstallationJob.Status.COMPLETED);
+        assertThat(job.outputPath())
+                .isEqualTo(target.resolve("modele.Q4_K_M.gguf").toAbsolutePath().toString());
+    }
+
+    @Test
+    @org.junit.jupiter.api.condition.EnabledOnOs({
+            org.junit.jupiter.api.condition.OS.LINUX, org.junit.jupiter.api.condition.OS.MAC})
+    void installModel_exit0SansGgufDetecte_marqueLeJobFailedPasCompleted() throws Exception {
+        // llmfit sort en succès mais ni sa sortie ni le scan de models-dir ne révèlent de
+        // GGUF : le modèle n'est ni copié, ni enregistré, ni activable. Le job doit être
+        // FAILED — un COMPLETED afficherait un faux succès en vert dans l'historique.
+        Path fake = modelsDir.resolve("fake-llmfit.sh");
+        Files.writeString(fake, "#!/bin/sh\necho \"done\"\nexit 0\n");
+        assertThat(fake.toFile().setExecutable(true)).isTrue();
+
+        Map<String, InstallationJobEntity> store = new java.util.concurrent.ConcurrentHashMap<>();
+        LlmFitService service = newServiceWith(inMemoryRepo(store));
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "llmfitPath", fake.toString());
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "modelsDirPath",
+                modelsDir.resolve("empty-models").toString());
+
+        assertThat(service.installModel("llama3.2:3b", null, false)
+                .get(30, java.util.concurrent.TimeUnit.SECONDS)).isFalse();
+
+        InstallationJob job = store.values().iterator().next().toDto();
+        assertThat(job.status()).isEqualTo(InstallationJob.Status.FAILED);
+        assertThat(job.error()).contains("GGUF introuvable");
+    }
+
+    @Test
+    void moveToSharedVolume_deplaceLeFichier_laSourceDisparait() throws Exception {
+        Path source = Files.writeString(modelsDir.resolve("a.gguf"), "poids");
+        Path target = Files.createDirectories(modelsDir.resolve("volume")).resolve("a.gguf");
+
+        LlmFitService.moveToSharedVolume(source, target);
+
+        assertThat(source).doesNotExist();
+        assertThat(target).hasContent("poids");
+    }
+
     // ── Recommandations : validation du simulateur et croisement registre ───────
 
     @Test
