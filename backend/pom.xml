@@ -209,7 +209,10 @@
                         <version>12.2.2</version>
                         <configuration>
                             <suppressionFiles>
-                                <suppressionFile>dependency-suppression.xml</suppressionFile>
+                                <!-- Ancré sur basedir : le workflow dependency-scan invoque
+                                     `mvn -f backend/pom.xml` depuis la racine du dépôt, et le
+                                     plugin résout un chemin nu contre le répertoire courant. -->
+                                <suppressionFile>${project.basedir}/dependency-suppression.xml</suppressionFile>
                             </suppressionFiles>
 
                             <ossIndexAnalyzerEnabled>false</ossIndexAnalyzerEnabled>
