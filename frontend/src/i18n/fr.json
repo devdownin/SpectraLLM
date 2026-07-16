@@ -139,6 +139,8 @@
     "deleteBulkMessage": "Les documents sélectionnés et leurs chunks indexés seront définitivement retirés de la base de connaissances. Cette action est irréversible.",
     "deleteModelTitle": "Supprimer ce modèle ?",
     "deleteModelMessage": "« {{name}} » sera retiré du registre et son fichier GGUF ({{size}}) supprimé du disque, sauf s'il est encore référencé par un autre modèle.",
+    "deleteOrphanTitle": "Supprimer ce fichier orphelin ?",
+    "deleteOrphanMessage": "« {{file}} » ({{size}}) n'est référencé par aucun modèle du registre. Il sera définitivement supprimé du disque. Cette action est irréversible.",
     "generateWhileIngestingTitle": "Ingestion en cours",
     "generateWhileIngestingMessage": "Une ingestion est encore en cours. Lancer la génération maintenant peut produire un dataset incomplet.",
     "generateWhileIngestingConfirm": "Générer quand même"
@@ -222,7 +224,9 @@
     "purged_one": "{{count}} doublon supprimé du cache llmfit — {{size}} libérés",
     "purged_other": "{{count}} doublons supprimés du cache llmfit — {{size}} libérés",
     "purgeSkipped": "Purge non effectuée",
-    "purgeFailed": "Échec de la purge du cache llmfit"
+    "purgeFailed": "Échec de la purge du cache llmfit",
+    "deleteOrphanHint": "Supprimer ce fichier orphelin du disque",
+    "orphanDeleted": "Fichier orphelin « {{file}} » supprimé"
   },
   "installs": {
     "title": "Historique des installations",

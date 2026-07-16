@@ -139,6 +139,8 @@
     "deleteBulkMessage": "The selected documents and their indexed chunks will be permanently removed from the knowledge base. This cannot be undone.",
     "deleteModelTitle": "Delete this model?",
     "deleteModelMessage": "“{{name}}” will be removed from the registry and its GGUF file ({{size}}) deleted from disk, unless another model still references it.",
+    "deleteOrphanTitle": "Delete this orphan file?",
+    "deleteOrphanMessage": "“{{file}}” ({{size}}) is not referenced by any registered model. It will be permanently deleted from disk. This cannot be undone.",
     "generateWhileIngestingTitle": "Ingestion in progress",
     "generateWhileIngestingMessage": "An ingestion is still running. Starting the generation now may produce an incomplete dataset.",
     "generateWhileIngestingConfirm": "Generate anyway"
@@ -222,7 +224,9 @@
     "purged_one": "{{count}} duplicate removed from the llmfit cache — {{size}} freed",
     "purged_other": "{{count}} duplicates removed from the llmfit cache — {{size}} freed",
     "purgeSkipped": "Purge skipped",
-    "purgeFailed": "Failed to purge the llmfit cache"
+    "purgeFailed": "Failed to purge the llmfit cache",
+    "deleteOrphanHint": "Delete this orphan file from disk",
+    "orphanDeleted": "Orphan file \"{{file}}\" deleted"
   },
   "installs": {
     "title": "Installation history",

@@ -181,6 +181,62 @@ class LlmFitServiceTest {
         assertThat(job.error()).contains("GGUF introuvable");
     }
 
+    // ── Suppression des GGUF orphelins du volume des modèles ────────────────────
+
+    @Test
+    void deleteOrphanGguf_supprimeUnFichierNonReference() throws Exception {
+        Path models = Files.createDirectories(modelsDir.resolve("models"));
+        Files.writeString(models.resolve("orphelin.gguf"), "poids");
+        LlmFitService service = serviceWithDirs(models, modelsDir.resolve("cache"));
+
+        Map<String, Object> result = service.deleteOrphanGguf("orphelin.gguf");
+
+        assertThat(result.get("status")).isEqualTo("deleted");
+        assertThat(result.get("freedBytes")).isEqualTo((long) "poids".length());
+        assertThat(models.resolve("orphelin.gguf")).doesNotExist();
+    }
+
+    @Test
+    void deleteOrphanGguf_fichierReferenceParLeRegistre_refuseEn409() throws Exception {
+        Path models = Files.createDirectories(modelsDir.resolve("models"));
+        Files.writeString(models.resolve("enregistre.gguf"), "poids");
+        ModelRegistryService registry = mock(ModelRegistryService.class);
+        when(registry.listModels("chat")).thenReturn(List.of(
+                Map.of("name", "mon-modele", "source", "/app/data/models/enregistre.gguf")));
+        LlmFitService service = new LlmFitService(new ObjectMapper(), registry,
+                mock(LlmChatClient.class), mock(InstallationJobRepository.class));
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "modelsDirPath", models.toString());
+
+        assertThatThrownBy(() -> service.deleteOrphanGguf("enregistre.gguf"))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("référencé");
+        assertThat(models.resolve("enregistre.gguf")).exists();
+    }
+
+    @Test
+    void deleteOrphanGguf_nomInvalideOuTraversee_refuseEn400() throws Exception {
+        Path models = Files.createDirectories(modelsDir.resolve("models"));
+        LlmFitService service = serviceWithDirs(models, modelsDir.resolve("cache"));
+
+        for (String invalide : new String[]{"../modele.gguf", "a/b.gguf", "modele.txt", "", "-x.gguf"}) {
+            assertThatThrownBy(() -> service.deleteOrphanGguf(invalide))
+                    .as("nom refusé : " + invalide)
+                    .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+        }
+        assertThatThrownBy(() -> service.deleteOrphanGguf(null))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+    }
+
+    @Test
+    void deleteOrphanGguf_fichierAbsent_refuseEn404() throws Exception {
+        Path models = Files.createDirectories(modelsDir.resolve("models"));
+        LlmFitService service = serviceWithDirs(models, modelsDir.resolve("cache"));
+
+        assertThatThrownBy(() -> service.deleteOrphanGguf("inconnu.gguf"))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("inconnu");
+    }
+
     // ── Cache llmfit : inventaire et purge des doublons ─────────────────────────
 
     /** Service dont models-dir et cache-dir pointent vers des sous-répertoires du @TempDir. */

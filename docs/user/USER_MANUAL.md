@@ -990,6 +990,37 @@ curl -X POST http://localhost:8080/api/config/model \
 
 > **Note :** le changement met à jour le registre **et** le pointeur `data/models/active-chat-model` ; l'entrypoint superviseur de `llm-chat` (`scripts/llm-chat-entrypoint.sh`) le détecte et recharge `llama-server` avec le nouveau GGUF en quelques secondes — sans redémarrage manuel. Prérequis : le modèle doit être **enregistré dans le registre** avec une source GGUF présente dans `data/models/` (c'est automatique pour les modèles issus du Model Hub ou du fine-tuning). Un alias inconnu est rejeté en 400.
 
+> **Astuce :** le nom du modèle actif est affiché en permanence dans le **header** de l'interface, à côté de l'indicateur « Chat » — cliquez dessus pour ouvrir le Playground et en changer.
+
+### Superviser le stockage des modèles (Model Hub)
+
+Les GGUF pèsent plusieurs Go chacun. Le panneau **Stockage** du Model Hub (et l'API `GET /api/models/hub/storage`) inventorie l'espace réellement consommé :
+
+- **`data/models/`** : chaque fichier GGUF avec sa taille, les alias du registre qui le référencent et son statut actif. Un fichier référencé se supprime via le bouton **Supprimer** (retrait du registre + suppression du fichier, refusé pour le modèle actif). Un fichier **orphelin** — présent sur le disque mais absent du registre (déposé à la main, laissé par un incident) — a désormais lui aussi un bouton **Supprimer**, avec confirmation (`DELETE /api/models/hub/storage/files?file=modele.gguf`).
+- **Cache llmfit** : les GGUF du cache de téléchargement de l'outil `llmfit` (`LLMFIT_CACHE_DIR`, défaut `~/.llmfit`), avec un badge **doublon** quand un fichier de même nom et même taille existe déjà dans `data/models/`. Le bouton **Purger les doublons** (`POST /api/models/hub/storage/llmfit-cache/purge`) ne supprime que ces doublons sûrs — les téléchargements partiels (installations annulées) sont conservés, `llmfit` peut les reprendre.
+
+```bash
+# Inventaire complet (volume des modèles + cache llmfit)
+curl http://localhost:8080/api/models/hub/storage
+
+# Purger les doublons du cache llmfit
+curl -X POST http://localhost:8080/api/models/hub/storage/llmfit-cache/purge
+
+# Supprimer un GGUF orphelin (refusé en 409 s'il est référencé par le registre)
+curl -X DELETE "http://localhost:8080/api/models/hub/storage/files?file=modele.gguf"
+```
+
+### Historique des installations
+
+Chaque téléchargement lancé via le Model Hub est suivi de bout en bout (PENDING → DOWNLOADING → REGISTERING → COMPLETED/FAILED/CANCELLED), survit aux redémarrages de l'API, et s'affiche dans le panneau **Historique des installations**. Un téléchargement **FAILED** ou **CANCELLED** se relance en un clic avec le bouton **Réessayer** (mêmes modèle, quantisation et auto-activation).
+
+L'historique se purge automatiquement si vous définissez une rétention (désactivée par défaut) :
+
+```bash
+# .env — purge nocturne des jobs terminés depuis plus de 90 jours
+LLMFIT_INSTALL_RETENTION_DAYS=90
+```
+
 ---
 
 ## 6. Rapport de Session
