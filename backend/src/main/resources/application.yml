@@ -177,6 +177,10 @@ llmfit:
   # In Docker: spectra-api mounts ./data:/app/data, llm-chat mounts ./data/models:/models
   # → set to ./data/models so both containers see the same files.
   models-dir: ${LLMFIT_MODELS_DIR:./data/models}
+  # llmfit's own download cache. Inventoried by the storage report and purgeable of
+  # its duplicates (files whose name AND size match a GGUF already in models-dir).
+  # Point it to wherever your llmfit build actually caches downloads.
+  cache-dir: ${LLMFIT_CACHE_DIR:${user.home}/.llmfit}
 
 resilience4j:
   circuitbreaker:

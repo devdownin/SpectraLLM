@@ -204,6 +204,8 @@ const FineTuning: FC = () => {
   // seuls les défauts génériques et nos propres suggestions précédentes le sont.
   const [activeModel, setActiveModel] = useState('');
   const [suggestedBase, setSuggestedBase] = useState('');
+  /** Catalogue des bases entraînables (base_models.json) : alimente la datalist du champ. */
+  const [baseCatalog, setBaseCatalog] = useState<{ alias: string; hfRepo?: string; description?: string }[]>([]);
 
   useEffect(() => {
     (async () => {
@@ -213,13 +215,15 @@ const FineTuning: FC = () => {
           configApi.getModels().catch(() => ({ data: [] as any[] })),
           fineTuningApi.getBaseModels().catch(() => ({ data: [] as any[] })),
         ]);
+        const catalog: any[] = Array.isArray(catalogRes.data) ? catalogRes.data : [];
+        setBaseCatalog(catalog.filter(c => c?.alias));
+
         const active: string = cfgRes.data?.model ?? '';
         if (!active) return;
         setActiveModel(active);
 
         const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
         const registry: any[] = Array.isArray(modelsRes.data) ? modelsRes.data : [];
-        const catalog: any[] = Array.isArray(catalogRes.data) ? catalogRes.data : [];
         const entry = registry.find(m => m?.name === active);
 
         let base = '';
@@ -502,11 +506,24 @@ const FineTuning: FC = () => {
 
             <div className="space-y-2">
               <label className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">{t('fineTuning.baseModel')}</label>
+              {/* Datalist plutôt que <select> : les alias du catalogue (base_models.json)
+                  sont proposés avec leur description, tout en gardant la saisie libre
+                  d'un repo HuggingFace complet (« org/nom »), accepté par le backend. */}
               <input
-                type="text" {...register('baseModel')}
+                type="text" {...register('baseModel')} list="base-model-catalog"
                 className={`w-full bg-surface-container-lowest border ${errors.baseModel ? 'border-error' : 'border-outline-variant/30'} px-4 py-2.5 text-sm font-label focus:outline-none focus:border-primary transition-colors`}
                 placeholder="phi3"
               />
+              <datalist id="base-model-catalog">
+                {baseCatalog.map(c => (
+                  <option key={c.alias} value={c.alias}>
+                    {c.description ?? c.hfRepo ?? ''}
+                  </option>
+                ))}
+              </datalist>
+              {baseCatalog.length > 0 && (
+                <p className="text-[10px] text-outline">{t('fineTuning.baseCatalogHint', { aliases: baseCatalog.map(c => c.alias).join(', ') })}</p>
+              )}
               {errors.baseModel && <p className="text-[10px] text-error uppercase tracking-wider">{errors.baseModel.message}</p>}
             </div>
 

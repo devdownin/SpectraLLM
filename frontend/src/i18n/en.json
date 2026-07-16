@@ -212,7 +212,16 @@
     "deleted": "Model “{{name}}” removed from the registry",
     "fileDeleted": "GGUF file deleted from data/models/.",
     "fileKept": "GGUF file kept.",
-    "deleteFailed": "Failed to delete model"
+    "deleteFailed": "Failed to delete model",
+    "llmfitCache": "llmfit cache",
+    "llmfitCacheSummary": "{{count}} GGUF · {{size}}",
+    "duplicate": "duplicate",
+    "notDuplicate": "partial / unknown",
+    "purge": "Purge duplicates ({{size}})",
+    "purged_one": "{{count}} duplicate removed from the llmfit cache — {{size}} freed",
+    "purged_other": "{{count}} duplicates removed from the llmfit cache — {{size}} freed",
+    "purgeSkipped": "Purge skipped",
+    "purgeFailed": "Failed to purge the llmfit cache"
   },
   "installs": {
     "title": "Installation history",
@@ -535,6 +544,7 @@
     "baseModel": "Base Model",
     "activeModel": "Active model",
     "prefilledHint": "fields prefilled from the active model (trainable base: {{base}})",
+    "baseCatalogHint": "Catalog aliases: {{aliases}} — or a full HuggingFace repo (\"org/name\")",
     "epochs": "Epochs",
     "loraRank": "LoRA Rank",
     "minConfidence": "Min Confidence",

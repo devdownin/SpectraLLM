@@ -296,6 +296,7 @@ export const modelsHubApi = {
   getInstallations: () => api.get('/models/hub/installations'),
   cancelInstallation: (jobId: string) => api.delete(`/models/hub/installations/${jobId}`),
   getStorage: () => api.get('/models/hub/storage'),
+  purgeLlmfitCache: () => api.post('/models/hub/storage/llmfit-cache/purge'),
   deleteModel: (name: string, type = 'chat', deleteFile = true) =>
     api.delete(`/fine-tuning/models/${encodeURIComponent(name)}`, { params: { type, deleteFile } }),
 };

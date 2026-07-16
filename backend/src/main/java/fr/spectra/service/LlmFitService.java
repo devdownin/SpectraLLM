@@ -129,6 +129,15 @@ public class LlmFitService {
     @Value("${llmfit.models-dir:./data/models}")
     private String modelsDirPath;
 
+    /**
+     * Cache de téléchargement propre à llmfit (là où l'outil télécharge avant que
+     * Spectra ne déplace le GGUF vers models-dir). Inventorié par le rapport de
+     * stockage et purgeable de ses doublons — historiquement la copie (sans
+     * suppression) y laissait un double invisible de chaque modèle installé.
+     */
+    @Value("${llmfit.cache-dir:${user.home}/.llmfit}")
+    private String llmfitCacheDirPath;
+
     public LlmFitService(ObjectMapper objectMapper, ModelRegistryService modelRegistryService,
                          LlmChatClient chatClient, InstallationJobRepository installationRepository) {
         this.objectMapper = objectMapper;
@@ -588,7 +597,152 @@ public class LlmFitService {
         report.put("modelsDir", modelsDir.toString());
         report.put("totalBytes", totalBytes);
         report.put("files", files);
+        // Le cache llmfit fait partie de l'espace réellement consommé par les modèles :
+        // sans cette section, les doublons hérités (copie sans suppression) et les
+        // téléchargements partiels (installations annulées) restaient invisibles.
+        report.put("llmfitCache", buildLlmfitCacheReport(modelsDir));
         return report;
+    }
+
+    /**
+     * Inventaire du cache llmfit : chaque GGUF avec sa taille et un drapeau
+     * {@code duplicate} quand un fichier de même nom et même taille existe dans
+     * models-dir (doublon sûr à purger). Section vide si le cache n'existe pas,
+     * et neutralisée ({@code overlapsModelsDir}) si le cache et models-dir se
+     * recouvrent — dans ce cas les « doublons » seraient les fichiers servis
+     * eux-mêmes et la purge serait destructrice.
+     */
+    private Map<String, Object> buildLlmfitCacheReport(Path modelsDir) {
+        Map<String, Object> cache = new java.util.LinkedHashMap<>();
+        if (llmfitCacheDirPath == null || llmfitCacheDirPath.isBlank()) {
+            cache.put("dir", "");
+            cache.put("overlapsModelsDir", false);
+            cache.put("totalBytes", 0L);
+            cache.put("duplicateBytes", 0L);
+            cache.put("files", List.of());
+            return cache;
+        }
+        Path cacheDir = Path.of(llmfitCacheDirPath).toAbsolutePath().normalize();
+        boolean overlaps = cacheDir.startsWith(modelsDir) || modelsDir.startsWith(cacheDir);
+        cache.put("dir", cacheDir.toString());
+        cache.put("overlapsModelsDir", overlaps);
+
+        List<Map<String, Object>> files = new ArrayList<>();
+        long totalBytes = 0;
+        long duplicateBytes = 0;
+        if (!overlaps && Files.isDirectory(cacheDir)) {
+            Map<String, Long> registeredSizes = modelsDirSizes(modelsDir);
+            try (Stream<Path> walk = Files.walk(cacheDir, 8)) {
+                List<Path> ggufs = walk
+                        .filter(Files::isRegularFile)
+                        .filter(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".gguf"))
+                        .sorted()
+                        .toList();
+                for (Path gguf : ggufs) {
+                    long size;
+                    try {
+                        size = Files.size(gguf);
+                    } catch (Exception e) {
+                        size = 0;
+                    }
+                    boolean duplicate = Long.valueOf(size)
+                            .equals(registeredSizes.get(gguf.getFileName().toString()));
+                    totalBytes += size;
+                    if (duplicate) duplicateBytes += size;
+
+                    Map<String, Object> entry = new java.util.LinkedHashMap<>();
+                    entry.put("file", cacheDir.relativize(gguf).toString());
+                    entry.put("sizeBytes", size);
+                    entry.put("duplicate", duplicate);
+                    files.add(entry);
+                }
+            } catch (Exception e) {
+                log.warn("Inventaire du cache llmfit impossible : {}", e.getMessage());
+            }
+        }
+        cache.put("totalBytes", totalBytes);
+        cache.put("duplicateBytes", duplicateBytes);
+        cache.put("files", files);
+        return cache;
+    }
+
+    /** Tailles des GGUF de models-dir, indexées par nom de fichier. */
+    private static Map<String, Long> modelsDirSizes(Path modelsDir) {
+        Map<String, Long> sizes = new java.util.HashMap<>();
+        if (!Files.isDirectory(modelsDir)) {
+            return sizes;
+        }
+        try (Stream<Path> entries = Files.list(modelsDir)) {
+            entries.filter(Files::isRegularFile)
+                    .filter(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".gguf"))
+                    .forEach(p -> {
+                        try {
+                            sizes.put(p.getFileName().toString(), Files.size(p));
+                        } catch (Exception ignored) {}
+                    });
+        } catch (Exception e) {
+            log.debug("Lecture des tailles de {} impossible : {}", modelsDir, e.getMessage());
+        }
+        return sizes;
+    }
+
+    /**
+     * Purge les doublons du cache llmfit : seuls les GGUF dont un fichier de même
+     * nom ET même taille existe dans models-dir sont supprimés — ce sont les copies
+     * héritées d'avant le passage copie → déplacement. Les téléchargements partiels
+     * (taille différente) et les fichiers inconnus sont conservés : llmfit peut les
+     * reprendre au prochain essai. Refuse de purger si cache et models-dir se
+     * recouvrent (les « doublons » seraient les fichiers servis eux-mêmes).
+     */
+    public Map<String, Object> purgeLlmfitCacheDuplicates() {
+        if (llmfitCacheDirPath == null || llmfitCacheDirPath.isBlank()) {
+            return Map.of("dir", "", "deletedCount", 0, "freedBytes", 0L, "deletedFiles", List.of());
+        }
+        Path modelsDir = Path.of(modelsDirPath).toAbsolutePath().normalize();
+        Path cacheDir = Path.of(llmfitCacheDirPath).toAbsolutePath().normalize();
+
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        result.put("dir", cacheDir.toString());
+        List<String> deleted = new ArrayList<>();
+        long freedBytes = 0;
+
+        if (cacheDir.startsWith(modelsDir) || modelsDir.startsWith(cacheDir)) {
+            result.put("skippedReason", "Le cache llmfit et le répertoire des modèles se recouvrent — purge refusée");
+        } else if (Files.isDirectory(cacheDir)) {
+            Map<String, Long> registeredSizes = modelsDirSizes(modelsDir);
+            try (Stream<Path> walk = Files.walk(cacheDir, 8)) {
+                List<Path> duplicates = walk
+                        .filter(Files::isRegularFile)
+                        .filter(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".gguf"))
+                        .filter(p -> {
+                            try {
+                                return Long.valueOf(Files.size(p))
+                                        .equals(registeredSizes.get(p.getFileName().toString()));
+                            } catch (Exception e) {
+                                return false;
+                            }
+                        })
+                        .toList();
+                for (Path duplicate : duplicates) {
+                    try {
+                        long size = Files.size(duplicate);
+                        Files.delete(duplicate);
+                        freedBytes += size;
+                        deleted.add(cacheDir.relativize(duplicate).toString());
+                        log.info("Doublon du cache llmfit supprimé : {} ({} octets)", duplicate, size);
+                    } catch (Exception e) {
+                        log.warn("Suppression du doublon {} impossible : {}", duplicate, e.getMessage());
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Purge du cache llmfit impossible : {}", e.getMessage());
+            }
+        }
+
+        result.put("deletedCount", deleted.size());
+        result.put("freedBytes", freedBytes);
+        result.put("deletedFiles", deleted);
+        return result;
     }
 
     /**

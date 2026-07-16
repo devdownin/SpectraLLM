@@ -181,6 +181,79 @@ class LlmFitServiceTest {
         assertThat(job.error()).contains("GGUF introuvable");
     }
 
+    // ── Cache llmfit : inventaire et purge des doublons ─────────────────────────
+
+    /** Service dont models-dir et cache-dir pointent vers des sous-répertoires du @TempDir. */
+    private LlmFitService serviceWithDirs(Path models, Path cache) {
+        LlmFitService service = newService();
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "modelsDirPath", models.toString());
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "llmfitCacheDirPath", cache.toString());
+        return service;
+    }
+
+    @Test
+    void getStorageReport_inventorieLeCacheLlmfitEtMarqueLesDoublons() throws Exception {
+        Path models = Files.createDirectories(modelsDir.resolve("models"));
+        Path cache  = Files.createDirectories(modelsDir.resolve("cache"));
+        Files.writeString(models.resolve("a.gguf"), "poids-a");
+        Files.writeString(cache.resolve("a.gguf"), "poids-a");            // doublon (même nom, même taille)
+        Files.writeString(cache.resolve("partiel.gguf"), "tronc");        // inconnu de models-dir
+        Files.writeString(cache.resolve("notes.txt"), "pas un gguf");
+
+        Map<String, Object> report = serviceWithDirs(models, cache).getStorageReport();
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> cacheReport = (Map<String, Object>) report.get("llmfitCache");
+        assertThat(cacheReport.get("overlapsModelsDir")).isEqualTo(false);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> files = (List<Map<String, Object>>) cacheReport.get("files");
+        assertThat(files).hasSize(2);
+        assertThat(files).anySatisfy(f -> {
+            assertThat(f.get("file")).isEqualTo("a.gguf");
+            assertThat(f.get("duplicate")).isEqualTo(true);
+        });
+        assertThat(files).anySatisfy(f -> {
+            assertThat(f.get("file")).isEqualTo("partiel.gguf");
+            assertThat(f.get("duplicate")).isEqualTo(false);
+        });
+        assertThat(cacheReport.get("duplicateBytes")).isEqualTo((long) "poids-a".length());
+    }
+
+    @Test
+    void purgeLlmfitCacheDuplicates_supprimeSeulementLesDoublons() throws Exception {
+        Path models = Files.createDirectories(modelsDir.resolve("models"));
+        Path cache  = Files.createDirectories(modelsDir.resolve("cache"));
+        Files.writeString(models.resolve("a.gguf"), "poids-a");
+        Files.writeString(cache.resolve("a.gguf"), "poids-a");            // doublon → supprimé
+        Files.writeString(cache.resolve("partiel.gguf"), "tronc");        // conservé (pas dans models-dir)
+        // Même nom mais taille différente = téléchargement partiel → conservé.
+        Files.writeString(models.resolve("b.gguf"), "poids-b-complet");
+        Files.writeString(cache.resolve("b.gguf"), "poids");
+
+        Map<String, Object> result = serviceWithDirs(models, cache).purgeLlmfitCacheDuplicates();
+
+        assertThat(result.get("deletedCount")).isEqualTo(1);
+        assertThat(result.get("freedBytes")).isEqualTo((long) "poids-a".length());
+        assertThat(cache.resolve("a.gguf")).doesNotExist();
+        assertThat(cache.resolve("partiel.gguf")).exists();
+        assertThat(cache.resolve("b.gguf")).exists();
+        assertThat(models.resolve("a.gguf")).as("models-dir intact").exists();
+    }
+
+    @Test
+    void purgeLlmfitCacheDuplicates_cacheEtModelsDirConfondus_neSupprimeRien() throws Exception {
+        // Si llmfit télécharge DIRECTEMENT dans models-dir, chaque fichier serait son
+        // propre « doublon » : la purge doit refuser au lieu de supprimer les modèles servis.
+        Path models = Files.createDirectories(modelsDir.resolve("models"));
+        Files.writeString(models.resolve("a.gguf"), "poids-a");
+
+        Map<String, Object> result = serviceWithDirs(models, models).purgeLlmfitCacheDuplicates();
+
+        assertThat(result.get("deletedCount")).isEqualTo(0);
+        assertThat(result.get("skippedReason").toString()).contains("recouvrent");
+        assertThat(models.resolve("a.gguf")).exists();
+    }
+
     @Test
     void moveToSharedVolume_deplaceLeFichier_laSourceDisparait() throws Exception {
         Path source = Files.writeString(modelsDir.resolve("a.gguf"), "poids");

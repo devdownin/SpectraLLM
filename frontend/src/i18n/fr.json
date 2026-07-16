@@ -212,7 +212,16 @@
     "deleted": "Modèle « {{name}} » retiré du registre",
     "fileDeleted": "Fichier GGUF supprimé de data/models/.",
     "fileKept": "Fichier GGUF conservé.",
-    "deleteFailed": "Échec de la suppression du modèle"
+    "deleteFailed": "Échec de la suppression du modèle",
+    "llmfitCache": "Cache llmfit",
+    "llmfitCacheSummary": "{{count}} GGUF · {{size}}",
+    "duplicate": "doublon",
+    "notDuplicate": "partiel / inconnu",
+    "purge": "Purger les doublons ({{size}})",
+    "purged_one": "{{count}} doublon supprimé du cache llmfit — {{size}} libérés",
+    "purged_other": "{{count}} doublons supprimés du cache llmfit — {{size}} libérés",
+    "purgeSkipped": "Purge non effectuée",
+    "purgeFailed": "Échec de la purge du cache llmfit"
   },
   "installs": {
     "title": "Historique des installations",
@@ -535,6 +544,7 @@
     "baseModel": "Modèle de base",
     "activeModel": "Modèle actif",
     "prefilledHint": "champs préremplis d'après le modèle actif (base entraînable : {{base}})",
+    "baseCatalogHint": "Alias du catalogue : {{aliases}} — ou un repo HuggingFace complet (« org/nom »)",
     "epochs": "Époques",
     "loraRank": "Rang LoRA",
     "minConfidence": "Confiance min.",

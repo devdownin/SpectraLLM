@@ -34,10 +34,24 @@ public class ModelHubController {
     @GetMapping("/storage")
     @Operation(summary = "Inventaire du volume des modèles (GGUF, tailles, alias, actifs)",
             description = "Chaque fichier GGUF de data/models/ avec sa taille, les modèles du "
-                    + "registre qui le référencent et son statut actif. Complète le cycle de "
-                    + "vie : suppression via DELETE /api/fine-tuning/models/{name}?deleteFile=true.")
+                    + "registre qui le référencent et son statut actif, plus la section "
+                    + "llmfitCache : les GGUF du cache de téléchargement llmfit avec un drapeau "
+                    + "duplicate quand un fichier de même nom et même taille existe déjà dans "
+                    + "data/models/. Complète le cycle de vie : suppression via "
+                    + "DELETE /api/fine-tuning/models/{name}?deleteFile=true.")
     public Map<String, Object> getStorage() {
         return llmFitService.getStorageReport();
+    }
+
+    @PostMapping("/storage/llmfit-cache/purge")
+    @Operation(summary = "Purger les doublons du cache llmfit",
+            description = "Supprime du cache llmfit les GGUF dont un fichier de même nom et "
+                    + "même taille existe déjà dans data/models/ (copies héritées d'avant le "
+                    + "passage copie → déplacement). Les téléchargements partiels et les "
+                    + "fichiers inconnus sont conservés. Retourne le nombre de fichiers "
+                    + "supprimés et l'espace libéré.")
+    public Map<String, Object> purgeLlmfitCache() {
+        return llmFitService.purgeLlmfitCacheDuplicates();
     }
 
     @GetMapping("/recommendations")
