@@ -46,9 +46,10 @@ const Layout: FC<LayoutProps> = ({ children }) => {
             borderRadius: '0px',
             color: '#dee5ff',
             fontFamily: 'Inter',
-            fontSize: '12px',
-            textTransform: 'uppercase',
-            letterSpacing: '0.05em'
+            // Les toasts portent de l'information (erreurs, confirmations) : taille
+            // lisible et casse normale — le style micro-caps reste réservé aux
+            // étiquettes de l'interface (constat #22 de l'audit).
+            fontSize: '13px',
           }
         }}
       />

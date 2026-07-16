@@ -187,11 +187,9 @@
     "pipeline": "Pipeline",
     "actions": {
       "ingest": {
-        "label": "Ingérer",
         "sub": "Déposer des documents"
       },
       "generate": {
-        "label": "Générer",
         "sub": "Construire le dataset"
       },
       "annotate": {
@@ -199,11 +197,9 @@
         "sub": "Commentaires RAG + DPO"
       },
       "finetune": {
-        "label": "Fine-tuner",
         "sub": "Entraîner le modèle"
       },
       "query": {
-        "label": "Interroger",
         "sub": "Playground RAG"
       }
     },
@@ -613,9 +609,6 @@
     "kicker": "Ingénierie des données",
     "title": "INGESTION & DATASET",
     "refresh": "Actualiser",
-    "stepIngest": "Ingestion",
-    "stepGenerate": "Génération",
-    "stepReady": "Prêt",
     "indexedChunks": "Chunks indexés",
     "trainingPairs": "Paires d'entraînement",
     "emptyStore": "Base vide — ingérez des documents",

@@ -187,11 +187,9 @@
     "pipeline": "Pipeline",
     "actions": {
       "ingest": {
-        "label": "Ingest",
         "sub": "Upload documents"
       },
       "generate": {
-        "label": "Generate",
         "sub": "Build dataset"
       },
       "annotate": {
@@ -199,11 +197,9 @@
         "sub": "RAG comments + DPO"
       },
       "finetune": {
-        "label": "Fine-Tune",
         "sub": "Train model"
       },
       "query": {
-        "label": "Query",
         "sub": "RAG playground"
       }
     },
@@ -613,9 +609,6 @@
     "kicker": "Data Engineering",
     "title": "INGESTION & DATASET",
     "refresh": "Refresh",
-    "stepIngest": "Ingest",
-    "stepGenerate": "Generate",
-    "stepReady": "Ready",
     "indexedChunks": "Indexed chunks",
     "trainingPairs": "Training pairs",
     "emptyStore": "Empty store — ingest documents",

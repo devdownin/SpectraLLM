@@ -1205,7 +1205,7 @@ const Documents: FC = () => {
 
                 {commentTab === 'generate' && (
                   <div className="space-y-2">
-                    <p className="text-[10px] text-on-surface-variant">
+                    <p className="text-xs text-on-surface-variant leading-relaxed">
                       {t('documents.generateHint')}
                     </p>
                     <input
@@ -1228,7 +1228,7 @@ const Documents: FC = () => {
                         ? t('documents.generating')
                         : t('documents.generateBtn')}
                     </button>
-                    <p className="text-[10px] text-outline">
+                    <p className="text-xs text-outline leading-relaxed">
                       {t('documents.dpoExportHint')}
                     </p>
                   </div>

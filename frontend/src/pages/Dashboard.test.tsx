@@ -90,10 +90,12 @@ describe('Dashboard', () => {
     expect((await screen.findAllByText('12')).length).toBeGreaterThanOrEqual(1);
   });
 
-  it('propose les actions rapides du pipeline', async () => {
+  it('propose les actions rapides du pipeline, alignées sur les libellés du wizard', async () => {
     renderDashboard();
-    expect(await screen.findByText('Fine-Tune')).toBeInTheDocument();
-    expect(screen.getByText('Ingest')).toBeInTheDocument();
-    expect(screen.getByText('Query')).toBeInTheDocument();
+    // Mêmes termes que WizardProgress (constat #21) : Ingestion / Dataset / Training / Querying.
+    expect(await screen.findByText('Training')).toBeInTheDocument();
+    expect(screen.getAllByText('Ingestion').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('Querying')).toBeInTheDocument();
+    expect(screen.getByText('Annotate')).toBeInTheDocument();
   });
 });

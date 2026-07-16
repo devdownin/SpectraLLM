@@ -455,7 +455,7 @@ const FineTuning: FC = () => {
                 className={`w-full bg-surface-container-lowest border ${errors.modelName ? 'border-error' : 'border-outline-variant/30'} px-4 py-2.5 text-sm font-label focus:outline-none focus:border-primary transition-colors`}
                 placeholder="spectra-domain"
               />
-              {errors.modelName && <p className="text-[10px] text-error uppercase tracking-wider">{errors.modelName.message}</p>}
+              {errors.modelName && <p className="text-xs text-error">{errors.modelName.message}</p>}
             </div>
 
             <div className="space-y-2">
@@ -465,7 +465,7 @@ const FineTuning: FC = () => {
                 className={`w-full bg-surface-container-lowest border ${errors.baseModel ? 'border-error' : 'border-outline-variant/30'} px-4 py-2.5 text-sm font-label focus:outline-none focus:border-primary transition-colors`}
                 placeholder="phi3"
               />
-              {errors.baseModel && <p className="text-[10px] text-error uppercase tracking-wider">{errors.baseModel.message}</p>}
+              {errors.baseModel && <p className="text-xs text-error">{errors.baseModel.message}</p>}
             </div>
 
             <div className="space-y-2">
@@ -555,7 +555,7 @@ const FineTuning: FC = () => {
         {!activeJob ? (
           <div className="py-12 flex flex-col items-center justify-center gap-3">
             <span className="material-symbols-outlined text-4xl text-outline">model_training</span>
-            <p className="text-[11px] text-outline uppercase tracking-widest italic text-center">
+            <p className="text-xs text-outline italic text-center">
               {t('fineTuning.noActiveJob1')}<br />{t('fineTuning.noActiveJob2')}
             </p>
           </div>
@@ -617,7 +617,7 @@ const FineTuning: FC = () => {
 
                 {activeJob.error && (
                   <div className="p-3 bg-error/10 border border-error/30">
-                    <p className="text-[11px] text-error break-words">{activeJob.error}</p>
+                    <p className="text-xs text-error break-words">{activeJob.error}</p>
                   </div>
                 )}
 
@@ -721,7 +721,7 @@ const FineTuning: FC = () => {
             <tbody className="divide-y divide-outline-variant/10">
               {jobs.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-5 py-8 text-center text-[11px] text-outline uppercase tracking-widest italic">
+                  <td colSpan={7} className="px-5 py-8 text-center text-xs text-outline italic">
                     {t('fineTuning.noJobs')}
                   </td>
                 </tr>

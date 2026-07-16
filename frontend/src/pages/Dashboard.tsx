@@ -301,7 +301,7 @@ const Dashboard: FC = () => {
           </div>
 
           <div className="p-4 border border-outline-variant/20 bg-surface-container">
-            <p className="text-[11px] font-label uppercase tracking-widest text-on-surface-variant flex items-center gap-2">
+            <p className="text-xs font-label text-on-surface-variant flex items-center gap-2">
               <span className="material-symbols-outlined text-sm text-outline">tip</span>
               {t('dashboard.tipPrefix')} <code className="font-mono bg-surface-container-high px-1">examples/</code> {t('dashboard.tipFolder')}{' '}
               <button onClick={() => navigate('/ingestion')} className="text-primary hover:text-primary/70 underline underline-offset-2 uppercase">{t('dashboard.tipIngestionPage')}</button>
@@ -368,7 +368,7 @@ const Dashboard: FC = () => {
             <span className={`material-symbols-outlined text-sm ${pipelineReady ? 'text-primary' : 'text-outline'}`}>
               {pipelineReady ? 'check_circle' : 'radio_button_unchecked'}
             </span>
-            <p className="text-[11px] font-label uppercase tracking-widest text-on-surface-variant">
+            <p className="text-xs font-label text-on-surface-variant">
               {pipelineReady
                 ? t('dashboard.pipelineReady', { chunks: stats!.chunksInStore, pairs: stats!.totalPairs })
                 : (stats?.chunksInStore ?? 0) > 0
@@ -472,7 +472,7 @@ const Dashboard: FC = () => {
         {!statsLoading && (commentStats?.aiGenerated ?? 0) > 0 && (commentStats?.approved ?? 0) === 0 && (
           <div className="p-4 border border-secondary/20 bg-secondary/5 flex items-start gap-3">
             <span className="material-symbols-outlined text-sm text-secondary mt-0.5 shrink-0">rate_review</span>
-            <p className="text-[11px] font-label uppercase tracking-widest text-on-surface-variant">
+            <p className="text-xs font-label text-on-surface-variant">
               {t('dashboard.reviewHint', { count: commentStats!.aiGenerated })}
             </p>
           </div>
@@ -480,7 +480,7 @@ const Dashboard: FC = () => {
         {!statsLoading && dpoPairsReady && (
           <div className="p-4 border border-primary/30 bg-primary/5 flex items-start gap-3">
             <span className="material-symbols-outlined text-sm text-primary mt-0.5 shrink-0">check_circle</span>
-            <p className="text-[11px] font-label uppercase tracking-widest text-on-surface-variant">
+            <p className="text-xs font-label text-on-surface-variant">
               {t('dashboard.dpoHint', { count: commentStats!.approved })}
             </p>
           </div>
@@ -800,7 +800,7 @@ const Dashboard: FC = () => {
         )) && (
           <div className="p-4 border border-outline-variant/20 bg-surface-container flex items-start gap-3">
             <span className="material-symbols-outlined text-sm text-outline mt-0.5 shrink-0">info</span>
-            <p className="text-[11px] font-label uppercase tracking-widest text-on-surface-variant leading-relaxed">
+            <p className="text-xs font-label text-on-surface-variant leading-relaxed">
               {t('dashboard.noPersonalization')}
             </p>
           </div>
@@ -832,12 +832,15 @@ const Dashboard: FC = () => {
       <section className="space-y-4">
         <h3 className="font-headline text-sm font-bold uppercase tracking-tight text-on-surface-variant">{t('dashboard.pipeline')}</h3>
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+          {/* Mêmes libellés que le fil de parcours WizardProgress (wizard.*) pour les
+              quatre étapes partagées — une seule terminologie de bout en bout
+              (constat #21) ; « Annoter » reste l'étape optionnelle propre au Dashboard. */}
           {[
-            { step: '1', key: 'ingest',   icon: 'cloud_upload',   route: '/ingestion' },
-            { step: '2', key: 'generate', icon: 'dataset',        route: '/ingestion' },
-            { step: '3', key: 'annotate', icon: 'rate_review',    route: '/documents' },
-            { step: '4', key: 'finetune', icon: 'model_training', route: '/fine-tuning' },
-            { step: '5', key: 'query',    icon: 'chat',           route: '/playground' },
+            { step: '1', labelKey: 'wizard.ingestion',            subKey: 'dashboard.actions.ingest.sub',   icon: 'cloud_upload',   route: '/ingestion' },
+            { step: '2', labelKey: 'wizard.dataset',              subKey: 'dashboard.actions.generate.sub', icon: 'dataset',        route: '/ingestion' },
+            { step: '3', labelKey: 'dashboard.actions.annotate.label', subKey: 'dashboard.actions.annotate.sub', icon: 'rate_review', route: '/documents' },
+            { step: '4', labelKey: 'wizard.training',             subKey: 'dashboard.actions.finetune.sub', icon: 'model_training', route: '/fine-tuning' },
+            { step: '5', labelKey: 'wizard.querying',             subKey: 'dashboard.actions.query.sub',    icon: 'chat',           route: '/playground' },
           ].map(action => (
             <button
               key={action.step}
@@ -854,8 +857,8 @@ const Dashboard: FC = () => {
                   {action.icon}
                 </span>
               </div>
-              <p className="font-headline font-bold text-sm uppercase">{t(`dashboard.actions.${action.key}.label`)}</p>
-              <p className="text-[10px] text-on-surface-variant uppercase tracking-widest mt-0.5">{t(`dashboard.actions.${action.key}.sub`)}</p>
+              <p className="font-headline font-bold text-sm uppercase">{t(action.labelKey)}</p>
+              <p className="text-[10px] text-on-surface-variant uppercase tracking-widest mt-0.5">{t(action.subKey)}</p>
             </button>
           ))}
         </div>

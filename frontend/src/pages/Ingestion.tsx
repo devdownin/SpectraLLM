@@ -72,60 +72,10 @@ const statusIcon: Record<IngestStatus, string> = {
   CANCELLED: 'cancel',
 };
 
-// ── Pipeline step indicator ──────────────────────────────────────────────────
-
-const PIPELINE_STEPS = [
-  { key: 'ingest',    labelKey: 'ingestion.stepIngest',   icon: 'cloud_upload' },
-  { key: 'generate',  labelKey: 'ingestion.stepGenerate', icon: 'dataset' },
-  { key: 'ready',     labelKey: 'ingestion.stepReady',    icon: 'check_circle' },
-];
-
-interface PipelineStepProps {
-  icon: string;
-  label: string;
-  state: 'idle' | 'active' | 'done';
-  nextState?: 'idle' | 'active' | 'done';
-  isLast?: boolean;
-}
-
-const PipelineStep: FC<PipelineStepProps> = ({ icon, label, state, nextState, isLast }) => (
-  <div className="flex items-center gap-0">
-    <div className="flex flex-col items-center gap-2">
-      {/* Step icon with radar rings when active */}
-      <div className="relative">
-        {state === 'active' && (
-          <>
-            <div className="absolute -inset-[6px] border border-secondary/50 ripple-ring pointer-events-none" />
-            <div className="absolute -inset-[6px] border border-secondary/25 ripple-ring-delayed pointer-events-none" />
-          </>
-        )}
-        <div className={`w-10 h-10 flex items-center justify-center border transition-all duration-500 relative z-10 ${
-          state === 'done'   ? 'border-primary bg-primary/10 text-primary' :
-          state === 'active' ? 'border-secondary bg-secondary/10 text-secondary' :
-                               'border-outline-variant/30 text-outline'
-        }`}>
-          <span className="material-symbols-outlined text-base">{icon}</span>
-        </div>
-      </div>
-      <span className={`font-label text-[10px] uppercase tracking-widest ${
-        state === 'idle' ? 'text-outline' : state === 'done' ? 'text-primary' : 'text-secondary'
-      }`}>{label}</span>
-    </div>
-    {!isLast && (
-      <div className={`relative w-16 h-px mb-5 mx-1 overflow-hidden ${state === 'done' ? 'bg-primary/30' : 'bg-outline-variant/20'}`}>
-        {state === 'done' && nextState !== 'active' && (
-          <div className="absolute inset-0 bg-primary" />
-        )}
-        {/* Flow particle traveling toward the active step */}
-        {state === 'done' && nextState === 'active' && (
-          <div className="absolute inset-0 flow-connector" />
-        )}
-      </div>
-    )}
-  </div>
-);
-
 // ── Main component ───────────────────────────────────────────────────────────
+// (Le mini-pipeline local Ingest → Generate → Ready a été retiré : le fil de
+// parcours global WizardProgress, affiché juste au-dessus et câblé sur l'état
+// réel, racontait déjà la même histoire — constat #21 de l'audit.)
 
 const Ingestion: FC = () => {
   const { t, i18n } = useTranslation();
@@ -357,24 +307,10 @@ const Ingestion: FC = () => {
     return [...fromLocal, ...fromGlobal];
   }, [localUploads, ingestTasks]);
 
-  // ── Pipeline state derivation ─────────────────────────────────────────────
-  const hasIngestedDocs = (stats?.chunksInStore ?? 0) > 0
-    || ingestTasks.some(task => task.status === 'completed');
-  const ingestActive = localUploads.some(u => u.status === 'UPLOADING')
-    || ingestTasks.some(task => task.status === 'pending' || task.status === 'running');
-  const genDone = genTask?.status === 'completed' || (stats?.totalPairs ?? 0) > 0;
-
   // Temps restant estimé de la génération (extrapolation linéaire) ; recalculé à
   // chaque instantané du suivi global (~2 s pendant un run), suffisant pour un
   // compte à rebours indicatif.
   const genEta = genTask && genTask.status === 'running' ? etaMs(genTask, Date.now()) : null;
-
-  const pipelineState = (step: string): 'idle' | 'active' | 'done' => {
-    if (step === 'ingest')   return hasIngestedDocs ? 'done' : ingestActive ? 'active' : 'idle';
-    if (step === 'generate') return genDone ? 'done' : genActive ? 'active' : 'idle';
-    if (step === 'ready')    return genDone ? 'done' : 'idle';
-    return 'idle';
-  };
 
   const genRaw = genTask?.raw ?? null;
   const genStatusLabel = pendingGen ? 'PENDING' : (genRaw?.status ?? '');
@@ -388,7 +324,6 @@ const Ingestion: FC = () => {
           <p className="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-1">{t('ingestion.kicker')}</p>
           <h2 className="font-headline text-3xl font-bold tracking-tighter">{t('ingestion.title')}</h2>
         </div>
-        <div className="flex items-center gap-6">
         <button
           onClick={loadStats}
           className="flex items-center gap-1.5 text-[10px] font-label uppercase tracking-widest text-on-surface-variant hover:text-primary transition-colors"
@@ -396,15 +331,6 @@ const Ingestion: FC = () => {
           <span className="material-symbols-outlined text-sm">refresh</span>
           {t('ingestion.refresh')}
         </button>
-        <div className="flex items-center gap-3">
-          {PIPELINE_STEPS.map((s, i) => (
-            <PipelineStep key={s.key} icon={s.icon} label={t(s.labelKey)}
-              state={pipelineState(s.key)}
-              nextState={i < PIPELINE_STEPS.length - 1 ? pipelineState(PIPELINE_STEPS[i + 1].key) : undefined}
-              isLast={i === PIPELINE_STEPS.length - 1} />
-          ))}
-        </div>
-        </div>
       </header>
 
       {/* ── System State Banner ── */}
@@ -584,7 +510,7 @@ const Ingestion: FC = () => {
                 {/* List */}
                 <div className="flex-1 space-y-2 overflow-y-auto custom-scrollbar max-h-64">
                   {history.length === 0 && !historyLoading ? (
-                    <p className="text-[11px] text-outline uppercase tracking-widest italic text-center py-4">
+                    <p className="text-xs text-outline italic text-center py-4">
                       {historySearch ? t('ingestion.noResults') : t('ingestion.emptyHistory')}
                     </p>
                   ) : (
@@ -626,7 +552,7 @@ const Ingestion: FC = () => {
               </div>
             ) : streamEntries.length === 0 ? (
               <div className="flex-1 flex items-center justify-center">
-                <p className="text-[11px] text-outline uppercase tracking-widest italic text-center">
+                <p className="text-xs text-outline italic text-center">
                   {t('ingestion.noActiveIngest1')}<br />{t('ingestion.noActiveIngest2')}
                 </p>
               </div>
@@ -672,7 +598,7 @@ const Ingestion: FC = () => {
                       </div>
                     )}
                     {entry.error && (
-                      <p className="text-[10px] text-error truncate" title={entry.error}>{entry.error}</p>
+                      <p className="text-xs text-error truncate" title={entry.error}>{entry.error}</p>
                     )}
                   </div>
                 ))}
@@ -755,7 +681,7 @@ const Ingestion: FC = () => {
           <div className="lg:col-span-2 bg-surface-container p-6 space-y-5">
             {!genTask && !pendingGen ? (
               <div className="h-full flex items-center justify-center">
-                <p className="text-[11px] text-outline uppercase tracking-widest italic text-center">
+                <p className="text-xs text-outline italic text-center">
                   {t('ingestion.noGeneration1')}<br />
                   {t('ingestion.noGeneration2')}
                 </p>
@@ -820,7 +746,7 @@ const Ingestion: FC = () => {
 
                 {genTask?.error && (
                   <div className="p-3 bg-error/10 border border-error/30">
-                    <p className="text-[11px] text-error">{genTask.error}</p>
+                    <p className="text-xs text-error">{genTask.error}</p>
                   </div>
                 )}
               </>
@@ -842,7 +768,7 @@ const Ingestion: FC = () => {
 
           {stats.totalPairs === 0 && stats.chunksInStore === 0 ? (
             <div className="bg-surface-container p-8 flex items-center justify-center">
-              <p className="text-[11px] text-outline uppercase tracking-widest italic text-center">
+              <p className="text-xs text-outline italic text-center">
                 {t('ingestion.noData1')}<br />
                 {t('ingestion.noData2')}
               </p>

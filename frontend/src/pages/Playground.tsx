@@ -629,14 +629,14 @@ const Playground: FC = () => {
                 </div>
               ))}
               {llmDown && (
-                <p className="text-[10px] text-error leading-relaxed pt-1">
+                <p className="text-xs text-error leading-relaxed pt-1">
                   <Trans i18nKey="playground.llmDownHint">
                     Chat model unreachable — start <span className="font-mono">llama-cpp-chat</span> to send messages.
                   </Trans>
                 </p>
               )}
               {ragDegraded && !llmDown && (
-                <p className="text-[10px] text-error leading-relaxed pt-1">
+                <p className="text-xs text-error leading-relaxed pt-1">
                   {t('playground.ragDegradedHint')}
                 </p>
               )}

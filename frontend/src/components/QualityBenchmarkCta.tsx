@@ -107,7 +107,7 @@ const QualityBenchmarkCta: FC<{ candidate: string; baseline: string; onDismiss: 
             <p className="text-[11px] font-label font-bold uppercase tracking-widest text-secondary">
               {t('qualityBench.title')}
             </p>
-            <p className="text-[10px] text-on-surface-variant leading-relaxed max-w-2xl">
+            <p className="text-xs text-on-surface-variant leading-relaxed max-w-2xl">
               <Trans i18nKey="qualityBench.body" values={{ candidate, baseline }}>
                 The Model Hub score rates <strong>hardware fit</strong>. To choose on real numbers, run the held-out
                 quality benchmark of the newly activated model
