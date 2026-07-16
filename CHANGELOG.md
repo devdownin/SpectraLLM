@@ -8,6 +8,12 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### UI — relance des installations échouées, badge modèle actif cliquable
+
+- **Bouton « Réessayer » dans l'historique des installations** : un téléchargement FAILED ou CANCELLED se relance en un clic avec les mêmes paramètres (modèle, quantisation, auto-activation) — le job les porte déjà. Le serveur répond 409 si un téléchargement du même modèle est déjà en cours.
+- **Badge du modèle actif cliquable** : le nom du modèle affiché dans le header ouvre le Playground, où l'on change de modèle actif.
+- **Logique de préremplissage extraite et testée** (`lib/fineTuningPrefill.ts`) : `suggestModelName`, `resolveTrainableBase` (métadonnée → hfRepo → nom) et `shouldReplace` (« ne jamais écraser une saisie utilisateur ») sont désormais des fonctions pures couvertes par 12 tests vitest.
+
 ### UI — modèle actif visible et formulaire de fine-tuning prérempli
 
 - **Modèle actif affiché dans le header** : le nom du modèle de chat actif apparaît désormais en clair à côté de l'indicateur « Chat » (il n'était visible qu'en infobulle), sur toutes les pages.

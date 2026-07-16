@@ -14,7 +14,8 @@
   },
   "header": {
     "switchLanguage": "Switch language",
-    "help": "Help for this page"
+    "help": "Help for this page",
+    "activeModelHint": "Active model — open the Playground to switch"
   },
   "taskCenter": {
     "title": "Activity",
@@ -228,7 +229,11 @@
     "count_one": "{{count}} download",
     "count_other": "{{count}} downloads",
     "loading": "Loading…",
-    "empty": "No installation recorded yet."
+    "empty": "No installation recorded yet.",
+    "retry": "Retry",
+    "retryHint": "Relaunch this download with the same parameters",
+    "retryStarted": "Download of \"{{name}}\" relaunched",
+    "retryFailed": "Failed to relaunch the download"
   },
   "optimization": {
     "kicker": "A/B ablation · held-out benchmark",

@@ -56,9 +56,16 @@ const Header: FC<HeaderProps> = ({ onMenuClick }) => {
             <div className={`w-2 h-2 rounded-full ${getStatusColor(chatStatus)}`} />
             <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Chat</span>
             {chatStatus?.details?.activeModel && (
-              <span className="text-[10px] font-mono text-primary max-w-[160px] truncate">
+              // Raccourci vers le Playground, où l'on change de modèle actif.
+              <button
+                type="button"
+                onClick={() => navigate('/playground')}
+                title={t('header.activeModelHint')}
+                aria-label={t('header.activeModelHint')}
+                className="text-[10px] font-mono text-primary max-w-[160px] truncate hover:underline underline-offset-2 transition-colors"
+              >
                 {chatStatus.details.activeModel}
-              </span>
+              </button>
             )}
           </div>
           <div className="flex items-center gap-1.5" title={`Embedding Server\nStatus: ${embedStatus?.available ? (embedStatus.details?.activeModelLoaded === false ? 'Loading Model' : 'Ready') : 'Offline'}\nModel: ${embedStatus?.details?.activeModel || 'None'}`}>

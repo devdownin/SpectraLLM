@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { useSse } from '../hooks/useSse';
 import type { TrainingLog } from '../types/api';
 import { configApi, fineTuningApi, recipeApi } from '../services/api';
+import { resolveTrainableBase, shouldReplace, suggestModelName } from '../lib/fineTuningPrefill';
 import LossChart from '../components/charts/LossChart';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -222,39 +223,20 @@ const FineTuning: FC = () => {
         if (!active) return;
         setActiveModel(active);
 
-        const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
         const registry: any[] = Array.isArray(modelsRes.data) ? modelsRes.data : [];
-        const entry = registry.find(m => m?.name === active);
-
-        let base = '';
-        const fromMeta = entry?.parameters?.baseModel;
-        if (typeof fromMeta === 'string' && fromMeta.trim()) {
-          base = fromMeta.trim(); // modèle fine-tuné : sa base exacte
-        } else {
-          const byRepo = entry?.hfRepo ? catalog.find(c => c?.hfRepo === entry.hfRepo) : undefined;
-          const byName = catalog.find(c => c?.alias && norm(active).includes(norm(c.alias)));
-          base = byRepo?.alias ?? byName?.alias ?? '';
-        }
+        const base = resolveTrainableBase(active, registry, catalog);
         if (base) setSuggestedBase(base);
 
-        // Nom suggéré conforme au schéma (/^[a-z0-9-_]+$/, min 3 caractères).
-        const slug = active.toLowerCase()
-          .replace(/[^a-z0-9-_]+/g, '-')
-          .replace(/-{2,}/g, '-')
-          .replace(/^[-_]+|[-_]+$/g, '');
-        const suggestedName = `${slug || 'spectra'}-ft`;
-
+        const suggestedName = suggestModelName(active);
         const prevName = localStorage.getItem('spectra_ft_suggested_name');
-        const currentName = getValues('modelName');
-        if (!currentName || currentName === 'spectra-domain' || currentName === prevName) {
+        if (shouldReplace(getValues('modelName'), 'spectra-domain', prevName)) {
           setValue('modelName', suggestedName, { shouldValidate: true });
         }
         localStorage.setItem('spectra_ft_suggested_name', suggestedName);
 
         if (base) {
           const prevBase = localStorage.getItem('spectra_ft_suggested_base');
-          const currentBase = getValues('baseModel');
-          if (!currentBase || currentBase === 'phi3' || currentBase === prevBase) {
+          if (shouldReplace(getValues('baseModel'), 'phi3', prevBase)) {
             setValue('baseModel', base, { shouldValidate: true });
           }
           localStorage.setItem('spectra_ft_suggested_base', base);

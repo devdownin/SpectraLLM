@@ -14,7 +14,8 @@
   },
   "header": {
     "switchLanguage": "Changer de langue",
-    "help": "Aide sur cette page"
+    "help": "Aide sur cette page",
+    "activeModelHint": "Modèle actif — ouvrir le Playground pour en changer"
   },
   "taskCenter": {
     "title": "Activité",
@@ -228,7 +229,11 @@
     "count_one": "{{count}} téléchargement",
     "count_other": "{{count}} téléchargements",
     "loading": "Chargement…",
-    "empty": "Aucune installation enregistrée pour l'instant."
+    "empty": "Aucune installation enregistrée pour l'instant.",
+    "retry": "Réessayer",
+    "retryHint": "Relancer ce téléchargement avec les mêmes paramètres",
+    "retryStarted": "Téléchargement de « {{name}} » relancé",
+    "retryFailed": "Impossible de relancer le téléchargement"
   },
   "optimization": {
     "kicker": "Ablation A/B · benchmark tenu à l'écart",

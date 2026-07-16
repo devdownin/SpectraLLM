@@ -1,7 +1,8 @@
 import type { FC } from 'react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { modelsHubApi } from '../services/api';
 
 /**
@@ -30,6 +31,24 @@ const formatDate = (iso?: string) => {
 const InstallationHistoryPanel: FC = () => {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
+  const queryClient = useQueryClient();
+
+  // Relance d'un téléchargement échoué/annulé avec les MÊMES paramètres (modèle,
+  // quantisation, auto-activation) : le job porte tout ce qu'il faut. Le serveur
+  // répond 409 si un téléchargement de ce modèle est déjà en cours.
+  const retryMutation = useMutation({
+    mutationFn: (j: { modelName: string; quant?: string | null; autoActivate?: boolean }) =>
+      modelsHubApi.installModel(j.modelName, j.quant ?? undefined, j.autoActivate ?? false),
+    onSuccess: (_res, j) => {
+      toast.success(t('installs.retryStarted', { name: j.modelName }));
+      queryClient.invalidateQueries({ queryKey: ['models-installations'] });
+    },
+    onError: (error: any) => {
+      toast.error(t('installs.retryFailed'), {
+        description: error?.response?.data?.detail ?? error?.response?.data?.error ?? error?.message,
+      });
+    },
+  });
 
   const { data: installations, isLoading } = useQuery({
     queryKey: ['models-installations'],
@@ -87,6 +106,19 @@ const InstallationHistoryPanel: FC = () => {
               <div className="shrink-0 flex items-center gap-3">
                 {(j.status === 'DOWNLOADING' || j.status === 'PENDING' || j.status === 'REGISTERING') && (
                   <span className="text-[11px] text-outline tabular-nums">{j.progress}%</span>
+                )}
+                {(j.status === 'FAILED' || j.status === 'CANCELLED') && (
+                  <button
+                    onClick={() => retryMutation.mutate(j)}
+                    disabled={retryMutation.isPending}
+                    title={t('installs.retryHint')}
+                    className="flex items-center gap-1 px-2 py-1 border border-primary/40 text-primary text-[10px] font-black uppercase tracking-widest disabled:opacity-30 hover:bg-primary/10 transition-colors"
+                  >
+                    <span className={`material-symbols-outlined text-sm ${retryMutation.isPending ? 'animate-spin' : ''}`}>
+                      {retryMutation.isPending ? 'sync' : 'replay'}
+                    </span>
+                    {t('installs.retry')}
+                  </button>
                 )}
                 <span className={`px-1.5 py-0.5 border text-[11px] font-black uppercase tracking-widest ${STATUS_STYLE[j.status] ?? 'border-outline-variant/40 text-outline'}`}>
                   {j.status}
