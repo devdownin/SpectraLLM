@@ -9,7 +9,7 @@ import { toast } from 'sonner';
 import { useSse } from '../hooks/useSse';
 import { useGlobalTasks, etaMs, formatEta } from '../hooks/useGlobalTasks';
 import type { TrainingLog } from '../types/api';
-import { fineTuningApi, recipeApi } from '../services/api';
+import { fineTuningApi, recipeApi, datasetApi, dpoApi } from '../services/api';
 import LossChart from '../components/charts/LossChart';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -381,6 +381,25 @@ const FineTuning: FC = () => {
   const onFormSubmit = async (data: TrainingFormValues) => {
     setSubmitting(true);
     try {
+      // Garde-fou pré-lancement (constat #9) : sur dataset vide, le job échouerait quelques
+      // secondes après sa création côté serveur — bloquer ici avec un message actionnable.
+      // Vérification best-effort : si elle échoue (réseau…), on laisse le backend trancher.
+      try {
+        if (data.dpoEnabled) {
+          const dpo = (await dpoApi.getStats()).data;
+          if ((dpo?.totalPairs ?? 0) === 0) {
+            toast.error(t('fineTuning.guardDpoEmpty'), { description: t('fineTuning.guardDpoEmptyDesc') });
+            return;
+          }
+        } else {
+          const stats = (await datasetApi.getStats()).data;
+          if ((stats?.totalPairs ?? 0) === 0) {
+            toast.error(t('fineTuning.guardDatasetEmpty'), { description: t('fineTuning.guardDatasetEmptyDesc') });
+            return;
+          }
+        }
+      } catch { /* garde-fou best-effort — le backend reste la source de vérité */ }
+
       const res = await fineTuningApi.createJob(data);
       const job: FineTuningJob = res.data;
       setActiveJob(job);
@@ -388,7 +407,14 @@ const FineTuning: FC = () => {
       setShowForm(false);
       toast.success(t('fineTuning.submitted'), { description: t('fineTuning.submittedId', { id: job.jobId.slice(0, 8) }) });
     } catch (err: any) {
-      toast.error(t('fineTuning.submitError'), { description: err?.response?.data?.detail ?? err.message });
+      // 409 = un entraînement tourne déjà (verrou trainingRunning) : message dédié plutôt
+      // qu'une erreur générique — l'utilisateur sait qu'il doit attendre ou annuler l'autre job.
+      const conflict = err?.response?.status === 409;
+      toast.error(conflict ? t('fineTuning.guardAlreadyRunning') : t('fineTuning.submitError'), {
+        description: conflict
+          ? t('fineTuning.guardAlreadyRunningDesc')
+          : (err?.response?.data?.detail ?? err.message),
+      });
     } finally {
       setSubmitting(false);
     }

@@ -283,6 +283,8 @@ export const qualityBenchmarkApi = {
     api.post(`/quality-benchmark/compare/async?baseline=${encodeURIComponent(baseline)}&candidate=${encodeURIComponent(candidate)}`),
   getCompareJob: (jobId: string) => api.get(`/quality-benchmark/compare/${encodeURIComponent(jobId)}`),
   listCompareJobs: () => api.get('/quality-benchmark/compare'),
+  // Annulation coopérative : prise en compte entre deux questions du benchmark.
+  cancelCompare: (jobId: string) => api.delete(`/quality-benchmark/compare/${encodeURIComponent(jobId)}`),
 };
 
 export const modelsHubApi = {

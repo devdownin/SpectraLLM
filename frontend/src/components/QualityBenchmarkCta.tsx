@@ -31,7 +31,7 @@ interface Report {
 
 interface CompareJob {
   jobId: string;
-  status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
+  status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
   baseline: string;
   candidate: string;
   currentStep?: string;
@@ -80,13 +80,14 @@ const QualityBenchmarkCta: FC<{ candidate: string; baseline: string; onDismiss: 
     enabled: !!jobId,
     refetchInterval: (query) => {
       const s = query.state.data?.status;
-      return s === 'COMPLETED' || s === 'FAILED' ? false : 3000;
+      return s === 'COMPLETED' || s === 'FAILED' || s === 'CANCELLED' ? false : 3000;
     },
   });
 
   const running = start.isPending || (!!job && (job.status === 'PENDING' || job.status === 'RUNNING'));
   const done = job?.status === 'COMPLETED' && job.baselineReport && job.candidateReport;
   const failed = job?.status === 'FAILED';
+  const cancelled = job?.status === 'CANCELLED';
 
   const scoreDelta = done ? job!.candidateReport!.avgScore - job!.baselineReport!.avgScore : 0;
   const hallucDelta = done ? job!.candidateReport!.hallucinationRate - job!.baselineReport!.hallucinationRate : 0;
@@ -148,6 +149,18 @@ const QualityBenchmarkCta: FC<{ candidate: string; baseline: string; onDismiss: 
         <p className="text-xs text-error bg-error/10 px-3 py-2">
           {t('qualityBench.failed', { error: job?.error ?? t('qualityBench.unknownError') })}
         </p>
+      )}
+
+      {cancelled && (
+        <div className="flex items-center gap-3 text-xs text-on-surface-variant bg-surface-container px-3 py-2">
+          <span>{t('qualityBench.cancelled')}</span>
+          <button
+            onClick={() => setJobId(null)}
+            className="text-secondary hover:underline font-bold uppercase tracking-widest text-[10px]"
+          >
+            {t('qualityBench.restart')}
+          </button>
+        </div>
       )}
 
       {done && (

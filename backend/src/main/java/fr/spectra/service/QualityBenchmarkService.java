@@ -30,8 +30,10 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -99,6 +101,8 @@ public class QualityBenchmarkService {
      * benchmarks lancés par ailleurs) est le verrou global de {@link ModelSwitchCoordinator}.
      */
     private final AtomicBoolean compareRunning = new AtomicBoolean(false);
+    /** Jobs dont l'annulation coopérative a été demandée (prise en compte entre deux questions). */
+    private final Set<String> cancelRequested = ConcurrentHashMap.newKeySet();
     private final Object persistLock = new Object();
     private Path compareJobsFile;
 
@@ -139,7 +143,8 @@ public class QualityBenchmarkService {
         boolean reconciled = false;
         for (QualityCompareJob j : compareJobs.values()) {
             if (j.status() != QualityCompareJob.Status.COMPLETED
-                    && j.status() != QualityCompareJob.Status.FAILED) {
+                    && j.status() != QualityCompareJob.Status.FAILED
+                    && j.status() != QualityCompareJob.Status.CANCELLED) {
                 compareJobs.put(j.jobId(), j.failed("Interrompu par un redémarrage du serveur"));
                 log.warn("Comparaison qualité {} ({} vs {}) marquée FAILED : interrompue par un redémarrage",
                         j.jobId(), j.baseline(), j.candidate());
@@ -206,25 +211,53 @@ public class QualityBenchmarkService {
             // currentStep : l'UI montre où en est le job au lieu d'une attente muette.
             java.util.function.Consumer<String> progress =
                     step -> updateCompareJob(jobId, j -> j.running(step));
+            // Annulation coopérative : vérifiée entre deux questions du benchmark (un appel LLM
+            // en cours n'est pas interrompu, mais on n'en démarre pas de nouveau).
+            Runnable checkCancelled = () -> {
+                if (cancelRequested.contains(jobId)) {
+                    throw new CancellationException("Comparaison qualité annulée");
+                }
+            };
 
             updateCompareJob(jobId, j -> j.running("Évaluation du modèle de référence « " + baseline + " »…"));
-            QualityBenchmarkReport baselineReport = run(baseline, progress);
+            QualityBenchmarkReport baselineReport = run(baseline, progress, checkCancelled);
 
+            checkCancelled.run();
             updateCompareJob(jobId, j -> j.withBaselineReport(baselineReport,
                     "Évaluation du modèle candidat « " + candidate + " »…"));
-            QualityBenchmarkReport candidateReport = run(candidate, progress);
+            QualityBenchmarkReport candidateReport = run(candidate, progress, checkCancelled);
 
             updateCompareJob(jobId, j -> j.completed(candidateReport));
             log.info("Comparaison qualité {} terminée : {} ({}/10) vs {} ({}/10)", jobId,
                     baseline, String.format("%.2f", baselineReport.avgScore()),
                     candidate, String.format("%.2f", candidateReport.avgScore()));
+        } catch (CancellationException e) {
+            updateCompareJob(jobId, QualityCompareJob::cancelled);
+            log.info("Comparaison qualité {} annulée à la demande de l'utilisateur", jobId);
         } catch (Exception e) {
             log.error("Comparaison qualité {} échouée: {}", jobId, e.getMessage());
             updateCompareJob(jobId, j -> j.failed(e.getMessage() != null ? e.getMessage() : e.toString()));
         } finally {
+            cancelRequested.remove(jobId);
             modelSwitch.unlock();
             compareRunning.set(false);
         }
+    }
+
+    /**
+     * Demande l'arrêt coopératif d'une comparaison en cours (pris en compte entre deux questions ;
+     * l'appel LLM en cours se termine d'abord).
+     *
+     * @return {@code false} si le job est inconnu ou déjà terminal
+     */
+    public boolean requestCancelCompare(String jobId) {
+        QualityCompareJob job = compareJobs.get(jobId);
+        if (job == null || (job.status() != QualityCompareJob.Status.PENDING
+                && job.status() != QualityCompareJob.Status.RUNNING)) {
+            return false;
+        }
+        cancelRequested.add(jobId);
+        return true;
     }
 
     private void updateCompareJob(String jobId, java.util.function.UnaryOperator<QualityCompareJob> updater) {
@@ -267,6 +300,17 @@ public class QualityBenchmarkService {
      * GGUF (plusieurs minutes possibles) ne ressemble pas à un blocage.
      */
     public QualityBenchmarkReport run(String model, java.util.function.Consumer<String> progress) {
+        return run(model, progress, () -> { });
+    }
+
+    /**
+     * Variante annulable de {@link #run(String, java.util.function.Consumer)} : {@code checkCancelled}
+     * est invoqué entre deux questions (génération comme notation) et doit lever
+     * {@link CancellationException} pour interrompre le passage — l'appel LLM en cours se termine
+     * d'abord (annulation coopérative, même convention que {@code RagAblationService}).
+     */
+    public QualityBenchmarkReport run(String model, java.util.function.Consumer<String> progress,
+                                      Runnable checkCancelled) {
         Instant started = Instant.now();
         List<JsonNode> entries = loadBenchmark();
         if (entries.isEmpty()) {
@@ -280,6 +324,7 @@ public class QualityBenchmarkService {
             String previous = chatClient.getActiveModel();
             String evaluatedModel = (model != null && !model.isBlank()) ? model : previous;
             try {
+                checkCancelled.run();
                 if (evaluatedModel != null && !evaluatedModel.equals(previous)) {
                     log.info("Benchmark qualité : bascule temporaire du modèle actif {} → {}",
                             previous, evaluatedModel);
@@ -292,6 +337,7 @@ public class QualityBenchmarkService {
                         + entries.size() + " questions)…");
                 List<GeneratedEntry> generated = new ArrayList<>(entries.size());
                 for (JsonNode entry : entries) {
+                    checkCancelled.run();
                     generated.add(generateEntry(entry));
                 }
 
@@ -305,6 +351,7 @@ public class QualityBenchmarkService {
                 progress.accept("Notation des réponses (juge « " + judge + " »)…");
                 List<QualityBenchmarkItem> items = new ArrayList<>(generated.size());
                 for (GeneratedEntry g : generated) {
+                    checkCancelled.run();
                     items.add(judgeEntry(g));
                 }
 
