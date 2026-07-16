@@ -41,6 +41,7 @@ class GedServiceTest {
         linkRepo  = mock(DocumentModelLinkRepository.class);
         auditRepo = mock(AuditLogRepository.class);
         ged = new GedService(fileRepo, linkRepo, auditRepo,
+                mock(fr.spectra.persistence.ArticleCommentRepository.class),
                 mock(ChromaDbClient.class), mock(FtsService.class),
                 tempArchive.toString());
         // findAll stub par défaut (pour stats)

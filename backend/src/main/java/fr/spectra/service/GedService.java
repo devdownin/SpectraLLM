@@ -38,6 +38,7 @@ public class GedService {
     private final IngestedFileRepository      fileRepo;
     private final DocumentModelLinkRepository linkRepo;
     private final AuditLogRepository          auditRepo;
+    private final ArticleCommentRepository    commentRepo;
     private final ChromaDbClient              chromaDbClient;
     private final FtsService                  ftsService;
     private final Path                        archiveRoot;
@@ -50,12 +51,14 @@ public class GedService {
     public GedService(IngestedFileRepository fileRepo,
                       DocumentModelLinkRepository linkRepo,
                       AuditLogRepository auditRepo,
+                      ArticleCommentRepository commentRepo,
                       ChromaDbClient chromaDbClient,
                       FtsService ftsService,
                       @Value("${spectra.ged.archive-dir:./data/archive}") String archiveDir) {
         this.fileRepo       = fileRepo;
         this.linkRepo       = linkRepo;
         this.auditRepo      = auditRepo;
+        this.commentRepo    = commentRepo;
         this.chromaDbClient = chromaDbClient;
         this.ftsService     = ftsService;
         this.archiveRoot    = Path.of(archiveDir);
@@ -353,6 +356,16 @@ public class GedService {
         // Total chunks
         Long totalChunks = fileRepo.sumChunks();
         result.put("totalChunks", totalChunks != null ? totalChunks : 0L);
+
+        // Statistiques de commentaires — agrégat DB (4 COUNT). Remplace le calcul
+        // que le Dashboard faisait côté client (1 listDocuments + 20 GET commentaires,
+        // tronqué aux 20 premiers documents → chiffres faux dès le 21e document commenté).
+        result.put("commentStats", Map.of(
+                "total", commentRepo.count(),
+                "aiGenerated", commentRepo.countByCommentType(ArticleCommentEntity.CommentType.AI_GENERATED),
+                "approved", commentRepo.countByRating(ArticleCommentEntity.Rating.APPROVED),
+                "rejected", commentRepo.countByRating(ArticleCommentEntity.Rating.REJECTED)
+        ));
 
         return result;
     }

@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { LineChart, Line, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, CartesianGrid, ReferenceLine } from 'recharts';
 import { useTranslation } from 'react-i18next';
 import { useStatus } from '../hooks/useStatus';
-import { datasetApi, gedApi, commentApi, metricsApi } from '../services/api';
+import { datasetApi, gedApi, metricsApi } from '../services/api';
 import Skeleton from '../components/Skeleton';
 import Tooltip from '../components/Tooltip';
 import LifecycleDonut from '../components/charts/LifecycleDonut';
@@ -115,37 +115,14 @@ const Dashboard: FC = () => {
     refetchInterval: 30_000,
   });
 
-  // Stats de commentaires (endpoint dérivé, non critique) — calculées une fois, cache 60 s.
-  const { data: computedCommentStats } = useQuery({
-    queryKey: ['dashboard-comment-stats'],
-    queryFn: async (): Promise<CommentStats | null> => {
-      const docs = await gedApi.listDocuments({ size: 500 });
-      const allDocs = docs.data?.content ?? [];
-      if (allDocs.length === 0) return null;
-      const commentResponses = await Promise.allSettled(
-        allDocs.slice(0, 20).map((d: { sha256: string }) => commentApi.list(d.sha256))
-      );
-      let total = 0, approved = 0, rejected = 0, aiGenerated = 0;
-      commentResponses.forEach(r => {
-        if (r.status === 'fulfilled') {
-          const list: any[] = r.value.data ?? [];
-          total += list.length;
-          approved += list.filter((c: any) => c.rating === 'APPROVED').length;
-          rejected += list.filter((c: any) => c.rating === 'REJECTED').length;
-          aiGenerated += list.filter((c: any) => c.type === 'AI_GENERATED').length;
-        }
-      });
-      return { total, approved, rejected, aiGenerated };
-    },
-    staleTime: 60_000,
-  });
-
   const stats = statsData?.stats ?? null;
   const gedStats = statsData?.gedStats ?? null;
   const personalizationMetrics = statsData?.personalizationMetrics ?? null;
   const statsErrors = statsData?.errors ?? [];
-  // Les stats calculées priment sur celles embarquées dans gedStats (comportement d'origine).
-  const commentStats = computedCommentStats ?? statsData?.commentStatsFromGed ?? null;
+  // Stats de commentaires : agrégat serveur embarqué dans /api/ged/stats. Remplace
+  // l'ancien calcul côté client (1 listDocuments + 20 GET de commentaires toutes les
+  // 60 s, tronqué aux 20 premiers documents → chiffres faux dès le 21e document).
+  const commentStats: CommentStats | null = statsData?.commentStatsFromGed ?? null;
   // Les pannes réseau / 5xx sont signalées globalement par l'intercepteur axios.
 
   const chatSvc  = status?.services?.find((s: { name: string }) => s.name === 'llama-cpp');

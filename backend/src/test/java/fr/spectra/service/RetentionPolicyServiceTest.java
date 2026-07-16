@@ -50,6 +50,7 @@ class RetentionPolicyServiceTest {
         when(repo.findAllByOrderByIngestedAtDesc()).thenReturn(List.of());
         when(repo.countByLifecycle()).thenReturn(List.of());
         return spy(new GedService(repo, linkRepo, auditRepo,
+                mock(fr.spectra.persistence.ArticleCommentRepository.class),
                 mock(ChromaDbClient.class), mock(FtsService.class),
                 tempArchive.toString()));
     }
