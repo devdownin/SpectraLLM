@@ -180,7 +180,11 @@ llmfit:
   # llmfit's own download cache. Inventoried by the storage report and purgeable of
   # its duplicates (files whose name AND size match a GGUF already in models-dir).
   # Point it to wherever your llmfit build actually caches downloads.
-  cache-dir: ${LLMFIT_CACHE_DIR:./data/llmfit-cache}
+  cache-dir: ${LLMFIT_CACHE_DIR:${user.home}/.llmfit}
+  # Retention of the Model Hub installation history: terminal jobs
+  # (COMPLETED/FAILED/CANCELLED) older than this many days are purged nightly.
+  # 0 (default) = keep forever — same convention as the GED and Kafka retentions.
+  installations-retention-days: ${LLMFIT_INSTALL_RETENTION_DAYS:0}
 
 resilience4j:
   circuitbreaker:

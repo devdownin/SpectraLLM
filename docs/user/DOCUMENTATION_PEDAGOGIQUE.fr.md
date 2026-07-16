@@ -1147,9 +1147,12 @@ avec trois leviers :
 - **Simulateur matériel** : saisir une VRAM / RAM / nb de cœurs **hypothétiques**
   pour répondre à « et si j'achetais un GPU 24 Go ? » sans changer de machine ;
 - **Installer** : `llmfit download <modèle> --quant <best_quant>` télécharge le GGUF
-  avec une **barre de progression en temps réel** (flux SSE), le **copie dans le
-  volume partagé** `data/models/`, l'**enregistre au registre** et — si
-  *auto‑activation* est cochée — le désigne comme modèle actif.
+  avec une **barre de progression en temps réel** (flux SSE), le **déplace dans le
+  volume partagé** `data/models/` (déplacement, pas copie : le cache de `llmfit` ne
+  garde pas un double de plusieurs Go), l'**enregistre au registre** et — si
+  *auto‑activation* est cochée — le désigne comme modèle actif. Si le téléchargement
+  aboutit mais qu'aucun fichier GGUF n'est détecté, le job est marqué **FAILED**
+  avec un message explicite — jamais un faux succès.
 
 🧠 **Pourquoi un outil dédié plutôt qu'une simple liste ?** Le « bon » modèle dépend
 du matériel **réel** : un 8 B q4 est `Perfect` sur un GPU 12 Go mais `Too Tight` sur
@@ -1157,11 +1160,28 @@ un portable 8 Go. En croisant taille, quantization et ressources, `llmfit` évit
 l'essai‑erreur (télécharger plusieurs Go pour découvrir que ça ne charge pas) et
 relie le choix au **dimensionnement** ci‑dessous.
 
-⚠️ **Cohérence des volumes.** Le modèle est copié dans `data/models/`, qui **doit**
+⚠️ **Cohérence des volumes.** Le modèle est déplacé dans `data/models/`, qui **doit**
 être le volume monté par le conteneur `llm-chat`. Une fois le modèle **activé**
 (auto‑activation du Model Hub ou Playground), le superviseur de `llm-chat` lit le
 pointeur `active-chat-model` du registre et recharge `llama-server` automatiquement
 en quelques secondes — plus de redémarrage manuel.
+
+♻️ **Cycle de vie du stockage.** Les GGUF pesant plusieurs Go, l'écran Model Hub
+ferme la boucle *télécharger → activer → retirer* avec deux panneaux :
+- **Stockage** : inventaire de `data/models/` (taille, alias, statut actif de chaque
+  fichier) **et du cache de téléchargement `llmfit`**, avec purge en un clic des
+  doublons sûrs (même nom et même taille des deux côtés) — les téléchargements
+  partiels sont conservés pour reprise. Un GGUF **orphelin** (absent du registre)
+  se supprime directement depuis ce panneau.
+- **Historique des installations** : chaque téléchargement avec sa progression et
+  son statut, persistant aux redémarrages ; un échec ou une annulation se relance
+  d'un clic (**Réessayer**), et une rétention optionnelle
+  (`LLMFIT_INSTALL_RETENTION_DAYS`) purge les entrées anciennes.
+
+Enfin, le **modèle actif** est visible en permanence dans le header (cliquer dessus
+ouvre le Playground), et l'écran de fine‑tuning **préremplit** ses champs d'après
+lui : nom suggéré pour le futur modèle et **base entraînable** résolue depuis le
+catalogue — car le GGUF servi, quantifié, n'est pas ré‑entraînable tel quel.
 
 🎯 **Exemple d'usage.** Sur un portable 16 Go sans GPU, *Model Hub* classe en tête
 un 3‑4 B en q4 (`Good`, ~12 tok/s, ~3 Go requis) et grise les 13 B (`Too Tight`).

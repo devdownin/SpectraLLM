@@ -225,6 +225,11 @@ services:
       - SPECTRA_KAFKA_SECURITY_PROTOCOL=${SPECTRA_KAFKA_SECURITY_PROTOCOL:-PLAINTEXT}
       - SPECTRA_KAFKA_SASL_MECHANISM=${SPECTRA_KAFKA_SASL_MECHANISM:-}
       - SPECTRA_KAFKA_SASL_JAAS_CONFIG=${SPECTRA_KAFKA_SASL_JAAS_CONFIG:-}
+      # ── Model Hub (llmfit) : cache de téléchargement + rétention historique ─────
+      # Le cache llmfit vit dans le home de l'utilisateur du conteneur (spectra).
+      # Inventorié par le rapport de stockage, purgeable de ses doublons.
+      - LLMFIT_CACHE_DIR=${LLMFIT_CACHE_DIR:-/home/spectra/.llmfit}
+      - LLMFIT_INSTALL_RETENTION_DAYS=${LLMFIT_INSTALL_RETENTION_DAYS:-0}
     volumes:
       - ./data:/app/data
     healthcheck:

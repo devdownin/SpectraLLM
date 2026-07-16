@@ -209,7 +209,12 @@
                         <version>12.2.2</version>
                         <configuration>
                             <suppressionFiles>
-                                <suppressionFile>dependency-suppression.xml</suppressionFile>
+                                <!-- ${project.basedir} et non un chemin relatif : le plugin
+                                     résout les chemins relatifs contre le RÉPERTOIRE COURANT,
+                                     or la CI lance `mvn -f backend/pom.xml` depuis la racine
+                                     du dépôt — le fichier devenait introuvable
+                                     (InitializationException) et depcheck échouait à chaque run. -->
+                                <suppressionFile>${project.basedir}/dependency-suppression.xml</suppressionFile>
                             </suppressionFiles>
 
                             <ossIndexAnalyzerEnabled>false</ossIndexAnalyzerEnabled>

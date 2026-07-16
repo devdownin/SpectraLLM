@@ -23,7 +23,24 @@ const ModelStoragePanel: FC = () => {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<{ name: string; type: string; size: string } | null>(null);
+  const [pendingOrphanDelete, setPendingOrphanDelete] = useState<{ file: string; size: string } | null>(null);
   const queryClient = useQueryClient();
+
+  // Suppression d'un GGUF ORPHELIN (absent du registre) : jusqu'ici visible mais
+  // insupprimable depuis l'UI — la suppression de modèle exige un alias enregistré.
+  // Le serveur refuse en 409 un fichier encore référencé.
+  const deleteOrphanMutation = useMutation({
+    mutationFn: (file: string) => modelsHubApi.deleteOrphanFile(file),
+    onSuccess: (res) => {
+      toast.success(t('storage.orphanDeleted', { file: res.data.file }));
+      queryClient.invalidateQueries({ queryKey: ['models-storage'] });
+    },
+    onError: (error: any) => {
+      toast.error(t('storage.deleteFailed'), {
+        description: error?.response?.data?.detail ?? error?.response?.data?.error ?? error?.message,
+      });
+    },
+  });
 
   const { data: storage, isLoading } = useQuery({
     queryKey: ['models-storage'],
@@ -129,6 +146,17 @@ const ModelStoragePanel: FC = () => {
                     {t('storage.delete')}
                   </button>
                 )}
+                {!primaryRef && (
+                  <button
+                    onClick={() => setPendingOrphanDelete({ file: f.file, size: formatSize(f.sizeBytes) })}
+                    disabled={deleteOrphanMutation.isPending}
+                    title={t('storage.deleteOrphanHint')}
+                    className="shrink-0 flex items-center gap-1 px-3 py-1.5 border border-error/40 text-error text-[11px] font-black uppercase tracking-widest disabled:opacity-30 hover:bg-error/10 transition-colors"
+                  >
+                    <span className="material-symbols-outlined text-sm">delete</span>
+                    {t('storage.delete')}
+                  </button>
+                )}
               </div>
             );
           })}
@@ -193,6 +221,20 @@ const ModelStoragePanel: FC = () => {
         onConfirm={() => {
           if (pendingDelete) deleteMutation.mutate({ name: pendingDelete.name, type: pendingDelete.type });
           setPendingDelete(null);
+        }}
+      />
+
+      {/* Confirmation dédiée aux fichiers orphelins (pas d'alias de registre à retirer). */}
+      <ConfirmDialog
+        open={pendingOrphanDelete !== null}
+        title={t('confirm.deleteOrphanTitle')}
+        message={pendingOrphanDelete ? t('confirm.deleteOrphanMessage', { file: pendingOrphanDelete.file, size: pendingOrphanDelete.size }) : ''}
+        confirmLabel={t('confirm.delete')}
+        busy={deleteOrphanMutation.isPending}
+        onCancel={() => setPendingOrphanDelete(null)}
+        onConfirm={() => {
+          if (pendingOrphanDelete) deleteOrphanMutation.mutate(pendingOrphanDelete.file);
+          setPendingOrphanDelete(null);
         }}
       />
     </section>

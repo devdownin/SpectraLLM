@@ -646,6 +646,67 @@ public class LlmFitService {
         return report;
     }
 
+    /** Nom de fichier GGUF simple — pas de séparateur de chemin (anti-traversée). */
+    private static final Pattern SAFE_GGUF_FILENAME =
+            Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,254}\\.[gG][gG][uU][fF]");
+
+    /**
+     * Supprime un GGUF <b>orphelin</b> du volume des modèles : un fichier visible dans
+     * le rapport de stockage mais absent du registre (déposé à la main, laissé par un
+     * bug…) n'était supprimable qu'en shell — {@code DELETE /api/fine-tuning/models}
+     * exige un modèle enregistré. Refuse (409) un fichier encore référencé : pour
+     * ceux-là, la suppression passe par le retrait du modèle, qui gère les alias
+     * multiples et le modèle actif.
+     *
+     * @throws ResponseStatusException 400 nom invalide ou hors de models-dir,
+     *         404 fichier absent, 409 fichier référencé par le registre.
+     */
+    public Map<String, Object> deleteOrphanGguf(String fileName) {
+        if (fileName == null || !SAFE_GGUF_FILENAME.matcher(fileName).matches()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Nom de fichier invalide : nom simple attendu (« modele.gguf »)");
+        }
+        Path modelsDir = Path.of(modelsDirPath).toAbsolutePath().normalize();
+        Path file = modelsDir.resolve(fileName).normalize();
+        // Double barrière anti-traversée : startsWith sur le chemin normalisé (la forme
+        // canonique reconnue par l'analyse statique — CodeQL java/path-injection) ET
+        // parent exact (interdit aussi un sous-répertoire de models-dir).
+        if (!file.startsWith(modelsDir) || !modelsDir.equals(file.getParent())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Le fichier doit être directement dans le répertoire des modèles");
+        }
+        if (!Files.isRegularFile(file)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND,
+                    "Fichier inconnu du volume des modèles : " + fileName);
+        }
+        boolean referenced = Stream.concat(
+                        modelRegistryService.listModels("chat").stream(),
+                        modelRegistryService.listModels("embedding").stream())
+                .map(model -> model.get("source"))
+                .filter(java.util.Objects::nonNull)
+                .anyMatch(source -> fileName.equals(Path.of(source.toString()).getFileName().toString()));
+        if (referenced) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Fichier référencé par le registre — retirez d'abord le modèle "
+                    + "(DELETE /api/fine-tuning/models/{name}?deleteFile=true)");
+        }
+        try {
+            long size = Files.size(file);
+            Files.delete(file);
+            log.info("GGUF orphelin supprimé du volume des modèles : {} ({} octets)", file, size);
+            Map<String, Object> result = new java.util.LinkedHashMap<>();
+            result.put("file", fileName);
+            result.put("freedBytes", size);
+            result.put("status", "deleted");
+            return result;
+        } catch (ResponseStatusException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Suppression impossible : " + e.getMessage(), e);
+        }
+    }
+
     /**
      * Inventaire du cache llmfit : chaque GGUF avec sa taille et un drapeau
      * {@code duplicate} quand un fichier de même nom et même taille existe dans
