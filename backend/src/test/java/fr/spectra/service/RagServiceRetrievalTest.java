@@ -3,6 +3,7 @@ package fr.spectra.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import fr.spectra.config.SpectraProperties;
 import fr.spectra.dto.QueryRequest;
+import fr.spectra.dto.QueryResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -17,11 +18,13 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyFloat;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -63,10 +66,16 @@ class RagServiceRetrievalTest {
 
     private RagService ragService(Optional<HybridSearchService> hybrid,
                                   Optional<MultiQueryService> multiQuery) {
+        return ragService(hybrid, multiQuery, Optional.empty());
+    }
+
+    private RagService ragService(Optional<HybridSearchService> hybrid,
+                                  Optional<MultiQueryService> multiQuery,
+                                  Optional<CorrectiveRagService> corrective) {
         return new RagService(
                 chromaDbClient, embeddingService, llmChatClient,
                 Optional.empty(), hybrid, Optional.empty(),
-                Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty(), corrective, Optional.empty(),
                 Optional.empty(), Optional.empty(), multiQuery,
                 props, new ObjectMapper());
     }
@@ -110,6 +119,64 @@ class RagServiceRetrievalTest {
                 .containsExactly("chunk-vectoriel", "chunk-bm25-only", "chunk-faible");
         assertThat(ctx.multiQueryApplied()).isTrue();
         assertThat(ctx.hybridApplied()).isTrue();
+    }
+
+    // ── B3 : Corrective RAG — retrieval complémentaire après reformulation ───
+
+    private static Map<String, Object> vectorResult(String chunkText) {
+        return Map.of(
+                "documents", List.of(List.of(chunkText)),
+                "metadatas", List.of(List.of(Map.of("sourceFile", "doc.txt"))),
+                "distances", List.of(List.of(0.2)));
+    }
+
+    @Test
+    void corrective_allChunksIrrelevant_reformulatesAndRetrievesComplementary() {
+        when(props.correctiveRag()).thenReturn(
+                new SpectraProperties.CorrectiveRagProperties(true, 1));
+        CorrectiveRagService corrective = new CorrectiveRagService(llmChatClient, props);
+
+        // Retrieval initial → chunk hors-sujet ; retrieval complémentaire → chunk pertinent.
+        when(chromaDbClient.query(eq("col-1"), anyList(), anyInt()))
+                .thenReturn(vectorResult("chunk hors-sujet"), vectorResult("chunk pertinent"));
+        // Appels LLM 2-args, dans l'ordre : grading initial (tout IRRELEVANT) →
+        // reformulation → grading des chunks complémentaires (RELEVANT).
+        when(llmChatClient.chat(anyString(), anyString()))
+                .thenReturn("1: IRRELEVANT", "Question reformulée ?", "1: RELEVANT");
+        // Génération finale (4-args, avec temperature/topP).
+        when(llmChatClient.chat(anyString(), anyString(), anyFloat(), anyFloat()))
+                .thenReturn("Réponse finale");
+
+        QueryResponse resp = ragService(Optional.empty(), Optional.empty(), Optional.of(corrective))
+                .query(request());
+
+        assertThat(resp.answer()).isEqualTo("Réponse finale");
+        assertThat(resp.correctiveApplied()).isTrue();
+        assertThat(resp.sources()).hasSize(1);
+        assertThat(resp.sources().get(0).text()).contains("chunk pertinent");
+        // Deux retrievals vectoriels : initial + complémentaire.
+        verify(chromaDbClient, times(2)).query(eq("col-1"), anyList(), anyInt());
+    }
+
+    @Test
+    void corrective_enoughRelevantChunks_noComplementaryRetrieval() {
+        when(props.correctiveRag()).thenReturn(
+                new SpectraProperties.CorrectiveRagProperties(true, 1));
+        CorrectiveRagService corrective = new CorrectiveRagService(llmChatClient, props);
+
+        when(chromaDbClient.query(eq("col-1"), anyList(), anyInt()))
+                .thenReturn(vectorResult("chunk pertinent"));
+        when(llmChatClient.chat(anyString(), anyString())).thenReturn("1: RELEVANT");
+        when(llmChatClient.chat(anyString(), anyString(), anyFloat(), anyFloat()))
+                .thenReturn("Réponse finale");
+
+        QueryResponse resp = ragService(Optional.empty(), Optional.empty(), Optional.of(corrective))
+                .query(request());
+
+        assertThat(resp.answer()).isEqualTo("Réponse finale");
+        // Rien filtré, rien complété → l'étape corrective n'a pas modifié le contexte.
+        assertThat(resp.correctiveApplied()).isFalse();
+        verify(chromaDbClient, times(1)).query(eq("col-1"), anyList(), anyInt());
     }
 
     // ── B8 : budget de tokens du Long-Context RAG ────────────────────────────

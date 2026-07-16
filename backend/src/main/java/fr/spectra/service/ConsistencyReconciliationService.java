@@ -74,9 +74,15 @@ public class ConsistencyReconciliationService {
                 log.debug("[reconciliation] cohérent : chroma={}, fts={}, db={}", chroma, fts, db);
             }
 
-            // Réparation légère : index FTS vide alors que ChromaDB contient des chunks.
-            if (fts == 0 && chroma > 0) {
-                log.info("[reconciliation] index FTS vide pour '{}' — reconstruction depuis ChromaDB", defaultCollection);
+            // Réparation : toute divergence FTS/ChromaDB déclenche une reconstruction de
+            // l'index BM25 depuis ChromaDB (source de vérité) — y compris un index FTS
+            // périmé non vide (chunks fantômes après un reset de ChromaDB, ajouts perdus
+            // par un arrêt brutal dans la fenêtre de flush différé…). La reconstruction
+            // est sûre pendant une ingestion : les mutations concurrentes sont répliquées
+            // dans l'index cible (cf. FtsService.pendingRebuilds).
+            if (gap > 0) {
+                log.info("[reconciliation] divergence FTS/ChromaDB pour '{}' (fts={}, chroma={}) — "
+                        + "reconstruction depuis ChromaDB", defaultCollection, fts, chroma);
                 ftsService.rebuildCollection(defaultCollection);
             }
         } catch (Exception e) {

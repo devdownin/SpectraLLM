@@ -67,6 +67,16 @@ public class FtsService {
      */
     private final Set<String> rebuilding = ConcurrentHashMap.newKeySet();
 
+    /**
+     * Index cibles des rebuilds en cours. Les mutations live ({@link #indexChunks},
+     * {@link #removeBySource}) y sont répliquées en plus de l'index publié : sans cela,
+     * les chunks ingérés PENDANT un rebuild (qui pagine ChromaDB, potentiellement long)
+     * étaient écrasés par le {@code indices.put} final et disparaissaient silencieusement
+     * du BM25 jusqu'au rebuild suivant. {@link BM25Index#add} étant idempotent par id, un
+     * chunk vu à la fois par le pager et par la réplication n'est pas dupliqué.
+     */
+    private final Map<String, BM25Index> pendingRebuilds = new ConcurrentHashMap<>();
+
     public FtsService(ChromaDbClient chromaDbClient, SpectraProperties props) {
         this.chromaDbClient = chromaDbClient;
         this.props = props;
@@ -114,17 +124,22 @@ public class FtsService {
         }
         log.info("FTS: rebuilding index for collection '{}'", collectionName);
         try {
-            // Tentative de chargement depuis le disque d'abord
+            // Tentative de chargement depuis le disque d'abord — validée contre ChromaDB :
+            // un index périmé (flush différé perdu, suppression non persistée, reset de
+            // ChromaDB) servirait sinon des chunks fantômes ou en manque indéfiniment.
             BM25Index diskIndex = loadIndexFromDisk(collectionName);
-            if (diskIndex != null) {
+            if (diskIndex != null && diskIndexIsFresh(collectionName, diskIndex)) {
                 indices.put(collectionName, diskIndex);
                 log.info("FTS: index '{}' loaded from disk ({} chunks)", collectionName, diskIndex.size());
                 return;
             }
 
-            // Fallback : reconstruction depuis ChromaDB
+            // Fallback : reconstruction depuis ChromaDB. L'index cible est enregistré comme
+            // « pending » AVANT la première page : tout chunk ingéré pendant le rebuild y est
+            // répliqué (cf. pendingRebuilds) et survit donc à la publication finale.
             String collectionId = chromaDbClient.getOrCreateCollection(collectionName);
             BM25Index index = new BM25Index();
+            pendingRebuilds.put(collectionName, index);
             int offset = 0;
             int limit = 500;
             int total = 0;
@@ -160,7 +175,33 @@ public class FtsService {
         } catch (Exception e) {
             log.warn("FTS: could not rebuild index for '{}': {}", collectionName, e.getMessage());
         } finally {
+            pendingRebuilds.remove(collectionName);
             rebuilding.remove(collectionName);
+        }
+    }
+
+    /**
+     * Vérifie que l'index désérialisé du disque est cohérent avec ChromaDB (même nombre de
+     * chunks). Comparaison par comptage : heuristique (contenus différents à comptes égaux
+     * restent possibles) mais suffisante pour détecter les divergences réelles — et la
+     * réconciliation périodique ({@code ConsistencyReconciliationService}) rattrape le reste.
+     * Si ChromaDB est injoignable (démarrage), l'index disque est accepté en mode dégradé :
+     * mieux vaut un BM25 possiblement décalé que pas de BM25 du tout.
+     */
+    private boolean diskIndexIsFresh(String collectionName, BM25Index diskIndex) {
+        try {
+            String collectionId = chromaDbClient.getOrCreateCollection(collectionName);
+            int chromaCount = chromaDbClient.count(collectionId);
+            if (chromaCount == diskIndex.size()) {
+                return true;
+            }
+            log.info("FTS: index disque '{}' périmé ({} chunks vs {} dans ChromaDB) — reconstruction",
+                    collectionName, diskIndex.size(), chromaCount);
+            return false;
+        } catch (Exception e) {
+            log.warn("FTS: fraîcheur de l'index disque '{}' invérifiable (ChromaDB injoignable ?) — "
+                    + "index utilisé tel quel : {}", collectionName, e.getMessage());
+            return true;
         }
     }
 
@@ -173,6 +214,13 @@ public class FtsService {
             }
             return index;
         });
+        // Réplique dans l'index cible d'un éventuel rebuild en cours (cf. pendingRebuilds).
+        BM25Index pending = pendingRebuilds.get(collectionName);
+        if (pending != null) {
+            for (TextChunk chunk : chunks) {
+                pending.add(chunk.id(), chunk.text(), chunk.sourceFile());
+            }
+        }
         dirtyIndices.add(collectionName);
         log.debug("FTS: indexed {} chunks into '{}'", chunks.size(), collectionName);
     }
@@ -185,6 +233,14 @@ public class FtsService {
             }
             return existing;
         });
+        // Réplique la suppression dans l'index cible d'un éventuel rebuild en cours. Fenêtre
+        // résiduelle : si le pager ChromaDB relit ces chunks APRÈS cette suppression (avant
+        // leur effacement effectif côté ChromaDB), ils réapparaîtront — cas rare, rattrapé
+        // par la réconciliation périodique.
+        BM25Index pending = pendingRebuilds.get(collectionName);
+        if (pending != null) {
+            pending.removeBySource(sourceFile);
+        }
         if (indices.containsKey(collectionName)) {
             dirtyIndices.add(collectionName);
         }
