@@ -533,6 +533,8 @@
     "recipeLoadFailed": "Failed to load the recipe",
     "modelName": "Model Name",
     "baseModel": "Base Model",
+    "activeModel": "Active model",
+    "prefilledHint": "fields prefilled from the active model (trainable base: {{base}})",
     "epochs": "Epochs",
     "loraRank": "LoRA Rank",
     "minConfidence": "Min Confidence",

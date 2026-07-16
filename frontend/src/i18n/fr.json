@@ -533,6 +533,8 @@
     "recipeLoadFailed": "Échec du chargement de la recette",
     "modelName": "Nom du modèle",
     "baseModel": "Modèle de base",
+    "activeModel": "Modèle actif",
+    "prefilledHint": "champs préremplis d'après le modèle actif (base entraînable : {{base}})",
     "epochs": "Époques",
     "loraRank": "Rang LoRA",
     "minConfidence": "Confiance min.",

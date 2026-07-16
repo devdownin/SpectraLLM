@@ -8,7 +8,7 @@ import * as z from 'zod';
 import { toast } from 'sonner';
 import { useSse } from '../hooks/useSse';
 import type { TrainingLog } from '../types/api';
-import { fineTuningApi, recipeApi } from '../services/api';
+import { configApi, fineTuningApi, recipeApi } from '../services/api';
 import LossChart from '../components/charts/LossChart';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -173,7 +173,7 @@ const FineTuning: FC = () => {
 
   const trainingSchema = useMemo(() => makeTrainingSchema(t), [t]);
 
-  const { register, handleSubmit, watch, reset, formState: { errors } } = useForm<TrainingFormValues>({
+  const { register, handleSubmit, watch, reset, setValue, getValues, formState: { errors } } = useForm<TrainingFormValues>({
     resolver: zodResolver(trainingSchema),
     defaultValues: {
       modelName: localStorage.getItem('spectra_ft_name') || 'spectra-domain',
@@ -192,6 +192,72 @@ const FineTuning: FC = () => {
 
   useEffect(() => {
     recipeApi.list().then(r => setRecipes(r.data ?? [])).catch(() => {});
+  }, []);
+
+  // ── Modèle actif → affichage + préremplissage des champs de nom ────────────
+  // Le GGUF actuellement servi n'est PAS ré-entraînable : le champ baseModel doit
+  // référencer une base du catalogue (base_models.json) ou un repo HF. On affiche
+  // donc le modèle actif et on en dérive : (1) un nom suggéré pour le modèle
+  // fine-tuné, (2) la base entraînable la plus plausible — métadonnée baseModel
+  // d'un modèle déjà fine-tuné, correspondance hfRepo, ou alias du catalogue
+  // contenu dans le nom. Une valeur SAISIE par l'utilisateur n'est jamais écrasée :
+  // seuls les défauts génériques et nos propres suggestions précédentes le sont.
+  const [activeModel, setActiveModel] = useState('');
+  const [suggestedBase, setSuggestedBase] = useState('');
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [cfgRes, modelsRes, catalogRes] = await Promise.all([
+          configApi.getModelConfig(),
+          configApi.getModels().catch(() => ({ data: [] as any[] })),
+          fineTuningApi.getBaseModels().catch(() => ({ data: [] as any[] })),
+        ]);
+        const active: string = cfgRes.data?.model ?? '';
+        if (!active) return;
+        setActiveModel(active);
+
+        const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const registry: any[] = Array.isArray(modelsRes.data) ? modelsRes.data : [];
+        const catalog: any[] = Array.isArray(catalogRes.data) ? catalogRes.data : [];
+        const entry = registry.find(m => m?.name === active);
+
+        let base = '';
+        const fromMeta = entry?.parameters?.baseModel;
+        if (typeof fromMeta === 'string' && fromMeta.trim()) {
+          base = fromMeta.trim(); // modèle fine-tuné : sa base exacte
+        } else {
+          const byRepo = entry?.hfRepo ? catalog.find(c => c?.hfRepo === entry.hfRepo) : undefined;
+          const byName = catalog.find(c => c?.alias && norm(active).includes(norm(c.alias)));
+          base = byRepo?.alias ?? byName?.alias ?? '';
+        }
+        if (base) setSuggestedBase(base);
+
+        // Nom suggéré conforme au schéma (/^[a-z0-9-_]+$/, min 3 caractères).
+        const slug = active.toLowerCase()
+          .replace(/[^a-z0-9-_]+/g, '-')
+          .replace(/-{2,}/g, '-')
+          .replace(/^[-_]+|[-_]+$/g, '');
+        const suggestedName = `${slug || 'spectra'}-ft`;
+
+        const prevName = localStorage.getItem('spectra_ft_suggested_name');
+        const currentName = getValues('modelName');
+        if (!currentName || currentName === 'spectra-domain' || currentName === prevName) {
+          setValue('modelName', suggestedName, { shouldValidate: true });
+        }
+        localStorage.setItem('spectra_ft_suggested_name', suggestedName);
+
+        if (base) {
+          const prevBase = localStorage.getItem('spectra_ft_suggested_base');
+          const currentBase = getValues('baseModel');
+          if (!currentBase || currentBase === 'phi3' || currentBase === prevBase) {
+            setValue('baseModel', base, { shouldValidate: true });
+          }
+          localStorage.setItem('spectra_ft_suggested_base', base);
+        }
+      } catch { /* API indisponible : le formulaire garde ses défauts */ }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadRecipe = async (name: string) => {
@@ -392,6 +458,17 @@ const FineTuning: FC = () => {
               <span className="material-symbols-outlined text-sm">download</span>{t('fineTuning.exportRecipe')}
             </button>
           </div>
+
+          {activeModel && (
+            <div className="mb-6 flex flex-wrap items-center gap-2">
+              <span className="material-symbols-outlined text-sm text-primary">memory</span>
+              <span className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">{t('fineTuning.activeModel')}</span>
+              <span className="text-[11px] font-mono text-primary">{activeModel}</span>
+              {suggestedBase && (
+                <span className="text-[10px] text-outline">— {t('fineTuning.prefilledHint', { base: suggestedBase })}</span>
+              )}
+            </div>
+          )}
 
           {recipes.length > 0 && (
             <div className="mb-6 p-4 bg-surface-container-high/50 border border-outline-variant/20">

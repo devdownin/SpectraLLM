@@ -55,6 +55,11 @@ const Header: FC<HeaderProps> = ({ onMenuClick }) => {
           <div className="flex items-center gap-1.5" title={`Chat Server\nStatus: ${chatStatus?.available ? (chatStatus.details?.activeModelLoaded === false ? 'Loading Model' : 'Ready') : 'Offline'}\nModel: ${chatStatus?.details?.activeModel || 'None'}`}>
             <div className={`w-2 h-2 rounded-full ${getStatusColor(chatStatus)}`} />
             <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Chat</span>
+            {chatStatus?.details?.activeModel && (
+              <span className="text-[10px] font-mono text-primary max-w-[160px] truncate">
+                {chatStatus.details.activeModel}
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-1.5" title={`Embedding Server\nStatus: ${embedStatus?.available ? (embedStatus.details?.activeModelLoaded === false ? 'Loading Model' : 'Ready') : 'Offline'}\nModel: ${embedStatus?.details?.activeModel || 'None'}`}>
             <div className={`w-2 h-2 rounded-full ${getStatusColor(embedStatus)}`} />

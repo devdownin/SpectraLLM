@@ -92,6 +92,7 @@ export const fineTuningApi = {
   createJob: (job: any) => api.post('/fine-tuning', job),
   cancelJob: (jobId: string) => api.delete(`/fine-tuning/${jobId}`),
   getModels: () => api.get('/fine-tuning/models'),
+  getBaseModels: () => api.get('/fine-tuning/base-models'),
 };
 
 export const evaluationApi = {

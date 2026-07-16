@@ -8,6 +8,11 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### UI — modèle actif visible et formulaire de fine-tuning prérempli
+
+- **Modèle actif affiché dans le header** : le nom du modèle de chat actif apparaît désormais en clair à côté de l'indicateur « Chat » (il n'était visible qu'en infobulle), sur toutes les pages.
+- **Fine-tuning : champs préremplis d'après le modèle actif** : à l'ouverture du formulaire, le nom du modèle à produire est suggéré depuis le modèle actif (`<actif>-ft`, conforme au schéma de nommage) et le **modèle de base entraînable** est résolu automatiquement — métadonnée `baseModel` d'un modèle déjà fine-tuné, correspondance `hfRepo` avec le catalogue `base_models.json`, ou alias du catalogue contenu dans le nom. Le GGUF servi n'étant pas ré-entraînable, c'est bien la base du catalogue qui est proposée, avec un bandeau « Modèle actif : … » explicitant le préremplissage. Une valeur saisie par l'utilisateur n'est jamais écrasée (seuls les défauts génériques et les suggestions précédentes le sont).
+
 ### Model Hub — fin du doublon du cache llmfit et des faux « COMPLETED »
 
 - **Le GGUF téléchargé est déplacé, plus copié** (`LlmFitService.moveToSharedVolume`) : quand `llmfit` télécharge dans son propre cache (`~/.llmfit/…`), le fichier était copié vers le volume des modèles et l'original restait — chaque modèle occupait **deux fois sa taille**, et cet espace était invisible puisque le rapport de stockage n'inventorie que `data/models/`. Le fichier est désormais déplacé (`Files.move`, rename instantané sur le même système de fichiers) avec repli copie + suppression best-effort de la source (avertissement dans les logs si elle subsiste).
