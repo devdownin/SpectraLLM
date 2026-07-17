@@ -159,6 +159,85 @@ class SingleFileIngestionExecutorTest {
         assertThat(recorded.get().chunks()).isEqualTo(1);
     }
 
+    // ── Erreurs par fichier : plus de COMPLETED silencieux ────────────────────
+
+    @Test
+    void execute_unsupportedFile_marksTaskFailedWithFileError() throws Exception {
+        Path png = tempDir.resolve("image.png");
+        Files.write(png, new byte[]{1, 2, 3, 4});
+
+        Map<String, IngestionTask> tasks = new ConcurrentHashMap<>();
+        String taskId = "task-png";
+        tasks.put(taskId, IngestionTask.pending(taskId, List.of("image.png")));
+
+        executor.execute(taskId, List.of("image.png"), List.of(png), tasks, "spectra_documents",
+                Map.of(png, "hash-png"), (hash, fileName, chunks) -> {});
+
+        IngestionTask finalTask = tasks.get(taskId);
+        // Tous les fichiers en échec → FAILED (et non plus COMPLETED avec 0 chunk,
+        // indiscernable d'un succès), avec le détail par fichier.
+        assertThat(finalTask.status()).isEqualTo(IngestionTask.Status.FAILED);
+        assertThat(finalTask.fileErrors()).hasSize(1);
+        assertThat(finalTask.fileErrors().getFirst()).contains("image.png");
+    }
+
+    @Test
+    void execute_mixedSuccessAndFailure_completesWithFileErrors() throws Exception {
+        Path json = tempDir.resolve("ok.json");
+        Files.writeString(json, "{\"name\":\"Spectra\",\"description\":\"moteur RAG\"}");
+        Path png = tempDir.resolve("bad.png");
+        Files.write(png, new byte[]{1, 2, 3, 4});
+
+        Map<String, IngestionTask> tasks = new ConcurrentHashMap<>();
+        String taskId = "task-mixed";
+        tasks.put(taskId, IngestionTask.pending(taskId, List.of("ok.json", "bad.png")));
+
+        executor.execute(taskId, List.of("ok.json", "bad.png"), List.of(json, png), tasks,
+                "spectra_documents", Map.of(json, "h-ok", png, "h-bad"), (hash, fileName, chunks) -> {});
+
+        IngestionTask finalTask = tasks.get(taskId);
+        // Succès partiel : la tâche aboutit mais l'échec du 2ᵉ fichier reste visible.
+        assertThat(finalTask.status()).isEqualTo(IngestionTask.Status.COMPLETED);
+        assertThat(finalTask.chunksCreated()).isGreaterThanOrEqualTo(1);
+        assertThat(finalTask.fileErrors()).hasSize(1);
+        assertThat(finalTask.fileErrors().getFirst()).contains("bad.png");
+    }
+
+    // ── Garde-fou mémoire : la limite s'applique aussi aux fichiers directs ───
+
+    @Test
+    void execute_oversizedFile_failsWithExplicitError() throws Exception {
+        DocumentExtractorFactory factory = new DocumentExtractorFactory(
+                List.of(new JsonExtractor(), new XmlExtractor(), new TxtExtractor()));
+        SpectraProperties.PipelineProperties pipeline = new SpectraProperties.PipelineProperties(
+                512, 64, 10, 30, 120, 4);
+        SpectraProperties props = mock(SpectraProperties.class);
+        when(props.pipeline()).thenReturn(pipeline);
+        ChromaDbClient chromaDb = mock(ChromaDbClient.class);
+        when(chromaDb.getOrCreateCollection(anyString())).thenReturn("test-col");
+        // Limite explicite de 1 Mo.
+        IngestionTaskExecutor smallLimitExecutor = new IngestionTaskExecutor(
+                factory, new TextCleanerService(), new ChunkingService(props),
+                mock(EmbeddingService.class), chromaDb, mock(FtsService.class),
+                new SimpleMeterRegistry(), props, 10, 1, 4);
+
+        Path big = tempDir.resolve("trop-gros.txt");
+        byte[] twoMb = new byte[2 * 1024 * 1024];
+        java.util.Arrays.fill(twoMb, (byte) 'a');
+        Files.write(big, twoMb);
+
+        Map<String, IngestionTask> tasks = new ConcurrentHashMap<>();
+        String taskId = "task-big-file";
+        tasks.put(taskId, IngestionTask.pending(taskId, List.of("trop-gros.txt")));
+
+        smallLimitExecutor.execute(taskId, List.of("trop-gros.txt"), List.of(big), tasks,
+                "spectra_documents", Map.of(big, "hash-big"), (hash, fileName, chunks) -> {});
+
+        IngestionTask finalTask = tasks.get(taskId);
+        assertThat(finalTask.status()).isEqualTo(IngestionTask.Status.FAILED);
+        assertThat(finalTask.fileErrors().getFirst()).contains("volumineux");
+    }
+
     @Test
     void execute_jsonFile_finalChunkCountMatchesLiveProgress() throws Exception {
         // JSON volumineux → plusieurs chunks → la progression live doit converger

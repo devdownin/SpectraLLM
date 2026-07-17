@@ -172,6 +172,9 @@ public class IngestionService {
         List<Path> allTempFiles = new ArrayList<>();
         List<String> allHashes = new ArrayList<>();
         List<String> allFileNamesOrdered = new ArrayList<>();
+        // Échecs de préparation (copie/hash) : reportés dans la tâche au lieu d'être
+        // silencieusement écartés (la tâche finissait COMPLETED sans trace).
+        List<String> prepErrors = new ArrayList<>();
 
         for (MultipartFile file : files) {
             String fileName = file.getOriginalFilename();
@@ -184,6 +187,7 @@ public class IngestionService {
                 allFileNamesOrdered.add(fileName);
             } catch (Exception e) {
                 log.warn("Erreur préparation fichier {}: {}", fileName, e.getMessage());
+                prepErrors.add((fileName != null ? fileName : "?") + ": " + e.getMessage());
                 try { Files.deleteIfExists(tempFile); } catch (Exception ignored) {}
             }
         }
@@ -213,15 +217,31 @@ public class IngestionService {
         }
 
         if (tempFiles.isEmpty()) {
-            log.info("Tous les fichiers déjà ingérés — tâche {} terminée immédiatement", taskId);
-            tasks.put(taskId, IngestionTask.pending(taskId, allFileNames).completed(0));
+            IngestionTask task = IngestionTask.pending(taskId, allFileNames).withFileErrors(prepErrors);
+            if (!prepErrors.isEmpty() && allTempFiles.isEmpty()) {
+                // Aucun fichier n'a même pu être préparé : c'est un échec, pas un succès à 0 chunk.
+                log.warn("Aucun fichier n'a pu être préparé — tâche {} en échec", taskId);
+                tasks.put(taskId, task.failed("Aucun fichier n'a pu être préparé : "
+                        + String.join(" ; ", prepErrors)));
+            } else {
+                log.info("Tous les fichiers déjà ingérés — tâche {} terminée immédiatement", taskId);
+                tasks.put(taskId, task.completed(0));
+            }
             try { Files.delete(tempDir); } catch (Exception ignored) {}
             return taskId;
         }
 
-        tasks.put(taskId, IngestionTask.pending(taskId, allFileNames));
+        tasks.put(taskId, IngestionTask.pending(taskId, allFileNames).withFileErrors(prepErrors));
         executor.execute(taskId, toProcessNames, tempFiles, tasks, defaultCollection, tempFileToHash,
                 new IngestionTaskExecutor.IngestionCallback() {
+                    @Override
+                    public void beforeIndex(String hash, String fileName) {
+                        // Ré-ingestion d'un contenu déjà en GED (force=true) : purge de
+                        // l'ancienne version AVANT la ré-indexation — sinon chaque force
+                        // dupliquait les chunks dans ChromaDB et BM25.
+                        purgeForReingestion(hash);
+                    }
+
                     @Override
                     public void onIngested(String hash, String fileName, int chunks) {
                         recordIngestion(hash, fileName, chunks);
@@ -238,6 +258,39 @@ public class IngestionService {
                 }, tempDir);
 
         return taskId;
+    }
+
+    /**
+     * Purge les index (ChromaDB + BM25) de la version précédente d'un document déjà présent
+     * en GED, avant sa ré-indexation. Suppression par la métadonnée {@code sha256} d'abord
+     * (identité de contenu, insensible aux homonymes) puis repli sur {@code sourceFile}
+     * (chunks historiques indexés avant l'ajout de cette métadonnée). Best-effort : un échec
+     * de purge ne bloque pas la ré-ingestion (il est loggué et la dédup GED reste correcte).
+     */
+    private void purgeForReingestion(String hash) {
+        IngestedFileEntity existing = repository.findById(hash).orElse(null);
+        if (existing == null) {
+            return; // première ingestion : rien à purger
+        }
+        String collection = existing.getCollectionName() != null && !existing.getCollectionName().isBlank()
+                ? existing.getCollectionName() : defaultCollection;
+        try {
+            String collectionId = chromaDbClient.getOrCreateCollection(collection);
+            int removed = chromaDbClient.deleteByMetadata(collectionId, "sha256", hash);
+            if (removed == 0 && existing.getFileName() != null) {
+                removed = chromaDbClient.deleteBySource(collectionId, existing.getFileName());
+            }
+            log.info("Ré-ingestion de {} : {} ancien(s) chunk(s) purgé(s) de '{}'", hash, removed, collection);
+        } catch (Exception e) {
+            log.warn("Purge ChromaDB pré-réindexation échouée pour {} : {}", hash, e.getMessage());
+        }
+        try {
+            if (existing.getFileName() != null) {
+                ftsService.removeBySource(existing.getFileName(), collection);
+            }
+        } catch (Exception e) {
+            log.warn("Purge BM25 pré-réindexation échouée pour {} : {}", hash, e.getMessage());
+        }
     }
 
     /**
@@ -420,8 +473,17 @@ public class IngestionService {
     /**
      * Ingère un seul fichier depuis un InputStream (utilisé par UrlIngestionService).
      * Stream via un fichier temporaire pour éviter de charger l'intégralité en mémoire.
+     *
+     * <p>Passe par le sémaphore de concurrence de l'exécuteur et par la réservation
+     * in-flight : ce chemin contournait les deux, permettant à N requêtes URL simultanées
+     * de saturer la mémoire et à deux soumissions concurrentes du même contenu de
+     * double-indexer leurs chunks.</p>
+     *
+     * @param collectionName nom de la collection ChromaDB cible (résolue en interne) —
+     *   également enregistré en GED, pour que la suppression synchronisée nettoie la
+     *   bonne collection.
      */
-    public int ingest(String fileName, InputStream inputStream, String collectionId) throws Exception {
+    public int ingest(String fileName, InputStream inputStream, String collectionName) throws Exception {
         Path tempFile = Files.createTempFile("spectra-url-", null);
         try {
             String hash = copyAndHash(inputStream, tempFile);
@@ -429,14 +491,23 @@ public class IngestionService {
                 log.info("Fichier ignoré (déjà ingéré, sha256={}): {}", hash, fileName);
                 return 0;
             }
-            // Pipeline unique : on délègue à l'exécuteur (extraction → chunking → embedding →
-            // indexation, gestion .zip et comptage partiel inclus) au lieu de dupliquer la logique.
-            IngestionTaskExecutor.IngestOneResult r =
-                    executor.ingestOne(fileName, tempFile, collectionId, defaultCollection, i -> {});
-            if (r.chunks() > 0) {
-                recordIngestion(hash, fileName, r.chunks(), defaultCollection);
+            if (!tryClaimHash(hash)) {
+                log.info("Fichier ignoré (ingestion concurrente du même contenu, sha256={}): {}", hash, fileName);
+                return 0;
             }
-            return r.chunks();
+            try {
+                String collectionId = chromaDbClient.getOrCreateCollection(collectionName);
+                // Pipeline unique : on délègue à l'exécuteur (extraction → chunking → embedding →
+                // indexation, gestion .zip et comptage partiel inclus) au lieu de dupliquer la logique.
+                IngestionTaskExecutor.IngestOneResult r =
+                        executor.ingestOneWithPermit(fileName, tempFile, collectionId, collectionName, i -> {}, hash);
+                if (r.chunks() > 0) {
+                    recordIngestion(hash, fileName, r.chunks(), collectionName);
+                }
+                return r.chunks();
+            } finally {
+                inFlightHashes.remove(hash);
+            }
         } finally {
             Files.deleteIfExists(tempFile);
         }
@@ -468,9 +539,10 @@ public class IngestionService {
                         log.info("Fichier ignoré (déjà ingéré, sha256={}): {}", hash, path.getFileName());
                         continue;
                     }
-                    // Pipeline unique via l'exécuteur (gestion .zip + comptage partiel inclus).
-                    IngestionTaskExecutor.IngestOneResult r = executor.ingestOne(
-                            path.getFileName().toString(), path, collectionId, defaultCollection, i -> {});
+                    // Pipeline unique via l'exécuteur (gestion .zip + comptage partiel inclus),
+                    // sous le sémaphore de concurrence comme les autres chemins.
+                    IngestionTaskExecutor.IngestOneResult r = executor.ingestOneWithPermit(
+                            path.getFileName().toString(), path, collectionId, defaultCollection, i -> {}, hash);
                     if (r.chunks() > 0) {
                         recordIngestion(hash, path.getFileName().toString(), r.chunks(), defaultCollection);
                     }
@@ -654,10 +726,7 @@ public class IngestionService {
              OutputStream out = Files.newOutputStream(dest)) {
             dis.transferTo(out);
         }
-        byte[] hash = digest.digest();
-        StringBuilder sb = new StringBuilder(64);
-        for (byte b : hash) sb.append(String.format("%02x", b));
-        return sb.toString();
+        return java.util.HexFormat.of().formatHex(digest.digest());
     }
 
     private String sha256(InputStream in) throws Exception {
@@ -665,9 +734,6 @@ public class IngestionService {
         try (DigestInputStream dis = new DigestInputStream(in, digest)) {
             dis.transferTo(OutputStream.nullOutputStream());
         }
-        byte[] hash = digest.digest();
-        StringBuilder sb = new StringBuilder(64);
-        for (byte b : hash) sb.append(String.format("%02x", b));
-        return sb.toString();
+        return java.util.HexFormat.of().formatHex(digest.digest());
     }
 }

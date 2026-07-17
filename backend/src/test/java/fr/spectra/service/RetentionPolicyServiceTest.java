@@ -105,10 +105,14 @@ class RetentionPolicyServiceTest {
                 IngestedFileEntity.Lifecycle.ARCHIVED);
         IngestedFileRepository repo = fileRepo(List.of(), List.of(old));
         GedService ged = gedService(repo);
+        // La purge passe désormais par GedService.deleteDocument (DB + index) et non plus
+        // par un fileRepo.delete direct qui laissait les chunks indexés à vie.
+        when(repo.findById("arch1")).thenReturn(java.util.Optional.of(old));
 
         RetentionPolicyService svc = new RetentionPolicyService(repo, ged, props(0, 90));
         svc.applyRetentionPolicy();
 
+        verify(ged).deleteDocument("arch1", "retention-policy");
         verify(repo).delete(old);
     }
 

@@ -32,12 +32,17 @@ public class IngestionTaskEntity {
     private String parserUsed;
     private int layoutAwareChunks;
 
+    @Convert(converter = StringListConverter.class)
+    @Column(columnDefinition = "TEXT")
+    private List<String> fileErrors;
+
     protected IngestionTaskEntity() {}
 
     public IngestionTaskEntity(String taskId, String status, List<String> files,
                                int chunksCreated, int chunksExpected, String error,
                                Instant createdAt, Instant completedAt,
-                               String parserUsed, int layoutAwareChunks) {
+                               String parserUsed, int layoutAwareChunks,
+                               List<String> fileErrors) {
         this.taskId = taskId;
         this.status = status;
         this.files = files;
@@ -48,6 +53,7 @@ public class IngestionTaskEntity {
         this.completedAt = completedAt;
         this.parserUsed = parserUsed;
         this.layoutAwareChunks = layoutAwareChunks;
+        this.fileErrors = fileErrors;
     }
 
     public static IngestionTaskEntity fromDto(IngestionTask dto) {
@@ -55,7 +61,7 @@ public class IngestionTaskEntity {
                 dto.taskId(), dto.status().name(), dto.files(),
                 dto.chunksCreated(), dto.chunksExpected(), dto.error(),
                 dto.createdAt(), dto.completedAt(),
-                dto.parserUsed(), dto.layoutAwareChunks());
+                dto.parserUsed(), dto.layoutAwareChunks(), dto.fileErrors());
     }
 
     public IngestionTask toDto() {
@@ -69,7 +75,8 @@ public class IngestionTaskEntity {
                 createdAt,
                 completedAt,
                 parserUsed,
-                layoutAwareChunks);
+                layoutAwareChunks,
+                fileErrors != null ? fileErrors : List.of());
     }
 
     public String getTaskId() { return taskId; }

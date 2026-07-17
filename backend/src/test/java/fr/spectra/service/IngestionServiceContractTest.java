@@ -135,7 +135,7 @@ class IngestionServiceContractTest {
     void ingest_partialIndex_stillRecordsDocument() throws Exception {
         // L'exécuteur renvoie 3 chunks mais complete=false (indexation partielle).
         IngestionTaskExecutor executor = mock(IngestionTaskExecutor.class);
-        when(executor.ingestOne(anyString(), any(), any(), any(), any()))
+        when(executor.ingestOneWithPermit(anyString(), any(), any(), any(), any(), any()))
                 .thenReturn(new IngestionTaskExecutor.IngestOneResult(3, "txt", 0, false));
 
         IngestionService service = serviceWith(executor);
@@ -147,11 +147,56 @@ class IngestionServiceContractTest {
         verify(repository).save(any(IngestedFileEntity.class));
     }
 
+    // ── 3. Ré-ingestion forcée = upsert : purge des anciens chunks AVANT ré-indexation ──
+
+    @Test
+    void submit_forceReingest_purgesOldChunksBeforeReindexing() throws Exception {
+        IngestionService service = serviceWith(realExecutor());
+
+        byte[] content = ("Spectra est une plateforme RAG. "
+                + "Ce contenu est ré-ingéré de force et ne doit pas dupliquer ses chunks.").getBytes();
+        String hash = java.util.HexFormat.of().formatHex(
+                java.security.MessageDigest.getInstance("SHA-256").digest(content));
+
+        IngestedFileEntity existing = new IngestedFileEntity(
+                hash, "doc.txt", "TXT", java.time.Instant.now(), 3, "spectra_documents", 0.5);
+        when(repository.existsById(hash)).thenReturn(true);
+        when(repository.findById(hash)).thenReturn(java.util.Optional.of(existing));
+
+        service.submit(List.of(new org.springframework.mock.web.MockMultipartFile(
+                "files", "doc.txt", "text/plain", content)), true);
+
+        // L'ancienne version est purgée (par identité sha256, puis repli sourceFile)
+        // AVANT l'ajout des nouveaux chunks — sans quoi chaque force dupliquait le document.
+        org.mockito.InOrder inOrder = org.mockito.Mockito.inOrder(chromaDbClient);
+        inOrder.verify(chromaDbClient).deleteByMetadata("test-collection-id", "sha256", hash);
+        inOrder.verify(chromaDbClient).addDocuments(
+                org.mockito.ArgumentMatchers.eq("test-collection-id"), anyList(), anyList());
+        verify(ftsService).removeBySource("doc.txt", "spectra_documents");
+        // Ré-ingestion d'un hash connu → versioning GED, pas de nouvelle ligne.
+        verify(gedService).incrementVersion(hash, "system");
+        verify(repository, never()).save(any(IngestedFileEntity.class));
+    }
+
+    @Test
+    void submit_firstIngestion_doesNotPurgeAnything() throws Exception {
+        IngestionService service = serviceWith(realExecutor());
+        byte[] content = "Premier contenu, jamais vu : aucune purge ne doit avoir lieu.".getBytes();
+
+        service.submit(List.of(new org.springframework.mock.web.MockMultipartFile(
+                "files", "nouveau.txt", "text/plain", content)), false);
+
+        verify(chromaDbClient, never()).deleteByMetadata(anyString(), anyString(), anyString());
+        verify(chromaDbClient, never()).deleteBySource(anyString(), anyString());
+        verify(ftsService, never()).removeBySource(anyString(), anyString());
+        verify(repository).save(any(IngestedFileEntity.class));
+    }
+
     @Test
     void ingest_zeroChunks_doesNotRecord() throws Exception {
         // Symétrie : aucun chunk indexé → rien n'est enregistré (pas de faux positif GED).
         IngestionTaskExecutor executor = mock(IngestionTaskExecutor.class);
-        when(executor.ingestOne(anyString(), any(), any(), any(), any()))
+        when(executor.ingestOneWithPermit(anyString(), any(), any(), any(), any(), any()))
                 .thenReturn(new IngestionTaskExecutor.IngestOneResult(0, "txt", 0, true));
 
         IngestionService service = serviceWith(executor);

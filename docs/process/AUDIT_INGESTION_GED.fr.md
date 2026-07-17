@@ -268,14 +268,22 @@ direct (et silencieusement ignorés dans les ZIP), ce qui surprend.
 
 ---
 
-## 4. Priorisation suggérée
+## 4. Priorisation et statut des correctifs
 
-| # | Sujet | Effort | Impact |
+| # | Sujet | Impact | Statut |
 |---|-------|--------|--------|
-| 1 | B1 + B6 — purge avant ré-ingestion (upsert par document) | Moyen | Intégrité du retrieval |
-| 2 | B2 — purge de rétention via `GedService.deleteDocument` | Faible | Fuite de données « purgées » |
-| 3 | B4 — unifier les deux chemins de suppression | Faible | Cohérence GED ↔ index |
-| 4 | B3 — identité des chunks par sha256 | Moyen | Collisions de noms |
-| 5 | B5 — remonter les erreurs par fichier dans `IngestionTask` | Faible | Confiance utilisateur |
-| 6 | B7/B8 — borne mémoire + concurrence sur URL/upload direct | Faible | Stabilité |
-| 7 | O1–O4 — optimisations réseau/SQL | Faible | Débit d'ingestion |
+| 1 | B1 + B6 — purge avant ré-ingestion (upsert par document) | Intégrité du retrieval | ✅ Corrigé — `beforeIndex` + `purgeForReingestion` (le `force` répare désormais un document partiel sans dupliquer) |
+| 2 | B2 — purge de rétention via `GedService.deleteDocument` | Fuite de données « purgées » | ✅ Corrigé |
+| 3 | B4 — unifier les deux chemins de suppression | Cohérence GED ↔ index | ✅ Corrigé — `GedService.deleteBySourceFile`, utilisé par `DELETE /api/documents/{sourceFile}` |
+| 4 | B3 — identité des chunks par sha256 | Collisions de noms | ✅ Corrigé côté ChromaDB (métadonnée `sha256` + suppression par identité, repli `sourceFile` pour les chunks historiques). BM25 reste par `sourceFile` (résiduel mineur) |
+| 5 | B5 — remonter les erreurs par fichier dans `IngestionTask` | Confiance utilisateur | ✅ Corrigé — champ `fileErrors`, statut `FAILED` quand tout échoue (upload, exécuteur, URLs) |
+| 6 | B7/B8 — borne mémoire + concurrence sur URL/upload direct | Stabilité | ✅ Corrigé — `ingestOneWithPermit` (sémaphore) + réservation in-flight sur `ingest()` + limite de taille dans `ingestOne` |
+| 7 | O1–O4 — optimisations réseau/SQL | Débit d'ingestion | ✅ O1 (delete par `where`), O2 (deletes SQL en masse), O3 (`HexFormat`) ; O4 (batch d'embedding) laissé en réglage de config |
+
+Également corrigés : B9 (partiel — `incrementVersion` rafraîchit `ingestedAt` ; `archivedAt` reste à
+introduire pour la purge), B11 (score de qualité atteint 1.0, arrondi 4 décimales), B13 (échappement
+du filtre tag, collection réelle enregistrée par `ingest()`), O7 (`.md`/`.markdown`/`.csv` routés
+vers l'extracteur texte).
+
+Restent ouverts : B10 (race du rebuild FTS au démarrage), B12 (TTL in-flight vs ingestions très
+longues), B9 (`archivedAt` pour la purge), O5/O6/O8 et les points mineurs de B13 non listés ci-dessus.
