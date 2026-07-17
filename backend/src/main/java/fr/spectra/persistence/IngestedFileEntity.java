@@ -104,6 +104,7 @@ public class IngestedFileEntity {
     // ── Mutators ──────────────────────────────────────────────────────────────
 
     public void setLifecycle(Lifecycle lifecycle) { this.lifecycle = lifecycle; }
+    public void setIngestedAt(Instant ingestedAt)  { this.ingestedAt = ingestedAt; }
     public void setVersion(int version)           { this.version = version; }
     public void setTags(List<String> tags)        { this.tags = tags != null ? tags : new ArrayList<>(); }
     public void setQualityScore(Double score)     { this.qualityScore = score; }

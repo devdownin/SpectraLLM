@@ -360,6 +360,19 @@ class GedServiceTest {
     }
 
     @Test
+    void computeQualityScore_maxIsReachable() {
+        // Régression : l'ancienne pondération plafonnait le score réel à 0.86 — un seuil
+        // d'auto-qualification ≥ 0.9 ne qualifiait jamais rien, silencieusement.
+        assertThat(GedService.computeQualityScore(20, "PDF")).isEqualTo(1.0);
+    }
+
+    @Test
+    void computeQualityScore_zeroChunks_zeroEvenWithFormatBonus() {
+        // Aucun chunk indexé = document inexploitable, quel que soit le format.
+        assertThat(GedService.computeQualityScore(0, "PDF")).isEqualTo(0.0);
+    }
+
+    @Test
     void computeQualityScore_nullFormat_noException() {
         assertThat(GedService.computeQualityScore(5, null)).isGreaterThanOrEqualTo(0.0);
     }
@@ -424,6 +437,67 @@ class GedServiceTest {
 
         assertThatThrownBy(() -> ged.deleteDocument("missing", "api"))
                 .isInstanceOf(NoSuchElementException.class);
+    }
+
+    @Test
+    void deleteDocument_purgesBySha256Identity_beforeSourceFileFallback() {
+        // Deux documents homonymes ne doivent plus partager leur sort : la purge vise
+        // d'abord la métadonnée sha256, et ne retombe sur sourceFile que si aucun chunk
+        // ne porte l'identité (chunks historiques).
+        ChromaDbClient chroma = mock(ChromaDbClient.class);
+        when(chroma.getOrCreateCollection("spectra_documents")).thenReturn("col-id");
+        when(chroma.deleteByMetadata("col-id", "sha256", "shaX")).thenReturn(4);
+        GedService svc = new GedService(fileRepo, linkRepo, auditRepo,
+                chroma, mock(FtsService.class), tempArchive.toString());
+
+        IngestedFileEntity doc = entity("shaX");
+        doc.setCollectionName("spectra_documents");
+        when(fileRepo.findById("shaX")).thenReturn(Optional.of(doc));
+
+        Map<String, Object> result = svc.deleteDocument("shaX", "api");
+
+        assertThat(result.get("chunksDeleted")).isEqualTo(4);
+        verify(chroma).deleteByMetadata("col-id", "sha256", "shaX");
+        verify(chroma, never()).deleteBySource(any(), any());
+    }
+
+    @Test
+    void deleteBySourceFile_documentInGed_deletesDbRowAndIndexes() {
+        // Le chemin DELETE /api/documents/{sourceFile} supprimait les chunks en laissant la
+        // ligne GED : la dédup SHA-256 bloquait ensuite toute ré-ingestion du document.
+        ChromaDbClient chroma = mock(ChromaDbClient.class);
+        when(chroma.getOrCreateCollection("spectra_documents")).thenReturn("col-id");
+        GedService svc = new GedService(fileRepo, linkRepo, auditRepo,
+                chroma, mock(FtsService.class), tempArchive.toString());
+
+        IngestedFileEntity doc = entity("shaY");
+        doc.setCollectionName("spectra_documents");
+        when(fileRepo.findByFileName("doc.pdf")).thenReturn(List.of(doc));
+        when(fileRepo.findById("shaY")).thenReturn(Optional.of(doc));
+
+        Map<String, Object> result = svc.deleteBySourceFile("doc.pdf", "spectra_documents", "api");
+
+        assertThat(result.get("documentsDeleted")).isEqualTo(1);
+        verify(fileRepo).delete(doc); // la fiche GED part avec les chunks
+    }
+
+    @Test
+    void deleteBySourceFile_unknownInGed_stillPurgesIndexes() {
+        ChromaDbClient chroma = mock(ChromaDbClient.class);
+        when(chroma.getOrCreateCollection("autre_collection")).thenReturn("col-2");
+        when(chroma.deleteBySource("col-2", "orphelin.pdf")).thenReturn(7);
+        FtsService fts = mock(FtsService.class);
+        GedService svc = new GedService(fileRepo, linkRepo, auditRepo,
+                chroma, fts, tempArchive.toString());
+
+        when(fileRepo.findByFileName("orphelin.pdf")).thenReturn(List.of());
+
+        Map<String, Object> result = svc.deleteBySourceFile("orphelin.pdf", "autre_collection", "api");
+
+        assertThat(result.get("documentsDeleted")).isEqualTo(0);
+        assertThat(result.get("chunksDeleted")).isEqualTo(7);
+        verify(fts).removeBySource("orphelin.pdf", "autre_collection");
+        verify(fileRepo, never()).delete(any(IngestedFileEntity.class));
     }
 
     // ─────────────────────────────────────────────────────────────────────────

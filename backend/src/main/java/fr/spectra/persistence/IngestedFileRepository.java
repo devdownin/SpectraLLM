@@ -24,6 +24,9 @@ public interface IngestedFileRepository
 
     Page<IngestedFileEntity> findByFileNameContainingIgnoreCase(String fileName, Pageable pageable);
 
+    /** Documents portant exactement ce nom de fichier (suppression par nom de source). */
+    List<IngestedFileEntity> findByFileName(String fileName);
+
     Page<IngestedFileEntity> findAll(
             org.springframework.data.jpa.domain.Specification<IngestedFileEntity> spec,
             Pageable pageable);

@@ -2,7 +2,7 @@ package fr.spectra.controller;
 
 import fr.spectra.config.SpectraProperties;
 import fr.spectra.service.ChromaDbClient;
-import fr.spectra.service.FtsService;
+import fr.spectra.service.GedService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.ResponseEntity;
@@ -24,14 +24,14 @@ import java.util.Map;
 public class DocumentController {
 
     private final ChromaDbClient chromaDbClient;
-    private final FtsService ftsService;
+    private final GedService gedService;
     private final String defaultCollection;
 
     public DocumentController(ChromaDbClient chromaDbClient,
-                               FtsService ftsService,
+                               GedService gedService,
                                SpectraProperties properties) {
         this.chromaDbClient = chromaDbClient;
-        this.ftsService = ftsService;
+        this.gedService = gedService;
         this.defaultCollection = properties.chromadb().effectiveCollection();
     }
 
@@ -50,24 +50,22 @@ public class DocumentController {
     }
 
     /**
-     * Supprime tous les chunks d'un fichier source.
+     * Supprime un fichier source : ses chunks (ChromaDB + BM25) <b>et</b> sa fiche GED.
+     *
+     * <p>Ce chemin purgeait uniquement les index en laissant la ligne GED : la dédup SHA-256
+     * bloquait alors toute ré-ingestion d'un document devenu invisible du RAG. La suppression
+     * passe désormais par {@link GedService#deleteBySourceFile} (même sémantique que
+     * {@code DELETE /api/ged/documents/&#123;sha256&#125;}).</p>
      *
      * @param sourceFile  nom du fichier tel qu'il apparaît dans les métadonnées (URL-encodé)
      * @param collection  nom de la collection (optionnel)
      */
     @DeleteMapping("/{sourceFile}")
-    @Operation(summary = "Supprime tous les chunks d'un fichier source de ChromaDB")
+    @Operation(summary = "Supprime un fichier source : chunks ChromaDB/BM25 et fiche GED")
     public ResponseEntity<Map<String, Object>> deleteDocument(
             @PathVariable String sourceFile,
             @RequestParam(value = "collection", defaultValue = "") String collection) {
         String coll = collection.isBlank() ? defaultCollection : collection;
-        String collectionId = chromaDbClient.getOrCreateCollection(coll);
-        int deleted = chromaDbClient.deleteBySource(collectionId, sourceFile);
-        ftsService.removeBySource(sourceFile, coll);
-        return ResponseEntity.ok(Map.of(
-                "sourceFile", sourceFile,
-                "collection", coll,
-                "chunksDeleted", deleted
-        ));
+        return ResponseEntity.ok(gedService.deleteBySourceFile(sourceFile, coll, "api"));
     }
 }

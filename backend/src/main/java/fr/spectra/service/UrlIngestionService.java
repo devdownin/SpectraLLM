@@ -46,30 +46,33 @@ public class UrlIngestionService {
         Thread.ofVirtual().name("url-ingest-" + taskId.substring(0, 8)).start(() -> {
             ingestionService.updateTask(taskId, ingestionService.getTask(taskId).processing());
             int totalChunks = 0;
-            String lastError = null;
+            // Erreurs par URL : conservées même en cas de succès partiel — la tâche finissait
+            // COMPLETED en jetant lastError dès qu'une seule URL avait produit des chunks.
+            java.util.List<String> urlErrors = new java.util.ArrayList<>();
 
             try {
-                String collectionId = chromaDbClient.getOrCreateCollection(defaultCollection);
+                // Vérification fail-fast de la collection avant de télécharger quoi que ce soit.
+                chromaDbClient.getOrCreateCollection(defaultCollection);
                 for (String url : urls) {
                     log.info("Ingestion URL: {}", url);
                     try {
                         UrlFetcherService.FetchedContent content = urlFetcher.fetch(url);
-                        int chunks = ingestionService.ingest(content.filename(), content.inputStream(), collectionId);
+                        int chunks = ingestionService.ingest(content.filename(), content.inputStream(), defaultCollection);
                         totalChunks += chunks;
                         log.info("URL '{}' ingérée → {} chunks", url, chunks);
                     } catch (Exception e) {
                         log.error("Erreur ingestion URL '{}': {}", url, e.getMessage());
-                        lastError = "URL '" + url + "': " + e.getMessage();
+                        urlErrors.add(url + ": " + e.getMessage());
                     }
                 }
             } catch (Exception e) {
-                lastError = e.getMessage();
+                urlErrors.add(e.getMessage());
                 log.error("Erreur collection ChromaDB pour URL ingestion: {}", e.getMessage());
             }
 
-            IngestionTask current = ingestionService.getTask(taskId);
-            if (totalChunks == 0 && lastError != null) {
-                ingestionService.updateTask(taskId, current.failed(lastError));
+            IngestionTask current = ingestionService.getTask(taskId).withFileErrors(urlErrors);
+            if (totalChunks == 0 && !urlErrors.isEmpty()) {
+                ingestionService.updateTask(taskId, current.failed(String.join(" ; ", urlErrors)));
             } else {
                 ingestionService.updateTask(taskId, current.completed(totalChunks));
             }

@@ -124,6 +124,9 @@ public class GedService {
         int newVersion = doc.getVersion() + 1;
         doc.setVersion(newVersion);
         doc.setLifecycle(IngestedFileEntity.Lifecycle.INGESTED);
+        // Rafraîchit la date : la rétention (auto-archivage à N jours d'ingestedAt) archivait
+        // dès la nuit suivante un document ancien tout juste ré-ingéré.
+        doc.setIngestedAt(Instant.now());
         fileRepo.save(doc);
         audit(sha256, AuditLogEntity.Action.RE_INGESTED, actor,
               Map.of("newVersion", String.valueOf(newVersion)));
@@ -210,12 +213,18 @@ public class GedService {
 
     /**
      * Score de qualité 0.0–1.0.
-     * Heuristique : chunks créés (poids 70 %), bonus format enrichi (30 %).
+     * Heuristique : chunks créés (poids 70 %), bonus format enrichi (jusqu'à 0.2),
+     * bonus de présence (0.1). Le maximum atteignable est bien 1.0 (l'ancienne pondération
+     * {@code formatBonus × 0.3} plafonnait le score réel à 0.86 : un seuil
+     * d'auto-qualification ≥ 0.9 ne qualifiait jamais rien, silencieusement).
      *
      * @param chunksCreated nombre de chunks produits
      * @param format        extension du fichier (PDF, DOCX, etc.)
      */
     public static double computeQualityScore(int chunksCreated, String format) {
+        if (chunksCreated <= 0) {
+            return 0.0;
+        }
         double chunkScore = Math.min(1.0, chunksCreated / 20.0); // 20 chunks = score max
         double formatBonus = switch (format != null ? format.toUpperCase() : "") {
             case "PDF"  -> 0.2;
@@ -225,7 +234,10 @@ public class GedService {
             case "XML" -> 0.1;
             default     -> 0.0;
         };
-        return Math.min(1.0, chunkScore * 0.7 + formatBonus * 0.3 + (chunksCreated > 0 ? 0.1 : 0.0));
+        // Arrondi à 4 décimales : évite que les erreurs binaires (0.7+0.2+0.1 = 0.999…)
+        // empêchent d'atteindre exactement le maximum ou un seuil configuré.
+        double score = Math.min(1.0, chunkScore * 0.7 + formatBonus + 0.1);
+        return Math.round(score * 10_000.0) / 10_000.0;
     }
 
     // ── Amélioration 2 — Filtrage combiné + pagination ───────────────────────
@@ -253,11 +265,14 @@ public class GedService {
             spec = spec.and((root, q, cb) ->
                     cb.lessThanOrEqualTo(root.get("ingestedAt"), f.to()));
         }
-        // Tag : recherche dans le JSON sérialisé (LIKE '%"tag"%')
+        // Tag : recherche dans le JSON sérialisé (LIKE '%"tag"%'), jokers SQL échappés
+        // (un tag contenant % ou _ filtrait trop large).
         if (f.tag() != null && !f.tag().isBlank()) {
-            String pattern = "%\"" + f.tag().replace("\"", "") + "\"%";
+            String escaped = f.tag().replace("\"", "")
+                    .replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+            String pattern = "%\"" + escaped + "\"%";
             spec = spec.and((root, q, cb) ->
-                    cb.like(root.get("tags"), pattern));
+                    cb.like(root.get("tags"), pattern, '\\'));
         }
         // Recherche par nom de fichier (insensible à la casse) — côté serveur pour couvrir
         // l'ensemble du corpus, pas seulement la page chargée par l'UI.
@@ -290,7 +305,13 @@ public class GedService {
         if (info.collection() != null && !info.collection().isBlank()) {
             try {
                 String collectionId = chromaDbClient.getOrCreateCollection(info.collection());
-                chunksDeleted = chromaDbClient.deleteBySource(collectionId, info.fileName());
+                // Suppression par identité de contenu (métadonnée sha256) : deux documents
+                // homonymes ne partagent plus leur sort. Repli sur sourceFile pour les chunks
+                // historiques indexés avant l'ajout de cette métadonnée.
+                chunksDeleted = chromaDbClient.deleteByMetadata(collectionId, "sha256", sha256);
+                if (chunksDeleted == 0 && info.fileName() != null) {
+                    chunksDeleted = chromaDbClient.deleteBySource(collectionId, info.fileName());
+                }
                 ftsService.removeBySource(info.fileName(), info.collection());
                 log.info("Document {} : {} chunks ChromaDB supprimés", sha256, chunksDeleted);
             } catch (Exception e) {
@@ -307,6 +328,39 @@ public class GedService {
         );
     }
 
+    /**
+     * Suppression par nom de source ({@code sourceFile}) — chemin historique de
+     * {@code DELETE /api/documents/&#123;sourceFile&#125;}. Ce chemin purgeait les index en laissant la
+     * ligne GED : la dédup SHA-256 bloquait ensuite toute ré-ingestion d'un document devenu
+     * invisible du RAG. Désormais : chaque document GED portant ce nom est supprimé
+     * intégralement (DB + index) ; s'il n'existe pas en GED (chunks historiques, collection
+     * secondaire), on retombe sur la purge d'index seule.
+     */
+    public Map<String, Object> deleteBySourceFile(String sourceFile, String collection, String actor) {
+        List<IngestedFileEntity> docs = fileRepo.findByFileName(sourceFile);
+        int chunksDeleted = 0;
+        if (!docs.isEmpty()) {
+            for (IngestedFileEntity doc : docs) {
+                Map<String, Object> result = deleteDocument(doc.getSha256(), actor);
+                chunksDeleted += (int) result.getOrDefault("chunksDeleted", 0);
+            }
+        } else {
+            try {
+                String collectionId = chromaDbClient.getOrCreateCollection(collection);
+                chunksDeleted = chromaDbClient.deleteBySource(collectionId, sourceFile);
+                ftsService.removeBySource(sourceFile, collection);
+            } catch (Exception e) {
+                log.warn("Purge d'index échouée pour la source '{}' : {}", sourceFile, e.getMessage());
+            }
+        }
+        return Map.of(
+                "sourceFile", sourceFile,
+                "collection", collection,
+                "documentsDeleted", docs.size(),
+                "chunksDeleted", chunksDeleted
+        );
+    }
+
     /** Métadonnées nécessaires au nettoyage externe après la suppression DB. */
     public record DeleteInfo(String collection, String fileName) {}
 
@@ -316,8 +370,10 @@ public class GedService {
         IngestedFileEntity doc = requireDoc(sha256);
         String collection = doc.getCollectionName();
         String fileName = doc.getFileName();
-        linkRepo.deleteAll(linkRepo.findByDocumentSha256(sha256));
-        auditRepo.deleteAll(auditRepo.findByDocumentSha256OrderByTimestampDesc(sha256));
+        // Suppressions en masse côté SQL (les index existent) — l'ancien
+        // deleteAll(findBy…) chargeait chaque entité pour la supprimer une à une.
+        linkRepo.deleteByDocumentSha256(sha256);
+        auditRepo.deleteByDocumentSha256(sha256);
         fileRepo.delete(doc);
         return new DeleteInfo(collection, fileName);
     }

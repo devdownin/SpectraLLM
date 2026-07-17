@@ -20,6 +20,8 @@ export interface IngestionTask {
   /** Total de chunks découvert au fil du chunking (0 = encore inconnu). */
   chunksExpected: number;
   error?: string;
+  /** Échecs par fichier ("nom: cause") — une tâche COMPLETED peut être un succès partiel. */
+  fileErrors?: string[];
 }
 
 export interface DatasetStats {
