@@ -71,6 +71,9 @@ public class GedService {
         IngestedFileEntity.Lifecycle previous = doc.getLifecycle();
         previous.validateTransition(target);   // machine à états
         doc.setLifecycle(target);
+        // Trace la date d'archivage réelle : la purge de rétention s'appuie dessus (et non
+        // plus sur ingestedAt, qui purgeait immédiatement un vieux document tout juste archivé).
+        doc.setArchivedAt(target == IngestedFileEntity.Lifecycle.ARCHIVED ? Instant.now() : null);
         fileRepo.save(doc);
 
         audit(sha256, AuditLogEntity.Action.LIFECYCLE_CHANGED, actor,
@@ -99,7 +102,7 @@ public class GedService {
             manifest.put("qualityScore", doc.getQualityScore());
             manifest.put("collectionName", doc.getCollectionName());
             manifest.put("chunksCreated", doc.getChunksCreated());
-            manifest.put("archivedAt", Instant.now().toString());
+            manifest.put("archivedAt", (doc.getArchivedAt() != null ? doc.getArchivedAt() : Instant.now()).toString());
             List<Map<String, String>> links = linkRepo.findByDocumentSha256(doc.getSha256())
                     .stream()
                     .map(l -> Map.of("model", l.getModelName(),
@@ -138,11 +141,13 @@ public class GedService {
     @Transactional
     public IngestedFileEntity addTags(String sha256, List<String> newTags, String actor) {
         IngestedFileEntity doc = requireDoc(sha256);
-        List<String> merged = new ArrayList<>(doc.getTags());
+        // LinkedHashSet : dédoublonnage O(1) en préservant l'ordre (l'ancien contains() était O(n²)).
+        Set<String> mergedSet = new LinkedHashSet<>(doc.getTags());
         newTags.stream()
                .map(String::trim)
-               .filter(t -> !t.isBlank() && !merged.contains(t))
-               .forEach(merged::add);
+               .filter(t -> !t.isBlank())
+               .forEach(mergedSet::add);
+        List<String> merged = new ArrayList<>(mergedSet);
         doc.setTags(merged);
         fileRepo.save(doc);
         audit(sha256, AuditLogEntity.Action.TAGGED, actor, Map.of("added", String.join(",", newTags)));

@@ -280,10 +280,27 @@ direct (et silencieusement ignorés dans les ZIP), ce qui surprend.
 | 6 | B7/B8 — borne mémoire + concurrence sur URL/upload direct | Stabilité | ✅ Corrigé — `ingestOneWithPermit` (sémaphore) + réservation in-flight sur `ingest()` + limite de taille dans `ingestOne` |
 | 7 | O1–O4 — optimisations réseau/SQL | Débit d'ingestion | ✅ O1 (delete par `where`), O2 (deletes SQL en masse), O3 (`HexFormat`) ; O4 (batch d'embedding) laissé en réglage de config |
 
-Également corrigés : B9 (partiel — `incrementVersion` rafraîchit `ingestedAt` ; `archivedAt` reste à
-introduire pour la purge), B11 (score de qualité atteint 1.0, arrondi 4 décimales), B13 (échappement
-du filtre tag, collection réelle enregistrée par `ingest()`), O7 (`.md`/`.markdown`/`.csv` routés
-vers l'extracteur texte).
+Également corrigés :
 
-Restent ouverts : B10 (race du rebuild FTS au démarrage), B12 (TTL in-flight vs ingestions très
-longues), B9 (`archivedAt` pour la purge), O5/O6/O8 et les points mineurs de B13 non listés ci-dessus.
+- **B9 (complet)** — `incrementVersion` rafraîchit `ingestedAt`, et la purge de rétention s'appuie
+  sur la nouvelle colonne `archivedAt` (posée à la transition vers ARCHIVED, effacée au retour ;
+  repli `ingestedAt` pour les lignes historiques).
+- **B10** — le rebuild FTS **fusionne** avec l'index vivant (`BM25Index.addAll` +
+  `ConcurrentHashMap.merge`) au lieu de l'écraser : les chunks indexés pendant le rebuild ne
+  disparaissent plus de BM25. Le retry planifié ne concerne plus que les rebuilds en échec
+  (une collection légitimement vide ne déclenche plus un rebuild/minute à vie).
+- **B12** — les réservations in-flight sont rafraîchies par un heartbeat à chaque lot
+  d'embeddings (upload et URL) : une ingestion plus longue que le TTL n'est plus « reprise »
+  par un doublon. Une tâche `force` ne libère plus les réservations d'une tâche concurrente.
+- **B11** — score de qualité atteint 1.0 (arrondi 4 décimales).
+- **B13** — échappement du filtre tag, collection réelle enregistrée par `ingest()`,
+  `getAllTasks()` trié (plus récent d'abord).
+- **O5** — `listSources` agrège page par page en ne demandant que les métadonnées.
+- **O6** — flush FTS espacé à 30 s (sérialisation complète moins fréquente ; `@PreDestroy`
+  couvre l'arrêt propre).
+- **O7** — `.md`/`.markdown`/`.csv` routés vers l'extracteur texte.
+- **O8** — `addTags` en `LinkedHashSet` (O(1)).
+
+Restent ouverts (choix produit ou faible valeur) : locale de chunking configurable, réconciliation
+des collections non-défaut, transition TRAINED automatique au fine-tuning, borne explicite de
+profondeur JSON.

@@ -20,6 +20,21 @@ public interface IngestedFileRepository
     List<IngestedFileEntity> findByLifecycleAndIngestedAtBefore(
             IngestedFileEntity.Lifecycle lifecycle, java.time.Instant cutoff);
 
+    /**
+     * Candidats à la purge de rétention : documents ARCHIVED depuis plus longtemps que le
+     * cutoff, sur la base de la date d'archivage réelle. Les lignes historiques archivées
+     * avant l'ajout de {@code archivedAt} (null) retombent sur {@code ingestedAt} — l'ancien
+     * comportement — plutôt que de ne jamais être purgées.
+     */
+    @Query("""
+            SELECT f FROM IngestedFileEntity f
+            WHERE f.lifecycle = :lifecycle
+              AND ((f.archivedAt IS NOT NULL AND f.archivedAt < :cutoff)
+                   OR (f.archivedAt IS NULL AND f.ingestedAt < :cutoff))
+            """)
+    List<IngestedFileEntity> findArchivedBefore(IngestedFileEntity.Lifecycle lifecycle,
+                                                java.time.Instant cutoff);
+
     List<IngestedFileEntity> findByCollectionNameOrderByIngestedAtDesc(String collectionName);
 
     Page<IngestedFileEntity> findByFileNameContainingIgnoreCase(String fileName, Pageable pageable);

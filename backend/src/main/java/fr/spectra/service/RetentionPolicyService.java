@@ -64,8 +64,10 @@ public class RetentionPolicyService {
 
     private void autoPurge() {
         Instant cutoff = Instant.now().minus(purgeAfterDays, ChronoUnit.DAYS);
+        // Base : date d'archivage réelle (archivedAt) — un document archivé hier mais ingéré
+        // il y a un an ne doit pas être purgé immédiatement. Repli ingestedAt pour l'historique.
         List<IngestedFileEntity> toDelete =
-                fileRepo.findByLifecycleAndIngestedAtBefore(IngestedFileEntity.Lifecycle.ARCHIVED, cutoff);
+                fileRepo.findArchivedBefore(IngestedFileEntity.Lifecycle.ARCHIVED, cutoff);
         int purged = 0;
         for (IngestedFileEntity doc : toDelete) {
             try {

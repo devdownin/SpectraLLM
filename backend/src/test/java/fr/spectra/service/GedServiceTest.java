@@ -67,6 +67,20 @@ class GedServiceTest {
     }
 
     @Test
+    void transitionLifecycle_toArchived_setsArchivedAt() {
+        IngestedFileEntity doc = entity("arch-date");
+        when(fileRepo.findById("arch-date")).thenReturn(Optional.of(doc));
+        when(fileRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        ged.transitionLifecycle("arch-date", IngestedFileEntity.Lifecycle.ARCHIVED, "user");
+        assertThat(doc.getArchivedAt()).isNotNull();
+
+        // Le retour en INGESTED efface la date d'archivage (base de la purge de rétention).
+        ged.transitionLifecycle("arch-date", IngestedFileEntity.Lifecycle.INGESTED, "user");
+        assertThat(doc.getArchivedAt()).isNull();
+    }
+
+    @Test
     void transitionLifecycle_savesDocument() {
         IngestedFileEntity doc = entity("abc123");
         when(fileRepo.findById("abc123")).thenReturn(Optional.of(doc));

@@ -34,10 +34,14 @@ class RetentionPolicyServiceTest {
                     Instant cutoff = inv.getArgument(1);
                     return ingested.stream().filter(d -> d.getIngestedAt().isBefore(cutoff)).toList();
                 });
-        when(repo.findByLifecycleAndIngestedAtBefore(eq(IngestedFileEntity.Lifecycle.ARCHIVED), any()))
+        // La purge s'appuie sur archivedAt (repli ingestedAt pour l'historique) via findArchivedBefore.
+        when(repo.findArchivedBefore(eq(IngestedFileEntity.Lifecycle.ARCHIVED), any()))
                 .thenAnswer(inv -> {
                     Instant cutoff = inv.getArgument(1);
-                    return archived.stream().filter(d -> d.getIngestedAt().isBefore(cutoff)).toList();
+                    return archived.stream()
+                            .filter(d -> (d.getArchivedAt() != null ? d.getArchivedAt() : d.getIngestedAt())
+                                    .isBefore(cutoff))
+                            .toList();
                 });
         return repo;
     }

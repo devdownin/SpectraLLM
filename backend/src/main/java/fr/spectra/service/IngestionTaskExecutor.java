@@ -129,11 +129,14 @@ public class IngestionTaskExecutor {
 
             // Progression live : chaque lot d'embeddings ajouté incrémente le compteur de la
             // tâche, immédiatement visible via le polling de l'UI — y compris pour un seul fichier.
+            // Sert aussi de heartbeat : l'appelant rafraîchit ses réservations in-flight, pour
+            // qu'une ingestion plus longue que le TTL ne soit pas « reprise » par un doublon.
             final int[] addedSoFar = {0};
             final IntConsumer progress = delta -> {
                 final int now = (addedSoFar[0] += delta);
                 tasks.computeIfPresent(taskId, (k, t) ->
                         t.status() == IngestionTask.Status.CANCELLED ? t : t.progress(now));
+                if (onIngested != null) onIngested.heartbeat();
             };
             // Dénominateur live : dès qu'un fichier (ou une entrée ZIP) est découpé, son total de
             // chunks s'ajoute au « attendu » — l'UI peut afficher une barre déterminée pendant
@@ -525,6 +528,13 @@ public class IngestionTaskExecutor {
          * d'empiler des chunks dupliqués.
          */
         default void beforeIndex(String hash, String fileName) {}
+
+        /**
+         * Battement de cœur émis à chaque lot d'embeddings indexé : l'appelant peut y
+         * rafraîchir ses réservations in-flight pour qu'elles survivent aux ingestions
+         * plus longues que leur TTL.
+         */
+        default void heartbeat() {}
 
         /**
          * Appelé une fois la tâche terminée (succès, échec partiel ou total). Permet à

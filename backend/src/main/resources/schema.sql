@@ -16,8 +16,12 @@ CREATE TABLE IF NOT EXISTS ingested_files (
     tags             TEXT,
     quality_score    DOUBLE PRECISION,
     collection_name  VARCHAR(255),
+    archived_at      TIMESTAMP WITH TIME ZONE,
     PRIMARY KEY (sha256)
 );
+
+-- Migration : bases créées avant l'ajout de archived_at (idempotent sous H2)
+ALTER TABLE ingested_files ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP WITH TIME ZONE;
 
 CREATE TABLE IF NOT EXISTS ingestion_tasks (
     task_id              VARCHAR(255)             NOT NULL,

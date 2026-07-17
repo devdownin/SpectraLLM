@@ -115,6 +115,37 @@ class FtsServiceTest {
         ftsService.removeBySource("fichier.txt", "inexistante");
     }
 
+    // ── rebuildCollection : fusion avec les chunks indexés en direct ──────────
+
+    @Test
+    void rebuildCollection_mergesWithLiveIndexInsteadOfReplacing() {
+        // Chunks indexés en direct PENDANT le rebuild (ingestion concurrente au démarrage).
+        ChromaDbClient chromaDb = mock(ChromaDbClient.class);
+        when(chromaDb.getOrCreateCollection("coll-rebuild-merge")).thenReturn("col-id");
+        // ChromaDB contient un seul chunk « historique ».
+        when(chromaDb.getDocumentsPaged("col-id", 500, 0)).thenReturn(Map.of(
+                "ids", List.of("old-1"),
+                "documents", List.of("ancien chunk reconstruit depuis chromadb"),
+                "metadatas", List.of(Map.of("sourceFile", "ancien.txt"))));
+
+        SpectraProperties.ChromaDbProperties chromaProps =
+                new SpectraProperties.ChromaDbProperties("http://chroma:8000", "spectra_documents");
+        SpectraProperties props = mock(SpectraProperties.class);
+        when(props.chromadb()).thenReturn(chromaProps);
+        FtsService fts = new FtsService(chromaDb, props);
+
+        // Un chunk arrive en direct avant la fin du rebuild.
+        fts.indexChunks(List.of(chunk("live-1", "chunk indexé pendant le rebuild", "live.txt")), "coll-rebuild-merge");
+
+        fts.rebuildCollection("coll-rebuild-merge");
+
+        // Régression : l'ancien indices.put écrasait l'index vivant — le chunk live
+        // disparaissait de BM25 jusqu'au rebuild suivant.
+        assertThat(fts.indexedCount("coll-rebuild-merge")).isEqualTo(2);
+        assertThat(fts.search("rebuild", "coll-rebuild-merge", 5)).isNotEmpty();
+        assertThat(fts.search("chromadb", "coll-rebuild-merge", 5)).isNotEmpty();
+    }
+
     // ── getStatus ─────────────────────────────────────────────────────────────
 
     @Test

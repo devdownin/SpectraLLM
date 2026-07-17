@@ -437,18 +437,37 @@ public class ChromaDbClient {
 
     /**
      * Liste les fichiers sources dans une collection avec leur nombre de chunks.
+     *
+     * <p>Agrégation page par page en ne demandant que les <b>métadonnées</b> : l'ancienne
+     * implémentation ({@code getAllDocuments}) accumulait ids + textes + métadonnées de toute
+     * la collection en mémoire pour n'en compter que les sources.</p>
      */
     @SuppressWarnings("unchecked")
     public Map<String, Integer> listSources(String collectionId) {
-        Map<String, Object> result = getAllDocuments(collectionId);
-        List<Map<String, String>> metadatas =
-                (List<Map<String, String>>) result.get("metadatas");
         Map<String, Integer> sources = new java.util.LinkedHashMap<>();
-        if (metadatas != null) {
+        int offset = 0;
+        while (true) {
+            Map<String, Object> body = Map.of(
+                    "limit",   BULK_PAGE_SIZE,
+                    "offset",  offset,
+                    "include", List.of("metadatas")
+            );
+            Map<String, Object> page = webClient.post()
+                    .uri(COLLECTIONS_BASE + "/{id}/get", collectionId)
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block(TIMEOUT_BULK_GET);
+            List<Map<String, String>> metadatas =
+                    page != null ? (List<Map<String, String>>) page.get("metadatas") : null;
+            if (metadatas == null || metadatas.isEmpty()) break;
+
             for (Map<String, String> meta : metadatas) {
-                String source = meta.getOrDefault("sourceFile", "unknown");
+                String source = meta != null ? meta.getOrDefault("sourceFile", "unknown") : "unknown";
                 sources.merge(source, 1, Integer::sum);
             }
+            if (metadatas.size() < BULK_PAGE_SIZE) break;
+            offset += BULK_PAGE_SIZE;
         }
         return sources;
     }

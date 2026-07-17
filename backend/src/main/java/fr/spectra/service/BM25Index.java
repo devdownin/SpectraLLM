@@ -92,6 +92,25 @@ public class BM25Index implements Serializable {
         }
     }
 
+    /**
+     * Recopie tous les documents de {@code other} dans cet index (un id déjà présent est
+     * ré-indexé, l'opération est donc idempotente). Utilisé à la fin d'un rebuild pour
+     * ré-appliquer les chunks indexés en direct PENDANT la reconstruction — l'ancien
+     * remplacement pur ({@code indices.put}) les perdait jusqu'au rebuild suivant.
+     */
+    public void addAll(BM25Index other) {
+        List<String[]> docs;
+        other.lock.readLock().lock();
+        try {
+            docs = other.docTexts.entrySet().stream()
+                    .map(e -> new String[]{e.getKey(), e.getValue(), other.docSources.get(e.getKey())})
+                    .toList();
+        } finally {
+            other.lock.readLock().unlock();
+        }
+        docs.forEach(d -> add(d[0], d[1], d[2]));
+    }
+
     /** Remove all documents belonging to sourceFile. */
     public void removeBySource(String sourceFile) {
         lock.writeLock().lock();

@@ -44,6 +44,8 @@ export interface IngestedFile {
   tags: string[];
   qualityScore: number | null;
   collectionName: string | null;
+  /** Date du dernier passage en ARCHIVED (base de la purge de rétention). */
+  archivedAt?: string | null;
 }
 
 export interface AuditEntry {

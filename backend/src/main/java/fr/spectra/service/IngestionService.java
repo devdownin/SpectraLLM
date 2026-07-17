@@ -198,6 +198,11 @@ public class IngestionService {
             repository.findAllById(allHashes).forEach(entity -> existingHashes.add(entity.getSha256()));
         }
 
+        // Hachages effectivement réservés par CETTE tâche (force=true ne réserve pas) : seuls
+        // eux sont rafraîchis par le heartbeat et libérés en fin de tâche — une tâche force ne
+        // doit pas relâcher la réservation d'une ingestion concurrente du même contenu.
+        Set<String> claimedHashes = ConcurrentHashMap.newKeySet();
+
         for (int i = 0; i < allTempFiles.size(); i++) {
             Path tempFile = allTempFiles.get(i);
             String hash = allHashes.get(i);
@@ -205,10 +210,13 @@ public class IngestionService {
 
             // Ignorer si déjà en base OU si une ingestion concurrente du même contenu est en
             // cours (réservation in-flight) — évite la double indexation des mêmes chunks.
-            if (!force && (existingHashes.contains(hash) || !tryClaimHash(hash))) {
-                log.info("Fichier ignoré (déjà ingéré ou ingestion concurrente, sha256={}): {}", hash, fileName);
-                try { Files.deleteIfExists(tempFile); } catch (Exception ignored) {}
-                continue;
+            if (!force) {
+                if (existingHashes.contains(hash) || !tryClaimHash(hash)) {
+                    log.info("Fichier ignoré (déjà ingéré ou ingestion concurrente, sha256={}): {}", hash, fileName);
+                    try { Files.deleteIfExists(tempFile); } catch (Exception ignored) {}
+                    continue;
+                }
+                claimedHashes.add(hash);
             }
 
             tempFiles.add(tempFile);
@@ -246,14 +254,26 @@ public class IngestionService {
                     public void onIngested(String hash, String fileName, int chunks) {
                         recordIngestion(hash, fileName, chunks);
                         inFlightHashes.remove(hash); // libère la réservation : la dédup DB prend le relais
+                        claimedHashes.remove(hash);
+                    }
+
+                    @Override
+                    public void heartbeat() {
+                        // Rafraîchit les réservations de la tâche pendant le traitement : une
+                        // ingestion plus longue que le TTL (gros ZIP, embedder lent) voyait sa
+                        // réservation « périmée » reprise par un upload concurrent du même
+                        // contenu → double indexation.
+                        Instant now = Instant.now();
+                        claimedHashes.forEach(h -> inFlightHashes.computeIfPresent(h, (k, v) -> now));
                     }
 
                     @Override
                     public void onFinished() {
                         // Libère les réservations restantes (fichiers en ÉCHEC) dès la fin de la
                         // tâche : sans cela, une nouvelle tentative d'ingestion du même contenu
-                        // était rejetée jusqu'à l'expiration du TTL (15 min).
-                        tempFileToHash.values().forEach(inFlightHashes::remove);
+                        // était rejetée jusqu'à l'expiration du TTL (15 min). Uniquement celles
+                        // réservées par CETTE tâche.
+                        claimedHashes.forEach(inFlightHashes::remove);
                     }
                 }, tempDir);
 
@@ -319,7 +339,12 @@ public class IngestionService {
     }
 
     public List<IngestionTask> getAllTasks() {
-        return new ArrayList<>(tasks.values());
+        // Tri déterministe (plus récent d'abord) : l'ordre d'itération de la ConcurrentHashMap
+        // faisait « sauter » les tâches dans l'UI à chaque polling.
+        return tasks.values().stream()
+                .sorted(java.util.Comparator.comparing(IngestionTask::createdAt,
+                        java.util.Comparator.nullsLast(java.util.Comparator.reverseOrder())))
+                .toList();
     }
 
     /**
@@ -498,9 +523,12 @@ public class IngestionService {
             try {
                 String collectionId = chromaDbClient.getOrCreateCollection(collectionName);
                 // Pipeline unique : on délègue à l'exécuteur (extraction → chunking → embedding →
-                // indexation, gestion .zip et comptage partiel inclus) au lieu de dupliquer la logique.
-                IngestionTaskExecutor.IngestOneResult r =
-                        executor.ingestOneWithPermit(fileName, tempFile, collectionId, collectionName, i -> {}, hash);
+                // indexation, gestion .zip et comptage partiel inclus) au lieu de dupliquer la
+                // logique. Le callback de progression sert de heartbeat de réservation (ingestion
+                // potentiellement plus longue que le TTL in-flight).
+                IngestionTaskExecutor.IngestOneResult r = executor.ingestOneWithPermit(
+                        fileName, tempFile, collectionId, collectionName,
+                        i -> inFlightHashes.computeIfPresent(hash, (k, v) -> Instant.now()), hash);
                 if (r.chunks() > 0) {
                     recordIngestion(hash, fileName, r.chunks(), collectionName);
                 }
