@@ -68,6 +68,11 @@ public class FtsService {
     private final Set<String> rebuilding = ConcurrentHashMap.newKeySet();
 
     /**
+     * Collections dont un rebuild a ABOUTI (même vide). Le retry planifié ne concerne que les
+     * rebuilds en échec (ChromaDB indisponible) : sans ce marqueur, une collection
+     * légitimement vide déclenchait un rebuild + un log par minute, indéfiniment.
+     */
+    private final Set<String> rebuiltOnce = ConcurrentHashMap.newKeySet();
      * Index cibles des rebuilds en cours. Les mutations live ({@link #indexChunks},
      * {@link #removeBySource}) y sont répliquées en plus de l'index publié : sans cela,
      * les chunks ingérés PENDANT un rebuild (qui pagine ChromaDB, potentiellement long)
@@ -99,7 +104,7 @@ public class FtsService {
     @Scheduled(fixedDelay = 60_000, initialDelay = 90_000)
     public void retryRebuildIfEmpty() {
         String coll = defaultCollection();
-        if (indexedCount(coll) == 0) {
+        if (indexedCount(coll) == 0 && !rebuiltOnce.contains(coll)) {
             log.info("FTS: index '{}' vide — tentative de rebuild (ChromaDB peut-être indisponible au démarrage)", coll);
             CompletableFuture.runAsync(() -> rebuildCollection(coll))
                     .exceptionally(e -> {
@@ -128,8 +133,9 @@ public class FtsService {
             // un index périmé (flush différé perdu, suppression non persistée, reset de
             // ChromaDB) servirait sinon des chunks fantômes ou en manque indéfiniment.
             BM25Index diskIndex = loadIndexFromDisk(collectionName);
-            if (diskIndex != null && diskIndexIsFresh(collectionName, diskIndex)) {
-                indices.put(collectionName, diskIndex);
+            if (diskIndex != null) {
+                mergeRebuilt(collectionName, diskIndex);
+                rebuiltOnce.add(collectionName);
                 log.info("FTS: index '{}' loaded from disk ({} chunks)", collectionName, diskIndex.size());
                 return;
             }
@@ -169,8 +175,8 @@ public class FtsService {
                 offset += limit;
             }
 
-            indices.put(collectionName, index);
-            saveIndexToDisk(collectionName, index);
+            mergeRebuilt(collectionName, index);
+            rebuiltOnce.add(collectionName);
             log.info("FTS: index '{}' rebuilt — {} chunks indexed", collectionName, total);
         } catch (Exception e) {
             log.warn("FTS: could not rebuild index for '{}': {}", collectionName, e.getMessage());
@@ -181,28 +187,18 @@ public class FtsService {
     }
 
     /**
-     * Vérifie que l'index désérialisé du disque est cohérent avec ChromaDB (même nombre de
-     * chunks). Comparaison par comptage : heuristique (contenus différents à comptes égaux
-     * restent possibles) mais suffisante pour détecter les divergences réelles — et la
-     * réconciliation périodique ({@code ConsistencyReconciliationService}) rattrape le reste.
-     * Si ChromaDB est injoignable (démarrage), l'index disque est accepté en mode dégradé :
-     * mieux vaut un BM25 possiblement décalé que pas de BM25 du tout.
+     * Installe l'index reconstruit en FUSIONNANT les chunks indexés en direct pendant le
+     * rebuild (ingestion concurrente au démarrage) : l'ancien {@code indices.put} les
+     * écrasait — ils disparaissaient de BM25 jusqu'au rebuild suivant. La fusion est
+     * atomique par collection ({@code ConcurrentHashMap.merge}), et l'index résultant est
+     * marqué dirty pour être persisté par le flush différé.
      */
-    private boolean diskIndexIsFresh(String collectionName, BM25Index diskIndex) {
-        try {
-            String collectionId = chromaDbClient.getOrCreateCollection(collectionName);
-            int chromaCount = chromaDbClient.count(collectionId);
-            if (chromaCount == diskIndex.size()) {
-                return true;
-            }
-            log.info("FTS: index disque '{}' périmé ({} chunks vs {} dans ChromaDB) — reconstruction",
-                    collectionName, diskIndex.size(), chromaCount);
-            return false;
-        } catch (Exception e) {
-            log.warn("FTS: fraîcheur de l'index disque '{}' invérifiable (ChromaDB injoignable ?) — "
-                    + "index utilisé tel quel : {}", collectionName, e.getMessage());
-            return true;
-        }
+    private void mergeRebuilt(String collectionName, BM25Index rebuilt) {
+        indices.merge(collectionName, rebuilt, (live, fresh) -> {
+            fresh.addAll(live); // les ajouts en direct priment (ré-indexation par id, idempotent)
+            return fresh;
+        });
+        dirtyIndices.add(collectionName);
     }
 
     /** Index a batch of newly ingested chunks. Called from IngestionTaskExecutor. */
@@ -247,8 +243,14 @@ public class FtsService {
         log.debug("FTS: removed '{}' from index '{}'", sourceFile, collectionName);
     }
 
-    /** Persiste les index modifiés depuis le dernier passage (voir {@link #dirtyIndices}). */
-    @Scheduled(fixedDelay = 5_000)
+    /**
+     * Persiste les index modifiés depuis le dernier passage (voir {@link #dirtyIndices}).
+     * Intervalle de 30 s : la sérialisation porte sur l'index COMPLET — à 5 s, une grosse
+     * ingestion payait une réécriture intégrale quasi continue. Fenêtre de perte bornée à
+     * 30 s (l'index se reconstruit de toute façon depuis ChromaDB s'il est absent/périmé),
+     * et le {@code @PreDestroy} flushe à l'arrêt propre.
+     */
+    @Scheduled(fixedDelay = 30_000)
     public void flushDirtyIndices() {
         for (String collectionName : dirtyIndices) {
             if (dirtyIndices.remove(collectionName)) {

@@ -65,6 +65,9 @@ public class IngestedFileEntity {
     // collection ChromaDB cible
     private String collectionName;
 
+    /** Date du dernier passage en ARCHIVED (base de la purge de rétention) ; null hors archive. */
+    private Instant archivedAt;
+
     protected IngestedFileEntity() {}
 
     public IngestedFileEntity(String sha256, String fileName, String format,
@@ -100,11 +103,13 @@ public class IngestedFileEntity {
     public List<String> getTags()    { return tags; }
     public Double getQualityScore()  { return qualityScore; }
     public String getCollectionName(){ return collectionName; }
+    public Instant getArchivedAt()   { return archivedAt; }
 
     // ── Mutators ──────────────────────────────────────────────────────────────
 
     public void setLifecycle(Lifecycle lifecycle) { this.lifecycle = lifecycle; }
     public void setIngestedAt(Instant ingestedAt)  { this.ingestedAt = ingestedAt; }
+    public void setArchivedAt(Instant archivedAt)  { this.archivedAt = archivedAt; }
     public void setVersion(int version)           { this.version = version; }
     public void setTags(List<String> tags)        { this.tags = tags != null ? tags : new ArrayList<>(); }
     public void setQualityScore(Double score)     { this.qualityScore = score; }

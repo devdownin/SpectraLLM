@@ -270,6 +270,7 @@ public class GedController {
         m.put("qualityScore",   doc.getQualityScore());
         m.put("chunksCreated",  doc.getChunksCreated());
         m.put("collectionName", doc.getCollectionName());
+        m.put("archivedAt",     doc.getArchivedAt() != null ? doc.getArchivedAt().toString() : null);
         return m;
     }
 
