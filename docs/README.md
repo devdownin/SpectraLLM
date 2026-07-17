@@ -25,7 +25,6 @@ New here? Start with **[Getting Started](GETTING_STARTED.md)**.
 
 | Guide | Inside |
 |---|---|
-| **[Deploy on GKE](tech/DEPLOY_GKE.md)** | Full GCP setup, cluster creation, GPU / TLS / monitoring variants. |
 | **[llama.cpp Guide](tech/llama.cpp.md)** | Inference engine details, migration and tuning. |
 | **[Reliability](process/RELIABILITY.md)** | Operational hardening and the improvements log. |
 | **[Security](../SECURITY.md)** · **[Security Audit](process/SECURITY_AUDIT.md)** | Security policy and audit findings. |
