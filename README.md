@@ -2,7 +2,7 @@
 
 <img src="docs/assets/logo.png" alt="Spectra LLM — turn any document into an expert AI" width="360">
 
-### Turn your documents into a private, fine-tuned AI — in one command.
+### Turn your documents into a private, fine-tuned AI — in one application.
 
 **100% local · No cloud · No API keys · No subscriptions**
 
