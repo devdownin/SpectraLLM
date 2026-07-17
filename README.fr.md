@@ -2,7 +2,7 @@
 
 <img src="docs/assets/logo.png" alt="Spectra LLM — transformez n'importe quel document en IA experte" width="360">
 
-### Transformez vos documents en IA privée et fine-tunée — en une commande.
+### Transformez vos documents en IA privée et fine-tunée avec une application tout en un.
 
 **100 % local · Sans cloud · Sans clé API · Sans abonnement**
 
