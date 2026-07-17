@@ -52,6 +52,19 @@ public class CorrectiveRagService {
     private static final Pattern GRADE_LINE = Pattern.compile("(\\d+):\\s*(RELEVANT|AMBIGUOUS|IRRELEVANT)",
             Pattern.CASE_INSENSITIVE);
 
+    private static final String REFORMULATE_SYSTEM =
+            "Tu es un expert en reformulation de requêtes de recherche documentaire. Sois concis.";
+
+    private static final String REFORMULATE_PROMPT = """
+            La recherche documentaire n'a pas trouvé suffisamment de documents pertinents pour la question suivante.
+            Reformule-la pour maximiser les chances de retrouver des documents pertinents \
+            (synonymes, termes plus généraux, vocabulaire technique alternatif).
+            Réponds UNIQUEMENT avec la question reformulée, sans commentaire.
+
+            Question : %s
+
+            Question reformulée :""";
+
     private final LlmChatClient llmClient;
     private final SpectraProperties props;
 
@@ -119,6 +132,30 @@ public class CorrectiveRagService {
     /** Seuil de chunks pertinents sous lequel on considère que le retrieval est insuffisant. */
     public int minRelevantChunks() {
         return props.correctiveRag() != null ? props.correctiveRag().effectiveMinRelevantChunks() : 1;
+    }
+
+    /**
+     * Reformule la question quand le grading laisse moins de {@link #minRelevantChunks()} chunks
+     * pertinents, afin de relancer un retrieval complémentaire (cf. {@code RagService}).
+     *
+     * @return la question reformulée, ou {@link Optional#empty()} si la reformulation échoue
+     *         ou n'apporte rien (réponse vide ou identique) — l'appelant conserve alors le
+     *         contexte filtré tel quel (dégradation gracieuse)
+     */
+    public java.util.Optional<String> reformulateQuery(String question) {
+        String reformulated;
+        try {
+            reformulated = llmClient.chat(REFORMULATE_SYSTEM,
+                    String.format(REFORMULATE_PROMPT, question)).trim();
+        } catch (Exception e) {
+            log.warn("Corrective RAG : reformulation échouée — {}", e.getMessage());
+            return java.util.Optional.empty();
+        }
+        if (reformulated.isBlank() || reformulated.equals(question)) {
+            return java.util.Optional.empty();
+        }
+        log.info("Corrective RAG : reformulation «{}» → «{}»", question, reformulated);
+        return java.util.Optional.of(reformulated);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

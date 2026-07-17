@@ -89,17 +89,24 @@ public class SelfRagService {
      * @param chunks      chunks de contexte sélectionnés
      * @param systemPrompt prompt système avec contexte RAG déjà injecté
      * @param userMessage  message utilisateur (avec historique conversationnel si applicable)
+     * @param temperature  température de génération demandée par la requête
+     * @param topP         top-p de génération demandé par la requête
      * @return {@link SelfRagResult} contenant la meilleure réponse et les scores de réflexion
      */
     public SelfRagResult reflect(String question,
                                   List<String> chunks,
                                   String systemPrompt,
-                                  String userMessage) {
+                                  String userMessage,
+                                  float temperature,
+                                  float topP) {
 
         int maxIterations = props.selfRag() != null
                 ? props.selfRag().effectiveMaxReflectionIterations() : 1;
 
-        String answer = llmClient.chat(systemPrompt, userMessage);
+        // Les appels de GÉNÉRATION respectent les paramètres de la requête ; les appels
+        // d'ÉVALUATION (evaluateAnswer) restent aux défauts du provider, le grading
+        // devant être aussi déterministe que possible.
+        String answer = llmClient.chat(systemPrompt, userMessage, temperature, topP);
         ReflectionScores scores = evaluateAnswer(question, chunks, answer);
         log.info("Self-RAG évaluation initiale — ISREL={}, ISSUP={}, ISUSE={}",
                 scores.isRel(), scores.isSup(), scores.isUse());
@@ -108,7 +115,7 @@ public class SelfRagService {
         if (needsRefinement(scores) && maxIterations > 0) {
             log.info("Self-RAG : qualité insuffisante, tentative de raffinement");
             String refinedSystemPrompt = systemPrompt + REFINE_SYSTEM_ADDENDUM;
-            answer = llmClient.chat(refinedSystemPrompt, userMessage);
+            answer = llmClient.chat(refinedSystemPrompt, userMessage, temperature, topP);
             scores = evaluateAnswer(question, chunks, answer);
             reflectionIterations = 1; // une passe de raffinement a bien été exécutée
             log.info("Self-RAG après raffinement — ISREL={}, ISSUP={}, ISUSE={}",
