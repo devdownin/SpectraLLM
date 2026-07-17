@@ -223,7 +223,8 @@ public class AgenticRagService {
                     + "\n=== FIN DU CONTEXTE ===";
 
             log.debug("Agentic RAG itération {} — {} chunks en contexte", iterations + 1, budgetedChunks.size());
-            String llmResponse = llmClient.chat(buildReactSystemPrompt(), userMsg);
+            String llmResponse = llmClient.chat(buildReactSystemPrompt(), userMsg,
+                    request.temperature(), request.topP());
 
             Matcher actionMatcher = ACTION_PATTERN.matcher(llmResponse);
             if (!actionMatcher.find()) {
@@ -283,7 +284,8 @@ public class AgenticRagService {
             String contextStr = buildContextString(
                     fallbackChunks,
                     contextMetadatas.subList(0, fallbackChunks.size()));
-            finalAnswer = llmClient.chat(buildFallbackSystemPrompt(contextStr), request.question());
+            finalAnswer = llmClient.chat(buildFallbackSystemPrompt(contextStr), request.question(),
+                    request.temperature(), request.topP());
         }
 
         // ── Construction des sources pour la réponse ───────────────────────

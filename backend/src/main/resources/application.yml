@@ -141,6 +141,10 @@ spectra:
   long-context-rag:
     enabled: ${SPECTRA_LONG_CONTEXT_RAG_ENABLED:false}
     max-collection-chunks: ${SPECTRA_LONG_CONTEXT_MAX_CHUNKS:100}
+    # Budget de tokens (estimés à 4 caractères/token) du contexte intégral injecté dans le
+    # prompt système. Si le corpus dépasse ce budget, retour au retrieval vectoriel standard
+    # (un préfixe arbitraire du corpus serait moins pertinent qu'une recherche ciblée).
+    max-context-tokens: ${SPECTRA_LONG_CONTEXT_MAX_CONTEXT_TOKENS:3000}
   dataset:
     dir: ./data/dataset
     # Génère un exemple de refus (« je ne sais pas ») toutes les N portions (0 = désactivé).

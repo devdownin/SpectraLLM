@@ -2,14 +2,22 @@ package fr.spectra.service;
 
 import fr.spectra.config.SpectraProperties;
 import fr.spectra.model.TextChunk;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.io.ObjectOutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -18,11 +26,17 @@ import static org.mockito.Mockito.when;
  */
 class FtsServiceTest {
 
+    /** Doit refléter FtsService.INDEX_DIR (répertoire de persistance des index). */
+    private static final Path INDEX_DIR = Path.of("./data/fts-index");
+    private static final List<String> TEST_COLLECTIONS = List.of(
+            "coll-b7-race", "coll-b6-stale", "coll-b6-fresh", "coll-b6-down");
+
+    private ChromaDbClient chromaDb;
     private FtsService ftsService;
 
     @BeforeEach
-    void setUp() {
-        ChromaDbClient chromaDb = mock(ChromaDbClient.class);
+    void setUp() throws Exception {
+        chromaDb = mock(ChromaDbClient.class);
         // Évite que rebuildDefaultIndexAsync explose au démarrage
         when(chromaDb.getOrCreateCollection("spectra_documents"))
                 .thenThrow(new RuntimeException("ChromaDB absent en test"));
@@ -33,6 +47,31 @@ class FtsServiceTest {
         when(props.chromadb()).thenReturn(chromaProps);
 
         ftsService = new FtsService(chromaDb, props);
+        cleanDiskIndices();
+    }
+
+    @AfterEach
+    void tearDown() throws Exception {
+        cleanDiskIndices();
+    }
+
+    private void cleanDiskIndices() throws Exception {
+        for (String coll : TEST_COLLECTIONS) {
+            Files.deleteIfExists(INDEX_DIR.resolve(coll + ".bin"));
+        }
+    }
+
+    private void writeDiskIndex(String collectionName, BM25Index index) throws Exception {
+        Files.createDirectories(INDEX_DIR);
+        try (ObjectOutputStream oos = new ObjectOutputStream(
+                Files.newOutputStream(INDEX_DIR.resolve(collectionName + ".bin")))) {
+            oos.writeObject(index);
+        }
+    }
+
+    private static Map<String, Object> chromaPage(List<String> ids, List<String> docs) {
+        return Map.of("ids", ids, "documents", docs,
+                "metadatas", ids.stream().map(i -> Map.of("sourceFile", i + ".txt")).toList());
     }
 
     // ── indexChunks ───────────────────────────────────────────────────────────
@@ -182,6 +221,80 @@ class FtsServiceTest {
         FtsService.FtsStatus agg = ftsService.getAggregatedStatus();
         assertThat(agg.ready()).isFalse();
         assertThat(agg.indexedChunks()).isZero();
+    }
+
+    // ── rebuildCollection : course rebuild/ingestion (B7) ────────────────────
+
+    @Test
+    void rebuildCollection_concurrentIngestionDuringRebuild_chunksNotLost() {
+        when(chromaDb.getOrCreateCollection("coll-b7-race")).thenReturn("id-b7");
+        // Pendant que le rebuild pagine ChromaDB, une ingestion concurrente indexe un chunk :
+        // sans réplication vers l'index cible, il était écrasé par la publication finale.
+        when(chromaDb.getDocumentsPaged(eq("id-b7"), anyInt(), eq(0)))
+                .thenAnswer(inv -> {
+                    ftsService.indexChunks(List.of(
+                            chunk("live", "chunk ingéré pendant le rebuild", "live.txt")), "coll-b7-race");
+                    return chromaPage(List.of("c1"), List.of("chunk provenant de chroma"));
+                });
+
+        ftsService.rebuildCollection("coll-b7-race");
+
+        assertThat(ftsService.indexedCount("coll-b7-race")).isEqualTo(2);
+        assertThat(ftsService.search("ingéré", "coll-b7-race", 5))
+                .extracting(BM25Index.ScoredDoc::id).containsExactly("live");
+        assertThat(ftsService.search("chroma", "coll-b7-race", 5))
+                .extracting(BM25Index.ScoredDoc::id).containsExactly("c1");
+    }
+
+    // ── rebuildCollection : fraîcheur de l'index disque (B6) ─────────────────
+
+    @Test
+    void rebuildCollection_staleDiskIndex_rebuiltFromChroma() throws Exception {
+        // Index disque périmé : 1 chunk, alors que ChromaDB en contient 2.
+        BM25Index stale = new BM25Index();
+        stale.add("old", "ancien chunk fantôme", "old.txt");
+        writeDiskIndex("coll-b6-stale", stale);
+
+        when(chromaDb.getOrCreateCollection("coll-b6-stale")).thenReturn("id-stale");
+        when(chromaDb.count("id-stale")).thenReturn(2);
+        when(chromaDb.getDocumentsPaged(eq("id-stale"), anyInt(), eq(0)))
+                .thenReturn(chromaPage(List.of("c1", "c2"), List.of("premier chunk", "deuxième chunk")));
+
+        ftsService.rebuildCollection("coll-b6-stale");
+
+        assertThat(ftsService.indexedCount("coll-b6-stale")).isEqualTo(2);
+        assertThat(ftsService.search("fantôme", "coll-b6-stale", 5)).isEmpty();
+    }
+
+    @Test
+    void rebuildCollection_freshDiskIndex_usedWithoutChromaRebuild() throws Exception {
+        BM25Index fresh = new BM25Index();
+        fresh.add("d1", "chunk persisté sur disque", "d.txt");
+        writeDiskIndex("coll-b6-fresh", fresh);
+
+        when(chromaDb.getOrCreateCollection("coll-b6-fresh")).thenReturn("id-fresh");
+        when(chromaDb.count("id-fresh")).thenReturn(1);
+
+        ftsService.rebuildCollection("coll-b6-fresh");
+
+        assertThat(ftsService.indexedCount("coll-b6-fresh")).isEqualTo(1);
+        assertThat(ftsService.search("persisté", "coll-b6-fresh", 5)).hasSize(1);
+        verify(chromaDb, never()).getDocumentsPaged(eq("id-fresh"), anyInt(), anyInt());
+    }
+
+    @Test
+    void rebuildCollection_chromaUnreachable_diskIndexUsedDegraded() throws Exception {
+        BM25Index disk = new BM25Index();
+        disk.add("d1", "chunk du disque", "d.txt");
+        writeDiskIndex("coll-b6-down", disk);
+
+        when(chromaDb.getOrCreateCollection("coll-b6-down"))
+                .thenThrow(new RuntimeException("ChromaDB injoignable"));
+
+        ftsService.rebuildCollection("coll-b6-down");
+
+        // Fraîcheur invérifiable → mode dégradé : l'index disque est utilisé tel quel.
+        assertThat(ftsService.indexedCount("coll-b6-down")).isEqualTo(1);
     }
 
     // ── Helper ────────────────────────────────────────────────────────────────

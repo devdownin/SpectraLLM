@@ -75,14 +75,19 @@ public class CrossEncoderRerankerClient implements RerankerClient {
                 .bodyToMono(Map.class)
                 .block(timeout);
 
+        // Réponse anormale (nulle ou vide alors que des documents ont été soumis) : on lève
+        // une exception plutôt que de renvoyer un classement « identité » avec scores 0 —
+        // RagService retombe alors sur l'ordre vectoriel avec rerankApplied=false, au lieu
+        // d'exposer des métadonnées trompeuses (rerankApplied=true, rerankScores=0) qui
+        // faussaient benchmarks et ablations.
         if (response == null) {
-            log.warn("Null response from reranker service, falling back to original order");
-            return fallback(documents, topN);
+            throw new IllegalStateException("Réponse nulle du service reranker");
         }
 
         List<Map<String, Object>> results = (List<Map<String, Object>>) response.get("results");
         if (results == null || results.isEmpty()) {
-            return fallback(documents, topN);
+            throw new IllegalStateException(
+                    "Réponse reranker sans résultats pour " + documents.size() + " document(s)");
         }
 
         return results.stream()
@@ -90,14 +95,6 @@ public class CrossEncoderRerankerClient implements RerankerClient {
                         ((Number) r.get("index")).intValue(),
                         ((Number) r.get("score")).floatValue()
                 ))
-                .toList();
-    }
-
-    /** Identity fallback: returns indices 0..topN-1 with score 0. */
-    private List<RankedResult> fallback(List<String> documents, int topN) {
-        int n = Math.min(topN, documents.size());
-        return java.util.stream.IntStream.range(0, n)
-                .mapToObj(i -> new RankedResult(i, 0.0f))
                 .toList();
     }
 }

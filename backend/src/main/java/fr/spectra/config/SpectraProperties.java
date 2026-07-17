@@ -280,10 +280,13 @@ public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, 
      *
      * @param enabled             activer le bypass long-contexte
      * @param maxCollectionChunks seuil de chunks au-delà duquel le RAG classique est utilisé (défaut : 100)
+     * @param maxContextTokens    budget de tokens (estimés) du contexte intégral injecté dans le prompt ;
+     *                            au-delà, fallback sur le retrieval standard (défaut : 3000, comme l'agentic)
      */
-    public record LongContextRagProperties(Boolean enabled, Integer maxCollectionChunks) {
+    public record LongContextRagProperties(Boolean enabled, Integer maxCollectionChunks, Integer maxContextTokens) {
         public boolean isEnabled() { return Boolean.TRUE.equals(enabled); }
         public int effectiveMaxCollectionChunks() { return maxCollectionChunks != null ? maxCollectionChunks : 100; }
+        public int effectiveMaxContextTokens() { return maxContextTokens != null ? maxContextTokens : 3000; }
     }
 
     /**

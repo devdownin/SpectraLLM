@@ -52,14 +52,24 @@ public class ConversationalRagService {
 
     /**
      * Reformule {@code question} en question autonome en s'appuyant sur {@code history}.
-     * Retourne la question originale si l'historique est vide.
+     * Retourne la question originale si l'historique est vide, ou si la reformulation
+     * échoue : la contextualisation est un enrichissement optionnel, un échec LLM
+     * transitoire ne doit pas faire échouer la requête entière (dégradation gracieuse,
+     * comme les autres modules optionnels du pipeline).
      */
     public String contextualizeQuestion(String question, List<ConversationMessage> history) {
         if (history == null || history.isEmpty()) return question;
 
         String historyText = formatHistory(history);
         String prompt = String.format(CONTEXTUALIZE_PROMPT, historyText, question);
-        String standalone = llmClient.chat(CONTEXTUALIZE_SYSTEM, prompt).trim();
+        String standalone;
+        try {
+            standalone = llmClient.chat(CONTEXTUALIZE_SYSTEM, prompt).trim();
+        } catch (Exception e) {
+            log.warn("Conversational RAG : reformulation échouée, fallback sur la question originale — {}",
+                    e.getMessage());
+            return question;
+        }
 
         // Sanity-check: if the model returns an empty string, fall back to the original.
         if (standalone.isBlank()) {
