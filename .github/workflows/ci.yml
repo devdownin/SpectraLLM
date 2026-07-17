@@ -79,7 +79,7 @@ jobs:
     # démarrent jamais) : on télécharge les modèles PAR DÉFAUT du projet, mis en
     # cache entre les runs (~1,2 Go au premier passage seulement).
     - name: Cache GGUF models
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: data/models
         key: e2e-gguf-phi4mini-ud-iq1s-nomic-q4km
