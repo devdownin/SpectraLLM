@@ -74,7 +74,7 @@ URLs/chemins surchargeables dans `k8s/seed/seed-models.yaml` (ConfigMap `model-s
 
 ```bash
 # Créer les PVCs d'abord
-kubectl apply -f k8s/base/00-namespace.yaml -f k8s/base/02-pvc.yaml
+kubectl apply -k deploy/k8s/base/foundation
 
 # Copier embed.gguf via un pod temporaire
 kubectl run -n spectra copy-models --image=busybox --restart=Never \

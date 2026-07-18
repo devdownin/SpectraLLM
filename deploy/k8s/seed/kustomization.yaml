@@ -3,9 +3,10 @@ kind: Kustomization
 
 namespace: spectra
 
-# Namespace + PVC (depuis la base) + Job de seeding, dans cet ordre.
-# `kubectl apply -k k8s/seed` crée les volumes vides puis lance le téléchargement.
+# Namespace + PVC (module partagé de la base) + Job de seeding, dans cet ordre.
+# `kubectl apply -k deploy/k8s/seed` crée les volumes vides puis lance le téléchargement.
+# NB : on référence le RÉPERTOIRE ../base/foundation (kustomization propre) — référencer
+# les fichiers ../base/*.yaml directement viole les load restrictions de kustomize.
 resources:
-  - ../base/00-namespace.yaml
-  - ../base/02-pvc.yaml
+  - ../base/foundation
   - seed-models.yaml
