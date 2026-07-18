@@ -174,6 +174,10 @@ spectra:
   ged:
     archive-dir: ${SPECTRA_GED_ARCHIVE_DIR:./data/archive}
     auto-qualify-threshold: ${SPECTRA_GED_AUTO_QUALIFY_THRESHOLD:0.0}
+    # Nombre de commentaires IA approuvés déclenchant un fine-tuning automatique (0 = désactivé).
+    # Câblé ici comme toutes les autres propriétés : la variable d'environnement documentée
+    # n'était pas garantie de se lier via le seul @Value d'ArticleCommentService.
+    auto-retrain-threshold: ${SPECTRA_GED_AUTO_RETRAIN_THRESHOLD:5}
     retention:
       archive-after-days: ${SPECTRA_GED_ARCHIVE_AFTER_DAYS:0}
       purge-after-days: ${SPECTRA_GED_PURGE_AFTER_DAYS:0}

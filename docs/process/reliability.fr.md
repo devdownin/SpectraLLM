@@ -18,9 +18,13 @@ Priorité d'implémentation : **2 → 4 → 1 → 8 → 5/6/7 → 3 → 9 → 10
 - **Problème** : Si llama-server ne termine pas (`done` jamais émis), le message reste `STREAMING` indéfiniment.
 - **Fix** : `AbortController` avec timeout 120s côté frontend + `Flux.timeout(generateTimeout)` côté backend dans `queryStream()`.
 
-### [3] H2 avec `ddl-auto: update` sans migration contrôlée — ⬜ TODO
-- **Problème** : Un changement de schéma peut corrompre silencieusement la base sans rollback possible.
-- **Fix** : Migrer vers Flyway ou Liquibase pour tracer les évolutions de schéma.
+### [3] Migrations de schéma H2 sans outil dédié — 🟡 Partiellement traité
+- **Constat initial (obsolète)** : `ddl-auto: update` pouvait corrompre silencieusement la base.
+- **État actuel** : la base est en `ddl-auto: validate` + `schema.sql` idempotent
+  (`CREATE TABLE IF NOT EXISTS`, migrations `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`) —
+  le risque de dérive silencieuse est couvert.
+- **Reste ouvert (optionnel)** : un outil de migration versionné (Flyway/Liquibase) si les
+  évolutions de schéma deviennent plus complexes que des ajouts de colonnes.
 
 ---
 

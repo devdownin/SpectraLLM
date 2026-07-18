@@ -20,16 +20,14 @@
 
 Vérifiés par résolution de chaque lien relatif :
 
-- **`README.md` / `README.fr.md` (24 liens)** : toute la section « Documentation » pointe
-  vers un schéma de nommage kebab-case qui n'existe pas (`docs/getting-started.en.md`,
-  `docs/architecture.en.md`, `docs/configuration.en.md`, `docs/user/user-manual.en.md`,
-  `docs/tech/technical-doc.en.md`, `docs/tech/rag-pipeline.en.md`,
-  `docs/tech/llama-cpp.en.md`, `docs/process/reliability.en.md`,
-  `docs/user/documentation-pedagogique.fr.md`) — les fichiers réels sont en MAJUSCULES
-  (`getting-started.en.md`, `architecture.en.md`…). **Tous les liens doc de la page d'accueil du
-  projet sont morts.** Un renommage kebab-case a visiblement été amorcé
-  (`technical-stack-architecture.en.md`, `c4-level-2-containers.fr.md` existent) puis
-  abandonné à mi-chemin.
+- **`README.md` / `README.fr.md` (24 liens)** : toute la section « Documentation » pointait
+  vers un schéma de nommage kebab-case qui n'existait pas encore — les fichiers réels
+  étaient en MAJUSCULES (`GETTING_STARTED.md`, `ARCHITECTURE.md`, `USER_MANUAL.md`,
+  `TECHNICAL_DOC.md`…). **Tous les liens doc de la page d'accueil du projet étaient
+  morts.** Un renommage kebab-case avait visiblement été amorcé
+  (`technical-stack-architecture.en.md`, `c4-level-2-containers.fr.md` existaient) puis
+  abandonné à mi-chemin. *(Corrigé : les fichiers ont été renommés en kebab-case suffixé
+  langue — cf. tableau de priorisation.)*
 - **Références à des documents supprimés** : `docs/README.md` →
   `process/SECURITY_AUDIT.md`, `process/AUDIT_FINE_TUNING.fr.md`, `user/ged.md` (supprimés
   de `main`) ; `docs/getting-started.en.md` et `deploy/k8s/README.md` →
@@ -48,7 +46,7 @@ CI (ex. `lychee` ou le script Python de cet audit) pour empêcher la récidive.
 |---|---|
 | `backend/pom.xml` (`java.version`) | **21** |
 | CI (`.github/actions/setup-java-maven`) | **21** (temurin) |
-| `docs/getting-started.en.md` (×2), `README.md`, `technical-doc.en.md` (×2) | **« Java 25 (LTS) »** |
+| `docs/getting-started.en.md` (×2), `README.md`, `technical-doc.fr.md` (×2) | **« Java 25 (LTS) »** |
 | `.sdkmanrc` | **25-tem** |
 
 Un contributeur qui suit la doc installe Java 25 alors que le build cible et que la CI
@@ -73,7 +71,7 @@ valide Java 21. Fix : aligner (soit documenter 21, soit monter pom+CI à 25) —
 - `docker compose up -d` (et toutes les variantes `--profile`) : **il n'y a pas de
   `docker-compose.yml` à la racine** — la stack est dans `deploy/docker/` et `start.sh`
   l'invoque via `--project-directory . -f deploy/docker/docker-compose.yml`. Chaque
-  commande compose du guide échoue telle quelle. Idem `user-manual.en.md`
+  commande compose du guide échoue telle quelle. Idem `user-manual.fr.md`
   (`SPECTRA_GED_AUTO_RETRAIN_THRESHOLD=20 docker compose up -d`).
 - `kubectl apply -k k8s/base` (+ overlays) : le répertoire réel est `deploy/k8s/`.
 - Renvoi final vers `DEPLOY_GKE.md`, supprimé (cf. C1) — la section GKE n'a plus de doc de
@@ -107,8 +105,8 @@ Croisement avec `application.yml` :
 |---|---|
 | `README(.fr).md` | PDF, DOCX, HTML, JSON, XML, TXT, ZIP |
 | `docs/architecture.en.md` (tableau ingestion) | PDF, DOCX, HTML, JSON, XML, TXT |
-| `docs/user/user-manual.en.md` | PDF, DOCX, DOC, JSON, XML, TXT, HTML |
-| `docs/tech/technical-doc.en.md` (table extracteurs) | + `.avro`, mais sans `.zip` |
+| `docs/user/user-manual.fr.md` | PDF, DOCX, DOC, JSON, XML, TXT, HTML |
+| `docs/tech/technical-doc.fr.md` (table extracteurs) | + `.avro`, mais sans `.zip` |
 | Réel (`DocumentExtractorFactory`) | PDF, DOCX, DOC, JSON, XML, HTML/HTM, AVRO, TXT, **MD, MARKDOWN, CSV**, ZIP |
 
 Aucune liste ne mentionne les formats `.md`/`.markdown`/`.csv` ajoutés récemment ; DOC et
@@ -128,13 +126,13 @@ mentions courtes « voir la liste complète » ailleurs.
   le filtre `q` (recherche par nom) manque dans la liste des filtres GED.
 - « Cleaning — 8-step normalization » : `TextCleanerService` compte 7 passes.
 
-### C7 — `user-manual.en.md` : affirmation fausse sur les URLs — **moyen**
+### C7 — `user-manual.fr.md` : affirmation fausse sur les URLs — **moyen**
 
 « Pour les URLs, chaque soumission déclenche un nouveau téléchargement et une **nouvelle
 ingestion** » : faux — le chemin URL déduplique aussi par SHA-256 (contenu inchangé =
 ignoré). À reformuler (le téléchargement a bien lieu, la ré-indexation non).
 
-### C8 — `reliability.en.md` : item [3] périmé — **mineur**
+### C8 — `reliability.fr.md` : item [3] périmé — **mineur**
 
 « H2 avec `ddl-auto: update` sans migration contrôlée — TODO » : la base est passée à
 `ddl-auto: validate` + `schema.sql` idempotent (avec migrations `ALTER TABLE IF NOT
@@ -146,7 +144,7 @@ EXISTS`). Le risque décrit n'existe plus sous cette forme ; l'item devrait êtr
 ~100 endpoints réels (contrôleurs) ; absents de toute doc : `GET/DELETE
 /api/ablation/jobs*`, `GET /api/sse/tasks`, `GET|POST /api/config/embedding-consistency*`,
 `POST /api/query/feedback`, `GET /api/ingest/files` (présent une seule fois). Le Swagger
-(`/api-docs`) couvre le besoin machine, mais `technical-doc.en.md` se présente comme la
+(`/api-docs`) couvre le besoin machine, mais `technical-doc.fr.md` se présente comme la
 référence et a pris du retard.
 
 ---
@@ -194,23 +192,23 @@ renommer les ~10 fichiers UPPERCASE avec `git mv`, en un seul commit.
 ### S2 — Trois descriptions du pipeline, sans hiérarchie
 
 Le pipeline d'ingestion/RAG est décrit dans `architecture.en.md` (EN),
-`technical-doc.en.md` (FR, 1 964 lignes) et `rag-pipeline.en.md` (EN) — avec des niveaux de
+`technical-doc.fr.md` (FR, 1 964 lignes) et `rag-pipeline.fr.md` (EN) — avec des niveaux de
 détail qui se recouvrent et divergent (cf. C5/C6). Proposer : `architecture.en.md` = vue
-d'ensemble + liens ; `technical-doc.en.md` = référence unique par service ;
-`rag-pipeline.en.md` = justifications de conception (le « pourquoi »). Chaque fait chiffré
+d'ensemble + liens ; `technical-doc.fr.md` = référence unique par service ;
+`rag-pipeline.fr.md` = justifications de conception (le « pourquoi »). Chaque fait chiffré
 (défauts, formats, limites) ne devrait vivre qu'à UN endroit.
 
 ### S3 — Langue incohérente
 
 EN : README, ARCHITECTURE, GETTING_STARTED, CONFIGURATION, USER_MANUAL (titres EN, corps
 FR !), RAG_PIPELINE ; FR : TECHNICAL_DOC, DOCUMENTATION_PEDAGOGIQUE, CHANGELOG, designs.
-`user-manual.en.md` est le cas le plus gênant : en-têtes anglais, contenu français. Fixer une
+`user-manual.fr.md` est le cas le plus gênant : en-têtes anglais, contenu français. Fixer une
 règle (ex. : EN par défaut, `.fr.md` pour les traductions/documents nativement français)
 et l'appliquer au moins aux nouveaux documents.
 
 ### S4 — Documents-journaux à archiver
 
-- `reliability.en.md` : journal d'améliorations quasi intégralement « ✅ DONE » (+ un TODO
+- `reliability.fr.md` : journal d'améliorations quasi intégralement « ✅ DONE » (+ un TODO
   périmé, cf. C8) — à archiver ou réduire aux items ouverts.
 - `.github/release-notes/v0.5.md`/`v0.6.md` vs `CHANGELOG.md` : double comptabilité des
   releases ; choisir le CHANGELOG comme source et générer les release notes GitHub depuis
@@ -229,7 +227,7 @@ et l'appliquer au moins aux nouveaux documents.
   diffable.
 - `configuration.en.md` : bon format tableau var/défaut/description — il ne lui manque que
   l'exhaustivité (C4).
-- `user-manual.en.md` § Model Hub récemment mis à jour avec le code (stockage, rétention) —
+- `user-manual.fr.md` § Model Hub récemment mis à jour avec le code (stockage, rétention) —
   la preuve que le processus « doc mise à jour dans la PR » fonctionne quand il est suivi.
 
 ---
@@ -241,8 +239,11 @@ et l'appliquer au moins aux nouveaux documents.
 | 1 | ✅ **Fait** — 30 liens réparés, convention kebab-case `.{fr,en}.md` adoptée (13 fichiers renommés, références mises à jour dans tout le dépôt) | Conformité | Faible |
 | 2 | ✅ **Fait** — `getting-started.en.md` corrigé (chemins `scripts/`, `deploy/docker`, `deploy/k8s`, URL du repo, renvoi GKE → `deploy/k8s/README.md`) ; commandes compose du manuel corrigées | Conformité | Faible |
 | 3 | ✅ **Fait** (côté doc) — prérequis « JDK 21+ (cible de build 21, runtime Docker Temurin 25) » ; reste la décision pom/CI (cf. complément C2) | Conformité | Faible |
-| 4 | `configuration.en.md` : ajouter les ~40 variables manquantes (Kafka, llmfit, ingestion, chunk-locale) ; câbler `auto-retrain-threshold` dans `application.yml` | Conformité | Moyen |
-| 5 | Unifier la liste des formats (référence unique) et corriger BM25/dédup/état-machine dans `architecture.en.md` | Conformité | Faible |
-| 6 | Documenter les évolutions ingestion/GED récentes (M1) + entrées CHANGELOG (M2) | Complétude | Moyen |
-| 7 | Contrôle de liens en CI | Prévention | Faible |
-| 8 | Restructuration S2/S3/S4 (hiérarchie des 3 docs pipeline, règle de langue, archivage) | Simplification | Moyen |
+| 4 | ✅ **Fait** — `configuration.en.md` refondu par domaine (~40 variables ajoutées : Kafka, llmfit, gardes-fous d'ingestion, chunk-locale, reranker, évaluation, métriques de cohérence) ; `spectra.ged.auto-retrain-threshold` câblée dans `application.yml` | Conformité | Moyen |
+| 5 | ✅ **Fait** — table de référence unique des formats dans `technical-doc.fr.md` (avec `.md`/`.markdown`/`.csv`/`.zip`), autres listes alignées ou renvoyées ; `architecture.en.md` corrigé (dédup SHA-256 en tête de pipeline, BM25 toujours indexé, machine à états réelle, filtre `q`) | Conformité | Faible |
+| 6 | ✅ **Fait** — manuel : sémantique `force` = remplacement, dédup URL corrigée, `fileErrors`, nouvelle section « fiche document / cycle de vie » (archivedAt, TRAINED automatique, rétention) ; architecture : GED à jour ; CHANGELOG : entrées des trois vagues ingestion/GED + refonte doc | Complétude | Moyen |
+| 7 | ✅ **Fait** — `scripts/check-doc-links.py` (liens internes, déterministe, sans réseau) + workflow `docs-links` (déclenché sur `**.md`) | Prévention | Faible |
+| 8 | ✅ **Fait** — bandeaux de rôle sur les 3 docs pipeline (la référence = `technical-doc`), règle de nommage/langue et conventions doc dans `CONTRIBUTING.md` (suffixe = langue du contenu : 5 fichiers `.en.md` à contenu français renommés `.fr.md`), `reliability` item [3] réactualisé, `docs/process/archive/` créé (audit ingestion/GED archivé), CHANGELOG désigné source des release notes | Simplification | Moyen |
+
+**Audit intégralement traité.** Seule décision restante (équipe) : la cible Java de
+`pom.xml`/CI — 21 actuel vs 25 documenté dans le CHANGELOG (cf. complément C2).

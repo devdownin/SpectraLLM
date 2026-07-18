@@ -138,7 +138,7 @@ curl http://localhost:8080/api/ingest/abc-123
 # → {"status": "COMPLETED", "chunksCreated": 42}
 ```
 
-**Formats supportés :** PDF, DOCX (Word 2007+), DOC (Word 97-2003), JSON, XML, TXT, HTML.
+**Formats supportés :** PDF, DOCX (Word 2007+), DOC (Word 97-2003), HTML, Markdown (`.md`), CSV, JSON, XML, Avro, TXT — et archives ZIP les combinant. Table de référence : [technical-doc](../tech/technical-doc.fr.md#31-extraction).
 
 > Les scans sans OCR (images sans texte sélectionnable) ne produiront pas de chunks utiles.
 
@@ -222,7 +222,9 @@ Qu'il s'agisse d'un fichier ou d'une URL, le traitement en coulisses est identiq
 5. **Vectorisation** : calcul des embeddings par `nomic-embed-text` (llm-embed)
 6. **Stockage** : indexation dans ChromaDB
 
-> **Déduplication SHA-256 :** si le même fichier est soumis deux fois (même contenu, même hash), Spectra l'ignore silencieusement. Utilisez `?force=true` pour forcer la ré-ingestion d'un fichier. Pour les URLs, chaque soumission déclenche un nouveau téléchargement et une nouvelle ingestion (le contenu peut avoir changé).
+> **Déduplication SHA-256 :** si le même fichier est soumis deux fois (même contenu, même hash), Spectra l'ignore silencieusement. Utilisez `?force=true` pour **remplacer** un document : les anciens chunks sont purgés des index (vecteur + BM25) avant la ré-indexation — pas de doublons dans les réponses, et la fiche GED s'incrémente d'une version. Les URLs suivent la même règle : le téléchargement a bien lieu à chaque soumission, mais un contenu inchangé (même hash) n'est pas ré-indexé.
+>
+> **Erreurs par fichier :** un fichier en échec (format non supporté, fichier trop volumineux, document corrompu) n'interrompt pas le lot — son erreur apparaît dans le suivi de la tâche (champ `fileErrors`). Une tâche dont **tous** les fichiers échouent finit `FAILED` avec le détail, au lieu d'un faux succès à 0 chunk.
 
 > **Changement de modèle d'embedding :** si vous remplacez `embed.gguf` par un autre modèle, vous devez ré-ingérer **tous** vos documents. Les vecteurs stockés dans ChromaDB sont propres à un modèle et ne sont pas interchangeables. Utilisez `?force=true` :
 > ```bash
@@ -353,6 +355,27 @@ curl http://localhost:8080/api/dataset/dpo/stats
 **Objectif** : annoter chaque document ingéré avec des commentaires analytiques, générés par l'IA via RAG ou rédigés manuellement, puis exporter les évaluations comme paires DPO pour le prochain cycle de fine-tuning.
 
 Cette étape crée une **boucle de rétroaction humaine** : vous lisez les commentaires générés, vous approuvez ceux qui sont pertinents, vous rejetez ceux qui ne le sont pas — et ces préférences deviennent des données d'entraînement.
+
+#### La fiche document (cycle de vie, tags, versions)
+
+Chaque document ingéré possède une fiche GED : hash SHA-256, format, score de qualité
+(0–1), version (incrémentée à chaque ré-ingestion `force`), tags libres, collection,
+date d'ingestion et — pour les documents archivés — la **date d'archivage** (`archivedAt`,
+base de la purge de rétention).
+
+Le **cycle de vie** progresse ainsi : `INGESTED` (à l'ingestion, ou automatiquement
+`QUALIFIED` si le score dépasse `SPECTRA_GED_AUTO_QUALIFY_THRESHOLD`) → `QUALIFIED`
+(validé pour l'entraînement) → `TRAINED` → `ARCHIVED`. Deux automatismes :
+
+- **Fin de fine-tuning** : les documents dont des paires du dataset sont issues passent
+  automatiquement en `TRAINED`, avec un lien `TRAINED_ON` vers le modèle entraîné —
+  visible dans la fiche et via `GET /api/ged/models/{modelName}/documents`.
+- **Rétention** : selon la configuration, les documents `INGESTED` anciens sont archivés
+  chaque nuit, et les `ARCHIVED` purgés N jours après leur archivage (fiche **et** chunks
+  indexés — le document disparaît des réponses du RAG).
+
+Chaque action (transition, tag, ré-ingestion, suppression…) est tracée dans l'**audit
+trail** consultable au bas de la fiche.
 
 #### Via l'interface
 

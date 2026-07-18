@@ -8,7 +8,7 @@ The following is a set of guidelines for contributing to Spectra.
 
 For the full install (models, Docker profiles, GPU), see **[Getting Started](docs/getting-started.en.md)**. To build and test the code the way CI does, you need:
 
-- **JDK 25** (Temurin recommended — `.sdkmanrc` pins `25-tem`, use `sdk env` if you have SDKMAN!)
+- **JDK 21 or newer** (the build targets Java 21 — `backend/pom.xml`, CI; the Docker images use Temurin 25. `.sdkmanrc` pins `25-tem`, use `sdk env` if you have SDKMAN!)
 - **Node.js 22** (frontend)
 - **Python 3.11** (docparser / reranker services)
 
@@ -72,6 +72,23 @@ Enhancements are also tracked as GitHub issues. Please use the [Feature Request 
 - Use functional components and hooks.
 - Keep components small and reusable.
 - Use Tailwind CSS for styling.
+
+### Documentation
+- **Naming**: docs under `docs/` use kebab-case with a language suffix — `some-guide.en.md`
+  (English) or `some-guide.fr.md` (French). The suffix reflects the **content** language.
+  Root files keep their conventional names (`README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`…).
+- **Where facts live**: [architecture.en.md](docs/architecture.en.md) is the overview,
+  [technical-doc.fr.md](docs/tech/technical-doc.fr.md) is the implementation reference
+  (defaults, limits, formats — single source of truth), and
+  [rag-pipeline.fr.md](docs/tech/rag-pipeline.fr.md) explains the design rationale. Don't
+  duplicate a fact in several documents — link to the reference instead.
+- **Links**: internal Markdown links are checked in CI (`scripts/check-doc-links.py`,
+  `docs-links` workflow) — renaming or deleting a doc requires updating every reference.
+- **Changelog**: user-visible changes get an entry in `CHANGELOG.md` (section
+  `[Non publié]`) in the same PR. GitHub release notes are derived from the changelog,
+  not the other way around.
+- **Audits** (`docs/process/audit-*.md`): once every finding is fixed, move the report to
+  `docs/process/archive/`.
 
 ## Questions?
 If you have any questions, please feel free to open an issue or contact the maintainers.

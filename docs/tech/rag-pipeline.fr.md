@@ -1,5 +1,10 @@
 # Le pipeline RAG — pourquoi chaque étape
 
+> **Rôle de ce document** — le **raisonnement de conception** (le « pourquoi » de chaque
+> étape). Les faits d'implémentation (défauts, limites) font foi dans
+> [technical-doc.fr.md](technical-doc.fr.md) ; la vue d'ensemble est dans
+> [architecture.en.md](../architecture.en.md).
+
 La qualité des réponses de Spectra ne vient pas du modèle seul : elle vient de **ce qu'on lui
 donne à lire**. Le pipeline de récupération (retrieval) est donc le cœur du produit. Ce document
 explique le **raisonnement** derrière chaque étape — le *pourquoi* avant le *comment* — puis
@@ -207,7 +212,7 @@ Inline dans [`RagService.retrieveContext`](../../backend/src/main/java/fr/spectr
 
 ## Voir aussi
 
-- **[Documentation technique §6 — RAG](technical-doc.en.md)** : la référence d'implémentation complète
+- **[Documentation technique §6 — RAG](technical-doc.fr.md)** : la référence d'implémentation complète
   (streaming SSE, Adaptive / Corrective / Self / Agentic RAG, déduplication sémantique).
 - **[Architecture & Services](../architecture.en.md)** : chaque conteneur et service en contexte.
 - **[Guide des idées et des algorithmes](../user/documentation-pedagogique.fr.md)** : les mêmes
