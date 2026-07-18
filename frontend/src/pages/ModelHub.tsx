@@ -6,7 +6,7 @@ import Skeleton from '../components/Skeleton';
 import ModelStoragePanel from '../components/ModelStoragePanel';
 import InstallationHistoryPanel from '../components/InstallationHistoryPanel';
 import QualityBenchmarkCta from '../components/QualityBenchmarkCta';
-import { EmptyState, Button, PageHeader } from '../components/ui';
+import { EmptyState, Button, PageHeader, Field, Input } from '../components/ui';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { toast } from 'sonner';
 
@@ -228,50 +228,50 @@ const ModelHub: FC = () => {
       />
 
       {isSimulating && (
-        <section className="bg-primary/5 p-6 border border-primary/20 animate-in slide-in-from-top-4 duration-300">
-          <div className="flex items-center gap-3 mb-4">
-             <span className="material-symbols-outlined text-primary">simulation</span>
-             <h2 className="text-sm font-black uppercase tracking-widest text-primary font-headline">{t('modelHub.simulatorTitle')}</h2>
+        <section className="bg-primary/5 p-6 rounded-xl border border-primary/20 animate-in slide-in-from-top-4 duration-300">
+          <div className="flex items-center gap-2.5 mb-4">
+             <span aria-hidden="true" className="material-symbols-outlined text-[18px] text-primary">simulation</span>
+             <h2 className="text-[14px] font-semibold text-on-surface">{t('modelHub.simulatorTitle')}</h2>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="space-y-2">
-              <label className="text-[11px] uppercase tracking-wider text-outline font-bold">{t('modelHub.simVram')}</label>
-              <input
-                type="text"
-                placeholder={t('modelHub.simAuto')}
-                value={simulation.memory || ''}
-                onChange={(e) => setSimulation({...simulation, memory: e.target.value})}
-                className="w-full bg-surface-container-lowest border border-outline-variant/20 p-2 text-sm focus:border-primary outline-none"
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-[11px] uppercase tracking-wider text-outline font-bold">{t('modelHub.simRam')}</label>
-              <input
-                type="text"
-                placeholder={t('modelHub.simAuto')}
-                value={simulation.ram || ''}
-                onChange={(e) => setSimulation({...simulation, ram: e.target.value})}
-                className="w-full bg-surface-container-lowest border border-outline-variant/20 p-2 text-sm focus:border-primary outline-none"
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-[11px] uppercase tracking-wider text-outline font-bold">{t('modelHub.simCpu')}</label>
-              <input
-                type="number"
-                placeholder={t('modelHub.simAuto')}
-                value={simulation.cpuCores || ''}
-                onChange={(e) => setSimulation({...simulation, cpuCores: e.target.value ? parseInt(e.target.value) : undefined})}
-                className="w-full bg-surface-container-lowest border border-outline-variant/20 p-2 text-sm focus:border-primary outline-none"
-              />
-            </div>
+            <Field label={t('modelHub.simVram')}>
+              {(field) => (
+                <Input
+                  {...field}
+                  type="text"
+                  placeholder={t('modelHub.simAuto')}
+                  value={simulation.memory || ''}
+                  onChange={(e) => setSimulation({...simulation, memory: e.target.value})}
+                />
+              )}
+            </Field>
+            <Field label={t('modelHub.simRam')}>
+              {(field) => (
+                <Input
+                  {...field}
+                  type="text"
+                  placeholder={t('modelHub.simAuto')}
+                  value={simulation.ram || ''}
+                  onChange={(e) => setSimulation({...simulation, ram: e.target.value})}
+                />
+              )}
+            </Field>
+            <Field label={t('modelHub.simCpu')}>
+              {(field) => (
+                <Input
+                  {...field}
+                  type="number"
+                  placeholder={t('modelHub.simAuto')}
+                  value={simulation.cpuCores || ''}
+                  onChange={(e) => setSimulation({...simulation, cpuCores: e.target.value ? parseInt(e.target.value) : undefined})}
+                />
+              )}
+            </Field>
           </div>
           <div className="mt-4 flex justify-end gap-3">
-            <button
-              onClick={() => { setSimulation({}); setIsSimulating(false); }}
-              className="text-[11px] font-black uppercase tracking-widest text-outline hover:text-primary transition-colors"
-            >
+            <Button variant="ghost" size="sm" onClick={() => { setSimulation({}); setIsSimulating(false); }}>
               {t('modelHub.simReset')}
-            </button>
+            </Button>
           </div>
         </section>
       )}

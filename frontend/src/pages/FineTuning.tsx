@@ -11,7 +11,7 @@ import type { TrainingLog } from '../types/api';
 import { configApi, fineTuningApi, recipeApi } from '../services/api';
 import { resolveTrainableBase, shouldReplace, suggestModelName } from '../lib/fineTuningPrefill';
 import LossChart from '../components/charts/LossChart';
-import { PageHeader, Button } from '../components/ui';
+import { PageHeader, Button, Badge, Table, TableHead, TableBody, TableRow, Th, Td } from '../components/ui';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -741,50 +741,46 @@ const FineTuning: FC = () => {
           </button>
         </div>
 
-        <div className="bg-surface-container overflow-x-auto">
-          <table className="w-full min-w-[640px] text-left border-collapse">
-            <thead>
-              <tr className="bg-surface-container-high">
-                {['colJobId', 'colModel', 'colBase', 'colDataset', 'colEpochs', 'colStatus', 'colDate'].map(h => (
-                  <th key={h} className="px-5 py-3 font-label text-[11px] uppercase tracking-widest text-on-surface-variant">{t(`fineTuning.${h}`)}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-outline-variant/10">
-              {jobs.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-5 py-8 text-center text-[12px] text-on-surface-variant">
-                    {t('fineTuning.noJobs')}
-                  </td>
-                </tr>
-              ) : jobs.map(job => (
-                <tr
-                  key={job.jobId}
-                  onClick={() => setActiveJob(job)}
-                  className="hover:bg-surface-container-highest transition-colors cursor-pointer"
-                >
-                  <td className="px-5 py-3">
-                    <span className="font-headline font-medium text-xs">{job.jobId.slice(0, 8).toUpperCase()}</span>
-                  </td>
-                  <td className="px-5 py-3 font-label text-xs uppercase">{job.modelName}</td>
-                  <td className="px-5 py-3 font-label text-xs uppercase text-on-surface-variant">{job.baseModel}</td>
-                  <td className="px-5 py-3 font-label text-xs">{t('fineTuning.pairsCount', { count: job.datasetSize })}</td>
-                  <td className="px-5 py-3 font-label text-xs">{job.parameters?.epochs ?? '—'}</td>
-                  <td className="px-5 py-3">
-                    <span className={`text-[11px] font-bold uppercase tracking-widest ${
-                      job.status === 'COMPLETED' ? 'text-primary' :
-                      job.status === 'FAILED'    ? 'text-error' :
-                                                   'text-secondary'
-                    }`}>{job.status}</span>
-                  </td>
-                  <td className="px-5 py-3 font-label text-xs text-on-surface-variant">
-                    {job.createdAt ? new Date(job.createdAt).toLocaleDateString(i18n.language) : '—'}
-                  </td>
-                </tr>
+        <Table className="min-w-[640px]">
+          <TableHead>
+            <tr>
+              {['colJobId', 'colModel', 'colBase', 'colDataset', 'colEpochs', 'colStatus', 'colDate'].map(h => (
+                <Th key={h}>{t(`fineTuning.${h}`)}</Th>
               ))}
-            </tbody>
-          </table>
-        </div>
+            </tr>
+          </TableHead>
+          <TableBody>
+            {jobs.length === 0 ? (
+              <tr>
+                <Td colSpan={7} className="py-8 text-center text-on-surface-variant">
+                  {t('fineTuning.noJobs')}
+                </Td>
+              </tr>
+            ) : jobs.map(job => (
+              <TableRow
+                key={job.jobId}
+                onClick={() => setActiveJob(job)}
+                className="cursor-pointer"
+              >
+                <Td className="font-mono text-[11px]">{job.jobId.slice(0, 8)}</Td>
+                <Td className="font-medium">{job.modelName}</Td>
+                <Td className="text-on-surface-variant">{job.baseModel}</Td>
+                <Td>{t('fineTuning.pairsCount', { count: job.datasetSize })}</Td>
+                <Td>{job.parameters?.epochs ?? '—'}</Td>
+                <Td>
+                  <Badge tone={
+                    job.status === 'COMPLETED' ? 'success' :
+                    job.status === 'FAILED'    ? 'error' :
+                                                 'secondary'
+                  } dot>{job.status}</Badge>
+                </Td>
+                <Td className="text-on-surface-variant">
+                  {job.createdAt ? new Date(job.createdAt).toLocaleDateString(i18n.language) : '—'}
+                </Td>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       </section>
     </div>
   );

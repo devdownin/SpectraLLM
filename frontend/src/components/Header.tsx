@@ -7,6 +7,8 @@ import { useStatus } from '../hooks/useStatus';
 
 interface HeaderProps {
   onMenuClick?: () => void;
+  /** Ouvre la palette de commandes (⌘K). */
+  onSearchClick?: () => void;
 }
 
 interface ServiceInfo {
@@ -15,7 +17,7 @@ interface ServiceInfo {
   details?: { activeModel?: string; activeModelLoaded?: boolean };
 }
 
-const Header: FC<HeaderProps> = ({ onMenuClick }) => {
+const Header: FC<HeaderProps> = ({ onMenuClick, onSearchClick }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { t, i18n } = useTranslation();
@@ -86,6 +88,20 @@ const Header: FC<HeaderProps> = ({ onMenuClick }) => {
             <span className="text-[12px] text-on-surface-variant">Embed</span>
           </div>
         </div>
+
+        {onSearchClick && (
+          <button
+            type="button"
+            onClick={onSearchClick}
+            aria-label={t('palette.title', 'Command palette')}
+            title={t('palette.title', 'Command palette')}
+            className="hidden sm:flex items-center gap-2 h-8 px-2.5 mr-1 rounded-md border border-outline-variant/60 text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors"
+          >
+            <span aria-hidden="true" className="material-symbols-outlined text-[16px]">search</span>
+            <span className="text-[12px]">{t('palette.searchShort', 'Search')}</span>
+            <kbd className="text-[10px] text-outline border border-outline-variant rounded px-1 py-px">⌘K</kbd>
+          </button>
+        )}
 
         <TaskCenter />
 

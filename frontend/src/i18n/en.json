@@ -804,5 +804,16 @@
     "verdictSimilar": "≈ Both models score similarly on accuracy; decide on hallucination rate, speed and hardware fit.",
     "neutralJudge": "Scored by neutral judge <1>{{judge}}</1> — scores are directly comparable.",
     "selfJudge": "Each model scored its own answers (self-judged) — set <1>SPECTRA_EVALUATION_JUDGE_MODEL</1> for a fairer comparison."
+  },
+  "palette": {
+    "title": "Command palette",
+    "placeholder": "Search pages and actions…",
+    "searchShort": "Search",
+    "pages": "Pages",
+    "actions": "Actions",
+    "noResults": "No matching command",
+    "uploadDocs": "Upload documents",
+    "newEvaluation": "New evaluation",
+    "switchLanguage": "Switch language (FR/EN)"
   }
 }

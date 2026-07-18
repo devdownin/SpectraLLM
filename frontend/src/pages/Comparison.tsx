@@ -10,7 +10,7 @@ import ModelComparisonPanel from '../components/ModelComparisonPanel';
 import BatchEvaluateDialog from '../components/BatchEvaluateDialog';
 import AbComparisonView from '../components/AbComparisonView';
 import Skeleton from '../components/Skeleton';
-import { EmptyState, Button, PageHeader } from '../components/ui';
+import { EmptyState, Button, PageHeader, Input } from '../components/ui';
 
 const STATUS_COLOR: Record<string, string> = {
   PENDING:   'text-on-surface-variant',
@@ -288,13 +288,13 @@ const Comparison: FC = () => {
           <div className="bg-surface-container divide-y divide-outline-variant/10">
             <div className="px-4 py-3 bg-surface-container-high flex flex-col gap-2">
                <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">{t('comparison.history')}</p>
-               <input
-                 type="text"
+               <Input
+                 type="search"
                  placeholder={t('comparison.filterPlaceholder')}
                  value={searchTerm}
                  onChange={e => setSearchTerm(e.target.value)}
-                 className="bg-surface-container-low text-xs text-on-surface px-2 py-1 outline-none border border-outline-variant/20 focus:border-primary/50"
                  aria-label={t('comparison.filterPlaceholder')}
+                 className="h-8 text-[12px]"
                />
             </div>
             {filteredReports.map(r => (

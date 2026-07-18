@@ -5,6 +5,7 @@ import Sidebar from './Sidebar';
 import Header from './Header';
 import WizardProgress from './WizardProgress';
 import ServiceHealthBanner from './ServiceHealthBanner';
+import CommandPalette from './CommandPalette';
 
 interface LayoutProps {
   children: ReactNode;
@@ -15,9 +16,22 @@ const DESKTOP_QUERY = '(min-width: 768px)';
 const Layout: FC<LayoutProps> = ({ children }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const [isDesktop, setIsDesktop] = useState(
     () => typeof window !== 'undefined' && window.matchMedia(DESKTOP_QUERY).matches,
   );
+
+  // Raccourci global ⌘K / Ctrl+K : ouvre/ferme la palette de commandes.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPaletteOpen((o) => !o);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // Suit le breakpoint : ferme le drawer en repassant desktop.
   useEffect(() => {
@@ -67,8 +81,10 @@ const Layout: FC<LayoutProps> = ({ children }) => {
         />
       )}
 
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+
       <main className={`transition-all duration-300 ml-0 ${isCollapsed ? 'md:ml-[68px]' : 'md:ml-64'} min-h-screen flex flex-col`}>
-        <Header onMenuClick={() => setMobileOpen(true)} />
+        <Header onMenuClick={() => setMobileOpen(true)} onSearchClick={() => setPaletteOpen(true)} />
         <ServiceHealthBanner />
         <WizardProgress />
         <div className="flex-1 p-4 md:p-8 max-w-[1600px] mx-auto w-full">

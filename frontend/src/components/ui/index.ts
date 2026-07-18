@@ -15,4 +15,8 @@ export { PageHeader } from './PageHeader';
 export type { PageHeaderProps } from './PageHeader';
 export { Stat } from './Stat';
 export type { StatProps } from './Stat';
+export { Field, Input, Select, Textarea } from './Field';
+export type { FieldProps, InputProps, SelectProps, TextareaProps } from './Field';
+export { Table, TableHead, TableBody, TableRow, Th, Td } from './Table';
+export type { TableProps } from './Table';
 export { cn } from './cn';
