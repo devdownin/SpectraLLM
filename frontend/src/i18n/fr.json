@@ -804,5 +804,16 @@
     "verdictSimilar": "≈ Les deux modèles sont d'exactitude similaire ; décidez sur l'hallucination, la vitesse et la compatibilité matérielle.",
     "neutralJudge": "Noté par le juge neutre <1>{{judge}}</1> — les scores sont directement comparables.",
     "selfJudge": "Chaque modèle a noté ses propres réponses (auto-jugement) — définissez <1>SPECTRA_EVALUATION_JUDGE_MODEL</1> pour une comparaison plus équitable."
+  },
+  "palette": {
+    "title": "Palette de commandes",
+    "placeholder": "Rechercher pages et actions…",
+    "searchShort": "Rechercher",
+    "pages": "Pages",
+    "actions": "Actions",
+    "noResults": "Aucune commande correspondante",
+    "uploadDocs": "Téléverser des documents",
+    "newEvaluation": "Nouvelle évaluation",
+    "switchLanguage": "Changer de langue (FR/EN)"
   }
 }
