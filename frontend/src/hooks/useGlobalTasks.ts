@@ -97,22 +97,28 @@ const pickTimestamp = (...candidates: unknown[]): string | null => {
 // ── Normaliseurs par source (exportés pour les tests) ────────────────────────
 
 export function normalizeIngestTasks(raw: unknown): GlobalTask[] {
-  return asArray(raw).map((t) => ({
-    id: `ingestion:${t.taskId}`,
-    kind: 'ingestion' as const,
-    icon: 'cloud_upload',
-    label: Array.isArray(t.files) && t.files.length > 0 ? t.files.join(', ') : shortId(t.taskId),
-    detail: typeof t.chunksExpected === 'number' && t.chunksExpected > 0
-      ? `${t.chunksCreated ?? 0}/${t.chunksExpected} chunks`
-      : typeof t.chunksCreated === 'number' && t.chunksCreated > 0 ? `${t.chunksCreated} chunks` : null,
-    status: toStatus(t.status),
-    // Dénominateur découvert au fil du chunking (0 tant qu'inconnu → barre indéterminée).
-    progress: ratio(t.chunksCreated, t.chunksExpected),
-    path: '/ingestion',
-    error: t.error ?? null,
-    timestamp: pickTimestamp(t.completedAt, t.createdAt),
-    startedAt: pickTimestamp(t.createdAt),
-  }));
+  return asArray(raw).map((t) => {
+    // Succès partiel : une tâche COMPLETED peut porter des échecs par fichier
+    // (fileErrors) — les remonter dans le champ error pour qu'ils restent visibles
+    // dans le panneau global, pas seulement sur la page Ingestion.
+    const fileErrors = Array.isArray(t.fileErrors) ? t.fileErrors.filter((e: unknown) => typeof e === 'string') : [];
+    return {
+      id: `ingestion:${t.taskId}`,
+      kind: 'ingestion' as const,
+      icon: 'cloud_upload',
+      label: Array.isArray(t.files) && t.files.length > 0 ? t.files.join(', ') : shortId(t.taskId),
+      detail: typeof t.chunksExpected === 'number' && t.chunksExpected > 0
+        ? `${t.chunksCreated ?? 0}/${t.chunksExpected} chunks`
+        : typeof t.chunksCreated === 'number' && t.chunksCreated > 0 ? `${t.chunksCreated} chunks` : null,
+      status: toStatus(t.status),
+      // Dénominateur découvert au fil du chunking (0 tant qu'inconnu → barre indéterminée).
+      progress: ratio(t.chunksCreated, t.chunksExpected),
+      path: '/ingestion',
+      error: t.error ?? (fileErrors.length > 0 ? fileErrors.join(' · ') : null),
+      timestamp: pickTimestamp(t.completedAt, t.createdAt),
+      startedAt: pickTimestamp(t.createdAt),
+    };
+  });
 }
 
 export function normalizeDatasetTasks(raw: unknown): GlobalTask[] {

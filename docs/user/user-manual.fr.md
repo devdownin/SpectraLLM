@@ -224,7 +224,7 @@ Qu'il s'agisse d'un fichier ou d'une URL, le traitement en coulisses est identiq
 
 > **Déduplication SHA-256 :** si le même fichier est soumis deux fois (même contenu, même hash), Spectra l'ignore silencieusement. Utilisez `?force=true` pour **remplacer** un document : les anciens chunks sont purgés des index (vecteur + BM25) avant la ré-indexation — pas de doublons dans les réponses, et la fiche GED s'incrémente d'une version. Les URLs suivent la même règle : le téléchargement a bien lieu à chaque soumission, mais un contenu inchangé (même hash) n'est pas ré-indexé.
 >
-> **Erreurs par fichier :** un fichier en échec (format non supporté, fichier trop volumineux, document corrompu) n'interrompt pas le lot — son erreur apparaît dans le suivi de la tâche (champ `fileErrors`). Une tâche dont **tous** les fichiers échouent finit `FAILED` avec le détail, au lieu d'un faux succès à 0 chunk.
+> **Erreurs par fichier :** un fichier en échec (format non supporté, fichier trop volumineux, document corrompu) n'interrompt pas le lot — son erreur apparaît directement dans le **Live Ingestion Stream** : la ligne du fichier passe en avertissement « N chunks · partiel » avec le détail de l'erreur en dessous, un toast signale la fin de tâche partielle, et le panneau global des tâches (icône activité du header) affiche aussi ces échecs. Une tâche dont **tous** les fichiers échouent finit `FAILED` avec le détail, au lieu d'un faux succès à 0 chunk.
 
 > **Changement de modèle d'embedding :** si vous remplacez `embed.gguf` par un autre modèle, vous devez ré-ingérer **tous** vos documents. Les vecteurs stockés dans ChromaDB sont propres à un modèle et ne sont pas interchangeables. Utilisez `?force=true` :
 > ```bash
