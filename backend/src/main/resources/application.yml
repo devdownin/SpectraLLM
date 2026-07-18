@@ -48,6 +48,9 @@ spectra:
       base-url: ${SPECTRA_LLM_EMBEDDING_BASE_URL:http://llm-embed:8082}
       # Fichier GGUF servi par llm-embed (même volume partagé).
       file: ${SPECTRA_LLM_EMBEDDING_FILE:}
+      # Timeout des requêtes /v1/embeddings. Doit couvrir un lot complet
+      # (embedding-batch-size × chunk-max-tokens) sur du CPU lent.
+      timeout-seconds: ${SPECTRA_EMBEDDING_TIMEOUT:60}
     # Bascule du modèle actif par les harnais d'évaluation (ModelSwitchCoordinator) :
     # attente que llama-server serve RÉELLEMENT le modèle demandé avant de mesurer.
     # En mode conteneurs séparés, llm-chat suit le pointeur du registre (~10 s) puis
@@ -95,11 +98,13 @@ spectra:
     # Locale des frontières de phrases au chunking (tag BCP 47 : fr, en, de…).
     # Ne change PAS la tokenization (cl100k) — uniquement le découpage des phrases.
     chunk-locale: ${SPECTRA_CHUNK_LOCALE:fr}
-    embedding-batch-size: ${SPECTRA_EMBEDDING_BATCH_SIZE:10}
+    # 32 : divise par 3 les allers-retours HTTP vs l'ancien défaut 10 (500 chunks =
+    # 16 requêtes au lieu de 50). Le timeout d'embedding (60 s) couvre un lot complet.
+    embedding-batch-size: ${SPECTRA_EMBEDDING_BATCH_SIZE:32}
     # Taille décompressée max par fichier / entrée ZIP (Mo). Borne la mémoire
     # d'ingestion. 0 = auto : calculé selon le heap JVM et la concurrence.
     max-uncompressed-mb: ${SPECTRA_MAX_UNCOMPRESSED_MB:0}
-    embedding-timeout-seconds: ${SPECTRA_EMBEDDING_TIMEOUT:30}
+    embedding-timeout-seconds: ${SPECTRA_EMBEDDING_TIMEOUT:60}
     generation-timeout-seconds: ${SPECTRA_GENERATION_TIMEOUT:120}
     concurrent-ingestions: ${SPECTRA_CONCURRENT_INGESTIONS:1}
   layout-parser:
