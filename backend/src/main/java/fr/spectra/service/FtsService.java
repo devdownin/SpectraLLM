@@ -73,6 +73,8 @@ public class FtsService {
      * légitimement vide déclenchait un rebuild + un log par minute, indéfiniment.
      */
     private final Set<String> rebuiltOnce = ConcurrentHashMap.newKeySet();
+
+    /**
      * Index cibles des rebuilds en cours. Les mutations live ({@link #indexChunks},
      * {@link #removeBySource}) y sont répliquées en plus de l'index publié : sans cela,
      * les chunks ingérés PENDANT un rebuild (qui pagine ChromaDB, potentiellement long)
