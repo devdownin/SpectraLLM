@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import { ablationApi, fineTuningApi } from '../services/api';
 import { etaMs, formatEta } from '../hooks/useGlobalTasks';
 import AblationCharts from '../components/charts/AblationCharts';
-import { PageHeader } from '../components/ui';
+import { PageHeader, Button } from '../components/ui';
 import type {
   AblationArmConfig,
   AblationArmReport,
@@ -399,13 +399,9 @@ const Optimization: FC = () => {
               onChange={e => setRuns(Math.max(1, Math.min(10, Number(e.target.value) || 1)))}
               className="w-16 bg-surface-container border border-outline-variant/20 px-2 py-1 text-on-surface text-xs" />
           </label>
-          <button
-            onClick={() => submit.mutate()}
-            disabled={running}
-            className="px-5 py-2 bg-primary text-on-primary font-headline text-xs uppercase tracking-widest disabled:opacity-50 hover:bg-primary/90 transition-colors"
-          >
+          <Button onClick={() => submit.mutate()} disabled={running} icon={running ? undefined : 'play_arrow'} loading={running}>
             {running ? t('optimization.launching') : t('optimization.launch')}
-          </button>
+          </Button>
           <span className="text-[11px] text-on-surface-variant">
             {t('optimization.slowHint', { arms: arms.length, runs })}
           </span>

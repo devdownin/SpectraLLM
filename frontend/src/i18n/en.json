@@ -123,7 +123,10 @@
     "expertModeHint": "Show technical details: RAG strategy badges, vector distances and latency metrics.",
     "expertModeOn": "Expert mode enabled",
     "expertModeOff": "Simple mode — technical details hidden",
-    "relevance": "Relevance"
+    "relevance": "Relevance",
+    "clearConfirmTitle": "Clear chat history?",
+    "clearConfirmMsg": "The current conversation will be permanently removed.",
+    "clearConfirmAction": "Clear history"
   },
   "docs": {
     "searchPlaceholder": "Search the documentation…",

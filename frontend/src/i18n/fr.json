@@ -123,7 +123,10 @@
     "expertModeHint": "Affiche les détails techniques : badges de stratégie RAG, distances vectorielles et métriques de latence.",
     "expertModeOn": "Mode expert activé",
     "expertModeOff": "Mode simple — détails techniques masqués",
-    "relevance": "Pertinence"
+    "relevance": "Pertinence",
+    "clearConfirmTitle": "Effacer l'historique ?",
+    "clearConfirmMsg": "La conversation en cours sera définitivement supprimée.",
+    "clearConfirmAction": "Effacer l'historique"
   },
   "docs": {
     "searchPlaceholder": "Rechercher dans la documentation…",

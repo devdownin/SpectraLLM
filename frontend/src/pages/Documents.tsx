@@ -898,13 +898,15 @@ const Documents: FC = () => {
               </button>
             ))}
             <div className="w-px h-6 bg-outline-variant/20" />
-            <button
+            <Button
+              variant="danger"
+              size="sm"
+              icon="delete"
               onClick={() => setPendingDelete({ kind: 'bulk', shaList: Array.from(bulkSelected) })}
               disabled={bulkDeleteMutation.isPending}
-              className="px-3 py-2 border border-error/30 text-error text-[10px] font-bold tracking-widest uppercase hover:bg-error hover:text-white transition-all disabled:opacity-50"
             >
               {t('documents.delete')}
-            </button>
+            </Button>
             <button onClick={() => setBulkSelected(new Set())} className="w-8 h-8 flex items-center justify-center text-outline hover:text-on-surface transition-colors">
               <span className="material-symbols-outlined text-sm">close</span>
             </button>

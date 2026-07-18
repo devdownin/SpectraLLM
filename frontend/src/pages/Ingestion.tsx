@@ -806,19 +806,18 @@ const Ingestion: FC = () => {
               )}
             </div>
 
-            <button
+            <Button
               onClick={handleGenerateDataset}
               disabled={genActive}
-              className={`w-full font-bold py-3 px-6 text-[11px] uppercase tracking-widest transition-opacity flex items-center justify-center gap-2 ${
-                genActive ? 'bg-surface-container-high text-outline cursor-not-allowed' :
-                'bg-primary text-on-primary-fixed hover:opacity-90'
-              }`}
+              size="lg"
+              variant={genActive ? 'secondary' : 'primary'}
+              className="w-full"
             >
-              <span className={`material-symbols-outlined text-sm ${genActive ? 'animate-spin' : ''}`}>
+              <span aria-hidden="true" className={`material-symbols-outlined text-[16px] ${genActive ? 'animate-spin' : ''}`}>
                 {genActive ? 'sync' : 'rocket_launch'}
               </span>
               {genActive ? t('ingestion.generating') : t('ingestion.generate')}
-            </button>
+            </Button>
           </div>
 
           {/* Progress */}

@@ -560,15 +560,12 @@ const FineTuning: FC = () => {
             </div>
 
             <div className="flex items-end">
-              <button
-                type="submit" disabled={submitting}
-                className="w-full bg-primary text-on-primary-fixed font-bold py-3 px-6 text-[11px] uppercase tracking-widest hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center justify-center gap-2"
-              >
-                <span className={`material-symbols-outlined text-sm ${submitting ? 'animate-spin' : ''}`}>
+              <Button type="submit" size="lg" disabled={submitting} className="w-full">
+                <span aria-hidden="true" className={`material-symbols-outlined text-[16px] ${submitting ? 'animate-spin' : ''}`}>
                   {submitting ? 'sync' : 'rocket_launch'}
                 </span>
                 {submitting ? t('fineTuning.submitting') : t('fineTuning.launch')}
-              </button>
+              </Button>
             </div>
 
           </form>
