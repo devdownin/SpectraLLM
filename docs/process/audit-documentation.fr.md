@@ -58,9 +58,10 @@ valide Java 21. Fix : aligner (soit documenter 21, soit monter pom+CI à 25) —
 > Temurin 25, `.sdkmanrc` était à 25. C'est le commit `048fd22` (« chore: optimize ci and
 > deploy workflows ») qui a rétrogradé `pom.xml` et la CI à 21, sans entrée CHANGELOG.
 > Correctif appliqué côté doc : prérequis reformulé en « JDK 21 ou plus récent (cible de
-> build : 21 ; images Docker : Temurin 25) », `.sdkmanrc` restauré à 25. **Décision
-> restante pour l'équipe** : remonter `pom.xml`/CI à 25 (conforme au CHANGELOG) ou assumer
-> la cible 21 et l'y consigner.
+> build : 21 ; images Docker : Temurin 25) », `.sdkmanrc` restauré à 25. **Décision prise
+> (mainteneur)** : cible **Java 25** — `pom.xml` et la CI sont remontés à 25, la doc
+> (prérequis contributeur, getting-started) est alignée, et la suite de tests + SpotBugs
+> ont été validés sous JDK 25.
 
 ### C3 — Chemins de commandes faux dans `getting-started.en.md` — **bloquant au premier essai**
 
@@ -245,5 +246,5 @@ et l'appliquer au moins aux nouveaux documents.
 | 7 | ✅ **Fait** — `scripts/check-doc-links.py` (liens internes, déterministe, sans réseau) + workflow `docs-links` (déclenché sur `**.md`) | Prévention | Faible |
 | 8 | ✅ **Fait** — bandeaux de rôle sur les 3 docs pipeline (la référence = `technical-doc`), règle de nommage/langue et conventions doc dans `CONTRIBUTING.md` (suffixe = langue du contenu : 5 fichiers `.en.md` à contenu français renommés `.fr.md`), `reliability` item [3] réactualisé, `docs/process/archive/` créé (audit ingestion/GED archivé), CHANGELOG désigné source des release notes | Simplification | Moyen |
 
-**Audit intégralement traité.** Seule décision restante (équipe) : la cible Java de
-`pom.xml`/CI — 21 actuel vs 25 documenté dans le CHANGELOG (cf. complément C2).
+**Audit intégralement traité, aucune décision restante** — la cible Java a été tranchée à
+25 (pom/CI/doc alignés, cf. complément C2).

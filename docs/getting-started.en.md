@@ -11,11 +11,11 @@ The [README quick start](../README.md#-quick-start) (`./scripts/start.sh --first
 
 ### Development Environment
 
-Spectra requires **JDK 21 or newer** — the build targets Java 21 (`backend/pom.xml`, CI), while the Docker images build and run on Temurin 25, so both LTS versions work locally. To set up your local development environment, you can use one of the following methods:
+Spectra requires **Java 25 (LTS)** — the version targeted by `backend/pom.xml`, validated by CI and used by the Docker images (Temurin 25). To set up your local development environment, you can use one of the following methods:
 
 - **SDKMAN!**: A `.sdkmanrc` file is provided at the root. Run `sdk env install` then `sdk env use` to automatically switch to the correct Java version.
 - **VS Code DevContainer**: A pre-configured `.devcontainer` is available. When opening the project in VS Code, click "Reopen in Container".
-- **Manual**: Install **Eclipse Temurin 21 or 25 (LTS)** from [Adoptium](https://adoptium.net/).
+- **Manual**: Install **Eclipse Temurin 25 (LTS)** from [Adoptium](https://adoptium.net/).
 
 You can verify your environment by running:
 ```bash
@@ -24,7 +24,7 @@ bash scripts/setup-java.sh
 
 ### Prerequisites
 
-- **JDK 21 or newer (LTS)** — for local compilation (build target: Java 21)
+- **JDK 25 (LTS)** — for local compilation
 - **Docker Desktop** (or Docker Engine + Compose v2)
 - **16 GB RAM** minimum (32 GB recommended for 7B models)
 - A `.gguf` model file placed in `data/models/`

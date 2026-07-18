@@ -8,7 +8,7 @@ The following is a set of guidelines for contributing to Spectra.
 
 For the full install (models, Docker profiles, GPU), see **[Getting Started](docs/getting-started.en.md)**. To build and test the code the way CI does, you need:
 
-- **JDK 21 or newer** (the build targets Java 21 — `backend/pom.xml`, CI; the Docker images use Temurin 25. `.sdkmanrc` pins `25-tem`, use `sdk env` if you have SDKMAN!)
+- **JDK 25** (Temurin recommended — build target, CI and Docker images are all on Java 25; `.sdkmanrc` pins `25-tem`, use `sdk env` if you have SDKMAN!)
 - **Node.js 22** (frontend)
 - **Python 3.11** (docparser / reranker services)
 
