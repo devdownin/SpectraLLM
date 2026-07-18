@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { PageHeader } from '../components/ui';
 
 const SECTIONS = [
   { id: 'overview',          title: 'Overview' },
@@ -108,13 +109,11 @@ const Documentation: React.FC = () => {
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between border-b border-border/40 pb-6 gap-4">
-        <div>
-          <h1 className="text-4xl font-headline font-bold tracking-tight text-foreground">Documentation</h1>
-          <p className="text-muted-foreground mt-2 max-w-2xl text-lg">
-            Master Spectra — from document ingestion to the continuous personalization loop and preference-based fine-tuning.
-          </p>
-        </div>
+      <PageHeader
+        className="border-b border-outline-variant/60 pb-6"
+        title="Documentation"
+        description="Master Spectra — from document ingestion to the continuous personalization loop and preference-based fine-tuning."
+        actions={
         <div className="flex flex-col gap-3 md:items-end">
         <div className="relative w-full md:w-80">
           <span aria-hidden="true" className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[16px] text-muted-foreground pointer-events-none">search</span>
@@ -125,18 +124,18 @@ const Documentation: React.FC = () => {
             onFocus={ensureIndex}
             placeholder={t('docs.searchPlaceholder')}
             aria-label={t('docs.searchPlaceholder')}
-            className="w-full bg-secondary/30 border border-border/40 rounded-lg pl-9 pr-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/60 transition-colors"
+            className="w-full bg-surface-container-high border border-outline-variant/60 rounded-lg pl-9 pr-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/60 transition-colors"
           />
         </div>
-        <div className="flex bg-secondary/30 p-1 rounded-lg border border-border/40 overflow-x-auto no-scrollbar flex-wrap gap-0.5">
+        <div className="flex bg-surface-container-high p-1 rounded-lg border border-outline-variant/60 overflow-x-auto no-scrollbar flex-wrap gap-0.5">
           {sections.map((section) => (
             <button
               key={section.id}
               onClick={() => selectTab(section.id)}
-              className={`px-4 py-1.5 text-xs font-headline uppercase tracking-widest rounded-md transition-all whitespace-nowrap ${
+              className={`px-4 py-1.5 text-xs font-medium rounded-md transition-all whitespace-nowrap ${
                 activeTab === section.id
-                  ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/20'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-surface-container-highest'
               }`}
             >
               {section.title}
@@ -144,7 +143,8 @@ const Documentation: React.FC = () => {
           ))}
         </div>
         </div>
-      </div>
+        }
+      />
 
       {results !== null ? (
         <div className="space-y-4">

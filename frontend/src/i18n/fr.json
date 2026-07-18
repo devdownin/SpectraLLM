@@ -10,7 +10,10 @@
     "optimization": "Optimisation",
     "documentation": "Documentation",
     "docs": "Docs",
-    "newModel": "Nouveau modèle"
+    "newModel": "Nouveau modèle",
+    "groupData": "Données",
+    "groupModels": "Modèles",
+    "groupEvaluate": "Test & évaluation"
   },
   "header": {
     "switchLanguage": "Changer de langue",
@@ -81,7 +84,7 @@
   },
   "dashboard": {
     "kicker": "Vue d'ensemble du système",
-    "title": "TABLEAU DE BORD",
+    "title": "Tableau de bord",
     "serviceHealth": "Santé des services",
     "online": "En ligne",
     "offline": "Hors ligne",
@@ -120,7 +123,10 @@
     "expertModeHint": "Affiche les détails techniques : badges de stratégie RAG, distances vectorielles et métriques de latence.",
     "expertModeOn": "Mode expert activé",
     "expertModeOff": "Mode simple — détails techniques masqués",
-    "relevance": "Pertinence"
+    "relevance": "Pertinence",
+    "clearConfirmTitle": "Effacer l'historique ?",
+    "clearConfirmMsg": "La conversation en cours sera définitivement supprimée.",
+    "clearConfirmAction": "Effacer l'historique"
   },
   "docs": {
     "searchPlaceholder": "Rechercher dans la documentation…",
@@ -200,7 +206,8 @@
     "downloadedActive": "Activé — llm-chat le recharge automatiquement en quelques secondes.",
     "downloadedRegistered": "Enregistré dans le registre. Activez-le depuis le Playground — llm-chat le rechargera automatiquement.",
     "progressLost": "Suivi de progression interrompu pour « {{name}} »",
-    "progressLostDesc": "Le téléchargement a échoué, a été annulé ou interrompu (redémarrage API). Vérifiez les logs (docker compose logs spectra-api) et relancez l'installation si besoin — un fichier déjà téléchargé est réutilisé."
+    "progressLostDesc": "Le téléchargement a échoué, a été annulé ou interrompu (redémarrage API). Vérifiez les logs (docker compose logs spectra-api) et relancez l'installation si besoin — un fichier déjà téléchargé est réutilisé.",
+    "emptyListTitle": "Aucun modèle correspondant"
   },
   "storage": {
     "title": "Stockage — data/models/",
@@ -208,7 +215,7 @@
     "loading": "Chargement…",
     "empty": "Aucun fichier GGUF dans le volume des modèles.",
     "orphan": "absent du registre (fichier orphelin)",
-    "active": "ACTIF",
+    "active": "Actif",
     "delete": "Supprimer",
     "deleteHintActive": "Modèle actif — activez-en un autre d'abord",
     "deleteHint": "Retirer du registre et supprimer le GGUF",
@@ -241,7 +248,7 @@
   },
   "optimization": {
     "kicker": "Ablation A/B · benchmark tenu à l'écart",
-    "title": "OPTIMISATION DES RÉPONSES",
+    "title": "Optimisation des réponses",
     "intro": "Mesurez et <1>validez l'apport réel</1> de chaque option d'apprentissage (fine-tuning) et d'optimisation (modules RAG). Chaque <3>bras</3> ne change qu'une chose à la fois : le <5>delta</5> entre deux bras est le gain marginal de l'option — toujours à lire en regard de son coût en latence.",
     "modulesTitle": "Les options mesurées",
     "modulesFootnote": "S'ajoute l'axe <1>apprentissage</1> : modèle de base vs modèle fine-tuné (SFT/DPO), comparé via le preset dédié.",
@@ -400,7 +407,7 @@
   },
   "ingestion": {
     "kicker": "Ingénierie des données",
-    "title": "INGESTION & DATASET",
+    "title": "Ingestion & dataset",
     "refresh": "Actualiser",
     "stepIngest": "Ingestion",
     "stepGenerate": "Génération",
@@ -475,7 +482,7 @@
   },
   "comparison": {
     "kicker": "LLM-juge",
-    "title": "ÉVALUATION DES MODÈLES",
+    "title": "Évaluation des modèles",
     "status": {
       "PENDING": "En attente",
       "RUNNING": "En cours",
@@ -536,7 +543,7 @@
   },
   "fineTuning": {
     "kicker": "Évolution de l'architecture",
-    "title": "FINE-TUNING",
+    "title": "Fine-tuning",
     "cancel": "Annuler",
     "newJob": "Nouvel entraînement",
     "steps": {
@@ -618,7 +625,7 @@
   },
   "documents": {
     "kicker": "Connaissances & archives",
-    "title": "DOCUMENTS",
+    "title": "Documents",
     "subtitle": "Gestion électronique des documents : suivez le cycle de vie, auditez les changements et gérez la qualité des sources qui alimentent vos modèles.",
     "shownCount": "{{shown}} affichés · {{loaded}} chargés",
     "ofTotal": " / {{total}} au total",

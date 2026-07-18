@@ -19,7 +19,7 @@ const CustomTooltip = ({ active, payload }: any) => {
   );
 };
 
-const CategoryBar: FC<Props> = ({ byCategory, color = '#8ff5ff' }) => {
+const CategoryBar: FC<Props> = ({ byCategory, color = '#6673f0' }) => {
   const entries = Object.entries(byCategory).filter(([, n]) => n > 0);
   if (entries.length === 0) return null;
 

@@ -10,7 +10,10 @@
     "optimization": "Optimization",
     "documentation": "Documentation",
     "docs": "Docs",
-    "newModel": "New Model"
+    "newModel": "New Model",
+    "groupData": "Data",
+    "groupModels": "Models",
+    "groupEvaluate": "Test & evaluate"
   },
   "header": {
     "switchLanguage": "Switch language",
@@ -81,7 +84,7 @@
   },
   "dashboard": {
     "kicker": "System Overview",
-    "title": "DASHBOARD",
+    "title": "Dashboard",
     "serviceHealth": "Service Health",
     "online": "Online",
     "offline": "Offline",
@@ -120,7 +123,10 @@
     "expertModeHint": "Show technical details: RAG strategy badges, vector distances and latency metrics.",
     "expertModeOn": "Expert mode enabled",
     "expertModeOff": "Simple mode — technical details hidden",
-    "relevance": "Relevance"
+    "relevance": "Relevance",
+    "clearConfirmTitle": "Clear chat history?",
+    "clearConfirmMsg": "The current conversation will be permanently removed.",
+    "clearConfirmAction": "Clear history"
   },
   "docs": {
     "searchPlaceholder": "Search the documentation…",
@@ -200,7 +206,8 @@
     "downloadedActive": "Activated — llm-chat reloads it automatically within a few seconds.",
     "downloadedRegistered": "Saved to the registry. Activate it from the Playground — llm-chat will reload it automatically.",
     "progressLost": "Progress tracking stopped for “{{name}}”",
-    "progressLostDesc": "The download failed, was cancelled or interrupted (API restart). Check the logs (docker compose logs spectra-api) and relaunch the install if needed — an already downloaded file is reused."
+    "progressLostDesc": "The download failed, was cancelled or interrupted (API restart). Check the logs (docker compose logs spectra-api) and relaunch the install if needed — an already downloaded file is reused.",
+    "emptyListTitle": "No matching models"
   },
   "storage": {
     "title": "Storage — data/models/",
@@ -208,7 +215,7 @@
     "loading": "Loading…",
     "empty": "No GGUF file in the models volume.",
     "orphan": "not in the registry (orphan file)",
-    "active": "ACTIVE",
+    "active": "Active",
     "delete": "Delete",
     "deleteHintActive": "Active model — activate another one first",
     "deleteHint": "Remove from registry and delete the GGUF",
@@ -241,7 +248,7 @@
   },
   "optimization": {
     "kicker": "A/B ablation · held-out benchmark",
-    "title": "RESPONSE OPTIMIZATION",
+    "title": "Response optimization",
     "intro": "Measure and <1>validate the real contribution</1> of each learning option (fine-tuning) and optimization option (RAG modules). Each <3>arm</3> changes only one thing at a time: the <5>delta</5> between two arms is the marginal gain of that option — always to be read against its latency cost.",
     "modulesTitle": "The measured options",
     "modulesFootnote": "On top comes the <1>learning</1> axis: base model vs fine-tuned model (SFT/DPO), compared via the dedicated preset.",
@@ -400,7 +407,7 @@
   },
   "ingestion": {
     "kicker": "Data Engineering",
-    "title": "INGESTION & DATASET",
+    "title": "Ingestion & dataset",
     "refresh": "Refresh",
     "stepIngest": "Ingest",
     "stepGenerate": "Generate",
@@ -475,7 +482,7 @@
   },
   "comparison": {
     "kicker": "LLM-as-a-Judge",
-    "title": "MODEL EVALUATION",
+    "title": "Model evaluation",
     "status": {
       "PENDING": "Pending",
       "RUNNING": "Running",
@@ -536,7 +543,7 @@
   },
   "fineTuning": {
     "kicker": "Architecture Evolution",
-    "title": "FINE-TUNING COMMAND",
+    "title": "Fine-tuning",
     "cancel": "Cancel",
     "newJob": "New Training Job",
     "steps": {
@@ -618,7 +625,7 @@
   },
   "documents": {
     "kicker": "Knowledge & Records",
-    "title": "DOCUMENTS",
+    "title": "Documents",
     "subtitle": "Electronic Document Management: track the lifecycle, audit changes, and manage the quality of the sources feeding your models.",
     "shownCount": "{{shown}} shown · {{loaded}} loaded",
     "ofTotal": " / {{total}} total",

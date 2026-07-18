@@ -3,12 +3,12 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 
 // Doit correspondre aux valeurs réelles de IngestedFileEntity.Lifecycle.
 const LIFECYCLE_COLORS: Record<string, string> = {
-  INGESTED:  '#8ff5ff',
-  QUALIFIED: '#b8b3ff',
-  TRAINED:   '#4cffb3',
-  ARCHIVED:  '#5a6a8a',
+  INGESTED:  '#6673f0',
+  QUALIFIED: '#9a6ee0',
+  TRAINED:   '#199e70',
+  ARCHIVED:  '#5c6675',
 };
-const FALLBACK_COLORS = ['#8ff5ff', '#b8b3ff', '#4cffb3', '#5a6a8a', '#ff6b8a'];
+const FALLBACK_COLORS = ['#6673f0', '#9a6ee0', '#199e70', '#5c6675', '#e66767'];
 
 interface Props {
   byLifecycle: Record<string, number>;

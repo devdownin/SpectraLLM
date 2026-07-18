@@ -5,9 +5,9 @@ import {
 } from 'recharts';
 import type { AblationArmReport } from '../../types/api';
 
-const PRIMARY = '#8ff5ff';
-const POSITIVE = '#7ee787';
-const NEGATIVE = '#ff7b9c';
+const PRIMARY = '#6673f0';
+const POSITIVE = '#199e70';
+const NEGATIVE = '#e66767';
 const AXIS = 'rgba(222,229,255,0.55)';
 const GRID = 'rgba(255,255,255,0.06)';
 
@@ -69,7 +69,7 @@ const AblationCharts: FC<Props> = ({ arms }) => {
               <YAxis domain={[0, 10]} tick={{ fill: AXIS, fontSize: 10 }} />
               <Tooltip content={<TooltipBox />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
               <Bar dataKey="score" fill={PRIMARY} fillOpacity={0.7}>
-                <ErrorBar dataKey="err" width={4} strokeWidth={1.2} stroke="#dee5ff" direction="y" />
+                <ErrorBar dataKey="err" width={4} strokeWidth={1.2} stroke="#e8eaf0" direction="y" />
               </Bar>
             </BarChart>
           </ResponsiveContainer>

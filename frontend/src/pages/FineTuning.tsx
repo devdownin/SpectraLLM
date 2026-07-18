@@ -11,6 +11,7 @@ import type { TrainingLog } from '../types/api';
 import { configApi, fineTuningApi, recipeApi } from '../services/api';
 import { resolveTrainableBase, shouldReplace, suggestModelName } from '../lib/fineTuningPrefill';
 import LossChart from '../components/charts/LossChart';
+import { PageHeader, Button } from '../components/ui';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -420,19 +421,19 @@ const FineTuning: FC = () => {
     <div className="space-y-12 animate-in fade-in duration-700">
 
       {/* Header */}
-      <header className="flex justify-between items-end">
-        <div>
-          <p className="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-1">{t('fineTuning.kicker')}</p>
-          <h2 className="font-headline text-3xl font-bold tracking-tighter">{t('fineTuning.title')}</h2>
-        </div>
-        <button
-          onClick={() => setShowForm(v => !v)}
-          className="bg-primary text-on-primary-fixed font-bold py-3 px-6 text-[11px] uppercase tracking-widest hover:opacity-90 transition-opacity flex items-center gap-2"
-        >
-          <span className="material-symbols-outlined text-sm">{showForm ? 'close' : 'add'}</span>
-          {showForm ? t('fineTuning.cancel') : t('fineTuning.newJob')}
-        </button>
-      </header>
+      <PageHeader
+        kicker={t('fineTuning.kicker')}
+        title={t('fineTuning.title')}
+        actions={
+          <Button
+            variant={showForm ? 'secondary' : 'primary'}
+            icon={showForm ? 'close' : 'add'}
+            onClick={() => setShowForm(v => !v)}
+          >
+            {showForm ? t('fineTuning.cancel') : t('fineTuning.newJob')}
+          </Button>
+        }
+      />
 
       {/* ── New Job Form ── */}
       {showForm && (
@@ -559,15 +560,12 @@ const FineTuning: FC = () => {
             </div>
 
             <div className="flex items-end">
-              <button
-                type="submit" disabled={submitting}
-                className="w-full bg-primary text-on-primary-fixed font-bold py-3 px-6 text-[11px] uppercase tracking-widest hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center justify-center gap-2"
-              >
-                <span className={`material-symbols-outlined text-sm ${submitting ? 'animate-spin' : ''}`}>
+              <Button type="submit" size="lg" disabled={submitting} className="w-full">
+                <span aria-hidden="true" className={`material-symbols-outlined text-[16px] ${submitting ? 'animate-spin' : ''}`}>
                   {submitting ? 'sync' : 'rocket_launch'}
                 </span>
                 {submitting ? t('fineTuning.submitting') : t('fineTuning.launch')}
-              </button>
+              </Button>
             </div>
 
           </form>
@@ -596,7 +594,7 @@ const FineTuning: FC = () => {
         {!activeJob ? (
           <div className="py-12 flex flex-col items-center justify-center gap-3">
             <span className="material-symbols-outlined text-4xl text-outline">model_training</span>
-            <p className="text-[11px] text-outline uppercase tracking-widest italic text-center">
+            <p className="text-[12px] text-on-surface-variant text-center leading-relaxed">
               {t('fineTuning.noActiveJob1')}<br />{t('fineTuning.noActiveJob2')}
             </p>
           </div>
@@ -755,7 +753,7 @@ const FineTuning: FC = () => {
             <tbody className="divide-y divide-outline-variant/10">
               {jobs.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-5 py-8 text-center text-[11px] text-outline uppercase tracking-widest italic">
+                  <td colSpan={7} className="px-5 py-8 text-center text-[12px] text-on-surface-variant">
                     {t('fineTuning.noJobs')}
                   </td>
                 </tr>

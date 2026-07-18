@@ -7,6 +7,8 @@ import { toast } from 'sonner';
 import Skeleton from '../components/Skeleton';
 import Tooltip from '../components/Tooltip';
 import ConfirmDialog from '../components/ConfirmDialog';
+import { Badge, EmptyState, PageHeader, Button } from '../components/ui';
+import type { BadgeTone } from '../components/ui';
 import { gedApi, commentApi } from '../services/api';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import type { IngestedFile, IngestedFileSheet, DocumentLifecycle, ArticleComment } from '../types/api';
@@ -38,6 +40,14 @@ const LIFECYCLE_COLORS: Record<DocumentLifecycle, string> = {
   QUALIFIED: 'border-secondary/40 text-secondary bg-secondary/5',
   TRAINED: 'border-primary/40 text-primary bg-primary/5',
   ARCHIVED: 'border-on-surface-variant/20 text-on-surface-variant bg-surface-container-low',
+};
+
+/** Tonalité Badge par état du cycle de vie (chips d'affichage). */
+const LIFECYCLE_TONES: Record<DocumentLifecycle, BadgeTone> = {
+  INGESTED: 'neutral',
+  QUALIFIED: 'secondary',
+  TRAINED: 'primary',
+  ARCHIVED: 'neutral',
 };
 
 const LIFECYCLE_BAR_COLORS: Record<string, string> = {
@@ -499,9 +509,9 @@ const Documents: FC = () => {
         </div>
 
         <div className="flex justify-center">
-          <span className={`text-[10px] font-bold px-2 py-0.5 border uppercase tracking-wider ${LIFECYCLE_COLORS[doc.lifecycle]}`}>
+          <Badge tone={LIFECYCLE_TONES[doc.lifecycle]} className={doc.lifecycle === 'ARCHIVED' ? 'opacity-60' : undefined}>
             {doc.lifecycle}
-          </span>
+          </Badge>
         </div>
 
         <div className="flex items-center gap-2">
@@ -551,28 +561,23 @@ const Documents: FC = () => {
     <div className="space-y-6 animate-in fade-in duration-700 pb-32">
 
       {/* Header */}
-      <header className="flex flex-col xl:flex-row xl:items-end justify-between gap-6">
-        <div>
-          <p className="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-1">{t('documents.kicker')}</p>
-          <h2 className="font-headline text-3xl font-bold tracking-tighter uppercase">{t('documents.title')}</h2>
-          <p className="text-sm text-on-surface-variant mt-3 max-w-3xl leading-relaxed">
-            {t('documents.subtitle')}
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="text-[11px] font-label text-on-surface-variant uppercase tracking-widest">
-            {t('documents.shownCount', { shown: filtered.length, loaded: documents.length })}
-            {totalDocuments > documents.length ? t('documents.ofTotal', { total: totalDocuments }) : ''}
-          </span>
-          <button
-            onClick={() => refetch()}
-            className="flex items-center gap-2 border border-outline-variant/20 px-4 py-3 text-[11px] font-label uppercase tracking-widest text-on-surface-variant hover:text-primary transition-colors"
-          >
-            <span className={`material-symbols-outlined text-sm ${isFetching ? 'animate-spin' : ''}`}>refresh</span>
-            {t('documents.sync')}
-          </button>
-        </div>
-      </header>
+      <PageHeader
+        kicker={t('documents.kicker')}
+        title={t('documents.title')}
+        description={t('documents.subtitle')}
+        actions={
+          <>
+            <span className="text-[12px] text-on-surface-variant">
+              {t('documents.shownCount', { shown: filtered.length, loaded: documents.length })}
+              {totalDocuments > documents.length ? t('documents.ofTotal', { total: totalDocuments }) : ''}
+            </span>
+            <Button variant="outline" size="sm" onClick={() => refetch()}>
+              <span aria-hidden="true" className={`material-symbols-outlined text-[16px] ${isFetching ? 'animate-spin' : ''}`}>refresh</span>
+              {t('documents.sync')}
+            </Button>
+          </>
+        }
+      />
 
       {/* Stats Cards */}
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -757,10 +762,7 @@ const Documents: FC = () => {
             <>
               {paginatedItems.map(renderRow)}
               {filtered.length === 0 && (
-                <div className="py-20 text-center text-on-surface-variant">
-                  <span className="material-symbols-outlined text-4xl block mb-3 opacity-30">search_off</span>
-                  <p className="text-sm">{t('documents.noMatch')}</p>
-                </div>
+                <EmptyState icon="search_off" title={t('documents.noMatch')} className="py-16" />
               )}
             </>
           ) : (
@@ -896,13 +898,15 @@ const Documents: FC = () => {
               </button>
             ))}
             <div className="w-px h-6 bg-outline-variant/20" />
-            <button
+            <Button
+              variant="danger"
+              size="sm"
+              icon="delete"
               onClick={() => setPendingDelete({ kind: 'bulk', shaList: Array.from(bulkSelected) })}
               disabled={bulkDeleteMutation.isPending}
-              className="px-3 py-2 border border-error/30 text-error text-[10px] font-bold tracking-widest uppercase hover:bg-error hover:text-white transition-all disabled:opacity-50"
             >
               {t('documents.delete')}
-            </button>
+            </Button>
             <button onClick={() => setBulkSelected(new Set())} className="w-8 h-8 flex items-center justify-center text-outline hover:text-on-surface transition-colors">
               <span className="material-symbols-outlined text-sm">close</span>
             </button>
@@ -1007,16 +1011,17 @@ const Documents: FC = () => {
                     <p className="text-xs italic text-outline">{t('documents.noTags')}</p>
                   )}
                   {sheet.tags.map(tag => (
-                    <span key={tag} className="flex items-center gap-1 text-[10px] border border-outline-variant/30 px-2 py-1 text-outline uppercase">
+                    <Badge key={tag} tone="neutral">
                       #{tag}
                       <button
                         onClick={() => removeTagMutation.mutate({ sha: sheet.sha256, tags: [tag] })}
                         disabled={removeTagMutation.isPending}
-                        className="hover:text-error transition-colors ml-1"
+                        aria-label={`Remove tag ${tag}`}
+                        className="hover:text-error transition-colors"
                       >
-                        <span className="material-symbols-outlined text-[11px]">close</span>
+                        <span aria-hidden="true" className="material-symbols-outlined text-[11px]">close</span>
                       </button>
-                    </span>
+                    </Badge>
                   ))}
                 </div>
                 <div className="flex gap-2">
@@ -1109,13 +1114,9 @@ const Documents: FC = () => {
                         }`}>
                           <div className="flex items-start justify-between gap-2">
                             <div className="flex items-center gap-2 shrink-0">
-                              <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 border ${
-                                c.type === 'AI_GENERATED'
-                                  ? 'border-secondary/40 text-secondary bg-secondary/10'
-                                  : 'border-outline-variant/30 text-outline'
-                              }`}>
+                              <Badge tone={c.type === 'AI_GENERATED' ? 'secondary' : 'neutral'}>
                                 {c.type === 'AI_GENERATED' ? '✦ AI' : '👤'}
-                              </span>
+                              </Badge>
                               <span className="text-[10px] text-outline">{c.author}</span>
                             </div>
                             <span className="text-[10px] font-mono text-outline shrink-0">{formatDate(c.createdAt)}</span>

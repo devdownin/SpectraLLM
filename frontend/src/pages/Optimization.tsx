@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { ablationApi, fineTuningApi } from '../services/api';
 import { etaMs, formatEta } from '../hooks/useGlobalTasks';
 import AblationCharts from '../components/charts/AblationCharts';
+import { PageHeader, Button } from '../components/ui';
 import type {
   AblationArmConfig,
   AblationArmReport,
@@ -302,20 +303,18 @@ const Optimization: FC = () => {
   return (
     <div className="space-y-8 animate-in fade-in duration-700">
       {/* Header */}
-      <header>
-        <p className="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-1">
-          {t('optimization.kicker')}
-        </p>
-        <h2 className="font-headline text-3xl font-bold tracking-tighter">{t('optimization.title')}</h2>
-        <p className="text-sm text-on-surface-variant max-w-3xl mt-2 leading-relaxed">
+      <PageHeader
+        kicker={t('optimization.kicker')}
+        title={t('optimization.title')}
+        description={
           <Trans i18nKey="optimization.intro">
             Measure and <strong className="text-on-surface">validate the real contribution</strong> of each learning
             option (fine-tuning) and optimization option (RAG modules). Each <em>arm</em> changes only one thing at a
             time: the <strong className="text-on-surface">delta</strong> between two arms is the marginal gain of that
             option — always to be read against its latency cost.
           </Trans>
-        </p>
-      </header>
+        }
+      />
 
       {/* Explications des options */}
       <section className="space-y-3">
@@ -400,13 +399,9 @@ const Optimization: FC = () => {
               onChange={e => setRuns(Math.max(1, Math.min(10, Number(e.target.value) || 1)))}
               className="w-16 bg-surface-container border border-outline-variant/20 px-2 py-1 text-on-surface text-xs" />
           </label>
-          <button
-            onClick={() => submit.mutate()}
-            disabled={running}
-            className="px-5 py-2 bg-primary text-on-primary font-headline text-xs uppercase tracking-widest disabled:opacity-50 hover:bg-primary/90 transition-colors"
-          >
+          <Button onClick={() => submit.mutate()} disabled={running} icon={running ? undefined : 'play_arrow'} loading={running}>
             {running ? t('optimization.launching') : t('optimization.launch')}
-          </button>
+          </Button>
           <span className="text-[11px] text-on-surface-variant">
             {t('optimization.slowHint', { arms: arms.length, runs })}
           </span>

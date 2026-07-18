@@ -10,6 +10,7 @@ import ModelComparisonPanel from '../components/ModelComparisonPanel';
 import BatchEvaluateDialog from '../components/BatchEvaluateDialog';
 import AbComparisonView from '../components/AbComparisonView';
 import Skeleton from '../components/Skeleton';
+import { EmptyState, Button, PageHeader } from '../components/ui';
 
 const STATUS_COLOR: Record<string, string> = {
   PENDING:   'text-on-surface-variant',
@@ -215,61 +216,51 @@ const Comparison: FC = () => {
         onSubmitted={handleBatchSubmitted}
       />
       {/* Header */}
-      <header className="flex items-end justify-between">
-        <div>
-          <p className="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-1">
-            {t('comparison.kicker')}
-          </p>
-          <h2 className="font-headline text-3xl font-bold tracking-tighter">{t('comparison.title')}</h2>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setAbMode(m => !m)}
-            className={`px-4 py-2 font-label text-[11px] uppercase tracking-widest transition-colors border
-                       ${abMode
-                          ? 'bg-secondary text-on-secondary border-secondary'
-                          : 'bg-transparent text-on-surface-variant border-outline-variant/30 hover:text-on-surface hover:bg-surface-container-high'}`}
-            aria-pressed={abMode}
-            title={t('comparison.abTitle')}
-          >
-            {abMode ? t('comparison.abExit') : t('comparison.abEnter')}
-          </button>
-          {!abMode && (
-            <>
-              <button
-                onClick={() => setBatchOpen(true)}
-                className="px-4 py-2 bg-transparent text-on-surface-variant font-label text-[11px] uppercase tracking-widest
-                           border border-outline-variant/30 hover:text-on-surface hover:bg-surface-container-high transition-colors"
-                aria-label={t('comparison.batchTitle')}
-                title={t('comparison.batchTitle')}
-              >
-                {t('comparison.batch')}
-              </button>
-              <button
-                onClick={() => setCompareMode(m => !m)}
-                disabled={compareIds.length < 2}
-                className={`px-4 py-2 font-label text-[11px] uppercase tracking-widest transition-colors border
-                           disabled:opacity-40 disabled:cursor-not-allowed
-                           ${compareMode
-                              ? 'bg-secondary text-on-secondary border-secondary'
-                              : 'bg-transparent text-on-surface-variant border-outline-variant/30 hover:text-on-surface hover:bg-surface-container-high'}`}
-                aria-pressed={compareMode}
-                title={compareIds.length < 2 ? t('comparison.compareHintDisabled') : t('comparison.compareHintEnabled')}
-              >
-                {compareMode ? t('comparison.compareExit') : t('comparison.compareEnter', { count: compareIds.length })}
-              </button>
-              <button
-                onClick={handleNewEvaluation}
-                disabled={isTriggering}
-                className="px-4 py-2 bg-primary text-on-primary font-label text-[11px] uppercase tracking-widest
-                           hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
-              >
-                {isTriggering ? t('comparison.launching') : t('comparison.newEval')}
-              </button>
-            </>
-          )}
-        </div>
-      </header>
+      <PageHeader
+        kicker={t('comparison.kicker')}
+        title={t('comparison.title')}
+        actions={
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setAbMode(m => !m)}
+              aria-pressed={abMode}
+              title={t('comparison.abTitle')}
+              className={abMode ? 'bg-secondary text-on-secondary border-secondary hover:bg-secondary' : undefined}
+            >
+              {abMode ? t('comparison.abExit') : t('comparison.abEnter')}
+            </Button>
+            {!abMode && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setBatchOpen(true)}
+                  aria-label={t('comparison.batchTitle')}
+                  title={t('comparison.batchTitle')}
+                >
+                  {t('comparison.batch')}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCompareMode(m => !m)}
+                  disabled={compareIds.length < 2}
+                  aria-pressed={compareMode}
+                  title={compareIds.length < 2 ? t('comparison.compareHintDisabled') : t('comparison.compareHintEnabled')}
+                  className={compareMode ? 'bg-secondary text-on-secondary border-secondary hover:bg-secondary' : undefined}
+                >
+                  {compareMode ? t('comparison.compareExit') : t('comparison.compareEnter', { count: compareIds.length })}
+                </Button>
+                <Button size="sm" onClick={handleNewEvaluation} disabled={isTriggering}>
+                  {isTriggering ? t('comparison.launching') : t('comparison.newEval')}
+                </Button>
+              </>
+            )}
+          </>
+        }
+      />
 
       {abMode && <AbComparisonView />}
 
@@ -279,9 +270,17 @@ const Comparison: FC = () => {
           <Skeleton className="h-80" />
         </div>
       ) : reports.length === 0 ? (
-        <div className="bg-surface-container p-8 text-center space-y-2">
-          <p className="font-headline text-lg">{t('comparison.empty')}</p>
-          <p className="text-sm text-on-surface-variant">{t('comparison.emptyHint')}</p>
+        <div className="bg-surface-container rounded-xl ring-1 ring-white/[0.045]">
+          <EmptyState
+            icon="analytics"
+            title={t('comparison.empty')}
+            description={t('comparison.emptyHint')}
+            action={
+              <Button onClick={handleNewEvaluation} loading={isTriggering} icon="play_arrow">
+                {t('comparison.newEval')}
+              </Button>
+            }
+          />
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-6 items-start">

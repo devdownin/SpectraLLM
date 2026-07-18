@@ -8,6 +8,7 @@ import { queryApi, configApi, fineTuningApi, ingestApi, healthApi } from '../ser
 import type { StreamDoneMeta } from '../services/api';
 import type { ServiceStatus } from '../types/api';
 import Tooltip from '../components/Tooltip';
+import ConfirmDialog from '../components/ConfirmDialog';
 import RagAdvisor from '../components/RagAdvisor';
 import ChatMarkdown from '../components/ChatMarkdown';
 
@@ -294,9 +295,18 @@ const Playground: FC = () => {
     }
   };
 
+  const [confirmClear, setConfirmClear] = useState(false);
+
   const clearChat = () => {
     setMessages([{ role: 'assistant', content: 'Discussion cleared. System ready.', status: 'SENT' }]);
+    setConfirmClear(false);
     toast.info('Chat history cleared');
+  };
+
+  /** Confirme uniquement s'il y a une vraie conversation à perdre. */
+  const requestClearChat = () => {
+    if (messages.length > 1) setConfirmClear(true);
+    else clearChat();
   };
 
   /** Déclenche le téléchargement d'un blob texte côté navigateur. */
@@ -830,14 +840,23 @@ const Playground: FC = () => {
             )}
           </div>
           <button
-            onClick={clearChat}
-            className="w-full py-3 px-4 border border-error/30 text-error text-[11px] font-headline uppercase tracking-widest hover:bg-error/5 transition-colors flex items-center justify-center gap-2"
+            onClick={requestClearChat}
+            className="w-full h-10 px-4 rounded-lg border border-error/30 text-error text-[13px] font-medium hover:bg-error/10 transition-colors flex items-center justify-center gap-2"
           >
-            <span className="material-symbols-outlined text-sm">delete_sweep</span>
+            <span aria-hidden="true" className="material-symbols-outlined text-[16px]">delete_sweep</span>
             Clear Chat History
           </button>
         </div>
       </aside>
+
+      <ConfirmDialog
+        open={confirmClear}
+        title={t('playground.clearConfirmTitle', 'Clear chat history?')}
+        message={t('playground.clearConfirmMsg', 'The current conversation will be permanently removed.')}
+        confirmLabel={t('playground.clearConfirmAction', 'Clear history')}
+        onConfirm={clearChat}
+        onCancel={() => setConfirmClear(false)}
+      />
 
       <div className="flex-1 flex flex-col bg-surface-container overflow-hidden relative">
         <div

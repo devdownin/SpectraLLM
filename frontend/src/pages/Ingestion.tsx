@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import Tooltip from '../components/Tooltip';
 import Skeleton from '../components/Skeleton';
 import ConfirmDialog from '../components/ConfirmDialog';
+import { PageHeader, Button } from '../components/ui';
 import { ingestApi, datasetApi } from '../services/api';
 import { etaMs, formatEta } from '../hooks/useGlobalTasks';
 
@@ -437,29 +438,25 @@ const Ingestion: FC = () => {
     <div className="space-y-12 animate-in fade-in duration-700">
 
       {/* Header */}
-      <header className="flex justify-between items-end">
-        <div>
-          <p className="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-1">{t('ingestion.kicker')}</p>
-          <h2 className="font-headline text-3xl font-bold tracking-tighter">{t('ingestion.title')}</h2>
-        </div>
-        <div className="flex items-center gap-6">
-        <button
-          onClick={loadStats}
-          className="flex items-center gap-1.5 text-[10px] font-label uppercase tracking-widest text-on-surface-variant hover:text-primary transition-colors"
-        >
-          <span className="material-symbols-outlined text-sm">refresh</span>
-          {t('ingestion.refresh')}
-        </button>
-        <div className="flex items-center gap-3">
-          {PIPELINE_STEPS.map((s, i) => (
-            <PipelineStep key={s.key} icon={s.icon} label={t(s.labelKey)}
-              state={pipelineState(s.key)}
-              nextState={i < PIPELINE_STEPS.length - 1 ? pipelineState(PIPELINE_STEPS[i + 1].key) : undefined}
-              isLast={i === PIPELINE_STEPS.length - 1} />
-          ))}
-        </div>
-        </div>
-      </header>
+      <PageHeader
+        kicker={t('ingestion.kicker')}
+        title={t('ingestion.title')}
+        actions={
+          <>
+            <Button variant="ghost" size="sm" icon="refresh" onClick={loadStats}>
+              {t('ingestion.refresh')}
+            </Button>
+            <div className="flex items-center gap-3">
+              {PIPELINE_STEPS.map((s, i) => (
+                <PipelineStep key={s.key} icon={s.icon} label={t(s.labelKey)}
+                  state={pipelineState(s.key)}
+                  nextState={i < PIPELINE_STEPS.length - 1 ? pipelineState(PIPELINE_STEPS[i + 1].key) : undefined}
+                  isLast={i === PIPELINE_STEPS.length - 1} />
+              ))}
+            </div>
+          </>
+        }
+      />
 
       {/* ── System State Banner ── */}
       <div className={`grid grid-cols-3 gap-4 p-5 border ${
@@ -638,7 +635,7 @@ const Ingestion: FC = () => {
                 {/* List */}
                 <div className="flex-1 space-y-2 overflow-y-auto custom-scrollbar max-h-64">
                   {history.length === 0 && !historyLoading ? (
-                    <p className="text-[11px] text-outline uppercase tracking-widest italic text-center py-4">
+                    <p className="text-[12px] text-on-surface-variant text-center py-4">
                       {historySearch ? t('ingestion.noResults') : t('ingestion.emptyHistory')}
                     </p>
                   ) : (
@@ -680,7 +677,7 @@ const Ingestion: FC = () => {
               </div>
             ) : ingestEntries.length === 0 ? (
               <div className="flex-1 flex items-center justify-center">
-                <p className="text-[11px] text-outline uppercase tracking-widest italic text-center">
+                <p className="text-[12px] text-on-surface-variant text-center">
                   {t('ingestion.noActiveIngest1')}<br />{t('ingestion.noActiveIngest2')}
                 </p>
               </div>
@@ -809,26 +806,25 @@ const Ingestion: FC = () => {
               )}
             </div>
 
-            <button
+            <Button
               onClick={handleGenerateDataset}
               disabled={genActive}
-              className={`w-full font-bold py-3 px-6 text-[11px] uppercase tracking-widest transition-opacity flex items-center justify-center gap-2 ${
-                genActive ? 'bg-surface-container-high text-outline cursor-not-allowed' :
-                'bg-primary text-on-primary-fixed hover:opacity-90'
-              }`}
+              size="lg"
+              variant={genActive ? 'secondary' : 'primary'}
+              className="w-full"
             >
-              <span className={`material-symbols-outlined text-sm ${genActive ? 'animate-spin' : ''}`}>
+              <span aria-hidden="true" className={`material-symbols-outlined text-[16px] ${genActive ? 'animate-spin' : ''}`}>
                 {genActive ? 'sync' : 'rocket_launch'}
               </span>
               {genActive ? t('ingestion.generating') : t('ingestion.generate')}
-            </button>
+            </Button>
           </div>
 
           {/* Progress */}
           <div className="lg:col-span-2 bg-surface-container p-6 space-y-5">
             {!genTask ? (
               <div className="h-full flex items-center justify-center">
-                <p className="text-[11px] text-outline uppercase tracking-widest italic text-center">
+                <p className="text-[12px] text-on-surface-variant text-center">
                   {t('ingestion.noGeneration1')}<br />
                   {t('ingestion.noGeneration2')}
                 </p>
@@ -914,7 +910,7 @@ const Ingestion: FC = () => {
 
           {stats.totalPairs === 0 && stats.chunksInStore === 0 ? (
             <div className="bg-surface-container p-8 flex items-center justify-center">
-              <p className="text-[11px] text-outline uppercase tracking-widest italic text-center">
+              <p className="text-[12px] text-on-surface-variant text-center">
                 {t('ingestion.noData1')}<br />
                 {t('ingestion.noData2')}
               </p>
