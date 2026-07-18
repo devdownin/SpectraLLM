@@ -4,9 +4,9 @@ kind: Kustomization
 namespace: spectra
 
 resources:
-  - 00-namespace.yaml
+  # Socle namespace + PVC — module partagé avec deploy/k8s/seed (cf. foundation/).
+  - foundation
   - 01-configmap.yaml
-  - 02-pvc.yaml
   - 03-chromadb.yaml
   - 04-browserless.yaml
   - 05-llama-embed.yaml

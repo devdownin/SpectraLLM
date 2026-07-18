@@ -22,6 +22,8 @@ interface IngestEntry {
   /** Total de chunks découvert au fil du chunking (0 = encore inconnu). */
   chunksExpected: number;
   error?: string;
+  /** Échecs par fichier ("nom: cause") remontés par la tâche — succès partiel possible. */
+  fileErrors?: string[];
 }
 
 interface GenerationTask {
@@ -41,6 +43,7 @@ interface IngestionTask {
   chunksCreated: number;
   chunksExpected?: number;
   error: string | null;
+  fileErrors?: string[];
 }
 
 interface IngestedFile {
@@ -204,12 +207,21 @@ const Ingestion: FC = () => {
             duration: 10000,
           });
         }
+        // Succès partiel : la tâche aboutit mais certains fichiers ont échoué (fileErrors).
+        // Signalé une seule fois — le polling s'arrête à l'état terminal juste après.
+        if (t.status === 'COMPLETED' && (t.fileErrors?.length ?? 0) > 0) {
+          toast.warning(i18n.t('ingestion.partialTitle', { name: t.files?.[0] ?? taskId.slice(0, 8) }), {
+            description: i18n.t('ingestion.partialDesc', { count: t.fileErrors!.length }),
+            duration: 10000,
+          });
+        }
         setIngestEntries(prev => {
           const patch = {
             status: t.status,
             chunksCreated: t.chunksCreated,
             chunksExpected: t.chunksExpected ?? 0,
             error: t.error ?? undefined,
+            fileErrors: t.fileErrors ?? undefined,
           };
           if (entryId === taskId) {
             return prev.map(e => e.taskId === taskId ? { ...e, ...patch } : e);
@@ -674,21 +686,36 @@ const Ingestion: FC = () => {
               </div>
             ) : (
               <div className="flex-1 space-y-3 overflow-y-auto custom-scrollbar">
-                {ingestEntries.map(entry => (
+                {ingestEntries.map(entry => {
+                  // Erreurs par fichier pertinentes pour CETTE ligne : celles préfixées par
+                  // son nom ("nom: cause") ; si la ligne est seule pour sa tâche (upload
+                  // unitaire, URL, archive ZIP), toutes les erreurs de la tâche.
+                  const siblings = entry.taskId
+                    ? ingestEntries.filter(e => e.taskId === entry.taskId).length
+                    : 1;
+                  const entryErrors = (entry.fileErrors ?? []).filter(
+                    fe => siblings <= 1 || fe.startsWith(`${entry.fileName}:`)
+                  );
+                  // Succès partiel : tâche COMPLETED mais ce fichier (ou cette archive) porte
+                  // des erreurs — ne plus l'afficher comme un succès plein.
+                  const partial = entry.status === 'COMPLETED' && entryErrors.length > 0;
+                  return (
                   <div key={entry.id} className={`space-y-1.5 transition-colors duration-300 ${entry.status === 'PROCESSING' ? 'bg-secondary/3 -mx-1 px-1' : ''}`}>
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 min-w-0">
                         {/* Icon: spin for PROCESSING, static otherwise */}
-                        <span className={`material-symbols-outlined text-sm ${statusColor[entry.status]}`}
+                        <span className={`material-symbols-outlined text-sm ${partial ? 'text-error' : statusColor[entry.status]}`}
                           style={entry.status === 'PROCESSING' ? { animation: 'rotate-slow 1.2s linear infinite' } : undefined}>
-                          {statusIcon[entry.status]}
+                          {partial ? 'warning' : statusIcon[entry.status]}
                         </span>
                         <span className="text-[11px] font-label truncate">{entry.fileName}</span>
                       </div>
                       <span key={`${entry.status}-${entry.chunksCreated}`}
-                        className={`text-[10px] font-bold uppercase tracking-widest shrink-0 ${statusColor[entry.status]} ${entry.status === 'COMPLETED' ? 'count-flash' : ''}`}>
+                        className={`text-[10px] font-bold uppercase tracking-widest shrink-0 ${partial ? 'text-error' : statusColor[entry.status]} ${entry.status === 'COMPLETED' ? 'count-flash' : ''}`}>
                         {entry.status === 'COMPLETED'
-                          ? t('ingestion.chunks', { count: entry.chunksCreated })
+                          ? (partial
+                              ? t('ingestion.chunksPartial', { count: entry.chunksCreated })
+                              : t('ingestion.chunks', { count: entry.chunksCreated }))
                           : entry.status === 'PROCESSING' && entry.chunksExpected > 0
                             ? t('ingestion.chunksProgress', { done: entry.chunksCreated, total: entry.chunksExpected })
                             : entry.status === 'PROCESSING' && entry.chunksCreated > 0
@@ -701,7 +728,7 @@ const Ingestion: FC = () => {
                         {/* Barre déterminée dès que le total de chunks est connu (chunking fait),
                             sinon balayage indéterminé le temps de l'extraction. */}
                         <div className={`h-full transition-all duration-700 ${
-                          entry.status === 'COMPLETED' ? 'bg-primary w-full' : 'bg-secondary/50'
+                          entry.status === 'COMPLETED' ? (partial ? 'bg-error/60 w-full' : 'bg-primary w-full') : 'bg-secondary/50'
                         }`}
                           style={entry.status === 'PROCESSING' ? {
                             width: entry.chunksExpected > 0
@@ -716,8 +743,12 @@ const Ingestion: FC = () => {
                     {entry.error && (
                       <p className="text-[10px] text-error truncate">{entry.error}</p>
                     )}
+                    {entryErrors.map((fe, i) => (
+                      <p key={i} className="text-[10px] text-error truncate" title={fe}>{fe}</p>
+                    ))}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

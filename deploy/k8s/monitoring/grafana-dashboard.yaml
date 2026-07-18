@@ -112,6 +112,46 @@ data:
               "refId": "B"
             }
           ]
+        },
+        {
+          "id": 6,
+          "title": "Cohérence des index — chunks par magasin",
+          "type": "timeseries",
+          "datasource": "${datasource}",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+          "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+          "targets": [
+            {
+              "expr": "spectra_consistency_chroma_chunks{application=\"spectrallm\"}",
+              "legendFormat": "ChromaDB (défaut)",
+              "refId": "A"
+            },
+            {
+              "expr": "spectra_consistency_fts_chunks{application=\"spectrallm\"}",
+              "legendFormat": "BM25 (défaut)",
+              "refId": "B"
+            },
+            {
+              "expr": "spectra_consistency_db_chunks{application=\"spectrallm\"}",
+              "legendFormat": "GED (H2)",
+              "refId": "C"
+            }
+          ]
+        },
+        {
+          "id": 7,
+          "title": "Divergence FTS/ChromaDB par collection",
+          "type": "timeseries",
+          "datasource": "${datasource}",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+          "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+          "targets": [
+            {
+              "expr": "spectra_consistency_collection_fts_chroma_divergence{application=\"spectrallm\"}",
+              "legendFormat": "{{collection}}",
+              "refId": "A"
+            }
+          ]
         }
       ]
     }
