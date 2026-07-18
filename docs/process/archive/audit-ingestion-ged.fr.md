@@ -301,6 +301,25 @@ direct (et silencieusement ignorés dans les ZIP), ce qui surprend.
 - **O7** — `.md`/`.markdown`/`.csv` routés vers l'extracteur texte.
 - **O8** — `addTags` en `LinkedHashSet` (O(1)).
 
-Restent ouverts (choix produit ou faible valeur) : locale de chunking configurable, réconciliation
-des collections non-défaut, transition TRAINED automatique au fine-tuning, borne explicite de
-profondeur JSON.
+Troisième vague — les quatre derniers points ouverts sont traités :
+
+- **Locale de chunking configurable** — `spectra.pipeline.chunk-locale` (tag BCP 47, défaut
+  `fr`) pilote le `BreakIterator` des frontières de phrases ; valeur invalide → repli français.
+- **Réconciliation multi-collections** — `ConsistencyReconciliationService` surveille désormais
+  la collection par défaut, celles référencées par la GED et celle du flux Kafka (si activé),
+  avec des gauges par collection (`spectra.consistency.collection.*{collection=…}`) en plus des
+  gauges historiques ; la réparation FTS s'applique à chacune.
+- **Transition TRAINED automatique** — en fin de fine-tuning réussi, les documents sources du
+  dataset (provenance `source` des paires SFT/DPO) sont liés au modèle (`TRAINED_ON`) et leur
+  cycle de vie avance vers TRAINED en respectant la machine à états (INGESTED → QUALIFIED →
+  TRAINED ; ARCHIVED n'est pas ressuscité). Le statut TRAINED était en pratique inatteignable
+  (liens uniquement manuels).
+- **Borne de profondeur JSON** — `JsonExtractor` limite l'aplatissement à 128 niveaux ; au-delà,
+  le sous-arbre est sérialisé en bloc (tronqué à 4 096 caractères) au lieu de poursuivre la
+  récursion — plus de dépendance implicite aux `StreamReadConstraints` de Jackson.
+
+Au passage : restauration de la validation de fraîcheur de l'index FTS disque contre ChromaDB
+(`diskIndexMatchesChroma`), dont l'implémentation avait été perdue lors d'une fusion sur `main`
+(le commentaire et le test existaient, pas le code — la suite était rouge).
+
+L'audit est intégralement traité : plus aucun point ouvert.

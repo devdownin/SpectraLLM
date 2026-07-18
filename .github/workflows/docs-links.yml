@@ -1,0 +1,22 @@
+# Contrôle des liens internes de la documentation Markdown.
+# Déterministe et sans réseau (chemins relatifs uniquement) : empêche la réapparition
+# de liens morts après un renommage ou une suppression de document.
+name: Docs links
+
+on:
+  push:
+    branches: [main]
+    paths: ["**.md"]
+  pull_request:
+    paths: ["**.md"]
+
+permissions:
+  contents: read
+
+jobs:
+  check-internal-links:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check internal Markdown links
+        run: python3 scripts/check-doc-links.py

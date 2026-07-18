@@ -42,6 +42,11 @@ public interface IngestedFileRepository
     /** Documents portant exactement ce nom de fichier (suppression par nom de source). */
     List<IngestedFileEntity> findByFileName(String fileName);
 
+    /** Collections ChromaDB référencées par la GED (réconciliation multi-collections). */
+    @Query("SELECT DISTINCT f.collectionName FROM IngestedFileEntity f "
+            + "WHERE f.collectionName IS NOT NULL AND f.collectionName <> ''")
+    List<String> findDistinctCollectionNames();
+
     Page<IngestedFileEntity> findAll(
             org.springframework.data.jpa.domain.Specification<IngestedFileEntity> spec,
             Pageable pageable);

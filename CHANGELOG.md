@@ -8,11 +8,36 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Ingestion & GED — cohérence des index, suppression unifiée, erreurs visibles (audit)
+
+Correctifs issus de l'[audit ingestion/GED](docs/process/archive/audit-ingestion-ged.fr.md) (PR #244, #249) :
+
+- **Ré-ingestion `force=true` = remplacement** : les anciens chunks sont purgés (ChromaDB + BM25) avant la ré-indexation — chaque force dupliquait auparavant tous les chunks du document dans les réponses. C'est aussi la voie de réparation d'un document partiellement indexé.
+- **Identité `sha256` des chunks** : les suppressions/remplacements ciblent le contenu, plus le nom de fichier — deux documents homonymes ne partagent plus leur sort (repli `sourceFile` pour les chunks historiques).
+- **Suppression unifiée** : `DELETE /api/documents/{sourceFile}` supprime désormais aussi la fiche GED (la dédup SHA-256 ne bloquait plus la ré-ingestion d'un document devenu invisible du RAG) ; la purge de rétention passe par la suppression complète (DB + index) au lieu de laisser les chunks servis à vie.
+- **Erreurs par fichier** : nouveau champ `fileErrors` dans le suivi des tâches d'ingestion (upload, exécuteur, URLs) ; une tâche dont tous les fichiers échouent finit `FAILED` au lieu d'un faux `COMPLETED` à 0 chunk. Nouvelle colonne `ingestion_tasks.file_errors` (migration idempotente).
+- **Garde-fous** : limite de taille décompressée appliquée aussi aux uploads directs ; l'ingestion URL/batch passe par le sémaphore de concurrence et la réservation in-flight (heartbeat pour les ingestions plus longues que le TTL).
+- **Rétention sur la date d'archivage** : nouvelle colonne `ingested_files.archived_at` (posée à l'archivage, effacée au retour) — la purge n'éliminait plus un vieux document fraîchement archivé ; `incrementVersion` rafraîchit `ingestedAt`.
+- **Score de qualité atteignant 1.0** : l'ancienne pondération plafonnait le score réel à 0.86 — un seuil d'auto-qualification ≥ 0.9 ne qualifiait jamais rien.
+- **Cycle de vie `TRAINED` automatique** : en fin de fine-tuning réussi, les documents sources du dataset sont liés au modèle (`TRAINED_ON`) et avancent vers `TRAINED` via la machine à états — ces liens n'étaient posés que manuellement.
+- **FTS/BM25** : le rebuild fusionne avec l'index vivant au lieu de l'écraser, l'index disque est validé contre ChromaDB (fraîcheur), le flush passe à 30 s ; réconciliation étendue à toutes les collections (GED + flux Kafka) avec gauges par collection.
+- **Divers** : locale de chunking configurable (`SPECTRA_CHUNK_LOCALE`), formats `.md`/`.markdown`/`.csv` supportés, profondeur d'aplatissement JSON bornée, delete ChromaDB par filtre `where`, suppressions SQL en masse, tri des tâches, filtre tag échappé.
+
+### Documentation — renommage kebab-case, liens réparés, référence de configuration complète
+
+Correctifs issus de l'[audit documentation](docs/process/audit-documentation.fr.md) :
+
+- **Convention de nommage unifiée** : les documents de `docs/` passent en kebab-case suffixé langue (`getting-started.en.md`, `technical-doc.fr.md`…) — les 30 liens internes cassés (dont toute la section Documentation des READMEs) sont réparés.
+- **`getting-started` exécutable tel quel** : chemins réels (`scripts/`, `deploy/docker`, `deploy/k8s`), URL du dépôt, renvois GKE redirigés vers `deploy/k8s/README.md`.
+- **Java 25 réaligné partout** : `pom.xml` et la CI, rétrogradés à 21 par un commit d'optimisation CI sans trace, reviennent à la cible **25** — conformément à la migration documentée ici même et aux images Docker (Temurin 25). Prérequis contributeur : JDK 25. Suite de tests et SpotBugs validés sous JDK 25.
+- **`configuration.en.md` complet** : ~40 variables ajoutées (bloc Kafka entier, llmfit, gardes-fous d'ingestion, `SPECTRA_CHUNK_LOCALE`, reranker, évaluation…) ; `spectra.ged.auto-retrain-threshold` désormais câblée dans `application.yml` comme les autres propriétés.
+- **Exactitude** : liste des formats unifiée (table de référence unique dans `technical-doc`), pipeline d'ingestion corrigé (dédup SHA-256, BM25 toujours indexé, machine à états réelle), sémantique `force`/URLs corrigée dans le manuel, section « fiche document / cycle de vie » ajoutée au manuel.
+
 ### Model Hub — GGUF orphelins supprimables, rétention de l'historique, doc à jour
 
 - **Suppression des GGUF orphelins depuis l'UI** (`DELETE /api/models/hub/storage/files?file=…` + bouton dans le panneau Stockage) : un fichier présent dans `data/models/` mais absent du registre (déposé à la main, laissé par un incident) était visible dans le rapport de stockage mais insupprimable sans shell — la suppression de modèle exige un alias enregistré. Garde-fous : nom simple uniquement (anti-traversée), fichier directement dans `models-dir`, refus en 409 s'il est encore référencé par le registre (retirer le modèle dans ce cas).
 - **Rétention de l'historique des installations** (`InstallationRetentionService`, propriété `llmfit.installations-retention-days`, env `LLMFIT_INSTALL_RETENTION_DAYS`, défaut `0` = conserver) : cron nocturne purgeant les jobs **terminaux** (COMPLETED/FAILED/CANCELLED) plus vieux que N jours — même convention que les rétentions GED et Kafka. Les jobs non-terminaux ne sont jamais purgés (la réconciliation au démarrage les traite d'abord).
-- **Documentation utilisateur à jour** : le manuel (`USER_MANUAL.md` § Gestion des modèles) documente le panneau Stockage (volume + cache llmfit, purge des doublons, suppression des orphelins), l'historique des installations (bouton Réessayer, rétention) et le badge du modèle actif ; la documentation pédagogique corrige « copié » → « déplacé » et décrit le cycle de vie du stockage. Variables `LLMFIT_CACHE_DIR` / `LLMFIT_INSTALL_RETENTION_DAYS` ajoutées à `.env.example` et transmises par docker-compose.
+- **Documentation utilisateur à jour** : le manuel (`user-manual.fr.md` § Gestion des modèles) documente le panneau Stockage (volume + cache llmfit, purge des doublons, suppression des orphelins), l'historique des installations (bouton Réessayer, rétention) et le badge du modèle actif ; la documentation pédagogique corrige « copié » → « déplacé » et décrit le cycle de vie du stockage. Variables `LLMFIT_CACHE_DIR` / `LLMFIT_INSTALL_RETENTION_DAYS` ajoutées à `.env.example` et transmises par docker-compose.
 
 ### UI — relance des installations échouées, badge modèle actif cliquable
 
@@ -64,7 +89,7 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 - **Rétention** (`KafkaStreamRetentionService`) : cron nocturne purgeant les sources non mises à jour depuis `retention-ttl-days` jours (0 = désactivé).
 - **Métriques Micrometer** : `spectra.kafka.messages{topic,result}` et `spectra.kafka.processing{topic}` sur `/actuator/prometheus`.
 - **Déploiement** : profil Docker `kafka` (Apache Kafka mode KRaft mono-nœud) dans `docker-compose.yml`, variables `SPECTRA_KAFKA_*` (`.env.example`). Dépendance `spring-kafka` (gérée par le BOM Spring Boot).
-- **Documentation** : `docs/DESIGN_KAFKA_STREAMING_UPSERT.fr.md` (design détaillé), sections dédiées dans le README, la doc technique, le manuel utilisateur et le mini-livre pédagogique.
+- **Documentation** : `docs/design-kafka-streaming-upsert.fr.md` (design détaillé), sections dédiées dans le README, la doc technique, le manuel utilisateur et le mini-livre pédagogique.
 
 ### Évaluation — mesure des gains des enrichissements LLM
 
@@ -158,7 +183,7 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ### Documentation
 
-- **Guide pédagogique réécrit** : `DOCUMENTATION_PEDAGOGIQUE.fr.md` réorganisé en « mini-livre » des idées et algorithmes ; cross-links EN/FR ajoutés depuis le README.
+- **Guide pédagogique réécrit** : `documentation-pedagogique.fr.md` réorganisé en « mini-livre » des idées et algorithmes ; cross-links EN/FR ajoutés depuis le README.
 
 ---
 
@@ -441,7 +466,7 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ### Modifié
 - `pipeline.bat` : support des flags `--packing` et `--dpo` (transmission à `train_host.py`)
-- Documentation : `IMPROVEMENTS.md`, `README.md`, `USER_MANUAL.md` mis à jour avec H1–H4
+- Documentation : `IMPROVEMENTS.md`, `README.md`, `user-manual.fr.md` mis à jour avec H1–H4
 
 ---
 

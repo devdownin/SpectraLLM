@@ -7,7 +7,7 @@ kind: Kustomization
 #   kubectl apply -k k8s/overlays/gpu
 #
 # Prérequis :
-#   - node pool GKE avec GPU (voir docs/DEPLOY_GKE.md §GPU)
+#   - node pool GKE avec GPU (voir deploy/k8s/README.md §GPU)
 #   - image spectra-llama-cpp construite depuis Dockerfile.llama.cuda
 #
 # Par défaut, seul llama-cpp-chat passe sur GPU (1 GPU). L'embedding reste en

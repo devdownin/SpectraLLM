@@ -41,7 +41,7 @@ huggingface-cli download nomic-ai/nomic-embed-text-v1.5-GGUF \
 ## 2. Démarrage
 
 ```bash
-docker compose up -d
+docker compose --project-directory . -f deploy/docker/docker-compose.yml up -d
 ```
 
 Cette commande lance les services principaux en une fois :
@@ -138,7 +138,7 @@ curl http://localhost:8080/api/ingest/abc-123
 # → {"status": "COMPLETED", "chunksCreated": 42}
 ```
 
-**Formats supportés :** PDF, DOCX (Word 2007+), DOC (Word 97-2003), JSON, XML, TXT, HTML.
+**Formats supportés :** PDF, DOCX (Word 2007+), DOC (Word 97-2003), HTML, Markdown (`.md`), CSV, JSON, XML, Avro, TXT — et archives ZIP les combinant. Table de référence : [technical-doc](../tech/technical-doc.fr.md#31-extraction).
 
 > Les scans sans OCR (images sans texte sélectionnable) ne produiront pas de chunks utiles.
 
@@ -147,7 +147,7 @@ curl http://localhost:8080/api/ingest/abc-123
 Par défaut, les PDF sont traités avec une extraction textuelle simple. Pour les documents techniques avec tableaux ou titres hiérarchiques, activez le parsing layout-aware :
 
 ```bash
-SPECTRA_LAYOUT_PARSER_ENABLED=true docker compose up -d
+SPECTRA_LAYOUT_PARSER_ENABLED=true docker compose --project-directory . -f deploy/docker/docker-compose.yml up -d
 ```
 
 Le service `spectra-docparser` démarre et convertit chaque PDF en Markdown structuré avant l'ingestion :
@@ -222,7 +222,9 @@ Qu'il s'agisse d'un fichier ou d'une URL, le traitement en coulisses est identiq
 5. **Vectorisation** : calcul des embeddings par `nomic-embed-text` (llm-embed)
 6. **Stockage** : indexation dans ChromaDB
 
-> **Déduplication SHA-256 :** si le même fichier est soumis deux fois (même contenu, même hash), Spectra l'ignore silencieusement. Utilisez `?force=true` pour forcer la ré-ingestion d'un fichier. Pour les URLs, chaque soumission déclenche un nouveau téléchargement et une nouvelle ingestion (le contenu peut avoir changé).
+> **Déduplication SHA-256 :** si le même fichier est soumis deux fois (même contenu, même hash), Spectra l'ignore silencieusement. Utilisez `?force=true` pour **remplacer** un document : les anciens chunks sont purgés des index (vecteur + BM25) avant la ré-indexation — pas de doublons dans les réponses, et la fiche GED s'incrémente d'une version. Les URLs suivent la même règle : le téléchargement a bien lieu à chaque soumission, mais un contenu inchangé (même hash) n'est pas ré-indexé.
+>
+> **Erreurs par fichier :** un fichier en échec (format non supporté, fichier trop volumineux, document corrompu) n'interrompt pas le lot — son erreur apparaît dans le suivi de la tâche (champ `fileErrors`). Une tâche dont **tous** les fichiers échouent finit `FAILED` avec le détail, au lieu d'un faux succès à 0 chunk.
 
 > **Changement de modèle d'embedding :** si vous remplacez `embed.gguf` par un autre modèle, vous devez ré-ingérer **tous** vos documents. Les vecteurs stockés dans ChromaDB sont propres à un modèle et ne sont pas interchangeables. Utilisez `?force=true` :
 > ```bash
@@ -354,6 +356,27 @@ curl http://localhost:8080/api/dataset/dpo/stats
 
 Cette étape crée une **boucle de rétroaction humaine** : vous lisez les commentaires générés, vous approuvez ceux qui sont pertinents, vous rejetez ceux qui ne le sont pas — et ces préférences deviennent des données d'entraînement.
 
+#### La fiche document (cycle de vie, tags, versions)
+
+Chaque document ingéré possède une fiche GED : hash SHA-256, format, score de qualité
+(0–1), version (incrémentée à chaque ré-ingestion `force`), tags libres, collection,
+date d'ingestion et — pour les documents archivés — la **date d'archivage** (`archivedAt`,
+base de la purge de rétention).
+
+Le **cycle de vie** progresse ainsi : `INGESTED` (à l'ingestion, ou automatiquement
+`QUALIFIED` si le score dépasse `SPECTRA_GED_AUTO_QUALIFY_THRESHOLD`) → `QUALIFIED`
+(validé pour l'entraînement) → `TRAINED` → `ARCHIVED`. Deux automatismes :
+
+- **Fin de fine-tuning** : les documents dont des paires du dataset sont issues passent
+  automatiquement en `TRAINED`, avec un lien `TRAINED_ON` vers le modèle entraîné —
+  visible dans la fiche et via `GET /api/ged/models/{modelName}/documents`.
+- **Rétention** : selon la configuration, les documents `INGESTED` anciens sont archivés
+  chaque nuit, et les `ARCHIVED` purgés N jours après leur archivage (fiche **et** chunks
+  indexés — le document disparaît des réponses du RAG).
+
+Chaque action (transition, tag, ré-ingestion, suppression…) est tracée dans l'**audit
+trail** consultable au bas de la fiche.
+
 #### Via l'interface
 
 1. Cliquez sur **Database** dans le menu gauche (page GED Documents).
@@ -427,10 +450,10 @@ curl http://localhost:8080/api/metrics/personalization
 
 ```bash
 # Déclencher tous les 20 approbations (recommandé en production)
-SPECTRA_GED_AUTO_RETRAIN_THRESHOLD=20 docker compose up -d
+SPECTRA_GED_AUTO_RETRAIN_THRESHOLD=20 docker compose --project-directory . -f deploy/docker/docker-compose.yml up -d
 
 # Désactiver l'auto-trigger
-SPECTRA_GED_AUTO_RETRAIN_THRESHOLD=0 docker compose up -d
+SPECTRA_GED_AUTO_RETRAIN_THRESHOLD=0 docker compose --project-directory . -f deploy/docker/docker-compose.yml up -d
 ```
 
 > **Conseil :** en développement, gardez le seuil à 5 pour tester le mécanisme rapidement. En production, utilisez 20–50 pour éviter de lancer un entraînement à chaque poignée d'évaluations.
@@ -749,7 +772,7 @@ Réponse :
 La recherche hybride récupère les termes techniques exacts (codes, numéros, acronymes) que l'embedding peut diluer. Aucun service supplémentaire n'est requis — l'index BM25 est en mémoire.
 
 ```bash
-SPECTRA_HYBRID_SEARCH_ENABLED=true docker compose up -d
+SPECTRA_HYBRID_SEARCH_ENABLED=true docker compose --project-directory . -f deploy/docker/docker-compose.yml up -d
 ```
 
 Au démarrage, Spectra reconstruit automatiquement l'index BM25 depuis ChromaDB en arrière-plan. Les premières requêtes peuvent être vectorielles seules si l'index n'est pas encore prêt.
@@ -759,16 +782,16 @@ Au démarrage, Spectra reconstruit automatiquement l'index BM25 depuis ChromaDB 
 Le re-ranking améliore significativement la précision des sources retournées, au prix d'une légère latence supplémentaire (~100–300 ms sur CPU). Il est désactivé par défaut.
 
 ```bash
-SPECTRA_RERANKER_ENABLED=true docker compose up -d
+SPECTRA_RERANKER_ENABLED=true docker compose --project-directory . -f deploy/docker/docker-compose.yml up -d
 
 # Changer de modèle (multilingue, meilleur pour le français)
-RERANKER_MODEL=cross-encoder/mmarco-mMiniLMv2-L12-H384-v1 SPECTRA_RERANKER_ENABLED=true docker compose up -d
+RERANKER_MODEL=cross-encoder/mmarco-mMiniLMv2-L12-H384-v1 SPECTRA_RERANKER_ENABLED=true docker compose --project-directory . -f deploy/docker/docker-compose.yml up -d
 ```
 
 **Activer les deux (meilleure précision) :**
 
 ```bash
-SPECTRA_HYBRID_SEARCH_ENABLED=true SPECTRA_RERANKER_ENABLED=true docker compose up -d
+SPECTRA_HYBRID_SEARCH_ENABLED=true SPECTRA_RERANKER_ENABLED=true docker compose --project-directory . -f deploy/docker/docker-compose.yml up -d
 ```
 
 Pipeline complet : `BM25 + Vecteurs → RRF → Cross-Encoder → LLM`
@@ -780,13 +803,13 @@ Quand le contexte initial est insuffisant pour répondre avec certitude, le LLM 
 > **Prérequis :** votre modèle doit avoir une fenêtre de contexte ≥ 4096 tokens. L'Agentic RAG consomme plusieurs appels LLM par requête — comptez 2–4× plus de temps qu'une requête RAG standard.
 
 ```bash
-SPECTRA_AGENTIC_RAG_ENABLED=true docker compose up -d
+SPECTRA_AGENTIC_RAG_ENABLED=true docker compose --project-directory . -f deploy/docker/docker-compose.yml up -d
 
 # Augmenter le nombre de tours si les questions sont très complexes
-SPECTRA_AGENTIC_RAG_ENABLED=true SPECTRA_AGENTIC_MAX_ITERATIONS=5 docker compose up -d
+SPECTRA_AGENTIC_RAG_ENABLED=true SPECTRA_AGENTIC_MAX_ITERATIONS=5 docker compose --project-directory . -f deploy/docker/docker-compose.yml up -d
 
 # Combinaison optimale (recherche hybride + re-ranking + raisonnement agentique)
-SPECTRA_HYBRID_SEARCH_ENABLED=true SPECTRA_RERANKER_ENABLED=true SPECTRA_AGENTIC_RAG_ENABLED=true docker compose up -d
+SPECTRA_HYBRID_SEARCH_ENABLED=true SPECTRA_RERANKER_ENABLED=true SPECTRA_AGENTIC_RAG_ENABLED=true docker compose --project-directory . -f deploy/docker/docker-compose.yml up -d
 ```
 
 Pipeline complet : `BM25 + Vecteurs → RRF → Cross-Encoder → boucle ReAct → LLM`
@@ -796,10 +819,10 @@ Pipeline complet : `BM25 + Vecteurs → RRF → Cross-Encoder → boucle ReAct �
 Génère N variantes de la question avant le retrieval pour couvrir les synonymes et formulations alternatives.
 
 ```bash
-SPECTRA_MULTI_QUERY_ENABLED=true docker compose up -d
+SPECTRA_MULTI_QUERY_ENABLED=true docker compose --project-directory . -f deploy/docker/docker-compose.yml up -d
 
 # Augmenter le nombre de variantes pour un vocabulaire très hétérogène
-SPECTRA_MULTI_QUERY_ENABLED=true SPECTRA_MULTI_QUERY_COUNT=3 docker compose up -d
+SPECTRA_MULTI_QUERY_ENABLED=true SPECTRA_MULTI_QUERY_COUNT=3 docker compose --project-directory . -f deploy/docker/docker-compose.yml up -d
 ```
 
 > **Latence :** ajoute 1 appel LLM + N appels d'embedding par requête. Avec `MULTI_QUERY_COUNT=2` et un modèle rapide, comptez +500–800 ms.
@@ -809,10 +832,10 @@ SPECTRA_MULTI_QUERY_ENABLED=true SPECTRA_MULTI_QUERY_COUNT=3 docker compose up -
 Supprime les chunks quasi-identiques après reranking. Aucun service supplémentaire — pur Java.
 
 ```bash
-SPECTRA_SEMANTIC_DEDUP_ENABLED=true docker compose up -d
+SPECTRA_SEMANTIC_DEDUP_ENABLED=true docker compose --project-directory . -f deploy/docker/docker-compose.yml up -d
 
 # Seuil plus strict (0.70) pour corpus très redondants
-SPECTRA_SEMANTIC_DEDUP_ENABLED=true SPECTRA_SEMANTIC_DEDUP_THRESHOLD=0.70 docker compose up -d
+SPECTRA_SEMANTIC_DEDUP_ENABLED=true SPECTRA_SEMANTIC_DEDUP_THRESHOLD=0.70 docker compose --project-directory . -f deploy/docker/docker-compose.yml up -d
 ```
 
 **Activer la compression de contexte :**
@@ -820,7 +843,7 @@ SPECTRA_SEMANTIC_DEDUP_ENABLED=true SPECTRA_SEMANTIC_DEDUP_THRESHOLD=0.70 docker
 Extrait uniquement les phrases pertinentes dans chaque chunk avant la génération. Réduit le bruit, améliore la précision.
 
 ```bash
-SPECTRA_CONTEXT_COMPRESSION_ENABLED=true docker compose up -d
+SPECTRA_CONTEXT_COMPRESSION_ENABLED=true docker compose --project-directory . -f deploy/docker/docker-compose.yml up -d
 ```
 
 > **Latence :** ajoute 1 appel LLM par chunk récupéré. Avec 5 chunks, comptez +2–5 s supplémentaires.
@@ -830,10 +853,10 @@ SPECTRA_CONTEXT_COMPRESSION_ENABLED=true docker compose up -d
 Si votre corpus tient entièrement dans la fenêtre du modèle, charge tous les documents directement sans recherche vectorielle.
 
 ```bash
-SPECTRA_LONG_CONTEXT_RAG_ENABLED=true docker compose up -d
+SPECTRA_LONG_CONTEXT_RAG_ENABLED=true docker compose --project-directory . -f deploy/docker/docker-compose.yml up -d
 
 # Ajuster le seuil (défaut : 100 chunks ≈ 25 documents de taille moyenne)
-SPECTRA_LONG_CONTEXT_RAG_ENABLED=true SPECTRA_LONG_CONTEXT_MAX_CHUNKS=50 docker compose up -d
+SPECTRA_LONG_CONTEXT_RAG_ENABLED=true SPECTRA_LONG_CONTEXT_MAX_CHUNKS=50 docker compose --project-directory . -f deploy/docker/docker-compose.yml up -d
 ```
 
 Une fois activés, les champs `hybridSearchApplied`, `rerankApplied`, `agenticApplied`, `agenticIterations`, `multiQueryApplied`, `compressionApplied`, `semanticDedupApplied` et `longContextApplied` apparaissent dans les réponses API.
@@ -1113,7 +1136,7 @@ LLAMA_CHAT_NGL=0
 Après modification du `.env`, relancez le service concerné :
 
 ```bash
-docker compose up -d llm-chat
+docker compose --project-directory . -f deploy/docker/docker-compose.yml up -d llm-chat
 ```
 
 **Variables disponibles :**
@@ -1202,7 +1225,7 @@ Causes courantes : modèle trop lent (timeout LLM), chunk trop long pour le cont
 **Réinitialisation complète**
 ```bash
 docker compose down -v    # supprime les volumes (ChromaDB inclus)
-docker compose up -d
+docker compose --project-directory . -f deploy/docker/docker-compose.yml up -d
 ```
 
 > ⚠️ `down -v` efface toutes les données vectorisées. Vous devrez ré-ingérer vos documents.

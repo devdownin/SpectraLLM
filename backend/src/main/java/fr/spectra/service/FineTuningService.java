@@ -51,6 +51,8 @@ public class FineTuningService {
     private final TrainingLogBroadcaster broadcaster;
     private final ModelRegistryService modelRegistry;
     private final BaseModelCatalog baseModelCatalog;
+    private final GedService gedService;
+    private final fr.spectra.persistence.IngestedFileRepository ingestedFileRepository;
     /** Alias (ou repo HF) utilisé quand la requête ne précise pas de modèle de base. */
     private final String defaultBaseModel;
     private final Path workDir;
@@ -87,6 +89,8 @@ public class FineTuningService {
                              TrainingLogBroadcaster broadcaster,
                              ModelRegistryService modelRegistry,
                              BaseModelCatalog baseModelCatalog,
+                             GedService gedService,
+                             fr.spectra.persistence.IngestedFileRepository ingestedFileRepository,
                              @Value("${spectra.fine-tuning.default-base-model:phi3}") String defaultBaseModel,
                              @Value("${spectra.fine-tuning.work-dir:./data/fine-tuning}") String workDir,
                              @Value("${spectra.fine-tuning.script:./scripts/train.sh}") String trainingScript,
@@ -100,6 +104,8 @@ public class FineTuningService {
          this.broadcaster = broadcaster;
          this.modelRegistry = modelRegistry;
          this.baseModelCatalog = baseModelCatalog;
+         this.gedService = gedService;
+         this.ingestedFileRepository = ingestedFileRepository;
          this.defaultBaseModel = defaultBaseModel;
          this.workDir = Path.of(workDir);
          // Chemin absolu : le process d'entraînement s'exécute avec workDir comme répertoire
@@ -270,9 +276,10 @@ public class FineTuningService {
             // DPO comme ORPO consomment le même dataset de préférence {prompt, chosen, rejected}.
             boolean preference = request.dpoEnabled() || request.orpoEnabled();
 
-            Path datasetFile = preference
+            ExportedDataset dataset = preference
                     ? exportDpoDataset(jobDir)
                     : exportFilteredDataset(jobDir, request.minConfidence());
+            Path datasetFile = dataset.file();
             int datasetSize = countLines(datasetFile);
             updateJob(jobId, j -> j.withDatasetSize(datasetSize));
 
@@ -327,6 +334,15 @@ public class FineTuningService {
                 updateJob(jobId, j -> j.completed(adapterPath.toString()));
             }
 
+            // ── Étape 4 : traçabilité GED — uniquement si le job a réellement abouti
+            // (l'export GGUF peut avoir été annulé sans passer COMPLETED).
+            boolean completedOk = repository.findById(jobId)
+                    .map(e -> e.toDto().status() == Status.COMPLETED)
+                    .orElse(false);
+            if (completedOk) {
+                markDocumentsTrained(jobId, request.modelName(), dataset.sources());
+            }
+
         } catch (Exception e) {
             if (cancelledJobs.contains(jobId)) {
                 log.info("Job {} annulé par l'utilisateur (interruption de flux), arrêt propre.", jobId);
@@ -342,9 +358,16 @@ public class FineTuningService {
     }
 
     /**
+     * Dataset exporté sur disque + provenance : les {@code sources} sont les noms de
+     * documents GED ({@code sourceFile} des chunks) dont les paires sont issues — base de
+     * la traçabilité R1/R2 en fin d'entraînement ({@link #markDocumentsTrained}).
+     */
+    private record ExportedDataset(Path file, Set<String> sources) {}
+
+    /**
      * Exporte les paires avec un score de confiance >= seuil.
      */
-    private Path exportFilteredDataset(Path dir, double minConfidence) throws Exception {
+    private ExportedDataset exportFilteredDataset(Path dir, double minConfidence) throws Exception {
         List<TrainingPair> pairs = datasetGenerator.getAllPairs().stream()
                 .filter(p -> p.metadata().confidence() >= minConfidence)
                 .filter(p -> !isExcludedFromSft(p))
@@ -357,7 +380,11 @@ public class FineTuningService {
                 writer.newLine();
             }
         }
-        return file;
+        Set<String> sources = pairs.stream()
+                .map(p -> p.metadata() != null ? p.metadata().source() : null)
+                .filter(FineTuningService::isTraceableSource)
+                .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
+        return new ExportedDataset(file, sources);
     }
 
     /** Vrai si la paire relève d'une catégorie/type exclu du SFT (laissé au RAG). */
@@ -373,7 +400,7 @@ public class FineTuningService {
      * Exporte les paires DPO ({@code {prompt, chosen, rejected}}) pour l'entraînement DPO.
      * Sans cet export, le mode DPO recevait à tort le dataset SFT au format {@code conversations}.
      */
-    private Path exportDpoDataset(Path dir) throws Exception {
+    private ExportedDataset exportDpoDataset(Path dir) throws Exception {
         List<DpoPair> pairs = dpoGenerator.getAllPairs();
 
         Path file = dir.resolve("dataset.jsonl");
@@ -383,7 +410,69 @@ public class FineTuningService {
                 writer.newLine();
             }
         }
-        return file;
+        Set<String> sources = pairs.stream()
+                .map(DpoPair::source)
+                .filter(FineTuningService::isTraceableSource)
+                .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
+        return new ExportedDataset(file, sources);
+    }
+
+    /** Vrai si la provenance d'une paire pointe un document GED identifiable. */
+    private static boolean isTraceableSource(String source) {
+        return source != null && !source.isBlank() && !"inconnu".equals(source);
+    }
+
+    /**
+     * Traçabilité GED de fin d'entraînement : chaque document dont des paires ont nourri le
+     * dataset est lié au modèle ({@code TRAINED_ON}) et son cycle de vie avance vers TRAINED
+     * en respectant la machine à états (INGESTED → QUALIFIED → TRAINED ; un document déjà
+     * TRAINED ou ARCHIVED n'est pas touché). Ces liens n'étaient auparavant posés que
+     * manuellement via l'API — le statut TRAINED était en pratique inatteignable.
+     * Best-effort : un échec de traçabilité ne remet jamais en cause le job COMPLETED.
+     * Package-visible pour les tests.
+     */
+    void markDocumentsTrained(String jobId, String modelName, Set<String> sources) {
+        if (modelName == null || modelName.isBlank() || sources.isEmpty()) return;
+        int traced = 0;
+        for (String source : sources) {
+            List<fr.spectra.persistence.IngestedFileEntity> docs;
+            try {
+                docs = ingestedFileRepository.findByFileName(source);
+            } catch (Exception e) {
+                log.warn("Job {}: documents GED illisibles pour la source '{}' : {}", jobId, source, e.getMessage());
+                continue;
+            }
+            for (fr.spectra.persistence.IngestedFileEntity doc : docs) {
+                try {
+                    gedService.linkToModel(doc.getSha256(), modelName,
+                            fr.spectra.persistence.DocumentModelLinkEntity.LinkType.TRAINED_ON, "fine-tuning");
+                    advanceToTrained(doc);
+                    traced++;
+                } catch (Exception e) {
+                    log.warn("Job {}: traçabilité GED impossible pour '{}' ({}) : {}",
+                            jobId, source, doc.getSha256(), e.getMessage());
+                }
+            }
+        }
+        if (traced > 0) {
+            log.info("Job {}: {} document(s) GED lié(s) au modèle '{}' et passé(s) TRAINED", jobId, traced, modelName);
+            broadcaster.info("Job " + jobId + " : " + traced + " document(s) source tracé(s) en GED (TRAINED)");
+        }
+    }
+
+    /** Avance le cycle de vie vers TRAINED selon les transitions autorisées. */
+    private void advanceToTrained(fr.spectra.persistence.IngestedFileEntity doc) {
+        switch (doc.getLifecycle()) {
+            case QUALIFIED -> gedService.transitionLifecycle(doc.getSha256(),
+                    fr.spectra.persistence.IngestedFileEntity.Lifecycle.TRAINED, "fine-tuning");
+            case INGESTED -> {
+                gedService.transitionLifecycle(doc.getSha256(),
+                        fr.spectra.persistence.IngestedFileEntity.Lifecycle.QUALIFIED, "fine-tuning");
+                gedService.transitionLifecycle(doc.getSha256(),
+                        fr.spectra.persistence.IngestedFileEntity.Lifecycle.TRAINED, "fine-tuning");
+            }
+            default -> { /* TRAINED déjà atteint, ou ARCHIVED : ne pas ressusciter */ }
+        }
     }
 
     /**

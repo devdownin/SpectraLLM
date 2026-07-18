@@ -92,6 +92,9 @@ spectra:
   pipeline:
     chunk-max-tokens: ${SPECTRA_CHUNK_MAX_TOKENS:512}
     chunk-overlap-tokens: ${SPECTRA_CHUNK_OVERLAP_TOKENS:64}
+    # Locale des frontières de phrases au chunking (tag BCP 47 : fr, en, de…).
+    # Ne change PAS la tokenization (cl100k) — uniquement le découpage des phrases.
+    chunk-locale: ${SPECTRA_CHUNK_LOCALE:fr}
     embedding-batch-size: ${SPECTRA_EMBEDDING_BATCH_SIZE:10}
     # Taille décompressée max par fichier / entrée ZIP (Mo). Borne la mémoire
     # d'ingestion. 0 = auto : calculé selon le heap JVM et la concurrence.
@@ -171,6 +174,10 @@ spectra:
   ged:
     archive-dir: ${SPECTRA_GED_ARCHIVE_DIR:./data/archive}
     auto-qualify-threshold: ${SPECTRA_GED_AUTO_QUALIFY_THRESHOLD:0.0}
+    # Nombre de commentaires IA approuvés déclenchant un fine-tuning automatique (0 = désactivé).
+    # Câblé ici comme toutes les autres propriétés : la variable d'environnement documentée
+    # n'était pas garantie de se lier via le seul @Value d'ArticleCommentService.
+    auto-retrain-threshold: ${SPECTRA_GED_AUTO_RETRAIN_THRESHOLD:5}
     retention:
       archive-after-days: ${SPECTRA_GED_ARCHIVE_AFTER_DAYS:0}
       purge-after-days: ${SPECTRA_GED_PURGE_AFTER_DAYS:0}

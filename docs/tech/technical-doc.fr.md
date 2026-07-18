@@ -1,5 +1,11 @@
 # Documentation Technique : Spectra (Domain LLM Builder)
 
+> **Rôle de ce document** — la **référence d'implémentation** : c'est ici que vivent les
+> faits (défauts, limites, formats, endpoints, structures). La vue d'ensemble est dans
+> [architecture.en.md](../architecture.en.md), le « pourquoi » du retrieval dans
+> [rag-pipeline.fr.md](rag-pipeline.fr.md). En cas de divergence entre documents, celui-ci
+> fait foi.
+
 Spectra est une plateforme de construction et d'optimisation de modèles de langage (LLM) spécialisés à partir de documents métier. Elle transforme des fichiers hétérogènes en une base de connaissances structurée et un modèle fine-tuné, entièrement en local.
 
 L'inférence repose sur [llama-cpp-turboquant](https://github.com/TheTom/llama-cpp-turboquant), un fork de llama.cpp exposant une API compatible OpenAI. Les modèles sont au format **GGUF**.
@@ -279,6 +285,9 @@ Extraction du texte depuis les éléments de contenu uniquement : `h1`–`h6`, `
 
 **Résolution de content-type** (`DocumentExtractorFactory`) : basée sur l'extension du fichier ou du nom dérivé de l'URL, jamais sur le Content-Type HTTP d'une réponse.
 
+> **Table de référence des formats supportés** — les autres documents (README, architecture,
+> manuel) renvoient ici plutôt que de dupliquer la liste.
+
 | Extension | Content-type résolu | Extracteur |
 |-----------|--------------------|----|
 | `.pdf` | `application/pdf` | `PdfExtractor` (défaut) ou `LayoutAwarePdfExtractor` (si layout-parser activé) |
@@ -286,9 +295,10 @@ Extraction du texte depuis les éléments de contenu uniquement : `h1`–`h6`, `
 | `.doc` | `application/msword` | `DocxExtractor` |
 | `.json` | `application/json` | `JsonExtractor` |
 | `.xml` | `application/xml` | `XmlExtractor` |
-| `.txt` | `text/plain` | `TxtExtractor` |
+| `.txt`, `.md`, `.markdown`, `.csv` | `text/plain` | `TxtExtractor` |
 | `.html`, `.htm` | `text/html` | `HtmlExtractor` |
 | `.avro` | `application/avro` | `AvroExtractor` |
+| `.zip` | `application/zip` | Parcours récursif des entrées (profondeur max 3, bornes anti ZIP-bomb), chaque entrée routée vers son extracteur |
 
 ### 3.2 Service de parsing layout-aware (`docparser/`)
 
@@ -474,7 +484,7 @@ Source d'ingestion alternative aux uploads/URLs : un consumer Kafka alimente le 
 
 **Métriques (Micrometer / `/actuator/prometheus`).** Compteur `spectra.kafka.messages{topic,result}` (`result` ∈ upserted/unchanged/deleted/failed) et timer `spectra.kafka.processing{topic}`.
 
-**Déploiement.** Service `kafka` sous profil Docker `kafka` (Apache Kafka en mode KRaft mono-nœud, listeners `kafka:9092` interne / `localhost:29092` hôte). Variables `SPECTRA_KAFKA_*` (cf. `.env.example`). Voir aussi `docs/DESIGN_KAFKA_STREAMING_UPSERT.fr.md`.
+**Déploiement.** Service `kafka` sous profil Docker `kafka` (Apache Kafka en mode KRaft mono-nœud, listeners `kafka:9092` interne / `localhost:29092` hôte). Variables `SPECTRA_KAFKA_*` (cf. `.env.example`). Voir aussi `docs/design-kafka-streaming-upsert.fr.md`.
 
 ---
 
@@ -559,7 +569,7 @@ PENDING → EXPORTING_DATASET → TRAINING → IMPORTING_MODEL → COMPLETED
 
 > 📖 **Le raisonnement de conception** (pourquoi chaque étape existe : chunking, Multi-Query,
 > fusion RRF, re-ranking, compression de contexte, long-context bypass) est détaillé dans
-> **[Le pipeline RAG — pourquoi chaque étape](RAG_PIPELINE.md)**. La présente section est la
+> **[Le pipeline RAG — pourquoi chaque étape](rag-pipeline.fr.md)**. La présente section est la
 > référence d'implémentation.
 
 ### `RagContext` — record interne

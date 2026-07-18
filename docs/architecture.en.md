@@ -2,6 +2,12 @@
 
 Deep dive into every container and service of the Spectra stack. For the big picture, start with the [README](../README.md).
 
+> **Where facts live** — this document is the *overview*: what each service does and how they
+> fit together. Implementation-level facts (defaults, limits, endpoint-by-endpoint detail)
+> live in the [Technical Reference](tech/technical-doc.fr.md), and the *design rationale* of
+> the retrieval pipeline in [RAG pipeline internals](tech/rag-pipeline.fr.md). When numbers
+> here and there disagree, the Technical Reference wins.
+
 > All shell commands in this document are run from the repository root.
 
 ## Architecture Overview
@@ -280,18 +286,21 @@ Documents enter Spectra through several channels:
 
 | Source | Endpoint | Supported formats |
 |---|---|---|
-| File upload | `POST /api/ingest` | PDF, DOCX, HTML, JSON, XML, TXT |
-| ZIP archive | `POST /api/ingest` | Any combination of the above |
+| File upload | `POST /api/ingest` | PDF, DOCX, DOC, HTML, Markdown, CSV, JSON, XML, Avro, TXT — [full reference table](tech/technical-doc.fr.md#31-extraction) |
+| ZIP archive | `POST /api/ingest` | Any combination of the above (recursive, ZIP-bomb-guarded) |
 | Remote URL | `POST /api/ingest/url` | HTML pages, PDF, TXT |
+| Kafka stream | consumer (opt-in) | See the streaming section below |
 
 **The ingestion pipeline for each document:**
 
-1. **Extraction** — format-specific extractor (PDF via PDFBox or docparser, DOCX via Apache POI, HTML via Jsoup, etc.)
-2. **Cleaning** — 8-step normalization: Unicode NFC, OCR ligature replacement, page markers, headers/footers, table borders, bullet point normalization, whitespace compression, blank line collapse
-3. **Chunking** — sliding window by token count (default: 512 tokens, 64-token overlap). The overlap ensures that sentences crossing chunk boundaries aren't split in half for the embedder
-4. **Embedding** — batched calls to the embedding model (default batch: 10 chunks)
-5. **Vector indexing** — chunks + embeddings stored in ChromaDB
-6. **BM25 indexing** — chunks indexed in the in-memory BM25 index (if hybrid search is enabled)
+1. **SHA-256 deduplication** — the file's content hash is checked against the GED: an already-ingested document is skipped. `?force=true` **replaces** it instead (the previous chunks are purged from both indexes before reindexing — no duplicates)
+2. **Extraction** — format-specific extractor (PDF via PDFBox or docparser, DOCX via Apache POI, HTML via Jsoup, etc.)
+3. **Cleaning** — multi-pass normalization: Unicode NFC, OCR ligature replacement, page markers, headers/footers, table borders, bullet point normalization, whitespace compression
+4. **Chunking** — sliding window by token count (default: 512 tokens, 64-token overlap; sentence boundaries follow `SPECTRA_CHUNK_LOCALE`). The overlap ensures that sentences crossing chunk boundaries aren't split in half for the embedder
+5. **Embedding** — batched calls to the embedding model (default batch: 10 chunks)
+6. **Vector indexing** — chunks + embeddings stored in ChromaDB; each chunk carries its document's `sha256` as metadata, so deletion/replacement targets content identity (two same-named documents no longer share their fate)
+7. **BM25 indexing** — chunks are **always** added to the in-memory BM25 index (hybrid search only decides whether it is *queried* at retrieval time)
+8. **GED record** — the document sheet is created (hash, quality score, lifecycle), with per-file errors surfaced in the task status (`fileErrors`; a task where every file failed ends `FAILED`)
 
 **URL ingestion specifics:**
 - A `HEAD` request first determines the content type
@@ -364,7 +373,7 @@ SPECTRA_KAFKA_ENABLED=true SPECTRA_KAFKA_TOPICS=my-topic \
 | `SPECTRA_KAFKA_SASL_MECHANISM` | *(empty)* | e.g. `SCRAM-SHA-512`, `PLAIN` (if SASL) |
 | `SPECTRA_KAFKA_SASL_JAAS_CONFIG` | *(empty)* | Full JAAS config (holds credentials) |
 
-See **[DESIGN_KAFKA_STREAMING_UPSERT.fr.md](tech/DESIGN_KAFKA_STREAMING_UPSERT.fr.md)**
+See **[design-kafka-streaming-upsert.fr.md](tech/design-kafka-streaming-upsert.fr.md)**
 for the detailed design (upsert algorithm, tombstones, idempotency, performance notes).
 
 ---
@@ -407,13 +416,15 @@ Every document ingested into Spectra gets a full lifecycle record managed by the
 **Lifecycle state machine:**
 
 ```
-INGESTED ──► QUALIFIED ──► TRAINED ──► ARCHIVED
-    │                                      ▲
-    └──────────────────────────────────────┘
-         (re-ingestion resets to INGESTED)
+INGESTED ──► QUALIFIED ──► TRAINED
+    │▲           │▲           │
+    ││           │└───────────┘   (TRAINED → QUALIFIED)
+    ││           └──────► ARCHIVED ◄──── (also from INGESTED and TRAINED)
+    │└─────────────────────┘   (unarchive: ARCHIVED → INGESTED)
+    └──► ARCHIVED
 ```
 
-Transitions are validated — you cannot skip states or go backwards (except re-ingestion). Each transition is recorded in the audit trail.
+Allowed transitions: `INGESTED → QUALIFIED | ARCHIVED` · `QUALIFIED → TRAINED | INGESTED | ARCHIVED` · `TRAINED → ARCHIVED | QUALIFIED` · `ARCHIVED → INGESTED`. Anything else is rejected (state machine), and each transition is recorded in the audit trail. Re-ingestion (`force=true`) bumps the version and resets the document to `INGESTED`. When a fine-tuning job completes, the documents whose dataset pairs fed the training are **automatically** linked `TRAINED_ON` and advanced to `TRAINED` (through `QUALIFIED` if needed; `ARCHIVED` documents are linked but not resurrected).
 
 **Core features:**
 
@@ -422,10 +433,10 @@ Transitions are validated — you cannot skip states or go backwards (except re-
 | **Audit trail** | Every action (ingest, qualify, tag, archive, delete) is logged with actor and timestamp |
 | **Tags** | Free-form thematic labels — add, remove, bulk-assign |
 | **Model links** | Associate a document to a model as `TRAINED_ON` or `EVALUATED_ON` |
-| **Quality score** | 0–1 score assigned at ingestion; drives auto-qualification |
+| **Quality score** | 0–1 score assigned at ingestion (chunk count + format bonus, max 1.0); drives auto-qualification |
 | **Auto-qualification** | If `autoQualifyThreshold > 0`, documents scoring above it are auto-promoted to `QUALIFIED` at ingestion |
-| **Retention policies** | Nightly cron: auto-archive after N days, auto-purge ARCHIVED after M days |
-| **Synchronized deletion** | Deleting a document removes it from both the GED (H2) and ChromaDB in one call |
+| **Retention policies** | Nightly cron: auto-archive INGESTED after N days, auto-purge ARCHIVED M days after their **archival date** (`archivedAt`) — the purge removes the DB record *and* the indexed chunks |
+| **Synchronized deletion** | Deleting a document removes it from the GED (H2), ChromaDB and the BM25 index in one call, targeting the chunk `sha256` identity; `DELETE /api/documents/{sourceFile}` follows the same path |
 | **Statistics** | Lifecycle distribution, quality histogram, top tags, total indexed chunks |
 | **Article commenting** | Human and AI-generated comments per document; rated comments export as DPO training pairs |
 
@@ -460,7 +471,7 @@ POST   /api/ged/documents/export/comments-dpo          # Export rated comments a
 GET /api/ged/documents?lifecycle=QUALIFIED&tag=contrat&minQuality=0.7&page=2&size=20
 ```
 
-Available filters: `lifecycle`, `tag`, `collection`, `minQuality`, `from` (ISO-8601), `to` (ISO-8601).
+Available filters: `lifecycle`, `tag`, `collection`, `minQuality`, `from` (ISO-8601), `to` (ISO-8601), `q` (server-side file-name search).
 
 **Configuration:**
 
