@@ -530,11 +530,11 @@ const Dashboard: FC = () => {
                       <div key={lc} className="flex items-center gap-2">
                         {/* Doit correspondre aux couleurs de LifecycleDonut / aux valeurs de Lifecycle. */}
                         <div className={`w-2 h-2 shrink-0 ${
-                          lc === 'INGESTED'  ? 'bg-[#8ff5ff]' :
-                          lc === 'QUALIFIED' ? 'bg-[#b8b3ff]' :
-                          lc === 'TRAINED'   ? 'bg-[#4cffb3]' :
-                          lc === 'ARCHIVED'  ? 'bg-[#5a6a8a]' :
-                                              'bg-[#ff6b8a]'
+                          lc === 'INGESTED'  ? 'bg-[#6673f0]' :
+                          lc === 'QUALIFIED' ? 'bg-[#9a6ee0]' :
+                          lc === 'TRAINED'   ? 'bg-[#199e70]' :
+                          lc === 'ARCHIVED'  ? 'bg-[#5c6675]' :
+                                              'bg-[#e66767]'
                         }`} />
                         <span className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">{lc}</span>
                         <span className="font-headline font-bold text-xs ml-auto">{String(n)}</span>

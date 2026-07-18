@@ -35,20 +35,18 @@ const Layout: FC<LayoutProps> = ({ children }) => {
 
   return (
     <div className="min-h-screen bg-background bg-scene">
-      <div className="accent-bar" />
       <Toaster
         theme="dark"
         position="bottom-right"
         toastOptions={{
           style: {
-            background: '#192540',
-            border: '1px solid rgba(143, 245, 255, 0.1)',
-            borderRadius: '0px',
-            color: '#dee5ff',
+            background: '#191d24',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            borderRadius: '10px',
+            boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)',
+            color: '#e8eaf0',
             fontFamily: 'Inter',
-            fontSize: '12px',
-            textTransform: 'uppercase',
-            letterSpacing: '0.05em'
+            fontSize: '13px',
           }
         }}
       />
@@ -69,7 +67,7 @@ const Layout: FC<LayoutProps> = ({ children }) => {
         />
       )}
 
-      <main className={`transition-all duration-300 ml-0 ${isCollapsed ? 'md:ml-20' : 'md:ml-64'} min-h-screen flex flex-col`}>
+      <main className={`transition-all duration-300 ml-0 ${isCollapsed ? 'md:ml-[68px]' : 'md:ml-64'} min-h-screen flex flex-col`}>
         <Header onMenuClick={() => setMobileOpen(true)} />
         <ServiceHealthBanner />
         <WizardProgress />

@@ -596,7 +596,7 @@ const FineTuning: FC = () => {
         {!activeJob ? (
           <div className="py-12 flex flex-col items-center justify-center gap-3">
             <span className="material-symbols-outlined text-4xl text-outline">model_training</span>
-            <p className="text-[11px] text-outline uppercase tracking-widest italic text-center">
+            <p className="text-[12px] text-on-surface-variant text-center leading-relaxed">
               {t('fineTuning.noActiveJob1')}<br />{t('fineTuning.noActiveJob2')}
             </p>
           </div>
@@ -755,7 +755,7 @@ const FineTuning: FC = () => {
             <tbody className="divide-y divide-outline-variant/10">
               {jobs.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-5 py-8 text-center text-[11px] text-outline uppercase tracking-widest italic">
+                  <td colSpan={7} className="px-5 py-8 text-center text-[12px] text-on-surface-variant">
                     {t('fineTuning.noJobs')}
                   </td>
                 </tr>

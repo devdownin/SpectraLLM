@@ -24,7 +24,7 @@ const CustomTooltip = ({ active, payload }: any) => {
 const LossChart: FC<Props> = ({ data, totalEpochs }) => {
   if (data.length < 2) {
     return (
-      <div className="flex items-center justify-center h-full text-[11px] text-outline uppercase tracking-widest italic">
+      <div className="flex items-center justify-center h-full text-[12px] text-on-surface-variant">
         {data.length === 0 ? 'Waiting for loss data…' : 'Accumulating data…'}
       </div>
     );
@@ -63,10 +63,10 @@ const LossChart: FC<Props> = ({ data, totalEpochs }) => {
         <Line
           type="monotone"
           dataKey="loss"
-          stroke="#8ff5ff"
+          stroke="#6673f0"
           strokeWidth={2}
           dot={false}
-          activeDot={{ r: 4, fill: '#8ff5ff', strokeWidth: 0 }}
+          activeDot={{ r: 4, fill: '#6673f0', strokeWidth: 0 }}
           isAnimationActive={false}
         />
       </LineChart>

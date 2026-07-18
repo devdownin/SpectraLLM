@@ -28,11 +28,11 @@ const queryClient = new QueryClient({
 });
 
 const LoadingState: FC = () => (
-  <div className="flex flex-col items-center justify-center h-64 space-y-4">
-    <div className="w-12 h-1 bg-primary/20 relative overflow-hidden">
-      <div className="absolute inset-0 bg-primary animate-progress-fast"></div>
+  <div className="flex flex-col items-center justify-center h-64 space-y-4" role="status" aria-live="polite">
+    <div className="w-16 h-1 rounded-full bg-primary/15 relative overflow-hidden">
+      <div className="absolute inset-0 rounded-full bg-primary animate-progress-fast"></div>
     </div>
-    <span className="font-headline text-[11px] uppercase tracking-widest text-primary animate-pulse">Synchronizing Neural Modules...</span>
+    <span className="text-[13px] text-on-surface-variant">Loading…</span>
   </div>
 );
 

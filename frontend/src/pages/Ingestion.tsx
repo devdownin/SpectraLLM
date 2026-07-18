@@ -638,7 +638,7 @@ const Ingestion: FC = () => {
                 {/* List */}
                 <div className="flex-1 space-y-2 overflow-y-auto custom-scrollbar max-h-64">
                   {history.length === 0 && !historyLoading ? (
-                    <p className="text-[11px] text-outline uppercase tracking-widest italic text-center py-4">
+                    <p className="text-[12px] text-on-surface-variant text-center py-4">
                       {historySearch ? t('ingestion.noResults') : t('ingestion.emptyHistory')}
                     </p>
                   ) : (
@@ -680,7 +680,7 @@ const Ingestion: FC = () => {
               </div>
             ) : ingestEntries.length === 0 ? (
               <div className="flex-1 flex items-center justify-center">
-                <p className="text-[11px] text-outline uppercase tracking-widest italic text-center">
+                <p className="text-[12px] text-on-surface-variant text-center">
                   {t('ingestion.noActiveIngest1')}<br />{t('ingestion.noActiveIngest2')}
                 </p>
               </div>
@@ -828,7 +828,7 @@ const Ingestion: FC = () => {
           <div className="lg:col-span-2 bg-surface-container p-6 space-y-5">
             {!genTask ? (
               <div className="h-full flex items-center justify-center">
-                <p className="text-[11px] text-outline uppercase tracking-widest italic text-center">
+                <p className="text-[12px] text-on-surface-variant text-center">
                   {t('ingestion.noGeneration1')}<br />
                   {t('ingestion.noGeneration2')}
                 </p>
@@ -914,7 +914,7 @@ const Ingestion: FC = () => {
 
           {stats.totalPairs === 0 && stats.chunksInStore === 0 ? (
             <div className="bg-surface-container p-8 flex items-center justify-center">
-              <p className="text-[11px] text-outline uppercase tracking-widest italic text-center">
+              <p className="text-[12px] text-on-surface-variant text-center">
                 {t('ingestion.noData1')}<br />
                 {t('ingestion.noData2')}
               </p>

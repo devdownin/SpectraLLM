@@ -13,7 +13,7 @@ const CATEGORY_LABEL: Record<string, string> = {
 };
 
 /** Palette stable pour distinguer chaque modèle sur le radar superposé. */
-export const MODEL_COLORS = ['#8ff5ff', '#c4a7ff', '#ffd166', '#7bdcb5', '#ff8fab', '#ffa94d'];
+export const MODEL_COLORS = ['#6673f0', '#008300', '#d55181', '#c98500', '#199e70', '#9a6ee0'];
 
 interface Props {
   categories: string[];
