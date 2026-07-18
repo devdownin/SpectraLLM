@@ -954,6 +954,22 @@ const Documents: FC = () => {
                   <p className="text-[10px] uppercase tracking-widest text-outline mb-1">{t('documents.chunks')}</p>
                   <p className="font-headline font-bold text-sm">{sheet.chunksCreated}</p>
                 </div>
+                <div className="p-4 bg-surface-container-lowest border-l-2 border-outline-variant">
+                  <p className="text-[10px] uppercase tracking-widest text-outline mb-1">{t('documents.version')}</p>
+                  <p className="font-headline font-bold text-sm">v{sheet.version ?? 1}</p>
+                </div>
+                <div className="p-4 bg-surface-container-lowest border-l-2 border-outline-variant">
+                  <p className="text-[10px] uppercase tracking-widest text-outline mb-1">{t('documents.ingestedOn')}</p>
+                  <p className="font-headline font-bold text-sm">{formatDate(sheet.ingestedAt)}</p>
+                </div>
+                {/* Date d'archivage : posée à la transition vers ARCHIVED, base de la purge
+                    de rétention — l'utilisateur voit depuis quand le document est archivé. */}
+                {sheet.archivedAt && (
+                  <div className="col-span-2 p-4 bg-surface-container-lowest border-l-2 border-error/40">
+                    <p className="text-[10px] uppercase tracking-widest text-outline mb-1">{t('documents.archivedOn')}</p>
+                    <p className="font-headline font-bold text-sm text-error/80">{formatDate(sheet.archivedAt)}</p>
+                  </div>
+                )}
                 {sheet.collectionName && (
                   <div className="col-span-2 p-4 bg-surface-container-lowest border-l-2 border-primary/40">
                     <p className="text-[10px] uppercase tracking-widest text-outline mb-1">{t('documents.collection')}</p>

@@ -3,6 +3,7 @@
 #   http_server_requests_seconds_*   — latence/volume HTTP (+ histogramme → quantiles)
 #   spectra_rag_query_seconds_*      — latence du traitement RAG (@Timed, histogramme)
 #   jvm_memory_used_bytes / max      — heap JVM
+#   spectra_consistency_*            — réconciliation horaire H2/ChromaDB/BM25 (par collection)
 #
 # Le label `release` doit matcher le ruleSelector de votre Prometheus Operator.
 apiVersion: monitoring.coreos.com/v1
@@ -62,3 +63,34 @@ spec:
           annotations:
             summary: "Heap JVM > 90%"
             description: "La heap JVM de spectra-api dépasse 90% de sa taille max depuis 10 min (risque d'OOM / GC pressure)."
+
+        # Divergence FTS/ChromaDB par collection : les index vectoriel et BM25 ne comptent
+        # pas le même nombre de chunks. La réconciliation horaire tente déjà une réparation
+        # automatique (rebuild BM25 depuis ChromaDB) — une divergence qui PERSISTE plus de
+        # 2h signifie que la réparation échoue en boucle (ChromaDB instable, flush FTS
+        # perdu répété…) : les réponses hybrides peuvent citer des chunks fantômes ou en
+        # manquer. `for: 2h` couvre au moins deux cycles de réconciliation.
+        - alert: SpectraIndexDivergence
+          expr: spectra_consistency_collection_fts_chroma_divergence{application="spectrallm"} > 0
+          for: 2h
+          labels:
+            severity: warning
+          annotations:
+            summary: "Index FTS/ChromaDB divergents ({{ $labels.collection }})"
+            description: "La collection {{ $labels.collection }} présente un écart de {{ $value }} chunks entre ChromaDB et l'index BM25 depuis plus de 2h — la réparation automatique (rebuild horaire) ne converge pas."
+
+        # ChromaDB vide alors que la GED déclare des chunks : perte du volume ChromaDB ou
+        # reset du conteneur — le RAG répond « je ne sais pas » sur tout le corpus alors
+        # que la GED semble saine. (dbChunks vaut -1 tant que la 1re réconciliation n'a
+        # pas tourné : la condition > 0 évite les faux positifs au démarrage.)
+        - alert: SpectraChromaEmptyButGedPopulated
+          expr: |
+            spectra_consistency_chroma_chunks{application="spectrallm"} == 0
+            and
+            spectra_consistency_db_chunks{application="spectrallm"} > 0
+          for: 2h
+          labels:
+            severity: critical
+          annotations:
+            summary: "ChromaDB vide alors que la GED déclare des documents"
+            description: "La collection par défaut ne contient aucun chunk alors que la GED déclare des documents ingérés — volume ChromaDB perdu ou reset : restaurez le volume ou ré-ingérez le corpus."

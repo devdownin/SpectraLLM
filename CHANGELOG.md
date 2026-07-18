@@ -8,6 +8,15 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### GED — version, dates d'ingestion et d'archivage dans la fiche document
+
+- La fiche document (page Database) affiche désormais la **version** (incrémentée à chaque ré-ingestion `force`), la **date d'ingestion** et — pour les documents archivés — la **date d'archivage** (`archivedAt`, base de la purge de rétention). Ces champs étaient renvoyés par l'API depuis l'audit ingestion/GED mais absents de l'UI.
+
+### Observabilité — alertes et panneaux sur la cohérence des index
+
+- **Deux alertes Prometheus** (`deploy/k8s/monitoring/prometheus-rules.yaml`) : `SpectraIndexDivergence` (warning — divergence FTS/ChromaDB persistante > 2h sur une collection, c.-à-d. que la réparation automatique horaire ne converge pas) et `SpectraChromaEmptyButGedPopulated` (critical — ChromaDB vide alors que la GED déclare des documents : volume perdu/reset, le RAG ne répond plus sur le corpus).
+- **Deux panneaux Grafana** : chunks par magasin (ChromaDB / BM25 / GED) et divergence par collection — le tableau de bord montre d'un coup d'œil si les trois sources de vérité comptent pareil.
+
 ### UI — erreurs d'ingestion par fichier visibles (succès partiels)
 
 - **Live Ingestion Stream** : une tâche terminée dont certains fichiers ont échoué n'apparaît plus comme un succès plein — la ligne passe en avertissement « N chunks · partiel » (icône et barre en couleur d'erreur) avec le détail de chaque échec (`fileErrors`) sous le fichier concerné, et un toast signale la fin de tâche partielle. Le backend remontait ces erreurs depuis l'audit ingestion/GED ; l'UI les ignorait.
