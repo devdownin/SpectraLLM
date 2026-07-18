@@ -10,6 +10,7 @@ import Tooltip from '../components/Tooltip';
 import LifecycleDonut from '../components/charts/LifecycleDonut';
 import CategoryBar from '../components/charts/CategoryBar';
 import EmbeddingConsistencyCard from '../components/EmbeddingConsistencyCard';
+import { PageHeader } from '../components/ui';
 
 interface DatasetStats {
   totalPairs: number;
@@ -162,10 +163,7 @@ const Dashboard: FC = () => {
     <div className="space-y-12 animate-in fade-in duration-700">
 
       {/* Header */}
-      <header>
-        <p className="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-1">{t('dashboard.kicker')}</p>
-        <h2 className="font-headline text-3xl font-bold tracking-tighter">{t('dashboard.title')}</h2>
-      </header>
+      <PageHeader kicker={t('dashboard.kicker')} title={t('dashboard.title')} />
 
       {/* ── Cohérence embedding ↔ index (visible seulement en cas de problème) ── */}
       <EmbeddingConsistencyCard />

@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import Tooltip from '../components/Tooltip';
 import Skeleton from '../components/Skeleton';
 import ConfirmDialog from '../components/ConfirmDialog';
+import { PageHeader, Button } from '../components/ui';
 import { ingestApi, datasetApi } from '../services/api';
 import { etaMs, formatEta } from '../hooks/useGlobalTasks';
 
@@ -437,29 +438,25 @@ const Ingestion: FC = () => {
     <div className="space-y-12 animate-in fade-in duration-700">
 
       {/* Header */}
-      <header className="flex justify-between items-end">
-        <div>
-          <p className="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-1">{t('ingestion.kicker')}</p>
-          <h2 className="font-headline text-3xl font-bold tracking-tighter">{t('ingestion.title')}</h2>
-        </div>
-        <div className="flex items-center gap-6">
-        <button
-          onClick={loadStats}
-          className="flex items-center gap-1.5 text-[10px] font-label uppercase tracking-widest text-on-surface-variant hover:text-primary transition-colors"
-        >
-          <span className="material-symbols-outlined text-sm">refresh</span>
-          {t('ingestion.refresh')}
-        </button>
-        <div className="flex items-center gap-3">
-          {PIPELINE_STEPS.map((s, i) => (
-            <PipelineStep key={s.key} icon={s.icon} label={t(s.labelKey)}
-              state={pipelineState(s.key)}
-              nextState={i < PIPELINE_STEPS.length - 1 ? pipelineState(PIPELINE_STEPS[i + 1].key) : undefined}
-              isLast={i === PIPELINE_STEPS.length - 1} />
-          ))}
-        </div>
-        </div>
-      </header>
+      <PageHeader
+        kicker={t('ingestion.kicker')}
+        title={t('ingestion.title')}
+        actions={
+          <>
+            <Button variant="ghost" size="sm" icon="refresh" onClick={loadStats}>
+              {t('ingestion.refresh')}
+            </Button>
+            <div className="flex items-center gap-3">
+              {PIPELINE_STEPS.map((s, i) => (
+                <PipelineStep key={s.key} icon={s.icon} label={t(s.labelKey)}
+                  state={pipelineState(s.key)}
+                  nextState={i < PIPELINE_STEPS.length - 1 ? pipelineState(PIPELINE_STEPS[i + 1].key) : undefined}
+                  isLast={i === PIPELINE_STEPS.length - 1} />
+              ))}
+            </div>
+          </>
+        }
+      />
 
       {/* ── System State Banner ── */}
       <div className={`grid grid-cols-3 gap-4 p-5 border ${

@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import Skeleton from '../components/Skeleton';
 import Tooltip from '../components/Tooltip';
 import ConfirmDialog from '../components/ConfirmDialog';
-import { Badge, EmptyState } from '../components/ui';
+import { Badge, EmptyState, PageHeader, Button } from '../components/ui';
 import type { BadgeTone } from '../components/ui';
 import { gedApi, commentApi } from '../services/api';
 import { useFocusTrap } from '../hooks/useFocusTrap';
@@ -561,28 +561,23 @@ const Documents: FC = () => {
     <div className="space-y-6 animate-in fade-in duration-700 pb-32">
 
       {/* Header */}
-      <header className="flex flex-col xl:flex-row xl:items-end justify-between gap-6">
-        <div>
-          <p className="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-1">{t('documents.kicker')}</p>
-          <h2 className="font-headline text-3xl font-bold tracking-tighter uppercase">{t('documents.title')}</h2>
-          <p className="text-sm text-on-surface-variant mt-3 max-w-3xl leading-relaxed">
-            {t('documents.subtitle')}
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="text-[11px] font-label text-on-surface-variant uppercase tracking-widest">
-            {t('documents.shownCount', { shown: filtered.length, loaded: documents.length })}
-            {totalDocuments > documents.length ? t('documents.ofTotal', { total: totalDocuments }) : ''}
-          </span>
-          <button
-            onClick={() => refetch()}
-            className="flex items-center gap-2 border border-outline-variant/20 px-4 py-3 text-[11px] font-label uppercase tracking-widest text-on-surface-variant hover:text-primary transition-colors"
-          >
-            <span className={`material-symbols-outlined text-sm ${isFetching ? 'animate-spin' : ''}`}>refresh</span>
-            {t('documents.sync')}
-          </button>
-        </div>
-      </header>
+      <PageHeader
+        kicker={t('documents.kicker')}
+        title={t('documents.title')}
+        description={t('documents.subtitle')}
+        actions={
+          <>
+            <span className="text-[12px] text-on-surface-variant">
+              {t('documents.shownCount', { shown: filtered.length, loaded: documents.length })}
+              {totalDocuments > documents.length ? t('documents.ofTotal', { total: totalDocuments }) : ''}
+            </span>
+            <Button variant="outline" size="sm" onClick={() => refetch()}>
+              <span aria-hidden="true" className={`material-symbols-outlined text-[16px] ${isFetching ? 'animate-spin' : ''}`}>refresh</span>
+              {t('documents.sync')}
+            </Button>
+          </>
+        }
+      />
 
       {/* Stats Cards */}
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">

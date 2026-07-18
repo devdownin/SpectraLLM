@@ -6,7 +6,7 @@ import Skeleton from '../components/Skeleton';
 import ModelStoragePanel from '../components/ModelStoragePanel';
 import InstallationHistoryPanel from '../components/InstallationHistoryPanel';
 import QualityBenchmarkCta from '../components/QualityBenchmarkCta';
-import { EmptyState, Button } from '../components/ui';
+import { EmptyState, Button, PageHeader } from '../components/ui';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { toast } from 'sonner';
 
@@ -149,10 +149,7 @@ const ModelHub: FC = () => {
   if (isLoading) {
     return (
       <div className="p-8 space-y-6">
-        <header>
-          <h1 className="text-3xl font-black text-primary font-headline tracking-tight uppercase">{t('nav.modelHub')}</h1>
-          <p className="text-outline mt-2">{t('modelHub.kicker')}</p>
-        </header>
+        <PageHeader title={t('nav.modelHub')} description={t('modelHub.kicker')} />
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {[...Array(6)].map((_, i) => (
             <Skeleton key={i} className="h-64 w-full" />
@@ -164,20 +161,15 @@ const ModelHub: FC = () => {
 
   return (
     <div className="p-8 space-y-8 animate-in fade-in duration-700">
-      <header className="flex flex-col md:flex-row md:justify-between md:items-end gap-4">
-        <div>
-          <div className="flex items-center gap-3 mb-1">
-            <span className="material-symbols-outlined text-primary">hub</span>
-            <h1 className="text-3xl font-black text-primary font-headline tracking-tight uppercase">{t('nav.modelHub')}</h1>
-          </div>
-          <p className="text-outline max-w-2xl">
-            <Trans i18nKey="modelHub.subtitle">
-              Discover the LLM models best suited to your current or simulated hardware configuration.
-              Powered by <span className="text-primary font-bold">llmfit</span>.
-            </Trans>
-          </p>
-        </div>
-
+      <PageHeader
+        title={t('nav.modelHub')}
+        description={
+          <Trans i18nKey="modelHub.subtitle">
+            Discover the LLM models best suited to your current or simulated hardware configuration.
+            Powered by <span className="text-primary font-semibold">llmfit</span>.
+          </Trans>
+        }
+        actions={
         <div className="flex flex-wrap gap-3">
           <div className="flex items-center gap-2 bg-surface-container-low px-3 py-1 border border-outline-variant/20">
             <span className="text-[11px] font-black uppercase tracking-widest text-outline">{t('modelHub.show')}</span>
@@ -217,23 +209,23 @@ const ModelHub: FC = () => {
             <span className="text-[11px] font-black uppercase tracking-widest text-outline">{t('modelHub.autoActivate')}</span>
           </label>
 
-          <button
+          <Button
+            variant={isSimulating ? 'primary' : 'secondary'}
+            size="sm"
+            icon="settings_input_component"
             onClick={() => setIsSimulating(!isSimulating)}
-            className={`flex items-center gap-2 px-4 py-2 transition-colors border border-outline-variant/20 ${isSimulating ? 'bg-primary text-on-primary' : 'bg-surface-container-high text-primary hover:bg-surface-variant'}`}
+            aria-pressed={isSimulating}
           >
-            <span className="material-symbols-outlined text-sm">settings_input_component</span>
-            <span className="font-headline uppercase tracking-widest text-[11px] font-bold">{t('modelHub.simulation')}</span>
-          </button>
+            {t('modelHub.simulation')}
+          </Button>
 
-          <button
-            onClick={() => refetch()}
-            className="flex items-center gap-2 px-4 py-2 bg-surface-container-high hover:bg-surface-variant text-primary transition-colors border border-outline-variant/20"
-          >
-            <span className={`material-symbols-outlined text-sm ${isFetching ? 'animate-spin' : ''}`}>refresh</span>
-            <span className="font-headline uppercase tracking-widest text-[11px] font-bold">{t('modelHub.refresh')}</span>
-          </button>
+          <Button variant="secondary" size="sm" onClick={() => refetch()}>
+            <span aria-hidden="true" className={`material-symbols-outlined text-[16px] ${isFetching ? 'animate-spin' : ''}`}>refresh</span>
+            {t('modelHub.refresh')}
+          </Button>
         </div>
-      </header>
+        }
+      />
 
       {isSimulating && (
         <section className="bg-primary/5 p-6 border border-primary/20 animate-in slide-in-from-top-4 duration-300">

@@ -11,6 +11,7 @@ import type { TrainingLog } from '../types/api';
 import { configApi, fineTuningApi, recipeApi } from '../services/api';
 import { resolveTrainableBase, shouldReplace, suggestModelName } from '../lib/fineTuningPrefill';
 import LossChart from '../components/charts/LossChart';
+import { PageHeader, Button } from '../components/ui';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -420,19 +421,19 @@ const FineTuning: FC = () => {
     <div className="space-y-12 animate-in fade-in duration-700">
 
       {/* Header */}
-      <header className="flex justify-between items-end">
-        <div>
-          <p className="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-1">{t('fineTuning.kicker')}</p>
-          <h2 className="font-headline text-3xl font-bold tracking-tighter">{t('fineTuning.title')}</h2>
-        </div>
-        <button
-          onClick={() => setShowForm(v => !v)}
-          className="bg-primary text-on-primary-fixed font-bold py-3 px-6 text-[11px] uppercase tracking-widest hover:opacity-90 transition-opacity flex items-center gap-2"
-        >
-          <span className="material-symbols-outlined text-sm">{showForm ? 'close' : 'add'}</span>
-          {showForm ? t('fineTuning.cancel') : t('fineTuning.newJob')}
-        </button>
-      </header>
+      <PageHeader
+        kicker={t('fineTuning.kicker')}
+        title={t('fineTuning.title')}
+        actions={
+          <Button
+            variant={showForm ? 'secondary' : 'primary'}
+            icon={showForm ? 'close' : 'add'}
+            onClick={() => setShowForm(v => !v)}
+          >
+            {showForm ? t('fineTuning.cancel') : t('fineTuning.newJob')}
+          </Button>
+        }
+      />
 
       {/* ── New Job Form ── */}
       {showForm && (
