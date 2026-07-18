@@ -21,6 +21,19 @@
         <java.version>25</java.version>
     </properties>
 
+    <dependencyManagement>
+        <dependencies>
+            <!-- Aligne toutes les briques Testcontainers (core + junit-jupiter). -->
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers-bom</artifactId>
+                <version>1.21.3</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
     <dependencies>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -140,6 +153,19 @@
             <groupId>com.squareup.okhttp3</groupId>
             <artifactId>mockwebserver</artifactId>
             <version>5.4.0</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- ChromaDB réel (conteneur jetable) pour les tests d'intégration de cohérence
+             ingestion/GED — les bugs de duplication/purge sont invisibles avec un mock.
+             Version gérée par le BOM Spring Boot. -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>

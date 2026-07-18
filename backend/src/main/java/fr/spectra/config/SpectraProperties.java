@@ -193,8 +193,8 @@ public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, 
         public PipelineProperties {
             if (chunkMaxTokens == null) chunkMaxTokens = 512;
             if (chunkOverlapTokens == null) chunkOverlapTokens = 64;
-            if (embeddingBatchSize == null) embeddingBatchSize = 10;
-            if (embeddingTimeoutSeconds == null) embeddingTimeoutSeconds = 30;
+            if (embeddingBatchSize == null) embeddingBatchSize = 32;
+            if (embeddingTimeoutSeconds == null) embeddingTimeoutSeconds = 60;
             if (generationTimeoutSeconds == null) generationTimeoutSeconds = 120;
             if (concurrentIngestions == null) concurrentIngestions = 4;
         }

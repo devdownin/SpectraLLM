@@ -39,8 +39,8 @@ Every setting has a working default — see the essentials note at the top of [.
 | `SPECTRA_CHUNK_MAX_TOKENS` | `512` | Max tokens per chunk |
 | `SPECTRA_CHUNK_OVERLAP_TOKENS` | `64` | Token overlap between chunks |
 | `SPECTRA_CHUNK_LOCALE` | `fr` | BCP 47 tag for sentence-boundary detection during chunking (`fr`, `en`, `de`…). Does **not** change tokenization |
-| `SPECTRA_EMBEDDING_BATCH_SIZE` | `10` | Chunks embedded per batch |
-| `SPECTRA_EMBEDDING_TIMEOUT` | `30` | Embedding timeout (seconds) |
+| `SPECTRA_EMBEDDING_BATCH_SIZE` | `32` | Chunks embedded per HTTP batch (500 chunks = 16 requests instead of 50 with the old default of 10). Lower it on very slow CPUs |
+| `SPECTRA_EMBEDDING_TIMEOUT` | `60` | Timeout (seconds) of each `/v1/embeddings` request — must cover a full batch on slow hardware |
 | `SPECTRA_CONCURRENT_INGESTIONS` | `1` | Parallel ingestion workers (upload, URL and batch paths all share this semaphore) |
 | `SPECTRA_MAX_UNCOMPRESSED_MB` | `0` | Max uncompressed size per file / ZIP entry (MB). `0` = auto-computed from JVM heap and concurrency (OOM guard) |
 | `SPECTRA_INGESTION_MAX_ZIP_ENTRIES` | `10000` | Max entries processed per ZIP archive (ZIP-bomb guard) |

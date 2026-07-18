@@ -8,6 +8,18 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+_(rien pour l'instant)_
+
+---
+
+## [1.13.0] — 2026-07-18
+
+### Qualité & performance — tests d'intégration ChromaDB réel, lot d'embedding ×3
+
+- **Tests d'intégration contre un vrai ChromaDB** (`ChromaDbConsistencyIntegrationTest`, Testcontainers) : les scénarios critiques de l'audit — ré-ingestion forcée sans duplication, suppression purgeant vecteur + BM25, homonymes protégés par l'identité `sha256` — sont désormais vérifiés de bout en bout contre un conteneur `chromadb/chroma` jetable (même image que la stack). En CI le conteneur démarre automatiquement ; sans Docker le test est ignoré, ou peut viser un serveur existant via `SPECTRA_TEST_CHROMA_URL`. Ces bugs étaient invisibles aux tests unitaires (ChromaDB mocké partout).
+- **Lot d'embedding par défaut 10 → 32** (`SPECTRA_EMBEDDING_BATCH_SIZE`) : 500 chunks = 16 requêtes HTTP au lieu de 50. Abaisser sur CPU très lent.
+- **`SPECTRA_EMBEDDING_TIMEOUT` enfin câblé au client d'embedding** : la variable documentée n'alimentait que `spectra.pipeline.embedding-timeout-seconds`, que rien ne consommait — le client llama.cpp utilisait son propre défaut (30 s). Elle pilote désormais le timeout réel des requêtes `/v1/embeddings` (défaut relevé à 60 s pour couvrir un lot complet sur CPU lent).
+
 ### Ingestion & GED — cohérence des index, suppression unifiée, erreurs visibles (audit)
 
 Correctifs issus de l'[audit ingestion/GED](docs/process/archive/audit-ingestion-ged.fr.md) (PR #244, #249) :

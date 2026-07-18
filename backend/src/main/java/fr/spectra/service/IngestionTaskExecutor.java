@@ -62,7 +62,7 @@ public class IngestionTaskExecutor {
                                  FtsService ftsService,
                                  MeterRegistry meterRegistry,
                                  SpectraProperties properties,
-                                 @Value("${spectra.pipeline.embedding-batch-size:10}") int embeddingBatchSize,
+                                 @Value("${spectra.pipeline.embedding-batch-size:32}") int embeddingBatchSize,
                                  @Value("${spectra.pipeline.max-uncompressed-mb:0}") int maxUncompressedMb,
                                  @Value("${spectra.pipeline.concurrent-ingestions:4}") int concurrentIngestions) {
         this.extractorFactory = extractorFactory;
