@@ -10,6 +10,7 @@ import ModelComparisonPanel from '../components/ModelComparisonPanel';
 import BatchEvaluateDialog from '../components/BatchEvaluateDialog';
 import AbComparisonView from '../components/AbComparisonView';
 import Skeleton from '../components/Skeleton';
+import { EmptyState, Button } from '../components/ui';
 
 const STATUS_COLOR: Record<string, string> = {
   PENDING:   'text-on-surface-variant',
@@ -279,9 +280,17 @@ const Comparison: FC = () => {
           <Skeleton className="h-80" />
         </div>
       ) : reports.length === 0 ? (
-        <div className="bg-surface-container p-8 text-center space-y-2">
-          <p className="font-headline text-lg">{t('comparison.empty')}</p>
-          <p className="text-sm text-on-surface-variant">{t('comparison.emptyHint')}</p>
+        <div className="bg-surface-container rounded-xl ring-1 ring-white/[0.045]">
+          <EmptyState
+            icon="analytics"
+            title={t('comparison.empty')}
+            description={t('comparison.emptyHint')}
+            action={
+              <Button onClick={handleNewEvaluation} loading={isTriggering} icon="play_arrow">
+                {t('comparison.newEval')}
+              </Button>
+            }
+          />
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-6 items-start">

@@ -6,6 +6,7 @@ import Skeleton from '../components/Skeleton';
 import ModelStoragePanel from '../components/ModelStoragePanel';
 import InstallationHistoryPanel from '../components/InstallationHistoryPanel';
 import QualityBenchmarkCta from '../components/QualityBenchmarkCta';
+import { EmptyState, Button } from '../components/ui';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { toast } from 'sonner';
 
@@ -450,32 +451,34 @@ const ModelHub: FC = () => {
       </div>
 
       {isError && (
-        <div className="text-center py-20 bg-error/5 border border-dashed border-error/30 space-y-3">
-          <span className="material-symbols-outlined text-error text-4xl">error</span>
-          <p className="text-error font-bold">{t('modelHub.loadError')}</p>
-          <p className="text-outline text-xs">
-            {(recommendationsError as any)?.response?.data?.detail
+        <div className="bg-surface-container rounded-xl ring-1 ring-error/25">
+          <EmptyState
+            icon="error"
+            title={t('modelHub.loadError')}
+            description={(recommendationsError as any)?.response?.data?.detail
               ?? t('modelHub.loadErrorHint')}
-          </p>
-          <button
-            onClick={() => refetch()}
-            className="px-4 py-2 bg-primary text-on-primary font-headline uppercase tracking-widest text-[11px] font-bold"
-          >
-            {t('modelHub.retry')}
-          </button>
+            action={
+              <Button onClick={() => refetch()} icon="refresh">
+                {t('modelHub.retry')}
+              </Button>
+            }
+          />
         </div>
       )}
 
       {!isError && filteredModels?.length === 0 && (
-        <div className="text-center py-20 bg-surface-container-lowest border border-dashed border-outline-variant/30">
-          <span className="material-symbols-outlined text-outline text-4xl mb-3">search_off</span>
-          <p className="text-outline">
-            <Trans i18nKey="modelHub.emptyList">
-              No model matches your filters — or llmfit returned no recommendation (check
-              <code className="font-mono bg-surface-container px-1 mx-1">docker compose logs spectra-api</code>
-              if the list stays empty without filters).
-            </Trans>
-          </p>
+        <div className="bg-surface-container rounded-xl ring-1 ring-white/[0.045]">
+          <EmptyState
+            icon="search_off"
+            title={t('modelHub.emptyListTitle', 'No matching models')}
+            description={
+              <Trans i18nKey="modelHub.emptyList">
+                No model matches your filters — or llmfit returned no recommendation (check
+                <code className="font-mono bg-surface-container-high px-1 mx-1">docker compose logs spectra-api</code>
+                if the list stays empty without filters).
+              </Trans>
+            }
+          />
         </div>
       )}
     </div>

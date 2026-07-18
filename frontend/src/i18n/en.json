@@ -203,7 +203,8 @@
     "downloadedActive": "Activated — llm-chat reloads it automatically within a few seconds.",
     "downloadedRegistered": "Saved to the registry. Activate it from the Playground — llm-chat will reload it automatically.",
     "progressLost": "Progress tracking stopped for “{{name}}”",
-    "progressLostDesc": "The download failed, was cancelled or interrupted (API restart). Check the logs (docker compose logs spectra-api) and relaunch the install if needed — an already downloaded file is reused."
+    "progressLostDesc": "The download failed, was cancelled or interrupted (API restart). Check the logs (docker compose logs spectra-api) and relaunch the install if needed — an already downloaded file is reused.",
+    "emptyListTitle": "No matching models"
   },
   "storage": {
     "title": "Storage — data/models/",

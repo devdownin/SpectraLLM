@@ -203,7 +203,8 @@
     "downloadedActive": "Activé — llm-chat le recharge automatiquement en quelques secondes.",
     "downloadedRegistered": "Enregistré dans le registre. Activez-le depuis le Playground — llm-chat le rechargera automatiquement.",
     "progressLost": "Suivi de progression interrompu pour « {{name}} »",
-    "progressLostDesc": "Le téléchargement a échoué, a été annulé ou interrompu (redémarrage API). Vérifiez les logs (docker compose logs spectra-api) et relancez l'installation si besoin — un fichier déjà téléchargé est réutilisé."
+    "progressLostDesc": "Le téléchargement a échoué, a été annulé ou interrompu (redémarrage API). Vérifiez les logs (docker compose logs spectra-api) et relancez l'installation si besoin — un fichier déjà téléchargé est réutilisé.",
+    "emptyListTitle": "Aucun modèle correspondant"
   },
   "storage": {
     "title": "Stockage — data/models/",
