@@ -6,7 +6,7 @@
 > (`application.yml`, contrôleurs, `pom.xml`, CI, scripts, docker-compose, manifests k8s).
 >
 > Constat général : la documentation est riche et bien écrite (pédagogie remarquable de
-> `DOCUMENTATION_PEDAGOGIQUE.fr.md`, manuel utilisateur détaillé), mais elle a **dérivé du
+> `documentation-pedagogique.fr.md`, manuel utilisateur détaillé), mais elle a **dérivé du
 > code** sur plusieurs points bloquants pour un nouvel arrivant (liens morts, chemins de
 > commandes faux, version de Java contradictoire) et n'a pas suivi les évolutions récentes
 > du pipeline d'ingestion/GED. Trois descriptions du même pipeline coexistent sans source
@@ -26,13 +26,13 @@ Vérifiés par résolution de chaque lien relatif :
   `docs/tech/technical-doc.en.md`, `docs/tech/rag-pipeline.en.md`,
   `docs/tech/llama-cpp.en.md`, `docs/process/reliability.en.md`,
   `docs/user/documentation-pedagogique.fr.md`) — les fichiers réels sont en MAJUSCULES
-  (`GETTING_STARTED.md`, `ARCHITECTURE.md`…). **Tous les liens doc de la page d'accueil du
+  (`getting-started.en.md`, `architecture.en.md`…). **Tous les liens doc de la page d'accueil du
   projet sont morts.** Un renommage kebab-case a visiblement été amorcé
   (`technical-stack-architecture.en.md`, `c4-level-2-containers.fr.md` existent) puis
   abandonné à mi-chemin.
 - **Références à des documents supprimés** : `docs/README.md` →
   `process/SECURITY_AUDIT.md`, `process/AUDIT_FINE_TUNING.fr.md`, `user/ged.md` (supprimés
-  de `main`) ; `docs/GETTING_STARTED.md` et `deploy/k8s/README.md` →
+  de `main`) ; `docs/getting-started.en.md` et `deploy/k8s/README.md` →
   `tech/DEPLOY_GKE.md` (supprimé) ; `.github/release-notes/v0.6.md` →
   `docs/DEPLOY_GKE.md`.
 - `docs/README.md` annonce des diagrammes « (`*.html`) » alors qu'ils ont été convertis en
@@ -48,14 +48,23 @@ CI (ex. `lychee` ou le script Python de cet audit) pour empêcher la récidive.
 |---|---|
 | `backend/pom.xml` (`java.version`) | **21** |
 | CI (`.github/actions/setup-java-maven`) | **21** (temurin) |
-| `docs/GETTING_STARTED.md` (×2), `README.md`, `TECHNICAL_DOC.md` (×2) | **« Java 25 (LTS) »** |
+| `docs/getting-started.en.md` (×2), `README.md`, `technical-doc.en.md` (×2) | **« Java 25 (LTS) »** |
 | `.sdkmanrc` | **25-tem** |
 
 Un contributeur qui suit la doc installe Java 25 alors que le build cible et que la CI
 valide Java 21. Fix : aligner (soit documenter 21, soit monter pom+CI à 25) — et faire de
 `pom.xml` la seule source citée.
 
-### C3 — Chemins de commandes faux dans `GETTING_STARTED.md` — **bloquant au premier essai**
+> **Complément d'investigation (correctif)** : l'intention du projet est bien Java 25 — le
+> CHANGELOG documente la migration 21 → 25, les images Docker buildent et tournent sur
+> Temurin 25, `.sdkmanrc` était à 25. C'est le commit `048fd22` (« chore: optimize ci and
+> deploy workflows ») qui a rétrogradé `pom.xml` et la CI à 21, sans entrée CHANGELOG.
+> Correctif appliqué côté doc : prérequis reformulé en « JDK 21 ou plus récent (cible de
+> build : 21 ; images Docker : Temurin 25) », `.sdkmanrc` restauré à 25. **Décision
+> restante pour l'équipe** : remonter `pom.xml`/CI à 25 (conforme au CHANGELOG) ou assumer
+> la cible 21 et l'y consigner.
+
+### C3 — Chemins de commandes faux dans `getting-started.en.md` — **bloquant au premier essai**
 
 - `./start.sh --first-run`, `start.bat`, `./detect-env.sh` : ces scripts sont dans
   `scripts/` (`scripts/start.sh`…) — le README, lui, est correct.
@@ -64,13 +73,13 @@ valide Java 21. Fix : aligner (soit documenter 21, soit monter pom+CI à 25) —
 - `docker compose up -d` (et toutes les variantes `--profile`) : **il n'y a pas de
   `docker-compose.yml` à la racine** — la stack est dans `deploy/docker/` et `start.sh`
   l'invoque via `--project-directory . -f deploy/docker/docker-compose.yml`. Chaque
-  commande compose du guide échoue telle quelle. Idem `USER_MANUAL.md`
+  commande compose du guide échoue telle quelle. Idem `user-manual.en.md`
   (`SPECTRA_GED_AUTO_RETRAIN_THRESHOLD=20 docker compose up -d`).
 - `kubectl apply -k k8s/base` (+ overlays) : le répertoire réel est `deploy/k8s/`.
 - Renvoi final vers `DEPLOY_GKE.md`, supprimé (cf. C1) — la section GKE n'a plus de doc de
   référence alors que `deploy/k8s/README.md` y renvoie aussi.
 
-### C4 — `CONFIGURATION.md` : ~40 variables absentes, 1 variable douteuse — **majeur**
+### C4 — `configuration.en.md` : ~40 variables absentes, 1 variable douteuse — **majeur**
 
 Croisement avec `application.yml` :
 
@@ -90,23 +99,23 @@ Croisement avec `application.yml` :
   d'environnement telle que documentée n'est donc pas garanti : câbler la propriété dans
   `application.yml` comme les autres.
 - `.env.example` ne liste que ~18 variables : cohérent avec sa vocation « essentiels »,
-  mais `CONFIGURATION.md` s'annonce comme « all overrides » sans l'être.
+  mais `configuration.en.md` s'annonce comme « all overrides » sans l'être.
 
 ### C5 — Listes de formats supportés : 5 versions, toutes périmées — **majeur**
 
 | Emplacement | Liste annoncée |
 |---|---|
 | `README(.fr).md` | PDF, DOCX, HTML, JSON, XML, TXT, ZIP |
-| `docs/ARCHITECTURE.md` (tableau ingestion) | PDF, DOCX, HTML, JSON, XML, TXT |
-| `docs/user/USER_MANUAL.md` | PDF, DOCX, DOC, JSON, XML, TXT, HTML |
-| `docs/tech/TECHNICAL_DOC.md` (table extracteurs) | + `.avro`, mais sans `.zip` |
+| `docs/architecture.en.md` (tableau ingestion) | PDF, DOCX, HTML, JSON, XML, TXT |
+| `docs/user/user-manual.en.md` | PDF, DOCX, DOC, JSON, XML, TXT, HTML |
+| `docs/tech/technical-doc.en.md` (table extracteurs) | + `.avro`, mais sans `.zip` |
 | Réel (`DocumentExtractorFactory`) | PDF, DOCX, DOC, JSON, XML, HTML/HTM, AVRO, TXT, **MD, MARKDOWN, CSV**, ZIP |
 
 Aucune liste ne mentionne les formats `.md`/`.markdown`/`.csv` ajoutés récemment ; DOC et
 Avro manquent selon l'endroit. Fix : une seule table de référence (TECHNICAL_DOC) et des
 mentions courtes « voir la liste complète » ailleurs.
 
-### C6 — `ARCHITECTURE.md` : pipeline d'ingestion inexact — **majeur**
+### C6 — `architecture.en.md` : pipeline d'ingestion inexact — **majeur**
 
 - « **BM25 indexing** … *(if hybrid search is enabled)* » : faux — l'index BM25 est
   alimenté **systématiquement** (`FtsService.indexChunks` inconditionnel) ; seul son usage
@@ -119,13 +128,13 @@ mentions courtes « voir la liste complète » ailleurs.
   le filtre `q` (recherche par nom) manque dans la liste des filtres GED.
 - « Cleaning — 8-step normalization » : `TextCleanerService` compte 7 passes.
 
-### C7 — `USER_MANUAL.md` : affirmation fausse sur les URLs — **moyen**
+### C7 — `user-manual.en.md` : affirmation fausse sur les URLs — **moyen**
 
 « Pour les URLs, chaque soumission déclenche un nouveau téléchargement et une **nouvelle
 ingestion** » : faux — le chemin URL déduplique aussi par SHA-256 (contenu inchangé =
 ignoré). À reformuler (le téléchargement a bien lieu, la ré-indexation non).
 
-### C8 — `RELIABILITY.md` : item [3] périmé — **mineur**
+### C8 — `reliability.en.md` : item [3] périmé — **mineur**
 
 « H2 avec `ddl-auto: update` sans migration contrôlée — TODO » : la base est passée à
 `ddl-auto: validate` + `schema.sql` idempotent (avec migrations `ALTER TABLE IF NOT
@@ -137,7 +146,7 @@ EXISTS`). Le risque décrit n'existe plus sous cette forme ; l'item devrait êtr
 ~100 endpoints réels (contrôleurs) ; absents de toute doc : `GET/DELETE
 /api/ablation/jobs*`, `GET /api/sse/tasks`, `GET|POST /api/config/embedding-consistency*`,
 `POST /api/query/feedback`, `GET /api/ingest/files` (présent une seule fois). Le Swagger
-(`/api-docs`) couvre le besoin machine, mais `TECHNICAL_DOC.md` se présente comme la
+(`/api-docs`) couvre le besoin machine, mais `technical-doc.en.md` se présente comme la
 référence et a pris du retard.
 
 ---
@@ -184,24 +193,24 @@ renommer les ~10 fichiers UPPERCASE avec `git mv`, en un seul commit.
 
 ### S2 — Trois descriptions du pipeline, sans hiérarchie
 
-Le pipeline d'ingestion/RAG est décrit dans `ARCHITECTURE.md` (EN),
-`TECHNICAL_DOC.md` (FR, 1 964 lignes) et `RAG_PIPELINE.md` (EN) — avec des niveaux de
-détail qui se recouvrent et divergent (cf. C5/C6). Proposer : `ARCHITECTURE.md` = vue
-d'ensemble + liens ; `TECHNICAL_DOC.md` = référence unique par service ;
-`RAG_PIPELINE.md` = justifications de conception (le « pourquoi »). Chaque fait chiffré
+Le pipeline d'ingestion/RAG est décrit dans `architecture.en.md` (EN),
+`technical-doc.en.md` (FR, 1 964 lignes) et `rag-pipeline.en.md` (EN) — avec des niveaux de
+détail qui se recouvrent et divergent (cf. C5/C6). Proposer : `architecture.en.md` = vue
+d'ensemble + liens ; `technical-doc.en.md` = référence unique par service ;
+`rag-pipeline.en.md` = justifications de conception (le « pourquoi »). Chaque fait chiffré
 (défauts, formats, limites) ne devrait vivre qu'à UN endroit.
 
 ### S3 — Langue incohérente
 
 EN : README, ARCHITECTURE, GETTING_STARTED, CONFIGURATION, USER_MANUAL (titres EN, corps
 FR !), RAG_PIPELINE ; FR : TECHNICAL_DOC, DOCUMENTATION_PEDAGOGIQUE, CHANGELOG, designs.
-`USER_MANUAL.md` est le cas le plus gênant : en-têtes anglais, contenu français. Fixer une
+`user-manual.en.md` est le cas le plus gênant : en-têtes anglais, contenu français. Fixer une
 règle (ex. : EN par défaut, `.fr.md` pour les traductions/documents nativement français)
 et l'appliquer au moins aux nouveaux documents.
 
 ### S4 — Documents-journaux à archiver
 
-- `RELIABILITY.md` : journal d'améliorations quasi intégralement « ✅ DONE » (+ un TODO
+- `reliability.en.md` : journal d'améliorations quasi intégralement « ✅ DONE » (+ un TODO
   périmé, cf. C8) — à archiver ou réduire aux items ouverts.
 - `.github/release-notes/v0.5.md`/`v0.6.md` vs `CHANGELOG.md` : double comptabilité des
   releases ; choisir le CHANGELOG comme source et générer les release notes GitHub depuis
@@ -213,14 +222,14 @@ et l'appliquer au moins aux nouveaux documents.
 
 ## 4. Points positifs (à préserver)
 
-- `DOCUMENTATION_PEDAGOGIQUE.fr.md` : vulgarisation soignée (embeddings, RRF, QLoRA/DPO)
+- `documentation-pedagogique.fr.md` : vulgarisation soignée (embeddings, RRF, QLoRA/DPO)
   avec schémas Mermaid — rare à ce niveau de qualité.
 - `docs/README.md` : bon hub d'orientation « par intention » (une fois ses liens réparés).
 - Conversion récente des diagrammes C4 HTML → Markdown/Mermaid : lisible dans GitHub,
   diffable.
-- `CONFIGURATION.md` : bon format tableau var/défaut/description — il ne lui manque que
+- `configuration.en.md` : bon format tableau var/défaut/description — il ne lui manque que
   l'exhaustivité (C4).
-- `USER_MANUAL.md` § Model Hub récemment mis à jour avec le code (stockage, rétention) —
+- `user-manual.en.md` § Model Hub récemment mis à jour avec le code (stockage, rétention) —
   la preuve que le processus « doc mise à jour dans la PR » fonctionne quand il est suivi.
 
 ---
@@ -229,11 +238,11 @@ et l'appliquer au moins aux nouveaux documents.
 
 | # | Action | Type | Effort |
 |---|--------|------|--------|
-| 1 | Corriger les 30 liens cassés + trancher la convention de nommage (S1) | Conformité | Faible |
-| 2 | `GETTING_STARTED` : chemins réels (`scripts/`, `deploy/docker`, `deploy/k8s`), URL du repo, retrait/remplacement du renvoi GKE | Conformité | Faible |
-| 3 | Aligner la version de Java (pom/CI 21 vs docs/sdkmanrc 25) | Conformité | Faible |
-| 4 | `CONFIGURATION.md` : ajouter les ~40 variables manquantes (Kafka, llmfit, ingestion, chunk-locale) ; câbler `auto-retrain-threshold` dans `application.yml` | Conformité | Moyen |
-| 5 | Unifier la liste des formats (référence unique) et corriger BM25/dédup/état-machine dans `ARCHITECTURE.md` | Conformité | Faible |
+| 1 | ✅ **Fait** — 30 liens réparés, convention kebab-case `.{fr,en}.md` adoptée (13 fichiers renommés, références mises à jour dans tout le dépôt) | Conformité | Faible |
+| 2 | ✅ **Fait** — `getting-started.en.md` corrigé (chemins `scripts/`, `deploy/docker`, `deploy/k8s`, URL du repo, renvoi GKE → `deploy/k8s/README.md`) ; commandes compose du manuel corrigées | Conformité | Faible |
+| 3 | ✅ **Fait** (côté doc) — prérequis « JDK 21+ (cible de build 21, runtime Docker Temurin 25) » ; reste la décision pom/CI (cf. complément C2) | Conformité | Faible |
+| 4 | `configuration.en.md` : ajouter les ~40 variables manquantes (Kafka, llmfit, ingestion, chunk-locale) ; câbler `auto-retrain-threshold` dans `application.yml` | Conformité | Moyen |
+| 5 | Unifier la liste des formats (référence unique) et corriger BM25/dédup/état-machine dans `architecture.en.md` | Conformité | Faible |
 | 6 | Documenter les évolutions ingestion/GED récentes (M1) + entrées CHANGELOG (M2) | Complétude | Moyen |
 | 7 | Contrôle de liens en CI | Prévention | Faible |
 | 8 | Restructuration S2/S3/S4 (hiérarchie des 3 docs pipeline, règle de langue, archivage) | Simplification | Moyen |

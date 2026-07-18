@@ -6,7 +6,7 @@ The following is a set of guidelines for contributing to Spectra.
 
 ## Local development
 
-For the full install (models, Docker profiles, GPU), see **[Getting Started](docs/GETTING_STARTED.md)**. To build and test the code the way CI does, you need:
+For the full install (models, Docker profiles, GPU), see **[Getting Started](docs/getting-started.en.md)**. To build and test the code the way CI does, you need:
 
 - **JDK 25** (Temurin recommended — `.sdkmanrc` pins `25-tem`, use `sdk env` if you have SDKMAN!)
 - **Node.js 22** (frontend)

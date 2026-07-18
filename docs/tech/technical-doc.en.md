@@ -474,7 +474,7 @@ Source d'ingestion alternative aux uploads/URLs : un consumer Kafka alimente le 
 
 **Métriques (Micrometer / `/actuator/prometheus`).** Compteur `spectra.kafka.messages{topic,result}` (`result` ∈ upserted/unchanged/deleted/failed) et timer `spectra.kafka.processing{topic}`.
 
-**Déploiement.** Service `kafka` sous profil Docker `kafka` (Apache Kafka en mode KRaft mono-nœud, listeners `kafka:9092` interne / `localhost:29092` hôte). Variables `SPECTRA_KAFKA_*` (cf. `.env.example`). Voir aussi `docs/DESIGN_KAFKA_STREAMING_UPSERT.fr.md`.
+**Déploiement.** Service `kafka` sous profil Docker `kafka` (Apache Kafka en mode KRaft mono-nœud, listeners `kafka:9092` interne / `localhost:29092` hôte). Variables `SPECTRA_KAFKA_*` (cf. `.env.example`). Voir aussi `docs/design-kafka-streaming-upsert.fr.md`.
 
 ---
 
@@ -559,7 +559,7 @@ PENDING → EXPORTING_DATASET → TRAINING → IMPORTING_MODEL → COMPLETED
 
 > 📖 **Le raisonnement de conception** (pourquoi chaque étape existe : chunking, Multi-Query,
 > fusion RRF, re-ranking, compression de contexte, long-context bypass) est détaillé dans
-> **[Le pipeline RAG — pourquoi chaque étape](RAG_PIPELINE.md)**. La présente section est la
+> **[Le pipeline RAG — pourquoi chaque étape](rag-pipeline.en.md)**. La présente section est la
 > référence d'implémentation.
 
 ### `RagContext` — record interne

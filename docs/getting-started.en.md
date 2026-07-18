@@ -1,18 +1,21 @@
 # Getting Started — Step by Step
 
-The [README quick start](../README.md#-quick-start) (`./start.sh --first-run`) does all of this in one command. This guide is for when you want control over each stage, or a development setup.
+The [README quick start](../README.md#-quick-start) (`./scripts/start.sh --first-run`) does all of this in one command. This guide is for when you want control over each stage, or a development setup.
 
 > All shell commands in this document are run from the repository root.
+> The Docker Compose stack lives in `deploy/docker/` — every `docker compose` command below
+> therefore uses `--project-directory . -f deploy/docker/docker-compose.yml` (which is exactly
+> what `scripts/start.sh` does for you).
 
 ## Getting Started
 
 ### Development Environment
 
-Spectra requires **Java 25 (LTS)**. To set up your local development environment, you can use one of the following methods:
+Spectra requires **JDK 21 or newer** — the build targets Java 21 (`backend/pom.xml`, CI), while the Docker images build and run on Temurin 25, so both LTS versions work locally. To set up your local development environment, you can use one of the following methods:
 
 - **SDKMAN!**: A `.sdkmanrc` file is provided at the root. Run `sdk env install` then `sdk env use` to automatically switch to the correct Java version.
 - **VS Code DevContainer**: A pre-configured `.devcontainer` is available. When opening the project in VS Code, click "Reopen in Container".
-- **Manual**: Install **Eclipse Temurin 25 (LTS)** from [Adoptium](https://adoptium.net/).
+- **Manual**: Install **Eclipse Temurin 21 or 25 (LTS)** from [Adoptium](https://adoptium.net/).
 
 You can verify your environment by running:
 ```bash
@@ -21,7 +24,7 @@ bash scripts/setup-java.sh
 
 ### Prerequisites
 
-- **Java 25 (LTS)** — for local compilation
+- **JDK 21 or newer (LTS)** — for local compilation (build target: Java 21)
 - **Docker Desktop** (or Docker Engine + Compose v2)
 - **16 GB RAM** minimum (32 GB recommended for 7B models)
 - A `.gguf` model file placed in `data/models/`
@@ -31,9 +34,9 @@ GPU is optional but strongly recommended for inference speed. NVIDIA, AMD (ROCm)
 ### Quick start — one command
 
 ```bash
-git clone https://github.com/your-org/Spectra.git
-cd Spectra
-./start.sh --first-run        # Windows: start.bat --first-run
+git clone https://github.com/devdownin/SpectraLLM.git
+cd SpectraLLM
+./scripts/start.sh --first-run        # Windows: scripts\start.bat --first-run
 ```
 
 This downloads the default models (embedding ~81 MB + chat ~1.1 GB), starts the full stack in the background, waits for every service to be ready, then opens the Web UI at **http://localhost**. Steps 1–4 below do the same thing manually, for when you want control over each stage.
@@ -41,9 +44,9 @@ This downloads the default models (embedding ~81 MB + chat ~1.1 GB), starts the 
 ### 1. Clone and prepare
 
 ```bash
-git clone https://github.com/your-org/Spectra.git
-cd Spectra
-./detect-env.sh               # auto-detects hardware and writes .env
+git clone https://github.com/devdownin/SpectraLLM.git
+cd SpectraLLM
+./scripts/detect-env.sh       # auto-detects hardware and writes .env
 mkdir -p data/models data/documents data/dataset
 ```
 
@@ -67,17 +70,20 @@ If the models are missing at startup, `model-init` will print exact download ins
 ### 3. Start the stack
 
 ```bash
+# The stack lives in deploy/docker/ — alias the invocation once:
+alias spectra-compose='docker compose --project-directory . -f deploy/docker/docker-compose.yml'
+
 # Base stack (inference + vector DB)
-docker compose up -d
+spectra-compose up -d
 
 # With layout-aware PDF parsing
-docker compose --profile layout-parser up -d
+spectra-compose --profile layout-parser up -d
 
 # With cross-encoder reranking
-docker compose --profile reranker up -d
+spectra-compose --profile reranker up -d
 
 # With both optional services
-docker compose --profile layout-parser --profile reranker up -d
+spectra-compose --profile layout-parser --profile reranker up -d
 ```
 
 ### 4. Access
@@ -93,19 +99,19 @@ docker compose --profile layout-parser --profile reranker up -d
 
 ### 5. Deploy to Kubernetes / GKE (optional)
 
-Spectra ships complete Kubernetes manifests (`k8s/`, kustomize) and a one-push CI/CD pipeline for **Google Kubernetes Engine**:
+Spectra ships complete Kubernetes manifests (`deploy/k8s/`, kustomize) and a one-push CI/CD pipeline for **Google Kubernetes Engine**:
 
 ```bash
 # 1. Seed the GGUF models onto the PVCs (idempotent)
 ./scripts/gke-seed-models.sh
 
 # 2. Deploy the stack (minikube, kind, k3s, GKE…)
-kubectl apply -k k8s/base
+kubectl apply -k deploy/k8s/base
 
 # Variants (kustomize overlays)
-kubectl apply -k k8s/overlays/gpu    # GPU acceleration (NVIDIA, opt-in)
-kubectl apply -k k8s/overlays/gke    # GKE native Ingress + Google-managed TLS
-kubectl apply -k k8s/monitoring      # Prometheus alerts + Grafana dashboard
+kubectl apply -k deploy/k8s/overlays/gpu    # GPU acceleration (NVIDIA, opt-in)
+kubectl apply -k deploy/k8s/overlays/gke    # GKE native Ingress + Google-managed TLS
+kubectl apply -k deploy/k8s/monitoring      # Prometheus alerts + Grafana dashboard
 ```
 
 A GitHub Actions workflow (`.github/workflows/deploy-gke.yml`) builds and pushes the images and rolls out to GKE on every push to `main`, authenticated via **Workload Identity Federation** (no JSON keys). Highlights:
@@ -114,6 +120,6 @@ A GitHub Actions workflow (`.github/workflows/deploy-gke.yml`) builds and pushes
 - **Managed HTTPS** — `ManagedCertificate` + HTTP→HTTPS redirect, with SSE-friendly backend timeouts.
 - **Observability** — `/actuator/prometheus` metrics, ready-to-apply `ServiceMonitor`, alert rules and a Grafana dashboard.
 
-See **[DEPLOY_GKE.md](tech/DEPLOY_GKE.md)** for the full GCP setup, cluster creation, and the GPU / TLS / monitoring variants.
+See **[deploy/k8s/README.md](../deploy/k8s/README.md)** for the manifests, the kustomize overlays (GPU / GKE / monitoring) and model seeding.
 
 ---

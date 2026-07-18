@@ -12,7 +12,7 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 - **Suppression des GGUF orphelins depuis l'UI** (`DELETE /api/models/hub/storage/files?file=…` + bouton dans le panneau Stockage) : un fichier présent dans `data/models/` mais absent du registre (déposé à la main, laissé par un incident) était visible dans le rapport de stockage mais insupprimable sans shell — la suppression de modèle exige un alias enregistré. Garde-fous : nom simple uniquement (anti-traversée), fichier directement dans `models-dir`, refus en 409 s'il est encore référencé par le registre (retirer le modèle dans ce cas).
 - **Rétention de l'historique des installations** (`InstallationRetentionService`, propriété `llmfit.installations-retention-days`, env `LLMFIT_INSTALL_RETENTION_DAYS`, défaut `0` = conserver) : cron nocturne purgeant les jobs **terminaux** (COMPLETED/FAILED/CANCELLED) plus vieux que N jours — même convention que les rétentions GED et Kafka. Les jobs non-terminaux ne sont jamais purgés (la réconciliation au démarrage les traite d'abord).
-- **Documentation utilisateur à jour** : le manuel (`USER_MANUAL.md` § Gestion des modèles) documente le panneau Stockage (volume + cache llmfit, purge des doublons, suppression des orphelins), l'historique des installations (bouton Réessayer, rétention) et le badge du modèle actif ; la documentation pédagogique corrige « copié » → « déplacé » et décrit le cycle de vie du stockage. Variables `LLMFIT_CACHE_DIR` / `LLMFIT_INSTALL_RETENTION_DAYS` ajoutées à `.env.example` et transmises par docker-compose.
+- **Documentation utilisateur à jour** : le manuel (`user-manual.en.md` § Gestion des modèles) documente le panneau Stockage (volume + cache llmfit, purge des doublons, suppression des orphelins), l'historique des installations (bouton Réessayer, rétention) et le badge du modèle actif ; la documentation pédagogique corrige « copié » → « déplacé » et décrit le cycle de vie du stockage. Variables `LLMFIT_CACHE_DIR` / `LLMFIT_INSTALL_RETENTION_DAYS` ajoutées à `.env.example` et transmises par docker-compose.
 
 ### UI — relance des installations échouées, badge modèle actif cliquable
 
@@ -64,7 +64,7 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 - **Rétention** (`KafkaStreamRetentionService`) : cron nocturne purgeant les sources non mises à jour depuis `retention-ttl-days` jours (0 = désactivé).
 - **Métriques Micrometer** : `spectra.kafka.messages{topic,result}` et `spectra.kafka.processing{topic}` sur `/actuator/prometheus`.
 - **Déploiement** : profil Docker `kafka` (Apache Kafka mode KRaft mono-nœud) dans `docker-compose.yml`, variables `SPECTRA_KAFKA_*` (`.env.example`). Dépendance `spring-kafka` (gérée par le BOM Spring Boot).
-- **Documentation** : `docs/DESIGN_KAFKA_STREAMING_UPSERT.fr.md` (design détaillé), sections dédiées dans le README, la doc technique, le manuel utilisateur et le mini-livre pédagogique.
+- **Documentation** : `docs/design-kafka-streaming-upsert.fr.md` (design détaillé), sections dédiées dans le README, la doc technique, le manuel utilisateur et le mini-livre pédagogique.
 
 ### Évaluation — mesure des gains des enrichissements LLM
 
@@ -158,7 +158,7 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ### Documentation
 
-- **Guide pédagogique réécrit** : `DOCUMENTATION_PEDAGOGIQUE.fr.md` réorganisé en « mini-livre » des idées et algorithmes ; cross-links EN/FR ajoutés depuis le README.
+- **Guide pédagogique réécrit** : `documentation-pedagogique.fr.md` réorganisé en « mini-livre » des idées et algorithmes ; cross-links EN/FR ajoutés depuis le README.
 
 ---
 
@@ -441,7 +441,7 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ### Modifié
 - `pipeline.bat` : support des flags `--packing` et `--dpo` (transmission à `train_host.py`)
-- Documentation : `IMPROVEMENTS.md`, `README.md`, `USER_MANUAL.md` mis à jour avec H1–H4
+- Documentation : `IMPROVEMENTS.md`, `README.md`, `user-manual.en.md` mis à jour avec H1–H4
 
 ---
 

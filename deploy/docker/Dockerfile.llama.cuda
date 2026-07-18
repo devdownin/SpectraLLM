@@ -10,7 +10,7 @@
 #   docker build -f deploy/docker/Dockerfile.llama.cuda -t spectra-llama-cpp:latest .
 #
 # À utiliser avec l'overlay k8s/overlays/gpu (qui demande nvidia.com/gpu)
-# sur un node pool GKE équipé de GPU. Voir docs/DEPLOY_GKE.md §GPU.
+# sur un node pool GKE équipé de GPU. Voir deploy/k8s/README.md §GPU.
 # ─────────────────────────────────────────────────────────────────────────────
 FROM ghcr.io/ggml-org/llama.cpp:server-cuda
 
