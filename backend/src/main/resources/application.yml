@@ -92,6 +92,9 @@ spectra:
   pipeline:
     chunk-max-tokens: ${SPECTRA_CHUNK_MAX_TOKENS:512}
     chunk-overlap-tokens: ${SPECTRA_CHUNK_OVERLAP_TOKENS:64}
+    # Locale des frontières de phrases au chunking (tag BCP 47 : fr, en, de…).
+    # Ne change PAS la tokenization (cl100k) — uniquement le découpage des phrases.
+    chunk-locale: ${SPECTRA_CHUNK_LOCALE:fr}
     embedding-batch-size: ${SPECTRA_EMBEDDING_BATCH_SIZE:10}
     # Taille décompressée max par fichier / entrée ZIP (Mo). Borne la mémoire
     # d'ingestion. 0 = auto : calculé selon le heap JVM et la concurrence.

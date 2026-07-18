@@ -135,7 +135,7 @@ public class FtsService {
             // un index périmé (flush différé perdu, suppression non persistée, reset de
             // ChromaDB) servirait sinon des chunks fantômes ou en manque indéfiniment.
             BM25Index diskIndex = loadIndexFromDisk(collectionName);
-            if (diskIndex != null) {
+            if (diskIndex != null && diskIndexMatchesChroma(collectionName, diskIndex)) {
                 mergeRebuilt(collectionName, diskIndex);
                 rebuiltOnce.add(collectionName);
                 log.info("FTS: index '{}' loaded from disk ({} chunks)", collectionName, diskIndex.size());
@@ -185,6 +185,29 @@ public class FtsService {
         } finally {
             pendingRebuilds.remove(collectionName);
             rebuilding.remove(collectionName);
+        }
+    }
+
+    /**
+     * Fraîcheur de l'index disque : son nombre de chunks doit correspondre au comptage
+     * ChromaDB (source de vérité). En cas d'écart → reconstruction complète ; si ChromaDB
+     * est injoignable → l'index disque est utilisé en mode dégradé (mieux qu'un index vide,
+     * la réconciliation périodique corrigera dès que ChromaDB répond).
+     */
+    private boolean diskIndexMatchesChroma(String collectionName, BM25Index diskIndex) {
+        try {
+            String collectionId = chromaDbClient.getOrCreateCollection(collectionName);
+            int chromaCount = chromaDbClient.count(collectionId);
+            if (chromaCount == diskIndex.size()) {
+                return true;
+            }
+            log.info("FTS: index disque '{}' périmé ({} chunks vs {} dans ChromaDB) — reconstruction",
+                    collectionName, diskIndex.size(), chromaCount);
+            return false;
+        } catch (Exception e) {
+            log.warn("FTS: fraîcheur de l'index disque '{}' invérifiable ({}) — utilisation en mode dégradé",
+                    collectionName, e.getMessage());
+            return true;
         }
     }
 

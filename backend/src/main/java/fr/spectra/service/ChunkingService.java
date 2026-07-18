@@ -44,14 +44,23 @@ public class ChunkingService {
     /** Coût en tokens des séparateurs, précalculé (constants pour un encodage donné). */
     private final int sepTokenCount;
     private final int spaceTokenCount;
+    /** Locale des frontières de phrases ({@link BreakIterator}) — corpus multilingues. */
+    private final Locale sentenceLocale;
 
-    public ChunkingService(SpectraProperties properties) {
+    @org.springframework.beans.factory.annotation.Autowired
+    public ChunkingService(SpectraProperties properties,
+                           @org.springframework.beans.factory.annotation.Value("${spectra.pipeline.chunk-locale:fr}") String chunkLocale) {
         EncodingRegistry registry = Encodings.newDefaultEncodingRegistry();
         this.encoding = registry.getEncoding(EncodingType.CL100K_BASE);
         this.maxChunkTokens = properties.pipeline().chunkMaxTokens();
         this.overlapTokens = properties.pipeline().chunkOverlapTokens();
         this.sepTokenCount = encoding.encode("\n\n").size();
         this.spaceTokenCount = encoding.encode(" ").size();
+        this.sentenceLocale = resolveLocale(chunkLocale);
+    }
+
+    public ChunkingService(SpectraProperties properties) {
+        this(properties, "fr");
     }
 
     /** Constructor with default chunk/overlap sizes — used in tests. */
@@ -62,6 +71,18 @@ public class ChunkingService {
         this.overlapTokens = 64;
         this.sepTokenCount = encoding.encode("\n\n").size();
         this.spaceTokenCount = encoding.encode(" ").size();
+        this.sentenceLocale = Locale.FRENCH;
+    }
+
+    /**
+     * Résout la locale des frontières de phrases ({@code spectra.pipeline.chunk-locale},
+     * tag BCP 47 : {@code fr}, {@code en}, {@code de}…). Un tag vide ou inconnu retombe sur
+     * le français (comportement historique) plutôt que d'échouer au démarrage.
+     */
+    private static Locale resolveLocale(String tag) {
+        if (tag == null || tag.isBlank()) return Locale.FRENCH;
+        Locale locale = Locale.forLanguageTag(tag.trim());
+        return locale.getLanguage().isEmpty() ? Locale.FRENCH : locale;
     }
 
     public List<TextChunk> chunk(String text, String sourceFile, Map<String, String> extraMetadata) {
@@ -155,7 +176,7 @@ public class ChunkingService {
 
     private List<TextChunk> splitLargeParagraph(String text, int startIndex, String sourceFile, Map<String, String> meta) {
         List<String> sentences = new ArrayList<>();
-        BreakIterator iterator = BreakIterator.getSentenceInstance(Locale.FRENCH);
+        BreakIterator iterator = BreakIterator.getSentenceInstance(sentenceLocale);
         iterator.setText(text);
         int start = iterator.first();
         for (int end = iterator.next(); end != BreakIterator.DONE; start = end, end = iterator.next()) {
