@@ -8,6 +8,12 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Playground — comparaison A/B → paires DPO (boucle vers le fine-tuning)
+
+- **Vote de préférence dans la comparaison A/B** : le dialogue « Compare » propose désormais « Which is better? » (réponse de référence vs variante sans un module). Le choix humain est enregistré comme **paire DPO** (`chosen`/`rejected`) sur la **même question** — un signal de préférence bien plus propre que l'agrégation 👍/👎. `POST /api/dataset/dpo/preference`.
+- **Stockage sans collision** : les préférences vont dans un fichier `dpo_preference_pairs.jsonl` **séparé** de `dpo_pairs.jsonl` (que la génération DPO tronque et réécrit). `DpoGenerationService.getAllPairs()`/`exportJsonl()` fusionnent les deux ; les stats DPO distinguent `generatedPairs` et `preferencePairs`. Ainsi une préférence votée n'est jamais perdue par une régénération.
+- **Correctif** : dans le dialogue de comparaison, le rendu de la variante utilisait `requestAnimationFrame` pour batcher les tokens — non fiable hors compositing (la variante pouvait rester vide alors que les métadonnées arrivaient). Aligné sur le même batching `setTimeout` que le chat principal ; la variante s'affiche désormais de façon déterministe.
+
 ### Observabilité & feedback — dashboards de latence par étape, analytique du feedback
 
 Boucle les deux signaux ouverts précédemment (métriques d'étapes émises mais non visualisées, feedback enrichi mais non analysé) :

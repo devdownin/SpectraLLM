@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { queryApi, configApi, fineTuningApi, ingestApi, healthApi } from '../services/api';
+import { queryApi, configApi, fineTuningApi, ingestApi, healthApi, dpoApi } from '../services/api';
 import type { StreamDoneMeta, StreamStageInfo, StreamStageTrace, RagOverridesDto } from '../services/api';
 import type { ServiceStatus } from '../types/api';
 import Tooltip from '../components/Tooltip';
@@ -313,14 +313,36 @@ const RagComparisonDialog: FC<ComparisonProps> = ({
   const [meta, setMeta] = useState<RagMeta | undefined>();
   const [stage, setStage] = useState<string | null>('Starting…');
   const [status, setStatus] = useState<'streaming' | 'done' | 'error'>('streaming');
+  /** Préférence enregistrée en paire DPO (null tant que non votée). */
+  const [preferred, setPreferred] = useState<'baseline' | 'variant' | null>(null);
   const panelRef = useFocusTrap<HTMLDivElement>(true, onClose);
+
+  /** Enregistre la préférence (choix humain) comme paire DPO chosen/rejected. */
+  const savePreference = (side: 'baseline' | 'variant') => {
+    if (preferred) return;
+    const chosen = side === 'baseline' ? baseline.content : content;
+    const rejected = side === 'baseline' ? content : baseline.content;
+    if (!chosen.trim() || !rejected.trim()) return;
+    setPreferred(side);
+    dpoApi.recordPreference({ prompt: question, chosen, rejected, source: `ab:without-${module.key}` })
+      .then(() => toast.success('Preference saved to the DPO dataset'))
+      .catch(() => { setPreferred(null); toast.error('Could not save preference'); });
+  };
 
   useEffect(() => {
     const controller = new AbortController();
     const overrides: RagOverridesDto = { ...(baseOverrides ?? {}), [module.key]: false };
+    // Batching identique au chat principal (setTimeout ~80 ms) : évite un re-parse Markdown
+    // par token, et flush déterministe (le rAF ne se déclenche pas de façon fiable hors
+    // compositing, ce qui laissait la variante vide).
     let buf = '';
-    let raf = 0;
-    const flush = () => { raf = 0; setContent(c => c + buf); buf = ''; };
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const flush = () => {
+      if (timer) { clearTimeout(timer); timer = null; }
+      if (!buf) return;
+      const chunk = buf; buf = '';
+      setContent(c => c + chunk);
+    };
 
     (async () => {
       try {
@@ -328,28 +350,31 @@ const RagComparisonDialog: FC<ComparisonProps> = ({
           question, ragEnabled, controller.signal, topCandidates, history, temperature, topP, overrides
         )) {
           if (ev.type === 'sources') { try { setSources(JSON.parse(ev.data)); } catch { /* ignore */ } }
-          else if (ev.type === 'token') { setStage(null); buf += ev.data; if (!raf) raf = requestAnimationFrame(flush); }
-          else if (ev.type === 'replace') { buf = ''; setContent(''); }
+          else if (ev.type === 'token') { setStage(null); buf += ev.data; if (!timer) timer = setTimeout(flush, 80); }
+          else if (ev.type === 'replace') { if (timer) { clearTimeout(timer); timer = null; } buf = ''; setContent(''); }
           else if (ev.type === 'stage') {
             try {
               const s = JSON.parse(ev.data) as StreamStageInfo;
               setStage(s.stage === 'agentic_search' ? `Agentic search #${s.iteration ?? '?'}` : STAGE_LABELS[s.stage] ?? s.stage);
             } catch { /* ignore */ }
           } else if (ev.type === 'done') {
-            if (raf) { cancelAnimationFrame(raf); flush(); }
+            flush();
             try { setMeta(JSON.parse(ev.data) as RagMeta); } catch { /* ignore */ }
             setStatus('done');
           } else if (ev.type === 'error') {
+            flush();
             setStatus('error');
           }
         }
+        flush();
         setStatus(s => s === 'streaming' ? 'done' : s);
       } catch (err) {
+        flush();
         if (!(err instanceof Error && err.name === 'AbortError')) setStatus('error');
       }
     })();
 
-    return () => { controller.abort(); if (raf) cancelAnimationFrame(raf); };
+    return () => { controller.abort(); if (timer) clearTimeout(timer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -418,7 +443,28 @@ const RagComparisonDialog: FC<ComparisonProps> = ({
             )}
           </section>
         </div>
-        <footer className="px-6 py-3 border-t border-outline-variant/10 bg-surface-container-high shrink-0">
+        <footer className="px-6 py-3 border-t border-outline-variant/10 bg-surface-container-high shrink-0 space-y-2">
+          {/* Vote de préférence → paire DPO (chosen/rejected) : le choix humain nourrit le fine-tuning. */}
+          {status === 'done' && content.trim() && (
+            preferred ? (
+              <p className="text-[11px] text-center text-primary flex items-center justify-center gap-1.5">
+                <span aria-hidden="true" className="material-symbols-outlined text-[14px]">check_circle</span>
+                Preference saved — {preferred === 'baseline' ? 'current pipeline' : `without ${module.label}`} kept as a DPO pair.
+              </p>
+            ) : (
+              <div className="flex items-center justify-center gap-2">
+                <span className="text-[10px] uppercase tracking-widest text-outline">Which is better?</span>
+                <button type="button" onClick={() => savePreference('baseline')}
+                  className="flex items-center gap-1 text-[11px] uppercase tracking-widest border border-primary/40 text-primary px-2.5 py-1 hover:bg-primary/10 transition-colors">
+                  <span aria-hidden="true" className="material-symbols-outlined text-[13px]">arrow_back</span>Current
+                </button>
+                <button type="button" onClick={() => savePreference('variant')}
+                  className="flex items-center gap-1 text-[11px] uppercase tracking-widest border border-secondary/40 text-secondary px-2.5 py-1 hover:bg-secondary/10 transition-colors">
+                  Without {module.label}<span aria-hidden="true" className="material-symbols-outlined text-[13px]">arrow_forward</span>
+                </button>
+              </div>
+            )
+          )}
           <p className="text-[10px] text-on-surface-variant text-center">
             Both answers use the same question, history and sampling — only <span className="font-bold text-error">{module.label}</span> differs.
           </p>

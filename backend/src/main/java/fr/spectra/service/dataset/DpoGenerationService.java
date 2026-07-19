@@ -53,6 +53,13 @@ public class DpoGenerationService {
     private final DatasetGeneratorService sftService;
     private final LlmChatClient chatClient;
     private final Path pairsFile;
+    /**
+     * Paires DPO issues des préférences A/B du Playground (choix humain entre deux réponses à
+     * la même question). Fichier SÉPARÉ de {@code dpo_pairs.jsonl} : la génération DPO tronque
+     * et réécrit ce dernier — mélanger les deux perdrait les préférences à chaque génération.
+     */
+    private final Path preferencePairsFile;
+    private final List<DpoPair> preferencePairs = new CopyOnWriteArrayList<>();
 
     private final List<DpoPair> dpoPairs = new CopyOnWriteArrayList<>();
     private final Map<String, DpoTask> tasks = new ConcurrentHashMap<>();
@@ -69,20 +76,58 @@ public class DpoGenerationService {
         this.sftService = sftService;
         this.chatClient = chatClient;
         this.pairsFile = Path.of(datasetDir).resolve("dpo_pairs.jsonl");
+        this.preferencePairsFile = Path.of(datasetDir).resolve("dpo_preference_pairs.jsonl");
     }
 
     @PostConstruct
     private void loadPersistedPairs() {
-        if (!Files.exists(pairsFile)) return;
-        try (var lines = Files.lines(pairsFile)) {
+        loadInto(pairsFile, dpoPairs, "dpo_pairs.jsonl");
+        loadInto(preferencePairsFile, preferencePairs, "dpo_preference_pairs.jsonl");
+    }
+
+    private void loadInto(Path file, List<DpoPair> target, String label) {
+        if (!Files.exists(file)) return;
+        try (var lines = Files.lines(file)) {
             lines.forEach(line -> {
-                try { dpoPairs.add(mapper.readValue(line, DpoPair.class)); }
+                try { target.add(mapper.readValue(line, DpoPair.class)); }
                 catch (Exception ignored) {}
             });
-            log.info("Paires DPO restaurées: {}", dpoPairs.size());
+            log.info("Paires DPO restaurées ({}): {}", label, target.size());
         } catch (Exception e) {
-            log.warn("Impossible de charger dpo_pairs.jsonl: {}", e.getMessage());
+            log.warn("Impossible de charger {}: {}", label, e.getMessage());
         }
+    }
+
+    /**
+     * Enregistre une préférence A/B du Playground comme paire DPO (choix humain entre la
+     * réponse de référence et la variante). Ajout thread-safe (append + liste concurrente),
+     * indépendant de la génération DPO qui n'écrit que {@code dpo_pairs.jsonl}.
+     *
+     * @return la paire créée, ou {@code null} si l'entrée est invalide (champ vide, chosen = rejected)
+     */
+    public synchronized DpoPair addPreferencePair(String prompt, String chosen, String rejected, String source) {
+        if (prompt == null || chosen == null || rejected == null) return null;
+        String p = prompt.trim(), c = chosen.trim(), r = rejected.trim();
+        if (p.isEmpty() || c.isEmpty() || r.isEmpty() || c.equals(r)) return null;
+
+        DpoPair pair = new DpoPair(p, c, r, "playground-ab", source != null ? source : "playground-ab");
+        try {
+            Files.createDirectories(preferencePairsFile.getParent());
+            Files.writeString(preferencePairsFile, mapper.writeValueAsString(pair) + "\n",
+                    java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+            preferencePairs.add(pair);
+            log.info("Préférence A/B enregistrée en paire DPO (source={}), total préférences: {}",
+                    pair.source(), preferencePairs.size());
+            return pair;
+        } catch (Exception e) {
+            log.warn("Échec d'enregistrement d'une préférence A/B DPO: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /** Paires DPO issues des préférences A/B (lecture seule). */
+    public List<DpoPair> getPreferencePairs() {
+        return List.copyOf(preferencePairs);
     }
 
     public String submit(int maxPairs) {
@@ -95,8 +140,12 @@ public class DpoGenerationService {
         return taskId;
     }
 
+    /** Toutes les paires DPO : générées + issues des préférences A/B du Playground. */
     public List<DpoPair> getAllPairs() {
-        return List.copyOf(dpoPairs);
+        List<DpoPair> all = new ArrayList<>(dpoPairs.size() + preferencePairs.size());
+        all.addAll(dpoPairs);
+        all.addAll(preferencePairs);
+        return List.copyOf(all);
     }
 
     /**
@@ -107,13 +156,15 @@ public class DpoGenerationService {
     public Path exportJsonl() throws java.io.IOException {
         Files.createDirectories(pairsFile.getParent());
         Path file = pairsFile.getParent().resolve("dpo_export_" + System.currentTimeMillis() + ".jsonl");
+        List<DpoPair> all = getAllPairs();
         try (BufferedWriter writer = Files.newBufferedWriter(file)) {
-            for (DpoPair pair : dpoPairs) {
+            for (DpoPair pair : all) {
                 writer.write(mapper.writeValueAsString(pair));
                 writer.newLine();
             }
         }
-        log.info("Paires DPO exportées: {} → {}", dpoPairs.size(), file);
+        log.info("Paires DPO exportées: {} ({} générées + {} préférences A/B) → {}",
+                all.size(), dpoPairs.size(), preferencePairs.size(), file);
         return file;
     }
 

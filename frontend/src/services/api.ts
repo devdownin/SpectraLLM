@@ -127,6 +127,12 @@ export const dpoApi = {
   getAllTasks: () => api.get('/dataset/dpo/generate'),
   cancelTask: (taskId: string) => api.delete(`/dataset/dpo/generate/${taskId}`),
   getStats: () => api.get('/dataset/dpo/stats'),
+  /**
+   * Enregistre une préférence A/B du Playground comme paire DPO.
+   * `chosen` = réponse préférée, `rejected` = l'autre ; `source` trace le module comparé.
+   */
+  recordPreference: (pref: { prompt: string; chosen: string; rejected: string; source: string }) =>
+    api.post('/dataset/dpo/preference', pref),
 };
 
 export const commentApi = {

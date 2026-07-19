@@ -962,7 +962,9 @@ Pendant la génération, sous le curseur de réponse, l'interface affiche **l'é
 - **Sources** : dépliez chaque source pour voir le passage récupéré et son **% de pertinence**. Un extrait retrouvé uniquement par mot-clé est étiqueté **BM25** (au lieu d'un « 0 % » trompeur). En mode expert : distance, score de re-ranking et score BM25.
 - **Feedback 👍/👎** : note la réponse (signal de préférence réutilisé pour le fine-tuning DPO).
 - **Copy**, **Regenerate** (avec variantes « plus factuel » / « plus créatif »), **Edit** (rééditer votre question).
-- **Compare** : rejoue la **même question sans un module qui a réellement agi** (par ex. « sans Cross-Encoder »). La réponse de référence et la variante s'affichent **côte à côte** avec leurs badges et leurs sources — la contribution du module devient visible sur votre question, pas seulement en théorie.
+- **Compare** : rejoue la **même question sans un module qui a réellement agi** (par ex. « sans Cross-Encoder »). La réponse de référence et la variante s'affichent **côte à côte** avec leurs badges et leurs sources — la contribution du module devient visible sur votre question, pas seulement en théorie. Un vote **« Which is better? »** enregistre votre préférence comme **paire DPO** (chosen/rejected) : votre exploration nourrit directement le dataset de fine-tuning.
+
+  ![Comparaison A/B : la variante « sans Cross-Encoder » perd le badge RRNK ; le vote alimente le dataset DPO](../assets/rag-ab-comparison.png)
 
 #### Panneau Trace (bouton « Trace »)
 
