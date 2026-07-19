@@ -7,6 +7,7 @@ import logging
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from sentence_transformers import CrossEncoder
+from prometheus_fastapi_instrumentator import Instrumentator
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("reranker")
@@ -19,6 +20,9 @@ log.info("Model loaded.")
 
 app = FastAPI(title="Spectra Reranker", version="1.0.0")
 
+# Setup Prometheus metrics
+instrumentator = Instrumentator()
+instrumentator.instrument(app).expose(app)
 
 class RerankRequest(BaseModel):
     query: str

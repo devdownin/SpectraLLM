@@ -1,0 +1,39 @@
+# ServiceMonitor pour docparser
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: docparser
+  namespace: spectra
+  labels:
+    release: kube-prometheus-stack
+spec:
+  namespaceSelector:
+    matchNames:
+      - spectra
+  selector:
+    matchLabels:
+      app: docparser
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+---
+# ServiceMonitor pour reranker
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: reranker
+  namespace: spectra
+  labels:
+    release: kube-prometheus-stack
+spec:
+  namespaceSelector:
+    matchNames:
+      - spectra
+  selector:
+    matchLabels:
+      app: reranker
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
