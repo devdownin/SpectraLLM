@@ -157,7 +157,7 @@ C4Component
         Component(dashboard, "Dashboard", "React Page", "Santé services (Ollama, ChromaDB)\nMétriques via SSE")
         Component(datasets, "Datasets", "React Page", "Upload fichiers (drag & drop)\nPolling ingestion 3s\nPolling stats 10s")
         Component(finetuning, "FineTuning", "React Page", "Formulaire job\nStep bar pipeline\nTelemetry SSE temps réel\nHistorique jobs")
-        Component(playground, "Playground", "React Page", "Chat RAG\nSliders température / top-p\nToggle Knowledge Base")
+        Component(playground, "Playground", "React Page", "Chat RAG streaming (SSE)\nParamètres + toggles par module\nTrace pipeline / timeline / comparaison A/B")
         Component(comparison, "Comparison", "React Page", "Tableau comparatif modèles")
 
         Component(apiService, "api.ts", "Axios Client", "ingestApi · datasetApi\nfineTuningApi · queryApi\nBase URL : /api/")

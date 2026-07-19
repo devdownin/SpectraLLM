@@ -12,6 +12,10 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import RagAdvisor from '../components/RagAdvisor';
 import ChatMarkdown from '../components/ChatMarkdown';
 import { useFocusTrap } from '../hooks/useFocusTrap';
+import {
+  RAG_MODULES, appliedModules, overridesFromDisabled, isBm25Only, relevancePct, fmtMs, formatStageCounts,
+} from '../lib/ragPipeline';
+import type { OverrideKey, ModuleDef } from '../lib/ragPipeline';
 
 interface Source {
   preview?: string;
@@ -54,6 +58,18 @@ interface MessageMetrics {
   tokens: number;   // approximate token count
 }
 
+/**
+ * Paramètres effectifs de la requête ayant produit une réponse. Mémorisés sur le message
+ * pour que la comparaison A/B rejoue à partir de SA configuration réelle (« toutes choses
+ * égales par ailleurs »), et non des réglages courants de la session qui ont pu changer depuis.
+ */
+interface RequestParams {
+  temperature: number;
+  topP: number;
+  topCandidates: number;
+  overrides?: RagOverridesDto;
+}
+
 interface Message {
   role: 'user' | 'assistant';
   content: string;
@@ -61,6 +77,8 @@ interface Message {
   ragMeta?: RagMeta;
   status?: 'PENDING' | 'SENT' | 'ERROR' | 'STREAMING';
   metrics?: MessageMetrics;
+  /** Paramètres effectifs de la requête (température, top-p, candidats, surcharges de modules). */
+  params?: RequestParams;
   feedback?: 'UP' | 'DOWN';
   /** Réponse interrompue par l'utilisateur (Stop) — donc potentiellement incomplète. */
   stopped?: boolean;
@@ -97,28 +115,6 @@ const STAGE_TRACE_LABELS: Record<string, string> = {
   generation:  'Generation',
   reflection:  'Self-RAG reflection',
 };
-
-/**
- * Modules RAG pilotables par requête depuis le Playground.
- * `key` = champ de RagOverrides (backend) · `flag` = drapeau correspondant dans RagMeta
- * (pour savoir si le module a réellement agi sur une réponse donnée).
- */
-type OverrideKey = keyof RagOverridesDto;
-interface ModuleDef {
-  key: OverrideKey;
-  label: string;
-  flag: keyof RagMeta;
-  hint: string;
-}
-const RAG_MODULES: ModuleDef[] = [
-  { key: 'hybrid',       label: 'Hybrid Search',   flag: 'hybridSearchApplied', hint: 'BM25 + vector retrieval (RRF fusion)' },
-  { key: 'rerank',       label: 'Cross-Encoder',   flag: 'rerankApplied',       hint: 'Re-rank candidates jointly with the query' },
-  { key: 'multiQuery',   label: 'Multi-Query',     flag: 'multiQueryApplied',   hint: 'Generate query variants to broaden retrieval' },
-  { key: 'corrective',   label: 'Corrective RAG',  flag: 'correctiveApplied',   hint: 'Grade chunks and drop irrelevant ones' },
-  { key: 'compression',  label: 'Compression',     flag: 'compressionApplied',  hint: 'Extract only relevant sentences from chunks' },
-  { key: 'selfRag',      label: 'Self-RAG',        flag: 'selfRagApplied',      hint: 'Self-evaluate the answer and refine if weak' },
-  { key: 'adaptive',     label: 'Adaptive routing', flag: 'ragStrategy',        hint: 'Classify DIRECT / STANDARD / AGENTIC before retrieval' },
-];
 
 const RagBadges: FC<{ meta: RagMeta; onShowTrace?: () => void }> = ({ meta, onShowTrace }) => {
   const badges: { label: string; active: boolean; tooltip: string }[] = [
@@ -169,18 +165,6 @@ const RagBadges: FC<{ meta: RagMeta; onShowTrace?: () => void }> = ({ meta, onSh
       )}
     </div>
   );
-};
-
-/**
- * Chunk retrouvé uniquement par BM25 (recherche hybride) : ChromaDB lui affecte la
- * distance sentinelle 1.0 — afficher « 0% de pertinence » serait trompeur.
- */
-const isBm25Only = (src: Source): boolean => (src.bm25Score ?? 0) > 0 && src.distance >= 0.999;
-
-/** Pertinence vectorielle en % (1 − distance cosinus), null si non calculable ou chunk BM25-only. */
-const relevancePct = (src: Source): number | null => {
-  if (typeof src.distance !== 'number' || isBm25Only(src)) return null;
-  return Math.max(0, Math.min(100, Math.round((1 - src.distance) * 100)));
 };
 
 /** Source de réponse dépliable : nom de fichier + pertinence + passage récupéré. */
@@ -246,9 +230,6 @@ const SourceItem: FC<{ src: Source; expert?: boolean }> = ({ src, expert = false
   );
 };
 
-/** Formatte une durée en ms lisible (ms sous la seconde, s au-delà). */
-const fmtMs = (ms: number): string => ms >= 1000 ? `${(ms / 1000).toFixed(ms >= 10000 ? 0 : 1)}s` : `${Math.round(ms)}ms`;
-
 /**
  * Timeline serveur du pipeline (chantiers 1 & 2) : une barre par étape proportionnelle à sa
  * durée mesurée côté serveur, avec ses compteurs (chunks avant→après, itérations agentiques).
@@ -262,11 +243,7 @@ const StageTimeline: FC<{ stages: StreamStageTrace[] }> = ({ stages }) => {
       {stages.map((s, i) => {
         const label = STAGE_TRACE_LABELS[s.stage] ?? s.stage;
         const pct = Math.max(2, Math.round((s.durationMs / max) * 100));
-        let counts: string | null = null;
-        if (s.stage === 'agentic' && typeof s.outCount === 'number') counts = `${s.outCount} iter`;
-        else if (typeof s.inCount === 'number' && typeof s.outCount === 'number') {
-          counts = `${s.inCount}→${s.outCount} chunks${s.outCount < s.inCount ? ` (−${s.inCount - s.outCount})` : ''}`;
-        } else if (typeof s.outCount === 'number') counts = `${s.outCount} chunks`;
+        const counts = formatStageCounts(s);
         return (
           <div key={i} className="space-y-1">
             <div className="flex items-center justify-between text-[11px] gap-3">
@@ -567,15 +544,8 @@ const Playground: FC = () => {
     localStorage.setItem('spectra_disabled_modules', JSON.stringify([...disabledModules]));
   }, [disabledModules]);
 
-  /** Construit l'objet de surcharges RAG à partir des modules désactivés (override `false`). */
-  const buildOverrides = (extraDisabled?: OverrideKey): RagOverridesDto | undefined => {
-    const off = new Set(disabledModules);
-    if (extraDisabled) off.add(extraDisabled);
-    if (off.size === 0) return undefined;
-    const ov: RagOverridesDto = {};
-    off.forEach(k => { ov[k] = false; });
-    return ov;
-  };
+  /** Surcharges RAG à partir des modules désactivés de la session (cf. {@link overridesFromDisabled}). */
+  const buildOverrides = (extraDisabled?: OverrideKey) => overridesFromDisabled(disabledModules, extraDisabled);
 
   const toggleModule = (key: OverrideKey) => {
     setDisabledModules(prev => {
@@ -729,6 +699,10 @@ const Playground: FC = () => {
       return;
     }
     const effTemperature = tempOverride ?? temperature;
+    // Config effective de CETTE requête, mémorisée sur la réponse pour une comparaison A/B
+    // rigoureuse (rejouée depuis cette config, pas les réglages courants de la session).
+    const effOverrides = buildOverrides();
+    const reqParams: RequestParams = { temperature: effTemperature, topP, topCandidates, overrides: effOverrides };
 
     abortRef.current?.abort();
     const controller = new AbortController();
@@ -794,7 +768,7 @@ const Playground: FC = () => {
 
     try {
       for await (const event of queryApi.queryStream(
-        currentInput, ragEnabled, controller.signal, topCandidates, history, effTemperature, topP, buildOverrides()
+        currentInput, ragEnabled, controller.signal, topCandidates, history, effTemperature, topP, effOverrides
       )) {
         if (event.type === 'sources') {
           try { sources = JSON.parse(event.data); } catch { /* ignore */ }
@@ -860,7 +834,7 @@ const Playground: FC = () => {
             const lastAsstIdx = prev.findLastIndex(m => m.role === 'assistant');
             return prev.map((m, i) => {
               if (i === lastUserIdx) return { ...m, status: 'SENT' };
-              if (i === lastAsstIdx) return { ...m, status: 'SENT', sources, ragMeta: meta, metrics };
+              if (i === lastAsstIdx) return { ...m, status: 'SENT', sources, ragMeta: meta, metrics, params: reqParams };
               return m;
             });
           });
@@ -989,16 +963,6 @@ const Playground: FC = () => {
     navigator.clipboard.writeText(text).then(() => toast.success('Answer copied')).catch(() => {});
   };
 
-  /**
-   * Modules réellement appliqués sur une réponse (chantier 4) : seuls ceux-là valent la peine
-   * d'être désactivés en comparaison — retirer un module qui n'a pas agi ne changerait rien.
-   */
-  const appliedModules = (meta?: RagMeta): ModuleDef[] => {
-    if (!meta) return [];
-    return RAG_MODULES.filter(mod =>
-      mod.key === 'adaptive' ? meta.ragStrategy === 'AGENTIC' : meta[mod.flag] === true);
-  };
-
   /** Lance une comparaison A/B : rejoue la question de ce tour avec {@code mod} désactivé. */
   const openComparison = (msgIndex: number, mod: ModuleDef) => {
     setCompareMenuIdx(null);
@@ -1017,7 +981,11 @@ const Playground: FC = () => {
     const next = msg.feedback === rating ? undefined : rating;
     setMessages(prev => prev.map((m, i) => i === index ? { ...m, feedback: next } : m));
     if (next) {
-      queryApi.feedback(question, msg.content, next).catch(() => { /* non bloquant */ });
+      // On joint le pipeline (ragMeta) et les surcharges effectives : un 👎 devient
+      // corrélable à la configuration RAG qui a produit la réponse.
+      queryApi.feedback(question, msg.content, next,
+        msg.ragMeta as Record<string, unknown> | undefined, msg.params?.overrides
+      ).catch(() => { /* non bloquant */ });
       toast.success(next === 'UP' ? 'Thanks — 👍 recorded' : 'Feedback noted — 👎');
     }
   };
@@ -1570,17 +1538,19 @@ const Playground: FC = () => {
         </div>
       </div>
       <RagAdvisor open={advisorOpen} onClose={() => setAdvisorOpen(false)} />
+      {/* La comparaison A/B rejoue avec la config EXACTE de la réponse de référence
+          (fallback : réglages courants pour les réponses d'avant cette fonctionnalité). */}
       {comparison && (
         <RagComparisonDialog
           baseline={comparison.baseline}
           question={comparison.question}
           module={comparison.module}
           history={comparison.history}
-          temperature={temperature}
-          topP={topP}
-          topCandidates={topCandidates}
+          temperature={comparison.baseline.params?.temperature ?? temperature}
+          topP={comparison.baseline.params?.topP ?? topP}
+          topCandidates={comparison.baseline.params?.topCandidates ?? topCandidates}
           ragEnabled={ragEnabled}
-          baseOverrides={buildOverrides()}
+          baseOverrides={comparison.baseline.params?.overrides ?? buildOverrides()}
           onClose={() => setComparison(null)}
         />
       )}

@@ -79,6 +79,53 @@ class QueryControllerTest {
                 .andExpect(status().isBadRequest());
     }
 
+    // ── /api/query/feedback ────────────────────────────────────────────────────
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void feedback_forwardsRatingAndPipelineMetaToService() throws Exception {
+        mockMvc.perform(post("/api/query/feedback")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"question":"Q ?","answer":"A.","rating":"DOWN",
+                                 "ragMeta":{"ragStrategy":"STANDARD","correctiveApplied":true},
+                                 "overrides":{"rerank":false}}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ok"));
+
+        org.mockito.ArgumentCaptor<java.util.Map<String, Object>> ragMetaCap =
+                org.mockito.ArgumentCaptor.forClass(java.util.Map.class);
+        org.mockito.ArgumentCaptor<java.util.Map<String, Object>> overridesCap =
+                org.mockito.ArgumentCaptor.forClass(java.util.Map.class);
+        org.mockito.Mockito.verify(feedbackService).record(
+                org.mockito.ArgumentMatchers.eq("Q ?"),
+                org.mockito.ArgumentMatchers.eq("A."),
+                org.mockito.ArgumentMatchers.eq("DOWN"),
+                ragMetaCap.capture(), overridesCap.capture());
+        org.assertj.core.api.Assertions.assertThat(ragMetaCap.getValue())
+                .containsEntry("ragStrategy", "STANDARD")
+                .containsEntry("correctiveApplied", true);
+        org.assertj.core.api.Assertions.assertThat(overridesCap.getValue())
+                .containsEntry("rerank", false);
+    }
+
+    @Test
+    void feedback_withoutPipelineMeta_stillForwardsRating() throws Exception {
+        mockMvc.perform(post("/api/query/feedback")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"question":"Q ?","answer":"A.","rating":"UP"}
+                                """))
+                .andExpect(status().isOk());
+
+        org.mockito.Mockito.verify(feedbackService).record(
+                org.mockito.ArgumentMatchers.eq("Q ?"),
+                org.mockito.ArgumentMatchers.eq("A."),
+                org.mockito.ArgumentMatchers.eq("UP"),
+                org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.isNull());
+    }
+
     // ── /api/query/stream (SSE) ────────────────────────────────────────────────
 
     @Test

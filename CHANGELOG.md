@@ -8,6 +8,25 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### RAG & Playground — observabilité des étapes, comparaison A/B rigoureuse, feedback enrichi
+
+- **Durées d'étapes exposées en métriques** : la timeline mesurée côté serveur alimente désormais un timer Micrometer `spectra.rag.stage{stage=…}` (retrieval, grading, compression, génération, réflexion, boucle agentique). La chronologie par requête devient de l'**observabilité agrégée** (p95 retrieval vs génération) dans Prometheus/Grafana, sans surcoût — la durée était déjà mesurée.
+- **Comparaison A/B « toutes choses égales par ailleurs »** : chaque réponse mémorise les **paramètres effectifs** de sa requête (température, top-p, top candidates, surcharges de modules). La comparaison A/B rejoue à partir de **cette** configuration, pas des réglages courants de la session — la variante ne diffère plus que par le module comparé, même si l'utilisateur a changé un réglage depuis.
+- **Feedback 👍/👎 enrichi** : le signal envoyé au backend joint le **pipeline de la réponse** (`ragMeta` : stratégie, drapeaux appliqués) et les **surcharges actives**. Un 👎 devient corrélable à la configuration RAG effective (« les pouces rouges arrivent surtout quand le corrective a tout filtré »), et le corpus DPO (`playground_feedback.jsonl`) s'en trouve enrichi. `FeedbackRequest`/`FeedbackService` acceptent ces champs, optionnels et rétrocompatibles.
+
+### Documentation — guide Playground à jour (visibilité du pipeline)
+
+- **Manuel utilisateur** ([user-manual.fr.md](docs/user/user-manual.fr.md)) : section Playground réécrite pour couvrir toutes les fonctionnalités livrées — étapes du pipeline visibles en direct, badges et bouton Trace, timeline mesurée côté serveur avec compteurs, question reformulée, toggles par module (surcharges `RagOverrides`), comparaison A/B, mode expert, RAG Advisor et export.
+- **README (EN/FR)** : le bloc « Ask / Questions » met en avant la transparence du pipeline (étapes en direct, timeline, toggles, comparaison A/B).
+- **C4 composants** ([c4-level-3-components.fr.md](docs/tech/c4-level-3-components.fr.md)) : libellé du composant Playground actualisé (streaming SSE, toggles, Trace/timeline/A-B).
+- **Captures d'écran** : `docs/assets/playground.png` (et sa copie Hugging Face) régénérée — elle montre désormais les badges du pipeline, le % de pertinence des sources (avec l'étiquette BM25) et les métriques ; nouvelle capture `docs/assets/playground-trace.png` du panneau Trace (timeline mesurée côté serveur avec compteurs), intégrée au manuel utilisateur.
+- Les références techniques (streaming SSE, événements `stage`/`replace`, champ `stages`, surcharges par requête) étaient déjà à jour côté `technical-doc.fr.md`.
+
+### Playground — logique RAG extraite et testée (`lib/ragPipeline`)
+
+- La logique pure du pipeline RAG côté Playground (calcul de pertinence `relevancePct`/`isBm25Only`, construction des surcharges `overridesFromDisabled`, modules appliqués `appliedModules`, formatage de la timeline `formatStageCounts`/`fmtMs`, registre `RAG_MODULES`) est extraite de `Playground.tsx` vers un module dédié [`frontend/src/lib/ragPipeline.ts`](frontend/src/lib/ragPipeline.ts), testable indépendamment du composant.
+- **23 tests unitaires** ([`ragPipeline.test.ts`](frontend/src/lib/ragPipeline.test.ts)) couvrent les cas limites : chunks BM25-only (distance sentinelle 1.0), bornage de la pertinence, surcharges (jamais forcer ON, dédup du module A/B), adaptive listé seulement en AGENTIC, compteurs de timeline (`avant→après (−N)`, itérations, absence de compteur). Aucun changement de comportement — refactor à iso-fonctionnalité.
+
 ### Playground — timeline du pipeline, compteurs, toggles par module et comparaison A/B
 
 Quatre ajouts qui approfondissent la visibilité du RAG et rendent le pipeline explorable depuis l'interface :

@@ -77,7 +77,7 @@ class RagServiceRetrievalTest {
                 Optional.empty(), hybrid, Optional.empty(),
                 Optional.empty(), corrective, Optional.empty(),
                 Optional.empty(), Optional.empty(), multiQuery,
-                props, new ObjectMapper());
+                props, new ObjectMapper(), new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
     }
 
     private static QueryRequest request() {

@@ -583,7 +583,7 @@ La phase de retrieval (embed → ChromaDB → rerank → sources) est encapsulé
 2. `sources` — JSON de la liste des chunks sources (avant génération)
 3. `token` × N — chaque token généré par le LLM ; en mode AGENTIC, la réponse (produite par la boucle ReAct) est émise en un seul bloc
 4. `replace` — Self-RAG uniquement : le brouillon streamé a été jugé insuffisant, le client doit l'effacer avant de recevoir les tokens de la version raffinée
-5. `done` — fin normale, avec un JSON de métadonnées du pipeline (`ragStrategy`, drapeaux appliqués, `chunkCount`, `rewrittenQuestion`, `agenticIterations`, `agenticStopReason`, `selfRagScores`, et `stages` — la timeline serveur : une entrée par étape avec `durationMs` et compteurs `inCount`/`outCount`)
+5. `done` — fin normale, avec un JSON de métadonnées du pipeline (`ragStrategy`, drapeaux appliqués, `chunkCount`, `rewrittenQuestion`, `agenticIterations`, `agenticStopReason`, `selfRagScores`, et `stages` — la timeline serveur : une entrée par étape avec `durationMs` et compteurs `inCount`/`outCount`). Chaque durée d'étape est aussi publiée en timer Micrometer `spectra.rag.stage{stage=…}` (observabilité agrégée Prometheus/Grafana).
 6. `error` — en cas d'erreur (circuit breaker, timeout, etc.)
 
 Tout le pipeline non-streaming est porté au streaming : Adaptive RAG (routage DIRECT / STANDARD / AGENTIC), Conversational, Corrective, Compression, Agentic (boucle ReAct) et Self-RAG (le brouillon est streamé pour préserver le TTFT, puis auto-évalué ; un raffinement déclenche `replace`).

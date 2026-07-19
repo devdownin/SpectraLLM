@@ -5,6 +5,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import fr.spectra.config.SpectraProperties;
 import io.micrometer.core.annotation.Timed;
+import io.micrometer.core.instrument.MeterRegistry;
 import fr.spectra.dto.QueryRequest;
 import fr.spectra.dto.QueryResponse;
 import fr.spectra.dto.RagOverrides;
@@ -141,6 +142,7 @@ public class RagService {
     private final Optional<MultiQueryService> multiQueryService;
     private final SpectraProperties props;
     private final ObjectMapper objectMapper;
+    private final MeterRegistry meterRegistry;
     private final Duration streamTimeout;
 
     public RagService(ChromaDbClient chromaDbClient,
@@ -156,7 +158,8 @@ public class RagService {
                       Optional<ContextCompressionService> contextCompressionService,
                       Optional<MultiQueryService> multiQueryService,
                       SpectraProperties props,
-                      ObjectMapper objectMapper) {
+                      ObjectMapper objectMapper,
+                      MeterRegistry meterRegistry) {
         this.chromaDbClient = chromaDbClient;
         this.embeddingService = embeddingService;
         this.llmClient = llmClient;
@@ -171,6 +174,7 @@ public class RagService {
         this.multiQueryService = multiQueryService;
         this.props = props;
         this.objectMapper = objectMapper;
+        this.meterRegistry = meterRegistry;
         int timeoutSecs = props.pipeline() != null ? props.pipeline().generationTimeoutSeconds() : 120;
         this.streamTimeout = Duration.ofSeconds(timeoutSecs);
     }
@@ -698,6 +702,7 @@ public class RagService {
      * client dès qu'une valeur contenait un caractère à échapper).
      */
     private ServerSentEvent<String> doneEvent(PipelineMeta meta) {
+        recordStageTimers(meta.stages());
         String json;
         try {
             json = objectMapper.writeValueAsString(meta);
@@ -705,6 +710,20 @@ public class RagService {
             json = "{\"ragStrategy\":\"" + meta.ragStrategy() + "\"}";
         }
         return ServerSentEvent.<String>builder().event("done").data(json).build();
+    }
+
+    /**
+     * Publie la durée de chaque étape du pipeline en timer Micrometer
+     * {@code spectra.rag.stage{stage=...}} : la timeline par requête devient de
+     * l'observabilité agrégée (p95 retrieval vs génération) dans Prometheus/Grafana.
+     * Point de passage unique — appelé à l'émission de l'événement {@code done}.
+     */
+    private void recordStageTimers(List<StageTrace> stages) {
+        if (stages == null) return;
+        for (StageTrace st : stages) {
+            meterRegistry.timer("spectra.rag.stage", "stage", st.stage())
+                    .record(st.durationMs(), TimeUnit.MILLISECONDS);
+        }
     }
 
     /** Construit l'événement SSE {@code error} avec un message JSON toujours valide. */

@@ -45,10 +45,18 @@ public class QueryController {
     @PostMapping("/feedback")
     @Operation(summary = "Enregistre un feedback 👍/👎 sur une réponse du Playground")
     public Map<String, String> feedback(@RequestBody FeedbackRequest request) {
-        feedbackService.record(request.question(), request.answer(), request.rating());
+        feedbackService.record(request.question(), request.answer(), request.rating(),
+                request.ragMeta(), request.overrides());
         return Map.of("status", "ok");
     }
 
-    /** Corps de requête du feedback. {@code rating} : "UP" ou "DOWN". */
-    public record FeedbackRequest(String question, String answer, String rating) {}
+    /**
+     * Corps de requête du feedback. {@code rating} : "UP" ou "DOWN".
+     *
+     * @param ragMeta   métadonnées du pipeline de la réponse notée (stratégie, drapeaux appliqués…),
+     *                  optionnel — permet de corréler les 👎 avec la configuration RAG effective
+     * @param overrides surcharges de modules actives pour cette réponse, optionnel
+     */
+    public record FeedbackRequest(String question, String answer, String rating,
+                                  Map<String, Object> ragMeta, Map<String, Object> overrides) {}
 }

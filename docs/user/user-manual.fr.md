@@ -930,13 +930,51 @@ L'indicateur de pipeline en haut à droite montre la progression globale :
 
 ### Playground (Étape 4)
 
-- **Sélecteur de modèle** (colonne gauche, section "Active Model") : liste tous les modèles de chat enregistrés dans le registre. Cliquez sur un modèle pour le définir comme modèle actif dans le registre.
+Le Playground est l'atelier de conversation : vous posez une question, le modèle répond **en streaming** à partir de vos documents, et l'interface rend visible **comment** la réponse a été construite.
+
+![Le Playground : réponse sourcée avec les badges du pipeline, le % de pertinence des sources et les métriques](../assets/playground.png)
+
+#### Panneau latéral (colonne gauche)
+
+- **System** : état en direct des services (Chat Model, Knowledge Base). Un service indisponible est signalé en rouge et l'envoi est bloqué plutôt que d'échouer en timeout.
+- **Sélecteur de modèle** (section "Active Model") : liste tous les modèles de chat enregistrés. Cliquez sur un modèle pour l'activer.
 
   > **Note :** l'activation met à jour le registre, puis le superviseur de `llm-chat` recharge automatiquement le nouveau modèle en quelques secondes (période de surveillance : `LLM_CHAT_WATCH_INTERVAL`, défaut 10 s). Le healthcheck (`activeModelLoaded` dans `/api/status`) confirme la convergence. Un alias inconnu du registre est rejeté avec la liste des modèles enregistrés.
 
-- **Temperature et Top P** : ajustent le comportement de génération (déterministe ↔ créatif)
-- **Enable Knowledge Base** : active/désactive le RAG — pratique pour comparer les réponses avec et sans contexte documentaire
-- Les **sources** (extraits utilisés) apparaissent dans la réponse API
+- **Temperature et Top P** : ajustent le comportement de génération (déterministe ↔ créatif).
+- **Enable Knowledge Base** : active/désactive le RAG — pratique pour comparer les réponses avec et sans contexte documentaire.
+- **Conversational History** : envoie l'historique de la conversation pour reformuler votre question avant la recherche (utile pour les questions de suivi du type « et pour lui ? »).
+- **Advanced → Top Candidates** : nombre de candidats envoyés au re-ranker (plus élevé = meilleure couverture, plus lent).
+- **Advanced → Pipeline Modules** : un interrupteur par module d'optimisation (Hybrid Search, Cross-Encoder, Multi-Query, Corrective, Compression, Self-RAG, Adaptive routing). **Décocher force le module OFF pour vos requêtes**, sans redéploiement — pratique pour isoler l'effet d'un module. Un module non activé côté serveur reste OFF quelle que soit la case (on ne peut pas activer par ce biais un module absent du déploiement). Le réglage est mémorisé dans le navigateur.
+- **Expert mode** : affiche en plus les distances vectorielles brutes, les scores de re-ranking/BM25 et les métriques de latence (TTFT, durée, tokens).
+- **RAG Advisor** : recommande les stratégies RAG à activer d'après l'état de votre corpus (volume, qualité, formats).
+- **Export Conversation** : télécharge la discussion en Markdown ou JSON.
+
+#### Étapes du pipeline visibles en direct
+
+Pendant la génération, sous le curseur de réponse, l'interface affiche **l'étape en cours** du pipeline : « Searching the knowledge base… », « Grading retrieved chunks… », « Self-evaluating the answer… », ou pour une question complexe « Agentic search #2: "…" » (une ligne par recherche complémentaire décidée par le modèle). Vous voyez donc le raisonnement se dérouler, y compris sur les questions longues.
+
+#### Sous chaque réponse
+
+- **Badges du pipeline** : chaque réponse montre les étapes réellement appliquées (CONV, CORR, SELF, RRNK, HYB, MQ, CMPR, DEDUP, FULL) et la stratégie retenue (DIRECT / STANDARD / AGENTIC). Un bouton **Trace** ouvre le détail (voir ci-dessous).
+- **Sources** : dépliez chaque source pour voir le passage récupéré et son **% de pertinence**. Un extrait retrouvé uniquement par mot-clé est étiqueté **BM25** (au lieu d'un « 0 % » trompeur). En mode expert : distance, score de re-ranking et score BM25.
+- **Feedback 👍/👎** : note la réponse (signal de préférence réutilisé pour le fine-tuning DPO).
+- **Copy**, **Regenerate** (avec variantes « plus factuel » / « plus créatif »), **Edit** (rééditer votre question).
+- **Compare** : rejoue la **même question sans un module qui a réellement agi** (par ex. « sans Cross-Encoder »). La réponse de référence et la variante s'affichent **côte à côte** avec leurs badges et leurs sources — la contribution du module devient visible sur votre question, pas seulement en théorie.
+
+#### Panneau Trace (bouton « Trace »)
+
+Détaille l'exécution de la réponse sélectionnée :
+
+- **Strategy Applied** : stratégie retenue, nombre de chunks de contexte, et — en mode agentic — nombre d'itérations et raison d'arrêt de la boucle.
+- **Pipeline Timeline** : chronologie **mesurée côté serveur** (durée réelle par étape : routing, retrieval, grading, compression, boucle agentique, génération, réflexion) avec les compteurs (retrieval : N chunks ; grading : `avant→après (−N écartés)` ; etc.). Répond à « où est parti le temps ? ».
+- **Query Rewriting** : la question autonome effectivement utilisée pour la recherche, quand l'historique a servi à la reformuler.
+- **Optimizations Triggered** : quelles optimisations se sont déclenchées, avec une explication de chacune.
+- **Final Context** : les aperçus des sources réellement envoyées au modèle.
+
+![Panneau Trace : la timeline mesurée côté serveur détaille la durée de chaque étape et les chunks filtrés à chaque passe](../assets/playground-trace.png)
+
+> Les questions posées dans le Playground utilisent le **streaming SSE** (`POST /api/query/stream`) : Adaptive, Conversational, Corrective, Compression, Agentic et Self-RAG s'y appliquent tous. Utilisez **Stop** pour interrompre une génération ; la réponse partielle est conservée.
 
 ### Model Comparison
 

@@ -63,7 +63,7 @@ Building this yourself means stitching together an orchestration framework, a ve
 Four stages, one continuous flow — all driven from a guided web interface (FR/EN):
 
 - **📥 Ingest** — PDF, DOCX, HTML, Markdown, CSV, JSON, XML, Avro, TXT, ZIP, URLs, even live Kafka streams. Layout-aware parsing keeps tables and headings intact.
-- **🔍 Ask** — Hybrid search (keyword + vector) with reranking and **cited sources**. Six retrieval strategies, picked adaptively per question — up to an agentic ReAct loop for multi-hop reasoning.
+- **🔍 Ask** — Hybrid search (keyword + vector) with reranking and **cited sources**. Six retrieval strategies, picked adaptively per question — up to an agentic ReAct loop for multi-hop reasoning. **See exactly how each answer was built**: live pipeline steps, a server-measured timeline, per-module toggles, and one-click A/B comparison of any module.
 - **🎓 Fine-tune** — Spectra builds a training dataset from your own corpus, then bakes the knowledge into the model's weights (QLoRA/DPO, CPU or GPU). Approved answers feed a continuous-learning loop.
 - **📦 Deploy** — Out comes a single GGUF file, runnable anywhere (llama.cpp, Ollama, LM Studio…). Built-in evaluation, A/B comparison and ablation benchmarks prove the gain at every step.
 
