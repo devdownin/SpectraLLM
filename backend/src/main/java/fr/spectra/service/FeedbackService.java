@@ -35,6 +35,19 @@ public class FeedbackService {
 
     /** Enregistre un feedback. {@code rating} attendu : "UP" ou "DOWN". */
     public synchronized void record(String question, String answer, String rating) {
+        record(question, answer, rating, null, null);
+    }
+
+    /**
+     * Enregistre un feedback enrichi des métadonnées du pipeline et des surcharges de modules
+     * de la réponse notée. {@code ragMeta}/{@code overrides} sont optionnels : quand ils sont
+     * fournis, un 👎 devient corrélable à la configuration RAG effective (« les pouces rouges
+     * arrivent surtout quand le corrective a tout filtré »).
+     *
+     * @param rating attendu : "UP" ou "DOWN"
+     */
+    public synchronized void record(String question, String answer, String rating,
+                                    Map<String, Object> ragMeta, Map<String, Object> overrides) {
         if (question == null || answer == null || rating == null) return;
         try {
             Files.createDirectories(feedbackFile.getParent());
@@ -43,6 +56,8 @@ public class FeedbackService {
             rec.put("rating", rating);
             rec.put("question", question);
             rec.put("answer", answer);
+            if (ragMeta != null && !ragMeta.isEmpty()) rec.put("ragMeta", ragMeta);
+            if (overrides != null && !overrides.isEmpty()) rec.put("overrides", overrides);
             Files.writeString(feedbackFile, MAPPER.writeValueAsString(rec) + "\n",
                     StandardOpenOption.CREATE, StandardOpenOption.APPEND);
         } catch (Exception e) {

@@ -58,6 +58,18 @@ interface MessageMetrics {
   tokens: number;   // approximate token count
 }
 
+/**
+ * Paramètres effectifs de la requête ayant produit une réponse. Mémorisés sur le message
+ * pour que la comparaison A/B rejoue à partir de SA configuration réelle (« toutes choses
+ * égales par ailleurs »), et non des réglages courants de la session qui ont pu changer depuis.
+ */
+interface RequestParams {
+  temperature: number;
+  topP: number;
+  topCandidates: number;
+  overrides?: RagOverridesDto;
+}
+
 interface Message {
   role: 'user' | 'assistant';
   content: string;
@@ -65,6 +77,8 @@ interface Message {
   ragMeta?: RagMeta;
   status?: 'PENDING' | 'SENT' | 'ERROR' | 'STREAMING';
   metrics?: MessageMetrics;
+  /** Paramètres effectifs de la requête (température, top-p, candidats, surcharges de modules). */
+  params?: RequestParams;
   feedback?: 'UP' | 'DOWN';
   /** Réponse interrompue par l'utilisateur (Stop) — donc potentiellement incomplète. */
   stopped?: boolean;
@@ -685,6 +699,10 @@ const Playground: FC = () => {
       return;
     }
     const effTemperature = tempOverride ?? temperature;
+    // Config effective de CETTE requête, mémorisée sur la réponse pour une comparaison A/B
+    // rigoureuse (rejouée depuis cette config, pas les réglages courants de la session).
+    const effOverrides = buildOverrides();
+    const reqParams: RequestParams = { temperature: effTemperature, topP, topCandidates, overrides: effOverrides };
 
     abortRef.current?.abort();
     const controller = new AbortController();
@@ -750,7 +768,7 @@ const Playground: FC = () => {
 
     try {
       for await (const event of queryApi.queryStream(
-        currentInput, ragEnabled, controller.signal, topCandidates, history, effTemperature, topP, buildOverrides()
+        currentInput, ragEnabled, controller.signal, topCandidates, history, effTemperature, topP, effOverrides
       )) {
         if (event.type === 'sources') {
           try { sources = JSON.parse(event.data); } catch { /* ignore */ }
@@ -816,7 +834,7 @@ const Playground: FC = () => {
             const lastAsstIdx = prev.findLastIndex(m => m.role === 'assistant');
             return prev.map((m, i) => {
               if (i === lastUserIdx) return { ...m, status: 'SENT' };
-              if (i === lastAsstIdx) return { ...m, status: 'SENT', sources, ragMeta: meta, metrics };
+              if (i === lastAsstIdx) return { ...m, status: 'SENT', sources, ragMeta: meta, metrics, params: reqParams };
               return m;
             });
           });
@@ -963,7 +981,11 @@ const Playground: FC = () => {
     const next = msg.feedback === rating ? undefined : rating;
     setMessages(prev => prev.map((m, i) => i === index ? { ...m, feedback: next } : m));
     if (next) {
-      queryApi.feedback(question, msg.content, next).catch(() => { /* non bloquant */ });
+      // On joint le pipeline (ragMeta) et les surcharges effectives : un 👎 devient
+      // corrélable à la configuration RAG qui a produit la réponse.
+      queryApi.feedback(question, msg.content, next,
+        msg.ragMeta as Record<string, unknown> | undefined, msg.params?.overrides
+      ).catch(() => { /* non bloquant */ });
       toast.success(next === 'UP' ? 'Thanks — 👍 recorded' : 'Feedback noted — 👎');
     }
   };
@@ -1516,17 +1538,19 @@ const Playground: FC = () => {
         </div>
       </div>
       <RagAdvisor open={advisorOpen} onClose={() => setAdvisorOpen(false)} />
+      {/* La comparaison A/B rejoue avec la config EXACTE de la réponse de référence
+          (fallback : réglages courants pour les réponses d'avant cette fonctionnalité). */}
       {comparison && (
         <RagComparisonDialog
           baseline={comparison.baseline}
           question={comparison.question}
           module={comparison.module}
           history={comparison.history}
-          temperature={temperature}
-          topP={topP}
-          topCandidates={topCandidates}
+          temperature={comparison.baseline.params?.temperature ?? temperature}
+          topP={comparison.baseline.params?.topP ?? topP}
+          topCandidates={comparison.baseline.params?.topCandidates ?? topCandidates}
           ragEnabled={ragEnabled}
-          baseOverrides={buildOverrides()}
+          baseOverrides={comparison.baseline.params?.overrides ?? buildOverrides()}
           onClose={() => setComparison(null)}
         />
       )}

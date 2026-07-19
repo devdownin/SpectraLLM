@@ -55,7 +55,7 @@ class RagServiceStreamTest {
                 Optional.empty(), Optional.empty(), Optional.empty(),
                 Optional.empty(), Optional.empty(), Optional.empty(),
                 Optional.empty(), Optional.empty(), Optional.empty(),
-                props, new ObjectMapper().findAndRegisterModules());
+                props, new ObjectMapper().findAndRegisterModules(), new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
     }
 
     // ── #7 — chemin nominal ────────────────────────────────────────────────────
@@ -246,7 +246,33 @@ class RagServiceStreamTest {
                 Optional.empty(), Optional.empty(), agentic,
                 Optional.empty(), Optional.empty(), adaptive,
                 selfRag, Optional.empty(), Optional.empty(),
-                props, new ObjectMapper().findAndRegisterModules());
+                props, new ObjectMapper().findAndRegisterModules(), new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
+    }
+
+    /** Chaque étape de la timeline publie un timer Micrometer spectra.rag.stage. */
+    @Test
+    void queryStream_recordsPerStageTimers() {
+        stubStandardRetrieval();
+        when(llmChatClient.chatStream(anyString(), anyString(), anyFloat(), anyFloat()))
+                .thenReturn(Flux.just("ok"));
+
+        io.micrometer.core.instrument.simple.SimpleMeterRegistry registry =
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        RagService svc = new RagService(
+                chromaDbClient, embeddingService, llmChatClient,
+                Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.empty(), Optional.empty(),
+                props, new ObjectMapper().findAndRegisterModules(), registry);
+
+        StepVerifier.create(svc.queryStream(ragRequest())).thenConsumeWhile(e -> true).verifyComplete();
+
+        var retrieval = registry.find("spectra.rag.stage").tag("stage", "retrieval").timer();
+        var generation = registry.find("spectra.rag.stage").tag("stage", "generation").timer();
+        org.assertj.core.api.Assertions.assertThat(retrieval).isNotNull();
+        org.assertj.core.api.Assertions.assertThat(retrieval.count()).isEqualTo(1);
+        org.assertj.core.api.Assertions.assertThat(generation).isNotNull();
+        org.assertj.core.api.Assertions.assertThat(generation.count()).isEqualTo(1);
     }
 
     /** Pipeline standard : stage(retrieval) → sources → token* → done. */
@@ -417,7 +443,7 @@ class RagServiceStreamTest {
                 Optional.empty(), Optional.empty(), Optional.empty(),
                 Optional.empty(), Optional.of(corrective), Optional.empty(),
                 Optional.empty(), Optional.empty(), Optional.empty(),
-                props, new ObjectMapper().findAndRegisterModules());
+                props, new ObjectMapper().findAndRegisterModules(), new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
 
         RagOverrides ov = new RagOverrides(null, null, null, null, null, false, null, null);
         QueryRequest req = new QueryRequest("Question ?", null, null, null, null, null, null, true, ov);

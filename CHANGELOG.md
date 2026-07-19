@@ -8,6 +8,12 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### RAG & Playground — observabilité des étapes, comparaison A/B rigoureuse, feedback enrichi
+
+- **Durées d'étapes exposées en métriques** : la timeline mesurée côté serveur alimente désormais un timer Micrometer `spectra.rag.stage{stage=…}` (retrieval, grading, compression, génération, réflexion, boucle agentique). La chronologie par requête devient de l'**observabilité agrégée** (p95 retrieval vs génération) dans Prometheus/Grafana, sans surcoût — la durée était déjà mesurée.
+- **Comparaison A/B « toutes choses égales par ailleurs »** : chaque réponse mémorise les **paramètres effectifs** de sa requête (température, top-p, top candidates, surcharges de modules). La comparaison A/B rejoue à partir de **cette** configuration, pas des réglages courants de la session — la variante ne diffère plus que par le module comparé, même si l'utilisateur a changé un réglage depuis.
+- **Feedback 👍/👎 enrichi** : le signal envoyé au backend joint le **pipeline de la réponse** (`ragMeta` : stratégie, drapeaux appliqués) et les **surcharges actives**. Un 👎 devient corrélable à la configuration RAG effective (« les pouces rouges arrivent surtout quand le corrective a tout filtré »), et le corpus DPO (`playground_feedback.jsonl`) s'en trouve enrichi. `FeedbackRequest`/`FeedbackService` acceptent ces champs, optionnels et rétrocompatibles.
+
 ### Documentation — guide Playground à jour (visibilité du pipeline)
 
 - **Manuel utilisateur** ([user-manual.fr.md](docs/user/user-manual.fr.md)) : section Playground réécrite pour couvrir toutes les fonctionnalités livrées — étapes du pipeline visibles en direct, badges et bouton Trace, timeline mesurée côté serveur avec compteurs, question reformulée, toggles par module (surcharges `RagOverrides`), comparaison A/B, mode expert, RAG Advisor et export.
