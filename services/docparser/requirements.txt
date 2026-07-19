@@ -1,5 +1,6 @@
 fastapi==0.136.1
-uvicorn[standard]==0.32.2
+uvicorn[standard]==0.30.1
 pymupdf==1.27.2.3
 pymupdf4llm==0.0.17
 python-multipart==0.0.20
+prometheus-fastapi-instrumentator==7.0.0

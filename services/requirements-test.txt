@@ -11,3 +11,4 @@ fastapi==0.136.1
 pydantic==2.13.4
 python-multipart==0.0.20
 ruff==0.15.8
+prometheus-fastapi-instrumentator==7.0.0
