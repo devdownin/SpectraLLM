@@ -578,13 +578,17 @@ La phase de retrieval (embed → ChromaDB → rerank → sources) est encapsulé
 
 ### Streaming SSE (`queryStream`)
 
-`RagService.queryStream()` retourne un `Flux<ServerSentEvent<String>>` avec la séquence d'événements :
-1. `sources` — JSON de la liste des chunks sources (avant génération)
-2. `token` × N — chaque token généré par le LLM
-3. `done` — fin normale du flux
-4. `error` — en cas d'erreur (circuit breaker, timeout, etc.)
+`RagService.queryStream()` retourne un `Flux<ServerSentEvent<String>>` (émetteur bloquant `Flux.create` sur `boundedElastic`) avec la séquence d'événements :
+1. `stage` × N — étape du pipeline en cours (`routing`, `rewriting`, `retrieval`, `grading`, `compression`, `agentic_search` avec itération et requête reformulée, `reflection`, `refining`) — visibilité côté client et keep-alive pendant les étapes longues
+2. `sources` — JSON de la liste des chunks sources (avant génération)
+3. `token` × N — chaque token généré par le LLM ; en mode AGENTIC, la réponse (produite par la boucle ReAct) est émise en un seul bloc
+4. `replace` — Self-RAG uniquement : le brouillon streamé a été jugé insuffisant, le client doit l'effacer avant de recevoir les tokens de la version raffinée
+5. `done` — fin normale, avec un JSON de métadonnées du pipeline (`ragStrategy`, drapeaux appliqués, `chunkCount`, `rewrittenQuestion`, `agenticIterations`, `agenticStopReason`, `selfRagScores`)
+6. `error` — en cas d'erreur (circuit breaker, timeout, etc.)
 
-Un timeout de flux est appliqué côté serveur (configurable via `spectra.pipeline.stream-timeout-seconds`). Côté frontend, un `AbortController` avec `guardTimer` de 120 s annule le stream si aucun événement ne parvient.
+Tout le pipeline non-streaming est porté au streaming : Adaptive RAG (routage DIRECT / STANDARD / AGENTIC), Conversational, Corrective, Compression, Agentic (boucle ReAct) et Self-RAG (le brouillon est streamé pour préserver le TTFT, puis auto-évalué ; un raffinement déclenche `replace`).
+
+Un timeout de flux est appliqué côté serveur (configurable via `spectra.pipeline.stream-timeout-seconds`). Côté frontend, un `AbortController` avec `guardTimer` de 120 s annule le stream si aucun événement ne parvient — les événements `stage` comptent comme activité, ce qui couvre les boucles agentiques longues.
 
 ### Flux d'une requête
 
@@ -927,7 +931,7 @@ spectra:
 
 **Coût :** N appels LLM séquentiels (un par chunk). Avec 5 chunks et phi-4-mini, latence additionnelle : 2–6 s. Recommandé uniquement avec un modèle de chat rapide.
 
-**Positionnement dans le pipeline :** s'applique après le Corrective RAG et avant la génération finale. Non appliqué sur le chemin de streaming SSE (pour éviter de bloquer le premier token).
+**Positionnement dans le pipeline :** s'applique après le Corrective RAG et avant la génération finale, sur les chemins non-streaming et streaming (le client est informé via l'événement SSE `stage: compression`).
 
 ---
 

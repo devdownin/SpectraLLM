@@ -1,5 +1,6 @@
 package fr.spectra.service;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import fr.spectra.config.SpectraProperties;
@@ -11,7 +12,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
+import reactor.core.Disposable;
+import reactor.core.Exceptions;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.FluxSink;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
@@ -26,6 +30,9 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Service RAG principal — orchestre le pipeline de retrieval et de génération.
@@ -270,20 +277,18 @@ public class RagService {
         // Déclenché uniquement quand le routage adaptatif a classé la requête comme
         // AGENTIC (forceAgentic) ET que le service agentique est disponible.
         if (agenticRagService.isPresent() && forceAgentic) {
-            if (agenticRagService.isPresent()) {
-                QueryResponse agenticResp = agenticRagService.get().query(
-                        request,
-                        ctx.contextChunks(), ctx.chunkMetadatas(), ctx.chunkDistances(),
-                        ctx.rerankApplied(), ctx.hybridApplied());
-                long duration = System.currentTimeMillis() - start;
-                return new QueryResponse(
-                        agenticResp.answer(), agenticResp.sources(), duration,
-                        agenticResp.rerankApplied(), agenticResp.hybridSearchApplied(),
-                        true, agenticResp.agenticIterations(), agenticResp.agenticStopReason(),
-                        conversationalApplied, correctiveApplied, false,
-                        ragStrategy.equals("STANDARD") ? "AGENTIC" : ragStrategy,
-                        ctx.multiQueryApplied(), false, ctx.semanticDedupApplied(), ctx.longContextApplied());
-            }
+            QueryResponse agenticResp = agenticRagService.get().query(
+                    request,
+                    ctx.contextChunks(), ctx.chunkMetadatas(), ctx.chunkDistances(),
+                    ctx.rerankApplied(), ctx.hybridApplied());
+            long duration = System.currentTimeMillis() - start;
+            return new QueryResponse(
+                    agenticResp.answer(), agenticResp.sources(), duration,
+                    agenticResp.rerankApplied(), agenticResp.hybridSearchApplied(),
+                    true, agenticResp.agenticIterations(), agenticResp.agenticStopReason(),
+                    conversationalApplied, correctiveApplied, false,
+                    ragStrategy.equals("STANDARD") ? "AGENTIC" : ragStrategy,
+                    ctx.multiQueryApplied(), false, ctx.semanticDedupApplied(), ctx.longContextApplied());
         }
 
         // ── 6. Génération (standard ou Self-RAG) ───────────────────────────
@@ -322,15 +327,46 @@ public class RagService {
                 ctx.multiQueryApplied(), compressionApplied, ctx.semanticDedupApplied(), ctx.longContextApplied());
     }
 
-    /** Tuple interne pour la phase de setup du streaming. */
-    private record StreamSetup(RagContext ctx, boolean conversationalApplied,
-                               boolean correctiveApplied, boolean compressionApplied) {}
+    /**
+     * Métadonnées du pipeline émises dans l'événement SSE {@code done}.
+     * Sérialisées via Jackson ; les champs {@code null} sont omis.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private record PipelineMeta(
+            boolean conversationalApplied,
+            boolean correctiveApplied,
+            boolean selfRagApplied,
+            String ragStrategy,
+            boolean rerankApplied,
+            boolean hybridSearchApplied,
+            boolean multiQueryApplied,
+            boolean semanticDedupApplied,
+            boolean longContextApplied,
+            boolean compressionApplied,
+            int chunkCount,
+            /** Question autonome utilisée pour le retrieval (Conversational RAG), {@code null} sinon. */
+            String rewrittenQuestion,
+            int agenticIterations,
+            String agenticStopReason,
+            /** Scores de réflexion Self-RAG (ISREL/ISSUP/ISUSE), {@code null} si non évalué. */
+            String selfRagScores
+    ) {}
 
     /**
-     * Streaming SSE token par token. Émet : sources → token* → done | error.
-     * Le mode agentic, adaptive et self-RAG sont réservés au pipeline non-streaming.
-     * Le Conversational RAG (contextualisation légère) est cependant appliqué.
-     * L'événement {@code done} contient un JSON avec les métadonnées du pipeline.
+     * Streaming SSE token par token. Émet : {@code stage}* → {@code sources} →
+     * ({@code replace}? {@code token}*)* → {@code done} | {@code error}.
+     *
+     * <p>Tout le pipeline non-streaming est désormais porté : Adaptive RAG (routage
+     * DIRECT/STANDARD/AGENTIC), Conversational, Corrective, Compression, Agentic (boucle
+     * ReAct, réponse émise en un bloc à la fin) et Self-RAG (le brouillon est streamé
+     * normalement, puis auto-évalué ; s'il est raffiné, un événement {@code replace}
+     * demande au client d'effacer le brouillon avant de streamer la version raffinée).</p>
+     *
+     * <p>Les événements {@code stage} tracent l'étape en cours (routing, retrieval,
+     * grading, agentic_search…) : ils donnent au client la visibilité sur le pipeline et
+     * servent de keep-alive pendant les étapes longues (boucle agentique sur CPU).</p>
+     *
+     * <p>L'événement {@code done} contient un JSON {@link PipelineMeta}.</p>
      */
     public Flux<ServerSentEvent<String>> queryStream(QueryRequest request) {
         // Direct LLM mode (RAG disabled by caller)
@@ -345,119 +381,281 @@ public class RagService {
                         Flux<ServerSentEvent<String>> tokens = tokenFlux
                                 .timeout(streamTimeout)
                                 .map(t -> ServerSentEvent.<String>builder().event("token").data(t).build());
-                        ServerSentEvent<String> doneEvent = ServerSentEvent.<String>builder()
-                                .event("done")
-                                .data("{\"conversationalApplied\":false,\"correctiveApplied\":false,"
-                                        + "\"selfRagApplied\":false,\"ragStrategy\":\"DIRECT\","
-                                        + "\"rerankApplied\":false,\"hybridSearchApplied\":false,"
-                                        + "\"multiQueryApplied\":false,\"semanticDedupApplied\":false,"
-                                        + "\"longContextApplied\":false,\"compressionApplied\":false}")
-                                .build();
+                        ServerSentEvent<String> doneEvent = doneEvent(new PipelineMeta(
+                                false, false, false, "DIRECT", false, false, false, false, false, false,
+                                0, null, 0, null, null));
                         return Flux.concat(Flux.just(sourcesEvent), tokens, Flux.just(doneEvent));
                     })
                     .onErrorResume(e -> {
                         log.error("Erreur streaming direct: {}", e.getMessage());
-                        String safeMsg = e.getMessage() != null ? e.getMessage().replace("\"", "'") : "Erreur interne";
-                        return Flux.just(ServerSentEvent.<String>builder()
-                                .event("error").data("{\"message\":\"" + safeMsg + "\"}").build());
+                        return Flux.just(errorEvent(e));
                     });
         }
 
-        return Mono.fromCallable(() -> {
-                    String retrievalQuestion = request.question();
-                    boolean conversationalApplied = false;
-                    if (conversationalRagService.isPresent()
-                            && request.conversationHistory() != null
-                            && !request.conversationHistory().isEmpty()) {
-                        String standalone = conversationalRagService.get()
-                                .contextualizeQuestion(request.question(), request.conversationHistory());
-                        if (!standalone.equals(request.question())) {
-                            retrievalQuestion = standalone;
-                            conversationalApplied = true;
-                        }
-                    }
-                    RagContext ctx = retrieveContext(request, retrievalQuestion);
-
-                    boolean correctiveApplied = false;
-                    if (correctiveRagService.isPresent() && !ctx.contextChunks().isEmpty()) {
-                        CorrectiveOutcome outcome = applyCorrectiveRag(request, retrievalQuestion, ctx,
-                                hybridSearchService.isPresent());
-                        ctx = outcome.ctx();
-                        correctiveApplied = outcome.applied();
-                    }
-
-                    boolean compressionApplied = false;
-                    if (contextCompressionService.isPresent() && !ctx.contextChunks().isEmpty()) {
-                        ContextCompressionService.CompressionResult cr =
-                                contextCompressionService.get().compress(request.question(), ctx.contextChunks());
-                        if (!cr.keptIndices().isEmpty()) {
-                            ctx = buildRagContext(
-                                    cr.compressedTexts(),
-                                    filterByIndices(ctx.chunkMetadatas(), cr.keptIndices()),
-                                    filterByIndices(ctx.chunkDistances(), cr.keptIndices()),
-                                    ctx.rerankScores()  != null ? filterByIndices(ctx.rerankScores(), cr.keptIndices())  : null,
-                                    ctx.bm25Scores()    != null ? filterByIndices(ctx.bm25Scores(), cr.keptIndices())    : null,
-                                    ctx.rerankApplied(), ctx.hybridApplied(),
-                                    ctx.multiQueryApplied(), ctx.semanticDedupApplied(), ctx.longContextApplied());
-                            compressionApplied = true;
-                        }
-                    }
-
-                    return new StreamSetup(ctx, conversationalApplied, correctiveApplied, compressionApplied);
-                })
-                .subscribeOn(Schedulers.boundedElastic())
-                .flatMapMany(setup -> {
-                    RagContext ctx = setup.ctx();
-
-                    ServerSentEvent<String> sourcesEvent;
+        // Pipeline RAG complet : émetteur bloquant sur boundedElastic. Flux.create permet
+        // d'émettre des événements au fil du pipeline (stages, boucle agentique, passes
+        // Self-RAG) là où l'ancien Mono.fromCallable ne pouvait rien émettre avant la fin
+        // du setup — le client restait silencieux pendant tout le retrieval.
+        return Flux.<ServerSentEvent<String>>create(sink -> {
                     try {
-                        sourcesEvent = ServerSentEvent.<String>builder()
-                                .event("sources")
-                                .data(objectMapper.writeValueAsString(ctx.sources()))
-                                .build();
-                    } catch (JsonProcessingException e) {
-                        sourcesEvent = ServerSentEvent.<String>builder()
-                                .event("sources").data("[]").build();
+                        runStreamPipeline(request, sink);
+                    } catch (Exception e) {
+                        log.error("Erreur streaming RAG: {}", e.getMessage());
+                        if (!sink.isCancelled()) sink.next(errorEvent(e));
+                    } finally {
+                        sink.complete();
                     }
-
-                    Flux<ServerSentEvent<String>> tokenFlux;
-                    if (ctx.contextChunks().isEmpty()) {
-                        String msg = "Aucun document pertinent trouvé dans la base de connaissances.";
-                        tokenFlux = Flux.just(ServerSentEvent.<String>builder()
-                                .event("token").data(msg).build());
-                    } else {
-                        String userMessage = buildUserMessage(request, setup.conversationalApplied());
-                        tokenFlux = llmClient.chatStream(
-                                        ctx.systemPrompt(), userMessage,
-                                        request.temperature(), request.topP())
-                                .timeout(streamTimeout)
-                                .map(token -> ServerSentEvent.<String>builder()
-                                        .event("token").data(token).build());
-                    }
-
-                    String doneMeta = String.format(
-                            "{\"conversationalApplied\":%b,\"correctiveApplied\":%b,"
-                            + "\"selfRagApplied\":false,\"ragStrategy\":\"STANDARD\","
-                            + "\"rerankApplied\":%b,\"hybridSearchApplied\":%b,"
-                            + "\"multiQueryApplied\":%b,\"semanticDedupApplied\":%b,"
-                            + "\"longContextApplied\":%b,\"compressionApplied\":%b}",
-                            setup.conversationalApplied(), setup.correctiveApplied(),
-                            ctx.rerankApplied(), ctx.hybridApplied(),
-                            ctx.multiQueryApplied(), ctx.semanticDedupApplied(), ctx.longContextApplied(),
-                            setup.compressionApplied());
-                    ServerSentEvent<String> doneEvent = ServerSentEvent.<String>builder()
-                            .event("done").data(doneMeta).build();
-
-                    return Flux.concat(Flux.just(sourcesEvent), tokenFlux, Flux.just(doneEvent));
                 })
-                .onErrorResume(e -> {
-                    log.error("Erreur streaming RAG: {}", e.getMessage());
-                    String safeMsg = e.getMessage() != null ? e.getMessage().replace("\"", "'") : "Erreur interne";
-                    return Flux.just(ServerSentEvent.<String>builder()
-                            .event("error")
-                            .data("{\"message\":\"" + safeMsg + "\"}")
-                            .build());
-                });
+                .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    /** Corps du pipeline RAG streaming — exécuté de façon bloquante sur boundedElastic. */
+    private void runStreamPipeline(QueryRequest request, FluxSink<ServerSentEvent<String>> sink) {
+        // ── 1. Adaptive RAG : routage ──────────────────────────────────────
+        String ragStrategy = "STANDARD";
+        boolean forceAgentic = false;
+        if (adaptiveRagService.isPresent()) {
+            emitStage(sink, "routing", null, null);
+            AdaptiveRagService.RagStrategy strategy = adaptiveRagService.get().classifyQuery(request.question());
+            ragStrategy = strategy.name();
+
+            if (strategy == AdaptiveRagService.RagStrategy.DIRECT) {
+                sink.next(ServerSentEvent.<String>builder().event("sources").data("[]").build());
+                forwardTokens(sink, llmClient.chatStream(DIRECT_SYSTEM_PROMPT, request.question(),
+                        request.temperature(), request.topP()));
+                sink.next(doneEvent(new PipelineMeta(false, false, false, "DIRECT",
+                        false, false, false, false, false, false, 0, null, 0, null, null)));
+                return;
+            }
+            // Comme en non-streaming : AGENTIC sans service agentique → dégradation STANDARD
+            // (la stratégie affichée reste AGENTIC, cf. query()).
+            forceAgentic = strategy == AdaptiveRagService.RagStrategy.AGENTIC && agenticRagService.isPresent();
+        }
+
+        // ── 2. Conversational RAG : contextualisation de la question ──────
+        String retrievalQuestion = request.question();
+        boolean conversationalApplied = false;
+        if (conversationalRagService.isPresent()
+                && request.conversationHistory() != null
+                && !request.conversationHistory().isEmpty()) {
+            emitStage(sink, "rewriting", null, null);
+            String standalone = conversationalRagService.get()
+                    .contextualizeQuestion(request.question(), request.conversationHistory());
+            if (!standalone.equals(request.question())) {
+                retrievalQuestion = standalone;
+                conversationalApplied = true;
+            }
+        }
+        String rewrittenQuestion = conversationalApplied ? retrievalQuestion : null;
+
+        // ── 3. Retrieval ───────────────────────────────────────────────────
+        emitStage(sink, "retrieval", null, null);
+        RagContext ctx = retrieveContext(request, retrievalQuestion);
+
+        // ── 4. Corrective RAG ──────────────────────────────────────────────
+        boolean correctiveApplied = false;
+        if (correctiveRagService.isPresent() && !ctx.contextChunks().isEmpty()) {
+            emitStage(sink, "grading", null, null);
+            CorrectiveOutcome outcome = applyCorrectiveRag(request, retrievalQuestion, ctx,
+                    hybridSearchService.isPresent());
+            ctx = outcome.ctx();
+            correctiveApplied = outcome.applied();
+        }
+
+        // ── 4.5. Context Compression ───────────────────────────────────────
+        boolean compressionApplied = false;
+        if (contextCompressionService.isPresent() && !ctx.contextChunks().isEmpty()) {
+            emitStage(sink, "compression", null, null);
+            ContextCompressionService.CompressionResult cr =
+                    contextCompressionService.get().compress(request.question(), ctx.contextChunks());
+            if (!cr.keptIndices().isEmpty()) {
+                ctx = buildRagContext(
+                        cr.compressedTexts(),
+                        filterByIndices(ctx.chunkMetadatas(), cr.keptIndices()),
+                        filterByIndices(ctx.chunkDistances(), cr.keptIndices()),
+                        ctx.rerankScores()  != null ? filterByIndices(ctx.rerankScores(), cr.keptIndices())  : null,
+                        ctx.bm25Scores()    != null ? filterByIndices(ctx.bm25Scores(), cr.keptIndices())    : null,
+                        ctx.rerankApplied(), ctx.hybridApplied(),
+                        ctx.multiQueryApplied(), ctx.semanticDedupApplied(), ctx.longContextApplied());
+                compressionApplied = true;
+            }
+        }
+
+        // ── 5. Agentic RAG : boucle ReAct ──────────────────────────────────
+        // La réponse est produite PAR la boucle (dernier appel ReAct) : elle ne peut pas
+        // être streamée token par token — elle est émise en un bloc à la fin. Les stages
+        // agentic_search (une par itération, avec la requête reformulée) donnent la
+        // visibilité sur le raisonnement et maintiennent la connexion active.
+        if (forceAgentic) {
+            QueryResponse resp = agenticRagService.get().query(
+                    request, ctx.contextChunks(), ctx.chunkMetadatas(), ctx.chunkDistances(),
+                    ctx.rerankApplied(), ctx.hybridApplied(),
+                    (iteration, query) -> emitStage(sink, "agentic_search", iteration, query));
+            sink.next(sourcesEvent(resp.sources()));
+            if (resp.answer() != null && !resp.answer().isEmpty() && !sink.isCancelled()) {
+                sink.next(ServerSentEvent.<String>builder().event("token").data(resp.answer()).build());
+            }
+            sink.next(doneEvent(new PipelineMeta(
+                    conversationalApplied, correctiveApplied, false, "AGENTIC",
+                    resp.rerankApplied(), resp.hybridSearchApplied(),
+                    ctx.multiQueryApplied(), ctx.semanticDedupApplied(), ctx.longContextApplied(),
+                    compressionApplied, resp.sources().size(), rewrittenQuestion,
+                    resp.agenticIterations(),
+                    resp.agenticStopReason() != null ? resp.agenticStopReason().name() : null,
+                    null)));
+            return;
+        }
+
+        // ── 6. Sources + génération (standard ou Self-RAG) ─────────────────
+        sink.next(sourcesEvent(ctx.sources()));
+
+        if (ctx.contextChunks().isEmpty()) {
+            sink.next(ServerSentEvent.<String>builder().event("token")
+                    .data("Aucun document pertinent trouvé dans la base de connaissances.").build());
+            sink.next(doneEvent(new PipelineMeta(
+                    conversationalApplied, correctiveApplied, false, ragStrategy,
+                    ctx.rerankApplied(), ctx.hybridApplied(), ctx.multiQueryApplied(),
+                    ctx.semanticDedupApplied(), ctx.longContextApplied(), compressionApplied,
+                    0, rewrittenQuestion, 0, null, null)));
+            return;
+        }
+
+        String userMessage = buildUserMessage(request, conversationalApplied);
+        boolean selfRagApplied = false;
+        String selfRagScores = null;
+
+        if (selfRagService.isPresent()) {
+            // Self-RAG streaming : le brouillon est streamé normalement (TTFT préservé)
+            // puis auto-évalué. Si un raffinement s'impose, l'événement replace demande
+            // au client d'effacer le brouillon avant de streamer la version raffinée.
+            SelfRagService selfRag = selfRagService.get();
+            String draft = forwardTokens(sink, llmClient.chatStream(ctx.systemPrompt(), userMessage,
+                    request.temperature(), request.topP()));
+            if (sink.isCancelled()) return;
+
+            emitStage(sink, "reflection", null, null);
+            SelfRagService.ReflectionScores scores = selfRag.evaluate(request.question(), ctx.contextChunks(), draft);
+            selfRagScores = formatScores(scores);
+
+            if (selfRag.requiresRefinement(scores) && selfRag.maxReflectionIterations() > 0) {
+                sink.next(ServerSentEvent.<String>builder().event("replace").data("{}").build());
+                emitStage(sink, "refining", null, null);
+                String refined = forwardTokens(sink, llmClient.chatStream(
+                        selfRag.refineSystemPrompt(ctx.systemPrompt()), userMessage,
+                        request.temperature(), request.topP()));
+                if (!sink.isCancelled()) {
+                    selfRagScores = formatScores(selfRag.evaluate(request.question(), ctx.contextChunks(), refined));
+                }
+                selfRagApplied = true;
+            }
+        } else {
+            forwardTokens(sink, llmClient.chatStream(ctx.systemPrompt(), userMessage,
+                    request.temperature(), request.topP()));
+        }
+
+        sink.next(doneEvent(new PipelineMeta(
+                conversationalApplied, correctiveApplied, selfRagApplied, ragStrategy,
+                ctx.rerankApplied(), ctx.hybridApplied(), ctx.multiQueryApplied(),
+                ctx.semanticDedupApplied(), ctx.longContextApplied(), compressionApplied,
+                ctx.contextChunks().size(), rewrittenQuestion, 0, null, selfRagScores)));
+    }
+
+    // ── Helpers SSE ────────────────────────────────────────────────────────────
+
+    /**
+     * Consomme un flux de tokens de façon bloquante en les relayant au sink SSE, et
+     * retourne la réponse complète concaténée. La déconnexion du client (cancel) est
+     * détectée par polling et dispose la génération LLM ; timeout d'inactivité
+     * ({@code streamTimeout}) et erreurs LLM sont propagés à l'appelant.
+     */
+    private String forwardTokens(FluxSink<ServerSentEvent<String>> sink, Flux<String> tokens) {
+        StringBuilder full = new StringBuilder();
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Disposable subscription = tokens.timeout(streamTimeout).subscribe(
+                t -> {
+                    full.append(t);
+                    if (!sink.isCancelled()) {
+                        sink.next(ServerSentEvent.<String>builder().event("token").data(t).build());
+                    }
+                },
+                e -> { failure.set(e); latch.countDown(); },
+                latch::countDown);
+        try {
+            while (!latch.await(500, TimeUnit.MILLISECONDS)) {
+                if (sink.isCancelled()) {
+                    subscription.dispose();
+                    return full.toString();
+                }
+            }
+        } catch (InterruptedException ie) {
+            subscription.dispose();
+            Thread.currentThread().interrupt();
+            return full.toString();
+        }
+        Throwable e = failure.get();
+        if (e != null) throw Exceptions.propagate(e);
+        return full.toString();
+    }
+
+    /**
+     * Émet un événement SSE {@code stage} décrivant l'étape de pipeline en cours —
+     * visibilité côté client et keep-alive pendant les étapes longues.
+     */
+    private void emitStage(FluxSink<ServerSentEvent<String>> sink, String stage,
+                           Integer iteration, String query) {
+        if (sink.isCancelled()) return;
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("stage", stage);
+        if (iteration != null) payload.put("iteration", iteration);
+        if (query != null) payload.put("query", query);
+        try {
+            sink.next(ServerSentEvent.<String>builder().event("stage")
+                    .data(objectMapper.writeValueAsString(payload)).build());
+        } catch (JsonProcessingException e) {
+            // étape purement informative — jamais bloquante
+        }
+    }
+
+    private ServerSentEvent<String> sourcesEvent(List<QueryResponse.Source> sources) {
+        try {
+            return ServerSentEvent.<String>builder().event("sources")
+                    .data(objectMapper.writeValueAsString(sources)).build();
+        } catch (JsonProcessingException e) {
+            return ServerSentEvent.<String>builder().event("sources").data("[]").build();
+        }
+    }
+
+    /** Formate les scores de réflexion Self-RAG pour l'événement {@code done}. */
+    private static String formatScores(SelfRagService.ReflectionScores scores) {
+        return scores.isRel() + "/" + scores.isSup() + "/" + scores.isUse();
+    }
+
+    /**
+     * Construit l'événement SSE {@code done} contenant les métadonnées du pipeline,
+     * sérialisées via Jackson (l'assemblage manuel de JSON cassait le parsing côté
+     * client dès qu'une valeur contenait un caractère à échapper).
+     */
+    private ServerSentEvent<String> doneEvent(PipelineMeta meta) {
+        String json;
+        try {
+            json = objectMapper.writeValueAsString(meta);
+        } catch (JsonProcessingException e) {
+            json = "{\"ragStrategy\":\"" + meta.ragStrategy() + "\"}";
+        }
+        return ServerSentEvent.<String>builder().event("done").data(json).build();
+    }
+
+    /** Construit l'événement SSE {@code error} avec un message JSON toujours valide. */
+    private ServerSentEvent<String> errorEvent(Throwable e) {
+        String msg = e.getMessage() != null ? e.getMessage() : "Erreur interne";
+        String json;
+        try {
+            json = objectMapper.writeValueAsString(Map.of("message", msg));
+        } catch (JsonProcessingException ex) {
+            json = "{\"message\":\"Erreur interne\"}";
+        }
+        return ServerSentEvent.<String>builder().event("error").data(json).build();
     }
 
     // ── Retrieval ──────────────────────────────────────────────────────────────

@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { queryApi, configApi, fineTuningApi, ingestApi, healthApi } from '../services/api';
-import type { StreamDoneMeta } from '../services/api';
+import type { StreamDoneMeta, StreamStageInfo } from '../services/api';
 import type { ServiceStatus } from '../types/api';
 import Tooltip from '../components/Tooltip';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -17,6 +17,10 @@ interface Source {
   text?: string;
   sourceFile: string;
   distance: number;
+  /** Score du Cross-Encoder (re-ranking), si appliqué. */
+  rerankScore?: number | null;
+  /** Score BM25 brut (recherche hybride), si appliqué. */
+  bm25Score?: number | null;
 }
 
 interface RagMeta {
@@ -31,6 +35,14 @@ interface RagMeta {
   semanticDedupApplied: boolean;
   longContextApplied: boolean;
   agenticIterations?: number;
+  /** Raison d'arrêt de la boucle agentique (ANSWER, MAX_ITERATIONS…). */
+  agenticStopReason?: string;
+  /** Nombre de chunks injectés dans le contexte final. */
+  chunkCount?: number;
+  /** Question autonome utilisée pour le retrieval (Conversational RAG). */
+  rewrittenQuestion?: string;
+  /** Scores de réflexion Self-RAG « ISREL/ISSUP/ISUSE ». */
+  selfRagScores?: string;
 }
 
 interface MessageMetrics {
@@ -49,6 +61,9 @@ interface Message {
   feedback?: 'UP' | 'DOWN';
   /** Réponse interrompue par l'utilisateur (Stop) — donc potentiellement incomplète. */
   stopped?: boolean;
+  /** Message purement local (accueil, « discussion effacée ») : jamais envoyé dans
+   *  l'historique conversationnel au backend — il polluerait la reformulation. */
+  local?: boolean;
 }
 
 const STRATEGY_COLORS: Record<string, string> = {
@@ -57,11 +72,26 @@ const STRATEGY_COLORS: Record<string, string> = {
   AGENTIC:  'border-primary/40 text-primary bg-primary/5',
 };
 
+/** Libellés lisibles des événements SSE `stage` (étape du pipeline RAG côté backend). */
+const STAGE_LABELS: Record<string, string> = {
+  routing:     'Classifying question complexity…',
+  rewriting:   'Rephrasing question with conversation history…',
+  retrieval:   'Searching the knowledge base…',
+  grading:     'Grading retrieved chunks…',
+  compression: 'Compressing context…',
+  reflection:  'Self-evaluating the answer…',
+  refining:    'Refining the answer…',
+};
+
 const RagBadges: FC<{ meta: RagMeta; onShowTrace?: () => void }> = ({ meta, onShowTrace }) => {
   const badges: { label: string; active: boolean; tooltip: string }[] = [
-    { label: 'CONV',  active: meta.conversationalApplied, tooltip: 'Conversational RAG — question rephrased using conversation history' },
+    { label: 'CONV',  active: meta.conversationalApplied, tooltip: meta.rewrittenQuestion
+        ? `Conversational RAG — question rephrased for retrieval: “${meta.rewrittenQuestion}”`
+        : 'Conversational RAG — question rephrased using conversation history' },
     { label: 'CORR',  active: meta.correctiveApplied,     tooltip: 'Corrective RAG — irrelevant chunks filtered out' },
-    { label: 'SELF',  active: meta.selfRagApplied,        tooltip: 'Self-RAG — self-evaluated and refined answer' },
+    { label: 'SELF',  active: meta.selfRagApplied,        tooltip: meta.selfRagScores
+        ? `Self-RAG — answer self-evaluated and refined (scores: ${meta.selfRagScores})`
+        : 'Self-RAG — self-evaluated and refined answer' },
     { label: 'RRNK',  active: meta.rerankApplied,         tooltip: 'Cross-Encoder re-ranking applied' },
     { label: 'HYB',   active: meta.hybridSearchApplied,   tooltip: 'Hybrid Search (Vector + BM25) used' },
     { label: 'MQ',    active: meta.multiQueryApplied,     tooltip: 'Multi-Query — N question variants merged' },
@@ -104,13 +134,25 @@ const RagBadges: FC<{ meta: RagMeta; onShowTrace?: () => void }> = ({ meta, onSh
   );
 };
 
+/**
+ * Chunk retrouvé uniquement par BM25 (recherche hybride) : ChromaDB lui affecte la
+ * distance sentinelle 1.0 — afficher « 0% de pertinence » serait trompeur.
+ */
+const isBm25Only = (src: Source): boolean => (src.bm25Score ?? 0) > 0 && src.distance >= 0.999;
+
+/** Pertinence vectorielle en % (1 − distance cosinus), null si non calculable ou chunk BM25-only. */
+const relevancePct = (src: Source): number | null => {
+  if (typeof src.distance !== 'number' || isBm25Only(src)) return null;
+  return Math.max(0, Math.min(100, Math.round((1 - src.distance) * 100)));
+};
+
 /** Source de réponse dépliable : nom de fichier + pertinence + passage récupéré. */
 const SourceItem: FC<{ src: Source; expert?: boolean }> = ({ src, expert = false }) => {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const snippet = src.preview ?? src.text ?? '';
-  const pct = typeof src.distance === 'number' ? Math.max(0, Math.min(100, Math.round((1 - src.distance) * 100))) : null;
+  const pct = relevancePct(src);
 
   const openInDatabase = async () => {
     try {
@@ -135,6 +177,9 @@ const SourceItem: FC<{ src: Source; expert?: boolean }> = ({ src, expert = false
         <span aria-hidden="true" className="material-symbols-outlined text-[12px] text-primary shrink-0">article</span>
         <span className="font-mono text-[10px] text-on-surface-variant truncate flex-1">{src.sourceFile}</span>
         {pct !== null && <span className="text-[10px] font-bold text-primary shrink-0" title={t('playground.relevance')}>{pct}%</span>}
+        {isBm25Only(src) && (
+          <span className="text-[10px] font-bold text-secondary shrink-0" title="Found by keyword search (BM25) — no vector distance available">BM25</span>
+        )}
         <span aria-hidden="true" className={`material-symbols-outlined text-[12px] text-outline shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}>expand_more</span>
       </button>
       {open && (
@@ -144,7 +189,11 @@ const SourceItem: FC<{ src: Source; expert?: boolean }> = ({ src, expert = false
             : <p className="text-[11px] text-outline italic">No preview available.</p>}
           <div className={`flex items-center ${expert ? 'justify-between' : 'justify-end'}`}>
             {expert && (
-              <span className="text-[10px] font-mono text-outline">distance: {typeof src.distance === 'number' ? src.distance.toFixed(3) : '—'}</span>
+              <span className="text-[10px] font-mono text-outline">
+                distance: {typeof src.distance === 'number' ? src.distance.toFixed(3) : '—'}
+                {typeof src.rerankScore === 'number' && ` · rerank: ${src.rerankScore.toFixed(2)}`}
+                {typeof src.bm25Score === 'number' && src.bm25Score > 0 && ` · bm25: ${src.bm25Score.toFixed(2)}`}
+              </span>
             )}
             <button
               type="button"
@@ -162,7 +211,7 @@ const SourceItem: FC<{ src: Source; expert?: boolean }> = ({ src, expert = false
 
 const Playground: FC = () => {
   const { t } = useTranslation();
-  const defaultWelcome: Message = { role: 'assistant', content: 'Welcome to the Spectra Playground. I am ready to answer questions based on your ingested documents. How can I help you today?', status: 'SENT' };
+  const defaultWelcome: Message = { role: 'assistant', content: 'Welcome to the Spectra Playground. I am ready to answer questions based on your ingested documents. How can I help you today?', status: 'SENT', local: true };
   const [traceMsg, setTraceMsg] = useState<Message | null>(null);
   const [messages, setMessages] = useState<Message[]>(() => {
     const saved = localStorage.getItem('spectra_chat_history');
@@ -180,6 +229,8 @@ const Playground: FC = () => {
   });
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  /** Étape du pipeline RAG en cours (événements SSE `stage`) — affichée dans la bulle en streaming. */
+  const [liveStage, setLiveStage] = useState<string | null>(null);
 
   const [temperature, setTemperature] = useState(() =>
     parseFloat(localStorage.getItem('spectra_temp') || '0.7'));
@@ -298,7 +349,7 @@ const Playground: FC = () => {
   const [confirmClear, setConfirmClear] = useState(false);
 
   const clearChat = () => {
-    setMessages([{ role: 'assistant', content: 'Discussion cleared. System ready.', status: 'SENT' }]);
+    setMessages([{ role: 'assistant', content: 'Discussion cleared. System ready.', status: 'SENT', local: true }]);
     setConfirmClear(false);
     toast.info('Chat history cleared');
   };
@@ -335,8 +386,9 @@ const Playground: FC = () => {
         if (m.sources?.length) {
           lines.push('**Sources:**');
           for (const s of m.sources) {
-            const pct = typeof s.distance === 'number' ? ` (${Math.max(0, Math.min(100, Math.round((1 - s.distance) * 100)))}%)` : '';
-            lines.push(`- ${s.sourceFile}${pct}`);
+            const pct = relevancePct(s);
+            const tag = pct !== null ? ` (${pct}%)` : isBm25Only(s) ? ' (BM25)' : '';
+            lines.push(`- ${s.sourceFile}${tag}`);
           }
           lines.push('');
         }
@@ -369,11 +421,19 @@ const Playground: FC = () => {
     toast.success(`Conversation exported (${format.toUpperCase()})`);
   };
 
-  /** Builds the conversation history from SENT messages to send to the backend. */
-  const buildHistory = (): { role: string; content: string }[] => {
+  /**
+   * Builds the conversation history from SENT messages to send to the backend.
+   * Local system messages (welcome, "discussion cleared") are excluded: they would
+   * pollute the Conversational RAG rewriting step.
+   * @param uptoIndex  if set, only messages BEFORE this index are considered — used by
+   *                   Regenerate to exclude the turn being regenerated (sending the old
+   *                   answer back in the history anchors the model on it).
+   */
+  const buildHistory = (uptoIndex?: number): { role: string; content: string }[] => {
     if (!convEnabled) return [];
-    return messages
-      .filter(m => m.status === 'SENT' && m.content.trim())
+    const scope = uptoIndex === undefined ? messages : messages.slice(0, uptoIndex);
+    return scope
+      .filter(m => m.status === 'SENT' && !m.local && m.content.trim())
       .slice(-20)
       .map(m => ({ role: m.role, content: m.content }));
   };
@@ -409,7 +469,10 @@ const Playground: FC = () => {
     };
 
     const currentInput = text;
-    const history = buildHistory();
+    // En régénération, l'historique s'arrête AVANT le tour régénéré : renvoyer
+    // l'ancienne réponse dans l'historique ancre le modèle dessus (il la répète).
+    const lastUserIdxForHistory = regenerate ? messages.findLastIndex(m => m.role === 'user') : -1;
+    const history = buildHistory(lastUserIdxForHistory >= 0 ? lastUserIdxForHistory : undefined);
 
     setIsTyping(true);
     setMessages(prev => {
@@ -434,6 +497,25 @@ const Playground: FC = () => {
     let firstTokenTs: number | null = null;
     let tokenCount = 0;
 
+    // Batching du rendu : un setMessages PAR token re-parsait tout le Markdown de la
+    // réponse à chaque token (rendu O(n²) sur les longues réponses). Les tokens sont
+    // accumulés puis flushés au plus toutes les ~80 ms — imperceptible à l'œil.
+    let pendingTokens = '';
+    let flushTimer: ReturnType<typeof setTimeout> | null = null;
+    const flushTokens = () => {
+      if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+      if (!pendingTokens) return;
+      const chunk = pendingTokens;
+      pendingTokens = '';
+      setMessages(prev => {
+        const lastIdx = prev.findLastIndex(m => m.role === 'assistant');
+        if (lastIdx < 0) return prev;
+        return prev.map((m, i) =>
+          i === lastIdx ? { ...m, content: m.content + chunk } : m
+        );
+      });
+    };
+
     try {
       for await (const event of queryApi.queryStream(
         currentInput, ragEnabled, controller.signal, topCandidates, history, effTemperature, topP
@@ -444,14 +526,31 @@ const Playground: FC = () => {
           if (firstTokenTs === null) firstTokenTs = Date.now();
           tokenCount++;
           resetGuard(); // activité : repousser la garde d'inactivité
+          setLiveStage(null); // la génération a commencé — l'étape pipeline est finie
+          pendingTokens += event.data;
+          if (!flushTimer) flushTimer = setTimeout(flushTokens, 80);
+        } else if (event.type === 'stage') {
+          // Étape du pipeline en cours côté backend (retrieval, boucle agentique,
+          // réflexion Self-RAG…) : affichée dans la bulle et compte comme activité
+          // pour la garde d'inactivité (une boucle agentique peut être longue).
+          resetGuard();
+          try {
+            const s = JSON.parse(event.data) as StreamStageInfo;
+            setLiveStage(s.stage === 'agentic_search'
+              ? `Agentic search #${s.iteration ?? '?'}: “${s.query ?? ''}”`
+              : STAGE_LABELS[s.stage] ?? s.stage);
+          } catch { /* ignore */ }
+        } else if (event.type === 'replace') {
+          // Self-RAG : le brouillon affiché va être remplacé par la version raffinée.
+          if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+          pendingTokens = '';
           setMessages(prev => {
             const lastIdx = prev.findLastIndex(m => m.role === 'assistant');
             if (lastIdx < 0) return prev;
-            return prev.map((m, i) =>
-              i === lastIdx ? { ...m, content: m.content + event.data } : m
-            );
+            return prev.map((m, i) => i === lastIdx ? { ...m, content: '' } : m);
           });
         } else if (event.type === 'done') {
+          flushTokens();
           const metrics: MessageMetrics = {
             ttftMs: firstTokenTs ? firstTokenTs - startTs : 0,
             totalMs: Date.now() - startTs,
@@ -471,6 +570,11 @@ const Playground: FC = () => {
               compressionApplied:    parsed.compressionApplied     ?? false,
               semanticDedupApplied:  parsed.semanticDedupApplied   ?? false,
               longContextApplied:    parsed.longContextApplied     ?? false,
+              chunkCount:            parsed.chunkCount,
+              rewrittenQuestion:     parsed.rewrittenQuestion,
+              agenticIterations:     parsed.agenticIterations,
+              agenticStopReason:     parsed.agenticStopReason,
+              selfRagScores:         parsed.selfRagScores,
             };
           } catch { /* ignore */ }
 
@@ -484,6 +588,7 @@ const Playground: FC = () => {
             });
           });
         } else if (event.type === 'error') {
+          flushTokens();
           let msg = 'Spectra core is currently unreachable or timed out.';
           try { msg = JSON.parse(event.data).message ?? msg; } catch { /* ignore */ }
           toast.error('Query Uplink Failed', { description: msg });
@@ -503,6 +608,7 @@ const Playground: FC = () => {
         }
       }
     } catch (err: unknown) {
+      flushTokens(); // fige les tokens déjà reçus avant de statuer sur la bulle
       if (err instanceof Error && err.name === 'AbortError') {
         // Stop manuel : on fige la réponse partielle (SENT) au lieu de la laisser
         // en STREAMING indéfiniment. Si rien n'a été reçu, on retire la bulle vide.
@@ -547,12 +653,26 @@ const Playground: FC = () => {
           });
       });
     } finally {
+      // Flux terminé sans événement done/error (connexion coupée) : flush du reliquat
+      // et déblocage des statuts transitoires — sinon curseur clignotant à vie.
+      flushTokens();
+      setMessages(prev => prev.some(m => m.status === 'STREAMING' || m.status === 'PENDING')
+        ? prev.map(m => (m.status === 'STREAMING' || m.status === 'PENDING') ? { ...m, status: 'SENT' as const } : m)
+        : prev);
       clearTimeout(guardTimer);
+      setLiveStage(null);
       setIsTyping(false);
     }
   };
 
   const handleSend = () => {
+    // Valide AVANT de vider la saisie : appuyer sur Entrée avec le modèle offline
+    // (ou pendant une génération) effaçait le texte tapé sans l'envoyer.
+    if (!input.trim() || isTyping) return;
+    if (llmDown) {
+      toast.error('Model offline', { description: 'The chat model service is unreachable. Check llama-cpp-chat.' });
+      return;
+    }
     const text = input;
     setInput('');
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
@@ -893,6 +1013,13 @@ const Playground: FC = () => {
                     {msg.status === 'STREAMING' && (
                       <span className="inline-block w-1.5 h-3.5 bg-primary ml-0.5 animate-pulse align-middle" />
                     )}
+                    {/* Étape pipeline en direct (retrieval, boucle agentique, réflexion…) */}
+                    {msg.status === 'STREAMING' && liveStage && (
+                      <p className="mt-2 flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-outline">
+                        <span aria-hidden="true" className="material-symbols-outlined text-[12px] animate-spin">progress_activity</span>
+                        {liveStage}
+                      </p>
+                    )}
                   </div>
                 ) : (
                   <p className="text-sm font-body leading-relaxed whitespace-pre-wrap">{msg.content}</p>
@@ -905,7 +1032,9 @@ const Playground: FC = () => {
                   </div>
                 )}
 
-                {expertMode && msg.ragMeta && msg.status === 'SENT' && msg.role === 'assistant' && (
+                {/* Badges pipeline visibles pour tous (visibilité du fonctionnement RAG) ;
+                    le mode expert reste réservé aux distances brutes et métriques. */}
+                {msg.ragMeta && msg.status === 'SENT' && msg.role === 'assistant' && (
                   <RagBadges meta={msg.ragMeta} onShowTrace={() => setTraceMsg(msg)} />
                 )}
 
@@ -1021,10 +1150,10 @@ const Playground: FC = () => {
         )}
 
         <div className="p-8 border-t border-outline-variant/10">
-          {convEnabled && messages.filter(m => m.status === 'SENT').length > 1 && (
+          {convEnabled && buildHistory().length > 0 && (
             <p className="text-[10px] font-label uppercase tracking-widest text-secondary mb-2 flex items-center gap-1">
               <span className="material-symbols-outlined text-[11px]">forum</span>
-              Conversational — {messages.filter(m => m.status === 'SENT').length} messages in history
+              Conversational — {buildHistory().length} messages in history
             </p>
           )}
           <div className="flex items-end gap-3 bg-surface-container-lowest border border-outline-variant/20 p-2">
@@ -1111,15 +1240,42 @@ const Playground: FC = () => {
                           "The question bypassed the index."}
                        </p>
                     </div>
-                    {traceMsg.ragMeta?.ragStrategy === 'AGENTIC' && traceMsg.ragMeta?.agenticIterations && (
+                    {traceMsg.ragMeta?.ragStrategy === 'AGENTIC' && typeof traceMsg.ragMeta?.agenticIterations === 'number' && (
                       <div className="text-right">
-                        <p className="text-2xl font-mono text-primary">{traceMsg.ragMeta?.agenticIterations}</p>
-                        <p className="text-[11px] uppercase tracking-widest text-on-surface-variant mt-1">Iterations</p>
+                        <p className="text-2xl font-mono text-primary">{traceMsg.ragMeta.agenticIterations}</p>
+                        <p className="text-[11px] uppercase tracking-widest text-on-surface-variant mt-1">Search iterations</p>
+                        {traceMsg.ragMeta.agenticStopReason && (
+                          <p className="text-[10px] font-mono text-outline mt-0.5" title="Why the ReAct loop stopped">
+                            stop: {traceMsg.ragMeta.agenticStopReason}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {typeof traceMsg.ragMeta?.chunkCount === 'number' && (
+                      <div className="text-right">
+                        <p className="text-2xl font-mono text-primary">{traceMsg.ragMeta.chunkCount}</p>
+                        <p className="text-[11px] uppercase tracking-widest text-on-surface-variant mt-1">Context chunks</p>
                       </div>
                     )}
                   </div>
                 </div>
               </div>
+
+              {traceMsg.ragMeta?.rewrittenQuestion && (
+                <div className="space-y-3">
+                  <h3 className="font-headline font-bold text-sm text-secondary uppercase tracking-widest flex items-center gap-2">
+                    <span className="material-symbols-outlined text-base">edit_note</span>
+                    Query Rewriting (Conversational RAG)
+                  </h3>
+                  <div className="bg-surface-container-low border border-outline-variant/10 rounded-lg p-4">
+                    <p className="text-[10px] uppercase tracking-widest text-outline mb-1">Standalone question used for retrieval</p>
+                    <p className="text-sm text-on-surface leading-relaxed">“{traceMsg.ragMeta.rewrittenQuestion}”</p>
+                    <p className="text-[11px] text-on-surface-variant mt-2">
+                      The question was rephrased using the conversation history before searching the index.
+                    </p>
+                  </div>
+                </div>
+              )}
 
               <div className="space-y-3">
                 <h3 className="font-headline font-bold text-sm text-secondary uppercase tracking-widest flex items-center gap-2">
@@ -1128,12 +1284,17 @@ const Playground: FC = () => {
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                    {[
+                      { active: traceMsg.ragMeta?.conversationalApplied, label: 'Conversational RAG', desc: 'Question rephrased into a standalone query using the conversation history.' },
                       { active: traceMsg.ragMeta?.hybridSearchApplied, label: 'Hybrid Search', desc: 'Merged BM25 (exact text) + ChromaDB (semantic vectors) via Reciprocal Rank Fusion.' },
                       { active: traceMsg.ragMeta?.rerankApplied, label: 'Cross-Encoder', desc: 'Candidates rescored jointly with the query by a Cross-Encoder for higher accuracy.' },
                       { active: traceMsg.ragMeta?.multiQueryApplied, label: 'Multi-Query', desc: 'LLM generated query variations to broaden the search net.' },
                       { active: traceMsg.ragMeta?.compressionApplied, label: 'Context Compression', desc: 'Extracted only the relevant sentences from large chunks.' },
                       { active: traceMsg.ragMeta?.semanticDedupApplied, label: 'Semantic Dedup', desc: 'Filtered out near-duplicate chunks via Jaccard similarity.' },
                       { active: traceMsg.ragMeta?.correctiveApplied, label: 'Corrective RAG', desc: 'LLM graded retrieved chunks and discarded irrelevant ones.' },
+                      { active: traceMsg.ragMeta?.longContextApplied, label: 'Long-Context RAG', desc: 'Small corpus loaded in full — vector retrieval skipped entirely.' },
+                      { active: traceMsg.ragMeta?.selfRagApplied, label: 'Self-RAG', desc: traceMsg.ragMeta?.selfRagScores
+                          ? `Answer self-evaluated (ISREL/ISSUP/ISUSE: ${traceMsg.ragMeta.selfRagScores})${traceMsg.ragMeta.selfRagApplied ? ' and refined.' : ' — no refinement needed.'}`
+                          : 'Answer self-evaluated via reflection tokens and refined when quality was insufficient.' },
                    ].map(opt => (
                      <div key={opt.label} className={`p-4 rounded-lg border ${opt.active ? 'bg-secondary/10 border-secondary/30' : 'bg-surface-container-low border-outline-variant/10 opacity-50'}`}>
                         <div className="flex items-center gap-2 mb-2">
@@ -1152,18 +1313,27 @@ const Playground: FC = () => {
                 <div className="space-y-3">
                   <h3 className="font-headline font-bold text-sm text-primary uppercase tracking-widest flex items-center gap-2">
                     <span className="material-symbols-outlined text-base">format_list_numbered</span>
-                    Final Context Rendered to LLM
+                    Final Context Sent to the LLM
+                    <span className="text-[10px] normal-case tracking-normal font-body font-normal text-on-surface-variant">(source previews)</span>
                   </h3>
                   <div className="space-y-2">
                      {traceMsg.sources.map((src, i) => {
-                       const pct = typeof src.distance === 'number' ? Math.max(0, Math.min(100, Math.round((1 - src.distance) * 100))) : null;
+                       const pct = relevancePct(src);
                        return (
                         <div key={i} className="bg-surface-container-low border border-outline-variant/10 p-3 rounded text-xs space-y-1">
-                           <div className="flex items-center justify-between">
+                           <div className="flex items-center justify-between gap-2">
                              <span className="font-bold text-on-surface break-all">{src.sourceFile}</span>
-                             {pct !== null && (
-                               <span className="text-[11px] bg-primary/20 text-primary px-1.5 rounded">{pct}% relevance</span>
-                             )}
+                             <span className="flex items-center gap-1.5 shrink-0">
+                               {pct !== null && (
+                                 <span className="text-[11px] bg-primary/20 text-primary px-1.5 rounded">{pct}% relevance</span>
+                               )}
+                               {isBm25Only(src) && (
+                                 <span className="text-[11px] bg-secondary/20 text-secondary px-1.5 rounded" title="Found by keyword search (BM25) — no vector distance available">BM25 match</span>
+                               )}
+                               {typeof src.rerankScore === 'number' && (
+                                 <span className="text-[11px] bg-surface-container-high text-on-surface-variant px-1.5 rounded font-mono" title="Cross-Encoder re-ranking score (higher = more relevant)">rr {src.rerankScore.toFixed(2)}</span>
+                               )}
+                             </span>
                            </div>
                            <p className="text-on-surface-variant line-clamp-2" title={src.text || src.preview}>{src.text || src.preview}</p>
                         </div>

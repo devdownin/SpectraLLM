@@ -20,7 +20,7 @@ import java.util.List;
  * En cas d'erreur LLM sur un chunk, le texte original est conservé (fallback sécurisé).</p>
  *
  * <p>Activé via {@code SPECTRA_CONTEXT_COMPRESSION_ENABLED=true}.
- * S'applique après le Corrective RAG et avant la génération (pipeline non-streaming uniquement).</p>
+ * S'applique après le Corrective RAG et avant la génération (pipelines non-streaming et streaming).</p>
  */
 @Service
 @ConditionalOnProperty(prefix = "spectra.context-compression", name = "enabled", havingValue = "true")

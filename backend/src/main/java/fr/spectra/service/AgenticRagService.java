@@ -162,6 +162,27 @@ public class AgenticRagService {
     // ---------- API publique -----------------------------------------------
 
     /**
+     * Callback de progression de la boucle ReAct — une notification par recherche
+     * complémentaire décidée par le LLM. Utilisé par le pipeline streaming pour émettre
+     * des événements SSE {@code stage} (visibilité + keep-alive de la connexion).
+     */
+    @FunctionalInterface
+    public interface SearchProgressListener {
+        void onSearch(int iteration, String refinedQuery);
+    }
+
+    /** Variante sans suivi de progression (pipeline non-streaming). */
+    public QueryResponse query(QueryRequest request,
+                                List<String> initialChunks,
+                                List<Map<String, String>> initialMetadatas,
+                                List<Double> initialDistances,
+                                boolean rerankApplied,
+                                boolean hybridApplied) {
+        return query(request, initialChunks, initialMetadatas, initialDistances,
+                rerankApplied, hybridApplied, null);
+    }
+
+    /**
      * Exécute la boucle ReAct à partir du contexte initial fourni par {@link RagService}.
      *
      * @param request         requête utilisateur
@@ -170,6 +191,7 @@ public class AgenticRagService {
      * @param initialDistances distances vectorielles associées
      * @param rerankApplied   {@code true} si le re-ranking a déjà été appliqué sur les chunks initiaux
      * @param hybridApplied   {@code true} si la recherche hybride a été utilisée pour le retrieval initial
+     * @param progressListener notifié à chaque recherche complémentaire ({@code null} accepté)
      * @return {@link QueryResponse} enrichi des champs agentiques
      */
     public QueryResponse query(QueryRequest request,
@@ -177,7 +199,8 @@ public class AgenticRagService {
                                 List<Map<String, String>> initialMetadatas,
                                 List<Double> initialDistances,
                                 boolean rerankApplied,
-                                boolean hybridApplied) {
+                                boolean hybridApplied,
+                                SearchProgressListener progressListener) {
 
         long start = System.currentTimeMillis();
 
@@ -256,6 +279,7 @@ public class AgenticRagService {
                 }
                 String refinedQuery = queryMatcher.group(1).trim();
                 log.info("Agentic RAG itération {} : recherche complémentaire «{}»", iterations, refinedQuery);
+                if (progressListener != null) progressListener.onSearch(iterations, refinedQuery);
 
                 List<RetrievedChunk> newChunks = retrieveAdditionalChunks(
                         refinedQuery, collectionId, collectionName, request.maxContextChunks(), seenTexts);

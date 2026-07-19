@@ -89,6 +89,45 @@ class RagServiceStreamTest {
                 .verifyComplete();
     }
 
+    @Test
+    void queryStream_useRagFalse_doneEventContainsChunkCount() {
+        when(llmChatClient.chatStream(anyString(), anyString(), anyFloat(), anyFloat()))
+                .thenReturn(Flux.just("ok"));
+
+        Flux<ServerSentEvent<String>> stream = ragService.queryStream(directRequest());
+
+        StepVerifier.create(stream)
+                .expectNextMatches(e -> "sources".equals(e.event()))
+                .expectNextMatches(e -> "token".equals(e.event()))
+                .expectNextMatches(e -> "done".equals(e.event())
+                        && e.data() != null && e.data().contains("\"chunkCount\":0"))
+                .verifyComplete();
+    }
+
+    /**
+     * Un message d'erreur contenant des guillemets, antislashs ou retours à la ligne doit
+     * produire un JSON valide (l'ancien échappement manuel cassait le parsing côté client).
+     */
+    @Test
+    void queryStream_errorMessageWithSpecialChars_producesValidJson() {
+        when(llmChatClient.chatStream(anyString(), anyString(), anyFloat(), anyFloat()))
+                .thenThrow(new RuntimeException("Erreur \"grave\"\navec \\ retour à la ligne"));
+
+        Flux<ServerSentEvent<String>> stream = ragService.queryStream(directRequest());
+
+        StepVerifier.create(stream)
+                .expectNextMatches(e -> {
+                    if (!"error".equals(e.event()) || e.data() == null) return false;
+                    try {
+                        var node = new ObjectMapper().readTree(e.data());
+                        return "Erreur \"grave\"\navec \\ retour à la ligne".equals(node.get("message").asText());
+                    } catch (Exception ex) {
+                        return false;
+                    }
+                })
+                .verifyComplete();
+    }
+
     // ── #8 — LLM indisponible ─────────────────────────────────────────────────
 
     /**
@@ -130,10 +169,10 @@ class RagServiceStreamTest {
 
     /**
      * getOrCreateCollection() lève ChromaDbUnavailableException (circuit breaker ouvert).
-     * Le retrieval échoue dans le Mono.fromCallable → event:error, pas de sources.
+     * Le retrieval échoue dans le pipeline → stage(retrieval) puis event:error, pas de sources.
      */
     @Test
-    void queryStream_chromaDbUnavailable_emitsOnlyErrorEvent() {
+    void queryStream_chromaDbUnavailable_emitsStageThenErrorEvent() {
         when(chromaDbClient.getOrCreateCollection(anyString()))
                 .thenThrow(new ChromaDbClient.ChromaDbUnavailableException(
                         "ChromaDB temporairement indisponible", new RuntimeException("timeout")));
@@ -144,6 +183,8 @@ class RagServiceStreamTest {
         Flux<ServerSentEvent<String>> stream = ragService.queryStream(ragRequest());
 
         StepVerifier.create(stream)
+                .expectNextMatches(e -> "stage".equals(e.event())
+                        && e.data() != null && e.data().contains("retrieval"))
                 .expectNextMatches(e -> "error".equals(e.event())
                         && e.data() != null && e.data().contains("ChromaDB"))
                 .verifyComplete();
@@ -151,10 +192,10 @@ class RagServiceStreamTest {
 
     /**
      * L'embedding lève une exception (service embed down).
-     * Erreur dans le callable → event:error seul.
+     * Erreur pendant le retrieval → stage(retrieval) puis event:error.
      */
     @Test
-    void queryStream_embeddingUnavailable_emitsOnlyErrorEvent() {
+    void queryStream_embeddingUnavailable_emitsStageThenErrorEvent() {
         when(chromaDbClient.getOrCreateCollection(anyString())).thenReturn("col-id-1");
         when(embeddingService.embed(anyString()))
                 .thenThrow(new LlamaCppEmbeddingClient.EmbeddingUnavailableException(
@@ -163,6 +204,7 @@ class RagServiceStreamTest {
         Flux<ServerSentEvent<String>> stream = ragService.queryStream(ragRequest());
 
         StepVerifier.create(stream)
+                .expectNextMatches(e -> "stage".equals(e.event()))
                 .expectNextMatches(e -> "error".equals(e.event()))
                 .verifyComplete();
     }
@@ -181,6 +223,163 @@ class RagServiceStreamTest {
         org.assertj.core.api.Assertions
                 .assertThatThrownBy(() -> ragService.query(ragRequest()))
                 .isInstanceOf(ChromaDbClient.ChromaDbUnavailableException.class);
+    }
+
+    // ── Pipeline complet porté au streaming (adaptive / agentic / self-RAG) ──
+
+    /** Retrieval standard : un chunk pertinent, format « listes de listes » de ChromaDB. */
+    private void stubStandardRetrieval() {
+        when(chromaDbClient.getOrCreateCollection(anyString())).thenReturn("col-id-1");
+        when(embeddingService.embed(anyString())).thenReturn(List.of(0.1f, 0.2f, 0.3f));
+        when(chromaDbClient.query(anyString(), anyList(), anyInt())).thenReturn(Map.of(
+                "documents", List.of(List.of("Le péage de sortie est conforme.")),
+                "metadatas", List.of(List.of(Map.of("sourceFile", "peage.json"))),
+                "distances", List.of(List.of(0.12))));
+    }
+
+    private RagService serviceWith(Optional<AdaptiveRagService> adaptive,
+                                   Optional<AgenticRagService> agentic,
+                                   Optional<SelfRagService> selfRag) {
+        return new RagService(
+                chromaDbClient, embeddingService, llmChatClient,
+                Optional.empty(), Optional.empty(), agentic,
+                Optional.empty(), Optional.empty(), adaptive,
+                selfRag, Optional.empty(), Optional.empty(),
+                props, new ObjectMapper().findAndRegisterModules());
+    }
+
+    /** Pipeline standard : stage(retrieval) → sources → token* → done. */
+    @Test
+    void queryStream_standardPipeline_emitsStageSourcesTokensDone() {
+        stubStandardRetrieval();
+        when(llmChatClient.chatStream(anyString(), anyString(), anyFloat(), anyFloat()))
+                .thenReturn(Flux.just("Conforme", "."));
+
+        StepVerifier.create(ragService.queryStream(ragRequest()))
+                .expectNextMatches(e -> "stage".equals(e.event()) && e.data().contains("retrieval"))
+                .expectNextMatches(e -> "sources".equals(e.event()) && e.data().contains("peage.json"))
+                .expectNextMatches(e -> "token".equals(e.event()) && "Conforme".equals(e.data()))
+                .expectNextMatches(e -> "token".equals(e.event()) && ".".equals(e.data()))
+                .expectNextMatches(e -> "done".equals(e.event())
+                        && e.data().contains("\"ragStrategy\":\"STANDARD\"")
+                        && e.data().contains("\"chunkCount\":1"))
+                .verifyComplete();
+    }
+
+    /** Adaptive RAG en streaming : classification DIRECT → réponse directe streamée. */
+    @Test
+    void queryStream_adaptiveDirect_streamsDirectAnswer() {
+        AdaptiveRagService adaptive = org.mockito.Mockito.mock(AdaptiveRagService.class);
+        when(adaptive.classifyQuery(anyString())).thenReturn(AdaptiveRagService.RagStrategy.DIRECT);
+        when(llmChatClient.chatStream(anyString(), anyString(), anyFloat(), anyFloat()))
+                .thenReturn(Flux.just("Bonjour !"));
+
+        RagService svc = serviceWith(Optional.of(adaptive), Optional.empty(), Optional.empty());
+
+        StepVerifier.create(svc.queryStream(ragRequest()))
+                .expectNextMatches(e -> "stage".equals(e.event()) && e.data().contains("routing"))
+                .expectNextMatches(e -> "sources".equals(e.event()) && "[]".equals(e.data()))
+                .expectNextMatches(e -> "token".equals(e.event()) && "Bonjour !".equals(e.data()))
+                .expectNextMatches(e -> "done".equals(e.event())
+                        && e.data().contains("\"ragStrategy\":\"DIRECT\""))
+                .verifyComplete();
+    }
+
+    /** Adaptive → AGENTIC : la boucle ReAct tourne, réponse émise en bloc, itérations dans done. */
+    @Test
+    void queryStream_adaptiveAgentic_runsReactLoopAndReportsIterations() {
+        AdaptiveRagService adaptive = org.mockito.Mockito.mock(AdaptiveRagService.class);
+        when(adaptive.classifyQuery(anyString())).thenReturn(AdaptiveRagService.RagStrategy.AGENTIC);
+
+        AgenticRagService agentic = org.mockito.Mockito.mock(AgenticRagService.class);
+        when(agentic.query(any(), anyList(), anyList(), anyList(), anyBoolean(), anyBoolean(), any()))
+                .thenAnswer(inv -> {
+                    AgenticRagService.SearchProgressListener listener = inv.getArgument(6);
+                    if (listener != null) listener.onSearch(1, "normes tunnels autoroutiers");
+                    return new fr.spectra.dto.QueryResponse(
+                            "Réponse agentique.",
+                            List.of(new fr.spectra.dto.QueryResponse.Source("chunk", "doc.pdf", 0.1)),
+                            42, false, false, true, 2,
+                            fr.spectra.dto.QueryResponse.AgenticStopReason.ANSWER);
+                });
+
+        stubStandardRetrieval();
+        RagService svc = serviceWith(Optional.of(adaptive), Optional.of(agentic), Optional.empty());
+
+        StepVerifier.create(svc.queryStream(ragRequest()))
+                .expectNextMatches(e -> "stage".equals(e.event()) && e.data().contains("routing"))
+                .expectNextMatches(e -> "stage".equals(e.event()) && e.data().contains("retrieval"))
+                .expectNextMatches(e -> "stage".equals(e.event())
+                        && e.data().contains("agentic_search")
+                        && e.data().contains("normes tunnels autoroutiers"))
+                .expectNextMatches(e -> "sources".equals(e.event()) && e.data().contains("doc.pdf"))
+                .expectNextMatches(e -> "token".equals(e.event()) && "Réponse agentique.".equals(e.data()))
+                .expectNextMatches(e -> "done".equals(e.event())
+                        && e.data().contains("\"ragStrategy\":\"AGENTIC\"")
+                        && e.data().contains("\"agenticIterations\":2")
+                        && e.data().contains("\"agenticStopReason\":\"ANSWER\""))
+                .verifyComplete();
+    }
+
+    /** Self-RAG en streaming : brouillon streamé → réflexion → replace → version raffinée. */
+    @Test
+    void queryStream_selfRagRefinement_emitsReplaceThenRefinedTokens() {
+        SelfRagService selfRag = org.mockito.Mockito.mock(SelfRagService.class);
+        SelfRagService.ReflectionScores badScores = new SelfRagService.ReflectionScores(
+                SelfRagService.IsRel.RELEVANT, SelfRagService.IsSup.NO_SUPPORT, SelfRagService.IsUse.NOT_USEFUL);
+        SelfRagService.ReflectionScores goodScores = new SelfRagService.ReflectionScores(
+                SelfRagService.IsRel.RELEVANT, SelfRagService.IsSup.FULLY_SUPPORTED, SelfRagService.IsUse.USEFUL);
+        when(selfRag.evaluate(anyString(), anyList(), anyString()))
+                .thenReturn(badScores).thenReturn(goodScores);
+        when(selfRag.requiresRefinement(badScores)).thenReturn(true);
+        when(selfRag.maxReflectionIterations()).thenReturn(1);
+        when(selfRag.refineSystemPrompt(anyString())).thenReturn("prompt renforcé");
+
+        stubStandardRetrieval();
+        when(llmChatClient.chatStream(anyString(), anyString(), anyFloat(), anyFloat()))
+                .thenReturn(Flux.just("Brouillon."))
+                .thenReturn(Flux.just("Réponse raffinée."));
+
+        RagService svc = serviceWith(Optional.empty(), Optional.empty(), Optional.of(selfRag));
+
+        StepVerifier.create(svc.queryStream(ragRequest()))
+                .expectNextMatches(e -> "stage".equals(e.event()) && e.data().contains("retrieval"))
+                .expectNextMatches(e -> "sources".equals(e.event()))
+                .expectNextMatches(e -> "token".equals(e.event()) && "Brouillon.".equals(e.data()))
+                .expectNextMatches(e -> "stage".equals(e.event()) && e.data().contains("reflection"))
+                .expectNextMatches(e -> "replace".equals(e.event()))
+                .expectNextMatches(e -> "stage".equals(e.event()) && e.data().contains("refining"))
+                .expectNextMatches(e -> "token".equals(e.event()) && "Réponse raffinée.".equals(e.data()))
+                .expectNextMatches(e -> "done".equals(e.event())
+                        && e.data().contains("\"selfRagApplied\":true")
+                        && e.data().contains("FULLY_SUPPORTED"))
+                .verifyComplete();
+    }
+
+    /** Self-RAG : brouillon jugé suffisant → pas de replace, done avec les scores. */
+    @Test
+    void queryStream_selfRagGoodDraft_noReplaceEvent() {
+        SelfRagService selfRag = org.mockito.Mockito.mock(SelfRagService.class);
+        SelfRagService.ReflectionScores goodScores = new SelfRagService.ReflectionScores(
+                SelfRagService.IsRel.RELEVANT, SelfRagService.IsSup.FULLY_SUPPORTED, SelfRagService.IsUse.USEFUL);
+        when(selfRag.evaluate(anyString(), anyList(), anyString())).thenReturn(goodScores);
+        when(selfRag.requiresRefinement(goodScores)).thenReturn(false);
+
+        stubStandardRetrieval();
+        when(llmChatClient.chatStream(anyString(), anyString(), anyFloat(), anyFloat()))
+                .thenReturn(Flux.just("Bonne réponse."));
+
+        RagService svc = serviceWith(Optional.empty(), Optional.empty(), Optional.of(selfRag));
+
+        StepVerifier.create(svc.queryStream(ragRequest()))
+                .expectNextMatches(e -> "stage".equals(e.event()))
+                .expectNextMatches(e -> "sources".equals(e.event()))
+                .expectNextMatches(e -> "token".equals(e.event()) && "Bonne réponse.".equals(e.data()))
+                .expectNextMatches(e -> "stage".equals(e.event()) && e.data().contains("reflection"))
+                .expectNextMatches(e -> "done".equals(e.event())
+                        && e.data().contains("\"selfRagApplied\":false")
+                        && e.data().contains("RELEVANT/FULLY_SUPPORTED/USEFUL"))
+                .verifyComplete();
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
