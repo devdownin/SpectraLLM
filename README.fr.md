@@ -93,7 +93,7 @@ Tout est accessible depuis l'**[index de la documentation](docs/README.md)**, ou
 
 ## 🤝 Contribuer
 
-Issues et pull requests bienvenues — voir [CONTRIBUTING.md](CONTRIBUTING.md). Si Spectra vous est utile, une ⭐ aide les autres à le découvrir.
+Issues et pull requests bienvenues — voir [CONTRIBUTING.md](CONTRIBUTING.md). Curieux de la suite ? → **[Roadmap](ROADMAP.fr.md)**. Si Spectra vous est utile, une ⭐ aide les autres à le découvrir.
 
 ## 📄 Licence
 

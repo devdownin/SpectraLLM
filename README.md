@@ -93,7 +93,7 @@ Browse everything from the **[documentation index](docs/README.md)**, or jump st
 
 ## 🤝 Contributing
 
-Issues and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). If Spectra is useful to you, a ⭐ helps others find it.
+Issues and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Curious where Spectra is heading? → **[Roadmap](ROADMAP.fr.md)**. If Spectra is useful to you, a ⭐ helps others find it.
 
 ## 📄 License
 
