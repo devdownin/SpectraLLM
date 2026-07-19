@@ -583,10 +583,12 @@ La phase de retrieval (embed → ChromaDB → rerank → sources) est encapsulé
 2. `sources` — JSON de la liste des chunks sources (avant génération)
 3. `token` × N — chaque token généré par le LLM ; en mode AGENTIC, la réponse (produite par la boucle ReAct) est émise en un seul bloc
 4. `replace` — Self-RAG uniquement : le brouillon streamé a été jugé insuffisant, le client doit l'effacer avant de recevoir les tokens de la version raffinée
-5. `done` — fin normale, avec un JSON de métadonnées du pipeline (`ragStrategy`, drapeaux appliqués, `chunkCount`, `rewrittenQuestion`, `agenticIterations`, `agenticStopReason`, `selfRagScores`)
+5. `done` — fin normale, avec un JSON de métadonnées du pipeline (`ragStrategy`, drapeaux appliqués, `chunkCount`, `rewrittenQuestion`, `agenticIterations`, `agenticStopReason`, `selfRagScores`, et `stages` — la timeline serveur : une entrée par étape avec `durationMs` et compteurs `inCount`/`outCount`)
 6. `error` — en cas d'erreur (circuit breaker, timeout, etc.)
 
 Tout le pipeline non-streaming est porté au streaming : Adaptive RAG (routage DIRECT / STANDARD / AGENTIC), Conversational, Corrective, Compression, Agentic (boucle ReAct) et Self-RAG (le brouillon est streamé pour préserver le TTFT, puis auto-évalué ; un raffinement déclenche `replace`).
+
+**Surcharges par requête.** `QueryRequest` porte un champ optionnel `overrides` ([`RagOverrides`](../../backend/src/main/java/fr/spectra/dto/RagOverrides.java)) : chaque module (rerank, hybrid, multiQuery, corrective, compression, selfRag, adaptive, conversational) peut être forcé OFF pour la requête (`false`) ou laissé au défaut de déploiement (`null`). `runStreamPipeline` résout chaque module via `RagOverrides.resolve`, comme le chemin non-streaming. Le Playground s'en sert pour ses toggles par module et sa comparaison A/B (rejouer une question avec un seul module désactivé). Un module absent du serveur ne peut pas être activé par ce biais.
 
 Un timeout de flux est appliqué côté serveur (configurable via `spectra.pipeline.stream-timeout-seconds`). Côté frontend, un `AbortController` avec `guardTimer` de 120 s annule le stream si aucun événement ne parvient — les événements `stage` comptent comme activité, ce qui couvre les boucles agentiques longues.
 

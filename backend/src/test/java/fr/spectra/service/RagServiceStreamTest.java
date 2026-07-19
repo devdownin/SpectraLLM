@@ -3,6 +3,7 @@ package fr.spectra.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import fr.spectra.config.SpectraProperties;
 import fr.spectra.dto.QueryRequest;
+import fr.spectra.dto.RagOverrides;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -380,6 +381,56 @@ class RagServiceStreamTest {
                         && e.data().contains("\"selfRagApplied\":false")
                         && e.data().contains("RELEVANT/FULLY_SUPPORTED/USEFUL"))
                 .verifyComplete();
+    }
+
+    /** L'événement done porte la timeline serveur des étapes (durée + compteurs). */
+    @Test
+    void queryStream_standardPipeline_doneCarriesStageTimeline() {
+        stubStandardRetrieval();
+        when(llmChatClient.chatStream(anyString(), anyString(), anyFloat(), anyFloat()))
+                .thenReturn(Flux.just("ok"));
+
+        StepVerifier.create(ragService.queryStream(ragRequest()))
+                .expectNextMatches(e -> "stage".equals(e.event()))
+                .expectNextMatches(e -> "sources".equals(e.event()))
+                .expectNextMatches(e -> "token".equals(e.event()))
+                .expectNextMatches(e -> "done".equals(e.event())
+                        && e.data().contains("\"stages\":[")
+                        && e.data().contains("\"stage\":\"retrieval\"")
+                        && e.data().contains("\"stage\":\"generation\""))
+                .verifyComplete();
+    }
+
+    /**
+     * Surcharge par requête : corrective forcé à false désactive le grading même quand le
+     * service est présent (toggle Playground / comparaison A/B).
+     */
+    @Test
+    void queryStream_correctiveOverriddenOff_skipsGradingStage() {
+        CorrectiveRagService corrective = org.mockito.Mockito.mock(CorrectiveRagService.class);
+        stubStandardRetrieval();
+        when(llmChatClient.chatStream(anyString(), anyString(), anyFloat(), anyFloat()))
+                .thenReturn(Flux.just("ok"));
+
+        RagService svc = new RagService(
+                chromaDbClient, embeddingService, llmChatClient,
+                Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.of(corrective), Optional.empty(),
+                Optional.empty(), Optional.empty(), Optional.empty(),
+                props, new ObjectMapper().findAndRegisterModules());
+
+        RagOverrides ov = new RagOverrides(null, null, null, null, null, false, null, null);
+        QueryRequest req = new QueryRequest("Question ?", null, null, null, null, null, null, true, ov);
+
+        StepVerifier.create(svc.queryStream(req))
+                .expectNextMatches(e -> "stage".equals(e.event()) && e.data().contains("retrieval"))
+                .expectNextMatches(e -> "sources".equals(e.event()))
+                .expectNextMatches(e -> "token".equals(e.event()))
+                .expectNextMatches(e -> "done".equals(e.event())
+                        && e.data().contains("\"correctiveApplied\":false")
+                        && !e.data().contains("\"stage\":\"grading\""))
+                .verifyComplete();
+        org.mockito.Mockito.verifyNoInteractions(corrective);
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
