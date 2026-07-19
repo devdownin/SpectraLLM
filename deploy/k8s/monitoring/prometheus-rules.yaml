@@ -94,3 +94,30 @@ spec:
           annotations:
             summary: "ChromaDB vide alors que la GED déclare des documents"
             description: "La collection par défaut ne contient aucun chunk alors que la GED déclare des documents ingérés — volume ChromaDB perdu ou reset : restaurez le volume ou ré-ingérez le corpus."
+
+        - alert: SpectraCircuitBreakerOpen
+          expr: resilience4j_circuitbreaker_state{application="spectrallm", state="open"} == 1
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Circuit Breaker {{ $labels.name }} est ouvert"
+            description: "Le Circuit Breaker {{ $labels.name }} est en état 'open' depuis plus de 5 minutes, indiquant une défaillance persistante."
+
+        - alert: SpectraHighErrorLogs
+          expr: sum(rate(logback_events_total{application="spectrallm", level="error"}[5m])) > 10
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Taux élevé de logs en erreur"
+            description: "L'application génère plus de 10 logs d'erreur par seconde en moyenne sur les 5 dernières minutes."
+
+        - alert: SpectraHighGCOverhead
+          expr: rate(jvm_gc_pause_seconds_sum{application="spectrallm"}[5m]) / rate(jvm_gc_pause_seconds_count{application="spectrallm"}[5m]) > 0.5
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Sur-utilisation du Garbage Collector"
+            description: "Le temps de pause moyen du GC dépasse 0.5s par cycle sur les 5 dernières minutes (pression mémoire anormale)."

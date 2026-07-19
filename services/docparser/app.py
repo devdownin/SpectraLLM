@@ -16,6 +16,7 @@ from pathlib import Path
 import pymupdf
 import pymupdf4llm
 from fastapi import FastAPI, UploadFile, File, HTTPException
+from prometheus_fastapi_instrumentator import Instrumentator
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("docparser")
@@ -61,6 +62,9 @@ def clean_markdown(text: str) -> str:
 
 app = FastAPI(title="Spectra DocParser", version="1.0.0")
 
+# Setup Prometheus metrics
+instrumentator = Instrumentator()
+instrumentator.instrument(app).expose(app)
 
 @app.post("/parse")
 async def parse_document(file: UploadFile = File(...)):
