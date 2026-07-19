@@ -8,6 +8,11 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Playground — logique RAG extraite et testée (`lib/ragPipeline`)
+
+- La logique pure du pipeline RAG côté Playground (calcul de pertinence `relevancePct`/`isBm25Only`, construction des surcharges `overridesFromDisabled`, modules appliqués `appliedModules`, formatage de la timeline `formatStageCounts`/`fmtMs`, registre `RAG_MODULES`) est extraite de `Playground.tsx` vers un module dédié [`frontend/src/lib/ragPipeline.ts`](frontend/src/lib/ragPipeline.ts), testable indépendamment du composant.
+- **23 tests unitaires** ([`ragPipeline.test.ts`](frontend/src/lib/ragPipeline.test.ts)) couvrent les cas limites : chunks BM25-only (distance sentinelle 1.0), bornage de la pertinence, surcharges (jamais forcer ON, dédup du module A/B), adaptive listé seulement en AGENTIC, compteurs de timeline (`avant→après (−N)`, itérations, absence de compteur). Aucun changement de comportement — refactor à iso-fonctionnalité.
+
 ### Playground — timeline du pipeline, compteurs, toggles par module et comparaison A/B
 
 Quatre ajouts qui approfondissent la visibilité du RAG et rendent le pipeline explorable depuis l'interface :
