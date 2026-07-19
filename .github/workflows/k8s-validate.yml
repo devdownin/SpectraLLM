@@ -22,16 +22,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install kustomize (si absent) et kubeconform
+      - name: Install kustomize et kubeconform (versions épinglées)
+        env:
+          # Versions figées : la CI doit être reproductible. Installer kustomize « latest »
+          # depuis master (ou utiliser la version pré-installée du runner, elle aussi
+          # flottante) fait dériver la validation dans le temps — un nouveau kustomize peut
+          # casser un manifeste valide, ou en laisser passer un cassé, sans aucun changement
+          # dans le dépôt. Même philosophie que le pin de LLAMA_CPP_IMAGE_TAG.
+          KUSTOMIZE_VERSION: v5.8.1
+          KUBECONFORM_VERSION: v0.6.7
         run: |
           set -euo pipefail
-          if ! command -v kustomize >/dev/null 2>&1; then
-            curl -sSL "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
-            sudo mv kustomize /usr/local/bin/
-          fi
+          curl -sSLo kustomize.tar.gz \
+            "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_linux_amd64.tar.gz"
+          tar xzf kustomize.tar.gz
+          sudo mv kustomize /usr/local/bin/
           kustomize version
           curl -sSLo kubeconform.tar.gz \
-            https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
+            "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
           tar xzf kubeconform.tar.gz
           sudo mv kubeconform /usr/local/bin/
           kubeconform -v

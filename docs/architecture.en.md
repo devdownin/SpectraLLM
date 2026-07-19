@@ -704,3 +704,30 @@ The registry is a JSON file at `data/models/registry.json`. It maps logical mode
 | **Testing** | JUnit 5 + AssertJ + Mockito | 270 tests, full pipeline coverage |
 
 ---
+
+## Scaling & Operational Constraints
+
+**`spectra-api` is designed to run as a single instance.** Several pieces of state live in the
+JVM heap or in a local file, and are **not** shared across replicas — so running more than one
+`spectra-api` pod/container behind a load balancer will produce inconsistent behaviour, not
+horizontal scaling:
+
+| State | Where it lives | Consequence of a 2nd replica |
+|---|---|---|
+| BM25 full-text index | in-memory `Map<collection, BM25Index>` (`FtsService`), persisted per-instance to `./data/fts-index/*.bin` | each replica has its own index — hybrid-search results depend on which pod answers |
+| Ingestion / dataset / DPO task registries | in-memory `ConcurrentHashMap` (`IngestionService`, generators) | a task submitted to pod A is invisible from pod B; the UI polling a different pod loses the run |
+| Relational DB | H2 **file** (`jdbc:h2:file:./data/spectra-db`) | H2 file mode is single-writer — two pods on separate volumes diverge; on a shared volume they corrupt each other |
+| SSE fan-out | per-instance `Flux`/broadcaster (`TrainingLogBroadcaster`, task activity) | live logs/progress only reach clients connected to the pod running the job |
+| In-flight dedup reservations, scheduled cleanups | in-memory + `@Scheduled` | each replica runs its own cron and holds its own reservations |
+
+ChromaDB and the llama.cpp inference servers **are** externalised and can be scaled/shared
+independently — the single-instance constraint is specific to `spectra-api`.
+
+**Scale vertically** (more CPU/RAM, `SPECTRA_CONCURRENT_INGESTIONS`, `LLM_PARALLEL`) rather than
+horizontally. The Kubernetes manifests deploy `spectra-api` with **1 replica** and a
+`ReadWriteOnce` PVC precisely for this reason — do not raise the replica count without first
+externalising the state above (a shared DB such as PostgreSQL, a distributed index, and a
+shared task/broadcast bus). The [reliability notes](process/reliability.fr.md) track this as a
+known constraint.
+
+---

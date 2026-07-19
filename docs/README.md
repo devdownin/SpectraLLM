@@ -38,6 +38,7 @@ New here? Start with **[Getting Started](getting-started.en.md)**.
 | **[Ingestion test plan (FR)](process/test-plan-ingestion.fr.md)** | Test plan for DOCX and JSON ingestion. |
 | **[Ingestion & GED audit (FR)](process/archive/audit-ingestion-ged.fr.md)** | Audit of the ingestion/GED pipeline and its fixes. |
 | **[Documentation audit (FR)](process/audit-documentation.fr.md)** | Audit of this documentation set (conformity, completeness). |
+| **[Security audit (FR)](process/audit-securite.fr.md)** | Technical security findings (auth model, exposure, DoS) — companion to [SECURITY.md](../SECURITY.md). |
 
 ---
 

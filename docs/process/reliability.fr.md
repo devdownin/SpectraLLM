@@ -50,9 +50,14 @@ Priorité d'implémentation : **2 → 4 → 1 → 8 → 5/6/7 → 3 → 9 → 10
 
 ## Performance / Scalabilité
 
-### [9] `getAllDocuments()` charge toute la collection en mémoire — ⬜ TODO
+### [9] `getAllDocuments()` charge toute la collection en mémoire — 🟡 Partiellement traité
 - **Problème** : `listSources()` et `generateAsync()` chargent tous les textes en RAM. Sur 10 000 chunks → plusieurs centaines de MB.
-- **Fix** : Remplacer par `getDocumentsPaged()` en boucle (page size = 500).
+- **État** : `listSources()` pagine désormais (page size 1000, métadonnées seules) ; la génération de dataset reste à revoir.
+
+### [12] `spectra-api` est mono-instance — 📋 Contrainte connue, documentée
+- **Constat** : plusieurs états ne sont pas partagés entre réplicas (index BM25 en mémoire, registres de tâches, H2 en fichier, fan-out SSE). Déployer plus d'un réplica produit un comportement incohérent, pas de la montée en charge.
+- **État** : documenté comme contrainte assumée — [architecture § Scaling & Operational Constraints](../architecture.en.md#scaling--operational-constraints). Les manifestes k8s déploient volontairement 1 réplica + PVC RWO.
+- **Levée éventuelle** (si le multi-instance devient un objectif) : DB partagée (PostgreSQL), index distribué, bus de tâches/broadcast partagé.
 
 ---
 
