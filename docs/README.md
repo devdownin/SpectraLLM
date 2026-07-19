@@ -40,6 +40,12 @@ New here? Start with **[Getting Started](getting-started.en.md)**.
 | **[Documentation audit (FR)](process/audit-documentation.fr.md)** | Audit of this documentation set (conformity, completeness). |
 | **[Security audit (FR)](process/audit-securite.fr.md)** | Technical security findings (auth model, exposure, DoS) — companion to [SECURITY.md](../SECURITY.md). |
 
+## Direction
+
+| Document | Inside |
+|---|---|
+| **[Roadmap (FR)](../ROADMAP.fr.md)** | Where Spectra is heading — short / medium / long-term evolutions, grounded in the audits and the changelog. |
+
 ---
 
-**Project root:** [README](../README.md) · [Français](../README.fr.md) · [Contributing](../CONTRIBUTING.md) · [Changelog](../CHANGELOG.md) · [License](../LICENSE)
+**Project root:** [README](../README.md) · [Français](../README.fr.md) · [Roadmap](../ROADMAP.fr.md) · [Contributing](../CONTRIBUTING.md) · [Changelog](../CHANGELOG.md) · [License](../LICENSE)
