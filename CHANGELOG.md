@@ -8,6 +8,16 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### RAG — pipeline complet porté au streaming SSE (Adaptive, Agentic, Self-RAG) + étapes visibles en direct
+
+Le chemin streaming (`POST /api/query/stream`, utilisé par le Playground) n'exécutait ni le routage adaptatif, ni la boucle agentique, ni le Self-RAG — réservés au chemin non-streaming que l'UI n'appelle jamais. Le pipeline streaming est désormais complet :
+
+- **Adaptive RAG en streaming** : la question est classifiée (DIRECT / STANDARD / AGENTIC) avant le retrieval. Une question générale saute l'index et streame une réponse directe ; une question complexe déclenche la boucle agentique.
+- **Agentic RAG en streaming** : la boucle ReAct s'exécute avec une **visibilité en direct** — chaque recherche complémentaire décidée par le LLM émet un événement SSE `stage` (`agentic_search`, avec numéro d'itération et requête reformulée) affiché dans la bulle de réponse. La réponse finale (produite par la boucle) est émise en un bloc ; `done` transporte `agenticIterations` et `agenticStopReason`, affichés dans le panneau Trace.
+- **Self-RAG en streaming** : le brouillon est streamé normalement (TTFT préservé) puis auto-évalué (ISREL/ISSUP/ISUSE). S'il est jugé insuffisant, un événement `replace` demande au client d'effacer le brouillon avant de streamer la version raffinée. Les scores de réflexion sont exposés (`selfRagScores`) dans le tooltip du badge SELF et le panneau Trace.
+- **Étapes du pipeline visibles en direct** : le backend émet des événements `stage` (`routing`, `rewriting`, `retrieval`, `grading`, `compression`, `reflection`, `refining`…) que le Playground affiche sous le curseur de streaming (« Searching the knowledge base… », « Agentic search #2… »). Ces événements servent aussi de keep-alive : ils réarment la garde d'inactivité de 120 s du frontend, qui aurait sinon coupé une boucle agentique longue sur CPU.
+- Architecture : `queryStream` passe d'un `Mono.fromCallable` (muet pendant tout le setup) à un émetteur bloquant `Flux.create` sur `boundedElastic`, capable d'émettre au fil du pipeline ; `AgenticRagService` accepte un `SearchProgressListener` optionnel ; `SelfRagService` expose son évaluation décomposée (`evaluate` / `requiresRefinement` / `refineSystemPrompt`) pour le brouillon streamé.
+
 ### Playground — audit : visibilité du pipeline RAG, correctifs et fluidité (streaming)
 
 Correctifs et améliorations issus d'un audit de la page Playground, avec pour objectif de rendre le fonctionnement du RAG visible pour l'utilisateur :

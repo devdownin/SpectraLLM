@@ -182,7 +182,7 @@ faire tenir davantage de sources pour le même budget de tokens, avec moins de d
 À distinguer du **Corrective RAG**, qui filtre des chunks *entiers* (pertinent / non pertinent) :
 ici on descend *à l'intérieur* du chunk, au niveau de la phrase. En cas d'erreur LLM sur un chunk,
 le texte original est conservé (fallback sûr). L'étape s'exécute après le Corrective RAG et avant
-la génération (pipeline non-streaming).
+la génération (pipelines non-streaming et streaming).
 
 **Dans le code.**
 [`ContextCompressionService`](../../backend/src/main/java/fr/spectra/service/ContextCompressionService.java) ·

@@ -145,8 +145,17 @@ export const commentApi = {
 };
 
 export interface StreamEvent {
-  type: 'sources' | 'token' | 'done' | 'error';
+  type: 'sources' | 'token' | 'done' | 'error' | 'stage' | 'replace';
   data: string;
+}
+
+/** Événement SSE `stage` : étape du pipeline RAG en cours d'exécution côté backend. */
+export interface StreamStageInfo {
+  stage: string;
+  /** Itération de la boucle agentique (stage `agentic_search`). */
+  iteration?: number;
+  /** Requête reformulée par le LLM (stage `agentic_search`). */
+  query?: string;
 }
 
 export interface StreamDoneMeta {
@@ -164,6 +173,12 @@ export interface StreamDoneMeta {
   chunkCount?: number;
   /** Question autonome utilisée pour le retrieval (Conversational RAG), absente si non reformulée. */
   rewrittenQuestion?: string;
+  /** Itérations de recherche de la boucle agentique (stratégie AGENTIC). */
+  agenticIterations?: number;
+  /** Raison d'arrêt de la boucle agentique (ANSWER, MAX_ITERATIONS, NO_NEW_CHUNKS, FORMAT_ERROR). */
+  agenticStopReason?: string;
+  /** Scores de réflexion Self-RAG « ISREL/ISSUP/ISUSE », absents si non évalué. */
+  selfRagScores?: string;
 }
 
 export const queryApi = {

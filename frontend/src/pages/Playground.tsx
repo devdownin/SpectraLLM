@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { queryApi, configApi, fineTuningApi, ingestApi, healthApi } from '../services/api';
-import type { StreamDoneMeta } from '../services/api';
+import type { StreamDoneMeta, StreamStageInfo } from '../services/api';
 import type { ServiceStatus } from '../types/api';
 import Tooltip from '../components/Tooltip';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -35,10 +35,14 @@ interface RagMeta {
   semanticDedupApplied: boolean;
   longContextApplied: boolean;
   agenticIterations?: number;
+  /** Raison d'arrêt de la boucle agentique (ANSWER, MAX_ITERATIONS…). */
+  agenticStopReason?: string;
   /** Nombre de chunks injectés dans le contexte final. */
   chunkCount?: number;
   /** Question autonome utilisée pour le retrieval (Conversational RAG). */
   rewrittenQuestion?: string;
+  /** Scores de réflexion Self-RAG « ISREL/ISSUP/ISUSE ». */
+  selfRagScores?: string;
 }
 
 interface MessageMetrics {
@@ -68,13 +72,26 @@ const STRATEGY_COLORS: Record<string, string> = {
   AGENTIC:  'border-primary/40 text-primary bg-primary/5',
 };
 
+/** Libellés lisibles des événements SSE `stage` (étape du pipeline RAG côté backend). */
+const STAGE_LABELS: Record<string, string> = {
+  routing:     'Classifying question complexity…',
+  rewriting:   'Rephrasing question with conversation history…',
+  retrieval:   'Searching the knowledge base…',
+  grading:     'Grading retrieved chunks…',
+  compression: 'Compressing context…',
+  reflection:  'Self-evaluating the answer…',
+  refining:    'Refining the answer…',
+};
+
 const RagBadges: FC<{ meta: RagMeta; onShowTrace?: () => void }> = ({ meta, onShowTrace }) => {
   const badges: { label: string; active: boolean; tooltip: string }[] = [
     { label: 'CONV',  active: meta.conversationalApplied, tooltip: meta.rewrittenQuestion
         ? `Conversational RAG — question rephrased for retrieval: “${meta.rewrittenQuestion}”`
         : 'Conversational RAG — question rephrased using conversation history' },
     { label: 'CORR',  active: meta.correctiveApplied,     tooltip: 'Corrective RAG — irrelevant chunks filtered out' },
-    { label: 'SELF',  active: meta.selfRagApplied,        tooltip: 'Self-RAG — self-evaluated and refined answer' },
+    { label: 'SELF',  active: meta.selfRagApplied,        tooltip: meta.selfRagScores
+        ? `Self-RAG — answer self-evaluated and refined (scores: ${meta.selfRagScores})`
+        : 'Self-RAG — self-evaluated and refined answer' },
     { label: 'RRNK',  active: meta.rerankApplied,         tooltip: 'Cross-Encoder re-ranking applied' },
     { label: 'HYB',   active: meta.hybridSearchApplied,   tooltip: 'Hybrid Search (Vector + BM25) used' },
     { label: 'MQ',    active: meta.multiQueryApplied,     tooltip: 'Multi-Query — N question variants merged' },
@@ -212,6 +229,8 @@ const Playground: FC = () => {
   });
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  /** Étape du pipeline RAG en cours (événements SSE `stage`) — affichée dans la bulle en streaming. */
+  const [liveStage, setLiveStage] = useState<string | null>(null);
 
   const [temperature, setTemperature] = useState(() =>
     parseFloat(localStorage.getItem('spectra_temp') || '0.7'));
@@ -507,8 +526,29 @@ const Playground: FC = () => {
           if (firstTokenTs === null) firstTokenTs = Date.now();
           tokenCount++;
           resetGuard(); // activité : repousser la garde d'inactivité
+          setLiveStage(null); // la génération a commencé — l'étape pipeline est finie
           pendingTokens += event.data;
           if (!flushTimer) flushTimer = setTimeout(flushTokens, 80);
+        } else if (event.type === 'stage') {
+          // Étape du pipeline en cours côté backend (retrieval, boucle agentique,
+          // réflexion Self-RAG…) : affichée dans la bulle et compte comme activité
+          // pour la garde d'inactivité (une boucle agentique peut être longue).
+          resetGuard();
+          try {
+            const s = JSON.parse(event.data) as StreamStageInfo;
+            setLiveStage(s.stage === 'agentic_search'
+              ? `Agentic search #${s.iteration ?? '?'}: “${s.query ?? ''}”`
+              : STAGE_LABELS[s.stage] ?? s.stage);
+          } catch { /* ignore */ }
+        } else if (event.type === 'replace') {
+          // Self-RAG : le brouillon affiché va être remplacé par la version raffinée.
+          if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+          pendingTokens = '';
+          setMessages(prev => {
+            const lastIdx = prev.findLastIndex(m => m.role === 'assistant');
+            if (lastIdx < 0) return prev;
+            return prev.map((m, i) => i === lastIdx ? { ...m, content: '' } : m);
+          });
         } else if (event.type === 'done') {
           flushTokens();
           const metrics: MessageMetrics = {
@@ -532,6 +572,9 @@ const Playground: FC = () => {
               longContextApplied:    parsed.longContextApplied     ?? false,
               chunkCount:            parsed.chunkCount,
               rewrittenQuestion:     parsed.rewrittenQuestion,
+              agenticIterations:     parsed.agenticIterations,
+              agenticStopReason:     parsed.agenticStopReason,
+              selfRagScores:         parsed.selfRagScores,
             };
           } catch { /* ignore */ }
 
@@ -617,6 +660,7 @@ const Playground: FC = () => {
         ? prev.map(m => (m.status === 'STREAMING' || m.status === 'PENDING') ? { ...m, status: 'SENT' as const } : m)
         : prev);
       clearTimeout(guardTimer);
+      setLiveStage(null);
       setIsTyping(false);
     }
   };
@@ -969,6 +1013,13 @@ const Playground: FC = () => {
                     {msg.status === 'STREAMING' && (
                       <span className="inline-block w-1.5 h-3.5 bg-primary ml-0.5 animate-pulse align-middle" />
                     )}
+                    {/* Étape pipeline en direct (retrieval, boucle agentique, réflexion…) */}
+                    {msg.status === 'STREAMING' && liveStage && (
+                      <p className="mt-2 flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-outline">
+                        <span aria-hidden="true" className="material-symbols-outlined text-[12px] animate-spin">progress_activity</span>
+                        {liveStage}
+                      </p>
+                    )}
                   </div>
                 ) : (
                   <p className="text-sm font-body leading-relaxed whitespace-pre-wrap">{msg.content}</p>
@@ -1189,10 +1240,15 @@ const Playground: FC = () => {
                           "The question bypassed the index."}
                        </p>
                     </div>
-                    {traceMsg.ragMeta?.ragStrategy === 'AGENTIC' && traceMsg.ragMeta?.agenticIterations && (
+                    {traceMsg.ragMeta?.ragStrategy === 'AGENTIC' && typeof traceMsg.ragMeta?.agenticIterations === 'number' && (
                       <div className="text-right">
-                        <p className="text-2xl font-mono text-primary">{traceMsg.ragMeta?.agenticIterations}</p>
-                        <p className="text-[11px] uppercase tracking-widest text-on-surface-variant mt-1">Iterations</p>
+                        <p className="text-2xl font-mono text-primary">{traceMsg.ragMeta.agenticIterations}</p>
+                        <p className="text-[11px] uppercase tracking-widest text-on-surface-variant mt-1">Search iterations</p>
+                        {traceMsg.ragMeta.agenticStopReason && (
+                          <p className="text-[10px] font-mono text-outline mt-0.5" title="Why the ReAct loop stopped">
+                            stop: {traceMsg.ragMeta.agenticStopReason}
+                          </p>
+                        )}
                       </div>
                     )}
                     {typeof traceMsg.ragMeta?.chunkCount === 'number' && (
@@ -1236,6 +1292,9 @@ const Playground: FC = () => {
                       { active: traceMsg.ragMeta?.semanticDedupApplied, label: 'Semantic Dedup', desc: 'Filtered out near-duplicate chunks via Jaccard similarity.' },
                       { active: traceMsg.ragMeta?.correctiveApplied, label: 'Corrective RAG', desc: 'LLM graded retrieved chunks and discarded irrelevant ones.' },
                       { active: traceMsg.ragMeta?.longContextApplied, label: 'Long-Context RAG', desc: 'Small corpus loaded in full — vector retrieval skipped entirely.' },
+                      { active: traceMsg.ragMeta?.selfRagApplied, label: 'Self-RAG', desc: traceMsg.ragMeta?.selfRagScores
+                          ? `Answer self-evaluated (ISREL/ISSUP/ISUSE: ${traceMsg.ragMeta.selfRagScores})${traceMsg.ragMeta.selfRagApplied ? ' and refined.' : ' — no refinement needed.'}`
+                          : 'Answer self-evaluated via reflection tokens and refined when quality was insufficient.' },
                    ].map(opt => (
                      <div key={opt.label} className={`p-4 rounded-lg border ${opt.active ? 'bg-secondary/10 border-secondary/30' : 'bg-surface-container-low border-outline-variant/10 opacity-50'}`}>
                         <div className="flex items-center gap-2 mb-2">
