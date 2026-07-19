@@ -89,6 +89,45 @@ class RagServiceStreamTest {
                 .verifyComplete();
     }
 
+    @Test
+    void queryStream_useRagFalse_doneEventContainsChunkCount() {
+        when(llmChatClient.chatStream(anyString(), anyString(), anyFloat(), anyFloat()))
+                .thenReturn(Flux.just("ok"));
+
+        Flux<ServerSentEvent<String>> stream = ragService.queryStream(directRequest());
+
+        StepVerifier.create(stream)
+                .expectNextMatches(e -> "sources".equals(e.event()))
+                .expectNextMatches(e -> "token".equals(e.event()))
+                .expectNextMatches(e -> "done".equals(e.event())
+                        && e.data() != null && e.data().contains("\"chunkCount\":0"))
+                .verifyComplete();
+    }
+
+    /**
+     * Un message d'erreur contenant des guillemets, antislashs ou retours à la ligne doit
+     * produire un JSON valide (l'ancien échappement manuel cassait le parsing côté client).
+     */
+    @Test
+    void queryStream_errorMessageWithSpecialChars_producesValidJson() {
+        when(llmChatClient.chatStream(anyString(), anyString(), anyFloat(), anyFloat()))
+                .thenThrow(new RuntimeException("Erreur \"grave\"\navec \\ retour à la ligne"));
+
+        Flux<ServerSentEvent<String>> stream = ragService.queryStream(directRequest());
+
+        StepVerifier.create(stream)
+                .expectNextMatches(e -> {
+                    if (!"error".equals(e.event()) || e.data() == null) return false;
+                    try {
+                        var node = new ObjectMapper().readTree(e.data());
+                        return "Erreur \"grave\"\navec \\ retour à la ligne".equals(node.get("message").asText());
+                    } catch (Exception ex) {
+                        return false;
+                    }
+                })
+                .verifyComplete();
+    }
+
     // ── #8 — LLM indisponible ─────────────────────────────────────────────────
 
     /**

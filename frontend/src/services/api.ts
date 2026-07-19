@@ -160,6 +160,10 @@ export interface StreamDoneMeta {
   compressionApplied: boolean;
   semanticDedupApplied: boolean;
   longContextApplied: boolean;
+  /** Nombre de chunks injectés dans le contexte final envoyé au LLM. */
+  chunkCount?: number;
+  /** Question autonome utilisée pour le retrieval (Conversational RAG), absente si non reformulée. */
+  rewrittenQuestion?: string;
 }
 
 export const queryApi = {

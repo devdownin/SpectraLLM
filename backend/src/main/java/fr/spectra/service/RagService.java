@@ -270,20 +270,18 @@ public class RagService {
         // Déclenché uniquement quand le routage adaptatif a classé la requête comme
         // AGENTIC (forceAgentic) ET que le service agentique est disponible.
         if (agenticRagService.isPresent() && forceAgentic) {
-            if (agenticRagService.isPresent()) {
-                QueryResponse agenticResp = agenticRagService.get().query(
-                        request,
-                        ctx.contextChunks(), ctx.chunkMetadatas(), ctx.chunkDistances(),
-                        ctx.rerankApplied(), ctx.hybridApplied());
-                long duration = System.currentTimeMillis() - start;
-                return new QueryResponse(
-                        agenticResp.answer(), agenticResp.sources(), duration,
-                        agenticResp.rerankApplied(), agenticResp.hybridSearchApplied(),
-                        true, agenticResp.agenticIterations(), agenticResp.agenticStopReason(),
-                        conversationalApplied, correctiveApplied, false,
-                        ragStrategy.equals("STANDARD") ? "AGENTIC" : ragStrategy,
-                        ctx.multiQueryApplied(), false, ctx.semanticDedupApplied(), ctx.longContextApplied());
-            }
+            QueryResponse agenticResp = agenticRagService.get().query(
+                    request,
+                    ctx.contextChunks(), ctx.chunkMetadatas(), ctx.chunkDistances(),
+                    ctx.rerankApplied(), ctx.hybridApplied());
+            long duration = System.currentTimeMillis() - start;
+            return new QueryResponse(
+                    agenticResp.answer(), agenticResp.sources(), duration,
+                    agenticResp.rerankApplied(), agenticResp.hybridSearchApplied(),
+                    true, agenticResp.agenticIterations(), agenticResp.agenticStopReason(),
+                    conversationalApplied, correctiveApplied, false,
+                    ragStrategy.equals("STANDARD") ? "AGENTIC" : ragStrategy,
+                    ctx.multiQueryApplied(), false, ctx.semanticDedupApplied(), ctx.longContextApplied());
         }
 
         // ── 6. Génération (standard ou Self-RAG) ───────────────────────────
@@ -324,7 +322,9 @@ public class RagService {
 
     /** Tuple interne pour la phase de setup du streaming. */
     private record StreamSetup(RagContext ctx, boolean conversationalApplied,
-                               boolean correctiveApplied, boolean compressionApplied) {}
+                               boolean correctiveApplied, boolean compressionApplied,
+                               /** Question autonome utilisée pour le retrieval ({@code null} si non reformulée). */
+                               String rewrittenQuestion) {}
 
     /**
      * Streaming SSE token par token. Émet : sources → token* → done | error.
@@ -345,21 +345,14 @@ public class RagService {
                         Flux<ServerSentEvent<String>> tokens = tokenFlux
                                 .timeout(streamTimeout)
                                 .map(t -> ServerSentEvent.<String>builder().event("token").data(t).build());
-                        ServerSentEvent<String> doneEvent = ServerSentEvent.<String>builder()
-                                .event("done")
-                                .data("{\"conversationalApplied\":false,\"correctiveApplied\":false,"
-                                        + "\"selfRagApplied\":false,\"ragStrategy\":\"DIRECT\","
-                                        + "\"rerankApplied\":false,\"hybridSearchApplied\":false,"
-                                        + "\"multiQueryApplied\":false,\"semanticDedupApplied\":false,"
-                                        + "\"longContextApplied\":false,\"compressionApplied\":false}")
-                                .build();
+                        ServerSentEvent<String> doneEvent = doneEvent(
+                                false, false, "DIRECT", false, false,
+                                false, false, false, false, 0, null);
                         return Flux.concat(Flux.just(sourcesEvent), tokens, Flux.just(doneEvent));
                     })
                     .onErrorResume(e -> {
                         log.error("Erreur streaming direct: {}", e.getMessage());
-                        String safeMsg = e.getMessage() != null ? e.getMessage().replace("\"", "'") : "Erreur interne";
-                        return Flux.just(ServerSentEvent.<String>builder()
-                                .event("error").data("{\"message\":\"" + safeMsg + "\"}").build());
+                        return Flux.just(errorEvent(e));
                     });
         }
 
@@ -403,7 +396,8 @@ public class RagService {
                         }
                     }
 
-                    return new StreamSetup(ctx, conversationalApplied, correctiveApplied, compressionApplied);
+                    return new StreamSetup(ctx, conversationalApplied, correctiveApplied, compressionApplied,
+                            conversationalApplied ? retrievalQuestion : null);
                 })
                 .subscribeOn(Schedulers.boundedElastic())
                 .flatMapMany(setup -> {
@@ -435,29 +429,67 @@ public class RagService {
                                         .event("token").data(token).build());
                     }
 
-                    String doneMeta = String.format(
-                            "{\"conversationalApplied\":%b,\"correctiveApplied\":%b,"
-                            + "\"selfRagApplied\":false,\"ragStrategy\":\"STANDARD\","
-                            + "\"rerankApplied\":%b,\"hybridSearchApplied\":%b,"
-                            + "\"multiQueryApplied\":%b,\"semanticDedupApplied\":%b,"
-                            + "\"longContextApplied\":%b,\"compressionApplied\":%b}",
-                            setup.conversationalApplied(), setup.correctiveApplied(),
+                    ServerSentEvent<String> doneEvent = doneEvent(
+                            setup.conversationalApplied(), setup.correctiveApplied(), "STANDARD",
                             ctx.rerankApplied(), ctx.hybridApplied(),
                             ctx.multiQueryApplied(), ctx.semanticDedupApplied(), ctx.longContextApplied(),
-                            setup.compressionApplied());
-                    ServerSentEvent<String> doneEvent = ServerSentEvent.<String>builder()
-                            .event("done").data(doneMeta).build();
+                            setup.compressionApplied(), ctx.contextChunks().size(), setup.rewrittenQuestion());
 
                     return Flux.concat(Flux.just(sourcesEvent), tokenFlux, Flux.just(doneEvent));
                 })
                 .onErrorResume(e -> {
                     log.error("Erreur streaming RAG: {}", e.getMessage());
-                    String safeMsg = e.getMessage() != null ? e.getMessage().replace("\"", "'") : "Erreur interne";
-                    return Flux.just(ServerSentEvent.<String>builder()
-                            .event("error")
-                            .data("{\"message\":\"" + safeMsg + "\"}")
-                            .build());
+                    return Flux.just(errorEvent(e));
                 });
+    }
+
+    /**
+     * Construit l'événement SSE {@code done} contenant les métadonnées du pipeline,
+     * sérialisées via Jackson (l'assemblage manuel de JSON cassait le parsing côté
+     * client dès qu'une valeur contenait un caractère à échapper).
+     *
+     * @param chunkCount        nombre de chunks effectivement injectés dans le contexte
+     * @param rewrittenQuestion question autonome utilisée pour le retrieval quand le
+     *                          Conversational RAG a reformulé ({@code null} sinon) —
+     *                          exposée au Playground pour la traçabilité du pipeline
+     */
+    private ServerSentEvent<String> doneEvent(boolean conversationalApplied, boolean correctiveApplied,
+                                              String ragStrategy, boolean rerankApplied, boolean hybridApplied,
+                                              boolean multiQueryApplied, boolean semanticDedupApplied,
+                                              boolean longContextApplied, boolean compressionApplied,
+                                              int chunkCount, String rewrittenQuestion) {
+        Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("conversationalApplied", conversationalApplied);
+        meta.put("correctiveApplied", correctiveApplied);
+        meta.put("selfRagApplied", false);
+        meta.put("ragStrategy", ragStrategy);
+        meta.put("rerankApplied", rerankApplied);
+        meta.put("hybridSearchApplied", hybridApplied);
+        meta.put("multiQueryApplied", multiQueryApplied);
+        meta.put("semanticDedupApplied", semanticDedupApplied);
+        meta.put("longContextApplied", longContextApplied);
+        meta.put("compressionApplied", compressionApplied);
+        meta.put("chunkCount", chunkCount);
+        if (rewrittenQuestion != null) meta.put("rewrittenQuestion", rewrittenQuestion);
+        String json;
+        try {
+            json = objectMapper.writeValueAsString(meta);
+        } catch (JsonProcessingException e) {
+            json = "{\"ragStrategy\":\"" + ragStrategy + "\"}";
+        }
+        return ServerSentEvent.<String>builder().event("done").data(json).build();
+    }
+
+    /** Construit l'événement SSE {@code error} avec un message JSON toujours valide. */
+    private ServerSentEvent<String> errorEvent(Throwable e) {
+        String msg = e.getMessage() != null ? e.getMessage() : "Erreur interne";
+        String json;
+        try {
+            json = objectMapper.writeValueAsString(Map.of("message", msg));
+        } catch (JsonProcessingException ex) {
+            json = "{\"message\":\"Erreur interne\"}";
+        }
+        return ServerSentEvent.<String>builder().event("error").data(json).build();
     }
 
     // ── Retrieval ──────────────────────────────────────────────────────────────

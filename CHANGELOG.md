@@ -8,6 +8,22 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Playground — audit : visibilité du pipeline RAG, correctifs et fluidité (streaming)
+
+Correctifs et améliorations issus d'un audit de la page Playground, avec pour objectif de rendre le fonctionnement du RAG visible pour l'utilisateur :
+
+- **Badges pipeline visibles pour tous** : les badges RAG (CONV, CORR, HYB, RRNK…) et le bouton « Trace » ne sont plus réservés au mode expert — chaque réponse montre les étapes réellement appliquées. Le mode expert conserve les distances brutes et les métriques de latence.
+- **Question reformulée exposée** (Conversational RAG) : l'événement SSE `done` inclut désormais `rewrittenQuestion` (question autonome utilisée pour le retrieval) et `chunkCount` (chunks injectés dans le contexte). Le panneau Trace affiche la reformulation et le nombre de chunks ; le tooltip du badge CONV montre la question réécrite.
+- **Scores de retrieval affichés** : les scores Cross-Encoder (`rerankScore`) et BM25 (`bm25Score`) envoyés par le backend étaient ignorés par l'UI — ils apparaissent dans le détail des sources (mode expert) et le panneau Trace.
+- **Sources BM25-only correctement étiquetées** : un chunk retrouvé uniquement par mot-clé porte la distance sentinelle 1.0 et s'affichait « 0% relevance » — il est désormais étiqueté « BM25 » (liste de sources, Trace, export Markdown).
+- **Panneau Trace complété** : cartes Conversational RAG et Long-Context RAG ajoutées à la grille des optimisations (elles étaient absentes).
+- **Régénération sans ancrage** : « Regenerate » renvoyait l'ancienne réponse dans l'historique conversationnel — le modèle avait tendance à la répéter. L'historique s'arrête maintenant avant le tour régénéré.
+- **Historique assaini** : les messages locaux (« Welcome… », « Discussion cleared ») ne sont plus envoyés dans l'historique Conversational RAG, et le compteur « N messages in history » reflète ce qui est réellement transmis.
+- **Saisie préservée** : appuyer sur Entrée avec le modèle offline (ou pendant une génération) effaçait le texte tapé sans l'envoyer.
+- **Rendu du streaming fluidifié** : les tokens sont regroupés et affichés au plus toutes les ~80 ms au lieu d'un re-parse Markdown complet par token (rendu O(n²) sur les longues réponses).
+- **Fin de flux sans `done` gérée** : une connexion SSE coupée proprement laissait la bulle en STREAMING (curseur clignotant à vie) — les statuts transitoires sont désormais débloqués.
+- **JSON SSE toujours valide (backend)** : les événements `done`/`error` sont sérialisés via Jackson — un message d'erreur contenant `"`, `\` ou un retour à la ligne cassait le parsing côté client (le Playground affichait alors un message générique).
+
 ### GED — version, dates d'ingestion et d'archivage dans la fiche document
 
 - La fiche document (page Database) affiche désormais la **version** (incrémentée à chaque ré-ingestion `force`), la **date d'ingestion** et — pour les documents archivés — la **date d'archivage** (`archivedAt`, base de la purge de rétention). Ces champs étaient renvoyés par l'API depuis l'audit ingestion/GED mais absents de l'UI.
