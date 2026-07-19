@@ -8,6 +8,13 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Documentation — guide Playground à jour (visibilité du pipeline)
+
+- **Manuel utilisateur** ([user-manual.fr.md](docs/user/user-manual.fr.md)) : section Playground réécrite pour couvrir toutes les fonctionnalités livrées — étapes du pipeline visibles en direct, badges et bouton Trace, timeline mesurée côté serveur avec compteurs, question reformulée, toggles par module (surcharges `RagOverrides`), comparaison A/B, mode expert, RAG Advisor et export.
+- **README (EN/FR)** : le bloc « Ask / Questions » met en avant la transparence du pipeline (étapes en direct, timeline, toggles, comparaison A/B).
+- **C4 composants** ([c4-level-3-components.fr.md](docs/tech/c4-level-3-components.fr.md)) : libellé du composant Playground actualisé (streaming SSE, toggles, Trace/timeline/A-B).
+- Les références techniques (streaming SSE, événements `stage`/`replace`, champ `stages`, surcharges par requête) étaient déjà à jour côté `technical-doc.fr.md`.
+
 ### Playground — logique RAG extraite et testée (`lib/ragPipeline`)
 
 - La logique pure du pipeline RAG côté Playground (calcul de pertinence `relevancePct`/`isBm25Only`, construction des surcharges `overridesFromDisabled`, modules appliqués `appliedModules`, formatage de la timeline `formatStageCounts`/`fmtMs`, registre `RAG_MODULES`) est extraite de `Playground.tsx` vers un module dédié [`frontend/src/lib/ragPipeline.ts`](frontend/src/lib/ragPipeline.ts), testable indépendamment du composant.

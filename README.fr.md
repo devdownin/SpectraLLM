@@ -63,7 +63,7 @@ Construire cela vous-même, c'est assembler un framework d'orchestration, une ba
 Quatre étapes, un flux continu — le tout piloté par une interface web guidée (FR/EN) :
 
 - **📥 Ingestion** — PDF, DOCX, HTML, Markdown, CSV, JSON, XML, Avro, TXT, ZIP, URLs, et même des flux Kafka en continu. Le parsing préserve tableaux et titres.
-- **🔍 Questions** — Recherche hybride (mots-clés + vecteurs) avec re-ranking et **sources citées**. Six stratégies de récupération choisies adaptativement par question — jusqu'à une boucle agentique ReAct pour le raisonnement multi-étapes.
+- **🔍 Questions** — Recherche hybride (mots-clés + vecteurs) avec re-ranking et **sources citées**. Six stratégies de récupération choisies adaptativement par question — jusqu'à une boucle agentique ReAct pour le raisonnement multi-étapes. **Voyez exactement comment chaque réponse a été construite** : étapes du pipeline en direct, timeline mesurée côté serveur, interrupteurs par module et comparaison A/B d'un module en un clic.
 - **🎓 Fine-tuning** — Spectra construit un dataset d'entraînement à partir de votre corpus, puis grave le savoir dans les poids du modèle (QLoRA/DPO, CPU ou GPU). Les réponses approuvées alimentent une boucle d'apprentissage continu.
 - **📦 Déploiement** — En sortie, un fichier GGUF unique, exécutable partout (llama.cpp, Ollama, LM Studio…). Évaluation intégrée, comparaison A/B et benchmarks d'ablation prouvent le gain à chaque étape.
 
