@@ -8,6 +8,13 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Observabilité & feedback — dashboards de latence par étape, analytique du feedback
+
+Boucle les deux signaux ouverts précédemment (métriques d'étapes émises mais non visualisées, feedback enrichi mais non analysé) :
+
+- **Latence RAG par étape dans Grafana** : le timer `spectra.rag.stage` publie désormais un histogramme (`spectra.rag.stage: true` sous `management.metrics.distribution.percentiles-histogram`). Nouveau panneau Grafana « Latence RAG par étape p95 (s) » (une série par étape : retrieval, grading, compression, génération, réflexion, agentic) et alerte Prometheus **`SpectraHighRetrievalLatencyP95`** (p95 retrieval > 5s / 15 min — isole un problème d'infra embedding/ChromaDB, distinct de la génération bornée par le modèle).
+- **Analytique du feedback** : `GET /api/query/feedback/stats` agrège `playground_feedback.jsonl` en taux de 👎 **par stratégie** et **par module** (à partir du `ragMeta` enregistré par vote). Le **RAG Advisor** affiche un « Feedback signal » — taux de 👎 global et par module trié du plus problématique au moins, avec code couleur — qui rend ses recommandations data-driven (« le Corrective augmente les 👎 sur ce corpus » se lit directement). `FeedbackService.aggregate()` dégrade gracieusement (fichier absent, lignes corrompues ignorées).
+
 ### RAG & Playground — observabilité des étapes, comparaison A/B rigoureuse, feedback enrichi
 
 - **Durées d'étapes exposées en métriques** : la timeline mesurée côté serveur alimente désormais un timer Micrometer `spectra.rag.stage{stage=…}` (retrieval, grading, compression, génération, réflexion, boucle agentique). La chronologie par requête devient de l'**observabilité agrégée** (p95 retrieval vs génération) dans Prometheus/Grafana, sans surcoût — la durée était déjà mesurée.

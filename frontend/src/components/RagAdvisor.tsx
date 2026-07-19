@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
 import type { FC } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { gedApi, ingestApi } from '../services/api';
+import { gedApi, ingestApi, queryApi } from '../services/api';
+import type { FeedbackStats, RatingCounts } from '../services/api';
 import Skeleton from './Skeleton';
 import Tooltip from './Tooltip';
 import { useFocusTrap } from '../hooks/useFocusTrap';
@@ -176,6 +177,77 @@ function corpusLabel(total: number, totalChunks: number): string {
   return 'Substantial corpus';
 }
 
+// ── Feedback signal ────────────────────────────────────────────────────────────
+
+/** Couleur d'un taux de 👎 : vert < 20 %, ambre < 40 %, rouge au-delà. */
+function downRateClass(rate: number): string {
+  if (rate < 0.2) return 'text-primary';
+  if (rate < 0.4) return 'text-secondary';
+  return 'text-error';
+}
+
+/** Une ligne « strate — D/T (P% 👎) » avec barre proportionnelle au taux de 👎. */
+const RatingRow: FC<{ label: string; counts: RatingCounts }> = ({ label, counts }) => {
+  const total = counts.up + counts.down;
+  const rate = total === 0 ? 0 : counts.down / total;
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between text-[11px]">
+        <span className="font-mono text-on-surface-variant truncate">{label}</span>
+        <span className={`font-mono shrink-0 ${downRateClass(rate)}`}>
+          {counts.down}/{total} · {(rate * 100).toFixed(0)}% 👎
+        </span>
+      </div>
+      <div className="h-1 bg-surface-container rounded overflow-hidden">
+        <div className={`h-full rounded ${rate < 0.2 ? 'bg-primary/60' : rate < 0.4 ? 'bg-secondary/60' : 'bg-error/60'}`}
+          style={{ width: `${Math.max(2, Math.round(rate * 100))}%` }} />
+      </div>
+    </div>
+  );
+};
+
+/**
+ * Signal de feedback : taux de 👎 global et ventilé par module ayant agi — rend l'Advisor
+ * data-driven (« le corrective augmente les 👎 sur ce corpus » se lit directement).
+ */
+const FeedbackSignal: FC<{ stats?: FeedbackStats }> = ({ stats }) => {
+  const modules = useMemo(() => {
+    if (!stats) return [];
+    return Object.entries(stats.byModule)
+      .filter(([, c]) => c.up + c.down > 0)
+      .sort((a, b) => (b[1].down / Math.max(1, b[1].up + b[1].down)) - (a[1].down / Math.max(1, a[1].up + a[1].down)));
+  }, [stats]);
+
+  if (!stats || stats.total === 0) {
+    return (
+      <p className="text-[11px] text-on-surface-variant">
+        No 👍/👎 yet. Rate answers in the Playground to build a feedback signal for these recommendations.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-4">
+        <div>
+          <p className="font-headline font-bold text-2xl">{stats.total}</p>
+          <p className="text-[10px] uppercase tracking-widest text-outline">ratings</p>
+        </div>
+        <div>
+          <p className={`font-headline font-bold text-2xl ${downRateClass(stats.downRate)}`}>{(stats.downRate * 100).toFixed(0)}%</p>
+          <p className="text-[10px] uppercase tracking-widest text-outline">👎 rate ({stats.down}/{stats.total})</p>
+        </div>
+      </div>
+      {modules.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-[10px] uppercase tracking-widest text-outline">👎 rate by module (when applied)</p>
+          {modules.map(([name, counts]) => <RatingRow key={name} label={name} counts={counts} />)}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 interface Props {
@@ -194,6 +266,13 @@ const RagAdvisor: FC<Props> = ({ open, onClose }) => {
   const { data: files } = useQuery<any[]>({
     queryKey: ['ingest-files-advisor'],
     queryFn: () => ingestApi.getHistory().then(r => r.data),
+    enabled: open,
+    staleTime: 30_000,
+  });
+
+  const { data: feedback } = useQuery<FeedbackStats>({
+    queryKey: ['feedback-stats-advisor'],
+    queryFn: () => queryApi.getFeedbackStats().then(r => r.data),
     enabled: open,
     staleTime: 30_000,
   });
@@ -330,6 +409,12 @@ const RagAdvisor: FC<Props> = ({ open, onClose }) => {
                 )}
               </>
             )}
+          </section>
+
+          {/* ── Feedback signal ───────────────────────────────────────────── */}
+          <section className="p-6 border-b border-outline-variant/10">
+            <p className="font-label text-[10px] uppercase tracking-widest text-outline mb-4">Feedback signal</p>
+            <FeedbackSignal stats={feedback} />
           </section>
 
           {/* ── Recommendations ───────────────────────────────────────────── */}

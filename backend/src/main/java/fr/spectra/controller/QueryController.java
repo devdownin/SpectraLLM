@@ -9,6 +9,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -48,6 +49,12 @@ public class QueryController {
         feedbackService.record(request.question(), request.answer(), request.rating(),
                 request.ragMeta(), request.overrides());
         return Map.of("status", "ok");
+    }
+
+    @GetMapping("/feedback/stats")
+    @Operation(summary = "Agrège le feedback Playground (taux de 👎 par stratégie et par module)")
+    public FeedbackService.FeedbackStats feedbackStats() {
+        return feedbackService.aggregate();
     }
 
     /**

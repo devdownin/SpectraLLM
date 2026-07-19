@@ -947,7 +947,9 @@ Le Playground est l'atelier de conversation : vous posez une question, le modèl
 - **Advanced → Top Candidates** : nombre de candidats envoyés au re-ranker (plus élevé = meilleure couverture, plus lent).
 - **Advanced → Pipeline Modules** : un interrupteur par module d'optimisation (Hybrid Search, Cross-Encoder, Multi-Query, Corrective, Compression, Self-RAG, Adaptive routing). **Décocher force le module OFF pour vos requêtes**, sans redéploiement — pratique pour isoler l'effet d'un module. Un module non activé côté serveur reste OFF quelle que soit la case (on ne peut pas activer par ce biais un module absent du déploiement). Le réglage est mémorisé dans le navigateur.
 - **Expert mode** : affiche en plus les distances vectorielles brutes, les scores de re-ranking/BM25 et les métriques de latence (TTFT, durée, tokens).
-- **RAG Advisor** : recommande les stratégies RAG à activer d'après l'état de votre corpus (volume, qualité, formats).
+- **RAG Advisor** : recommande les stratégies RAG à activer d'après l'état de votre corpus (volume, qualité, formats) et un **signal de feedback** — le taux de 👎 global et par module (« quand ce module a agi »), agrégé depuis vos votes. On lit directement si un module (ex. Corrective) est corrélé à plus de réponses insatisfaisantes sur votre corpus.
+
+  ![RAG Advisor : le signal de feedback montre le taux de 👎 par module, du plus problématique au moins](../assets/rag-advisor-feedback.png)
 - **Export Conversation** : télécharge la discussion en Markdown ou JSON.
 
 #### Étapes du pipeline visibles en direct

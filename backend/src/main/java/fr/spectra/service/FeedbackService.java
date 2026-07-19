@@ -1,5 +1,6 @@
 package fr.spectra.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -10,8 +11,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 
 /**
  * Capte le feedback 👍/👎 donné aux réponses du Playground.
@@ -63,5 +67,79 @@ public class FeedbackService {
         } catch (Exception e) {
             log.warn("[feedback] échec d'enregistrement : {}", e.getMessage());
         }
+    }
+
+    // ── Analytique ──────────────────────────────────────────────────────────────
+
+    /** Compte 👍/👎 pour une strate (stratégie ou module). */
+    public record RatingCounts(int up, int down) {
+        public int total() { return up + down; }
+        /** Taux de 👎 (0–1) ; 0 si aucun vote. */
+        public double downRate() { return total() == 0 ? 0.0 : (double) down / total(); }
+        RatingCounts add(boolean isDown) { return new RatingCounts(up + (isDown ? 0 : 1), down + (isDown ? 1 : 0)); }
+    }
+
+    /**
+     * Agrégats du feedback Playground. Les ventilations corrèlent les 👎 avec la configuration
+     * RAG effective enregistrée par réponse (stratégie retenue, modules ayant agi).
+     *
+     * @param byStrategy 👍/👎 par {@code ragStrategy}
+     * @param byModule   👍/👎 par module ayant réellement agi (drapeaux {@code *Applied} vrais)
+     */
+    public record FeedbackStats(int total, int up, int down, double downRate,
+                                Map<String, RatingCounts> byStrategy,
+                                Map<String, RatingCounts> byModule) {}
+
+    /**
+     * Lit {@code playground_feedback.jsonl} et agrège les votes. Fichier absent ou lignes
+     * malformées → ignorés (dégradation gracieuse : jamais d'échec sur une ligne corrompue).
+     */
+    public synchronized FeedbackStats aggregate() {
+        int up = 0, down = 0;
+        Map<String, RatingCounts> byStrategy = new TreeMap<>();
+        Map<String, RatingCounts> byModule = new TreeMap<>();
+
+        if (!Files.exists(feedbackFile)) {
+            return new FeedbackStats(0, 0, 0, 0.0, byStrategy, byModule);
+        }
+
+        List<String> lines;
+        try {
+            lines = Files.readAllLines(feedbackFile);
+        } catch (Exception e) {
+            log.warn("[feedback] lecture impossible pour l'agrégation : {}", e.getMessage());
+            return new FeedbackStats(0, 0, 0, 0.0, byStrategy, byModule);
+        }
+
+        for (String line : lines) {
+            if (line.isBlank()) continue;
+            JsonNode rec;
+            try {
+                rec = MAPPER.readTree(line);
+            } catch (Exception e) {
+                continue; // ligne corrompue → ignorée
+            }
+            boolean isDown = "DOWN".equalsIgnoreCase(rec.path("rating").asText());
+            if (isDown) down++; else up++;
+
+            JsonNode ragMeta = rec.get("ragMeta");
+            if (ragMeta == null || !ragMeta.isObject()) continue;
+
+            String strategy = ragMeta.path("ragStrategy").asText("");
+            if (!strategy.isEmpty()) {
+                byStrategy.merge(strategy, new RatingCounts(0, 0).add(isDown), (a, b) -> a.add(isDown));
+            }
+            for (Iterator<String> it = ragMeta.fieldNames(); it.hasNext(); ) {
+                String key = it.next();
+                if (key.endsWith("Applied") && ragMeta.path(key).asBoolean(false)) {
+                    String module = key.substring(0, key.length() - "Applied".length());
+                    byModule.merge(module, new RatingCounts(0, 0).add(isDown), (a, b) -> a.add(isDown));
+                }
+            }
+        }
+
+        int total = up + down;
+        double downRate = total == 0 ? 0.0 : (double) down / total;
+        return new FeedbackStats(total, up, down, downRate, byStrategy, byModule);
     }
 }

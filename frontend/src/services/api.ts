@@ -212,6 +212,23 @@ export interface StreamDoneMeta {
   stages?: StreamStageTrace[];
 }
 
+/** Décompte 👍/👎 pour une strate (stratégie ou module). */
+export interface RatingCounts {
+  up: number;
+  down: number;
+}
+
+/** Agrégats du feedback Playground renvoyés par `GET /query/feedback/stats`. */
+export interface FeedbackStats {
+  total: number;
+  up: number;
+  down: number;
+  /** Taux de 👎 global (0–1). */
+  downRate: number;
+  byStrategy: Record<string, RatingCounts>;
+  byModule: Record<string, RatingCounts>;
+}
+
 export const queryApi = {
   query: (question: string, model?: string, useRag = true) =>
     api.post('/query', { question, model, useRag }),
@@ -221,6 +238,9 @@ export const queryApi = {
     ragMeta?: Record<string, unknown>, overrides?: RagOverridesDto,
   ) =>
     api.post('/query/feedback', { question, answer, rating, ragMeta, overrides }),
+
+  /** Agrégats du feedback Playground (taux de 👎 par stratégie et par module). */
+  getFeedbackStats: () => api.get<FeedbackStats>('/query/feedback/stats'),
 
   /**
    * Streaming RAG query via POST SSE (EventSource ne supporte pas POST).

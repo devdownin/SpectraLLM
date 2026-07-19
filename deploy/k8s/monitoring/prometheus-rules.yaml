@@ -2,6 +2,7 @@
 # Métriques exposées par Micrometer (tag commun application="spectrallm") :
 #   http_server_requests_seconds_*   — latence/volume HTTP (+ histogramme → quantiles)
 #   spectra_rag_query_seconds_*      — latence du traitement RAG (@Timed, histogramme)
+#   spectra_rag_stage_seconds_*      — latence par étape du pipeline RAG (tag `stage`, histogramme)
 #   jvm_memory_used_bytes / max      — heap JVM
 #   spectra_consistency_*            — réconciliation horaire H2/ChromaDB/BM25 (par collection)
 #
@@ -50,6 +51,22 @@ spec:
           annotations:
             summary: "Latence RAG p95 élevée (>10s)"
             description: "Le 95e percentile du traitement RAG dépasse 10s sur 10 min."
+
+        # Latence de l'étape RETRIEVAL isolée (embedding + ChromaDB/BM25) : contrairement à la
+        # génération — bornée par la vitesse du modèle — un retrieval lent signale un problème
+        # d'infra (embedding server saturé, ChromaDB lent). Seuil conservateur + fenêtre longue
+        # pour ne pas alerter sur un pic ponctuel.
+        - alert: SpectraHighRetrievalLatencyP95
+          expr: |
+            histogram_quantile(0.95,
+              sum(rate(spectra_rag_stage_seconds_bucket{application="spectrallm", stage="retrieval"}[5m])) by (le)
+            ) > 5
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Latence retrieval RAG p95 élevée (>5s)"
+            description: "Le 95e percentile de l'étape de retrieval (embedding + vector store) dépasse 5s sur 15 min — vérifier l'embedding server et ChromaDB."
 
         - alert: SpectraJvmHeapHigh
           expr: |
