@@ -13,6 +13,7 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 - **Manuel utilisateur** ([user-manual.fr.md](docs/user/user-manual.fr.md)) : section Playground réécrite pour couvrir toutes les fonctionnalités livrées — étapes du pipeline visibles en direct, badges et bouton Trace, timeline mesurée côté serveur avec compteurs, question reformulée, toggles par module (surcharges `RagOverrides`), comparaison A/B, mode expert, RAG Advisor et export.
 - **README (EN/FR)** : le bloc « Ask / Questions » met en avant la transparence du pipeline (étapes en direct, timeline, toggles, comparaison A/B).
 - **C4 composants** ([c4-level-3-components.fr.md](docs/tech/c4-level-3-components.fr.md)) : libellé du composant Playground actualisé (streaming SSE, toggles, Trace/timeline/A-B).
+- **Captures d'écran** : `docs/assets/playground.png` (et sa copie Hugging Face) régénérée — elle montre désormais les badges du pipeline, le % de pertinence des sources (avec l'étiquette BM25) et les métriques ; nouvelle capture `docs/assets/playground-trace.png` du panneau Trace (timeline mesurée côté serveur avec compteurs), intégrée au manuel utilisateur.
 - Les références techniques (streaming SSE, événements `stage`/`replace`, champ `stages`, surcharges par requête) étaient déjà à jour côté `technical-doc.fr.md`.
 
 ### Playground — logique RAG extraite et testée (`lib/ragPipeline`)

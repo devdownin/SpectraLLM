@@ -932,6 +932,8 @@ L'indicateur de pipeline en haut à droite montre la progression globale :
 
 Le Playground est l'atelier de conversation : vous posez une question, le modèle répond **en streaming** à partir de vos documents, et l'interface rend visible **comment** la réponse a été construite.
 
+![Le Playground : réponse sourcée avec les badges du pipeline, le % de pertinence des sources et les métriques](../assets/playground.png)
+
 #### Panneau latéral (colonne gauche)
 
 - **System** : état en direct des services (Chat Model, Knowledge Base). Un service indisponible est signalé en rouge et l'envoi est bloqué plutôt que d'échouer en timeout.
@@ -969,6 +971,8 @@ Détaille l'exécution de la réponse sélectionnée :
 - **Query Rewriting** : la question autonome effectivement utilisée pour la recherche, quand l'historique a servi à la reformuler.
 - **Optimizations Triggered** : quelles optimisations se sont déclenchées, avec une explication de chacune.
 - **Final Context** : les aperçus des sources réellement envoyées au modèle.
+
+![Panneau Trace : la timeline mesurée côté serveur détaille la durée de chaque étape et les chunks filtrés à chaque passe](../assets/playground-trace.png)
 
 > Les questions posées dans le Playground utilisent le **streaming SSE** (`POST /api/query/stream`) : Adaptive, Conversational, Corrective, Compression, Agentic et Self-RAG s'y appliquent tous. Utilisez **Stop** pour interrompre une génération ; la réponse partielle est conservée.
 
