@@ -38,6 +38,19 @@ jobs:
             echo "sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
           fi
 
+      # Garde-fou : le tag DOIT commencer par « v » (v0.7, v0.7.1…). C'est la convention de
+      # release-drafter (tag-template: v$RESOLVED_VERSION) ET la clé de résolution des notes
+      # curées (.github/release-notes/vX.Y.Z.md). Un tag sans « v » (ex. « 0.7 ») ne matche pas
+      # le trigger `tags: v*`, contourne silencieusement le fichier de notes et produit une
+      # release au corps générique — c'est précisément ce qui est arrivé à la 0.7.
+      - name: Validate tag format
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          if ! echo "$TAG" | grep -Eq '^v[0-9]'; then
+            echo "::error::Tag '$TAG' invalide — doit commencer par 'v' (ex. v0.7.1) pour matcher le trigger tags:v* et charger .github/release-notes/$TAG.md."
+            exit 1
+          fi
+
       - name: Create and push tag (workflow_dispatch only)
         if: github.event_name == 'workflow_dispatch'
         env:
@@ -57,6 +70,7 @@ jobs:
           if [ -f "$NOTES_FILE" ]; then
             echo "path=$NOTES_FILE" >> "$GITHUB_OUTPUT"
           else
+            echo "::warning::Aucune note curée $NOTES_FILE — repli sur --generate-notes (corps générique). Ajoutez le fichier pour une release soignée."
             echo "path=" >> "$GITHUB_OUTPUT"
           fi
 
