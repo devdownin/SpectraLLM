@@ -148,7 +148,7 @@ graph TD
                     <div class="space-y-6">
                         <div class="relative pl-8 border-l-2 border-blue-200">
                             <div class="absolute -left-2 top-0 w-4 h-4 bg-blue-600 rounded-full border-4 border-white"></div>
-                            <h4 class="font-bold text-slate-900 mb-1">Parsing "Layout-Aware"</h4>
+                            <h4 class="font-bold text-slate-900 mb-1">Analyse de la mise en page (Layout-Aware)</h4>
                             <p class="text-slate-600 text-sm">Transformation des PDF complexes en Markdown via IBM Docling ou PyMuPDF4LLM pour préserver la structure (tableaux, titres).</p>
                         </div>
                         <div class="relative pl-8 border-l-2 border-blue-200">
@@ -159,7 +159,7 @@ graph TD
                         <div class="relative pl-8 border-l-2 border-blue-200">
                             <div class="absolute -left-2 top-0 w-4 h-4 bg-blue-600 rounded-full border-4 border-white"></div>
                             <h4 class="font-bold text-slate-900 mb-1">Chunking Sémantique</h4>
-                            <p class="text-slate-600 text-sm">Découpage intelligent en morceaux de 512 tokens avec "sliding window" de 64 tokens pour ne jamais perdre le contexte.</p>
+                            <p class="text-slate-600 text-sm">Découpage intelligent en morceaux de 512 tokens avec fenêtre glissante de 64 tokens pour ne jamais perdre le contexte.</p>
                         </div>
                         <div class="relative pl-8 border-l-2 border-blue-200">
                             <div class="absolute -left-2 top-0 w-4 h-4 bg-blue-600 rounded-full border-4 border-white"></div>
@@ -275,12 +275,12 @@ graph TD
             <div class="mt-24 p-12 bg-slate-900 rounded-[3rem] text-left relative overflow-hidden">
                 <div class="relative z-10 grid lg:grid-cols-2 gap-12 items-center">
                     <div>
-                        <h3 class="text-2xl font-bold text-white mb-6">Hardware Auto-Detection</h3>
+                        <h3 class="text-2xl font-bold text-white mb-6">Auto-détection matérielle</h3>
                         <p class="text-slate-400 mb-8">Spectra analyse au démarrage votre CPU, RAM et GPU (NVIDIA, AMD ou Vulkan) pour configurer dynamiquement les paramètres optimaux de `llama-server` (threads, couches GPU, taille du contexte).</p>
                         <ul class="space-y-4">
                             <li class="flex items-center gap-3 text-slate-300">
                                 <i class="fas fa-check-circle text-emerald-500"></i>
-                                Cgroups v2 & Procfs aware
+                                Compatible Cgroups v2 & Procfs
                             </li>
                             <li class="flex items-center gap-3 text-slate-300">
                                 <i class="fas fa-check-circle text-emerald-500"></i>
