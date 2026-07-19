@@ -177,7 +177,9 @@ public class RagService {
 
     @Timed(value = "spectra.rag.query", description = "Latence du traitement d'une requête RAG (hors I/O HTTP)")
     public QueryResponse query(QueryRequest request) {
-        return query(request, RagOverrides.NONE);
+        // Les surcharges éventuellement portées par la requête (toggles Playground) priment ;
+        // l'appel explicite query(request, overrides) reste la voie de l'ablation.
+        return query(request, request.overrides());
     }
 
     /**
@@ -349,8 +351,34 @@ public class RagService {
             int agenticIterations,
             String agenticStopReason,
             /** Scores de réflexion Self-RAG (ISREL/ISSUP/ISUSE), {@code null} si non évalué. */
-            String selfRagScores
-    ) {}
+            String selfRagScores,
+            /** Chronologie des étapes du pipeline (durée serveur + compteurs), pour la timeline du Trace. */
+            List<StageTrace> stages
+    ) {
+        /** Variante sans timeline (chemins directs). */
+        PipelineMeta(boolean conversationalApplied, boolean correctiveApplied, boolean selfRagApplied,
+                     String ragStrategy, boolean rerankApplied, boolean hybridSearchApplied,
+                     boolean multiQueryApplied, boolean semanticDedupApplied, boolean longContextApplied,
+                     boolean compressionApplied, int chunkCount, String rewrittenQuestion,
+                     int agenticIterations, String agenticStopReason, String selfRagScores) {
+            this(conversationalApplied, correctiveApplied, selfRagApplied, ragStrategy, rerankApplied,
+                    hybridSearchApplied, multiQueryApplied, semanticDedupApplied, longContextApplied,
+                    compressionApplied, chunkCount, rewrittenQuestion, agenticIterations, agenticStopReason,
+                    selfRagScores, null);
+        }
+    }
+
+    /**
+     * Une étape du pipeline mesurée côté serveur pour la timeline du panneau Trace.
+     *
+     * @param stage      identifiant de l'étape (routing, retrieval, grading, compression, agentic, generation…)
+     * @param durationMs durée serveur de l'étape (isole le temps par phase, sans jitter réseau)
+     * @param inCount    cardinalité en entrée ({@code null} si non pertinent) — ex. chunks avant filtrage
+     * @param outCount   cardinalité en sortie ({@code null} si non pertinent) — ex. chunks après filtrage
+     * @param detail     précision optionnelle (stratégie retenue, scores…)
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private record StageTrace(String stage, long durationMs, Integer inCount, Integer outCount, String detail) {}
 
     /**
      * Streaming SSE token par token. Émet : {@code stage}* → {@code sources} →
@@ -411,20 +439,30 @@ public class RagService {
 
     /** Corps du pipeline RAG streaming — exécuté de façon bloquante sur boundedElastic. */
     private void runStreamPipeline(QueryRequest request, FluxSink<ServerSentEvent<String>> sink) {
+        // Surcharges par requête (toggles Playground / comparaison A/B) : chaque module
+        // optionnel est résolu via RagOverrides.resolve, exactement comme le chemin non-streaming.
+        RagOverrides ov = request.overrides() != null ? request.overrides() : RagOverrides.NONE;
+        // Timeline serveur : durée + compteurs par étape, remontés dans l'événement done.
+        List<StageTrace> trace = new ArrayList<>();
+
         // ── 1. Adaptive RAG : routage ──────────────────────────────────────
         String ragStrategy = "STANDARD";
         boolean forceAgentic = false;
-        if (adaptiveRagService.isPresent()) {
+        if (RagOverrides.resolve(ov.adaptive(), adaptiveRagService.isPresent())) {
+            long t0 = System.currentTimeMillis();
             emitStage(sink, "routing", null, null);
             AdaptiveRagService.RagStrategy strategy = adaptiveRagService.get().classifyQuery(request.question());
             ragStrategy = strategy.name();
+            trace.add(new StageTrace("routing", System.currentTimeMillis() - t0, null, null, strategy.name()));
 
             if (strategy == AdaptiveRagService.RagStrategy.DIRECT) {
                 sink.next(ServerSentEvent.<String>builder().event("sources").data("[]").build());
+                long tg = System.currentTimeMillis();
                 forwardTokens(sink, llmClient.chatStream(DIRECT_SYSTEM_PROMPT, request.question(),
                         request.temperature(), request.topP()));
+                trace.add(new StageTrace("generation", System.currentTimeMillis() - tg, null, null, null));
                 sink.next(doneEvent(new PipelineMeta(false, false, false, "DIRECT",
-                        false, false, false, false, false, false, 0, null, 0, null, null)));
+                        false, false, false, false, false, false, 0, null, 0, null, null, trace)));
                 return;
             }
             // Comme en non-streaming : AGENTIC sans service agentique → dégradation STANDARD
@@ -435,9 +473,10 @@ public class RagService {
         // ── 2. Conversational RAG : contextualisation de la question ──────
         String retrievalQuestion = request.question();
         boolean conversationalApplied = false;
-        if (conversationalRagService.isPresent()
+        if (RagOverrides.resolve(ov.conversational(), conversationalRagService.isPresent())
                 && request.conversationHistory() != null
                 && !request.conversationHistory().isEmpty()) {
+            long t0 = System.currentTimeMillis();
             emitStage(sink, "rewriting", null, null);
             String standalone = conversationalRagService.get()
                     .contextualizeQuestion(request.question(), request.conversationHistory());
@@ -445,26 +484,37 @@ public class RagService {
                 retrievalQuestion = standalone;
                 conversationalApplied = true;
             }
+            trace.add(new StageTrace("rewriting", System.currentTimeMillis() - t0, null, null,
+                    conversationalApplied ? "rephrased" : "unchanged"));
         }
         String rewrittenQuestion = conversationalApplied ? retrievalQuestion : null;
 
         // ── 3. Retrieval ───────────────────────────────────────────────────
+        long tRetrieval = System.currentTimeMillis();
         emitStage(sink, "retrieval", null, null);
-        RagContext ctx = retrieveContext(request, retrievalQuestion);
+        RagContext ctx = retrieveContext(request, retrievalQuestion, ov);
+        trace.add(new StageTrace("retrieval", System.currentTimeMillis() - tRetrieval,
+                null, ctx.contextChunks().size(), null));
 
         // ── 4. Corrective RAG ──────────────────────────────────────────────
         boolean correctiveApplied = false;
-        if (correctiveRagService.isPresent() && !ctx.contextChunks().isEmpty()) {
+        if (RagOverrides.resolve(ov.corrective(), correctiveRagService.isPresent()) && !ctx.contextChunks().isEmpty()) {
+            long t0 = System.currentTimeMillis();
+            int before = ctx.contextChunks().size();
             emitStage(sink, "grading", null, null);
-            CorrectiveOutcome outcome = applyCorrectiveRag(request, retrievalQuestion, ctx,
-                    hybridSearchService.isPresent());
+            boolean useHybrid = RagOverrides.resolve(ov.hybrid(), hybridSearchService.isPresent());
+            CorrectiveOutcome outcome = applyCorrectiveRag(request, retrievalQuestion, ctx, useHybrid);
             ctx = outcome.ctx();
             correctiveApplied = outcome.applied();
+            trace.add(new StageTrace("grading", System.currentTimeMillis() - t0,
+                    before, ctx.contextChunks().size(), null));
         }
 
         // ── 4.5. Context Compression ───────────────────────────────────────
         boolean compressionApplied = false;
-        if (contextCompressionService.isPresent() && !ctx.contextChunks().isEmpty()) {
+        if (RagOverrides.resolve(ov.compression(), contextCompressionService.isPresent()) && !ctx.contextChunks().isEmpty()) {
+            long t0 = System.currentTimeMillis();
+            int before = ctx.contextChunks().size();
             emitStage(sink, "compression", null, null);
             ContextCompressionService.CompressionResult cr =
                     contextCompressionService.get().compress(request.question(), ctx.contextChunks());
@@ -479,6 +529,8 @@ public class RagService {
                         ctx.multiQueryApplied(), ctx.semanticDedupApplied(), ctx.longContextApplied());
                 compressionApplied = true;
             }
+            trace.add(new StageTrace("compression", System.currentTimeMillis() - t0,
+                    before, ctx.contextChunks().size(), null));
         }
 
         // ── 5. Agentic RAG : boucle ReAct ──────────────────────────────────
@@ -487,10 +539,14 @@ public class RagService {
         // agentic_search (une par itération, avec la requête reformulée) donnent la
         // visibilité sur le raisonnement et maintiennent la connexion active.
         if (forceAgentic) {
+            long t0 = System.currentTimeMillis();
             QueryResponse resp = agenticRagService.get().query(
                     request, ctx.contextChunks(), ctx.chunkMetadatas(), ctx.chunkDistances(),
                     ctx.rerankApplied(), ctx.hybridApplied(),
                     (iteration, query) -> emitStage(sink, "agentic_search", iteration, query));
+            trace.add(new StageTrace("agentic", System.currentTimeMillis() - t0,
+                    null, resp.agenticIterations(),
+                    resp.agenticStopReason() != null ? resp.agenticStopReason().name() : null));
             sink.next(sourcesEvent(resp.sources()));
             if (resp.answer() != null && !resp.answer().isEmpty() && !sink.isCancelled()) {
                 sink.next(ServerSentEvent.<String>builder().event("token").data(resp.answer()).build());
@@ -502,7 +558,7 @@ public class RagService {
                     compressionApplied, resp.sources().size(), rewrittenQuestion,
                     resp.agenticIterations(),
                     resp.agenticStopReason() != null ? resp.agenticStopReason().name() : null,
-                    null)));
+                    null, trace)));
             return;
         }
 
@@ -516,15 +572,16 @@ public class RagService {
                     conversationalApplied, correctiveApplied, false, ragStrategy,
                     ctx.rerankApplied(), ctx.hybridApplied(), ctx.multiQueryApplied(),
                     ctx.semanticDedupApplied(), ctx.longContextApplied(), compressionApplied,
-                    0, rewrittenQuestion, 0, null, null)));
+                    0, rewrittenQuestion, 0, null, null, trace)));
             return;
         }
 
         String userMessage = buildUserMessage(request, conversationalApplied);
         boolean selfRagApplied = false;
         String selfRagScores = null;
+        long tGen = System.currentTimeMillis();
 
-        if (selfRagService.isPresent()) {
+        if (RagOverrides.resolve(ov.selfRag(), selfRagService.isPresent())) {
             // Self-RAG streaming : le brouillon est streamé normalement (TTFT préservé)
             // puis auto-évalué. Si un raffinement s'impose, l'événement replace demande
             // au client d'effacer le brouillon avant de streamer la version raffinée.
@@ -532,7 +589,9 @@ public class RagService {
             String draft = forwardTokens(sink, llmClient.chatStream(ctx.systemPrompt(), userMessage,
                     request.temperature(), request.topP()));
             if (sink.isCancelled()) return;
+            trace.add(new StageTrace("generation", System.currentTimeMillis() - tGen, null, null, null));
 
+            long tReflect = System.currentTimeMillis();
             emitStage(sink, "reflection", null, null);
             SelfRagService.ReflectionScores scores = selfRag.evaluate(request.question(), ctx.contextChunks(), draft);
             selfRagScores = formatScores(scores);
@@ -548,16 +607,18 @@ public class RagService {
                 }
                 selfRagApplied = true;
             }
+            trace.add(new StageTrace("reflection", System.currentTimeMillis() - tReflect, null, null, selfRagScores));
         } else {
             forwardTokens(sink, llmClient.chatStream(ctx.systemPrompt(), userMessage,
                     request.temperature(), request.topP()));
+            trace.add(new StageTrace("generation", System.currentTimeMillis() - tGen, null, null, null));
         }
 
         sink.next(doneEvent(new PipelineMeta(
                 conversationalApplied, correctiveApplied, selfRagApplied, ragStrategy,
                 ctx.rerankApplied(), ctx.hybridApplied(), ctx.multiQueryApplied(),
                 ctx.semanticDedupApplied(), ctx.longContextApplied(), compressionApplied,
-                ctx.contextChunks().size(), rewrittenQuestion, 0, null, selfRagScores)));
+                ctx.contextChunks().size(), rewrittenQuestion, 0, null, selfRagScores, trace)));
     }
 
     // ── Helpers SSE ────────────────────────────────────────────────────────────

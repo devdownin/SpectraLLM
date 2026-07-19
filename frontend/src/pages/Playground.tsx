@@ -5,12 +5,13 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { queryApi, configApi, fineTuningApi, ingestApi, healthApi } from '../services/api';
-import type { StreamDoneMeta, StreamStageInfo } from '../services/api';
+import type { StreamDoneMeta, StreamStageInfo, StreamStageTrace, RagOverridesDto } from '../services/api';
 import type { ServiceStatus } from '../types/api';
 import Tooltip from '../components/Tooltip';
 import ConfirmDialog from '../components/ConfirmDialog';
 import RagAdvisor from '../components/RagAdvisor';
 import ChatMarkdown from '../components/ChatMarkdown';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 interface Source {
   preview?: string;
@@ -43,6 +44,8 @@ interface RagMeta {
   rewrittenQuestion?: string;
   /** Scores de réflexion Self-RAG « ISREL/ISSUP/ISUSE ». */
   selfRagScores?: string;
+  /** Chronologie serveur des étapes (durée + compteurs), pour la timeline du Trace. */
+  stages?: StreamStageTrace[];
 }
 
 interface MessageMetrics {
@@ -82,6 +85,40 @@ const STAGE_LABELS: Record<string, string> = {
   reflection:  'Self-evaluating the answer…',
   refining:    'Refining the answer…',
 };
+
+/** Libellés courts des étapes dans la timeline serveur du panneau Trace. */
+const STAGE_TRACE_LABELS: Record<string, string> = {
+  routing:     'Routing',
+  rewriting:   'Query rewrite',
+  retrieval:   'Retrieval',
+  grading:     'Corrective grading',
+  compression: 'Compression',
+  agentic:     'Agentic loop',
+  generation:  'Generation',
+  reflection:  'Self-RAG reflection',
+};
+
+/**
+ * Modules RAG pilotables par requête depuis le Playground.
+ * `key` = champ de RagOverrides (backend) · `flag` = drapeau correspondant dans RagMeta
+ * (pour savoir si le module a réellement agi sur une réponse donnée).
+ */
+type OverrideKey = keyof RagOverridesDto;
+interface ModuleDef {
+  key: OverrideKey;
+  label: string;
+  flag: keyof RagMeta;
+  hint: string;
+}
+const RAG_MODULES: ModuleDef[] = [
+  { key: 'hybrid',       label: 'Hybrid Search',   flag: 'hybridSearchApplied', hint: 'BM25 + vector retrieval (RRF fusion)' },
+  { key: 'rerank',       label: 'Cross-Encoder',   flag: 'rerankApplied',       hint: 'Re-rank candidates jointly with the query' },
+  { key: 'multiQuery',   label: 'Multi-Query',     flag: 'multiQueryApplied',   hint: 'Generate query variants to broaden retrieval' },
+  { key: 'corrective',   label: 'Corrective RAG',  flag: 'correctiveApplied',   hint: 'Grade chunks and drop irrelevant ones' },
+  { key: 'compression',  label: 'Compression',     flag: 'compressionApplied',  hint: 'Extract only relevant sentences from chunks' },
+  { key: 'selfRag',      label: 'Self-RAG',        flag: 'selfRagApplied',      hint: 'Self-evaluate the answer and refine if weak' },
+  { key: 'adaptive',     label: 'Adaptive routing', flag: 'ragStrategy',        hint: 'Classify DIRECT / STANDARD / AGENTIC before retrieval' },
+];
 
 const RagBadges: FC<{ meta: RagMeta; onShowTrace?: () => void }> = ({ meta, onShowTrace }) => {
   const badges: { label: string; active: boolean; tooltip: string }[] = [
@@ -209,6 +246,211 @@ const SourceItem: FC<{ src: Source; expert?: boolean }> = ({ src, expert = false
   );
 };
 
+/** Formatte une durée en ms lisible (ms sous la seconde, s au-delà). */
+const fmtMs = (ms: number): string => ms >= 1000 ? `${(ms / 1000).toFixed(ms >= 10000 ? 0 : 1)}s` : `${Math.round(ms)}ms`;
+
+/**
+ * Timeline serveur du pipeline (chantiers 1 & 2) : une barre par étape proportionnelle à sa
+ * durée mesurée côté serveur, avec ses compteurs (chunks avant→après, itérations agentiques).
+ * Répond à « où est parti le temps ? » là où le TTFT global ne le dit pas.
+ */
+const StageTimeline: FC<{ stages: StreamStageTrace[] }> = ({ stages }) => {
+  const total = stages.reduce((s, x) => s + Math.max(0, x.durationMs), 0);
+  const max = Math.max(1, ...stages.map(s => s.durationMs));
+  return (
+    <div className="space-y-2.5">
+      {stages.map((s, i) => {
+        const label = STAGE_TRACE_LABELS[s.stage] ?? s.stage;
+        const pct = Math.max(2, Math.round((s.durationMs / max) * 100));
+        let counts: string | null = null;
+        if (s.stage === 'agentic' && typeof s.outCount === 'number') counts = `${s.outCount} iter`;
+        else if (typeof s.inCount === 'number' && typeof s.outCount === 'number') {
+          counts = `${s.inCount}→${s.outCount} chunks${s.outCount < s.inCount ? ` (−${s.inCount - s.outCount})` : ''}`;
+        } else if (typeof s.outCount === 'number') counts = `${s.outCount} chunks`;
+        return (
+          <div key={i} className="space-y-1">
+            <div className="flex items-center justify-between text-[11px] gap-3">
+              <span className="font-bold text-on-surface shrink-0">{label}</span>
+              <span className="flex items-center gap-2 font-mono text-outline min-w-0">
+                {counts && <span className="text-secondary truncate">{counts}</span>}
+                <span className="shrink-0">{fmtMs(s.durationMs)}</span>
+              </span>
+            </div>
+            <div className="h-1.5 bg-surface-container rounded overflow-hidden">
+              <div className="h-full bg-primary/60 rounded" style={{ width: `${pct}%` }} />
+            </div>
+            {s.detail && s.stage !== 'agentic' && (
+              <p className="text-[10px] text-outline font-mono truncate">{s.detail}</p>
+            )}
+          </div>
+        );
+      })}
+      <div className="flex justify-between pt-1 border-t border-outline-variant/10 text-[10px] uppercase tracking-widest text-outline">
+        <span>Total pipeline (server)</span>
+        <span className="font-mono">{fmtMs(total)}</span>
+      </div>
+    </div>
+  );
+};
+
+/** Résumé compact du pipeline d'une réponse (badges + chunks) pour la comparaison A/B. */
+const PipelineSummary: FC<{ meta?: RagMeta; sourceCount: number }> = ({ meta, sourceCount }) => {
+  if (!meta) return null;
+  const flags = [
+    meta.hybridSearchApplied && 'HYB', meta.rerankApplied && 'RRNK', meta.multiQueryApplied && 'MQ',
+    meta.correctiveApplied && 'CORR', meta.compressionApplied && 'CMPR', meta.selfRagApplied && 'SELF',
+    meta.semanticDedupApplied && 'DEDUP',
+  ].filter(Boolean) as string[];
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+      <span className={`font-bold px-1.5 py-0.5 border uppercase tracking-wider ${STRATEGY_COLORS[meta.ragStrategy] ?? STRATEGY_COLORS.STANDARD}`}>{meta.ragStrategy}</span>
+      {flags.map(f => <span key={f} className="font-bold px-1.5 py-0.5 border border-primary/30 text-primary bg-primary/5 uppercase tracking-wider">{f}</span>)}
+      <span className="text-outline font-mono ml-1">{typeof meta.chunkCount === 'number' ? meta.chunkCount : sourceCount} chunks</span>
+    </div>
+  );
+};
+
+/**
+ * Comparaison A/B (chantier 4) : rejoue la même question avec UN module désactivé et présente
+ * la réponse de référence (gauche) face à la variante streamée en direct (droite). Montre
+ * concrètement l'apport du module sur la question que l'utilisateur vient de poser.
+ */
+interface ComparisonProps {
+  baseline: Message;
+  question: string;
+  module: ModuleDef;
+  history: { role: string; content: string }[];
+  temperature: number;
+  topP: number;
+  topCandidates: number;
+  ragEnabled: boolean;
+  baseOverrides?: RagOverridesDto;
+  onClose: () => void;
+}
+
+const RagComparisonDialog: FC<ComparisonProps> = ({
+  baseline, question, module, history, temperature, topP, topCandidates, ragEnabled, baseOverrides, onClose,
+}) => {
+  const [content, setContent] = useState('');
+  const [sources, setSources] = useState<Source[]>([]);
+  const [meta, setMeta] = useState<RagMeta | undefined>();
+  const [stage, setStage] = useState<string | null>('Starting…');
+  const [status, setStatus] = useState<'streaming' | 'done' | 'error'>('streaming');
+  const panelRef = useFocusTrap<HTMLDivElement>(true, onClose);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const overrides: RagOverridesDto = { ...(baseOverrides ?? {}), [module.key]: false };
+    let buf = '';
+    let raf = 0;
+    const flush = () => { raf = 0; setContent(c => c + buf); buf = ''; };
+
+    (async () => {
+      try {
+        for await (const ev of queryApi.queryStream(
+          question, ragEnabled, controller.signal, topCandidates, history, temperature, topP, overrides
+        )) {
+          if (ev.type === 'sources') { try { setSources(JSON.parse(ev.data)); } catch { /* ignore */ } }
+          else if (ev.type === 'token') { setStage(null); buf += ev.data; if (!raf) raf = requestAnimationFrame(flush); }
+          else if (ev.type === 'replace') { buf = ''; setContent(''); }
+          else if (ev.type === 'stage') {
+            try {
+              const s = JSON.parse(ev.data) as StreamStageInfo;
+              setStage(s.stage === 'agentic_search' ? `Agentic search #${s.iteration ?? '?'}` : STAGE_LABELS[s.stage] ?? s.stage);
+            } catch { /* ignore */ }
+          } else if (ev.type === 'done') {
+            if (raf) { cancelAnimationFrame(raf); flush(); }
+            try { setMeta(JSON.parse(ev.data) as RagMeta); } catch { /* ignore */ }
+            setStatus('done');
+          } else if (ev.type === 'error') {
+            setStatus('error');
+          }
+        }
+        setStatus(s => s === 'streaming' ? 'done' : s);
+      } catch (err) {
+        if (!(err instanceof Error && err.name === 'AbortError')) setStatus('error');
+      }
+    })();
+
+    return () => { controller.abort(); if (raf) cancelAnimationFrame(raf); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+      <div ref={panelRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label={`Comparison without ${module.label}`}
+        className="bg-surface-container border border-outline-variant/30 shadow-2xl w-full max-w-5xl max-h-full flex flex-col rounded-xl overflow-hidden outline-none animate-in zoom-in-95 duration-300">
+        <header className="px-6 py-4 border-b border-outline-variant/10 flex items-center justify-between bg-surface-container-high shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-8 h-8 rounded-lg bg-primary/20 text-primary flex items-center justify-center shrink-0">
+              <span className="material-symbols-outlined text-sm">compare_arrows</span>
+            </div>
+            <div className="min-w-0">
+              <h2 className="font-headline font-bold text-lg text-on-surface truncate">A/B — without {module.label}</h2>
+              <p className="text-[11px] uppercase tracking-widest text-on-surface-variant truncate">“{question}”</p>
+            </div>
+          </div>
+          <button onClick={onClose} aria-label="Close comparison"
+            className="w-8 h-8 flex items-center justify-center text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest transition-colors rounded-full shrink-0">
+            <span className="material-symbols-outlined text-sm">close</span>
+          </button>
+        </header>
+
+        <div className="flex-1 overflow-y-auto grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-outline-variant/10 custom-scrollbar">
+          {/* Référence */}
+          <section className="p-5 space-y-3">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-primary px-1.5 py-0.5 border border-primary/30 bg-primary/5">Current pipeline</span>
+              <span className="text-[10px] uppercase tracking-widest text-outline">baseline</span>
+            </div>
+            <PipelineSummary meta={baseline.ragMeta} sourceCount={baseline.sources?.length ?? 0} />
+            <div className="text-sm"><ChatMarkdown content={baseline.content} /></div>
+            {baseline.sources && baseline.sources.length > 0 && (
+              <p className="text-[10px] uppercase tracking-widest text-outline pt-2 border-t border-outline-variant/10">
+                {baseline.sources.length} source(s): {baseline.sources.map(s => s.sourceFile).join(', ')}
+              </p>
+            )}
+          </section>
+
+          {/* Variante */}
+          <section className="p-5 space-y-3">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-error px-1.5 py-0.5 border border-error/30 bg-error/5">Without {module.label}</span>
+              {status === 'streaming' && <span className="material-symbols-outlined text-[13px] text-outline animate-spin">progress_activity</span>}
+            </div>
+            {status === 'error' ? (
+              <p className="text-sm text-error">The variant query failed. Try again.</p>
+            ) : (
+              <>
+                <PipelineSummary meta={meta} sourceCount={sources.length} />
+                <div className="text-sm">
+                  {content ? <ChatMarkdown content={content} /> : (
+                    <p className="text-[11px] uppercase tracking-widest text-outline flex items-center gap-1.5">
+                      {stage && <span className="material-symbols-outlined text-[12px] animate-spin">progress_activity</span>}
+                      {stage ?? 'Generating…'}
+                    </p>
+                  )}
+                  {status === 'streaming' && content && <span className="inline-block w-1.5 h-3.5 bg-primary ml-0.5 animate-pulse align-middle" />}
+                </div>
+                {sources.length > 0 && (
+                  <p className="text-[10px] uppercase tracking-widest text-outline pt-2 border-t border-outline-variant/10">
+                    {sources.length} source(s): {sources.map(s => s.sourceFile).join(', ')}
+                  </p>
+                )}
+              </>
+            )}
+          </section>
+        </div>
+        <footer className="px-6 py-3 border-t border-outline-variant/10 bg-surface-container-high shrink-0">
+          <p className="text-[10px] text-on-surface-variant text-center">
+            Both answers use the same question, history and sampling — only <span className="font-bold text-error">{module.label}</span> differs.
+          </p>
+        </footer>
+      </div>
+    </div>
+  );
+};
+
 const Playground: FC = () => {
   const { t } = useTranslation();
   const defaultWelcome: Message = { role: 'assistant', content: 'Welcome to the Spectra Playground. I am ready to answer questions based on your ingested documents. How can I help you today?', status: 'SENT', local: true };
@@ -250,6 +492,18 @@ const Playground: FC = () => {
   const [atBottom, setAtBottom] = useState(true);
   const [regenMenuOpen, setRegenMenuOpen] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  /** Modules RAG désactivés par l'utilisateur (surcharges par requête → override `false`). */
+  const [disabledModules, setDisabledModules] = useState<Set<OverrideKey>>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('spectra_disabled_modules') || '[]') as OverrideKey[];
+      return new Set(saved);
+    } catch { return new Set(); }
+  });
+  /** Comparaison A/B en cours : réponse de référence + module désactivé pour la variante. */
+  const [comparison, setComparison] = useState<{
+    baseline: Message; question: string; module: ModuleDef; history: { role: string; content: string }[];
+  } | null>(null);
+  const [compareMenuIdx, setCompareMenuIdx] = useState<number | null>(null);
 
   const [activeModel, setActiveModel] = useState<string>('');
   const queryClient = useQueryClient();
@@ -308,6 +562,28 @@ const Playground: FC = () => {
     localStorage.setItem('spectra_conv', convEnabled.toString());
     localStorage.setItem('spectra_expert', expertMode.toString());
   }, [temperature, topP, ragEnabled, topCandidates, convEnabled, expertMode]);
+
+  useEffect(() => {
+    localStorage.setItem('spectra_disabled_modules', JSON.stringify([...disabledModules]));
+  }, [disabledModules]);
+
+  /** Construit l'objet de surcharges RAG à partir des modules désactivés (override `false`). */
+  const buildOverrides = (extraDisabled?: OverrideKey): RagOverridesDto | undefined => {
+    const off = new Set(disabledModules);
+    if (extraDisabled) off.add(extraDisabled);
+    if (off.size === 0) return undefined;
+    const ov: RagOverridesDto = {};
+    off.forEach(k => { ov[k] = false; });
+    return ov;
+  };
+
+  const toggleModule = (key: OverrideKey) => {
+    setDisabledModules(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
 
   useEffect(() => {
     // N'auto-scroll que si l'utilisateur est déjà proche du bas — évite de
@@ -518,7 +794,7 @@ const Playground: FC = () => {
 
     try {
       for await (const event of queryApi.queryStream(
-        currentInput, ragEnabled, controller.signal, topCandidates, history, effTemperature, topP
+        currentInput, ragEnabled, controller.signal, topCandidates, history, effTemperature, topP, buildOverrides()
       )) {
         if (event.type === 'sources') {
           try { sources = JSON.parse(event.data); } catch { /* ignore */ }
@@ -575,6 +851,7 @@ const Playground: FC = () => {
               agenticIterations:     parsed.agenticIterations,
               agenticStopReason:     parsed.agenticStopReason,
               selfRagScores:         parsed.selfRagScores,
+              stages:                parsed.stages,
             };
           } catch { /* ignore */ }
 
@@ -710,6 +987,26 @@ const Playground: FC = () => {
 
   const copyAnswer = (text: string) => {
     navigator.clipboard.writeText(text).then(() => toast.success('Answer copied')).catch(() => {});
+  };
+
+  /**
+   * Modules réellement appliqués sur une réponse (chantier 4) : seuls ceux-là valent la peine
+   * d'être désactivés en comparaison — retirer un module qui n'a pas agi ne changerait rien.
+   */
+  const appliedModules = (meta?: RagMeta): ModuleDef[] => {
+    if (!meta) return [];
+    return RAG_MODULES.filter(mod =>
+      mod.key === 'adaptive' ? meta.ragStrategy === 'AGENTIC' : meta[mod.flag] === true);
+  };
+
+  /** Lance une comparaison A/B : rejoue la question de ce tour avec {@code mod} désactivé. */
+  const openComparison = (msgIndex: number, mod: ModuleDef) => {
+    setCompareMenuIdx(null);
+    const before = messages.slice(0, msgIndex);
+    const userIdx = before.map(m => m.role).lastIndexOf('user');
+    const question = userIdx >= 0 ? before[userIdx].content : '';
+    if (!question) { toast.error('No question found to compare'); return; }
+    setComparison({ baseline: messages[msgIndex], question, module: mod, history: buildHistory(userIdx) });
   };
 
   /** Note une réponse (👍/👎) — toggle + envoi au backend (signal de préférence DPO). */
@@ -882,22 +1179,64 @@ const Playground: FC = () => {
                   </button>
 
                   {showAdvanced && (
-                    <div className="mt-3 space-y-2">
-                      <div className="flex justify-between items-center">
-                        <Tooltip content="Number of candidates sent to the re-ranker (higher = better coverage, slower).">
-                          <label className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant cursor-help">
-                            Top Candidates
-                          </label>
-                        </Tooltip>
-                        <span className="text-[11px] font-mono text-primary">{topCandidates}</span>
+                    <div className="mt-3 space-y-4">
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-center">
+                          <Tooltip content="Number of candidates sent to the re-ranker (higher = better coverage, slower).">
+                            <label className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant cursor-help">
+                              Top Candidates
+                            </label>
+                          </Tooltip>
+                          <span className="text-[11px] font-mono text-primary">{topCandidates}</span>
+                        </div>
+                        <input
+                          type="range"
+                          className="w-full accent-primary bg-outline-variant h-1 appearance-none cursor-pointer"
+                          min="5" max="50" step="5"
+                          value={topCandidates}
+                          onChange={(e) => setTopCandidates(parseInt(e.target.value, 10))}
+                        />
                       </div>
-                      <input
-                        type="range"
-                        className="w-full accent-primary bg-outline-variant h-1 appearance-none cursor-pointer"
-                        min="5" max="50" step="5"
-                        value={topCandidates}
-                        onChange={(e) => setTopCandidates(parseInt(e.target.value, 10))}
-                      />
+
+                      {/* Toggles par module (chantier 3) : décocher force le module OFF pour
+                          les requêtes. On ne peut pas forcer ON un module absent du serveur. */}
+                      <div className="space-y-2">
+                        <Tooltip content="Toggle individual pipeline modules for your queries. Unchecking forces a module off; a module not enabled server-side stays off regardless.">
+                          <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant cursor-help">
+                            Pipeline Modules
+                          </p>
+                        </Tooltip>
+                        {RAG_MODULES.map(mod => {
+                          const enabled = !disabledModules.has(mod.key);
+                          return (
+                            <label key={mod.key} className="flex items-center gap-2.5 cursor-pointer group">
+                              <input
+                                type="checkbox"
+                                checked={enabled}
+                                onChange={() => toggleModule(mod.key)}
+                                className="sr-only peer"
+                              />
+                              <div className="w-3.5 h-3.5 border border-primary/60 flex items-center justify-center group-hover:bg-primary/10 transition-colors peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-primary peer-focus-visible:outline-offset-2">
+                                {enabled && <div className="w-1.5 h-1.5 bg-primary" />}
+                              </div>
+                              <Tooltip content={mod.hint}>
+                                <span className={`text-[11px] tracking-wide cursor-help ${enabled ? 'text-on-surface-variant' : 'text-outline line-through'}`}>
+                                  {mod.label}
+                                </span>
+                              </Tooltip>
+                            </label>
+                          );
+                        })}
+                        {disabledModules.size > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setDisabledModules(new Set())}
+                            className="text-[10px] uppercase tracking-widest text-primary hover:text-primary/70 transition-colors pt-1"
+                          >
+                            Reset — enable all
+                          </button>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1100,6 +1439,35 @@ const Playground: FC = () => {
                             )}
                           </div>
                         )}
+                        {/* Comparaison A/B : rejouer sans un module qui a réellement agi (chantier 4) */}
+                        {appliedModules(msg.ragMeta).length > 0 && (
+                          <div className="relative">
+                            <button type="button" onClick={() => setCompareMenuIdx(idx => idx === i ? null : i)} disabled={isTyping}
+                              aria-label="Compare without a module" aria-haspopup="menu" aria-expanded={compareMenuIdx === i}
+                              className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-outline hover:text-primary transition-colors px-1.5 py-0.5 disabled:opacity-40">
+                              <span aria-hidden="true" className="material-symbols-outlined text-[13px]">compare_arrows</span>Compare
+                              <span aria-hidden="true" className={`material-symbols-outlined text-[12px] transition-transform ${compareMenuIdx === i ? 'rotate-180' : ''}`}>expand_more</span>
+                            </button>
+                            {compareMenuIdx === i && (
+                              <>
+                                <button type="button" aria-hidden="true" tabIndex={-1}
+                                  className="fixed inset-0 z-10 cursor-default" onClick={() => setCompareMenuIdx(null)} />
+                                <div role="menu"
+                                  className="absolute right-0 bottom-full mb-1 z-20 w-52 bg-surface-container-high border border-outline-variant/30 shadow-lg py-1 animate-in fade-in slide-in-from-bottom-1">
+                                  <p className="px-3 py-1 text-[9px] uppercase tracking-widest text-outline">Re-run without…</p>
+                                  {appliedModules(msg.ragMeta).map(mod => (
+                                    <button key={mod.key} type="button" role="menuitem"
+                                      onClick={() => openComparison(i, mod)}
+                                      className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-[11px] uppercase tracking-widest text-on-surface-variant hover:bg-primary/10 hover:text-primary transition-colors">
+                                      <span aria-hidden="true" className="material-symbols-outlined text-[13px]">block</span>
+                                      <span className="flex-1">{mod.label}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        )}
                       </span>
                     </div>
                   </div>
@@ -1202,6 +1570,20 @@ const Playground: FC = () => {
         </div>
       </div>
       <RagAdvisor open={advisorOpen} onClose={() => setAdvisorOpen(false)} />
+      {comparison && (
+        <RagComparisonDialog
+          baseline={comparison.baseline}
+          question={comparison.question}
+          module={comparison.module}
+          history={comparison.history}
+          temperature={temperature}
+          topP={topP}
+          topCandidates={topCandidates}
+          ragEnabled={ragEnabled}
+          baseOverrides={buildOverrides()}
+          onClose={() => setComparison(null)}
+        />
+      )}
       {traceMsg && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
           <div className="bg-surface-container border border-outline-variant/30 shadow-2xl w-full max-w-4xl max-h-full flex flex-col rounded-xl overflow-hidden animate-in zoom-in-95 duration-300">
@@ -1260,6 +1642,19 @@ const Playground: FC = () => {
                   </div>
                 </div>
               </div>
+
+              {traceMsg.ragMeta?.stages && traceMsg.ragMeta.stages.length > 0 && (
+                <div className="space-y-3">
+                  <h3 className="font-headline font-bold text-sm text-primary uppercase tracking-widest flex items-center gap-2">
+                    <span className="material-symbols-outlined text-base">timeline</span>
+                    Pipeline Timeline
+                    <span className="text-[10px] normal-case tracking-normal font-body font-normal text-on-surface-variant">(server-measured)</span>
+                  </h3>
+                  <div className="bg-surface-container-low border border-outline-variant/10 rounded-lg p-4">
+                    <StageTimeline stages={traceMsg.ragMeta.stages} />
+                  </div>
+                </div>
+              )}
 
               {traceMsg.ragMeta?.rewrittenQuestion && (
                 <div className="space-y-3">

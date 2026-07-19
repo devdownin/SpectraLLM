@@ -8,6 +8,16 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Playground — timeline du pipeline, compteurs, toggles par module et comparaison A/B
+
+Quatre ajouts qui approfondissent la visibilité du RAG et rendent le pipeline explorable depuis l'interface :
+
+- **Timeline du pipeline (panneau Trace)** : chaque étape est désormais **mesurée côté serveur** (durée réelle, sans jitter réseau) et remontée dans l'événement SSE `done` (champ `stages`). Le panneau Trace affiche un waterfall — routing, retrieval, grading, compression, boucle agentique, génération, réflexion — qui répond à « où est parti le temps ? » là où le TTFT global restait muet.
+- **Compteurs par étape** : la timeline porte les cardinalités (retrieval : N chunks ; corrective grading : `avant→après` avec le nombre écarté ; compression : idem ; boucle agentique : nombre d'itérations). Un badge CORR binaire devient « Corrective grading 5→3 chunks (−2) ».
+- **Toggles par module** : la section « Advanced » de la configuration RAG expose des interrupteurs par module (Hybrid Search, Cross-Encoder, Multi-Query, Corrective, Compression, Self-RAG, Adaptive routing). Décocher **force le module OFF pour la requête** via les surcharges `RagOverrides` (déjà utilisées par l'ablation), désormais acceptées par `POST /api/query/stream` et persistées localement. On ne peut pas forcer ON un module absent du serveur — sémantique tri-état exacte de `RagOverrides.resolve`.
+- **Comparaison A/B dans le chat** : un bouton « Compare » sur une réponse propose de la **rejouer sans un module qui a réellement agi** (menu construit depuis les drapeaux de la réponse). La référence et la variante (streamée en direct, un module désactivé) s'affichent côte à côte avec leurs badges pipeline et leurs sources — l'apport du module devient visible sur la question que l'utilisateur vient de poser, pas seulement en batch d'ablation.
+- Backend : `QueryRequest` porte un champ `RagOverrides overrides` (constructeur de compatibilité conservé) ; `runStreamPipeline` résout chaque module via `RagOverrides.resolve` (parité avec le chemin non-streaming) et accumule la timeline serveur.
+
 ### Documentation & CI — audit sécurité, contrainte mono-instance, CI kustomize épinglée
 
 - **Audit sécurité** ([docs/process/audit-securite.fr.md](docs/process/audit-securite.fr.md), remplace l'ancien `SECURITY_AUDIT.md` supprimé) : constat technique de la surface auth/exposition/DoS. Points saillants — pas d'identité par utilisateur (le paramètre `?actor=` de la GED est déclaratif → audit trail non probant), auth désactivée par défaut, l'activation de `SPECTRA_API_KEY` casse le SSE (`EventSource` ne peut pas envoyer d'en-tête), actuator exposé. Les entrées « externes » (SSRF, ZIP-bombs, désérialisation, traversée de chemin) sont, elles, bien durcies. Rapport d'analyse : aucun correctif d'auth appliqué (choix d'architecture à trancher).

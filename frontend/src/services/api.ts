@@ -158,6 +158,35 @@ export interface StreamStageInfo {
   query?: string;
 }
 
+/** Étape du pipeline mesurée côté serveur (timeline du panneau Trace). */
+export interface StreamStageTrace {
+  stage: string;
+  /** Durée serveur de l'étape en millisecondes. */
+  durationMs: number;
+  /** Cardinalité en entrée (ex. chunks avant filtrage), absente si non pertinente. */
+  inCount?: number;
+  /** Cardinalité en sortie (ex. chunks après filtrage), absente si non pertinente. */
+  outCount?: number;
+  /** Précision optionnelle (stratégie retenue, scores de réflexion…). */
+  detail?: string;
+}
+
+/**
+ * Surcharges par requête des modules RAG (tri-état) : `false` force le module OFF pour la
+ * requête, `null`/absent = défaut de déploiement. On ne force jamais ON (un module absent
+ * du serveur ne peut pas être activé). Alimenté par les toggles et la comparaison A/B.
+ */
+export interface RagOverridesDto {
+  adaptive?: boolean | null;
+  conversational?: boolean | null;
+  multiQuery?: boolean | null;
+  hybrid?: boolean | null;
+  rerank?: boolean | null;
+  corrective?: boolean | null;
+  compression?: boolean | null;
+  selfRag?: boolean | null;
+}
+
 export interface StreamDoneMeta {
   conversationalApplied: boolean;
   correctiveApplied: boolean;
@@ -179,6 +208,8 @@ export interface StreamDoneMeta {
   agenticStopReason?: string;
   /** Scores de réflexion Self-RAG « ISREL/ISSUP/ISUSE », absents si non évalué. */
   selfRagScores?: string;
+  /** Chronologie des étapes du pipeline (durée serveur + compteurs), pour la timeline du Trace. */
+  stages?: StreamStageTrace[];
 }
 
 export const queryApi = {
@@ -201,6 +232,7 @@ export const queryApi = {
     conversationHistory?: { role: string; content: string }[],
     temperature?: number,
     topP?: number,
+    overrides?: RagOverridesDto,
   ): AsyncGenerator<StreamEvent> {
     const body: Record<string, unknown> = { question, useRag };
     if (topCandidates !== undefined) body.topCandidates = topCandidates;
@@ -208,6 +240,10 @@ export const queryApi = {
     if (topP !== undefined) body.topP = topP;
     if (conversationHistory && conversationHistory.length > 0) {
       body.conversationHistory = conversationHistory;
+    }
+    // N'inclure les surcharges que si au moins une est posée (sinon = défaut serveur).
+    if (overrides && Object.values(overrides).some(v => v === false || v === true)) {
+      body.overrides = overrides;
     }
     const response = await fetch('/api/query/stream', {
       method: 'POST',
