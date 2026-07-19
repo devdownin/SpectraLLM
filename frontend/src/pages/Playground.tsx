@@ -13,7 +13,7 @@ import RagAdvisor from '../components/RagAdvisor';
 import ChatMarkdown from '../components/ChatMarkdown';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import {
-  RAG_MODULES, appliedModules, overridesFromDisabled, isBm25Only, relevancePct, fmtMs, formatStageCounts,
+  RAG_MODULES, appliedModules, overridesFromDisabled, isBm25Only, relevancePct, fmtMs, formatStageCounts, abPreferencePair,
 } from '../lib/ragPipeline';
 import type { OverrideKey, ModuleDef } from '../lib/ragPipeline';
 
@@ -320,11 +320,10 @@ const RagComparisonDialog: FC<ComparisonProps> = ({
   /** Enregistre la préférence (choix humain) comme paire DPO chosen/rejected. */
   const savePreference = (side: 'baseline' | 'variant') => {
     if (preferred) return;
-    const chosen = side === 'baseline' ? baseline.content : content;
-    const rejected = side === 'baseline' ? content : baseline.content;
-    if (!chosen.trim() || !rejected.trim()) return;
+    const pref = abPreferencePair(side, baseline.content, content, question, module.key);
+    if (!pref) return;
     setPreferred(side);
-    dpoApi.recordPreference({ prompt: question, chosen, rejected, source: `ab:without-${module.key}` })
+    dpoApi.recordPreference(pref)
       .then(() => toast.success('Preference saved to the DPO dataset'))
       .catch(() => { setPreferred(null); toast.error('Could not save preference'); });
   };

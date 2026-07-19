@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   RAG_MODULES, appliedModules, overridesFromDisabled, isBm25Only, relevancePct, fmtMs, formatStageCounts,
+  downRate, downRateSeverity, sortModulesByDownRate, abPreferencePair,
 } from './ragPipeline';
 import type { RagMetaFlags, OverrideKey } from './ragPipeline';
 import type { StreamStageTrace } from '../services/api';
@@ -115,5 +116,54 @@ describe('formatStageCounts', () => {
   it('returns null for steps without counters (routing, generation)', () => {
     expect(formatStageCounts(trace({ stage: 'routing' }))).toBeNull();
     expect(formatStageCounts(trace({ stage: 'generation' }))).toBeNull();
+  });
+});
+
+describe('downRate / downRateSeverity', () => {
+  it('computes the down-rate of a stratum', () => {
+    expect(downRate({ up: 3, down: 1 })).toBe(0.25);
+    expect(downRate({ up: 0, down: 0 })).toBe(0);
+  });
+  it('buckets severity at 20% and 40%', () => {
+    expect(downRateSeverity(0.1)).toBe('ok');
+    expect(downRateSeverity(0.19)).toBe('ok');
+    expect(downRateSeverity(0.2)).toBe('warn');
+    expect(downRateSeverity(0.39)).toBe('warn');
+    expect(downRateSeverity(0.4)).toBe('bad');
+    expect(downRateSeverity(1)).toBe('bad');
+  });
+});
+
+describe('sortModulesByDownRate', () => {
+  it('drops modules with no votes and sorts worst-first', () => {
+    const result = sortModulesByDownRate({
+      hybrid: { up: 6, down: 1 },      // 14%
+      corrective: { up: 1, down: 4 },  // 80%
+      rerank: { up: 5, down: 2 },      // 29%
+      unused: { up: 0, down: 0 },      // dropped
+    });
+    expect(result.map(([k]) => k)).toEqual(['corrective', 'rerank', 'hybrid']);
+  });
+  it('handles an empty map', () => {
+    expect(sortModulesByDownRate({})).toEqual([]);
+  });
+});
+
+describe('abPreferencePair', () => {
+  it('picks the variant as chosen when the variant is preferred', () => {
+    const p = abPreferencePair('variant', 'baseline answer', 'variant answer', 'Q ?', 'rerank');
+    expect(p).toEqual({ prompt: 'Q ?', chosen: 'variant answer', rejected: 'baseline answer', source: 'ab:without-rerank' });
+  });
+  it('picks the baseline as chosen when the current pipeline is preferred', () => {
+    const p = abPreferencePair('baseline', 'baseline answer', 'variant answer', 'Q ?', 'corrective');
+    expect(p?.chosen).toBe('baseline answer');
+    expect(p?.rejected).toBe('variant answer');
+    expect(p?.source).toBe('ab:without-corrective');
+  });
+  it('returns null when a side is empty', () => {
+    expect(abPreferencePair('variant', 'baseline', '   ', 'Q', 'rerank')).toBeNull();
+  });
+  it('returns null when both answers are identical (nothing to learn)', () => {
+    expect(abPreferencePair('variant', 'same', 'same', 'Q', 'rerank')).toBeNull();
   });
 });

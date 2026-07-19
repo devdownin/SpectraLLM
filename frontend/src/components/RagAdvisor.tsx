@@ -3,6 +3,8 @@ import type { FC } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { gedApi, ingestApi, queryApi } from '../services/api';
 import type { FeedbackStats, RatingCounts } from '../services/api';
+import { downRate, downRateSeverity, sortModulesByDownRate } from '../lib/ragPipeline';
+import type { DownRateSeverity } from '../lib/ragPipeline';
 import Skeleton from './Skeleton';
 import Tooltip from './Tooltip';
 import { useFocusTrap } from '../hooks/useFocusTrap';
@@ -179,27 +181,24 @@ function corpusLabel(total: number, totalChunks: number): string {
 
 // ── Feedback signal ────────────────────────────────────────────────────────────
 
-/** Couleur d'un taux de 👎 : vert < 20 %, ambre < 40 %, rouge au-delà. */
-function downRateClass(rate: number): string {
-  if (rate < 0.2) return 'text-primary';
-  if (rate < 0.4) return 'text-secondary';
-  return 'text-error';
-}
+/** Classe texte selon la sévérité d'un taux de 👎 (vert / ambre / rouge). */
+const SEVERITY_TEXT: Record<DownRateSeverity, string> = { ok: 'text-primary', warn: 'text-secondary', bad: 'text-error' };
+const SEVERITY_BAR: Record<DownRateSeverity, string> = { ok: 'bg-primary/60', warn: 'bg-secondary/60', bad: 'bg-error/60' };
 
 /** Une ligne « strate — D/T (P% 👎) » avec barre proportionnelle au taux de 👎. */
 const RatingRow: FC<{ label: string; counts: RatingCounts }> = ({ label, counts }) => {
-  const total = counts.up + counts.down;
-  const rate = total === 0 ? 0 : counts.down / total;
+  const rate = downRate(counts);
+  const sev = downRateSeverity(rate);
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between text-[11px]">
         <span className="font-mono text-on-surface-variant truncate">{label}</span>
-        <span className={`font-mono shrink-0 ${downRateClass(rate)}`}>
-          {counts.down}/{total} · {(rate * 100).toFixed(0)}% 👎
+        <span className={`font-mono shrink-0 ${SEVERITY_TEXT[sev]}`}>
+          {counts.down}/{counts.up + counts.down} · {(rate * 100).toFixed(0)}% 👎
         </span>
       </div>
       <div className="h-1 bg-surface-container rounded overflow-hidden">
-        <div className={`h-full rounded ${rate < 0.2 ? 'bg-primary/60' : rate < 0.4 ? 'bg-secondary/60' : 'bg-error/60'}`}
+        <div className={`h-full rounded ${SEVERITY_BAR[sev]}`}
           style={{ width: `${Math.max(2, Math.round(rate * 100))}%` }} />
       </div>
     </div>
@@ -211,12 +210,7 @@ const RatingRow: FC<{ label: string; counts: RatingCounts }> = ({ label, counts 
  * data-driven (« le corrective augmente les 👎 sur ce corpus » se lit directement).
  */
 const FeedbackSignal: FC<{ stats?: FeedbackStats }> = ({ stats }) => {
-  const modules = useMemo(() => {
-    if (!stats) return [];
-    return Object.entries(stats.byModule)
-      .filter(([, c]) => c.up + c.down > 0)
-      .sort((a, b) => (b[1].down / Math.max(1, b[1].up + b[1].down)) - (a[1].down / Math.max(1, a[1].up + a[1].down)));
-  }, [stats]);
+  const modules = useMemo(() => stats ? sortModulesByDownRate(stats.byModule) : [], [stats]);
 
   if (!stats || stats.total === 0) {
     return (
@@ -234,7 +228,7 @@ const FeedbackSignal: FC<{ stats?: FeedbackStats }> = ({ stats }) => {
           <p className="text-[10px] uppercase tracking-widest text-outline">ratings</p>
         </div>
         <div>
-          <p className={`font-headline font-bold text-2xl ${downRateClass(stats.downRate)}`}>{(stats.downRate * 100).toFixed(0)}%</p>
+          <p className={`font-headline font-bold text-2xl ${SEVERITY_TEXT[downRateSeverity(stats.downRate)]}`}>{(stats.downRate * 100).toFixed(0)}%</p>
           <p className="text-[10px] uppercase tracking-widest text-outline">👎 rate ({stats.down}/{stats.total})</p>
         </div>
       </div>
