@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import { ablationApi, fineTuningApi } from '../services/api';
 import { etaMs, formatEta } from '../hooks/useGlobalTasks';
 import AblationCharts from '../components/charts/AblationCharts';
-import { PageHeader, Button } from '../components/ui';
+import { PageHeader, Button, SpotlightCard } from '../components/ui';
 import type {
   AblationArmConfig,
   AblationArmReport,
@@ -321,12 +321,12 @@ const Optimization: FC = () => {
         <h3 className="font-headline text-xs uppercase tracking-widest text-on-surface-variant">{t('optimization.modulesTitle')}</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
           {MODULE_KEYS.map(key => (
-            <div key={key} className="bg-surface-container-low border border-outline-variant/10 p-4">
+            <SpotlightCard key={key} className="bg-surface-container-low border border-outline-variant/10 p-4">
               <p className="font-headline text-sm font-bold mb-1">{t(`optimization.modules.${key}.name`)}</p>
               <p className="text-[11px] text-on-surface-variant leading-relaxed mb-2">{t(`optimization.modules.${key}.what`)}</p>
               <p className="text-[11px] text-primary leading-snug">{t('optimization.gainPrefix')} {t(`optimization.modules.${key}.gain`)}</p>
               <p className="text-[11px] text-on-surface-variant leading-snug mt-0.5">{t('optimization.costPrefix')} {t(`optimization.modules.${key}.cost`)}</p>
-            </div>
+            </SpotlightCard>
           ))}
         </div>
         <p className="text-[11px] text-on-surface-variant">

@@ -8,6 +8,14 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Perf — Playground découpé en chunks chargés à la demande
+
+- **Lazy-loading des panneaux lourds** : le dialogue de comparaison A/B (`RagComparisonDialog`) et le panneau Trace (`RagTracePanel`) sont extraits dans `components/playground/` et chargés via `React.lazy` — ils n'entrent dans le bundle que lorsque l'utilisateur les ouvre. Le chunk d'entrée du Playground passe de **~240 kB à ~59 kB** ; les deux panneaux (~8 kB et ~14 kB) sont différés. Types et constantes partagés isolés dans `playground/ragTypes.ts` pour éviter toute dépendance circulaire. Aucun changement fonctionnel.
+
+### UI — compteurs animés sur les écrans d'évaluation
+
+- **CountUp / SpotlightCard étendus** : le score global, la latence et le débit (tok/s) de **Comparison** s'animent au chargement (`CountUp`) ; les cartes de modules d'**Optimization** et la taille de dataset d'un job de **Fine-Tuning** reçoivent halo au survol / compteur animé. Les valeurs en direct (perte, progression d'entraînement) restent statiques pour ne pas ré-animer à chaque tick.
+
 ### RAG — citations en ligne sur le chemin Agentic (couverture universelle)
 
 - **Citations pour l'Agentic RAG** : la boucle ReAct numérote désormais chaque passage du contexte (`[1]`, `[2]`, …) et ses prompts (ReAct + fallback) demandent au modèle de citer ses sources avec ces marqueurs — même convention que le chemin STANDARD (`sources[i]` ↔ `[i+1]`). Les puces de citation cliquables du Playground fonctionnent maintenant aussi sur les réponses agentiques (questions complexes multi-hop), sans changement côté front. Comble le dernier chemin où les citations manquaient.

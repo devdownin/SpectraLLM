@@ -10,7 +10,7 @@ import ModelComparisonPanel from '../components/ModelComparisonPanel';
 import BatchEvaluateDialog from '../components/BatchEvaluateDialog';
 import AbComparisonView from '../components/AbComparisonView';
 import Skeleton from '../components/Skeleton';
-import { EmptyState, Button, PageHeader, Input } from '../components/ui';
+import { EmptyState, Button, PageHeader, Input, CountUp } from '../components/ui';
 
 const STATUS_COLOR: Record<string, string> = {
   PENDING:   'text-on-surface-variant',
@@ -434,7 +434,9 @@ const Comparison: FC = () => {
                     <div>
                       <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant mb-2">{t('comparison.globalScore')}</p>
                       <div className="flex items-baseline gap-2">
-                        <span className="font-headline text-4xl font-bold">{selected.averageScore.toFixed(2)}</span>
+                        <span className="font-headline text-4xl font-bold">
+                          <CountUp to={selected.averageScore} decimals={2} />
+                        </span>
                         <span className="text-on-surface-variant">/10</span>
                         <span className="font-label text-[11px] text-on-surface-variant ml-2">
                           {t('comparison.onPairs', { count: selected.processed })}
@@ -444,12 +446,12 @@ const Comparison: FC = () => {
                         <div className="flex items-center gap-4 mt-2">
                           {selected.avgLatencyMs > 0 && (
                             <span className="font-label text-[11px] text-on-surface-variant">
-                              {t('comparison.latency')} <span className="text-on-surface font-bold">{(selected.avgLatencyMs / 1000).toFixed(2)}s</span> {t('comparison.perAnswer')}
+                              {t('comparison.latency')} <span className="text-on-surface font-bold"><CountUp to={selected.avgLatencyMs / 1000} decimals={2} suffix="s" /></span> {t('comparison.perAnswer')}
                             </span>
                           )}
                           {selected.avgTokensPerSec > 0 && (
                             <span className="font-label text-[11px] text-on-surface-variant">
-                              ~<span className="text-on-surface font-bold">{selected.avgTokensPerSec.toFixed(1)}</span> {t('comparison.tokPerSec')}
+                              ~<span className="text-on-surface font-bold"><CountUp to={selected.avgTokensPerSec} decimals={1} /></span> {t('comparison.tokPerSec')}
                             </span>
                           )}
                         </div>

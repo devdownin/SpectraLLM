@@ -11,7 +11,7 @@ import type { TrainingLog } from '../types/api';
 import { configApi, fineTuningApi, recipeApi } from '../services/api';
 import { resolveTrainableBase, shouldReplace, suggestModelName } from '../lib/fineTuningPrefill';
 import LossChart from '../components/charts/LossChart';
-import { PageHeader, Button, Badge, Table, TableHead, TableBody, TableRow, Th, Td } from '../components/ui';
+import { PageHeader, Button, Badge, Table, TableHead, TableBody, TableRow, Th, Td, CountUp } from '../components/ui';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -627,7 +627,7 @@ const FineTuning: FC = () => {
                 {activeJob.datasetSize > 0 && (
                   <div>
                     <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">{t('fineTuning.dataset')}</p>
-                    <p className="font-headline font-bold text-xl">{activeJob.datasetSize} <span className="text-xs font-label text-on-surface-variant">{t('fineTuning.pairs')}</span></p>
+                    <p className="font-headline font-bold text-xl"><CountUp to={activeJob.datasetSize} /> <span className="text-xs font-label text-on-surface-variant">{t('fineTuning.pairs')}</span></p>
                   </div>
                 )}
 
