@@ -18,6 +18,7 @@ import {
 } from '../lib/ragPipeline';
 import type { OverrideKey, ModuleDef, FunnelStep } from '../lib/ragPipeline';
 import { parseCitations } from '../lib/citations';
+import { CountUp, SpotlightCard } from '../components/ui';
 
 interface Source {
   preview?: string;
@@ -1758,7 +1759,7 @@ const Playground: FC = () => {
                     </div>
                     {traceMsg.ragMeta?.ragStrategy === 'AGENTIC' && typeof traceMsg.ragMeta?.agenticIterations === 'number' && (
                       <div className="text-right">
-                        <p className="text-2xl font-mono text-primary">{traceMsg.ragMeta.agenticIterations}</p>
+                        <p className="text-2xl font-mono text-primary"><CountUp to={traceMsg.ragMeta.agenticIterations} /></p>
                         <p className="text-[11px] uppercase tracking-widest text-on-surface-variant mt-1">Search iterations</p>
                         {traceMsg.ragMeta.agenticStopReason && (
                           <p className="text-[10px] font-mono text-outline mt-0.5" title="Why the ReAct loop stopped">
@@ -1769,7 +1770,7 @@ const Playground: FC = () => {
                     )}
                     {typeof traceMsg.ragMeta?.chunkCount === 'number' && (
                       <div className="text-right">
-                        <p className="text-2xl font-mono text-primary">{traceMsg.ragMeta.chunkCount}</p>
+                        <p className="text-2xl font-mono text-primary"><CountUp to={traceMsg.ragMeta.chunkCount} /></p>
                         <p className="text-[11px] uppercase tracking-widest text-on-surface-variant mt-1">Context chunks</p>
                       </div>
                     )}
@@ -1854,7 +1855,11 @@ const Playground: FC = () => {
                           ? `Answer self-evaluated (ISREL/ISSUP/ISUSE: ${traceMsg.ragMeta.selfRagScores})${traceMsg.ragMeta.selfRagApplied ? ' and refined.' : ' — no refinement needed.'}`
                           : 'Answer self-evaluated via reflection tokens and refined when quality was insufficient.' },
                    ].map(opt => (
-                     <div key={opt.label} className={`p-4 rounded-lg border ${opt.active ? 'bg-secondary/10 border-secondary/30' : 'bg-surface-container-low border-outline-variant/10 opacity-50'}`}>
+                     <SpotlightCard
+                       key={opt.label}
+                       spotlight={opt.active ? 'color-mix(in srgb, var(--color-secondary) 16%, transparent)' : undefined}
+                       className={`p-4 rounded-lg border ${opt.active ? 'bg-secondary/10 border-secondary/30' : 'bg-surface-container-low border-outline-variant/10 opacity-50'}`}
+                     >
                         <div className="flex items-center gap-2 mb-2">
                           <span className={`material-symbols-outlined text-sm ${opt.active ? 'text-secondary' : 'text-on-surface-variant'}`}>
                             {opt.active ? 'check_circle' : 'cancel'}
@@ -1862,7 +1867,7 @@ const Playground: FC = () => {
                           <span className={`font-bold text-xs ${opt.active ? 'text-secondary' : 'text-on-surface-variant'}`}>{opt.label}</span>
                         </div>
                         <p className="text-[11px] text-on-surface-variant leading-relaxed">{opt.desc}</p>
-                     </div>
+                     </SpotlightCard>
                    ))}
                 </div>
               </div>

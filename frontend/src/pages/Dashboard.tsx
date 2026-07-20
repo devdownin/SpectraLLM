@@ -10,7 +10,7 @@ import Tooltip from '../components/Tooltip';
 import LifecycleDonut from '../components/charts/LifecycleDonut';
 import CategoryBar from '../components/charts/CategoryBar';
 import EmbeddingConsistencyCard from '../components/EmbeddingConsistencyCard';
-import { PageHeader } from '../components/ui';
+import { PageHeader, CountUp, AnimatedContent, SpotlightCard } from '../components/ui';
 
 interface DatasetStats {
   totalPairs: number;
@@ -352,14 +352,14 @@ const Dashboard: FC = () => {
           <div className="bg-surface-container p-5 border-t-2 border-primary card-hover">
             <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">{t('dashboard.chunksInStore')}</p>
             {statsLoading ? <Skeleton className="h-9 w-16" /> : (
-              <p className="font-headline font-bold text-3xl text-primary stat-glow">{stats?.chunksInStore ?? 0}</p>
+              <p className="font-headline font-bold text-3xl text-primary stat-glow"><CountUp to={stats?.chunksInStore ?? 0} /></p>
             )}
           </div>
 
           <div className="bg-surface-container p-5 border-t-2 border-secondary card-hover">
             <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">{t('dashboard.trainingPairs')}</p>
             {statsLoading ? <Skeleton className="h-9 w-16" /> : (
-              <p className="font-headline font-bold text-3xl text-secondary stat-glow-secondary">{stats?.totalPairs ?? 0}</p>
+              <p className="font-headline font-bold text-3xl text-secondary stat-glow-secondary"><CountUp to={stats?.totalPairs ?? 0} /></p>
             )}
           </div>
 
@@ -367,7 +367,7 @@ const Dashboard: FC = () => {
             <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">{t('dashboard.avgConfidence')}</p>
             {statsLoading ? <Skeleton className="h-9 w-16" /> : (
               <p className="font-headline font-bold text-3xl">
-                {stats && stats.avgConfidence > 0 ? (stats.avgConfidence * 100).toFixed(0) + '%' : '—'}
+                {stats && stats.avgConfidence > 0 ? <CountUp to={stats.avgConfidence * 100} suffix="%" /> : '—'}
               </p>
             )}
           </div>
@@ -376,7 +376,7 @@ const Dashboard: FC = () => {
             <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">{t('dashboard.categories')}</p>
             {statsLoading ? <Skeleton className="h-9 w-16" /> : (
               <p className="font-headline font-bold text-3xl">
-                {stats ? Object.keys(stats.byCategory).length : 0}
+                <CountUp to={stats ? Object.keys(stats.byCategory).length : 0} />
               </p>
             )}
           </div>
@@ -583,7 +583,7 @@ const Dashboard: FC = () => {
             {statsLoading ? <Skeleton className="h-9 w-12" /> : (
               <>
                 <p className="font-headline font-bold text-3xl text-primary">
-                  {personalizationMetrics?.approvedComments ?? 0}
+                  <CountUp to={personalizationMetrics?.approvedComments ?? 0} />
                 </p>
                 {/* approval/rejection mini-bar */}
                 {(() => {
@@ -626,7 +626,7 @@ const Dashboard: FC = () => {
             {statsLoading ? <Skeleton className="h-9 w-12" /> : (
               <>
                 <p className="font-headline font-bold text-3xl text-secondary">
-                  {personalizationMetrics?.dpoPairs ?? 0}
+                  <CountUp to={personalizationMetrics?.dpoPairs ?? 0} />
                 </p>
                 <p className="text-[10px] text-on-surface-variant">
                   {(personalizationMetrics?.dpoPairs ?? 0) > 0
@@ -643,7 +643,7 @@ const Dashboard: FC = () => {
             {statsLoading ? <Skeleton className="h-9 w-12" /> : (
               <>
                 <p className="font-headline font-bold text-3xl">
-                  {personalizationMetrics?.completedFineTuningJobs ?? 0}
+                  <CountUp to={personalizationMetrics?.completedFineTuningJobs ?? 0} />
                 </p>
                 <p className="text-[10px] text-on-surface-variant">
                   completed · {(personalizationMetrics?.fineTuningJobs ?? []).length} total
@@ -831,7 +831,7 @@ const Dashboard: FC = () => {
       {/* ── RAG Capabilities ── */}
       <section className="space-y-4">
         <h3 className="font-headline text-sm font-bold uppercase tracking-tight text-on-surface-variant">RAG Capabilities</h3>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+        <AnimatedContent className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
           {[
             { label: 'Hybrid Search',   icon: 'merge',          desc: 'BM25 + RRF vectors',           color: 'primary' },
             { label: 'Re-ranking',      icon: 'sort',           desc: 'Two-stage Cross-Encoder',      color: 'secondary' },
@@ -840,13 +840,13 @@ const Dashboard: FC = () => {
             { label: 'Corrective RAG',  icon: 'fact_check',     desc: 'LLM chunk grading',            color: 'primary' },
             { label: 'AI Comments',     icon: 'rate_review',    desc: 'RAG → comment → DPO',          color: 'secondary' },
           ].map(cap => (
-            <div key={cap.label} className={`bg-surface-container p-4 border border-outline-variant/10 hover:border-${cap.color}/30 transition-colors group`}>
+            <SpotlightCard key={cap.label} className={`bg-surface-container p-4 border border-outline-variant/10 hover:border-${cap.color}/30 transition-colors`}>
               <span className={`material-symbols-outlined text-base text-outline group-hover:text-${cap.color} transition-colors`}>{cap.icon}</span>
               <p className="font-headline font-bold text-[11px] uppercase mt-2">{cap.label}</p>
               <p className="text-[10px] text-on-surface-variant mt-1 leading-relaxed">{cap.desc}</p>
-            </div>
+            </SpotlightCard>
           ))}
-        </div>
+        </AnimatedContent>
       </section>
 
       {/* ── Quick Actions ── */}

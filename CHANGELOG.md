@@ -8,6 +8,16 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### UI — animations discrètes (compteurs, révélation, halo au survol)
+
+Trois primitives d'animation **sans dépendance** (inspirées de [React Bits](https://reactbits.dev), réécrites pour le design system : tokens de thème, Tailwind v4, `prefers-reduced-motion`), ajoutées au kit `components/ui` :
+
+- **`CountUp`** — un chiffre qui s'anime jusqu'à sa valeur (et ré-anime depuis l'affichage courant quand la donnée change au polling). Câblé sur les métriques du **Dashboard** (chunks, paires, confiance, catégories, cycle de personnalisation) et les grands nombres du **panneau Trace** du Playground (itérations agentiques, chunks de contexte).
+- **`AnimatedContent`** — révélation en fondu + glissement à l'entrée dans le viewport (grille « RAG Capabilities » du Dashboard).
+- **`SpotlightCard`** — halo radial suivant le curseur au survol, sensible au thème (cartes « RAG Capabilities » du Dashboard, cartes « Optimizations Triggered » du Trace).
+
+Toutes dégradent proprement : sans `IntersectionObserver`/`matchMedia` (ou en mode « réduire les animations »), le contenu s'affiche directement. Logique pure (`easeOutCubic`, `countUpValue`, `formatCount`) extraite dans `lib/animation.ts` et testée ; impact bundle négligeable (aucune lib d'animation tirée).
+
 ### Playground — visibilité RAG approfondie : citations en ligne, entonnoir de récupération, budget de tokens
 
 Trois compléments qui ouvrent le « comment » du pipeline là où l'utilisateur ne voyait que le « quoi » :
