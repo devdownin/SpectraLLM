@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { CountUp } from './CountUp';
 import { AnimatedContent } from './AnimatedContent';
 import { SpotlightCard } from './SpotlightCard';
+import { DecryptedText } from './DecryptedText';
 
 describe('CountUp', () => {
   it('renders the target value immediately when duration is 0 (deterministic / reduced motion)', () => {
@@ -40,5 +41,16 @@ describe('SpotlightCard', () => {
     fireEvent.mouseMove(root, { clientX: 30, clientY: 40 });
     expect(root.style.getPropertyValue('--spot-x')).toBe('30px');
     expect(root.style.getPropertyValue('--spot-y')).toBe('40px');
+  });
+});
+
+describe('DecryptedText', () => {
+  it('shows the final text immediately when duration is 0 (deterministic / reduced motion)', () => {
+    render(<DecryptedText text="Spectra Core" durationMs={0} />);
+    expect(screen.getByText('Spectra Core')).toBeInTheDocument();
+  });
+  it('exposes the real text to assistive tech via aria-label', () => {
+    render(<DecryptedText text="Booting" durationMs={0} />);
+    expect(screen.getByLabelText('Booting')).toBeInTheDocument();
   });
 });

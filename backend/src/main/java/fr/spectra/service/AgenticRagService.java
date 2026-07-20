@@ -53,6 +53,9 @@ public class AgenticRagService {
 
             Règles absolues :
             - Base-toi UNIQUEMENT sur le contexte fourni.
+            - Dans RESPONSE, cite les passages du contexte avec leur numéro entre crochets [n] \
+            juste après l'information qu'ils justifient (ex. « la valeur par défaut est 512 [3]. »). \
+            N'invente jamais de numéro.
             - Si le contexte est insuffisant même après recherche, dis-le clairement dans RESPONSE.
             - N'invente aucune information. %s
             """;
@@ -60,6 +63,8 @@ public class AgenticRagService {
     private static final String FALLBACK_SYSTEM_PROMPT_TEMPLATE = """
             Tu es un assistant spécialisé. Réponds de manière précise et concise \
             en te basant UNIQUEMENT sur le contexte fourni.
+            Chaque passage du contexte est numéroté [1], [2], … : cite tes sources en insérant le \
+            numéro correspondant entre crochets juste après l'information qu'il justifie. N'invente jamais de numéro.
             Si le contexte ne contient pas l'information demandée, dis-le clairement.
             Ne fabrique pas d'information. %s
 
@@ -387,7 +392,9 @@ public class AgenticRagService {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < chunks.size(); i++) {
             String sourceFile = metadatas.get(i).getOrDefault("sourceFile", "inconnu");
-            sb.append("[Source: ").append(sourceFile).append("]\n");
+            // Passage numéroté [n] : même convention que RagService (sources.get(i) ↔ [i+1]) pour
+            // que les citations [n] de la réponse soient résolubles côté Playground vers le bon extrait.
+            sb.append("[").append(i + 1).append("] (Source: ").append(sourceFile).append(")\n");
             sb.append(chunks.get(i)).append("\n\n");
         }
         return sb.toString();

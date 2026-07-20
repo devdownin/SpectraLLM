@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { easeOutCubic, countUpValue, formatCount } from './animation';
+import { easeOutCubic, countUpValue, formatCount, scrambleReveal } from './animation';
 
 describe('easeOutCubic', () => {
   it('maps the [0,1] range with an ease-out shape', () => {
@@ -45,5 +45,19 @@ describe('formatCount', () => {
   it('handles negatives and non-finite values', () => {
     expect(formatCount(-1500, 0, ',')).toBe('-1,500');
     expect(formatCount(NaN, 0)).toBe('0');
+  });
+});
+
+describe('scrambleReveal', () => {
+  const zero = () => 0; // rng déterministe → toujours le 1er caractère du charset
+
+  it('keeps the revealed prefix real and scrambles the rest', () => {
+    expect(scrambleReveal('Hi there', 2, 'AB', zero)).toBe('Hi AAAAA');
+  });
+  it('preserves spaces, tabs and newlines regardless of reveal count', () => {
+    expect(scrambleReveal('a b\nc', 0, 'X', zero)).toBe('X X\nX');
+  });
+  it('returns the full target once everything is revealed', () => {
+    expect(scrambleReveal('Spectra', 7, 'AB', zero)).toBe('Spectra');
   });
 });

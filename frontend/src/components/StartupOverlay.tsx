@@ -3,6 +3,7 @@ import axios from 'axios';
 import { useTranslation } from 'react-i18next';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { DecryptedText } from './ui';
 
 
 export const StartupOverlay: React.FC = () => {
@@ -43,7 +44,9 @@ export const StartupOverlay: React.FC = () => {
         <div id="startup-overlay" className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center">
             <div className="bg-card p-8 rounded-lg shadow-lg max-w-lg w-full text-center border border-border">
                 <Loader2 className="w-12 h-12 animate-spin text-primary mx-auto mb-6" />
-                <h2 className="text-2xl font-bold mb-2">{t('startup.title')}</h2>
+                <h2 className="text-2xl font-bold mb-2">
+                    <DecryptedText text={t('startup.title')} durationMs={1400} />
+                </h2>
                 <p className="text-muted-foreground mb-6">{t('startup.description')}</p>
 
                 <div className="space-y-4">

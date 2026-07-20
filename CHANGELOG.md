@@ -8,6 +8,14 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### RAG — citations en ligne sur le chemin Agentic (couverture universelle)
+
+- **Citations pour l'Agentic RAG** : la boucle ReAct numérote désormais chaque passage du contexte (`[1]`, `[2]`, …) et ses prompts (ReAct + fallback) demandent au modèle de citer ses sources avec ces marqueurs — même convention que le chemin STANDARD (`sources[i]` ↔ `[i+1]`). Les puces de citation cliquables du Playground fonctionnent maintenant aussi sur les réponses agentiques (questions complexes multi-hop), sans changement côté front. Comble le dernier chemin où les citations manquaient.
+
+### UI — effet « déchiffrement » sur l'écran de démarrage
+
+- **StartupOverlay animé** : le titre « Spectra Core » se révèle par un effet de déchiffrement caractère par caractère (composant `DecryptedText`, sans dépendance, cohérent avec la persona). Respecte `prefers-reduced-motion` (texte final immédiat) et reste accessible (vrai texte via `aria-label`, bruit visible en `aria-hidden`).
+
 ### UI — animations discrètes (compteurs, révélation, halo au survol)
 
 Trois primitives d'animation **sans dépendance** (inspirées de [React Bits](https://reactbits.dev), réécrites pour le design system : tokens de thème, Tailwind v4, `prefers-reduced-motion`), ajoutées au kit `components/ui` :
