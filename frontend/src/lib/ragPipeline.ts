@@ -1,4 +1,4 @@
-import type { RagOverridesDto, StreamStageTrace } from '../services/api';
+import type { RagOverridesDto, StreamStageTrace, RatingCounts } from '../services/api';
 
 /**
  * Logique pure du pipeline RAG côté Playground, extraite pour être testable indépendamment
@@ -105,4 +105,50 @@ export const formatStageCounts = (s: StreamStageTrace): string | null => {
   }
   if (typeof s.outCount === 'number') return `${s.outCount} chunks`;
   return null;
+};
+
+// ── Signal de feedback (RAG Advisor) ────────────────────────────────────────
+
+/** Sévérité d'un taux de 👎 : ok (< 20 %), warn (< 40 %), bad (≥ 40 %). */
+export type DownRateSeverity = 'ok' | 'warn' | 'bad';
+export const downRateSeverity = (rate: number): DownRateSeverity =>
+  rate < 0.2 ? 'ok' : rate < 0.4 ? 'warn' : 'bad';
+
+/** Taux de 👎 (0–1) d'une strate ; 0 si aucun vote. */
+export const downRate = (c: RatingCounts): number => {
+  const total = c.up + c.down;
+  return total === 0 ? 0 : c.down / total;
+};
+
+/** Modules ayant reçu au moins un vote, triés du taux de 👎 le plus élevé au plus faible. */
+export const sortModulesByDownRate = (byModule: Record<string, RatingCounts>): [string, RatingCounts][] =>
+  Object.entries(byModule)
+    .filter(([, c]) => c.up + c.down > 0)
+    .sort((a, b) => downRate(b[1]) - downRate(a[1]));
+
+// ── Comparaison A/B → paire DPO ─────────────────────────────────────────────
+
+export interface AbPreference {
+  prompt: string;
+  chosen: string;
+  rejected: string;
+  source: string;
+}
+
+/**
+ * Construit la paire DPO d'une préférence A/B : {@code chosen} = côté préféré, {@code rejected}
+ * = l'autre. Retourne {@code null} si un côté est vide ou si les deux réponses sont identiques
+ * (rien à apprendre) — parité avec la validation backend.
+ */
+export const abPreferencePair = (
+  side: 'baseline' | 'variant',
+  baselineContent: string,
+  variantContent: string,
+  question: string,
+  moduleKey: string,
+): AbPreference | null => {
+  const chosen = side === 'baseline' ? baselineContent : variantContent;
+  const rejected = side === 'baseline' ? variantContent : baselineContent;
+  if (!chosen.trim() || !rejected.trim() || chosen === rejected) return null;
+  return { prompt: question, chosen, rejected, source: `ab:without-${moduleKey}` };
 };

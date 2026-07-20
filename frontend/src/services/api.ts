@@ -127,6 +127,12 @@ export const dpoApi = {
   getAllTasks: () => api.get('/dataset/dpo/generate'),
   cancelTask: (taskId: string) => api.delete(`/dataset/dpo/generate/${taskId}`),
   getStats: () => api.get('/dataset/dpo/stats'),
+  /**
+   * Enregistre une préférence A/B du Playground comme paire DPO.
+   * `chosen` = réponse préférée, `rejected` = l'autre ; `source` trace le module comparé.
+   */
+  recordPreference: (pref: { prompt: string; chosen: string; rejected: string; source: string }) =>
+    api.post('/dataset/dpo/preference', pref),
 };
 
 export const commentApi = {
@@ -212,6 +218,23 @@ export interface StreamDoneMeta {
   stages?: StreamStageTrace[];
 }
 
+/** Décompte 👍/👎 pour une strate (stratégie ou module). */
+export interface RatingCounts {
+  up: number;
+  down: number;
+}
+
+/** Agrégats du feedback Playground renvoyés par `GET /query/feedback/stats`. */
+export interface FeedbackStats {
+  total: number;
+  up: number;
+  down: number;
+  /** Taux de 👎 global (0–1). */
+  downRate: number;
+  byStrategy: Record<string, RatingCounts>;
+  byModule: Record<string, RatingCounts>;
+}
+
 export const queryApi = {
   query: (question: string, model?: string, useRag = true) =>
     api.post('/query', { question, model, useRag }),
@@ -221,6 +244,9 @@ export const queryApi = {
     ragMeta?: Record<string, unknown>, overrides?: RagOverridesDto,
   ) =>
     api.post('/query/feedback', { question, answer, rating, ragMeta, overrides }),
+
+  /** Agrégats du feedback Playground (taux de 👎 par stratégie et par module). */
+  getFeedbackStats: () => api.get<FeedbackStats>('/query/feedback/stats'),
 
   /**
    * Streaming RAG query via POST SSE (EventSource ne supporte pas POST).
@@ -326,6 +352,11 @@ export const ablationApi = {
   cancelJob: (jobId: string) => api.delete(`/ablation/jobs/${jobId}`),
 };
 
+/** Disponibilité serveur des modules RAG (bean déployé) renvoyée par `GET /config/rag`. */
+export interface RagModuleConfig {
+  modules: Record<string, boolean>;
+}
+
 export const configApi = {
   getModelConfig: () => api.get('/config/model'),
   setModelConfig: (config: any) => api.post('/config/model', config),
@@ -334,6 +365,8 @@ export const configApi = {
   reindexCollection: (collection: string) =>
     api.post('/config/embedding-consistency/reindex', { collection }),
   getReindexStatuses: () => api.get('/config/embedding-consistency/reindex'),
+  /** État réel des modules RAG côté serveur (module → déployé ou non). */
+  getRagConfig: () => api.get<RagModuleConfig>('/config/rag'),
 };
 
 export const qualityBenchmarkApi = {

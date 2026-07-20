@@ -945,9 +945,11 @@ Le Playground est l'atelier de conversation : vous posez une question, le modèl
 - **Enable Knowledge Base** : active/désactive le RAG — pratique pour comparer les réponses avec et sans contexte documentaire.
 - **Conversational History** : envoie l'historique de la conversation pour reformuler votre question avant la recherche (utile pour les questions de suivi du type « et pour lui ? »).
 - **Advanced → Top Candidates** : nombre de candidats envoyés au re-ranker (plus élevé = meilleure couverture, plus lent).
-- **Advanced → Pipeline Modules** : un interrupteur par module d'optimisation (Hybrid Search, Cross-Encoder, Multi-Query, Corrective, Compression, Self-RAG, Adaptive routing). **Décocher force le module OFF pour vos requêtes**, sans redéploiement — pratique pour isoler l'effet d'un module. Un module non activé côté serveur reste OFF quelle que soit la case (on ne peut pas activer par ce biais un module absent du déploiement). Le réglage est mémorisé dans le navigateur.
+- **Advanced → Pipeline Modules** : un interrupteur par module d'optimisation (Hybrid Search, Cross-Encoder, Multi-Query, Corrective, Compression, Self-RAG, Adaptive routing). **Décocher force le module OFF pour vos requêtes**, sans redéploiement — pratique pour isoler l'effet d'un module. L'interface interroge l'**état réel du serveur** (`GET /api/config/rag`) : un module non déployé apparaît **grisé avec la mention « OFF »** et son interrupteur est verrouillé (on ne peut pas l'activer par requête, seule sa variable d'environnement le peut). Le réglage est mémorisé dans le navigateur.
 - **Expert mode** : affiche en plus les distances vectorielles brutes, les scores de re-ranking/BM25 et les métriques de latence (TTFT, durée, tokens).
-- **RAG Advisor** : recommande les stratégies RAG à activer d'après l'état de votre corpus (volume, qualité, formats).
+- **RAG Advisor** : recommande les stratégies RAG à activer d'après l'état de votre corpus (volume, qualité, formats) et un **signal de feedback** — le taux de 👎 global et par module (« quand ce module a agi »), agrégé depuis vos votes. On lit directement si un module (ex. Corrective) est corrélé à plus de réponses insatisfaisantes sur votre corpus.
+
+  ![RAG Advisor : le signal de feedback montre le taux de 👎 par module, du plus problématique au moins](../assets/rag-advisor-feedback.png)
 - **Export Conversation** : télécharge la discussion en Markdown ou JSON.
 
 #### Étapes du pipeline visibles en direct
@@ -960,7 +962,9 @@ Pendant la génération, sous le curseur de réponse, l'interface affiche **l'é
 - **Sources** : dépliez chaque source pour voir le passage récupéré et son **% de pertinence**. Un extrait retrouvé uniquement par mot-clé est étiqueté **BM25** (au lieu d'un « 0 % » trompeur). En mode expert : distance, score de re-ranking et score BM25.
 - **Feedback 👍/👎** : note la réponse (signal de préférence réutilisé pour le fine-tuning DPO).
 - **Copy**, **Regenerate** (avec variantes « plus factuel » / « plus créatif »), **Edit** (rééditer votre question).
-- **Compare** : rejoue la **même question sans un module qui a réellement agi** (par ex. « sans Cross-Encoder »). La réponse de référence et la variante s'affichent **côte à côte** avec leurs badges et leurs sources — la contribution du module devient visible sur votre question, pas seulement en théorie.
+- **Compare** : rejoue la **même question sans un module qui a réellement agi** (par ex. « sans Cross-Encoder »). La réponse de référence et la variante s'affichent **côte à côte** avec leurs badges et leurs sources — la contribution du module devient visible sur votre question, pas seulement en théorie. Un vote **« Which is better? »** enregistre votre préférence comme **paire DPO** (chosen/rejected) : votre exploration nourrit directement le dataset de fine-tuning.
+
+  ![Comparaison A/B : la variante « sans Cross-Encoder » perd le badge RRNK ; le vote alimente le dataset DPO](../assets/rag-ab-comparison.png)
 
 #### Panneau Trace (bouton « Trace »)
 

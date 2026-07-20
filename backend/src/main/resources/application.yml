@@ -274,6 +274,8 @@ logging:
       percentiles-histogram:
         http.server.requests: true
         spectra.rag.query: true
+        # Latence par étape du pipeline RAG (tag `stage`) → panneau Grafana + alerte retrieval.
+        spectra.rag.stage: true
       slo:
         http.server.requests: 50ms, 100ms, 250ms, 500ms, 1s, 2s, 5s
         spectra.rag.query: 1s, 2s, 5s, 10s, 30s

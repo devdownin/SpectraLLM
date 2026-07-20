@@ -1,7 +1,10 @@
 import { useMemo } from 'react';
 import type { FC } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { gedApi, ingestApi } from '../services/api';
+import { gedApi, ingestApi, queryApi, configApi } from '../services/api';
+import type { FeedbackStats, RatingCounts } from '../services/api';
+import { downRate, downRateSeverity, sortModulesByDownRate } from '../lib/ragPipeline';
+import type { DownRateSeverity } from '../lib/ragPipeline';
 import Skeleton from './Skeleton';
 import Tooltip from './Tooltip';
 import { useFocusTrap } from '../hooks/useFocusTrap';
@@ -176,6 +179,69 @@ function corpusLabel(total: number, totalChunks: number): string {
   return 'Substantial corpus';
 }
 
+// ── Feedback signal ────────────────────────────────────────────────────────────
+
+/** Classe texte selon la sévérité d'un taux de 👎 (vert / ambre / rouge). */
+const SEVERITY_TEXT: Record<DownRateSeverity, string> = { ok: 'text-primary', warn: 'text-secondary', bad: 'text-error' };
+const SEVERITY_BAR: Record<DownRateSeverity, string> = { ok: 'bg-primary/60', warn: 'bg-secondary/60', bad: 'bg-error/60' };
+
+/** Une ligne « strate — D/T (P% 👎) » avec barre proportionnelle au taux de 👎. */
+const RatingRow: FC<{ label: string; counts: RatingCounts }> = ({ label, counts }) => {
+  const rate = downRate(counts);
+  const sev = downRateSeverity(rate);
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between text-[11px]">
+        <span className="font-mono text-on-surface-variant truncate">{label}</span>
+        <span className={`font-mono shrink-0 ${SEVERITY_TEXT[sev]}`}>
+          {counts.down}/{counts.up + counts.down} · {(rate * 100).toFixed(0)}% 👎
+        </span>
+      </div>
+      <div className="h-1 bg-surface-container rounded overflow-hidden">
+        <div className={`h-full rounded ${SEVERITY_BAR[sev]}`}
+          style={{ width: `${Math.max(2, Math.round(rate * 100))}%` }} />
+      </div>
+    </div>
+  );
+};
+
+/**
+ * Signal de feedback : taux de 👎 global et ventilé par module ayant agi — rend l'Advisor
+ * data-driven (« le corrective augmente les 👎 sur ce corpus » se lit directement).
+ */
+const FeedbackSignal: FC<{ stats?: FeedbackStats }> = ({ stats }) => {
+  const modules = useMemo(() => stats ? sortModulesByDownRate(stats.byModule) : [], [stats]);
+
+  if (!stats || stats.total === 0) {
+    return (
+      <p className="text-[11px] text-on-surface-variant">
+        No 👍/👎 yet. Rate answers in the Playground to build a feedback signal for these recommendations.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-4">
+        <div>
+          <p className="font-headline font-bold text-2xl">{stats.total}</p>
+          <p className="text-[10px] uppercase tracking-widest text-outline">ratings</p>
+        </div>
+        <div>
+          <p className={`font-headline font-bold text-2xl ${SEVERITY_TEXT[downRateSeverity(stats.downRate)]}`}>{(stats.downRate * 100).toFixed(0)}%</p>
+          <p className="text-[10px] uppercase tracking-widest text-outline">👎 rate ({stats.down}/{stats.total})</p>
+        </div>
+      </div>
+      {modules.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-[10px] uppercase tracking-widest text-outline">👎 rate by module (when applied)</p>
+          {modules.map(([name, counts]) => <RatingRow key={name} label={name} counts={counts} />)}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 interface Props {
@@ -197,6 +263,25 @@ const RagAdvisor: FC<Props> = ({ open, onClose }) => {
     enabled: open,
     staleTime: 30_000,
   });
+
+  const { data: feedback } = useQuery<FeedbackStats>({
+    queryKey: ['feedback-stats-advisor'],
+    queryFn: () => queryApi.getFeedbackStats().then(r => r.data),
+    enabled: open,
+    staleTime: 30_000,
+  });
+
+  const { data: ragConfig } = useQuery<Record<string, boolean>>({
+    queryKey: ['rag-config-advisor'],
+    queryFn: () => configApi.getRagConfig().then(r => r.data.modules ?? {}),
+    enabled: open,
+    staleTime: 60_000,
+  });
+  // Clé STRATEGIES → clé de disponibilité serveur (self_rag → selfRag ; les autres coïncident).
+  const strategyActive = (key: string): boolean => {
+    const map: Record<string, string> = { self_rag: 'selfRag' };
+    return ragConfig?.[map[key] ?? key] === true;
+  };
 
   const formats = useMemo(() => {
     if (!files) return [];
@@ -332,6 +417,12 @@ const RagAdvisor: FC<Props> = ({ open, onClose }) => {
             )}
           </section>
 
+          {/* ── Feedback signal ───────────────────────────────────────────── */}
+          <section className="p-6 border-b border-outline-variant/10">
+            <p className="font-label text-[10px] uppercase tracking-widest text-outline mb-4">Feedback signal</p>
+            <FeedbackSignal stats={feedback} />
+          </section>
+
           {/* ── Recommendations ───────────────────────────────────────────── */}
           {recommendations.length > 0 && (
             <section className="p-6 border-b border-outline-variant/10">
@@ -384,8 +475,12 @@ const RagAdvisor: FC<Props> = ({ open, onClose }) => {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <p className="font-headline font-bold text-sm tracking-tight">{s.name}</p>
-                          {isRecommended && (
-                            <span className="text-[10px] font-bold px-1 py-0.5 border border-primary/30 text-primary uppercase tracking-wider bg-primary/5">
+                          {strategyActive(s.key) ? (
+                            <span className="text-[10px] font-bold px-1 py-0.5 border border-primary/40 text-primary uppercase tracking-wider bg-primary/10">
+                              ● active
+                            </span>
+                          ) : isRecommended && (
+                            <span className="text-[10px] font-bold px-1 py-0.5 border border-secondary/30 text-secondary uppercase tracking-wider bg-secondary/5">
                               ✓ recommended
                             </span>
                           )}

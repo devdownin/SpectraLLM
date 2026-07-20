@@ -8,6 +8,27 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### RAG — état serveur des modules exposé (toggles et Advisor fidèles au déploiement)
+
+Comble l'écart entre le RAG Advisor (qui recommande des variables d'environnement, donc un redéploiement) et les toggles du Playground (jusqu'ici purement navigateur, sans savoir ce qui est réellement déployé) :
+
+- **`GET /api/config/rag`** : renvoie la disponibilité **réelle** de chaque module RAG côté serveur (bean présent = déployé via sa variable d'environnement) — adaptive, conversational, hybrid, rerank, corrective, compression, selfRag, multiQuery, agentic, semanticDedup, longContext. `RagService.moduleAvailability()`.
+- **Toggles Playground fidèles** : un module non déployé apparaît **grisé, mention « OFF », interrupteur verrouillé** — plus de faux-semblant qu'on pourrait l'activer par requête (on ne peut que le désactiver s'il est déployé). Les modules déployés restent pilotables.
+- **RAG Advisor conscient de l'état** : dans le guide des stratégies, un module déployé porte un badge **« ● active »** (au lieu de seulement « ✓ recommended ») — on distingue ce qui tourne déjà de ce qu'il reste à activer.
+
+### Playground — comparaison A/B → paires DPO (boucle vers le fine-tuning)
+
+- **Vote de préférence dans la comparaison A/B** : le dialogue « Compare » propose désormais « Which is better? » (réponse de référence vs variante sans un module). Le choix humain est enregistré comme **paire DPO** (`chosen`/`rejected`) sur la **même question** — un signal de préférence bien plus propre que l'agrégation 👍/👎. `POST /api/dataset/dpo/preference`.
+- **Stockage sans collision** : les préférences vont dans un fichier `dpo_preference_pairs.jsonl` **séparé** de `dpo_pairs.jsonl` (que la génération DPO tronque et réécrit). `DpoGenerationService.getAllPairs()`/`exportJsonl()` fusionnent les deux ; les stats DPO distinguent `generatedPairs` et `preferencePairs`. Ainsi une préférence votée n'est jamais perdue par une régénération.
+- **Correctif** : dans le dialogue de comparaison, le rendu de la variante utilisait `requestAnimationFrame` pour batcher les tokens — non fiable hors compositing (la variante pouvait rester vide alors que les métadonnées arrivaient). Aligné sur le même batching `setTimeout` que le chat principal ; la variante s'affiche désormais de façon déterministe.
+
+### Observabilité & feedback — dashboards de latence par étape, analytique du feedback
+
+Boucle les deux signaux ouverts précédemment (métriques d'étapes émises mais non visualisées, feedback enrichi mais non analysé) :
+
+- **Latence RAG par étape dans Grafana** : le timer `spectra.rag.stage` publie désormais un histogramme (`spectra.rag.stage: true` sous `management.metrics.distribution.percentiles-histogram`). Nouveau panneau Grafana « Latence RAG par étape p95 (s) » (une série par étape : retrieval, grading, compression, génération, réflexion, agentic) et alerte Prometheus **`SpectraHighRetrievalLatencyP95`** (p95 retrieval > 5s / 15 min — isole un problème d'infra embedding/ChromaDB, distinct de la génération bornée par le modèle).
+- **Analytique du feedback** : `GET /api/query/feedback/stats` agrège `playground_feedback.jsonl` en taux de 👎 **par stratégie** et **par module** (à partir du `ragMeta` enregistré par vote). Le **RAG Advisor** affiche un « Feedback signal » — taux de 👎 global et par module trié du plus problématique au moins, avec code couleur — qui rend ses recommandations data-driven (« le Corrective augmente les 👎 sur ce corpus » se lit directement). `FeedbackService.aggregate()` dégrade gracieusement (fichier absent, lignes corrompues ignorées).
+
 ### RAG & Playground — observabilité des étapes, comparaison A/B rigoureuse, feedback enrichi
 
 - **Durées d'étapes exposées en métriques** : la timeline mesurée côté serveur alimente désormais un timer Micrometer `spectra.rag.stage{stage=…}` (retrieval, grading, compression, génération, réflexion, boucle agentique). La chronologie par requête devient de l'**observabilité agrégée** (p95 retrieval vs génération) dans Prometheus/Grafana, sans surcoût — la durée était déjà mesurée.

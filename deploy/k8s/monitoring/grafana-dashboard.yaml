@@ -380,6 +380,21 @@
               "refId": "B"
             }
           ]
+        },
+        {
+          "id": 12,
+          "title": "Latence RAG par étape p95 (s)",
+          "type": "timeseries",
+          "datasource": "${datasource}",
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 40 },
+          "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(spectra_rag_stage_seconds_bucket{application=\"spectrallm\"}[5m])) by (le, stage))",
+              "legendFormat": "{{stage}} p95",
+              "refId": "A"
+            }
+          ]
         }
       ]
     }
