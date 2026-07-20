@@ -289,8 +289,27 @@ class RagServiceStreamTest {
                 .expectNextMatches(e -> "token".equals(e.event()) && ".".equals(e.data()))
                 .expectNextMatches(e -> "done".equals(e.event())
                         && e.data().contains("\"ragStrategy\":\"STANDARD\"")
-                        && e.data().contains("\"chunkCount\":1"))
+                        && e.data().contains("\"chunkCount\":1")
+                        // budget d'entrée : "Le péage de sortie est conforme." = 32 caractères
+                        && e.data().contains("\"contextChars\":32"))
                 .verifyComplete();
+    }
+
+    /** Le contexte injecté numérote chaque passage [n] (résolution des citations côté client). */
+    @Test
+    void queryStream_standardPipeline_numbersContextPassages() {
+        stubStandardRetrieval();
+        org.mockito.ArgumentCaptor<String> systemPrompt = org.mockito.ArgumentCaptor.forClass(String.class);
+        when(llmChatClient.chatStream(systemPrompt.capture(), anyString(), anyFloat(), anyFloat()))
+                .thenReturn(Flux.just("ok"));
+
+        StepVerifier.create(ragService.queryStream(ragRequest()))
+                .thenConsumeWhile(e -> true)
+                .verifyComplete();
+
+        org.assertj.core.api.Assertions.assertThat(systemPrompt.getValue())
+                .contains("[1] (Source: peage.json)")
+                .contains("cite tes sources");
     }
 
     /** Adaptive RAG en streaming : classification DIRECT → réponse directe streamée. */

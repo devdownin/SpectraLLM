@@ -107,6 +107,65 @@ export const formatStageCounts = (s: StreamStageTrace): string | null => {
   return null;
 };
 
+// ── Entonnoir de récupération ────────────────────────────────────────────────
+
+/** Une étape de l'entonnoir : nombre de chunks à ce point et combien l'étape en a retiré. */
+export interface FunnelStep {
+  label: string;
+  count: number;
+  /** Chunks retirés par cette étape (0 pour l'étape « Retrieved » initiale). */
+  dropped: number;
+}
+
+/**
+ * Reconstruit l'entonnoir de récupération à partir de la timeline serveur : combien de chunks
+ * ont été récupérés puis combien chaque étape filtrante (Corrective, Compression) en a retiré,
+ * jusqu'au contexte final. Rend visible « où » et « par quoi » les chunks disparaissent.
+ * Retourne {@code []} si le retrieval n'a pas de compteur (rien à tracer).
+ */
+export const buildFunnel = (stages: StreamStageTrace[]): FunnelStep[] => {
+  const retrieval = stages.find(s => s.stage === 'retrieval');
+  if (!retrieval || typeof retrieval.outCount !== 'number') return [];
+  const steps: FunnelStep[] = [{ label: 'Retrieved', count: retrieval.outCount, dropped: 0 }];
+  const filters: { stage: string; label: string }[] = [
+    { stage: 'grading', label: 'After Corrective' },
+    { stage: 'compression', label: 'After Compression' },
+  ];
+  for (const f of filters) {
+    const st = stages.find(s => s.stage === f.stage);
+    if (!st || typeof st.inCount !== 'number' || typeof st.outCount !== 'number') continue;
+    steps.push({ label: f.label, count: st.outCount, dropped: Math.max(0, st.inCount - st.outCount) });
+  }
+  return steps;
+};
+
+// ── Budget de tokens (estimation) ─────────────────────────────────────────────
+
+/** Estimation de tokens à ~4 caractères/token — convention utilisée côté backend (n_ctx). */
+export const estimateTokens = (chars: number): number => Math.max(0, Math.round(chars / 4));
+
+export interface TokenBudget {
+  /** Tokens d'entrée estimés (contexte récupéré injecté dans le prompt). */
+  inputTokens: number;
+  /** Tokens de sortie (réponse générée) — compteur client. */
+  outputTokens: number;
+  total: number;
+  /** Part du contexte récupéré dans le total (0–100), pour la barre empilée. */
+  inputPct: number;
+}
+
+/**
+ * Budget de tokens d'une réponse : contexte récupéré (entrée, estimé depuis `contextChars`)
+ * vs réponse générée (sortie). Répond à « combien du budget est parti dans le contexte
+ * récupéré plutôt que dans la réponse ? ».
+ */
+export const tokenBudget = (contextChars: number, outputTokens: number): TokenBudget => {
+  const inputTokens = estimateTokens(contextChars);
+  const total = inputTokens + Math.max(0, outputTokens);
+  const inputPct = total === 0 ? 0 : Math.round((inputTokens / total) * 100);
+  return { inputTokens, outputTokens: Math.max(0, outputTokens), total, inputPct };
+};
+
 // ── Signal de feedback (RAG Advisor) ────────────────────────────────────────
 
 /** Sévérité d'un taux de 👎 : ok (< 20 %), warn (< 40 %), bad (≥ 40 %). */

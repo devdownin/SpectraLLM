@@ -3,6 +3,7 @@ import type { FC, ReactNode } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Components } from 'react-markdown';
+import { rehypeCitations } from '../lib/citations';
 
 /** Bloc de code avec bouton « copier » (lit le textContent réel du <pre>). */
 const CodeBlock: FC<{ children: ReactNode }> = ({ children }) => {
@@ -60,11 +61,49 @@ const components: Components = {
   hr: () => <hr className="border-outline-variant/20 my-3" />,
 };
 
-/** Rendu Markdown (GFM) stylé selon le thème, pour les réponses de l'assistant. */
-const ChatMarkdown: FC<{ content: string }> = ({ content }) => (
-  <div className="text-sm font-body break-words">
-    <Markdown remarkPlugins={[remarkGfm]} components={components}>{content}</Markdown>
-  </div>
-);
+/**
+ * Rendu Markdown (GFM) stylé selon le thème, pour les réponses de l'assistant.
+ *
+ * Quand `citationCount` est fourni (nombre de sources), les marqueurs [n] de la réponse
+ * (1 ≤ n ≤ citationCount) sont rendus en puces cliquables ; `onCitationClick(n)` remonte le
+ * clic (le Playground déplie/défile alors vers la source n). Sans `citationCount`, le rendu
+ * est inchangé — les [n] restent du texte normal.
+ */
+const ChatMarkdown: FC<{
+  content: string;
+  citationCount?: number;
+  onCitationClick?: (n: number) => void;
+}> = ({ content, citationCount, onCitationClick }) => {
+  const cites = citationCount && citationCount > 0;
+  const citeComponents: Components = cites
+    ? {
+        ...components,
+        sup: ({ children, node }) => {
+          const cite = node?.properties?.dataCite;
+          if (cite == null) return <sup>{children}</sup>;
+          const n = Number(cite);
+          return (
+            <button
+              type="button"
+              onClick={() => onCitationClick?.(n)}
+              aria-label={`Source ${n}`}
+              className="rag-cite align-super text-[0.65em] font-bold text-primary bg-primary/10 hover:bg-primary/20 border border-primary/30 rounded px-1 mx-0.5 transition-colors cursor-pointer leading-none"
+            >
+              {n}
+            </button>
+          );
+        },
+      }
+    : components;
+  return (
+    <div className="text-sm font-body break-words">
+      <Markdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={cites ? [[rehypeCitations, { max: citationCount }]] : []}
+        components={citeComponents}
+      >{content}</Markdown>
+    </div>
+  );
+};
 
 export default ChatMarkdown;

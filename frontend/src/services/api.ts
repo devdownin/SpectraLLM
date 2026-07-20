@@ -216,6 +216,8 @@ export interface StreamDoneMeta {
   selfRagScores?: string;
   /** Chronologie des étapes du pipeline (durée serveur + compteurs), pour la timeline du Trace. */
   stages?: StreamStageTrace[];
+  /** Taille (caractères) du contexte récupéré injecté dans le prompt — budget d'entrée estimé (~4 c/token). */
+  contextChars?: number;
 }
 
 /** Décompte 👍/👎 pour une strate (stratégie ou module). */
