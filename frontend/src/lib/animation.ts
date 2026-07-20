@@ -42,3 +42,27 @@ export const formatCount = (value: number, decimals = 0, groupSeparator = ''): s
   const sign = safe < 0 ? '-' : '';
   return decPart ? `${sign}${grouped}.${decPart}` : `${sign}${grouped}`;
 };
+
+/** Jeu de caractères du brouillage « déchiffrement » (effet DecryptedText). */
+export const DECRYPT_CHARS =
+  'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!<>-_\\/[]{}=+*^?#';
+
+/**
+ * Rend une étape du « déchiffrement » : les `revealed` premiers caractères sont réels, les
+ * suivants sont brouillés (via `rng`). Espaces et sauts de ligne sont toujours préservés pour
+ * conserver la silhouette du texte. `rng` est injectable pour un test déterministe.
+ */
+export const scrambleReveal = (
+  target: string,
+  revealed: number,
+  charset: string = DECRYPT_CHARS,
+  rng: () => number = Math.random,
+): string => {
+  let out = '';
+  for (let i = 0; i < target.length; i++) {
+    const ch = target[i];
+    if (i < revealed || ch === ' ' || ch === '\n' || ch === '\t') out += ch;
+    else out += charset.charAt(Math.floor(rng() * charset.length));
+  }
+  return out;
+};

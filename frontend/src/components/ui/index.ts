@@ -25,4 +25,6 @@ export { AnimatedContent } from './AnimatedContent';
 export type { AnimatedContentProps } from './AnimatedContent';
 export { SpotlightCard } from './SpotlightCard';
 export type { SpotlightCardProps } from './SpotlightCard';
+export { DecryptedText } from './DecryptedText';
+export type { DecryptedTextProps } from './DecryptedText';
 export { cn } from './cn';
