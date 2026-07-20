@@ -8,6 +8,10 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Correctif — dashboard Grafana : panneaux dupliqués supprimés
+
+- **Dédoublonnage du dashboard** ([grafana-dashboard.yaml](deploy/k8s/monitoring/grafana-dashboard.yaml)) : un merge côté `main` (PR #264/#265) avait introduit une **seconde copie** de quatre panneaux (« Circuit Breakers (State) », « Erreurs (Logs ERROR/WARN) », « HikariCP - Connexions », « JVM Threads (incl. Virtual) »). Le JSON importé par le sidecar Grafana affichait donc ces graphes en double. La copie superflue est retirée ; le dashboard revient à 12 panneaux uniques (ids 1 à 12), sans changement fonctionnel.
+
 ### RAG — état serveur des modules exposé (toggles et Advisor fidèles au déploiement)
 
 Comble l'écart entre le RAG Advisor (qui recommande des variables d'environnement, donc un redéploiement) et les toggles du Playground (jusqu'ici purement navigateur, sans savoir ce qui est réellement déployé) :
