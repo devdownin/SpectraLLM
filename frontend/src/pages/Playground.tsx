@@ -555,6 +555,17 @@ const Playground: FC = () => {
     staleTime: 30_000,
   });
   const availableModels = modelsData?.chatModels ?? [];
+
+  // Disponibilité RÉELLE des modules RAG côté serveur (bean déployé) : un toggle pour un
+  // module absent est désactivé (on ne peut pas l'activer par requête).
+  const { data: ragConfig } = useQuery<Record<string, boolean>>({
+    queryKey: ['playground-rag-config'],
+    queryFn: async () => (await configApi.getRagConfig()).data.modules ?? {},
+    staleTime: 60_000,
+  });
+  /** true si le module est déployé serveur, ou si l'info n'est pas encore connue (optimiste). */
+  const moduleAvailable = (key: OverrideKey): boolean => ragConfig ? ragConfig[key] !== false : true;
+
   // `undefined` avant le premier poll → on n'empêche pas l'envoi (optimiste).
   const llmDown = chatService ? !chatService.available : false;
   const ragDegraded = ragEnabled && chromaService ? !chromaService.available : false;
@@ -1220,21 +1231,25 @@ const Playground: FC = () => {
                           </p>
                         </Tooltip>
                         {RAG_MODULES.map(mod => {
-                          const enabled = !disabledModules.has(mod.key);
+                          const available = moduleAvailable(mod.key);
+                          const enabled = available && !disabledModules.has(mod.key);
+                          // Module non déployé serveur : case décochée, verrouillée, libellé grisé.
                           return (
-                            <label key={mod.key} className="flex items-center gap-2.5 cursor-pointer group">
+                            <label key={mod.key} className={`flex items-center gap-2.5 group ${available ? 'cursor-pointer' : 'cursor-not-allowed'}`}>
                               <input
                                 type="checkbox"
                                 checked={enabled}
-                                onChange={() => toggleModule(mod.key)}
+                                disabled={!available}
+                                onChange={() => available && toggleModule(mod.key)}
                                 className="sr-only peer"
                               />
-                              <div className="w-3.5 h-3.5 border border-primary/60 flex items-center justify-center group-hover:bg-primary/10 transition-colors peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-primary peer-focus-visible:outline-offset-2">
+                              <div className={`w-3.5 h-3.5 border flex items-center justify-center transition-colors peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-primary peer-focus-visible:outline-offset-2 ${available ? 'border-primary/60 group-hover:bg-primary/10' : 'border-outline/40'}`}>
                                 {enabled && <div className="w-1.5 h-1.5 bg-primary" />}
                               </div>
-                              <Tooltip content={mod.hint}>
-                                <span className={`text-[11px] tracking-wide cursor-help ${enabled ? 'text-on-surface-variant' : 'text-outline line-through'}`}>
+                              <Tooltip content={available ? mod.hint : `${mod.label} is not enabled on the server (deploy-time env var). It stays off regardless of this toggle.`}>
+                                <span className={`text-[11px] tracking-wide flex items-center gap-1 ${available ? `cursor-help ${enabled ? 'text-on-surface-variant' : 'text-outline line-through'}` : 'cursor-not-allowed text-outline/60'}`}>
                                   {mod.label}
+                                  {!available && <span className="text-[9px] uppercase tracking-widest text-outline/50">off</span>}
                                 </span>
                               </Tooltip>
                             </label>

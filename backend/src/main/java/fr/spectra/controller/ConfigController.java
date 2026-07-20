@@ -4,6 +4,7 @@ import fr.spectra.dto.ResourceProfile;
 import fr.spectra.service.EmbeddingConsistencyChecker;
 import fr.spectra.service.EmbeddingReindexService;
 import fr.spectra.service.LlmChatClient;
+import fr.spectra.service.RagService;
 import fr.spectra.service.ResourceAdvisorService;
 import fr.spectra.service.RuntimeParamsMaterializer;
 import io.swagger.v3.oas.annotations.Operation;
@@ -28,16 +29,32 @@ public class ConfigController {
     private final EmbeddingConsistencyChecker embeddingConsistencyChecker;
     private final EmbeddingReindexService embeddingReindexService;
     private final RuntimeParamsMaterializer runtimeParamsMaterializer;
+    private final RagService ragService;
 
     public ConfigController(LlmChatClient chatClient, ResourceAdvisorService resourceAdvisor,
                             EmbeddingConsistencyChecker embeddingConsistencyChecker,
                             EmbeddingReindexService embeddingReindexService,
-                            RuntimeParamsMaterializer runtimeParamsMaterializer) {
+                            RuntimeParamsMaterializer runtimeParamsMaterializer,
+                            RagService ragService) {
         this.chatClient = chatClient;
         this.resourceAdvisor = resourceAdvisor;
         this.embeddingConsistencyChecker = embeddingConsistencyChecker;
         this.embeddingReindexService = embeddingReindexService;
         this.runtimeParamsMaterializer = runtimeParamsMaterializer;
+        this.ragService = ragService;
+    }
+
+    @Operation(
+            summary = "Disponibilité serveur des modules RAG",
+            description = "Indique, par module (adaptive, conversational, hybrid, rerank, corrective, "
+                    + "compression, selfRag, multiQuery, agentic, semanticDedup, longContext), s'il est "
+                    + "déployé côté serveur (bean présent via sa variable d'environnement). Le Playground "
+                    + "s'en sert pour désactiver le toggle d'un module absent (non activable par requête) "
+                    + "et pour afficher l'état réel plutôt que de deviner."
+    )
+    @GetMapping("/rag")
+    public ResponseEntity<Map<String, Object>> ragConfig() {
+        return ResponseEntity.ok(Map.of("modules", ragService.moduleAvailability()));
     }
 
     @Operation(summary = "Retourne le modèle LLM actif")

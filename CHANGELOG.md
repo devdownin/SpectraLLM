@@ -8,6 +8,14 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### RAG — état serveur des modules exposé (toggles et Advisor fidèles au déploiement)
+
+Comble l'écart entre le RAG Advisor (qui recommande des variables d'environnement, donc un redéploiement) et les toggles du Playground (jusqu'ici purement navigateur, sans savoir ce qui est réellement déployé) :
+
+- **`GET /api/config/rag`** : renvoie la disponibilité **réelle** de chaque module RAG côté serveur (bean présent = déployé via sa variable d'environnement) — adaptive, conversational, hybrid, rerank, corrective, compression, selfRag, multiQuery, agentic, semanticDedup, longContext. `RagService.moduleAvailability()`.
+- **Toggles Playground fidèles** : un module non déployé apparaît **grisé, mention « OFF », interrupteur verrouillé** — plus de faux-semblant qu'on pourrait l'activer par requête (on ne peut que le désactiver s'il est déployé). Les modules déployés restent pilotables.
+- **RAG Advisor conscient de l'état** : dans le guide des stratégies, un module déployé porte un badge **« ● active »** (au lieu de seulement « ✓ recommended ») — on distingue ce qui tourne déjà de ce qu'il reste à activer.
+
 ### Playground — comparaison A/B → paires DPO (boucle vers le fine-tuning)
 
 - **Vote de préférence dans la comparaison A/B** : le dialogue « Compare » propose désormais « Which is better? » (réponse de référence vs variante sans un module). Le choix humain est enregistré comme **paire DPO** (`chosen`/`rejected`) sur la **même question** — un signal de préférence bien plus propre que l'agrégation 👍/👎. `POST /api/dataset/dpo/preference`.

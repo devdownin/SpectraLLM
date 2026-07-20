@@ -352,6 +352,11 @@ export const ablationApi = {
   cancelJob: (jobId: string) => api.delete(`/ablation/jobs/${jobId}`),
 };
 
+/** Disponibilité serveur des modules RAG (bean déployé) renvoyée par `GET /config/rag`. */
+export interface RagModuleConfig {
+  modules: Record<string, boolean>;
+}
+
 export const configApi = {
   getModelConfig: () => api.get('/config/model'),
   setModelConfig: (config: any) => api.post('/config/model', config),
@@ -360,6 +365,8 @@ export const configApi = {
   reindexCollection: (collection: string) =>
     api.post('/config/embedding-consistency/reindex', { collection }),
   getReindexStatuses: () => api.get('/config/embedding-consistency/reindex'),
+  /** État réel des modules RAG côté serveur (module → déployé ou non). */
+  getRagConfig: () => api.get<RagModuleConfig>('/config/rag'),
 };
 
 export const qualityBenchmarkApi = {

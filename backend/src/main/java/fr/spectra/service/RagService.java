@@ -187,6 +187,28 @@ public class RagService {
     }
 
     /**
+     * Disponibilité RÉELLE de chaque module RAG côté serveur (bean présent = module déployé via
+     * sa variable d'environnement). Permet au Playground de refléter l'état effectif du serveur :
+     * un toggle pour un module non déployé est désactivé (on ne peut pas l'activer par requête),
+     * et le RAG Advisor peut afficher « déjà actif » plutôt que « pose telle variable d'env ».
+     */
+    public Map<String, Boolean> moduleAvailability() {
+        Map<String, Boolean> m = new LinkedHashMap<>();
+        m.put("adaptive",       adaptiveRagService.isPresent());
+        m.put("conversational", conversationalRagService.isPresent());
+        m.put("multiQuery",     multiQueryService.isPresent());
+        m.put("hybrid",         hybridSearchService.isPresent());
+        m.put("rerank",         rerankerClient.isPresent());
+        m.put("corrective",     correctiveRagService.isPresent());
+        m.put("compression",    contextCompressionService.isPresent());
+        m.put("selfRag",        selfRagService.isPresent());
+        m.put("agentic",        agenticRagService.isPresent());
+        m.put("semanticDedup",  props.semanticDedup() != null && props.semanticDedup().isEnabled());
+        m.put("longContext",    props.longContextRag() != null && props.longContextRag().isEnabled());
+        return m;
+    }
+
+    /**
      * Variante avec <b>surcharges par requête</b> : chaque module optionnel peut être forcé
      * actif/inactif (utilisée par l'ablation pour mesurer l'apport de chaque option). Un override
      * à {@code true} n'a d'effet que si le module est disponible ; {@code null} = défaut de config.

@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import type { FC } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { gedApi, ingestApi, queryApi } from '../services/api';
+import { gedApi, ingestApi, queryApi, configApi } from '../services/api';
 import type { FeedbackStats, RatingCounts } from '../services/api';
 import { downRate, downRateSeverity, sortModulesByDownRate } from '../lib/ragPipeline';
 import type { DownRateSeverity } from '../lib/ragPipeline';
@@ -271,6 +271,18 @@ const RagAdvisor: FC<Props> = ({ open, onClose }) => {
     staleTime: 30_000,
   });
 
+  const { data: ragConfig } = useQuery<Record<string, boolean>>({
+    queryKey: ['rag-config-advisor'],
+    queryFn: () => configApi.getRagConfig().then(r => r.data.modules ?? {}),
+    enabled: open,
+    staleTime: 60_000,
+  });
+  // Clé STRATEGIES → clé de disponibilité serveur (self_rag → selfRag ; les autres coïncident).
+  const strategyActive = (key: string): boolean => {
+    const map: Record<string, string> = { self_rag: 'selfRag' };
+    return ragConfig?.[map[key] ?? key] === true;
+  };
+
   const formats = useMemo(() => {
     if (!files) return [];
     const seen = new Set<string>();
@@ -463,8 +475,12 @@ const RagAdvisor: FC<Props> = ({ open, onClose }) => {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <p className="font-headline font-bold text-sm tracking-tight">{s.name}</p>
-                          {isRecommended && (
-                            <span className="text-[10px] font-bold px-1 py-0.5 border border-primary/30 text-primary uppercase tracking-wider bg-primary/5">
+                          {strategyActive(s.key) ? (
+                            <span className="text-[10px] font-bold px-1 py-0.5 border border-primary/40 text-primary uppercase tracking-wider bg-primary/10">
+                              ● active
+                            </span>
+                          ) : isRecommended && (
+                            <span className="text-[10px] font-bold px-1 py-0.5 border border-secondary/30 text-secondary uppercase tracking-wider bg-secondary/5">
                               ✓ recommended
                             </span>
                           )}
