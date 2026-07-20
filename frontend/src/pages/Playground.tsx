@@ -14,8 +14,10 @@ import ChatMarkdown from '../components/ChatMarkdown';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import {
   RAG_MODULES, appliedModules, overridesFromDisabled, isBm25Only, relevancePct, fmtMs, formatStageCounts, abPreferencePair,
+  buildFunnel, tokenBudget,
 } from '../lib/ragPipeline';
-import type { OverrideKey, ModuleDef } from '../lib/ragPipeline';
+import type { OverrideKey, ModuleDef, FunnelStep } from '../lib/ragPipeline';
+import { parseCitations } from '../lib/citations';
 
 interface Source {
   preview?: string;
@@ -50,6 +52,8 @@ interface RagMeta {
   selfRagScores?: string;
   /** Chronologie serveur des étapes (durée + compteurs), pour la timeline du Trace. */
   stages?: StreamStageTrace[];
+  /** Taille (caractères) du contexte récupéré injecté dans le prompt (budget de tokens estimé). */
+  contextChars?: number;
 }
 
 interface MessageMetrics {
@@ -168,12 +172,29 @@ const RagBadges: FC<{ meta: RagMeta; onShowTrace?: () => void }> = ({ meta, onSh
 };
 
 /** Source de réponse dépliable : nom de fichier + pertinence + passage récupéré. */
-const SourceItem: FC<{ src: Source; expert?: boolean }> = ({ src, expert = false }) => {
+const SourceItem: FC<{
+  src: Source;
+  expert?: boolean;
+  /** Numéro de citation [n] affiché en tête (correspond aux marqueurs [n] de la réponse). */
+  citeNumber?: number;
+  /** Source réellement citée dans la réponse — mise en évidence. */
+  cited?: boolean;
+  /** Compteur incrémenté à chaque clic sur la citation [n] : déplie et défile jusqu'ici. */
+  openSignal?: number;
+}> = ({ src, expert = false, citeNumber, cited = false, openSignal = 0 }) => {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
   const snippet = src.preview ?? src.text ?? '';
   const pct = relevancePct(src);
+
+  useEffect(() => {
+    if (openSignal > 0) {
+      setOpen(true);
+      ref.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [openSignal]);
 
   const openInDatabase = async () => {
     try {
@@ -188,14 +209,16 @@ const SourceItem: FC<{ src: Source; expert?: boolean }> = ({ src, expert = false
   };
 
   return (
-    <div className="border-b border-outline-variant/10 last:border-0">
+    <div ref={ref} className={`border-b border-outline-variant/10 last:border-0 ${cited ? 'bg-primary/5 -mx-1 px-1 rounded' : ''}`}>
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
         aria-expanded={open}
         className="w-full flex items-center gap-2 py-1 text-left hover:text-primary transition-colors"
       >
-        <span aria-hidden="true" className="material-symbols-outlined text-[12px] text-primary shrink-0">article</span>
+        {typeof citeNumber === 'number'
+          ? <span className={`font-mono text-[10px] font-bold shrink-0 w-4 text-center rounded ${cited ? 'text-primary bg-primary/15' : 'text-outline'}`} title={cited ? 'Cited in the answer' : 'Not cited in the answer'}>{citeNumber}</span>
+          : <span aria-hidden="true" className="material-symbols-outlined text-[12px] text-primary shrink-0">article</span>}
         <span className="font-mono text-[10px] text-on-surface-variant truncate flex-1">{src.sourceFile}</span>
         {pct !== null && <span className="text-[10px] font-bold text-primary shrink-0" title={t('playground.relevance')}>{pct}%</span>}
         {isBm25Only(src) && (
@@ -266,6 +289,58 @@ const StageTimeline: FC<{ stages: StreamStageTrace[] }> = ({ stages }) => {
         <span>Total pipeline (server)</span>
         <span className="font-mono">{fmtMs(total)}</span>
       </div>
+    </div>
+  );
+};
+
+/**
+ * Entonnoir de récupération : combien de chunks ont été récupérés, puis combien chaque étape
+ * filtrante (Corrective, Compression) en a retiré jusqu'au contexte final. Rend visible « où »
+ * et « par quoi » les chunks disparaissent — là où la timeline ne montrait que les durées.
+ */
+const RetrievalFunnel: FC<{ steps: FunnelStep[] }> = ({ steps }) => {
+  const max = Math.max(1, ...steps.map(s => s.count));
+  return (
+    <div className="space-y-2.5">
+      {steps.map((s, i) => {
+        const pct = Math.max(4, Math.round((s.count / max) * 100));
+        return (
+          <div key={i} className="space-y-1">
+            <div className="flex items-center justify-between text-[11px] gap-3">
+              <span className="font-bold text-on-surface shrink-0">{s.label}</span>
+              <span className="flex items-center gap-2 font-mono text-outline">
+                {s.dropped > 0 && <span className="text-error">−{s.dropped} dropped</span>}
+                <span className="text-on-surface">{s.count} chunks</span>
+              </span>
+            </div>
+            <div className="h-2 bg-surface-container rounded overflow-hidden">
+              <div className={`h-full rounded ${i === 0 ? 'bg-primary/60' : 'bg-secondary/60'}`} style={{ width: `${pct}%` }} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+/**
+ * Budget de tokens (estimé à ~4 caractères/token) : part du contexte récupéré (entrée) vs
+ * réponse générée (sortie). Répond à « combien du budget est parti dans le contexte récupéré ? ».
+ */
+const TokenBudgetBar: FC<{ contextChars: number; outputTokens: number }> = ({ contextChars, outputTokens }) => {
+  const b = tokenBudget(contextChars, outputTokens);
+  if (b.total === 0) return null;
+  return (
+    <div className="space-y-2">
+      <div className="flex h-3 rounded overflow-hidden bg-surface-container">
+        <div className="bg-primary/60 h-full" style={{ width: `${b.inputPct}%` }} title={`Retrieved context — ~${b.inputTokens} tokens`} />
+        <div className="bg-secondary/60 h-full" style={{ width: `${100 - b.inputPct}%` }} title={`Generated answer — ${b.outputTokens} tokens`} />
+      </div>
+      <div className="flex items-center justify-between text-[11px] font-mono">
+        <span className="flex items-center gap-1.5"><span className="inline-block w-2 h-2 bg-primary/60 rounded-sm" />Context in ~{b.inputTokens} tok</span>
+        <span className="flex items-center gap-1.5"><span className="inline-block w-2 h-2 bg-secondary/60 rounded-sm" />Answer out {b.outputTokens} tok</span>
+      </div>
+      <p className="text-[10px] text-outline">Estimated at ~4 characters/token. Context = the retrieved chunks injected into the prompt.</p>
     </div>
   );
 };
@@ -526,6 +601,13 @@ const Playground: FC = () => {
     baseline: Message; question: string; module: ModuleDef; history: { role: string; content: string }[];
   } | null>(null);
   const [compareMenuIdx, setCompareMenuIdx] = useState<number | null>(null);
+  // Cible de citation : clé `${messageIdx}-${sourceNumber}` + compteur de clics. Un changement
+  // déclenche l'ouverture + le défilement de la source correspondante (cf. SourceItem.openSignal).
+  const [citeTarget, setCiteTarget] = useState<{ key: string; tick: number } | null>(null);
+  const jumpToSource = (msgIdx: number, n: number) => {
+    const key = `${msgIdx}-${n}`;
+    setCiteTarget(prev => ({ key, tick: (prev?.key === key ? prev.tick : 0) + 1 }));
+  };
 
   const [activeModel, setActiveModel] = useState<string>('');
   const queryClient = useQueryClient();
@@ -882,6 +964,7 @@ const Playground: FC = () => {
               agenticStopReason:     parsed.agenticStopReason,
               selfRagScores:         parsed.selfRagScores,
               stages:                parsed.stages,
+              contextChars:          parsed.contextChars,
             };
           } catch { /* ignore */ }
 
@@ -1376,7 +1459,13 @@ const Playground: FC = () => {
                 </p>
                 {msg.role === 'assistant' ? (
                   <div className="text-sm">
-                    {msg.content && <ChatMarkdown content={msg.content} />}
+                    {msg.content && (
+                      <ChatMarkdown
+                        content={msg.content}
+                        citationCount={msg.status === 'SENT' ? msg.sources?.length : undefined}
+                        onCitationClick={n => jumpToSource(i, n)}
+                      />
+                    )}
                     {msg.status === 'STREAMING' && (
                       <span className="inline-block w-1.5 h-3.5 bg-primary ml-0.5 animate-pulse align-middle" />
                     )}
@@ -1392,12 +1481,27 @@ const Playground: FC = () => {
                   <p className="text-sm font-body leading-relaxed whitespace-pre-wrap">{msg.content}</p>
                 )}
 
-                {msg.sources && msg.sources.length > 0 && (
-                  <div className="mt-4 pt-4 border-t border-outline-variant/20">
-                    <p className="font-label text-[10px] uppercase tracking-widest text-outline mb-1">Sources ({msg.sources.length})</p>
-                    {msg.sources.map((src, j) => <SourceItem key={j} src={src} expert={expertMode} />)}
-                  </div>
-                )}
+                {msg.sources && msg.sources.length > 0 && (() => {
+                  // Sources citées dans la réponse (marqueurs [n]) : numérotées et mises en évidence.
+                  const cited = new Set(parseCitations(msg.content, msg.sources.length));
+                  return (
+                    <div className="mt-4 pt-4 border-t border-outline-variant/20">
+                      <p className="font-label text-[10px] uppercase tracking-widest text-outline mb-1">
+                        Sources ({msg.sources.length}){cited.size > 0 && <span className="text-primary normal-case tracking-normal ml-1">· {cited.size} cited</span>}
+                      </p>
+                      {msg.sources.map((src, j) => (
+                        <SourceItem
+                          key={j}
+                          src={src}
+                          expert={expertMode}
+                          citeNumber={j + 1}
+                          cited={cited.has(j + 1)}
+                          openSignal={citeTarget?.key === `${i}-${j + 1}` ? citeTarget.tick : 0}
+                        />
+                      ))}
+                    </div>
+                  );
+                })()}
 
                 {/* Badges pipeline visibles pour tous (visibilité du fonctionnement RAG) ;
                     le mode expert reste réservé aux distances brutes et métriques. */}
@@ -1682,6 +1786,35 @@ const Playground: FC = () => {
                   </h3>
                   <div className="bg-surface-container-low border border-outline-variant/10 rounded-lg p-4">
                     <StageTimeline stages={traceMsg.ragMeta.stages} />
+                  </div>
+                </div>
+              )}
+
+              {(() => {
+                const funnel = traceMsg.ragMeta?.stages ? buildFunnel(traceMsg.ragMeta.stages) : [];
+                return funnel.length > 1 ? (
+                  <div className="space-y-3">
+                    <h3 className="font-headline font-bold text-sm text-primary uppercase tracking-widest flex items-center gap-2">
+                      <span className="material-symbols-outlined text-base">filter_list</span>
+                      Retrieval Funnel
+                      <span className="text-[10px] normal-case tracking-normal font-body font-normal text-on-surface-variant">(chunks kept per stage)</span>
+                    </h3>
+                    <div className="bg-surface-container-low border border-outline-variant/10 rounded-lg p-4">
+                      <RetrievalFunnel steps={funnel} />
+                    </div>
+                  </div>
+                ) : null;
+              })()}
+
+              {typeof traceMsg.ragMeta?.contextChars === 'number' && traceMsg.ragMeta.contextChars > 0 && (
+                <div className="space-y-3">
+                  <h3 className="font-headline font-bold text-sm text-secondary uppercase tracking-widest flex items-center gap-2">
+                    <span className="material-symbols-outlined text-base">data_usage</span>
+                    Token Budget
+                    <span className="text-[10px] normal-case tracking-normal font-body font-normal text-on-surface-variant">(estimated)</span>
+                  </h3>
+                  <div className="bg-surface-container-low border border-outline-variant/10 rounded-lg p-4">
+                    <TokenBudgetBar contextChars={traceMsg.ragMeta.contextChars} outputTokens={traceMsg.metrics?.tokens ?? 0} />
                   </div>
                 </div>
               )}

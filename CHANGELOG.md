@@ -8,6 +8,14 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Playground — visibilité RAG approfondie : citations en ligne, entonnoir de récupération, budget de tokens
+
+Trois compléments qui ouvrent le « comment » du pipeline là où l'utilisateur ne voyait que le « quoi » :
+
+- **Citations en ligne.** Le backend numérote désormais chaque passage du contexte (`[1]`, `[2]`, …) et demande au modèle de citer ses sources avec ces marqueurs. Côté Playground, les `[n]` de la réponse deviennent des puces **cliquables** qui déplient et défilent jusqu'à la source correspondante ; la liste des sources est numérotée et les sources **réellement citées** sont mises en évidence (« N cited »). Dégrade proprement : sans marqueur (mode DIRECT, réponse non citée), le rendu est inchangé. `RagService` (contexte numéroté + consigne de citation), `rehypeCitations` (rendu Markdown), `parseCitations` (extraction).
+- **Entonnoir de récupération.** Nouveau panneau du Trace : `Récupérés → après Corrective → après Compression → contexte final`, avec le nombre de chunks retirés par chaque étape filtrante. Rend visible **où** et **par quoi** les chunks disparaissent, là où la timeline ne montrait que les durées. Reconstruit côté client depuis les compteurs de la timeline serveur (`buildFunnel`) — aucun surcoût backend.
+- **Budget de tokens.** L'événement `done` porte la taille du contexte injecté (`contextChars`) ; le Trace affiche une barre **contexte récupéré (entrée) vs réponse générée (sortie)**, estimée à ~4 caractères/token (convention déjà utilisée pour les budgets long-contexte/agentique). Répond à « combien du budget est parti dans le contexte plutôt que dans la réponse ? ». `tokenBudget`/`estimateTokens`.
+
 ### Correctif — dashboard Grafana : panneaux dupliqués supprimés
 
 - **Dédoublonnage du dashboard** ([grafana-dashboard.yaml](deploy/k8s/monitoring/grafana-dashboard.yaml)) : un merge côté `main` (PR #264/#265) avait introduit une **seconde copie** de quatre panneaux (« Circuit Breakers (State) », « Erreurs (Logs ERROR/WARN) », « HikariCP - Connexions », « JVM Threads (incl. Virtual) »). Le JSON importé par le sidecar Grafana affichait donc ces graphes en double. La copie superflue est retirée ; le dashboard revient à 12 panneaux uniques (ids 1 à 12), sans changement fonctionnel.

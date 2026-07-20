@@ -80,6 +80,9 @@ public class RagService {
             fr.spectra.model.AssistantPersona.SYSTEM_PROMPT + "\n"
             + """
             Réponds de manière précise et concise en te basant UNIQUEMENT sur le contexte fourni ci-dessous.
+            Chaque passage du contexte est numéroté [1], [2], … : cite tes sources en insérant le numéro
+            correspondant entre crochets juste après l'information qu'il justifie (ex. « la valeur par défaut
+            est 512 [3]. »). N'invente jamais de numéro et ne cite que des passages réellement présents.
             Si le contexte ne contient pas l'information demandée, dis-le clairement.
             Ne fabrique pas d'information.
 
@@ -379,7 +382,10 @@ public class RagService {
             /** Scores de réflexion Self-RAG (ISREL/ISSUP/ISUSE), {@code null} si non évalué. */
             String selfRagScores,
             /** Chronologie des étapes du pipeline (durée serveur + compteurs), pour la timeline du Trace. */
-            List<StageTrace> stages
+            List<StageTrace> stages,
+            /** Taille (caractères) du contexte récupéré injecté dans le prompt — budget d'entrée
+             *  estimé côté client (~4 caractères/token). 0 en mode DIRECT / sans contexte. */
+            int contextChars
     ) {
         /** Variante sans timeline (chemins directs). */
         PipelineMeta(boolean conversationalApplied, boolean correctiveApplied, boolean selfRagApplied,
@@ -390,7 +396,7 @@ public class RagService {
             this(conversationalApplied, correctiveApplied, selfRagApplied, ragStrategy, rerankApplied,
                     hybridSearchApplied, multiQueryApplied, semanticDedupApplied, longContextApplied,
                     compressionApplied, chunkCount, rewrittenQuestion, agenticIterations, agenticStopReason,
-                    selfRagScores, null);
+                    selfRagScores, null, 0);
         }
     }
 
@@ -488,7 +494,7 @@ public class RagService {
                         request.temperature(), request.topP()));
                 trace.add(new StageTrace("generation", System.currentTimeMillis() - tg, null, null, null));
                 sink.next(doneEvent(new PipelineMeta(false, false, false, "DIRECT",
-                        false, false, false, false, false, false, 0, null, 0, null, null, trace)));
+                        false, false, false, false, false, false, 0, null, 0, null, null, trace, 0)));
                 return;
             }
             // Comme en non-streaming : AGENTIC sans service agentique → dégradation STANDARD
@@ -584,7 +590,7 @@ public class RagService {
                     compressionApplied, resp.sources().size(), rewrittenQuestion,
                     resp.agenticIterations(),
                     resp.agenticStopReason() != null ? resp.agenticStopReason().name() : null,
-                    null, trace)));
+                    null, trace, contextChars(ctx))));
             return;
         }
 
@@ -598,7 +604,7 @@ public class RagService {
                     conversationalApplied, correctiveApplied, false, ragStrategy,
                     ctx.rerankApplied(), ctx.hybridApplied(), ctx.multiQueryApplied(),
                     ctx.semanticDedupApplied(), ctx.longContextApplied(), compressionApplied,
-                    0, rewrittenQuestion, 0, null, null, trace)));
+                    0, rewrittenQuestion, 0, null, null, trace, 0)));
             return;
         }
 
@@ -644,7 +650,8 @@ public class RagService {
                 conversationalApplied, correctiveApplied, selfRagApplied, ragStrategy,
                 ctx.rerankApplied(), ctx.hybridApplied(), ctx.multiQueryApplied(),
                 ctx.semanticDedupApplied(), ctx.longContextApplied(), compressionApplied,
-                ctx.contextChunks().size(), rewrittenQuestion, 0, null, selfRagScores, trace)));
+                ctx.contextChunks().size(), rewrittenQuestion, 0, null, selfRagScores, trace,
+                contextChars(ctx))));
     }
 
     // ── Helpers SSE ────────────────────────────────────────────────────────────
@@ -711,6 +718,11 @@ public class RagService {
         } catch (JsonProcessingException e) {
             return ServerSentEvent.<String>builder().event("sources").data("[]").build();
         }
+    }
+
+    /** Somme des caractères des chunks de contexte injectés — budget d'entrée du prompt. */
+    private static int contextChars(RagContext ctx) {
+        return ctx.contextChunks().stream().mapToInt(c -> c != null ? c.length() : 0).sum();
     }
 
     /** Formate les scores de réflexion Self-RAG pour l'événement {@code done}. */
@@ -1059,7 +1071,11 @@ public class RagService {
             double distance   = distances.get(i);
             Float rerankScore = (rerankScores != null && i < rerankScores.size()) ? rerankScores.get(i) : null;
             Float bm25Score   = (bm25Scores   != null && i < bm25Scores.size())   ? bm25Scores.get(i)   : null;
-            context.append("[Source: ").append(sourceFile).append("]\n").append(chunkText).append("\n\n");
+            // Passage numéroté [n] : la numérotation suit l'ordre de la liste des sources renvoyée
+            // au client (sources.get(i) ↔ [i+1]), pour que les citations [n] de la réponse soient
+            // résolubles côté Playground vers le bon extrait.
+            context.append("[").append(i + 1).append("] (Source: ").append(sourceFile).append(")\n")
+                    .append(chunkText).append("\n\n");
             sources.add(new QueryResponse.Source(
                     chunkText.length() > 200 ? chunkText.substring(0, 200) + "..." : chunkText,
                     sourceFile, distance, rerankScore, bm25Score));

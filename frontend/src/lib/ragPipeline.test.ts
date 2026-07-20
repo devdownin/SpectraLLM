@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   RAG_MODULES, appliedModules, overridesFromDisabled, isBm25Only, relevancePct, fmtMs, formatStageCounts,
   downRate, downRateSeverity, sortModulesByDownRate, abPreferencePair,
+  buildFunnel, estimateTokens, tokenBudget,
 } from './ragPipeline';
 import type { RagMetaFlags, OverrideKey } from './ragPipeline';
 import type { StreamStageTrace } from '../services/api';
@@ -165,5 +166,52 @@ describe('abPreferencePair', () => {
   });
   it('returns null when both answers are identical (nothing to learn)', () => {
     expect(abPreferencePair('variant', 'same', 'same', 'Q', 'rerank')).toBeNull();
+  });
+});
+
+describe('buildFunnel', () => {
+  const stage = (s: string, inC?: number, outC?: number): StreamStageTrace =>
+    ({ stage: s, durationMs: 10, inCount: inC, outCount: outC, detail: undefined } as StreamStageTrace);
+
+  it('builds retrieved → corrective → compression steps with drop counts', () => {
+    const steps = buildFunnel([
+      stage('retrieval', undefined, 10),
+      stage('grading', 10, 6),
+      stage('compression', 6, 4),
+    ]);
+    expect(steps).toEqual([
+      { label: 'Retrieved', count: 10, dropped: 0 },
+      { label: 'After Corrective', count: 6, dropped: 4 },
+      { label: 'After Compression', count: 4, dropped: 2 },
+    ]);
+  });
+  it('includes only the filtering stages that ran', () => {
+    const steps = buildFunnel([stage('retrieval', undefined, 8), stage('grading', 8, 8)]);
+    expect(steps).toEqual([
+      { label: 'Retrieved', count: 8, dropped: 0 },
+      { label: 'After Corrective', count: 8, dropped: 0 },
+    ]);
+  });
+  it('returns an empty array when retrieval has no count', () => {
+    expect(buildFunnel([stage('routing')])).toEqual([]);
+    expect(buildFunnel([])).toEqual([]);
+  });
+});
+
+describe('estimateTokens / tokenBudget', () => {
+  it('estimates ~4 chars per token', () => {
+    expect(estimateTokens(400)).toBe(100);
+    expect(estimateTokens(0)).toBe(0);
+    expect(estimateTokens(-5)).toBe(0);
+  });
+  it('splits input (context) vs output (answer) tokens', () => {
+    const b = tokenBudget(4000, 200); // 1000 input + 200 output
+    expect(b.inputTokens).toBe(1000);
+    expect(b.outputTokens).toBe(200);
+    expect(b.total).toBe(1200);
+    expect(b.inputPct).toBe(83);
+  });
+  it('handles a zero budget without dividing by zero', () => {
+    expect(tokenBudget(0, 0)).toEqual({ inputTokens: 0, outputTokens: 0, total: 0, inputPct: 0 });
   });
 });
