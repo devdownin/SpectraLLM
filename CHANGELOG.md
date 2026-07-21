@@ -14,6 +14,15 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 - **Succès partiel d'ingestion visible** : une tâche terminée avec des `fileErrors` n'est plus traitée comme un succès plein — le pipeline liste les fichiers en échec et continue (les autres sont vectorisés), et échoue proprement si 0 chunk n'a été produit ou si la tâche est `CANCELLED`.
 - **`MAX_CHUNKS`** : plafonne les chunks utilisés pour la génération du dataset (`0` = tout le corpus) — pour un essai rapide.
 - **`pipeline.bat` (Windows)** : mêmes correctifs, plus la correction d'un prérequis erroné — il vérifiait `data\fine-tuning\merged\model.gguf` (un modèle déjà fine-tuné, absent au premier lancement) au lieu du modèle de chat `data\models\<LLM_CHAT_MODEL_FILE>` chargé par la stack (comme `pipeline.sh`).
+- **Contre-pression respectée (HTTP 429)** : la soumission d'ingestion de `pipeline.sh` respecte désormais l'en-tête `Retry-After` d'un `429` (plafond `max-active-ingestions`) et réessaie jusqu'à `INGEST_MAX_RETRIES` fois (défaut 5) au lieu d'abandonner.
+
+### CI — lint statique des scripts shell (shellcheck)
+
+- Nouveau workflow **Shellcheck** : lint de `scripts/*.sh` au niveau `error` (vrais bugs, sans le bruit des avertissements de style pré-existants ; seuil resserrable à `warning` plus tard). Correction d'une directive `# shellcheck disable` malformée dans `llm-chat-entrypoint.sh` (un tiret cadratin après le code produisait SC1125) ; tous les scripts sont propres au niveau `error`.
+
+### Documentation — guide pédagogique en anglais
+
+- **Guide des idées et des algorithmes en anglais** ([documentation-pedagogique.en.md](docs/user/documentation-pedagogique.en.md)) : traduction complète (~1660 lignes) du guide « du document brut à l'expertise métier » — embeddings, HNSW, ingestion (dont Kafka/upsert), recherche hybride + RRF, re-ranking, six stratégies RAG, jeu de données & QLoRA/DPO/ORPO, évaluation (juge neutre, significativité, A/B), auto-réglage & dimensionnement, résilience, souveraineté/sécurité, déploiement, comparatif des algorithmes, glossaire. Blocs de code, formules mathématiques, diagrammes Mermaid et ancres préservés (18/18 sections, 60/60 blocs de code) ; les deux versions se renvoient l'une à l'autre et le hub docs / les README pointent la version EN.
 
 ## [1.14.0] — 2026-07-21
 
