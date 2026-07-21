@@ -73,6 +73,51 @@ class PipelineConfigValidatorTest {
     }
 
     @Test
+    void multiQueryEnabledWithZeroCount_isRejected() {
+        SpectraProperties props = propsWithPipeline(pipeline(512, 64, 32));
+        when(props.multiQuery()).thenReturn(new SpectraProperties.MultiQueryProperties(true, 0));
+
+        assertThatThrownBy(() -> new PipelineConfigValidator(props, 0).validate())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("multi-query.query-count");
+    }
+
+    @Test
+    void longContextEnabledWithZeroMaxChunks_isRejected() {
+        SpectraProperties props = propsWithPipeline(pipeline(512, 64, 32));
+        when(props.longContextRag()).thenReturn(
+                new SpectraProperties.LongContextRagProperties(true, 0, null));
+
+        assertThatThrownBy(() -> new PipelineConfigValidator(props, 0).validate())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("long-context-rag.max-collection-chunks");
+    }
+
+    @Test
+    void hybridEnabledWithInvalidParams_isRejected() {
+        SpectraProperties props = propsWithPipeline(pipeline(512, 64, 32));
+        when(props.hybridSearch()).thenReturn(
+                new SpectraProperties.HybridSearchProperties(true, 0, -1.0f));
+
+        assertThatThrownBy(() -> new PipelineConfigValidator(props, 0).validate())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("hybrid-search.top-bm25")
+                .hasMessageContaining("hybrid-search.bm25-weight");
+    }
+
+    @Test
+    void allOptionalModulesEnabledAndValid_passes() {
+        SpectraProperties props = propsWithPipeline(pipeline(512, 64, 32));
+        when(props.reranker()).thenReturn(new SpectraProperties.RerankerProperties(true, null, null, null, 20));
+        when(props.multiQuery()).thenReturn(new SpectraProperties.MultiQueryProperties(true, 2));
+        when(props.longContextRag()).thenReturn(new SpectraProperties.LongContextRagProperties(true, 100, null));
+        when(props.hybridSearch()).thenReturn(new SpectraProperties.HybridSearchProperties(true, 20, 1.0f));
+
+        assertThatCode(() -> new PipelineConfigValidator(props, 0).validate())
+                .doesNotThrowAnyException();
+    }
+
+    @Test
     void allErrorsAreReportedTogether() {
         SpectraProperties props = propsWithPipeline(pipeline(512, 600, 0));
 
