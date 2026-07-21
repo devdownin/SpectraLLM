@@ -447,6 +447,7 @@
     "chunksPartial": "{{count}} chunks · partiel",
     "partialTitle": "Terminé avec des erreurs : {{name}}",
     "partialDesc": "{{count}} fichier(s) n'ont pas pu être ingérés — détail dans le flux d'ingestion.",
+    "retry": "Relancer",
     "oomTitle": "Erreur mémoire critique : {{id}}",
     "oomDesc": "Le document est trop volumineux pour la configuration mémoire actuelle.",
     "ingestFailed": "Échec de l'ingestion : {{name}}",

@@ -447,6 +447,7 @@
     "chunksPartial": "{{count}} chunks · partial",
     "partialTitle": "Completed with errors: {{name}}",
     "partialDesc": "{{count}} file(s) could not be ingested — details in the live stream.",
+    "retry": "Retry",
     "oomTitle": "Critical Memory Error: {{id}}",
     "oomDesc": "The document is too large for the current memory configuration.",
     "ingestFailed": "Ingestion failed: {{name}}",

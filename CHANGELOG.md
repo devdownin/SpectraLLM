@@ -138,11 +138,13 @@ Correctifs et améliorations issus d'un audit de la page Playground, avec pour o
 
 - **Deux alertes Prometheus** (`deploy/k8s/monitoring/prometheus-rules.yaml`) : `SpectraIndexDivergence` (warning — divergence FTS/ChromaDB persistante > 2h sur une collection, c.-à-d. que la réparation automatique horaire ne converge pas) et `SpectraChromaEmptyButGedPopulated` (critical — ChromaDB vide alors que la GED déclare des documents : volume perdu/reset, le RAG ne répond plus sur le corpus).
 - **Deux panneaux Grafana** : chunks par magasin (ChromaDB / BM25 / GED) et divergence par collection — le tableau de bord montre d'un coup d'œil si les trois sources de vérité comptent pareil.
+- **Instantané de cohérence au démarrage** (`ConsistencyReconciliationService.snapshotOnStartup`, `ApplicationReadyEvent`) : au boot, les comptes DB / ChromaDB / BM25 sont comparés une fois et journalisés (INFO si cohérent, WARN par collection divergente, ERROR si ChromaDB est vide alors que la GED déclare des chunks — volume vectoriel perdu/reset). Les gauges Prometheus sont peuplées immédiatement au lieu d'attendre le premier cycle de réconciliation (T+2 min). Purement informatif : ne déclenche aucune reconstruction et ne bloque jamais le démarrage (ChromaDB peut encore être indisponible au boot).
 
 ### UI — erreurs d'ingestion par fichier visibles (succès partiels)
 
 - **Live Ingestion Stream** : une tâche terminée dont certains fichiers ont échoué n'apparaît plus comme un succès plein — la ligne passe en avertissement « N chunks · partiel » (icône et barre en couleur d'erreur) avec le détail de chaque échec (`fileErrors`) sous le fichier concerné, et un toast signale la fin de tâche partielle. Le backend remontait ces erreurs depuis l'audit ingestion/GED ; l'UI les ignorait.
 - **Panneau global des tâches** : les échecs par fichier d'une ingestion partielle sont repris dans la ligne de la tâche (champ erreur), visibles depuis n'importe quelle page.
+- **Relance d'une ingestion échouée / partielle** (page Ingestion) : un bouton « Relancer » apparaît sur chaque ligne en échec ou en succès partiel et ré-injecte la source d'origine encore en mémoire (fichier uploadé ou URL). La déduplication SHA-256 côté serveur rend la relance sûre — les fragments déjà ingérés sont ignorés, seuls les fichiers en échec retentent leur chance. Auparavant, une erreur transitoire (timeout LLM, circuit ChromaDB ouvert) imposait de re-sélectionner les fichiers à la main.
 
 ---
 
