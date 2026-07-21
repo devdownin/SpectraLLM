@@ -141,6 +141,21 @@ done
 [ "$API_READY" -eq 1 ] || die "API inaccessible apres 60s. Lancez docker compose up -d d'abord."
 green "API prete"
 
+# ── Clé API (si l'authentification est activée) ───────────────────────────────
+# Si SPECTRA_API_KEY est définie (env ou .env), toutes les requêtes /api/** doivent
+# porter l'en-tête X-API-Key — sinon l'API répond 401. L'ingestion, la génération,
+# l'export et la bascule de modèle passent tous par /api/** (non exemptés par
+# ApiKeyFilter ; seul /actuator l'est, d'où le health check ci-dessus sans clé).
+API_KEY="${SPECTRA_API_KEY:-}"
+if [ -z "$API_KEY" ] && [ -f ".env" ]; then
+  API_KEY="$(grep -E '^SPECTRA_API_KEY=' .env | tail -n1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//')"
+fi
+AUTH=()
+if [ -n "$API_KEY" ]; then
+  AUTH=(-H "X-API-Key: $API_KEY")
+  green "Authentification API activee (X-API-Key)"
+fi
+
 # ══════════════════════════════════════════════════════════════════════════════
 # ETAPE 1 — INGESTION
 # ══════════════════════════════════════════════════════════════════════════════
@@ -168,6 +183,7 @@ for f in "${FILES[@]}"; do
 done
 
 INGEST_RESP=$(curl -sf --max-time 120 \
+  ${AUTH[@]+"${AUTH[@]}"} \
   "${CURL_ARGS[@]}" \
   "$API_URL/api/ingest") || die "Appel API /api/ingest echoue"
 
@@ -181,15 +197,25 @@ while true; do
   [ "$POLL" -lt "$MAX_POLL_INGEST" ] || die "[TIMEOUT] Ingestion trop longue (>${MAX_POLL_INGEST} polls)."
   sleep "$POLL_INTERVAL"
   POLL=$((POLL + 1))
-  INGEST_JSON=$(curl -sf --max-time 5 "$API_URL/api/ingest/$INGEST_TASK" 2>/dev/null || echo '{"status":"ERROR","chunksCreated":0}')
+  INGEST_JSON=$(curl -sf --max-time 5 ${AUTH[@]+"${AUTH[@]}"} "$API_URL/api/ingest/$INGEST_TASK" 2>/dev/null || echo '{"status":"ERROR","chunksCreated":0}')
   INGEST_STATUS=$(echo "$INGEST_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null)
   INGEST_CHUNKS=$(echo "$INGEST_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('chunksCreated',0))" 2>/dev/null)
   case "$INGEST_STATUS" in
     COMPLETED) break ;;
     FAILED)    die "Ingestion echouee — verifiez : docker compose logs spectra-api" ;;
+    CANCELLED) die "Ingestion annulee." ;;
     *)         echo "  Ingestion en cours... chunks: $INGEST_CHUNKS" ;;
   esac
 done
+
+# Succes partiel : une tache COMPLETED peut porter des echecs par fichier (fileErrors).
+# On continue (les fichiers OK sont vectorises) mais on ne masque pas les echecs.
+FILE_ERRORS=$(echo "$INGEST_JSON" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('fileErrors') or []))" 2>/dev/null || echo 0)
+if [ "$FILE_ERRORS" -gt 0 ]; then
+  yellow "Ingestion partielle : $FILE_ERRORS fichier(s) en echec (les autres sont vectorises) :"
+  echo "$INGEST_JSON" | python3 -c "import sys,json; [print('    - '+str(x)) for x in (json.load(sys.stdin).get('fileErrors') or [])]" 2>/dev/null || true
+fi
+[ "$INGEST_CHUNKS" -gt 0 ] || die "Ingestion terminee mais 0 chunk vectorise — aucun document exploitable."
 green "Ingestion terminee — $INGEST_CHUNKS chunks vectorises"
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -200,10 +226,13 @@ echo "> [2/5] Generation du dataset d'entrainement (modele: $BASE_MODEL)..."
 
 # S'assurer que le modele de generation est bien le bon
 curl -sf -X POST "$API_URL/api/config/model" \
+  ${AUTH[@]+"${AUTH[@]}"} \
   -H "Content-Type: application/json" \
   -d "{\"model\":\"$BASE_MODEL\"}" -o /dev/null 2>/dev/null || true
 
-DATASET_RESP=$(curl -sf --max-time 30 -X POST "$API_URL/api/dataset/generate") \
+# maxChunks=0 (defaut) = tout le corpus ; surchargeable via MAX_CHUNKS pour un essai rapide.
+MAX_CHUNKS="${MAX_CHUNKS:-0}"
+DATASET_RESP=$(curl -sf --max-time 30 ${AUTH[@]+"${AUTH[@]}"} -X POST "$API_URL/api/dataset/generate?maxChunks=$MAX_CHUNKS") \
   || die "Echec du lancement de la generation"
 DATASET_TASK=$(echo "$DATASET_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['taskId'])" 2>/dev/null) \
   || die "Impossible d'extraire le taskId de : $DATASET_RESP"
@@ -215,7 +244,7 @@ while true; do
   [ "$POLL" -lt "$MAX_POLL_DATASET" ] || die "[TIMEOUT] Generation trop longue (>${MAX_POLL_DATASET} polls)."
   sleep "$POLL_INTERVAL"
   POLL=$((POLL + 1))
-  DS_JSON=$(curl -sf --max-time 5 "$API_URL/api/dataset/generate/$DATASET_TASK" 2>/dev/null || echo '{"status":"ERROR","pairsGenerated":0}')
+  DS_JSON=$(curl -sf --max-time 5 ${AUTH[@]+"${AUTH[@]}"} "$API_URL/api/dataset/generate/$DATASET_TASK" 2>/dev/null || echo '{"status":"ERROR","pairsGenerated":0}')
   DS_STATUS=$(echo "$DS_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))" 2>/dev/null)
   DS_PAIRS=$(echo "$DS_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('pairsGenerated',0))" 2>/dev/null)
   case "$DS_STATUS" in
@@ -237,7 +266,7 @@ echo
 echo "> [3/5] Export du dataset..."
 
 mkdir -p "data/fine-tuning"
-curl -sf --max-time 30 -X POST "$API_URL/api/dataset/export" -o "$DATASET_FILE" \
+curl -sf --max-time 30 ${AUTH[@]+"${AUTH[@]}"} -X POST "$API_URL/api/dataset/export" -o "$DATASET_FILE" \
   || die "Export du dataset echoue"
 [ -s "$DATASET_FILE" ] || die "Fichier dataset vide apres export : $DATASET_FILE"
 
@@ -255,7 +284,7 @@ echo "  Cette etape peut durer plusieurs minutes (CPU) ou quelques minutes (GPU)
 TRAIN_DATASET="$DATASET_FILE"
 if [ -n "$DPO_FLAG" ] || [ -n "$ORPO_FLAG" ]; then
   PREF_LABEL="DPO"; [ -n "$ORPO_FLAG" ] && PREF_LABEL="ORPO"
-  DPO_JSON=$(curl -sf --max-time 5 "$API_URL/api/dataset/dpo/stats" 2>/dev/null || echo '{"totalPairs":0}')
+  DPO_JSON=$(curl -sf --max-time 5 ${AUTH[@]+"${AUTH[@]}"} "$API_URL/api/dataset/dpo/stats" 2>/dev/null || echo '{"totalPairs":0}')
   DPO_PAIRS=$(echo "$DPO_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('totalPairs',0))" 2>/dev/null || echo 0)
   [ "$DPO_PAIRS" -gt 0 ] || die "--${PREF_LABEL,,} demande mais aucune paire de preference trouvee.
   Lancez d'abord la generation :
@@ -263,7 +292,7 @@ if [ -n "$DPO_FLAG" ] || [ -n "$ORPO_FLAG" ]; then
   green "$DPO_PAIRS paires de preference disponibles"
 
   # DPO et ORPO consomment le format {prompt, chosen, rejected}, PAS l'export SFT.
-  curl -sf --max-time 30 -X POST "$API_URL/api/dataset/dpo/export" -o "$DPO_DATASET_FILE" \
+  curl -sf --max-time 30 ${AUTH[@]+"${AUTH[@]}"} -X POST "$API_URL/api/dataset/dpo/export" -o "$DPO_DATASET_FILE" \
     || die "Export des paires de preference echoue"
   [ -s "$DPO_DATASET_FILE" ] || die "Fichier de preference vide apres export : $DPO_DATASET_FILE"
   TRAIN_DATASET="$DPO_DATASET_FILE"
@@ -320,6 +349,7 @@ green "Modele $MODEL_NAME enregistre"
 
 # Basculer le modele actif de l'API
 curl -sf -X POST "$API_URL/api/config/model" \
+  ${AUTH[@]+"${AUTH[@]}"} \
   -H "Content-Type: application/json" \
   -d "{\"model\":\"$MODEL_NAME\"}" -o /dev/null 2>/dev/null || true
 green "Modele actif de l'API bascule vers $MODEL_NAME"

@@ -8,7 +8,12 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
-_Rien pour le moment._
+### Pipeline CLI — authentification API, succès partiel et essai rapide (`pipeline.sh` / `pipeline.bat`)
+
+- **Authentification API prise en charge** : le pipeline complet (ingestion → dataset → fine-tuning) lit `SPECTRA_API_KEY` (environnement ou `.env`) et l'envoie en `X-API-Key` sur **tous** les appels `/api/**`. Sans cela, dès que l'authentification était activée, chaque étape recevait un **401** (seul `/actuator` est exempté). Portable jusqu'à bash 3.2 (macOS) via une expansion de tableau sûre sous `set -u`.
+- **Succès partiel d'ingestion visible** : une tâche terminée avec des `fileErrors` n'est plus traitée comme un succès plein — le pipeline liste les fichiers en échec et continue (les autres sont vectorisés), et échoue proprement si 0 chunk n'a été produit ou si la tâche est `CANCELLED`.
+- **`MAX_CHUNKS`** : plafonne les chunks utilisés pour la génération du dataset (`0` = tout le corpus) — pour un essai rapide.
+- **`pipeline.bat` (Windows)** : mêmes correctifs, plus la correction d'un prérequis erroné — il vérifiait `data\fine-tuning\merged\model.gguf` (un modèle déjà fine-tuné, absent au premier lancement) au lieu du modèle de chat `data\models\<LLM_CHAT_MODEL_FILE>` chargé par la stack (comme `pipeline.sh`).
 
 ## [1.14.0] — 2026-07-21
 
