@@ -53,7 +53,10 @@
     "cancelMessage": "{{kind}} — « {{label}} » sera arrêtée. Le travail déjà effectué est conservé quand c'est possible ; la tâche ne pourra pas reprendre.",
     "cancelConfirm": "Arrêter la tâche",
     "cancelRequested": "Annulation demandée",
-    "cancelFailed": "Impossible d'annuler la tâche"
+    "cancelFailed": "Impossible d'annuler la tâche",
+    "retry": "Relancer cette ingestion d'URLs",
+    "retryRequested": "Ingestion relancée",
+    "retryFailed": "Impossible de relancer l'ingestion"
   },
   "wizard": {
     "ingestion": "Ingestion",

@@ -61,12 +61,15 @@ const CANCEL_BY_KIND: Partial<Record<GlobalTaskKind, (id: string) => Promise<unk
 
 const rawTaskId = (task: GlobalTask): string => task.id.slice(task.kind.length + 1);
 
-const TaskRow: FC<{ task: GlobalTask; now: number; onNavigate: () => void; onCancel?: (task: GlobalTask) => void }> =
-    ({ task, now, onNavigate, onCancel }) => {
+const TaskRow: FC<{ task: GlobalTask; now: number; onNavigate: () => void; onCancel?: (task: GlobalTask) => void; onRetry?: (task: GlobalTask) => void }> =
+    ({ task, now, onNavigate, onCancel, onRetry }) => {
   const { t } = useTranslation();
   const active = task.status === 'running' || task.status === 'pending';
   const eta = etaMs(task, now);
   const cancellable = active && onCancel && CANCEL_BY_KIND[task.kind] !== undefined;
+  // Relance possible depuis n'importe quelle page pour une ingestion d'URLs échouée
+  // (ré-injectable côté serveur) ; un upload de fichier n'expose pas de retryUrls.
+  const retriable = task.status === 'failed' && onRetry && (task.retryUrls?.length ?? 0) > 0;
 
   return (
     <Link
@@ -102,6 +105,17 @@ const TaskRow: FC<{ task: GlobalTask; now: number; onNavigate: () => void; onCan
                   className="p-0.5 text-outline hover:text-error transition-colors"
                 >
                   <span aria-hidden="true" className="material-symbols-outlined text-[14px]">stop_circle</span>
+                </button>
+              )}
+              {retriable && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); onRetry!(task); }}
+                  aria-label={t('taskCenter.retry')}
+                  title={t('taskCenter.retry')}
+                  className="p-0.5 text-outline hover:text-primary transition-colors"
+                >
+                  <span aria-hidden="true" className="material-symbols-outlined text-[14px]">refresh</span>
                 </button>
               )}
             </span>
@@ -161,6 +175,20 @@ const TaskCenter: FC = () => {
       toast.info(t('taskCenter.cancelRequested'), { description: task.label });
     } catch (err: any) {
       toast.error(t('taskCenter.cancelFailed'), {
+        description: err?.response?.data?.detail ?? err?.response?.data?.error ?? err?.message,
+      });
+    }
+  };
+
+  // Relance d'une ingestion d'URLs échouée depuis le panneau global (ré-injection serveur).
+  const handleRetry = async (task: GlobalTask) => {
+    const urls = task.retryUrls;
+    if (!urls || urls.length === 0) return;
+    try {
+      await ingestApi.ingestUrls(urls);
+      toast.info(t('taskCenter.retryRequested'), { description: task.label });
+    } catch (err: any) {
+      toast.error(t('taskCenter.retryFailed'), {
         description: err?.response?.data?.detail ?? err?.response?.data?.error ?? err?.message,
       });
     }
@@ -368,7 +396,8 @@ const TaskCenter: FC = () => {
                     </p>
                     <div className="divide-y divide-outline-variant/5">
                       {recent.map((task) => (
-                        <TaskRow key={task.id} task={task} now={now} onNavigate={() => setOpen(false)} />
+                        <TaskRow key={task.id} task={task} now={now} onNavigate={() => setOpen(false)}
+                          onRetry={handleRetry} />
                       ))}
                     </div>
                   </div>

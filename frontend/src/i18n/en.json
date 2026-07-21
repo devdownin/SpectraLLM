@@ -53,7 +53,10 @@
     "cancelMessage": "{{kind}} — “{{label}}” will be stopped. Work already done is kept where possible; the task cannot be resumed.",
     "cancelConfirm": "Stop the task",
     "cancelRequested": "Cancellation requested",
-    "cancelFailed": "Could not cancel the task"
+    "cancelFailed": "Could not cancel the task",
+    "retry": "Retry this URL ingestion",
+    "retryRequested": "Ingestion restarted",
+    "retryFailed": "Could not restart the ingestion"
   },
   "wizard": {
     "ingestion": "Ingestion",
