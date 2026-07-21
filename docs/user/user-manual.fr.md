@@ -607,6 +607,8 @@ LORA_TARGET=all NEFTUNE_ALPHA=5 WARMUP_RATIO=0.05 VAL_SPLIT=0.1 \
 | `MAX_CHUNKS` | plafonne les chunks utilisés pour la génération du dataset (`0` = tout le corpus) — pratique pour un essai rapide | `0` |
 
 > **Authentification API :** si `SPECTRA_API_KEY` est définie (environnement ou `.env`), le pipeline la récupère automatiquement et l'envoie en `X-API-Key` sur chaque appel `/api/**` — aucun drapeau supplémentaire. Une ingestion partiellement en échec (certains fichiers en erreur) est signalée sans interrompre le pipeline.
+>
+> **Contre-pression :** si le serveur refuse la soumission d'ingestion en `429` (trop d'ingestions actives, `spectra.pipeline.max-active-ingestions`), `pipeline.sh` respecte l'en-tête `Retry-After` et réessaie — jusqu'à `INGEST_MAX_RETRIES` fois (défaut `5`) — au lieu d'échouer.
 
 **Config serveur** (`application.yml`) :
 - `spectra.dataset.refusal-every-n` — fréquence des exemples de refus « je ne sais pas » (anti-hallucination).

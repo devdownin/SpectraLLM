@@ -131,7 +131,7 @@ green "Python $(python3 --version) et dependances OK"
 # API
 echo "  Attente de l'API Spectra..."
 API_READY=0
-for i in $(seq 1 20); do
+for _ in $(seq 1 20); do
   if curl -sf "$API_URL/actuator/health" -o /dev/null 2>/dev/null; then
     API_READY=1
     break
@@ -182,10 +182,34 @@ for f in "${FILES[@]}"; do
   CURL_ARGS+=(-F "files=@${f}")
 done
 
-INGEST_RESP=$(curl -sf --max-time 120 \
-  ${AUTH[@]+"${AUTH[@]}"} \
-  "${CURL_ARGS[@]}" \
-  "$API_URL/api/ingest") || die "Appel API /api/ingest echoue"
+# Soumission avec gestion de la contre-pression (HTTP 429). Le serveur refuse une
+# soumission quand trop de taches sont actives (spectra.pipeline.max-active-ingestions) ;
+# on respecte alors l'en-tete Retry-After et on reessaie au lieu d'abandonner.
+INGEST_MAX_RETRIES="${INGEST_MAX_RETRIES:-5}"
+_HDR="$(mktemp)"; _BODY="$(mktemp)"
+trap 'rm -f "$_HDR" "$_BODY"' EXIT
+INGEST_RESP=""
+attempt=0
+while true; do
+  attempt=$((attempt + 1))
+  HTTP_CODE=$(curl -s --max-time 120 -o "$_BODY" -D "$_HDR" -w '%{http_code}' \
+    ${AUTH[@]+"${AUTH[@]}"} \
+    "${CURL_ARGS[@]}" \
+    "$API_URL/api/ingest" || echo 000)
+  case "$HTTP_CODE" in
+    200|201)
+      INGEST_RESP="$(cat "$_BODY")"; break ;;
+    429)
+      [ "$attempt" -lt "$INGEST_MAX_RETRIES" ] \
+        || die "Ingestion refusee (429) apres $attempt tentatives — trop d'ingestions actives cote serveur. Reessayez plus tard."
+      RETRY_AFTER=$(grep -i '^retry-after:' "$_HDR" | tail -n1 | tr -d '\r' | awk '{print $2}')
+      case "$RETRY_AFTER" in ''|*[!0-9]*) RETRY_AFTER=5 ;; esac
+      yellow "Serveur occupe (429) — nouvelle tentative dans ${RETRY_AFTER}s (tentative $attempt/$INGEST_MAX_RETRIES)"
+      sleep "$RETRY_AFTER" ;;
+    *)
+      die "Appel API /api/ingest echoue (HTTP $HTTP_CODE) : $(cat "$_BODY")" ;;
+  esac
+done
 
 INGEST_TASK=$(echo "$INGEST_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['taskId'])" 2>/dev/null) \
   || die "Impossible d'extraire le taskId de : $INGEST_RESP"
