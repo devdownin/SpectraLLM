@@ -83,7 +83,7 @@ Browse everything from the **[documentation index](docs/README.md)**, or jump st
 | **[Getting Started](docs/getting-started.en.md)** | Step-by-step install, model downloads, Docker profiles, Kubernetes/GKE deploy |
 | **[Architecture & Services](docs/architecture.en.md)** | Every service in depth: RAG internals, ingestion, evaluation, tech stack |
 | **[Configuration](docs/configuration.en.md)** | All environment variables, health endpoints, Prometheus metrics |
-| **[User Manual](docs/user/user-manual.fr.md)** | Complete walkthrough of the web interface |
+| **[User Manual](docs/user/user-manual.en.md)** ([FR](docs/user/user-manual.fr.md)) | Complete walkthrough of the web interface |
 | **[Technical Reference](docs/tech/technical-doc.fr.md)** | Implementation-level detail |
 | **[How Spectra works (FR)](docs/user/documentation-pedagogique.fr.md)** | The ideas in plain language: embeddings, BM25 + RRF, the RAG strategies, DPO/QLoRA |
 | **[llama.cpp Guide](docs/tech/llama-cpp.fr.md)** | Inference engine details and tuning |
