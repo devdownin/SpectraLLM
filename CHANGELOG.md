@@ -8,6 +8,14 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+_Rien pour le moment._
+
+## [1.14.0] — 2026-07-21
+
+> Publiée comme release **[v0.7.1](https://github.com/devdownin/SpectraLLM/releases/tag/v0.7.1)**
+> (point release au-dessus de v0.7). Notes curées :
+> [`.github/release-notes/v0.7.1.md`](.github/release-notes/v0.7.1.md).
+
 ### Perf — Playground découpé en chunks chargés à la demande
 
 - **Lazy-loading des panneaux lourds** : le dialogue de comparaison A/B (`RagComparisonDialog`) et le panneau Trace (`RagTracePanel`) sont extraits dans `components/playground/` et chargés via `React.lazy` — ils n'entrent dans le bundle que lorsque l'utilisateur les ouvre. Le chunk d'entrée du Playground passe de **~240 kB à ~59 kB** ; les deux panneaux (~8 kB et ~14 kB) sont différés. Types et constantes partagés isolés dans `playground/ragTypes.ts` pour éviter toute dépendance circulaire. Aucun changement fonctionnel.
