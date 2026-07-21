@@ -1,5 +1,7 @@
 # Le pipeline RAG — pourquoi chaque étape
 
+> 🌍 English version : **[rag-pipeline.en.md](rag-pipeline.en.md)**.
+
 > **Rôle de ce document** — le **raisonnement de conception** (le « pourquoi » de chaque
 > étape). Les faits d'implémentation (défauts, limites) font foi dans
 > [technical-doc.fr.md](technical-doc.fr.md) ; la vue d'ensemble est dans

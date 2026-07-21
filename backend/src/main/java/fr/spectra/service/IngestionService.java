@@ -10,8 +10,10 @@ import fr.spectra.persistence.StreamSourceEntity;
 import fr.spectra.service.extraction.DocumentExtractorFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -89,6 +91,14 @@ public class IngestionService {
     private final int embeddingBatchSize;
     /** Taille décompressée maximale par fichier local (mémoire ; garde-fou avant délégation). */
     private final long maxUncompressedBytes;
+    /**
+     * Plafond de tâches d'ingestion actives (PENDING/PROCESSING) simultanées ; 0 = illimité.
+     * Contre-pression au niveau soumission : le sémaphore borne le traitement <i>concurrent</i>,
+     * mais rien ne bornait le nombre de tâches <i>en attente</i> — un flot de soumissions
+     * empilait fichiers temporaires et entrées de registre (en mémoire, mono-instance) plus vite
+     * que le sémaphore ne les draine. Au-delà du plafond, une nouvelle soumission est rejetée (429).
+     */
+    private final int maxActiveIngestions;
 
     // Async + dedup deps (used by submit())
     private final IngestionTaskExecutor executor;
@@ -125,9 +135,11 @@ public class IngestionService {
                             fr.spectra.persistence.StreamSourceRepository streamSourceRepository,
                             SpectraProperties properties,
                             @org.springframework.beans.factory.annotation.Value("${spectra.pipeline.max-uncompressed-mb:0}") int maxUncompressedMb,
-                            @org.springframework.beans.factory.annotation.Value("${spectra.pipeline.concurrent-ingestions:4}") int concurrentIngestions) {
+                            @org.springframework.beans.factory.annotation.Value("${spectra.pipeline.concurrent-ingestions:4}") int concurrentIngestions,
+                            @org.springframework.beans.factory.annotation.Value("${spectra.pipeline.max-active-ingestions:0}") int maxActiveIngestions) {
         // 0 → auto-calcul selon le heap et la concurrence (évite l'OOM).
         this.maxUncompressedBytes = IngestionLimits.resolveMaxUncompressedBytes(maxUncompressedMb, concurrentIngestions);
+        this.maxActiveIngestions = maxActiveIngestions;
         this.extractorFactory = extractorFactory;
         this.textCleaner = textCleaner;
         this.chunkingService = chunkingService;
@@ -152,6 +164,14 @@ public class IngestionService {
      * Les fichiers déjà ingérés sont ignorés sauf si {@code force=true}.
      */
     public String submit(List<MultipartFile> files, boolean force) {
+        // Contre-pression : refuse une nouvelle soumission si trop de tâches sont déjà actives,
+        // AVANT de copier quoi que ce soit sur le disque temporaire. Évite qu'un client sature
+        // la mémoire/le disque de l'instance unique en empilant des centaines de tâches.
+        if (maxActiveIngestions > 0 && activeIngestionCount() >= maxActiveIngestions) {
+            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
+                    "Trop d'ingestions actives (" + maxActiveIngestions + " max) — réessayez "
+                    + "une fois les tâches en cours terminées.");
+        }
         String taskId = UUID.randomUUID().toString();
         List<String> allFileNames = files.stream().map(MultipartFile::getOriginalFilename).toList();
 
@@ -336,6 +356,14 @@ public class IngestionService {
 
     public IngestionTask getTask(String taskId) {
         return tasks.get(taskId);
+    }
+
+    /** Nombre de tâches actives (PENDING ou PROCESSING) — dénominateur de la contre-pression. */
+    long activeIngestionCount() {
+        return tasks.values().stream()
+                .filter(t -> t.status() == IngestionTask.Status.PENDING
+                        || t.status() == IngestionTask.Status.PROCESSING)
+                .count();
     }
 
     public List<IngestionTask> getAllTasks() {
