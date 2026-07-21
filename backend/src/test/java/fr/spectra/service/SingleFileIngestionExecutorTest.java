@@ -75,6 +75,14 @@ class SingleFileIngestionExecutorTest {
     private record Recorded(String hash, String fileName, int chunks) {}
 
     @Test
+    void recordSubmissionRejected_incrementsCounterWithoutError() {
+        // Compteur de contre-pression (429) — appelé par IngestionService quand le plafond
+        // de tâches actives est atteint. Doit s'incrémenter sans lever.
+        executor.recordSubmissionRejected();
+        executor.recordSubmissionRejected();
+    }
+
+    @Test
     void execute_jsonFile_completesWithChunkCountAndRecords() throws Exception {
         Path json = tempDir.resolve("data.json");
         Files.writeString(json, "{\"name\":\"Spectra\",\"description\":\"moteur RAG\",\"version\":42}");

@@ -95,6 +95,35 @@ class ConsistencyReconciliationServiceTest {
     }
 
     @Test
+    void snapshotOnStartup_consistent_noRebuild() {
+        when(fileRepo.findDistinctCollectionNames()).thenReturn(List.of());
+        when(fileRepo.sumChunks()).thenReturn(5L);
+        when(chromaDb.getOrCreateCollection(DEFAULT_COLLECTION)).thenReturn("id-default");
+        // DB, ChromaDB et FTS alignés : chemin « cohérence OK » (log INFO, gauges peuplées).
+        when(chromaDb.count("id-default")).thenReturn(5);
+        when(fts.indexedCount(DEFAULT_COLLECTION)).thenReturn(5);
+
+        service(null).snapshotOnStartup();
+
+        verify(fts, never()).rebuildCollection(anyString());
+    }
+
+    @Test
+    void snapshotOnStartup_chromaEmptyButDbPopulated_logsCriticalNoRebuild() {
+        when(fileRepo.findDistinctCollectionNames()).thenReturn(List.of());
+        when(fileRepo.sumChunks()).thenReturn(42L);
+        when(chromaDb.getOrCreateCollection(DEFAULT_COLLECTION)).thenReturn("id-default");
+        // ChromaDB vide alors que la GED déclare des chunks : volume vectoriel perdu/reset →
+        // branche ERROR du snapshot. Aucune reconstruction déclenchée au démarrage.
+        when(chromaDb.count("id-default")).thenReturn(0);
+        when(fts.indexedCount(DEFAULT_COLLECTION)).thenReturn(0);
+
+        service(null).snapshotOnStartup();
+
+        verify(fts, never()).rebuildCollection(anyString());
+    }
+
+    @Test
     void snapshotOnStartup_chromaUnavailable_doesNotThrow() {
         when(fileRepo.findDistinctCollectionNames()).thenReturn(List.of());
         when(fileRepo.sumChunks()).thenReturn(5L);

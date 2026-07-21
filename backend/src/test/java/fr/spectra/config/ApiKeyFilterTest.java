@@ -60,6 +60,34 @@ class ApiKeyFilterTest {
     }
 
     @Test
+    void blankHeader_fallsBackToQueryParam() throws Exception {
+        // Header présent mais vide → on doit basculer sur le paramètre (branche isBlank()).
+        MockHttpServletRequest req = new MockHttpServletRequest("GET", "/api/query/stream");
+        req.addHeader("X-API-Key", "");
+        req.setParameter("apiKey", KEY);
+        FilterChain chain = mock(FilterChain.class);
+        MockHttpServletResponse res = new MockHttpServletResponse();
+
+        filter.doFilter(req, res, chain);
+
+        verify(chain).doFilter(req, res);
+    }
+
+    @Test
+    void blankQueryParam_fallsBackToCookie() throws Exception {
+        // Paramètre présent mais vide → on doit basculer sur le cookie.
+        MockHttpServletRequest req = new MockHttpServletRequest("GET", "/api/query/stream");
+        req.setParameter("apiKey", "");
+        req.setCookies(new Cookie("X-API-Key", KEY));
+        FilterChain chain = mock(FilterChain.class);
+        MockHttpServletResponse res = new MockHttpServletResponse();
+
+        filter.doFilter(req, res, chain);
+
+        verify(chain).doFilter(req, res);
+    }
+
+    @Test
     void missingKey_isRejectedWith401() throws Exception {
         MockHttpServletRequest req = new MockHttpServletRequest("GET", "/api/health");
         FilterChain chain = mock(FilterChain.class);
