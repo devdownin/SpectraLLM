@@ -88,6 +88,23 @@ class ApiKeyFilterTest {
     }
 
     @Test
+    void cookieKey_foundAmongOtherCookies() throws Exception {
+        // Plusieurs cookies : le filtre doit itérer et ignorer les noms non pertinents
+        // (et un cookie X-API-Key à valeur vide) avant de trouver le bon.
+        MockHttpServletRequest req = new MockHttpServletRequest("GET", "/api/query/stream");
+        req.setCookies(
+                new Cookie("session", "abc"),
+                new Cookie("X-API-Key", ""),
+                new Cookie("X-API-Key", KEY));
+        FilterChain chain = mock(FilterChain.class);
+        MockHttpServletResponse res = new MockHttpServletResponse();
+
+        filter.doFilter(req, res, chain);
+
+        verify(chain).doFilter(req, res);
+    }
+
+    @Test
     void missingKey_isRejectedWith401() throws Exception {
         MockHttpServletRequest req = new MockHttpServletRequest("GET", "/api/health");
         FilterChain chain = mock(FilterChain.class);

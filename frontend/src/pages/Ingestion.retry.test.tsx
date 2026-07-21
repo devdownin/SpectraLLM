@@ -9,10 +9,11 @@ import i18n from 'i18next';
 // Le service API et les toasts sont simulés : le test cible la contre-pression (429)
 // et la relance d'une ingestion échouée, pas les appels réseau réels.
 const uploadFile = vi.fn();
+const ingestUrls = vi.fn(() => Promise.resolve({ data: { taskId: 't' } }));
 vi.mock('../services/api', () => ({
   ingestApi: {
     uploadFile: (file: File) => uploadFile(file),
-    ingestUrls: vi.fn(() => Promise.resolve({ data: { taskId: 't' } })),
+    ingestUrls: (urls: string[]) => ingestUrls(urls),
     getTaskStatus: vi.fn(() => Promise.resolve({ data: { status: 'PENDING' } })),
     getAllTasks: vi.fn(() => Promise.resolve({ data: [] })),
     getHistory: vi.fn(() => Promise.resolve({ data: { content: [], totalElements: 0, number: 0 } })),
@@ -43,6 +44,13 @@ function selectFile(container: HTMLElement) {
   const input = container.querySelector('input[type="file"]') as HTMLInputElement;
   const file = new File(['contenu du document'], 'doc.txt', { type: 'text/plain' });
   fireEvent.change(input, { target: { files: [file] } });
+}
+
+/** Saisit une URL dans le champ dédié et valide (Entrée) pour lancer une ingestion URL. */
+function submitUrl(url: string) {
+  const field = screen.getByPlaceholderText(/https?:\/\//i) as HTMLInputElement;
+  fireEvent.change(field, { target: { value: url } });
+  fireEvent.keyDown(field, { key: 'Enter' });
 }
 
 beforeEach(() => {
@@ -88,5 +96,21 @@ describe('Ingestion — backpressure (429) and retry', () => {
 
     await waitFor(() => expect(toast.error).toHaveBeenCalled());
     expect(toast.warning).not.toHaveBeenCalled();
+  });
+
+  it('handles a 429 on URL ingestion and retries the same URL', async () => {
+    ingestUrls.mockRejectedValue({ response: { status: 429, data: { detail: 'too many' } } });
+    renderPage();
+
+    submitUrl('https://example.com/doc.pdf');
+
+    await waitFor(() => expect(toast.warning).toHaveBeenCalled());
+    const retry = await screen.findByText(/Retry/i);
+    expect(ingestUrls).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(retry);
+
+    await waitFor(() => expect(ingestUrls).toHaveBeenCalledTimes(2));
+    expect(ingestUrls.mock.calls[1][0]).toEqual(['https://example.com/doc.pdf']);
   });
 });
