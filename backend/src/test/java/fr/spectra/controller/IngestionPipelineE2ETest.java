@@ -105,7 +105,7 @@ class IngestionPipelineE2ETest {
         IngestionService ingestionService = new IngestionService(
                 factory, textCleaner, chunkingService, embeddingService, chromaDbClient, ftsService,
                 executor, repository, gedService,
-                mock(StreamSourceRepository.class), props, 50, 4);
+                mock(StreamSourceRepository.class), props, 50, 4, 0);
 
         IngestController controller = new IngestController(ingestionService, mock(UrlIngestionService.class));
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();

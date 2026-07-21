@@ -67,6 +67,15 @@ S1 réglerait le fond ; à court terme, il faut un schéma d'auth compatible Eve
 paramètre de requête à usage court, ou cookie de session `HttpOnly` + exemption CSRF sur les
 GET SSE).
 
+> **✅ Correctif backend appliqué.** `ApiKeyFilter` résout désormais la clé depuis trois sources,
+> dans l'ordre : header `X-API-Key`, **paramètre de requête `apiKey`**, puis **cookie `X-API-Key`**.
+> Un `EventSource` peut donc s'authentifier via le paramètre ou le cookie, faute de pouvoir poser
+> un en-tête — les flux SSE ne renvoient plus 401 quand `SPECTRA_API_KEY` est active. ⚠️ Le
+> paramètre de requête peut apparaître dans les journaux d'accès / l'en-tête `Referer` (préférez le
+> cookie ou le header hors SSE). **Reste à faire côté frontend** : aucun mécanisme de saisie /
+> transmission de la clé n'existe encore dans l'UI (voir S2) — le correctif ouvre le canal, mais
+> l'UI doit encore fournir la clé aux appels et aux URL `EventSource`.
+
 ### S4 — Ordre CORS / filtre : préflight rejeté quand la clé est active — **faible**
 
 Le CORS est géré par `WebMvcConfigurer` (niveau MVC, après les filtres servlet), alors que

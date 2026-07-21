@@ -53,7 +53,10 @@
     "cancelMessage": "{{kind}} — “{{label}}” will be stopped. Work already done is kept where possible; the task cannot be resumed.",
     "cancelConfirm": "Stop the task",
     "cancelRequested": "Cancellation requested",
-    "cancelFailed": "Could not cancel the task"
+    "cancelFailed": "Could not cancel the task",
+    "retry": "Retry this URL ingestion",
+    "retryRequested": "Ingestion restarted",
+    "retryFailed": "Could not restart the ingestion"
   },
   "wizard": {
     "ingestion": "Ingestion",
@@ -447,6 +450,9 @@
     "chunksPartial": "{{count}} chunks · partial",
     "partialTitle": "Completed with errors: {{name}}",
     "partialDesc": "{{count}} file(s) could not be ingested — details in the live stream.",
+    "retry": "Retry",
+    "busyTitle": "Server busy",
+    "busyDesc": "Too many ingestions in progress — \"{{name}}\" was not started. Try again shortly (\"Retry\" button).",
     "oomTitle": "Critical Memory Error: {{id}}",
     "oomDesc": "The document is too large for the current memory configuration.",
     "ingestFailed": "Ingestion failed: {{name}}",

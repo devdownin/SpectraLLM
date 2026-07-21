@@ -8,6 +8,7 @@ import fr.spectra.persistence.IngestedFileRepository;
 import fr.spectra.persistence.StreamSourceRepository;
 import fr.spectra.service.ChromaDbClient;
 import fr.spectra.service.ChunkingService;
+import fr.spectra.service.ConsistencyReconciliationService;
 import fr.spectra.service.EmbeddingClient;
 import fr.spectra.service.EmbeddingService;
 import fr.spectra.service.FtsService;
@@ -162,7 +163,7 @@ class ChromaDbConsistencyIntegrationTest {
 
         ingestionService = new IngestionService(
                 factory, textCleaner, chunkingService, embeddingService, chromaDbClient, ftsService,
-                executor, fileRepo, gedService, mock(StreamSourceRepository.class), props, 50, 2);
+                executor, fileRepo, gedService, mock(StreamSourceRepository.class), props, 50, 2, 0);
     }
 
     // ── Scénarios de l'audit ─────────────────────────────────────────────────
@@ -223,7 +224,88 @@ class ChromaDbConsistencyIntegrationTest {
         assertThat(gedDb).containsKey(sha256(contentB));
     }
 
+    @Test
+    void reconcile_multiCollection_rebuildsOnlyTheDivergentCollection() throws Exception {
+        // Collection A = collectionName (câblée par setUp), ingérée et cohérente.
+        byte[] contentA = corpus("politique de sauvegarde et de restauration des données", 40);
+        ingestionService.submit(List.of(file("docA.txt", contentA)), false);
+        String idA = chromaDbClient.getOrCreateCollection(collectionName);
+        int chromaA = chromaDbClient.count(idA);
+        assertThat(chromaA).isGreaterThan(0);
+        assertThat(ftsService.indexedCount(collectionName)).isEqualTo(chromaA);
+
+        // Collection B, ingérée dans les MÊMES stores partagés (même ChromaDB, même FtsService).
+        String collectionB = "it-consistency-b-" + java.util.UUID.randomUUID().toString().substring(0, 8);
+        IngestionService serviceB = serviceForSharedStores(collectionB, new ConcurrentHashMap<>());
+        byte[] contentB = corpus("procédure de gestion des incidents de sécurité", 40);
+        serviceB.submit(List.of(file("docB.txt", contentB)), false);
+        String idB = chromaDbClient.getOrCreateCollection(collectionB);
+        int chromaB = chromaDbClient.count(idB);
+        assertThat(chromaB).isGreaterThan(0);
+        assertThat(ftsService.indexedCount(collectionB)).isEqualTo(chromaB);
+
+        // Divergence UNIQUEMENT sur B : on vide son index BM25 en gardant ChromaDB intact
+        // (perte d'un flush différé, reset partiel…). A doit rester cohérente.
+        ftsService.removeBySource("docB.txt", collectionB);
+        assertThat(ftsService.indexedCount(collectionB)).isZero();
+        assertThat(ftsService.indexedCount(collectionName)).isEqualTo(chromaA);
+
+        // Réconciliation multi-collections : A et B sont surveillées ; seule B diverge et doit
+        // être reconstruite depuis le ChromaDB réel — A ne doit pas être touchée.
+        IngestedFileRepository reconRepo = mock(IngestedFileRepository.class);
+        when(reconRepo.sumChunks()).thenReturn((long) (chromaA + chromaB));
+        when(reconRepo.findDistinctCollectionNames()).thenReturn(List.of(collectionName, collectionB));
+        SpectraProperties.ChromaDbProperties reconChroma =
+                new SpectraProperties.ChromaDbProperties(chromaBaseUrl, collectionName);
+        SpectraProperties reconProps = mock(SpectraProperties.class);
+        when(reconProps.chromadb()).thenReturn(reconChroma);
+        when(reconProps.kafka()).thenReturn(null);
+        ConsistencyReconciliationService reconciliation = new ConsistencyReconciliationService(
+                reconRepo, chromaDbClient, ftsService, reconProps, new SimpleMeterRegistry());
+
+        reconciliation.reconcile();
+
+        assertThat(ftsService.indexedCount(collectionB)).isEqualTo(chromaB); // reconstruite
+        assertThat(ftsService.indexedCount(collectionName)).isEqualTo(chromaA); // intacte
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
+
+    /**
+     * Construit une seconde {@link IngestionService} câblée sur une AUTRE collection mais
+     * partageant le ChromaDB et le FtsService du test — pour peupler plusieurs collections
+     * dans les mêmes stores et exercer la réconciliation multi-collections.
+     */
+    private IngestionService serviceForSharedStores(String collection,
+                                                    Map<String, IngestedFileEntity> ged) {
+        SpectraProperties.PipelineProperties pipeline =
+                new SpectraProperties.PipelineProperties(64, 8, 10, 30, 120, 2);
+        SpectraProperties.ChromaDbProperties chromaProps =
+                new SpectraProperties.ChromaDbProperties(chromaBaseUrl, collection);
+        SpectraProperties props = mock(SpectraProperties.class);
+        when(props.pipeline()).thenReturn(pipeline);
+        when(props.chromadb()).thenReturn(chromaProps);
+
+        EmbeddingClient embeddingClient = mock(EmbeddingClient.class);
+        when(embeddingClient.embedBatch(anyList())).thenAnswer(inv -> {
+            List<String> texts = inv.getArgument(0);
+            return texts.stream().map(ChromaDbConsistencyIntegrationTest::vectorFor).toList();
+        });
+        EmbeddingService embeddingService = new EmbeddingService(embeddingClient);
+
+        IngestedFileRepository fileRepo = inMemoryFileRepo(ged);
+        GedService gedForB = new GedService(fileRepo, mock(DocumentModelLinkRepository.class),
+                mock(AuditLogRepository.class), chromaDbClient, ftsService, tempArchiveDir.toString());
+        DocumentExtractorFactory factory = new DocumentExtractorFactory(List.of(new TxtExtractor()));
+        TextCleanerService textCleaner = new TextCleanerService();
+        ChunkingService chunkingService = new ChunkingService(props);
+        IngestionTaskExecutor executor = new IngestionTaskExecutor(
+                factory, textCleaner, chunkingService, embeddingService, chromaDbClient, ftsService,
+                new SimpleMeterRegistry(), props, 10, 50, 2);
+        return new IngestionService(
+                factory, textCleaner, chunkingService, embeddingService, chromaDbClient, ftsService,
+                executor, fileRepo, gedForB, mock(StreamSourceRepository.class), props, 50, 2, 0);
+    }
 
     private static MockMultipartFile file(String name, byte[] content) {
         return new MockMultipartFile("files", name, "text/plain", content);

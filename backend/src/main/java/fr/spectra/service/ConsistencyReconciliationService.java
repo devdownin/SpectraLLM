@@ -5,9 +5,12 @@ import fr.spectra.persistence.IngestedFileRepository;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -63,6 +66,77 @@ public class ConsistencyReconciliationService {
         meterRegistry.gauge("spectra.consistency.fts.chunks", ftsChunks, AtomicLong::get);
         meterRegistry.gauge("spectra.consistency.db.chunks", dbChunks, AtomicLong::get);
         meterRegistry.gauge("spectra.consistency.fts_chroma_divergence", ftsChromaGap, AtomicLong::get);
+    }
+
+    /**
+     * Instantané de cohérence au démarrage : dès que l'application est prête, on compare une
+     * fois les comptes des trois sources de vérité et on journalise un état lisible — sans
+     * attendre le premier cycle de réconciliation (T+2 min) et <b>sans déclencher de réparation</b>
+     * (la reconstruction FTS reste du ressort du cycle périodique {@link #reconcile()}).
+     *
+     * <p>Objectif : donner à l'exploitant une visibilité immédiate au boot (et peupler les gauges
+     * Prometheus tout de suite plutôt qu'après deux minutes). Le contrôle est purement informatif
+     * et ne bloque jamais le démarrage : ChromaDB peut encore être indisponible à cet instant.</p>
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void snapshotOnStartup() {
+        try {
+            Long db = null;
+            try {
+                db = fileRepo.sumChunks();
+                dbChunks.set(db != null ? db : 0L);
+            } catch (Exception e) {
+                log.warn("[startup-consistency] lecture DB impossible : {}", e.getMessage());
+            }
+
+            long chromaTotal = 0;
+            boolean chromaReadable = false;
+            int diverging = 0;
+            Set<String> collections = targetCollections();
+            for (String collection : collections) {
+                try {
+                    String collectionId = chromaDbClient.getOrCreateCollection(collection);
+                    long chroma = chromaDbClient.count(collectionId);
+                    long fts    = ftsService.indexedCount(collection);
+                    long gap    = Math.abs(chroma - fts);
+                    chromaReadable = true;
+                    chromaTotal += chroma;
+
+                    gaugeFor(chromaByCollection, "spectra.consistency.collection.chroma.chunks", collection).set(chroma);
+                    gaugeFor(ftsByCollection, "spectra.consistency.collection.fts.chunks", collection).set(fts);
+                    gaugeFor(gapByCollection, "spectra.consistency.collection.fts_chroma_divergence", collection).set(gap);
+                    if (collection.equals(defaultCollection)) {
+                        chromaChunks.set(chroma);
+                        ftsChunks.set(fts);
+                        ftsChromaGap.set(gap);
+                    }
+
+                    if (gap > 0) {
+                        diverging++;
+                        log.warn("[startup-consistency] '{}' divergent au démarrage : chroma={}, fts={} "
+                                + "— réparation au prochain cycle de réconciliation", collection, chroma, fts);
+                    }
+                } catch (Exception e) {
+                    log.warn("[startup-consistency] '{}' non vérifiable au démarrage "
+                            + "(ChromaDB pas encore prêt ?) : {}", collection, e.getMessage());
+                }
+            }
+
+            // Cas critique : la GED déclare des chunks mais ChromaDB est vide → volume vectoriel
+            // perdu ou réinitialisé, le RAG ne répond plus sur le corpus. Correspond à l'alerte
+            // Prometheus SpectraChromaEmptyButGedPopulated, mais visible dès le boot.
+            if (chromaReadable && chromaTotal == 0 && db != null && db > 0) {
+                log.error("[startup-consistency] ChromaDB vide alors que la GED déclare {} chunk(s) : "
+                        + "volume vectoriel perdu ou réinitialisé — le RAG ne répondra pas sur le corpus. "
+                        + "Ré-ingérez les documents ou restaurez le volume ChromaDB.", db);
+            } else if (chromaReadable && diverging == 0) {
+                log.info("[startup-consistency] cohérence OK au démarrage : {} collection(s) vérifiée(s), "
+                        + "chroma={}, db={}", collections.size(), chromaTotal, db);
+            }
+        } catch (Exception e) {
+            // Ne jamais empêcher le démarrage.
+            log.warn("[startup-consistency] instantané impossible : {}", e.getMessage());
+        }
     }
 
     /** Vérifie la cohérence toutes les heures (après un délai de démarrage). */

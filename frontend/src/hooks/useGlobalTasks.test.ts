@@ -111,6 +111,23 @@ describe('normalizers', () => {
     expect(tasks[2].error).toBeNull();
   });
 
+  it('exposes retryUrls for a URL ingestion (all files are http(s) URLs)', () => {
+    const [task] = normalizeIngestTasks([{
+      taskId: 't1', status: 'FAILED', files: ['https://example.com/a.pdf', 'http://example.org/b'],
+      error: 'timeout',
+    }]);
+    expect(task.retryUrls).toEqual(['https://example.com/a.pdf', 'http://example.org/b']);
+  });
+
+  it('leaves retryUrls undefined for a file upload (not server-re-submittable)', () => {
+    const [uploaded] = normalizeIngestTasks([{ taskId: 't1', status: 'FAILED', files: ['a.pdf'] }]);
+    const [mixed] = normalizeIngestTasks([{ taskId: 't2', status: 'FAILED', files: ['https://x/y', 'a.pdf'] }]);
+    const [empty] = normalizeIngestTasks([{ taskId: 't3', status: 'FAILED', files: [] }]);
+    expect(uploaded.retryUrls).toBeUndefined();
+    expect(mixed.retryUrls).toBeUndefined();
+    expect(empty.retryUrls).toBeUndefined();
+  });
+
   it('normalizes a dataset generation task with chunk-based progress', () => {
     const [task] = normalizeDatasetTasks([{
       taskId: 'gen-12345678', status: 'PROCESSING',

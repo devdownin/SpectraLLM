@@ -12,7 +12,11 @@ import org.springframework.mock.web.MockMultipartFile;
 import java.nio.file.Path;
 import java.util.List;
 
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
+
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
@@ -27,20 +31,24 @@ class IngestionServiceTest {
 
     private IngestionService ingestionService;
     private IngestionTaskExecutor executor;
+    private SpectraProperties props;
 
     @BeforeEach
     void setUp() {
         SpectraProperties.PipelineProperties pipeline = new SpectraProperties.PipelineProperties(
                 512, 64, 10, 30, 120, 4);
-        SpectraProperties props = mock(SpectraProperties.class);
+        props = mock(SpectraProperties.class);
         when(props.pipeline()).thenReturn(pipeline);
 
+        executor = mock(IngestionTaskExecutor.class);
+        ingestionService = newService(0); // 0 = pas de plafond de contre-pression
+    }
+
+    /** Construit un service avec un plafond de tâches actives donné (0 = illimité). */
+    private IngestionService newService(int maxActiveIngestions) {
         ChromaDbClient chromaDb = mock(ChromaDbClient.class);
         when(chromaDb.getOrCreateCollection(anyString())).thenReturn("test-collection-id");
-
-        executor = mock(IngestionTaskExecutor.class);
-
-        ingestionService = new IngestionService(
+        return new IngestionService(
                 mock(DocumentExtractorFactory.class),
                 mock(TextCleanerService.class),
                 mock(ChunkingService.class),
@@ -52,8 +60,9 @@ class IngestionServiceTest {
                 mock(GedService.class),
                 mock(fr.spectra.persistence.StreamSourceRepository.class),
                 props,
-            50,
-            4
+                50,
+                4,
+                maxActiveIngestions
         );
     }
 
@@ -110,5 +119,36 @@ class IngestionServiceTest {
 
         assertThat(ingestionService.getTask("task-456").status())
                 .isEqualTo(IngestionTask.Status.PROCESSING);
+    }
+
+    // ── Contre-pression : plafond de tâches actives ───────────────────────────
+
+    @Test
+    void submit_atActiveCapacity_rejectsWith429() {
+        IngestionService capped = newService(1);
+        // 1re soumission : l'exécuteur est mocké (no-op) → la tâche reste PENDING, plafond atteint.
+        capped.submit(List.of(new MockMultipartFile("files", "a.txt", "text/plain",
+                "premier document distinct".getBytes())));
+        assertThat(capped.activeIngestionCount()).isEqualTo(1);
+
+        // 2e soumission : refusée AVANT toute écriture temporaire.
+        assertThatThrownBy(() -> capped.submit(List.of(
+                new MockMultipartFile("files", "b.txt", "text/plain",
+                        "second document distinct".getBytes()))))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(t -> assertThat(((ResponseStatusException) t).getStatusCode())
+                        .isEqualTo(HttpStatus.TOO_MANY_REQUESTS));
+        // La tâche refusée n'a pas été enregistrée.
+        assertThat(capped.activeIngestionCount()).isEqualTo(1);
+    }
+
+    @Test
+    void submit_unlimitedByDefault_neverRejects() {
+        // maxActive=0 (défaut) : plusieurs soumissions distinctes sont toutes acceptées.
+        for (int i = 0; i < 5; i++) {
+            ingestionService.submit(List.of(new MockMultipartFile("files", "f" + i + ".txt",
+                    "text/plain", ("document distinct numero " + i).getBytes())));
+        }
+        assertThat(ingestionService.activeIngestionCount()).isEqualTo(5);
     }
 }

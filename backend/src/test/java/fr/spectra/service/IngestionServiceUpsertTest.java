@@ -83,7 +83,7 @@ class IngestionServiceUpsertTest {
                 mock(IngestionTaskExecutor.class),
                 mock(IngestedFileRepository.class),
                 mock(GedService.class),
-                streamRepo, props, 50, 4);
+                streamRepo, props, 50, 4, 0);
     }
 
     private IngestionService.UpsertResult upsert(String key, String payload) throws Exception {

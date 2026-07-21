@@ -53,7 +53,10 @@
     "cancelMessage": "{{kind}} — « {{label}} » sera arrêtée. Le travail déjà effectué est conservé quand c'est possible ; la tâche ne pourra pas reprendre.",
     "cancelConfirm": "Arrêter la tâche",
     "cancelRequested": "Annulation demandée",
-    "cancelFailed": "Impossible d'annuler la tâche"
+    "cancelFailed": "Impossible d'annuler la tâche",
+    "retry": "Relancer cette ingestion d'URLs",
+    "retryRequested": "Ingestion relancée",
+    "retryFailed": "Impossible de relancer l'ingestion"
   },
   "wizard": {
     "ingestion": "Ingestion",
@@ -447,6 +450,9 @@
     "chunksPartial": "{{count}} chunks · partiel",
     "partialTitle": "Terminé avec des erreurs : {{name}}",
     "partialDesc": "{{count}} fichier(s) n'ont pas pu être ingérés — détail dans le flux d'ingestion.",
+    "retry": "Relancer",
+    "busyTitle": "Serveur occupé",
+    "busyDesc": "Trop d'ingestions en cours — « {{name}} » n'a pas été lancé. Réessayez dans quelques instants (bouton « Relancer »).",
     "oomTitle": "Erreur mémoire critique : {{id}}",
     "oomDesc": "Le document est trop volumineux pour la configuration mémoire actuelle.",
     "ingestFailed": "Échec de l'ingestion : {{name}}",

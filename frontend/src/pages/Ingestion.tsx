@@ -25,6 +25,10 @@ interface IngestEntry {
   error?: string;
   /** Échecs par fichier ("nom: cause") remontés par la tâche — succès partiel possible. */
   fileErrors?: string[];
+  /** Source conservée pour relancer une ingestion échouée/partielle (fichier uploadé ou URL).
+   *  Disponible uniquement le temps où la page reste montée (l'objet File n'est pas persisté). */
+  retryFile?: File;
+  retryUrl?: string;
 }
 
 interface GenerationTask {
@@ -249,7 +253,7 @@ const Ingestion: FC = () => {
   // ── Upload file ───────────────────────────────────────────────────────────
   const uploadFile = useCallback(async (file: File) => {
     const id = `${Date.now()}-${Math.random()}`;
-    const entry: IngestEntry = { id, taskId: null, fileName: file.name, status: 'UPLOADING', chunksCreated: 0, chunksExpected: 0 };
+    const entry: IngestEntry = { id, taskId: null, fileName: file.name, status: 'UPLOADING', chunksCreated: 0, chunksExpected: 0, retryFile: file };
     setIngestEntries(prev => [...prev, entry]);
 
     try {
@@ -260,7 +264,13 @@ const Ingestion: FC = () => {
     } catch (err: any) {
       const msg = err?.response?.data?.detail ?? err.message;
       setIngestEntries(prev => prev.map(e => e.id === id ? { ...e, status: 'FAILED', error: msg } : e));
-      toast.error(i18n.t('ingestion.ingestFailed', { name: file.name }), { description: msg });
+      // 429 = contre-pression du serveur (trop d'ingestions actives) : message dédié, non alarmant.
+      // La ligne reste relançable (bouton « Relancer ») une fois le pipeline désengorgé.
+      if (err?.response?.status === 429) {
+        toast.warning(i18n.t('ingestion.busyTitle'), { description: i18n.t('ingestion.busyDesc', { name: file.name }) });
+      } else {
+        toast.error(i18n.t('ingestion.ingestFailed', { name: file.name }), { description: msg });
+      }
     }
   }, [pollIngest, i18n]);
 
@@ -288,7 +298,7 @@ const Ingestion: FC = () => {
     }
 
     const id = `${Date.now()}-${Math.random()}`;
-    const entry: IngestEntry = { id, taskId: null, fileName: trimmed, status: 'UPLOADING', chunksCreated: 0, chunksExpected: 0 };
+    const entry: IngestEntry = { id, taskId: null, fileName: trimmed, status: 'UPLOADING', chunksCreated: 0, chunksExpected: 0, retryUrl: trimmed };
     setIngestEntries(prev => [...prev, entry]);
     setUrlInput('');
 
@@ -300,9 +310,27 @@ const Ingestion: FC = () => {
     } catch (err: any) {
       const msg = err?.response?.data?.detail ?? err.message;
       setIngestEntries(prev => prev.map(e => e.id === id ? { ...e, status: 'FAILED', error: msg } : e));
-      toast.error(i18n.t('ingestion.urlIngestFailed'), { description: msg });
+      if (err?.response?.status === 429) {
+        toast.warning(i18n.t('ingestion.busyTitle'), { description: i18n.t('ingestion.busyDesc', { name: trimmed }) });
+      } else {
+        toast.error(i18n.t('ingestion.urlIngestFailed'), { description: msg });
+      }
     }
   }, [pollIngest, i18n]);
+
+  // ── Relance d'une ingestion échouée / partielle ───────────────────────────
+  // Ré-injecte la source d'origine encore en mémoire (fichier uploadé ou URL) ; la
+  // déduplication SHA-256 côté serveur rend la relance sûre — les fragments déjà
+  // ingérés sont ignorés, seuls les fichiers en échec retentent leur chance.
+  const retryEntry = useCallback((entry: IngestEntry) => {
+    if (entry.retryFile) {
+      setIngestEntries(prev => prev.filter(e => e.id !== entry.id));
+      uploadFile(entry.retryFile);
+    } else if (entry.retryUrl) {
+      setIngestEntries(prev => prev.filter(e => e.id !== entry.id));
+      ingestUrl(entry.retryUrl);
+    }
+  }, [uploadFile, ingestUrl]);
 
   // ── Dataset generation ────────────────────────────────────────────────────
   const pollGenTask = useCallback((taskId: string) => {
@@ -696,6 +724,9 @@ const Ingestion: FC = () => {
                   // Succès partiel : tâche COMPLETED mais ce fichier (ou cette archive) porte
                   // des erreurs — ne plus l'afficher comme un succès plein.
                   const partial = entry.status === 'COMPLETED' && entryErrors.length > 0;
+                  // Relance possible si la ligne a échoué (ou partiellement) ET que sa source
+                  // d'origine est encore en mémoire (page non rechargée).
+                  const canRetry = (entry.status === 'FAILED' || partial) && Boolean(entry.retryFile || entry.retryUrl);
                   return (
                   <div key={entry.id} className={`space-y-1.5 transition-colors duration-300 ${entry.status === 'PROCESSING' ? 'bg-secondary/3 -mx-1 px-1' : ''}`}>
                     <div className="flex items-center justify-between gap-2">
@@ -707,18 +738,28 @@ const Ingestion: FC = () => {
                         </span>
                         <span className="text-[11px] font-label truncate">{entry.fileName}</span>
                       </div>
-                      <span key={`${entry.status}-${entry.chunksCreated}`}
-                        className={`text-[10px] font-bold uppercase tracking-widest shrink-0 ${partial ? 'text-error' : statusColor[entry.status]} ${entry.status === 'COMPLETED' ? 'count-flash' : ''}`}>
-                        {entry.status === 'COMPLETED'
-                          ? (partial
-                              ? t('ingestion.chunksPartial', { count: entry.chunksCreated })
-                              : t('ingestion.chunks', { count: entry.chunksCreated }))
-                          : entry.status === 'PROCESSING' && entry.chunksExpected > 0
-                            ? t('ingestion.chunksProgress', { done: entry.chunksCreated, total: entry.chunksExpected })
-                            : entry.status === 'PROCESSING' && entry.chunksCreated > 0
-                              ? t('ingestion.chunksSoFar', { count: entry.chunksCreated })
-                              : entry.status}
-                      </span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span key={`${entry.status}-${entry.chunksCreated}`}
+                          className={`text-[10px] font-bold uppercase tracking-widest ${partial ? 'text-error' : statusColor[entry.status]} ${entry.status === 'COMPLETED' ? 'count-flash' : ''}`}>
+                          {entry.status === 'COMPLETED'
+                            ? (partial
+                                ? t('ingestion.chunksPartial', { count: entry.chunksCreated })
+                                : t('ingestion.chunks', { count: entry.chunksCreated }))
+                            : entry.status === 'PROCESSING' && entry.chunksExpected > 0
+                              ? t('ingestion.chunksProgress', { done: entry.chunksCreated, total: entry.chunksExpected })
+                              : entry.status === 'PROCESSING' && entry.chunksCreated > 0
+                                ? t('ingestion.chunksSoFar', { count: entry.chunksCreated })
+                                : entry.status}
+                        </span>
+                        {canRetry && (
+                          <button type="button" onClick={() => retryEntry(entry)}
+                            title={t('ingestion.retry')}
+                            className="flex items-center gap-0.5 text-[10px] font-bold uppercase tracking-widest text-secondary hover:text-primary transition-colors">
+                            <span className="material-symbols-outlined text-sm">refresh</span>
+                            {t('ingestion.retry')}
+                          </button>
+                        )}
+                      </div>
                     </div>
                     {(entry.status === 'PROCESSING' || entry.status === 'COMPLETED') && (
                       <div className="relative w-full bg-outline-variant/20 h-0.5 overflow-hidden">

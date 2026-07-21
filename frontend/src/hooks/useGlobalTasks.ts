@@ -60,6 +60,12 @@ export interface GlobalTask {
   timestamp: string | null;
   /** Début de la tâche (création/lancement), pour estimer le temps restant. */
   startedAt: string | null;
+  /**
+   * URLs sources ré-injectables, quand la tâche est une ingestion d'URLs (toutes les
+   * entrées `files` sont des URLs http(s)). Permet de relancer une ingestion URL échouée
+   * depuis le panneau global — ce que ne permet pas un upload de fichier (octets perdus).
+   */
+  retryUrls?: string[];
 }
 
 // ── Helpers de normalisation ─────────────────────────────────────────────────
@@ -89,6 +95,10 @@ const asArray = (raw: unknown): Record<string, any>[] => (Array.isArray(raw) ? r
 const shortId = (id: unknown): string =>
   typeof id === 'string' && id.length > 0 ? id.slice(0, 8).toUpperCase() : '—';
 
+/** Vrai pour une chaîne qui est une URL http(s) — distingue une ingestion d'URLs d'un upload. */
+const isHttpUrl = (s: unknown): s is string =>
+  typeof s === 'string' && /^https?:\/\//i.test(s);
+
 const pickTimestamp = (...candidates: unknown[]): string | null => {
   for (const c of candidates) if (typeof c === 'string' && c.length > 0) return c;
   return null;
@@ -102,6 +112,10 @@ export function normalizeIngestTasks(raw: unknown): GlobalTask[] {
     // (fileErrors) — les remonter dans le champ error pour qu'ils restent visibles
     // dans le panneau global, pas seulement sur la page Ingestion.
     const fileErrors = Array.isArray(t.fileErrors) ? t.fileErrors.filter((e: unknown) => typeof e === 'string') : [];
+    // Ingestion d'URLs (toutes les entrées sont des URLs) → relançable côté serveur ;
+    // un upload de fichier ne l'est pas (octets non conservés).
+    const files: unknown[] = Array.isArray(t.files) ? t.files : [];
+    const retryUrls = files.length > 0 && files.every(isHttpUrl) ? (files as string[]) : undefined;
     return {
       id: `ingestion:${t.taskId}`,
       kind: 'ingestion' as const,
@@ -117,6 +131,7 @@ export function normalizeIngestTasks(raw: unknown): GlobalTask[] {
       error: t.error ?? (fileErrors.length > 0 ? fileErrors.join(' · ') : null),
       timestamp: pickTimestamp(t.completedAt, t.createdAt),
       startedAt: pickTimestamp(t.createdAt),
+      retryUrls,
     };
   });
 }

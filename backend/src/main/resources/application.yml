@@ -107,6 +107,10 @@ spectra:
     embedding-timeout-seconds: ${SPECTRA_EMBEDDING_TIMEOUT:60}
     generation-timeout-seconds: ${SPECTRA_GENERATION_TIMEOUT:120}
     concurrent-ingestions: ${SPECTRA_CONCURRENT_INGESTIONS:1}
+    # Plafond de tâches d'ingestion actives (PENDING/PROCESSING) ; au-delà, une nouvelle
+    # soumission est rejetée en HTTP 429 (contre-pression). 0 = illimité. Le sémaphore borne
+    # le traitement concurrent ; ceci borne le nombre de tâches EN ATTENTE (mémoire/disque temp).
+    max-active-ingestions: ${SPECTRA_MAX_ACTIVE_INGESTIONS:0}
   layout-parser:
     enabled: ${SPECTRA_LAYOUT_PARSER_ENABLED:false}
     base-url: ${SPECTRA_LAYOUT_PARSER_URL:http://docparser:8001}

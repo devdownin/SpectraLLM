@@ -42,6 +42,7 @@ Every setting has a working default — see the essentials note at the top of [.
 | `SPECTRA_EMBEDDING_BATCH_SIZE` | `32` | Chunks embedded per HTTP batch (500 chunks = 16 requests instead of 50 with the old default of 10). Lower it on very slow CPUs |
 | `SPECTRA_EMBEDDING_TIMEOUT` | `60` | Timeout (seconds) of each `/v1/embeddings` request — must cover a full batch on slow hardware |
 | `SPECTRA_CONCURRENT_INGESTIONS` | `1` | Parallel ingestion workers (upload, URL and batch paths all share this semaphore) |
+| `SPECTRA_MAX_ACTIVE_INGESTIONS` | `0` | Cap on active ingestion tasks (PENDING/PROCESSING). Beyond it, a new submission is rejected with **HTTP 429** before any temp write — backpressure against a flood of submissions piling up temp files and registry entries. `0` = unlimited |
 | `SPECTRA_MAX_UNCOMPRESSED_MB` | `0` | Max uncompressed size per file / ZIP entry (MB). `0` = auto-computed from JVM heap and concurrency (OOM guard) |
 | `SPECTRA_INGESTION_MAX_ZIP_ENTRIES` | `10000` | Max entries processed per ZIP archive (ZIP-bomb guard) |
 | `SPECTRA_INGESTION_MAX_ENTRY_BYTES` | `52428800` | Legacy per-entry byte cap (50 MB) |

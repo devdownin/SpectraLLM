@@ -2,8 +2,11 @@ package fr.spectra.controller;
 
 import fr.spectra.service.extraction.ExtractionException;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.server.ResponseStatusException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -79,5 +82,29 @@ class GlobalExceptionHandlerTest {
         ProblemDetail problem = handler.handleThrowable(new OutOfMemoryError("Java heap space"));
         assertThat(problem.getStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE.value());
         assertThat(problem.getTitle()).isEqualTo("Serveur surchargé (Mémoire)");
+    }
+
+    // ── ResponseStatusException → statut + Retry-After sur 429 ────────────────
+
+    @Test
+    void handleResponseStatus_429_carriesRetryAfterHeader() {
+        ResponseEntity<ProblemDetail> response = handler.handleResponseStatus(
+                new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "Trop d'ingestions actives"));
+
+        assertThat(response.getStatusCode().value()).isEqualTo(429);
+        assertThat(response.getHeaders().getFirst(HttpHeaders.RETRY_AFTER)).isEqualTo("5");
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getDetail()).contains("Trop d'ingestions actives");
+    }
+
+    @Test
+    void handleResponseStatus_nonThrottle_hasNoRetryAfter() {
+        ResponseEntity<ProblemDetail> response = handler.handleResponseStatus(
+                new ResponseStatusException(HttpStatus.NOT_FOUND, "Tâche inconnue"));
+
+        assertThat(response.getStatusCode().value()).isEqualTo(404);
+        assertThat(response.getHeaders().getFirst(HttpHeaders.RETRY_AFTER)).isNull();
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getDetail()).isEqualTo("Tâche inconnue");
     }
 }
