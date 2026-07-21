@@ -168,6 +168,7 @@ public class IngestionService {
         // AVANT de copier quoi que ce soit sur le disque temporaire. Évite qu'un client sature
         // la mémoire/le disque de l'instance unique en empilant des centaines de tâches.
         if (maxActiveIngestions > 0 && activeIngestionCount() >= maxActiveIngestions) {
+            executor.recordSubmissionRejected();
             throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
                     "Trop d'ingestions actives (" + maxActiveIngestions + " max) — réessayez "
                     + "une fois les tâches en cours terminées.");

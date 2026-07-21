@@ -53,6 +53,7 @@ public class IngestionTaskExecutor {
     private final Counter chunksIngested;
     private final Counter filesIngested;
     private final Timer ingestionTimer;
+    private final Counter submissionsRejected;
 
     public IngestionTaskExecutor(DocumentExtractorFactory extractorFactory,
                                  TextCleanerService textCleaner,
@@ -88,6 +89,9 @@ public class IngestionTaskExecutor {
         this.ingestionTimer = Timer.builder("spectra.ingestion.file.duration")
                 .description("Durée d'ingestion par fichier")
                 .register(meterRegistry);
+        this.submissionsRejected = Counter.builder("spectra.ingestion.rejected")
+                .description("Soumissions d'ingestion refusées par la contre-pression (429, plafond de tâches actives)")
+                .register(meterRegistry);
         // Profondeur de file / capacité disponible — détecte la saturation du pipeline d'ingestion.
         meterRegistry.gauge("spectra.ingestion.concurrency.available", concurrencySemaphore, Semaphore::availablePermits);
         meterRegistry.gauge("spectra.ingestion.concurrency.queued", concurrencySemaphore, s -> (double) s.getQueueLength());
@@ -104,6 +108,11 @@ public class IngestionTaskExecutor {
                         Map<String, IngestionTask> tasks, String collectionName,
                         Map<Path, String> tempFileToHash, IngestionCallback onIngested) {
         execute(taskId, fileNames, tempFiles, tasks, collectionName, tempFileToHash, onIngested, null);
+    }
+
+    /** Compte une soumission refusée par la contre-pression (plafond de tâches actives → 429). */
+    public void recordSubmissionRejected() {
+        submissionsRejected.increment();
     }
 
     @Async

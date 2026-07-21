@@ -448,6 +448,8 @@
     "partialTitle": "Completed with errors: {{name}}",
     "partialDesc": "{{count}} file(s) could not be ingested — details in the live stream.",
     "retry": "Retry",
+    "busyTitle": "Server busy",
+    "busyDesc": "Too many ingestions in progress — \"{{name}}\" was not started. Try again shortly (\"Retry\" button).",
     "oomTitle": "Critical Memory Error: {{id}}",
     "oomDesc": "The document is too large for the current memory configuration.",
     "ingestFailed": "Ingestion failed: {{name}}",

@@ -264,7 +264,13 @@ const Ingestion: FC = () => {
     } catch (err: any) {
       const msg = err?.response?.data?.detail ?? err.message;
       setIngestEntries(prev => prev.map(e => e.id === id ? { ...e, status: 'FAILED', error: msg } : e));
-      toast.error(i18n.t('ingestion.ingestFailed', { name: file.name }), { description: msg });
+      // 429 = contre-pression du serveur (trop d'ingestions actives) : message dédié, non alarmant.
+      // La ligne reste relançable (bouton « Relancer ») une fois le pipeline désengorgé.
+      if (err?.response?.status === 429) {
+        toast.warning(i18n.t('ingestion.busyTitle'), { description: i18n.t('ingestion.busyDesc', { name: file.name }) });
+      } else {
+        toast.error(i18n.t('ingestion.ingestFailed', { name: file.name }), { description: msg });
+      }
     }
   }, [pollIngest, i18n]);
 
@@ -304,7 +310,11 @@ const Ingestion: FC = () => {
     } catch (err: any) {
       const msg = err?.response?.data?.detail ?? err.message;
       setIngestEntries(prev => prev.map(e => e.id === id ? { ...e, status: 'FAILED', error: msg } : e));
-      toast.error(i18n.t('ingestion.urlIngestFailed'), { description: msg });
+      if (err?.response?.status === 429) {
+        toast.warning(i18n.t('ingestion.busyTitle'), { description: i18n.t('ingestion.busyDesc', { name: trimmed }) });
+      } else {
+        toast.error(i18n.t('ingestion.urlIngestFailed'), { description: msg });
+      }
     }
   }, [pollIngest, i18n]);
 

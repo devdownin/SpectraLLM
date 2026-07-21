@@ -5,8 +5,10 @@ import fr.spectra.service.extraction.ExtractionException;
 import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
@@ -51,12 +53,21 @@ public class GlobalExceptionHandler {
         return problem;
     }
 
+    /** Indice de repli envoyé au client sur un 429 s'il n'a pas été précisé sur l'exception. */
+    private static final String DEFAULT_RETRY_AFTER_SECONDS = "5";
+
     @ExceptionHandler(ResponseStatusException.class)
-    public ProblemDetail handleResponseStatus(ResponseStatusException e) {
+    public ResponseEntity<ProblemDetail> handleResponseStatus(ResponseStatusException e) {
         log.debug("ResponseStatusException: {}", e.getMessage());
         ProblemDetail problem = ProblemDetail.forStatus(e.getStatusCode());
         problem.setDetail(e.getReason());
-        return problem;
+        HttpHeaders headers = new HttpHeaders();
+        // 429 (contre-pression d'ingestion) : joindre un Retry-After pour que le client
+        // temporise au lieu de marteler l'API.
+        if (e.getStatusCode().value() == HttpStatus.TOO_MANY_REQUESTS.value()) {
+            headers.add(HttpHeaders.RETRY_AFTER, DEFAULT_RETRY_AFTER_SECONDS);
+        }
+        return new ResponseEntity<>(problem, headers, e.getStatusCode());
     }
 
     @ExceptionHandler(fr.spectra.service.ChromaDbClient.EmbeddingModelMismatchException.class)
