@@ -8,7 +8,7 @@ New here? Start with **[Getting Started](getting-started.en.md)**.
 | Guide | For |
 |---|---|
 | **[Getting Started](getting-started.en.md)** | Install step by step, download models, pick a Docker profile, deploy to Kubernetes/GKE. |
-| **[User Manual](user/user-manual.fr.md)** | A full walkthrough of the web interface — ingestion, playground, fine-tuning, evaluation. |
+| **[User Manual](user/user-manual.en.md)** ([FR](user/user-manual.fr.md)) | A full walkthrough of the web interface — ingestion, playground, fine-tuning, evaluation. |
 | **[How Spectra works (FR)](user/documentation-pedagogique.fr.md)** | The ideas in plain language: embeddings, hybrid search + RRF, the RAG strategies, QLoRA/DPO. |
 
 ## Architecture & configuration

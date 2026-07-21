@@ -4,6 +4,8 @@ Spectra vous permet de créer votre propre assistant d'intelligence artificielle
 
 L'inférence LLM est assurée par [llama-cpp-turboquant](https://github.com/TheTom/llama-cpp-turboquant), un fork de llama.cpp optimisé pour la quantization. Les modèles sont au format **GGUF**, le standard de facto pour l'inférence locale.
 
+> 🌍 English version : **[user-manual.en.md](user-manual.en.md)**.
+
 ---
 
 ## 1. Prérequis
