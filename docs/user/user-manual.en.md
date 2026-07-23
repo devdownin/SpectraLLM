@@ -261,7 +261,7 @@ SPECTRA_KAFKA_SASL_MECHANISM=SCRAM-SHA-512
 SPECTRA_KAFKA_SASL_JAAS_CONFIG=org.apache.kafka.common.security.scram.ScramLoginModule required username="u" password="p";
 ```
 
-**Publish a test message** (from the host; the profile's broker listens on `localhost:29092`):
+**Publish a test message** (from the host; the profile's broker listens on `localhost:9092`):
 
 ```bash
 # key = business identity ; value = current state (JSON by default)
