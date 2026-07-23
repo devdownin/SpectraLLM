@@ -351,7 +351,7 @@ corpus.
 ```bash
 SPECTRA_KAFKA_ENABLED=true SPECTRA_KAFKA_TOPICS=my-topic \
   docker compose --profile kafka up -d
-# Produce test messages from the host on localhost:29092; spectra-api reads kafka:9092
+# Produce test messages from the host on localhost:9092; spectra-api reads kafka:29092
 ```
 
 **Configuration:**
