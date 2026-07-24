@@ -41,6 +41,7 @@ class GedServiceTest {
         linkRepo  = mock(DocumentModelLinkRepository.class);
         auditRepo = mock(AuditLogRepository.class);
         ged = new GedService(fileRepo, linkRepo, auditRepo,
+                mock(fr.spectra.persistence.ArticleCommentRepository.class),
                 mock(ChromaDbClient.class), mock(FtsService.class),
                 tempArchive.toString());
         // findAll stub par défaut (pour stats)
@@ -462,6 +463,7 @@ class GedServiceTest {
         when(chroma.getOrCreateCollection("spectra_documents")).thenReturn("col-id");
         when(chroma.deleteByMetadata("col-id", "sha256", "shaX")).thenReturn(4);
         GedService svc = new GedService(fileRepo, linkRepo, auditRepo,
+                mock(fr.spectra.persistence.ArticleCommentRepository.class),
                 chroma, mock(FtsService.class), tempArchive.toString());
 
         IngestedFileEntity doc = entity("shaX");
@@ -482,6 +484,7 @@ class GedServiceTest {
         ChromaDbClient chroma = mock(ChromaDbClient.class);
         when(chroma.getOrCreateCollection("spectra_documents")).thenReturn("col-id");
         GedService svc = new GedService(fileRepo, linkRepo, auditRepo,
+                mock(fr.spectra.persistence.ArticleCommentRepository.class),
                 chroma, mock(FtsService.class), tempArchive.toString());
 
         IngestedFileEntity doc = entity("shaY");
@@ -502,6 +505,7 @@ class GedServiceTest {
         when(chroma.deleteBySource("col-2", "orphelin.pdf")).thenReturn(7);
         FtsService fts = mock(FtsService.class);
         GedService svc = new GedService(fileRepo, linkRepo, auditRepo,
+                mock(fr.spectra.persistence.ArticleCommentRepository.class),
                 chroma, fts, tempArchive.toString());
 
         when(fileRepo.findByFileName("orphelin.pdf")).thenReturn(List.of());

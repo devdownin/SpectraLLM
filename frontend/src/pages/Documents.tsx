@@ -472,7 +472,19 @@ const Documents: FC = () => {
       <div
         key={doc.sha256}
         onClick={() => setSelectedSha(doc.sha256)}
-        className={`cv-auto group grid grid-cols-1 lg:grid-cols-[32px_minmax(0,1.5fr)_100px_140px_120px_100px_80px] gap-4 items-center px-4 py-4 transition-colors cursor-pointer border-l-2 ${isActive ? 'border-primary bg-surface-container-high/70' : 'border-transparent hover:bg-surface-container-high/40'}`}
+        // Ligne activable au clavier : Tab pour la focaliser, Entrée/Espace pour ouvrir la fiche
+        // (les boutons imbriqués — case, poubelle — gardent leur propre cycle de tabulation).
+        role="button"
+        tabIndex={0}
+        aria-label={t('documents.openSheet', { name: doc.fileName })}
+        onKeyDown={e => {
+          if (e.target !== e.currentTarget) return; // ne pas capter Entrée sur les boutons imbriqués
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setSelectedSha(doc.sha256);
+          }
+        }}
+        className={`cv-auto group grid grid-cols-1 lg:grid-cols-[32px_minmax(0,1.5fr)_100px_140px_120px_100px_80px] gap-4 items-center px-4 py-4 transition-colors cursor-pointer border-l-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary focus-visible:-outline-offset-2 ${isActive ? 'border-primary bg-surface-container-high/70' : 'border-transparent hover:bg-surface-container-high/40'}`}
       >
         <button
           type="button"
@@ -786,8 +798,15 @@ const Documents: FC = () => {
                 return (
                   <div key={key}>
                     <div
-                      className="flex items-center gap-3 px-4 py-2.5 bg-surface-container-high/60 cursor-pointer hover:bg-surface-container-high transition-colors select-none"
+                      className="flex items-center gap-3 px-4 py-2.5 bg-surface-container-high/60 cursor-pointer hover:bg-surface-container-high transition-colors select-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary focus-visible:-outline-offset-2"
                       onClick={() => toggleGroup(key)}
+                      role="button"
+                      tabIndex={0}
+                      aria-expanded={!isCollapsed}
+                      onKeyDown={e => {
+                        if (e.target !== e.currentTarget) return;
+                        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleGroup(key); }
+                      }}
                     >
                       <button
                         type="button"
@@ -1192,7 +1211,7 @@ const Documents: FC = () => {
 
                 {commentTab === 'generate' && (
                   <div className="space-y-2">
-                    <p className="text-[10px] text-on-surface-variant">
+                    <p className="text-xs text-on-surface-variant leading-relaxed">
                       {t('documents.generateHint')}
                     </p>
                     <input
@@ -1215,7 +1234,7 @@ const Documents: FC = () => {
                         ? t('documents.generating')
                         : t('documents.generateBtn')}
                     </button>
-                    <p className="text-[10px] text-outline">
+                    <p className="text-xs text-outline leading-relaxed">
                       {t('documents.dpoExportHint')}
                     </p>
                   </div>

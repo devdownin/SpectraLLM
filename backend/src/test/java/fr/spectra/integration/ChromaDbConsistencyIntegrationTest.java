@@ -152,6 +152,7 @@ class ChromaDbConsistencyIntegrationTest {
         AuditLogRepository auditRepo = mock(AuditLogRepository.class);
 
         gedService = new GedService(fileRepo, linkRepo, auditRepo,
+                mock(fr.spectra.persistence.ArticleCommentRepository.class),
                 chromaDbClient, ftsService, tempArchiveDir.toString());
 
         DocumentExtractorFactory factory = new DocumentExtractorFactory(List.of(new TxtExtractor()));
@@ -295,7 +296,8 @@ class ChromaDbConsistencyIntegrationTest {
 
         IngestedFileRepository fileRepo = inMemoryFileRepo(ged);
         GedService gedForB = new GedService(fileRepo, mock(DocumentModelLinkRepository.class),
-                mock(AuditLogRepository.class), chromaDbClient, ftsService, tempArchiveDir.toString());
+                mock(AuditLogRepository.class), mock(fr.spectra.persistence.ArticleCommentRepository.class),
+                chromaDbClient, ftsService, tempArchiveDir.toString());
         DocumentExtractorFactory factory = new DocumentExtractorFactory(List.of(new TxtExtractor()));
         TextCleanerService textCleaner = new TextCleanerService();
         ChunkingService chunkingService = new ChunkingService(props);

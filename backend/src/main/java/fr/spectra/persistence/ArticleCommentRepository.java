@@ -15,4 +15,8 @@ public interface ArticleCommentRepository extends JpaRepository<ArticleCommentEn
     long countByCommentTypeAndRating(
             ArticleCommentEntity.CommentType commentType,
             ArticleCommentEntity.Rating rating);
+
+    long countByCommentType(ArticleCommentEntity.CommentType commentType);
+
+    long countByRating(ArticleCommentEntity.Rating rating);
 }

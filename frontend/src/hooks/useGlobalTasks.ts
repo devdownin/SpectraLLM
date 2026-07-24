@@ -61,6 +61,12 @@ export interface GlobalTask {
   /** Début de la tâche (création/lancement), pour estimer le temps restant. */
   startedAt: string | null;
   /**
+   * Charge utile brute de la source (mêmes champs que le REST/SSE) : permet aux pages
+   * de lire leurs champs spécifiques (pairsGenerated, currentEpoch…) sans re-poller
+   * l'API elles-mêmes — le hook est LA source unique du suivi des tâches.
+   */
+  raw: Record<string, any>;
+  /**
    * URLs sources ré-injectables, quand la tâche est une ingestion d'URLs (toutes les
    * entrées `files` sont des URLs http(s)). Permet de relancer une ingestion URL échouée
    * depuis le panneau global — ce que ne permet pas un upload de fichier (octets perdus).
@@ -131,6 +137,7 @@ export function normalizeIngestTasks(raw: unknown): GlobalTask[] {
       error: t.error ?? (fileErrors.length > 0 ? fileErrors.join(' · ') : null),
       timestamp: pickTimestamp(t.completedAt, t.createdAt),
       startedAt: pickTimestamp(t.createdAt),
+      raw: t,
       retryUrls,
     };
   });
@@ -151,6 +158,7 @@ export function normalizeDatasetTasks(raw: unknown): GlobalTask[] {
     error: t.error ?? null,
     timestamp: pickTimestamp(t.completedAt, t.createdAt),
     startedAt: pickTimestamp(t.createdAt),
+    raw: t,
   }));
 }
 
@@ -167,6 +175,7 @@ export function normalizeDpoTasks(raw: unknown): GlobalTask[] {
     error: t.error ?? null,
     timestamp: pickTimestamp(t.completedAt, t.startedAt),
     startedAt: pickTimestamp(t.startedAt),
+    raw: t,
   }));
 }
 
@@ -187,6 +196,7 @@ export function normalizeTrainingJobs(raw: unknown): GlobalTask[] {
       error: j.error ?? null,
       timestamp: pickTimestamp(j.completedAt, j.createdAt),
       startedAt: pickTimestamp(j.createdAt),
+      raw: j,
     };
   });
 }
@@ -205,6 +215,7 @@ export function normalizeEvaluations(raw: unknown): GlobalTask[] {
     error: e.error ?? null,
     timestamp: pickTimestamp(e.completedAt, e.startedAt),
     startedAt: pickTimestamp(e.startedAt),
+    raw: e,
   }));
 }
 
@@ -222,6 +233,7 @@ export function normalizeAbComparisons(raw: unknown): GlobalTask[] {
     error: ab.error ?? null,
     timestamp: pickTimestamp(ab.completedAt, ab.startedAt),
     startedAt: pickTimestamp(ab.startedAt),
+    raw: ab,
   }));
 }
 
@@ -241,6 +253,7 @@ export function normalizeInstallations(raw: unknown): GlobalTask[] {
       error: j.error ?? null,
       timestamp: pickTimestamp(j.completedAt, j.createdAt),
       startedAt: pickTimestamp(j.createdAt),
+      raw: j,
     };
   });
 }
@@ -259,6 +272,7 @@ export function normalizeAblationJobs(raw: unknown): GlobalTask[] {
     error: j.error ?? null,
     timestamp: pickTimestamp(j.completedAt, j.createdAt),
     startedAt: pickTimestamp(j.createdAt),
+    raw: j,
   }));
 }
 
@@ -275,6 +289,7 @@ export function normalizeBenchmarkJobs(raw: unknown): GlobalTask[] {
     error: j.error ?? null,
     timestamp: pickTimestamp(j.completedAt, j.createdAt, j.startedAt),
     startedAt: pickTimestamp(j.startedAt, j.createdAt),
+    raw: j,
   }));
 }
 

@@ -13,6 +13,7 @@ import {
   evaluationApi,
   modelsHubApi,
   ablationApi,
+  qualityBenchmarkApi,
 } from '../services/api';
 import ConfirmDialog from './ConfirmDialog';
 
@@ -45,8 +46,8 @@ const STATUS_COLOR: Record<GlobalTaskStatus, string> = {
 };
 
 /**
- * Annulation par famille de tâche → endpoint DELETE correspondant. Une famille absente
- * (benchmark qualité) n'affiche pas de bouton. L'id brut est extrait de `${kind}:${id}`.
+ * Annulation par famille de tâche → endpoint DELETE correspondant. Toutes les familles
+ * longues sont couvertes. L'id brut est extrait de `${kind}:${id}`.
  */
 const CANCEL_BY_KIND: Partial<Record<GlobalTaskKind, (id: string) => Promise<unknown>>> = {
   ingestion:  (id) => ingestApi.cancelTask(id),
@@ -57,6 +58,7 @@ const CANCEL_BY_KIND: Partial<Record<GlobalTaskKind, (id: string) => Promise<unk
   ab:         (id) => evaluationApi.cancelAb(id),
   install:    (id) => modelsHubApi.cancelInstallation(id),
   ablation:   (id) => ablationApi.cancelJob(id),
+  benchmark:  (id) => qualityBenchmarkApi.cancelCompare(id),
 };
 
 const rawTaskId = (task: GlobalTask): string => task.id.slice(task.kind.length + 1);

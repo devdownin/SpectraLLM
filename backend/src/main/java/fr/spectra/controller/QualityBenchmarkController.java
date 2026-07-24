@@ -7,6 +7,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -92,5 +93,22 @@ public class QualityBenchmarkController {
     @Operation(summary = "Historique des comparaisons qualité (les plus récentes d'abord)")
     public List<QualityCompareJob> listCompareJobs() {
         return service.getCompareJobs();
+    }
+
+    @DeleteMapping("/compare/{jobId}")
+    @Operation(
+            summary = "Annuler une comparaison qualité en cours",
+            description = "Annulation coopérative (même convention que DELETE /api/ablation/jobs/"
+                    + "{jobId}) : prise en compte entre deux questions du benchmark ; l'appel LLM "
+                    + "en cours se termine d'abord. 409 si le job est déjà terminé.")
+    public ResponseEntity<Map<String, String>> cancelCompareJob(@PathVariable String jobId) {
+        if (service.getCompareJob(jobId) == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Comparaison inconnue: " + jobId);
+        }
+        if (!service.requestCancelCompare(jobId)) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of("error", "Le job est déjà terminé"));
+        }
+        return ResponseEntity.ok(Map.of("jobId", jobId, "status", "CANCELLING"));
     }
 }

@@ -60,6 +60,9 @@ const Layout: FC<LayoutProps> = ({ children }) => {
             boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)',
             color: '#e8eaf0',
             fontFamily: 'Inter',
+            // Les toasts portent de l'information (erreurs, confirmations) : taille
+            // lisible et casse normale — le style micro-caps reste réservé aux
+            // étiquettes de l'interface (constat #22 de l'audit).
             fontSize: '13px',
           }
         }}

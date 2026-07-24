@@ -337,7 +337,7 @@ const ModelHub: FC = () => {
             <p className="text-[11px] font-label font-bold uppercase tracking-widest text-primary">
               {t('modelHub.postInstallTitle')}
             </p>
-            <p className="text-[10px] text-on-surface-variant leading-relaxed">
+            <p className="text-xs text-on-surface-variant leading-relaxed">
               <Trans i18nKey="modelHub.postInstallBody">
                 The GGUF file was copied to <code className="font-mono bg-surface-container px-1">data/models/</code> and
                 saved to the model registry. Once <strong>activated</strong> (Auto-activation here, or from the

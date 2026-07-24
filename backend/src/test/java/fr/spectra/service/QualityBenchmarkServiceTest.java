@@ -139,4 +139,56 @@ class QualityBenchmarkServiceTest {
         assertThat(job.status()).isEqualTo(QualityCompareJob.Status.FAILED);
         assertThat(job.error()).contains("redémarrage");
     }
+
+    @Test
+    void requestCancelCompare_jobInconnuOuTermine_retourneFalse() {
+        QualityBenchmarkService service = newService(deterministicChat("m"));
+        service.init();
+        // Job inconnu → rien à annuler.
+        assertThat(service.requestCancelCompare("nope")).isFalse();
+        // Job mené à terme (exécution synchrone hors Spring) → déjà terminal, non annulable.
+        String jobId = service.submitCompare("a", "b");
+        assertThat(service.getCompareJob(jobId).status()).isEqualTo(QualityCompareJob.Status.COMPLETED);
+        assertThat(service.requestCancelCompare(jobId)).isFalse();
+    }
+
+    @Test
+    void submitCompare_annulationCooperative_marqueLeJobCancelled() {
+        // Chat qui demande l'annulation du job en cours dès le premier appel : la vérification
+        // coopérative (entre deux questions) doit alors interrompre le passage → statut CANCELLED,
+        // le rapport partiel étant conservé et aucune erreur enregistrée.
+        LlmChatClient chat = mock(LlmChatClient.class);
+        when(chat.getActiveModel()).thenReturn("modele");
+        when(chat.checkHealth()).thenReturn(new fr.spectra.dto.ServiceStatus(
+                "llama-cpp", "http://test", true, "ok", 1, java.util.Map.of()));
+        QualityBenchmarkService[] ref = new QualityBenchmarkService[1];
+        when(chat.chat(anyString(), anyString())).thenAnswer(inv -> {
+            // Le (seul) job est RUNNING pendant la génération : demander son annulation.
+            var jobs = ref[0].getCompareJobs();
+            if (!jobs.isEmpty()) ref[0].requestCancelCompare(jobs.get(0).jobId());
+            return "Réponse du modèle.";
+        });
+        QualityBenchmarkService service = new QualityBenchmarkService(
+                chat, new ModelSwitchCoordinator(chat, 2, 1), "", "", workDir.toString());
+        ref[0] = service;
+        service.init();
+
+        String jobId = service.submitCompare("baseline", "candidate");
+
+        QualityCompareJob job = service.getCompareJob(jobId);
+        assertThat(job.status()).isEqualTo(QualityCompareJob.Status.CANCELLED);
+        assertThat(job.error()).isNull();
+        // Une nouvelle comparaison peut repartir (le verrou d'exécution a été relâché).
+        assertThat(service.requestCancelCompare(jobId)).isFalse();
+    }
+
+    @Test
+    void qualityCompareJob_cancelled_marqueTerminalSansErreur() {
+        QualityCompareJob pending = QualityCompareJob.pending("j1", "a", "b");
+        QualityCompareJob cancelled = pending.running("en cours").cancelled();
+        assertThat(cancelled.status()).isEqualTo(QualityCompareJob.Status.CANCELLED);
+        assertThat(cancelled.error()).isNull();
+        assertThat(cancelled.completedAt()).isNotNull();
+        assertThat(cancelled.jobId()).isEqualTo("j1");
+    }
 }

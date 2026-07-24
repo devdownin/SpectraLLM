@@ -4,6 +4,7 @@ import { Trans, useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { configApi, evaluationApi } from '../services/api';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 interface RegisteredModel {
   id?: string;
@@ -38,6 +39,9 @@ const BatchEvaluateDialog: FC<Props> = ({ open, onClose, onSubmitted }) => {
     },
     enabled: open,
   });
+
+  // Piège de focus + fermeture Échap — même comportement que la fiche Documents.
+  const dialogRef = useFocusTrap<HTMLDivElement>(open, onClose);
 
   if (!open) return null;
 
@@ -78,7 +82,9 @@ const BatchEvaluateDialog: FC<Props> = ({ open, onClose, onSubmitted }) => {
       onClick={onClose}
     >
       <div
-        className="bg-surface-container w-full max-w-md max-h-[80vh] flex flex-col border border-outline-variant/20"
+        ref={dialogRef}
+        tabIndex={-1}
+        className="bg-surface-container w-full max-w-md max-h-[80vh] flex flex-col border border-outline-variant/20 outline-none"
         onClick={e => e.stopPropagation()}
       >
         <div className="px-5 py-4 border-b border-outline-variant/10">

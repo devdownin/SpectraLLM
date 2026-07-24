@@ -28,7 +28,7 @@ public record QualityCompareJob(
         Instant completedAt
 ) {
     public enum Status {
-        PENDING, RUNNING, COMPLETED, FAILED
+        PENDING, RUNNING, COMPLETED, FAILED, CANCELLED
     }
 
     public static QualityCompareJob pending(String jobId, String baseline, String candidate) {
@@ -55,5 +55,11 @@ public record QualityCompareJob(
     public QualityCompareJob failed(String error) {
         return new QualityCompareJob(jobId, Status.FAILED, baseline, candidate, "Échoué",
                 baselineReport, candidateReport, error, createdAt, Instant.now());
+    }
+
+    /** Annulation coopérative demandée par l'utilisateur ; le rapport partiel éventuel est conservé. */
+    public QualityCompareJob cancelled() {
+        return new QualityCompareJob(jobId, Status.CANCELLED, baseline, candidate, "Annulé",
+                baselineReport, candidateReport, null, createdAt, Instant.now());
     }
 }
