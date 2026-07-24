@@ -2,7 +2,7 @@
 
 <img src="docs/assets/logo.png" alt="Spectra LLM — turn any document into an expert AI" width="360">
 
-### Turn your documents into a private, fine-tuned AI — in one command.
+### Turn your documents into a private, fine-tuned AI — in one application.
 
 **100% local · No cloud · No API keys · No subscriptions**
 
@@ -62,8 +62,8 @@ Building this yourself means stitching together an orchestration framework, a ve
 
 Four stages, one continuous flow — all driven from a guided web interface (FR/EN):
 
-- **📥 Ingest** — PDF, DOCX, HTML, JSON, XML, TXT, ZIP, URLs, even live Kafka streams. Layout-aware parsing keeps tables and headings intact.
-- **🔍 Ask** — Hybrid search (keyword + vector) with reranking and **cited sources**. Six retrieval strategies, picked adaptively per question — up to an agentic ReAct loop for multi-hop reasoning.
+- **📥 Ingest** — PDF, DOCX, HTML, Markdown, CSV, JSON, XML, Avro, TXT, ZIP, URLs, even live Kafka streams. Layout-aware parsing keeps tables and headings intact.
+- **🔍 Ask** — Hybrid search (keyword + vector) with reranking and **cited sources**. Six retrieval strategies, picked adaptively per question — up to an agentic ReAct loop for multi-hop reasoning. **See exactly how each answer was built**: live pipeline steps, a server-measured timeline, per-module toggles, and one-click A/B comparison of any module.
 - **🎓 Fine-tune** — Spectra builds a training dataset from your own corpus, then bakes the knowledge into the model's weights (QLoRA/DPO, CPU or GPU). Approved answers feed a continuous-learning loop.
 - **📦 Deploy** — Out comes a single GGUF file, runnable anywhere (llama.cpp, Ollama, LM Studio…). Built-in evaluation, A/B comparison and ablation benchmarks prove the gain at every step.
 
@@ -83,17 +83,17 @@ Browse everything from the **[documentation index](docs/README.md)**, or jump st
 | **[Getting Started](docs/getting-started.en.md)** | Step-by-step install, model downloads, Docker profiles, Kubernetes/GKE deploy |
 | **[Architecture & Services](docs/architecture.en.md)** | Every service in depth: RAG internals, ingestion, evaluation, tech stack |
 | **[Configuration](docs/configuration.en.md)** | All environment variables, health endpoints, Prometheus metrics |
-| **[User Manual](docs/user/user-manual.en.md)** | Complete walkthrough of the web interface |
-| **[Technical Reference](docs/tech/technical-doc.en.md)** | Implementation-level detail |
+| **[User Manual](docs/user/user-manual.en.md)** ([FR](docs/user/user-manual.fr.md)) | Complete walkthrough of the web interface |
+| **[Technical Reference](docs/tech/technical-doc.fr.md)** | Implementation-level detail |
 | **[How Spectra works (FR)](docs/user/documentation-pedagogique.fr.md)** | The ideas in plain language: embeddings, BM25 + RRF, the RAG strategies, DPO/QLoRA |
-| **[llama.cpp Guide](docs/tech/llama-cpp.en.md)** | Inference engine details and tuning |
-| **[Reliability](docs/process/reliability.en.md)** · **[Security](SECURITY.md)** | Operational guarantees and security policy |
+| **[llama.cpp Guide](docs/tech/llama-cpp.fr.md)** | Inference engine details and tuning |
+| **[Reliability](docs/process/reliability.fr.md)** · **[Security](SECURITY.md)** | Operational guarantees and security policy |
 
 **Stack:** Java 25 / Spring Boot 4 · React 19 · llama.cpp · ChromaDB · Python (fine-tuning, parsing, reranking) — detailed in [Architecture](docs/architecture.en.md#technology-stack).
 
 ## 🤝 Contributing
 
-Issues and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). If Spectra is useful to you, a ⭐ helps others find it.
+Issues and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Curious where Spectra is heading? → **[Roadmap](ROADMAP.fr.md)**. If Spectra is useful to you, a ⭐ helps others find it.
 
 ## 📄 License
 

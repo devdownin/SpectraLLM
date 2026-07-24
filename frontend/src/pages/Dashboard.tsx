@@ -10,6 +10,7 @@ import Tooltip from '../components/Tooltip';
 import LifecycleDonut from '../components/charts/LifecycleDonut';
 import CategoryBar from '../components/charts/CategoryBar';
 import EmbeddingConsistencyCard from '../components/EmbeddingConsistencyCard';
+import { PageHeader, CountUp, AnimatedContent, SpotlightCard } from '../components/ui';
 
 interface DatasetStats {
   totalPairs: number;
@@ -139,10 +140,7 @@ const Dashboard: FC = () => {
     <div className="space-y-12 animate-in fade-in duration-700">
 
       {/* Header */}
-      <header>
-        <p className="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-1">{t('dashboard.kicker')}</p>
-        <h2 className="font-headline text-3xl font-bold tracking-tighter">{t('dashboard.title')}</h2>
-      </header>
+      <PageHeader kicker={t('dashboard.kicker')} title={t('dashboard.title')} />
 
       {/* ── Cohérence embedding ↔ index (visible seulement en cas de problème) ── */}
       <EmbeddingConsistencyCard />
@@ -331,14 +329,14 @@ const Dashboard: FC = () => {
           <div className="bg-surface-container p-5 border-t-2 border-primary card-hover">
             <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">{t('dashboard.chunksInStore')}</p>
             {statsLoading ? <Skeleton className="h-9 w-16" /> : (
-              <p className="font-headline font-bold text-3xl text-primary stat-glow">{stats?.chunksInStore ?? 0}</p>
+              <p className="font-headline font-bold text-3xl text-primary stat-glow"><CountUp to={stats?.chunksInStore ?? 0} /></p>
             )}
           </div>
 
           <div className="bg-surface-container p-5 border-t-2 border-secondary card-hover">
             <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">{t('dashboard.trainingPairs')}</p>
             {statsLoading ? <Skeleton className="h-9 w-16" /> : (
-              <p className="font-headline font-bold text-3xl text-secondary stat-glow-secondary">{stats?.totalPairs ?? 0}</p>
+              <p className="font-headline font-bold text-3xl text-secondary stat-glow-secondary"><CountUp to={stats?.totalPairs ?? 0} /></p>
             )}
           </div>
 
@@ -346,7 +344,7 @@ const Dashboard: FC = () => {
             <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">{t('dashboard.avgConfidence')}</p>
             {statsLoading ? <Skeleton className="h-9 w-16" /> : (
               <p className="font-headline font-bold text-3xl">
-                {stats && stats.avgConfidence > 0 ? (stats.avgConfidence * 100).toFixed(0) + '%' : '—'}
+                {stats && stats.avgConfidence > 0 ? <CountUp to={stats.avgConfidence * 100} suffix="%" /> : '—'}
               </p>
             )}
           </div>
@@ -355,7 +353,7 @@ const Dashboard: FC = () => {
             <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-2">{t('dashboard.categories')}</p>
             {statsLoading ? <Skeleton className="h-9 w-16" /> : (
               <p className="font-headline font-bold text-3xl">
-                {stats ? Object.keys(stats.byCategory).length : 0}
+                <CountUp to={stats ? Object.keys(stats.byCategory).length : 0} />
               </p>
             )}
           </div>
@@ -507,11 +505,11 @@ const Dashboard: FC = () => {
                       <div key={lc} className="flex items-center gap-2">
                         {/* Doit correspondre aux couleurs de LifecycleDonut / aux valeurs de Lifecycle. */}
                         <div className={`w-2 h-2 shrink-0 ${
-                          lc === 'INGESTED'  ? 'bg-[#8ff5ff]' :
-                          lc === 'QUALIFIED' ? 'bg-[#b8b3ff]' :
-                          lc === 'TRAINED'   ? 'bg-[#4cffb3]' :
-                          lc === 'ARCHIVED'  ? 'bg-[#5a6a8a]' :
-                                              'bg-[#ff6b8a]'
+                          lc === 'INGESTED'  ? 'bg-[#6673f0]' :
+                          lc === 'QUALIFIED' ? 'bg-[#9a6ee0]' :
+                          lc === 'TRAINED'   ? 'bg-[#199e70]' :
+                          lc === 'ARCHIVED'  ? 'bg-[#5c6675]' :
+                                              'bg-[#e66767]'
                         }`} />
                         <span className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">{lc}</span>
                         <span className="font-headline font-bold text-xs ml-auto">{String(n)}</span>
@@ -562,7 +560,7 @@ const Dashboard: FC = () => {
             {statsLoading ? <Skeleton className="h-9 w-12" /> : (
               <>
                 <p className="font-headline font-bold text-3xl text-primary">
-                  {personalizationMetrics?.approvedComments ?? 0}
+                  <CountUp to={personalizationMetrics?.approvedComments ?? 0} />
                 </p>
                 {/* approval/rejection mini-bar */}
                 {(() => {
@@ -605,7 +603,7 @@ const Dashboard: FC = () => {
             {statsLoading ? <Skeleton className="h-9 w-12" /> : (
               <>
                 <p className="font-headline font-bold text-3xl text-secondary">
-                  {personalizationMetrics?.dpoPairs ?? 0}
+                  <CountUp to={personalizationMetrics?.dpoPairs ?? 0} />
                 </p>
                 <p className="text-[10px] text-on-surface-variant">
                   {(personalizationMetrics?.dpoPairs ?? 0) > 0
@@ -622,7 +620,7 @@ const Dashboard: FC = () => {
             {statsLoading ? <Skeleton className="h-9 w-12" /> : (
               <>
                 <p className="font-headline font-bold text-3xl">
-                  {personalizationMetrics?.completedFineTuningJobs ?? 0}
+                  <CountUp to={personalizationMetrics?.completedFineTuningJobs ?? 0} />
                 </p>
                 <p className="text-[10px] text-on-surface-variant">
                   {t('dashboard.completedTotal', { count: (personalizationMetrics?.fineTuningJobs ?? []).length })}
@@ -810,7 +808,7 @@ const Dashboard: FC = () => {
       {/* ── RAG Capabilities ── */}
       <section className="space-y-4">
         <h3 className="font-headline text-sm font-bold uppercase tracking-tight text-on-surface-variant">{t('dashboard.ragCapabilities')}</h3>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+        <AnimatedContent className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
           {[
             { key: 'hybrid',     icon: 'merge',        color: 'primary' },
             { key: 'rerank',     icon: 'sort',         color: 'secondary' },
@@ -819,13 +817,13 @@ const Dashboard: FC = () => {
             { key: 'corrective', icon: 'fact_check',   color: 'primary' },
             { key: 'comments',   icon: 'rate_review',  color: 'secondary' },
           ].map(cap => (
-            <div key={cap.key} className={`bg-surface-container p-4 border border-outline-variant/10 hover:border-${cap.color}/30 transition-colors group`}>
+            <SpotlightCard key={cap.key} className={`bg-surface-container p-4 border border-outline-variant/10 hover:border-${cap.color}/30 transition-colors group`}>
               <span className={`material-symbols-outlined text-base text-outline group-hover:text-${cap.color} transition-colors`}>{cap.icon}</span>
               <p className="font-headline font-bold text-[11px] uppercase mt-2">{t(`dashboard.caps.${cap.key}.label`)}</p>
               <p className="text-[10px] text-on-surface-variant mt-1 leading-relaxed">{t(`dashboard.caps.${cap.key}.desc`)}</p>
-            </div>
+            </SpotlightCard>
           ))}
-        </div>
+        </AnimatedContent>
       </section>
 
       {/* ── Quick Actions ── */}

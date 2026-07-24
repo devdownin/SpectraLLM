@@ -7,6 +7,8 @@ import { toast } from 'sonner';
 import Skeleton from '../components/Skeleton';
 import Tooltip from '../components/Tooltip';
 import ConfirmDialog from '../components/ConfirmDialog';
+import { Badge, EmptyState, PageHeader, Button } from '../components/ui';
+import type { BadgeTone } from '../components/ui';
 import { gedApi, commentApi } from '../services/api';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import type { IngestedFile, IngestedFileSheet, DocumentLifecycle, ArticleComment } from '../types/api';
@@ -38,6 +40,14 @@ const LIFECYCLE_COLORS: Record<DocumentLifecycle, string> = {
   QUALIFIED: 'border-secondary/40 text-secondary bg-secondary/5',
   TRAINED: 'border-primary/40 text-primary bg-primary/5',
   ARCHIVED: 'border-on-surface-variant/20 text-on-surface-variant bg-surface-container-low',
+};
+
+/** Tonalité Badge par état du cycle de vie (chips d'affichage). */
+const LIFECYCLE_TONES: Record<DocumentLifecycle, BadgeTone> = {
+  INGESTED: 'neutral',
+  QUALIFIED: 'secondary',
+  TRAINED: 'primary',
+  ARCHIVED: 'neutral',
 };
 
 const LIFECYCLE_BAR_COLORS: Record<string, string> = {
@@ -474,7 +484,7 @@ const Documents: FC = () => {
             setSelectedSha(doc.sha256);
           }
         }}
-        className={`cv-auto group grid grid-cols-1 lg:grid-cols-[32px_minmax(0,1.5fr)_100px_140px_120px_100px_80px] gap-4 items-center px-4 py-4 bg-surface-container-low hover:bg-surface-container-high transition-all cursor-pointer border-l-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary focus-visible:-outline-offset-2 ${isActive ? 'border-primary bg-surface-container-high' : 'border-transparent'}`}
+        className={`cv-auto group grid grid-cols-1 lg:grid-cols-[32px_minmax(0,1.5fr)_100px_140px_120px_100px_80px] gap-4 items-center px-4 py-4 transition-colors cursor-pointer border-l-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary focus-visible:-outline-offset-2 ${isActive ? 'border-primary bg-surface-container-high/70' : 'border-transparent hover:bg-surface-container-high/40'}`}
       >
         <button
           type="button"
@@ -484,13 +494,13 @@ const Documents: FC = () => {
           onClick={e => toggleSelect(doc.sha256, e)}
           className="flex justify-center"
         >
-          <span className={`w-4 h-4 border flex items-center justify-center transition-all shrink-0 ${isChecked ? 'bg-primary border-primary' : 'border-outline-variant/40 hover:border-primary/50'}`}>
+          <span className={`w-4 h-4 rounded border flex items-center justify-center transition-all shrink-0 ${isChecked ? 'bg-primary border-primary' : 'border-outline-variant/40 hover:border-primary/50'}`}>
             {isChecked && <span aria-hidden="true" className="material-symbols-outlined text-white text-[11px]">check</span>}
           </span>
         </button>
 
         <div className="flex items-center gap-4 min-w-0">
-          <div className={`w-10 h-10 flex items-center justify-center border shrink-0 ${type.accentClass}`}>
+          <div className={`w-10 h-10 rounded-lg flex items-center justify-center border shrink-0 ${type.accentClass}`}>
             <span className="material-symbols-outlined text-base">{type.icon}</span>
           </div>
           <div className="min-w-0">
@@ -511,9 +521,9 @@ const Documents: FC = () => {
         </div>
 
         <div className="flex justify-center">
-          <span className={`text-[10px] font-bold px-2 py-0.5 border uppercase tracking-wider ${LIFECYCLE_COLORS[doc.lifecycle]}`}>
+          <Badge tone={LIFECYCLE_TONES[doc.lifecycle]} className={doc.lifecycle === 'ARCHIVED' ? 'opacity-60' : undefined}>
             {doc.lifecycle}
-          </span>
+          </Badge>
         </div>
 
         <div className="flex items-center gap-2">
@@ -563,28 +573,23 @@ const Documents: FC = () => {
     <div className="space-y-6 animate-in fade-in duration-700 pb-32">
 
       {/* Header */}
-      <header className="flex flex-col xl:flex-row xl:items-end justify-between gap-6">
-        <div>
-          <p className="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-1">{t('documents.kicker')}</p>
-          <h2 className="font-headline text-3xl font-bold tracking-tighter uppercase">{t('documents.title')}</h2>
-          <p className="text-sm text-on-surface-variant mt-3 max-w-3xl leading-relaxed">
-            {t('documents.subtitle')}
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="text-[11px] font-label text-on-surface-variant uppercase tracking-widest">
-            {t('documents.shownCount', { shown: filtered.length, loaded: documents.length })}
-            {totalDocuments > documents.length ? t('documents.ofTotal', { total: totalDocuments }) : ''}
-          </span>
-          <button
-            onClick={() => refetch()}
-            className="flex items-center gap-2 border border-outline-variant/20 px-4 py-3 text-[11px] font-label uppercase tracking-widest text-on-surface-variant hover:text-primary transition-colors"
-          >
-            <span className={`material-symbols-outlined text-sm ${isFetching ? 'animate-spin' : ''}`}>refresh</span>
-            {t('documents.sync')}
-          </button>
-        </div>
-      </header>
+      <PageHeader
+        kicker={t('documents.kicker')}
+        title={t('documents.title')}
+        description={t('documents.subtitle')}
+        actions={
+          <>
+            <span className="text-[12px] text-on-surface-variant">
+              {t('documents.shownCount', { shown: filtered.length, loaded: documents.length })}
+              {totalDocuments > documents.length ? t('documents.ofTotal', { total: totalDocuments }) : ''}
+            </span>
+            <Button variant="outline" size="sm" onClick={() => refetch()}>
+              <span aria-hidden="true" className={`material-symbols-outlined text-[16px] ${isFetching ? 'animate-spin' : ''}`}>refresh</span>
+              {t('documents.sync')}
+            </Button>
+          </>
+        }
+      />
 
       {/* Stats Cards */}
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -739,10 +744,10 @@ const Documents: FC = () => {
         </div>
       </section>
 
-      {/* Document List */}
-      <section className="space-y-1">
+      {/* Document List — aligné sur le style ui/Table (carte + en-tête + lignes divisées) */}
+      <section className="bg-surface-container rounded-xl ring-1 ring-white/[0.045] overflow-hidden">
         {/* Column headers */}
-        <div className="hidden lg:grid sticky top-0 z-10 bg-background lg:grid-cols-[32px_minmax(0,1.5fr)_100px_140px_120px_100px_80px] gap-4 px-4 py-3 border-b border-outline-variant/10 text-[10px] font-label uppercase tracking-widest text-outline">
+        <div className="hidden lg:grid lg:grid-cols-[32px_minmax(0,1.5fr)_100px_140px_120px_100px_80px] gap-4 px-4 py-2.5 bg-surface-container-high/60 border-b border-outline-variant/60 text-[11px] font-medium uppercase tracking-[0.05em] text-on-surface-variant">
           <div className="flex justify-center">
             <button
               type="button"
@@ -750,7 +755,7 @@ const Documents: FC = () => {
               aria-checked={allSelected ? true : someSelected ? 'mixed' : false}
               aria-label={t('documents.selectAll')}
               onClick={toggleSelectAll}
-              className={`w-4 h-4 border flex items-center justify-center cursor-pointer transition-all ${allSelected ? 'bg-primary border-primary' : 'border-outline-variant/40 hover:border-primary/50'}`}
+              className={`w-4 h-4 rounded border flex items-center justify-center cursor-pointer transition-all ${allSelected ? 'bg-primary border-primary' : 'border-outline-variant/40 hover:border-primary/50'}`}
             >
               {allSelected && <span aria-hidden="true" className="material-symbols-outlined text-white text-[11px]">check</span>}
               {!allSelected && someSelected && <span aria-hidden="true" className="material-symbols-outlined text-primary text-[11px]">remove</span>}
@@ -764,15 +769,12 @@ const Documents: FC = () => {
           <span className="text-right">{t('documents.colActions')}</span>
         </div>
 
-        <div className="max-h-[70vh] overflow-y-auto custom-scrollbar space-y-1 pr-1">
+        <div className="max-h-[70vh] overflow-y-auto custom-scrollbar divide-y divide-outline-variant/40">
           {groupBy === 'none' ? (
             <>
               {paginatedItems.map(renderRow)}
               {filtered.length === 0 && (
-                <div className="py-20 text-center text-on-surface-variant">
-                  <span className="material-symbols-outlined text-4xl block mb-3 opacity-30">search_off</span>
-                  <p className="text-sm">{t('documents.noMatch')}</p>
-                </div>
+                <EmptyState icon="search_off" title={t('documents.noMatch')} className="py-16" />
               )}
             </>
           ) : (
@@ -796,7 +798,7 @@ const Documents: FC = () => {
                 return (
                   <div key={key}>
                     <div
-                      className="flex items-center gap-3 px-4 py-2.5 bg-surface-container border border-outline-variant/10 cursor-pointer hover:bg-surface-container-high transition-colors select-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary focus-visible:-outline-offset-2"
+                      className="flex items-center gap-3 px-4 py-2.5 bg-surface-container-high/60 cursor-pointer hover:bg-surface-container-high transition-colors select-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary focus-visible:-outline-offset-2"
                       onClick={() => toggleGroup(key)}
                       role="button"
                       tabIndex={0}
@@ -815,7 +817,7 @@ const Documents: FC = () => {
                         className="flex justify-center"
                         style={{ width: 32 }}
                       >
-                        <span className={`w-4 h-4 border flex items-center justify-center transition-all ${allGroupSelected ? 'bg-primary border-primary' : groupSelected > 0 ? 'border-primary bg-primary/20' : 'border-outline-variant/40 hover:border-primary/50'}`}>
+                        <span className={`w-4 h-4 rounded border flex items-center justify-center transition-all ${allGroupSelected ? 'bg-primary border-primary' : groupSelected > 0 ? 'border-primary bg-primary/20' : 'border-outline-variant/40 hover:border-primary/50'}`}>
                           {allGroupSelected && <span aria-hidden="true" className="material-symbols-outlined text-white text-[11px]">check</span>}
                           {!allGroupSelected && groupSelected > 0 && <span aria-hidden="true" className="material-symbols-outlined text-primary text-[11px]">remove</span>}
                         </span>
@@ -828,7 +830,7 @@ const Documents: FC = () => {
                       )}
                     </div>
                     {!isCollapsed && (
-                      <div className="space-y-px ml-0">
+                      <div className="divide-y divide-outline-variant/40">
                         {docs.map(renderRow)}
                       </div>
                     )}
@@ -841,18 +843,14 @@ const Documents: FC = () => {
 
       {/* Pagination (flat list only) */}
       {groupBy === 'none' && totalPages > 1 && (
-        <div className="flex items-center justify-between border border-outline-variant/10 p-4 bg-surface-container">
-          <span className="text-[11px] font-label uppercase tracking-widest text-on-surface-variant">
+        <div className="flex items-center justify-between p-4 bg-surface-container rounded-xl ring-1 ring-white/[0.045]">
+          <span className="text-[12px] text-on-surface-variant">
             {t('documents.pageOf', { page: page + 1, total: totalPages, count: filtered.length })}
           </span>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setPage(p => Math.max(0, p - 1))}
-              disabled={page === 0}
-              className="px-3 py-2 border border-outline-variant/20 text-[10px] font-label uppercase tracking-widest text-on-surface-variant hover:text-primary hover:border-primary/30 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-            >
+          <div className="flex gap-1.5">
+            <Button variant="outline" size="sm" onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}>
               {t('documents.prev')}
-            </button>
+            </Button>
             {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
               const p = totalPages <= 7 ? i : (page < 4 ? i : page + i - 3);
               if (p >= totalPages) return null;
@@ -860,38 +858,31 @@ const Documents: FC = () => {
                 <button
                   key={p}
                   onClick={() => setPage(p)}
-                  className={`w-8 py-2 border text-[10px] font-label uppercase tracking-widest transition-all ${p === page ? 'border-primary bg-primary/10 text-primary' : 'border-outline-variant/20 text-on-surface-variant hover:border-primary/30'}`}
+                  aria-current={p === page ? 'page' : undefined}
+                  className={`w-8 h-8 rounded-lg border text-[12px] font-medium transition-colors ${p === page ? 'border-primary/50 bg-primary/10 text-primary' : 'border-outline-variant text-on-surface-variant hover:bg-surface-container-high'}`}
                 >
                   {p + 1}
                 </button>
               );
             })}
-            <button
-              onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
-              disabled={page >= totalPages - 1}
-              className="px-3 py-2 border border-outline-variant/20 text-[10px] font-label uppercase tracking-widest text-on-surface-variant hover:text-primary hover:border-primary/30 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-            >
+            <Button variant="outline" size="sm" onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1}>
               {t('documents.next')}
-            </button>
+            </Button>
           </div>
         </div>
       )}
 
       {/* Chargement incrémental depuis le serveur : plus de troncature muette à 1000. */}
       {hasNextPage && (
-        <div className="flex items-center justify-center gap-3 border border-outline-variant/10 p-4 bg-surface-container">
-          <span className="text-[11px] font-label uppercase tracking-widest text-on-surface-variant">
+        <div className="flex items-center justify-center gap-3 p-4 bg-surface-container rounded-xl ring-1 ring-white/[0.045]">
+          <span className="text-[12px] text-on-surface-variant">
             {t('documents.loadedOf', { loaded: documents.length, total: totalDocuments })}
           </span>
-          <button
-            onClick={() => fetchNextPage()}
-            disabled={isFetchingNextPage}
-            className="px-4 py-2 border border-primary/40 text-[10px] font-label uppercase tracking-widest text-primary hover:bg-primary/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          >
+          <Button variant="outline" size="sm" onClick={() => fetchNextPage()} loading={isFetchingNextPage}>
             {isFetchingNextPage
               ? t('documents.loadingMore')
               : t('documents.loadMore', { count: Math.min(FETCH_SIZE, totalDocuments - documents.length) })}
-          </button>
+          </Button>
         </div>
       )}
 
@@ -915,13 +906,15 @@ const Documents: FC = () => {
               </button>
             ))}
             <div className="w-px h-6 bg-outline-variant/20" />
-            <button
+            <Button
+              variant="danger"
+              size="sm"
+              icon="delete"
               onClick={() => setPendingDelete({ kind: 'bulk', shaList: Array.from(bulkSelected) })}
               disabled={bulkDeleteMutation.isPending}
-              className="px-3 py-2 border border-error/30 text-error text-[10px] font-bold tracking-widest uppercase hover:bg-error hover:text-white transition-all disabled:opacity-50"
             >
               {t('documents.delete')}
-            </button>
+            </Button>
             <button onClick={() => setBulkSelected(new Set())} className="w-8 h-8 flex items-center justify-center text-outline hover:text-on-surface transition-colors">
               <span className="material-symbols-outlined text-sm">close</span>
             </button>
@@ -973,6 +966,22 @@ const Documents: FC = () => {
                   <p className="text-[10px] uppercase tracking-widest text-outline mb-1">{t('documents.chunks')}</p>
                   <p className="font-headline font-bold text-sm">{sheet.chunksCreated}</p>
                 </div>
+                <div className="p-4 bg-surface-container-lowest border-l-2 border-outline-variant">
+                  <p className="text-[10px] uppercase tracking-widest text-outline mb-1">{t('documents.version')}</p>
+                  <p className="font-headline font-bold text-sm">v{sheet.version ?? 1}</p>
+                </div>
+                <div className="p-4 bg-surface-container-lowest border-l-2 border-outline-variant">
+                  <p className="text-[10px] uppercase tracking-widest text-outline mb-1">{t('documents.ingestedOn')}</p>
+                  <p className="font-headline font-bold text-sm">{formatDate(sheet.ingestedAt)}</p>
+                </div>
+                {/* Date d'archivage : posée à la transition vers ARCHIVED, base de la purge
+                    de rétention — l'utilisateur voit depuis quand le document est archivé. */}
+                {sheet.archivedAt && (
+                  <div className="col-span-2 p-4 bg-surface-container-lowest border-l-2 border-error/40">
+                    <p className="text-[10px] uppercase tracking-widest text-outline mb-1">{t('documents.archivedOn')}</p>
+                    <p className="font-headline font-bold text-sm text-error/80">{formatDate(sheet.archivedAt)}</p>
+                  </div>
+                )}
                 {sheet.collectionName && (
                   <div className="col-span-2 p-4 bg-surface-container-lowest border-l-2 border-primary/40">
                     <p className="text-[10px] uppercase tracking-widest text-outline mb-1">{t('documents.collection')}</p>
@@ -1010,16 +1019,17 @@ const Documents: FC = () => {
                     <p className="text-xs italic text-outline">{t('documents.noTags')}</p>
                   )}
                   {sheet.tags.map(tag => (
-                    <span key={tag} className="flex items-center gap-1 text-[10px] border border-outline-variant/30 px-2 py-1 text-outline uppercase">
+                    <Badge key={tag} tone="neutral">
                       #{tag}
                       <button
                         onClick={() => removeTagMutation.mutate({ sha: sheet.sha256, tags: [tag] })}
                         disabled={removeTagMutation.isPending}
-                        className="hover:text-error transition-colors ml-1"
+                        aria-label={`Remove tag ${tag}`}
+                        className="hover:text-error transition-colors"
                       >
-                        <span className="material-symbols-outlined text-[11px]">close</span>
+                        <span aria-hidden="true" className="material-symbols-outlined text-[11px]">close</span>
                       </button>
-                    </span>
+                    </Badge>
                   ))}
                 </div>
                 <div className="flex gap-2">
@@ -1112,13 +1122,9 @@ const Documents: FC = () => {
                         }`}>
                           <div className="flex items-start justify-between gap-2">
                             <div className="flex items-center gap-2 shrink-0">
-                              <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 border ${
-                                c.type === 'AI_GENERATED'
-                                  ? 'border-secondary/40 text-secondary bg-secondary/10'
-                                  : 'border-outline-variant/30 text-outline'
-                              }`}>
+                              <Badge tone={c.type === 'AI_GENERATED' ? 'secondary' : 'neutral'}>
                                 {c.type === 'AI_GENERATED' ? '✦ AI' : '👤'}
-                              </span>
+                              </Badge>
                               <span className="text-[10px] text-outline">{c.author}</span>
                             </div>
                             <span className="text-[10px] font-mono text-outline shrink-0">{formatDate(c.createdAt)}</span>

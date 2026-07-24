@@ -51,7 +51,10 @@ public class DocumentExtractorFactory {
         if (lower.endsWith(".xml")) return "application/xml";
         if (lower.endsWith(".html") || lower.endsWith(".htm")) return "text/html";
         if (lower.endsWith(".avro")) return "application/avro";
-        if (lower.endsWith(".txt")) return "text/plain";
+        // Markdown et CSV : contenu textuel, routé vers l'extracteur texte (ils étaient
+        // rejetés en upload direct et silencieusement ignorés dans les ZIP).
+        if (lower.endsWith(".txt") || lower.endsWith(".md")
+                || lower.endsWith(".markdown") || lower.endsWith(".csv")) return "text/plain";
         if (lower.endsWith(".zip")) return "application/zip";
         throw new ExtractionException("Extension de fichier non supportée: " + fileName);
     }

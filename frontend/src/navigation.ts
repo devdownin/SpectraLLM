@@ -14,17 +14,20 @@ export interface NavItem {
   path: string;
   /** Section de la page Documentation ouverte par le « ? » d'aide contextuelle. */
   docSection?: string;
+  /** Clé i18n du groupe de navigation (section de la sidebar). Absent = hors groupe. */
+  groupKey?: string;
 }
 
+/** Ordre = parcours utilisateur : vue d'ensemble → données → modèles → test/évaluation. */
 export const NAV_ITEMS: NavItem[] = [
   { name: 'Dashboard',    nameKey: 'nav.dashboard',    icon: 'dashboard',      path: '/',             docSection: 'interface'     },
-  { name: 'Model Hub',    nameKey: 'nav.modelHub',     icon: 'hub',            path: '/model-hub',    docSection: 'prerequisites' },
-  { name: 'Ingestion',    nameKey: 'nav.ingestion',    icon: 'cloud_upload',   path: '/ingestion',    docSection: 'pipeline'      },
-  { name: 'Documents',    nameKey: 'nav.documents',    icon: 'folder_open',    path: '/documents',    docSection: 'commenting'    },
-  { name: 'Fine-Tuning',  nameKey: 'nav.fineTuning',   icon: 'model_training', path: '/fine-tuning',  docSection: 'pipeline'      },
-  { name: 'Playground',   nameKey: 'nav.playground',   icon: 'chat_bubble',    path: '/playground',   docSection: 'algorithms'    },
-  { name: 'Comparison',   nameKey: 'nav.comparison',   icon: 'compare_arrows', path: '/comparison',   docSection: 'benchmark'     },
-  { name: 'Optimization', nameKey: 'nav.optimization', icon: 'tune',           path: '/optimization', docSection: 'tips'          },
+  { name: 'Ingestion',    nameKey: 'nav.ingestion',    icon: 'cloud_upload',   path: '/ingestion',    docSection: 'pipeline',      groupKey: 'nav.groupData'     },
+  { name: 'Documents',    nameKey: 'nav.documents',    icon: 'folder_open',    path: '/documents',    docSection: 'commenting',    groupKey: 'nav.groupData'     },
+  { name: 'Model Hub',    nameKey: 'nav.modelHub',     icon: 'hub',            path: '/model-hub',    docSection: 'prerequisites', groupKey: 'nav.groupModels'   },
+  { name: 'Fine-Tuning',  nameKey: 'nav.fineTuning',   icon: 'model_training', path: '/fine-tuning',  docSection: 'pipeline',      groupKey: 'nav.groupModels'   },
+  { name: 'Playground',   nameKey: 'nav.playground',   icon: 'chat_bubble',    path: '/playground',   docSection: 'algorithms',    groupKey: 'nav.groupEvaluate' },
+  { name: 'Comparison',   nameKey: 'nav.comparison',   icon: 'compare_arrows', path: '/comparison',   docSection: 'benchmark',     groupKey: 'nav.groupEvaluate' },
+  { name: 'Optimization', nameKey: 'nav.optimization', icon: 'tune',           path: '/optimization', docSection: 'tips',          groupKey: 'nav.groupEvaluate' },
 ];
 
 export const DOCUMENTATION_ITEM: NavItem = {

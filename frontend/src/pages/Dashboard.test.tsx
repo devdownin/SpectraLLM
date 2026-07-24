@@ -60,6 +60,20 @@ vi.mock('../components/charts/LifecycleDonut', () => ({ default: () => null }));
 vi.mock('../components/charts/CategoryBar', () => ({ default: () => null }));
 vi.mock('../components/EmbeddingConsistencyCard', () => ({ default: () => null }));
 
+// CountUp anime la valeur (0 → cible) via requestAnimationFrame : en jsdom, la valeur
+// finale n'apparaît qu'en fin d'animation, ce qui rend les assertions sur les chiffres
+// fragiles. On le remplace ici par un rendu direct de la valeur cible (le comportement
+// animé est couvert par ui/animations.test.tsx).
+vi.mock('../components/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../components/ui')>();
+  return {
+    ...actual,
+    CountUp: ({ to, prefix = '', suffix = '', decimals = 0 }: { to: number; prefix?: string; suffix?: string; decimals?: number }) => (
+      <span>{prefix}{decimals > 0 ? to.toFixed(decimals) : Math.round(to)}{suffix}</span>
+    ),
+  };
+});
+
 import Dashboard from './Dashboard';
 
 function renderDashboard() {

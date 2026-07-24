@@ -1,0 +1,1980 @@
+# Documentation Technique : Spectra (Domain LLM Builder)
+
+> **Rôle de ce document** — la **référence d'implémentation** : c'est ici que vivent les
+> faits (défauts, limites, formats, endpoints, structures). La vue d'ensemble est dans
+> [architecture.en.md](../architecture.en.md), le « pourquoi » du retrieval dans
+> [rag-pipeline.fr.md](rag-pipeline.fr.md). En cas de divergence entre documents, celui-ci
+> fait foi.
+
+Spectra est une plateforme de construction et d'optimisation de modèles de langage (LLM) spécialisés à partir de documents métier. Elle transforme des fichiers hétérogènes en une base de connaissances structurée et un modèle fine-tuné, entièrement en local.
+
+L'inférence repose sur [llama-cpp-turboquant](https://github.com/TheTom/llama-cpp-turboquant), un fork de llama.cpp exposant une API compatible OpenAI. Les modèles sont au format **GGUF**.
+
+---
+
+## 1. Architecture Globale
+
+### Stack technique
+
+| Couche | Technologie | Version | Notes |
+|--------|-------------|---------|-------|
+| Backend | Java 25 (LTS) / Spring Boot | 4.1.0 | Virtual Threads (Project Loom) |
+| Frontend | React 19 / Vite / Tailwind CSS | — | Servi par nginx dans Docker |
+| Inférence LLM (chat) | llama-cpp-turboquant (`llama-server`) | master | API OpenAI-compatible `/v1/chat/completions` |
+| Inférence LLM (embeddings) | llama-cpp-turboquant (`llama-server`) | master | API OpenAI-compatible `/v1/embeddings` |
+| Format modèle | GGUF | v3 | Standard llama.cpp, quantization Q4–Q8 |
+| Base vectorielle | ChromaDB | latest | API v2 uniquement |
+| Extraction PDF | `pdftotext` (poppler-utils) | — | Sous-processus, hors heap JVM |
+| Extraction DOCX | Apache POI (XWPF) | — | `.docx` uniquement |
+| Extraction HTML | jsoup 1.18.1 | — | Parsing DOM, suppression éléments non-contenu |
+| Rendu JavaScript | browserless/chrome | latest | Chrome headless via API REST `GET /content?url=` |
+| Entraînement GPU | Python 3.10+ / Unsloth / QLoRA | — | Sur l'hôte, optionnel |
+| Conteneurisation | Docker & Docker Compose | — | 6 services |
+
+### Services Docker Compose
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                         docker network                            │
+│                                                                   │
+│  ┌─────────────┐      ┌──────────────────┐                      │
+│  │  spectra-   │:80   │   spectra-api    │:8080                 │
+│  │  frontend   │─────▶│  Spring Boot     │                      │
+│  │  (nginx)    │      │  Java 25 + Loom  │                      │
+│  └─────────────┘      └────────┬─────────┘                      │
+│                                │                                  │
+│              ┌─────────────────┼───────────────┬──────────┐     │
+│              ▼                 ▼               ▼          ▼     │
+│     ┌──────────────┐ ┌──────────────┐ ┌──────────┐ ┌──────────┐│
+│     │ llama-cpp-   │ │ llama-cpp-   │ │chromadb  │ │browser-  ││
+│     │ chat         │ │ embed        │ │  :8000   │ │ less     ││
+│     │ (llama-server│ │ (llama-server│ └──────────┘ │  :3000   ││
+│     │  :8081       │ │  :8082       │              └──────────┘│
+│     │  --chat)     │ │  --embeddings│                           │
+│     └──────────────┘ └──────────────┘                           │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+Aucun service interne n'est exposé sur le réseau hôte. Seul `spectra-api` communique avec eux :
+- `http://llm-chat:8081` — inférence chat
+- `http://llm-embed:8082` — embeddings
+- `http://chromadb:8000` — base vectorielle (API v2)
+- `http://browserless:3000` — rendu Chrome headless (URL ingestion)
+- `http://reranker:8000` — Cross-Encoder re-ranking (optionnel, port hôte 8002)
+- `http://docparser:8001` — parsing PDF layout-aware (optionnel, port hôte 8003)
+
+**Health checks** : `llm-chat` et `llm-embed` utilisent `curl -sf http://localhost:{port}/health` (curl disponible dans l'image llama.cpp). `spectra-api` utilise `wget -qO-` sur `/actuator/health` (wget disponible dans l'image eclipse-temurin). `chromadb` utilise `/dev/tcp` bash natif sur `/api/v2/heartbeat` (ni curl ni wget disponibles dans l'image ChromaDB). La dépendance de démarrage suit la chaîne : `model-init` → `llm-chat` + `llm-embed` → `spectra-api` → `frontend`.
+
+### Diagramme de flux de données
+
+```
+[Documents PDF/DOCX/JSON/XML/TXT/HTML]     [URLs distantes]
+            │                                      │
+            │                       ┌──────────────┘
+            │                       ▼
+            │              [UrlFetcherService]
+            │               HEAD → content-type
+            │               HTML → GET browserless:3000/content?url=
+            │               PDF/TXT → download direct (WebClient)
+            │               → InputStream + nom de fichier dérivé
+            │                       │
+            └───────────────────────┘
+                                    │
+                                    ▼
+[Extraction] PdfExtractor (pdftotext subprocess)
+             DocxExtractor (Apache POI XWPF — .docx uniquement)
+             HtmlExtractor (jsoup — supprime nav/footer/script/style)
+             JsonExtractor / XmlExtractor / TxtExtractor
+            │
+            ▼
+[TextCleanerService] 8 étapes de normalisation
+            │
+            ▼
+[ChunkingService] 512 tokens max, overlap 64 tokens
+            │
+            ▼
+[EmbeddingService] → POST http://llm-embed:8082/v1/embeddings
+            │  model="nomic-embed-text", batch size 2048, retry exponentiel (1s/2s/4s)
+            ▼
+[ChromaDB] API v2 — collection "spectra_documents"
+            │
+            ▼
+[DatasetGeneratorService] → POST http://llm-chat:8081/v1/chat/completions
+            │  3–4 appels LLM / chunk (Q&A + résumé + classif + négatifs)
+            ▼
+[FineTuningService] → scripts/train.sh (GPU/CPU/simulation)
+            │  Résultat : data/fine-tuning/merged/model.gguf
+            ▼
+[ModelRegistryService] → data/models/registry.json
+            │  Enregistre le modèle produit avec source, type, alias
+            ▼
+[RagService] → POST /v1/embeddings (requête) + ChromaDB + POST /v1/chat/completions
+            │  Filtre qualité : chunks > seuil distance cosinus exclus du contexte
+            ▼
+[Réponse sourcée avec durationMs]
+```
+
+---
+
+## 2. Provider LLM : llama-cpp-turboquant
+
+### Pourquoi llama-cpp-turboquant
+
+`TheTom/llama-cpp-turboquant` est un fork de `ggml-org/llama.cpp` centré sur les techniques de quantization avancées (1.5-bit à 8-bit). Il expose **la même API OpenAI-compatible** que le projet upstream :
+
+| Endpoint | Usage dans Spectra |
+|----------|-------------------|
+| `GET /v1/models` | Health check, listing des modèles chargés |
+| `POST /v1/chat/completions` | Chat RAG, génération dataset |
+| `POST /v1/embeddings` | Vectorisation des chunks et des requêtes |
+
+Cette compatibilité API signifie que les clients `LlamaCppChatClient` et `LlamaCppEmbeddingClient` n'ont aucune dépendance aux spécificités de ce fork — ils fonctionneraient avec n'importe quelle version standard de llama.cpp.
+
+### Architecture provider (abstraction)
+
+```
+LlmChatClient (interface)
+└── LlamaCppChatClient    ← @ConditionalOnProperty(provider=llama-cpp)
+
+EmbeddingClient (interface)
+├── checkHealth() → ServiceStatus  [méthode default — retourne unavailable]
+└── LlamaCppEmbeddingClient ← @ConditionalOnProperty(provider=llama-cpp) [override : GET /health]
+```
+
+Le provider actif est `llama-cpp` (configuré via `spectra.llm.provider`). Les services métier (`RagService`, `DatasetGeneratorService`, `EmbeddingService`) dépendent des interfaces, pas des implémentations.
+
+### Alias de modèle et cohérence llama-server
+
+llama-server identifie son modèle chargé via le flag `-a <alias>`. Le champ `"model"` des requêtes OpenAI doit correspondre à cet alias — sinon llama-server retourne 400.
+
+La chaîne de cohérence :
+
+```
+registry.json
+  activeChatModel = "spectra-domain"
+        │
+        ▼
+LlamaCppChatClient.activeModel = "spectra-domain"
+        │
+        ▼ POST /v1/chat/completions {"model": "spectra-domain", ...}
+        │
+        ▼
+llama-server (llm-chat) démarré avec -a spectra-domain
+```
+
+Le même principe s'applique aux embeddings :
+- `activeEmbeddingModel = "nomic-embed-text"` dans le registre
+- `SPECTRA_LLM_EMBEDDING_MODEL=nomic-embed-text` dans docker-compose
+- `llama-server` (llm-embed) démarré avec `-a nomic-embed-text`
+
+### Paramètres llama-server critiques
+
+**Serveur de chat (`llm-chat`) :**
+
+| Flag | Valeur par défaut | Rôle |
+|------|------------------|------|
+| `-m` | `/fine-tuning/merged/model.gguf` | Chemin du modèle GGUF |
+| `-a` | `spectra-domain` | Alias (doit correspondre à `activeChatModel` du registre) |
+| `-c` | `8192` | Taille totale du contexte (KV cache) |
+| `-np` | `1` | Nombre de slots parallèles |
+| `--host` | `0.0.0.0` | Écoute sur toutes les interfaces |
+| `--port` | `8080` | Port d'écoute |
+
+> **Contexte par slot = `-c` / `-np`.** Avec `-c 8192 -np 1`, chaque requête dispose de 8192 tokens. Avec `-np 4`, chaque slot n'a que 2048 tokens. Le modèle fine-tuné standard ayant un contexte d'entraînement de 2048 tokens, `-np 1` est la valeur correcte pour utiliser pleinement ce contexte sans dépasser la limite interne du modèle.
+
+**Serveur d'embedding (`llm-embed`) :**
+
+| Flag | Valeur par défaut | Rôle |
+|------|------------------|------|
+| `-m` | `/models/embed.gguf` | Chemin du modèle GGUF d'embedding |
+| `-a` | `nomic-embed-text` | Alias |
+| `--embeddings` | — | Active le mode embedding (obligatoire) |
+| `-b` | `2048` | Batch size physique (tokens par batch) |
+| `-ub` | `2048` | Micro-batch size logique |
+
+> **Pourquoi `-b 2048` ?** La valeur par défaut de llama-server est `-b 512`. Les chunks produits par Spectra peuvent atteindre ~635 tokens (selon la configuration du chunking). Avec `-b 512`, llama-server retourne une erreur `input too large`. `-b 2048` couvre tous les chunks inférieurs à 2048 tokens.
+
+### Registre local des modèles (`ModelRegistryService`)
+
+Le registre est persisté dans `data/models/registry.json` :
+
+```json
+{
+  "activeChatModel": "spectra-domain",
+  "activeEmbeddingModel": "nomic-embed-text",
+  "models": [
+    {
+      "name": "spectra-domain",
+      "type": "chat",
+      "backend": "llama-cpp",
+      "source": "./data/fine-tuning/merged/model.gguf",
+      "sourceType": "gguf",
+      "systemPrompt": "Tu es un assistant spécialisé...",
+      "parameters": {"temperature": 0.3, "top_p": 0.9},
+      "createdAt": "2026-03-31T18:45:00Z",
+      "provenance": "manual"
+    },
+    {
+      "name": "nomic-embed-text",
+      "type": "embedding",
+      "backend": "llama-cpp",
+      "source": "./data/models/embed.gguf",
+      "sourceType": "gguf",
+      "parameters": {},
+      "createdAt": "2026-03-31T18:45:00Z",
+      "provenance": "bootstrap"
+    }
+  ]
+}
+```
+
+**`sourceType`** : inféré automatiquement depuis l'extension du fichier source.
+- `gguf` : fichier `.gguf` — directement servisable par llama-server
+- `alias` : référence logique sans fichier GGUF associé (ex. profil CPU sans poids réels)
+- `file` / `directory` : chemin existant sans extension `.gguf`
+
+**`LlamaCppRuntimeOrchestrator`** : optionnel (`runtime.enabled=false` par défaut). Quand activé, il démarre et redémarre automatiquement `llama-server` en local quand le modèle actif change. Non utilisé dans le mode docker-compose avec services séparés.
+
+### `ResourceAdvisorService` — détection des ressources disponibles
+
+`ResourceAdvisorService` est le **propriétaire unique** du dimensionnement CPU/RAM (threads, contexte, batch, KV cache). Il s'initialise via `@PostConstruct` au démarrage de `spectra-api`, expose le profil détecté au reste de l'application, et `RuntimeParamsMaterializer` écrit ses recommandations dans `data/models/active-chat-params` — consommées par l'entrypoint superviseur de `llm-chat` comme valeurs par défaut (un `LLM_*` explicite dans `.env` garde la priorité). Le script `llama-autostart.sh` conserve sa propre détection uniquement pour les images llama.cpp autonomes (k8s/GKE), où l'API n'est pas joignable.
+
+**Sources de détection (dans l'ordre de priorité) :**
+
+| Ressource | Source primaire | Fallback |
+|-----------|----------------|---------|
+| Quota CPU | `/sys/fs/cgroup/cpu.max` (cgroups v2) | `Runtime.getRuntime().availableProcessors()` |
+| RAM disponible | `/proc/meminfo` (MemAvailable), plafonnée par `/sys/fs/cgroup/memory.max` | mémoire JVM disponible |
+| GPU NVIDIA | Appel `nvidia-smi --query-gpu=memory.total --format=csv,noheader` | — |
+| GPU AMD ROCm | Existence de `/dev/kfd` | — |
+| GPU Vulkan | Existence de `/dev/dri/renderD128` | — |
+
+**Résultat mis en cache** : après la détection initiale (`@PostConstruct`), le profil est stocké en mémoire. L'endpoint `POST /api/config/resources/refresh` force une nouvelle détection sans redémarrage du conteneur.
+
+**Intégration avec `LlamaCppRuntimeOrchestrator`** : quand le mode runtime est activé (`runtime.enabled=true`), `LlamaCppRuntimeOrchestrator.buildChatCommand()` consulte `ResourceAdvisorService` pour construire les arguments CLI de `llama-server` de façon adaptée à l'environnement courant, plutôt que d'utiliser des valeurs codées en dur.
+
+**Répartition des responsabilités.** Le Java calcule (une seule implémentation, testable) ; le shell consomme. Seule la détection **GPU** reste locale à chaque conteneur llama.cpp (`spectra-api` ne voit pas les GPU attribués à `llm-chat`) : offload via `LLM_CHAT_EXTRA_ARGS=--n-gpu-layers …` en compose, ou `llama-autostart.sh` pour les images autonomes.
+
+---
+
+## 3. Pipeline de Traitement des Documents
+
+### 3.1 Extraction
+
+**PDF — deux modes selon configuration :**
+
+| Mode | Activé quand | Extracteur Java | Backend Python |
+|------|-------------|-----------------|----------------|
+| Standard (défaut) | `spectra.layout-parser.enabled=false` | `PdfExtractor` (PDFBox) | — |
+| Layout-aware | `spectra.layout-parser.enabled=true` | `LayoutAwarePdfExtractor` | `docparser/` microservice |
+
+**`PdfExtractor`** (mode standard) : Apache PDFBox — extraction textuelle linéaire. Simple et fiable, mais perd la structure des tableaux et les hiérarchies de titres.
+
+**`LayoutAwarePdfExtractor`** (mode layout-aware) : délègue au microservice Python `docparser/` qui retourne du Markdown structuré. Fallback automatique vers PDFBox si le service est indisponible. Les chunks produits ont les métadonnées `parser` et `layoutAware: true`.
+
+**DOCX — `DocxExtractor`** : Apache POI (XWPF). Ne supporte **que** le format `.docx` (XML zippé). Le format `.doc` (binaire OLE2) est explicitement rejeté.
+
+**JSON/XML/TXT** : extracteurs dédiés via Jackson.
+
+**HTML — `HtmlExtractor`** : jsoup 1.18.1. Parsing DOM complet du HTML (encodage UTF-8). Suppressions avant extraction :
+- Éléments structurels non-contenu : `script`, `style`, `nav`, `footer`, `header`, `aside`
+- Éléments par rôle ARIA : `[role=navigation]`, `[role=banner]`, `[role=complementary]`
+- Classes CSS communes : `.nav`, `.menu`, `.sidebar`, `.advertisement`, `.cookie-banner`
+
+Extraction du texte depuis les éléments de contenu uniquement : `h1`–`h6`, `p`, `li`, `td`, `th`, `blockquote`, `pre`, `dt`, `dd`, `figcaption`. Le titre de la page (`<title>`) est ajouté en tête de texte. Fallback : si aucun élément structuré ne produit de texte, `body.text()` est utilisé en dernier recours.
+
+**Résolution de content-type** (`DocumentExtractorFactory`) : basée sur l'extension du fichier ou du nom dérivé de l'URL, jamais sur le Content-Type HTTP d'une réponse.
+
+> **Table de référence des formats supportés** — les autres documents (README, architecture,
+> manuel) renvoient ici plutôt que de dupliquer la liste.
+
+| Extension | Content-type résolu | Extracteur |
+|-----------|--------------------|----|
+| `.pdf` | `application/pdf` | `PdfExtractor` (défaut) ou `LayoutAwarePdfExtractor` (si layout-parser activé) |
+| `.docx` | `application/vnd.openxmlformats-officedocument...` | `DocxExtractor` |
+| `.doc` | `application/msword` | `DocxExtractor` |
+| `.json` | `application/json` | `JsonExtractor` |
+| `.xml` | `application/xml` | `XmlExtractor` |
+| `.txt`, `.md`, `.markdown`, `.csv` | `text/plain` | `TxtExtractor` |
+| `.html`, `.htm` | `text/html` | `HtmlExtractor` |
+| `.avro` | `application/avro` | `AvroExtractor` |
+| `.zip` | `application/zip` | Parcours récursif des entrées (profondeur max 3, bornes anti ZIP-bomb), chaque entrée routée vers son extracteur |
+
+### 3.2 Service de parsing layout-aware (`docparser/`)
+
+Microservice Python dédié à l'extraction structurée des PDF. Séparé de `spectra-api` pour isoler les dépendances Python lourdes (PyMuPDF, optionnellement Docling) et permettre une mise à l'échelle indépendante.
+
+**Endpoint :**
+```
+POST /parse
+  Body : multipart/form-data, champ "file" = PDF binaire
+  Réponse :
+  {
+    "text":       "# Titre de la section\n\n| Col A | Col B |\n|-------|-------|\n| val 1 | val 2 |\n\nTexte de paragraphe...",
+    "page_count": 12,
+    "metadata":   {"title": "Manuel d'exploitation", "author": "..."},
+    "parser":     "pymupdf4llm"  ← ou "docling" | "pymupdf4llm-fallback"
+  }
+
+GET /health
+  → {"status": "ok", "parser": "pymupdf4llm"}
+```
+
+**Parsers disponibles :**
+
+| Parser | Dépendance | Taille image | Tableaux | Titres | GPU |
+|--------|-----------|-------------|---------|--------|-----|
+| `pymupdf4llm` (défaut) | PyMuPDF + pymupdf4llm | ~80 Mo | Bonne | Bonne | Non |
+| `docling` (optionnel) | IBM Docling + modèles DL | ~600 Mo | Excellente | Excellente | Optionnel |
+
+Pour activer Docling : `USE_DOCLING=true docker compose up --build docparser`
+
+**Sélection du parser (Java → Python) :**
+
+```
+DocumentExtractorFactory.getExtractor("application/pdf")
+    │
+    ├── spectra.layout-parser.enabled=false → PdfExtractor (PDFBox, Spring bean actif)
+    │
+    └── spectra.layout-parser.enabled=true  → LayoutAwarePdfExtractor (Spring bean actif)
+            │
+            ├── LayoutParserClient.parse(fileName, bytes)
+            │     POST http://docparser:8001/parse (multipart)
+            │     ← {text, page_count, metadata, parser}
+            │     [timeout: 120s configurable]
+            │
+            ├── Succès → ExtractedDocument avec text=Markdown, metadata.layoutAware=true
+            │
+            └── Échec (service hors ligne, timeout, erreur 5xx)
+                  → fallback → PdfExtractor.extract() directement (instance locale, sans Spring)
+```
+
+**Configuration :**
+
+```yaml
+spectra:
+  layout-parser:
+    enabled:         ${SPECTRA_LAYOUT_PARSER_ENABLED:false}    # désactivé par défaut
+    base-url:        ${SPECTRA_LAYOUT_PARSER_URL:http://docparser:8001}
+    timeout-seconds: ${SPECTRA_LAYOUT_PARSER_TIMEOUT:120}      # PDFs longs peuvent prendre >30s
+```
+
+### 3.3 Ingestion depuis des URLs (`UrlFetcherService` + `UrlIngestionService`)
+
+#### UrlFetcherService — détection et récupération
+
+`UrlFetcherService` est responsable de récupérer le contenu d'une URL distante et de le livrer sous forme d'`InputStream` avec un nom de fichier dérivé (utilisé par `DocumentExtractorFactory` pour choisir l'extracteur).
+
+**Algorithme de détection du content-type :**
+
+```
+1. Requête HEAD (timeout 10 s)
+   └── Header "Content-Type" reçu ?
+       ├── application/pdf → téléchargement direct
+       ├── text/plain → téléchargement direct
+       ├── application/*word* ou *officedocument* → téléchargement direct
+       └── tout autre cas (ou échec HEAD) → traitement HTML
+```
+
+**Rendu HTML via browserless :**
+
+```
+GET http://browserless:3000/content?url=<url_encodée>
+  timeout : 60 s (rendu JS peut prendre du temps)
+  réponse : HTML complet après exécution du JavaScript
+```
+
+browserless lance une instance Chrome headless, charge l'URL, attend le rendu complet, puis retourne le HTML sérialisé. Cela permet d'ingérer des SPAs (React, Vue, Angular) ou tout site qui construit son contenu via des appels API JavaScript.
+
+**Fallback automatique :** si la requête vers browserless échoue (service arrêté, timeout), `UrlFetcherService` tente un téléchargement HTTP direct de la même URL. Les pages statiques fonctionneront normalement ; les pages dynamiques donneront un HTML partiel ou vide.
+
+**Dérivation du nom de fichier :**
+```
+URL → dernier segment du path si contient une extension → sinon host + extension
+https://example.com/docs/guide.pdf  →  guide.pdf
+https://example.com/page            →  example_com.html
+```
+
+#### UrlIngestionService — orchestration asynchrone
+
+`UrlIngestionService` orchestre l'ingestion de listes d'URLs en tâche de fond, en réutilisant le registre de tâches partagé d'`IngestionService`.
+
+```
+UrlIngestionService.submit(urls)
+  │
+  ├── ingestionService.registerTask(taskId, urls)  ← tâche visible via GET /api/ingest/{taskId}
+  │
+  └── Thread.ofVirtual().start(() → {
+        updateTask(PROCESSING)
+        pour chaque url :
+          content = urlFetcher.fetch(url)          ← HEAD + browserless ou direct
+          chunks  = ingestionService.ingest(       ← même pipeline que les fichiers
+                      filename, inputStream, collectionId)
+          totalChunks += chunks
+        updateTask(COMPLETED ou FAILED)
+      })
+```
+
+**Points de conception :**
+- Les tâches URL sont enregistrées dans la même `ConcurrentHashMap` qu'`IngestionService` via `registerTask()` / `updateTask()`. Elles sont donc interrogeables avec le même endpoint `GET /api/ingest/{taskId}`.
+- Un Virtual Thread par soumission (pas de pool de threads) — cohérent avec l'utilisation de Virtual Threads dans le reste de Spectra.
+- Échec partiel : si une URL sur N échoue, les chunks des autres URLs sont tout de même comptabilisés. La tâche passe en `FAILED` uniquement si **aucun** chunk n'a été produit.
+
+### 3.4 Nettoyage (`TextCleanerService`)
+
+Pipeline en 8 étapes :
+1. Normalisation Unicode NFC
+2. Remplacement des ligatures OCR (`ﬀ`→`ff`, `ﬁ`→`fi`)
+3. Suppression des marqueurs de page (`- 12 -`, `— Page 3 —`)
+4. Suppression des en-têtes/pieds récurrents (`Confidentiel`, `Page X/Y`)
+5. Nettoyage des bordures de tableaux ASCII (`│`, `┃`, `═`)
+6. Normalisation des puces (`•`, `●`, `■` → `-`)
+7. Normalisation des espaces multiples et sauts de ligne
+8. `StringBuilder` en O(n) (évite l'O(n²) de concaténations `String`)
+
+### 3.5 Chunking Sémantique (`ChunkingService`)
+
+- Taille max : 512 tokens (~2048 caractères, approximation 4 car./token)
+- Chevauchement : 64 tokens (~256 caractères)
+- Algorithme : découpage par paragraphes (`\n\n`), puis par mots si dépassement
+- **Garantie anti-boucle infinie** : `offset = nextOffset > offset ? nextOffset : end`
+
+### 3.6 Embeddings et Indexation
+
+- Endpoint : `POST http://llm-embed:8082/v1/embeddings`
+- Corps : `{"model": "nomic-embed-text", "input": "<texte>"}`
+- Réponse : `{"data": [{"embedding": [...float...]}]}`
+- Retry exponentiel : 3 tentatives, délais 1 s / 2 s / 4 s
+- Storage : ChromaDB API v2
+- **Buffer WebClient étendu** à 16 Mo pour ChromaDB (réponses `getAllDocuments()` dépassent 256 Ko sur 400+ chunks)
+
+> **Compatibilité vectorielle :** les vecteurs produits par `nomic-embed-text-v1.5.Q4_K_M.gguf` ne sont pas interchangeables avec ceux produits par la version Ollama du même modèle (différences de quantization et de normalisation). Tout changement de modèle d'embedding impose une ré-ingestion complète.
+
+### 3.7 Ingestion streaming Kafka (`KafkaIngestionListener` + `IngestionService.upsertFromStream`)
+
+Source d'ingestion alternative aux uploads/URLs : un consumer Kafka alimente le RAG **au fil de l'eau** avec des données vivantes. **Désactivé par défaut** (`@ConditionalOnProperty spectra.kafka.enabled=true`) : sans le flag, aucun bean Kafka n'est créé et le démarrage est inchangé.
+
+**Composants**
+
+| Classe | Rôle |
+|---|---|
+| `KafkaConfig` | `ConsumerFactory<String,byte[]>`, container factory (`AckMode.MANUAL`), `DefaultErrorHandler` + `DeadLetterPublishingRecoverer`, `KafkaTemplate` producteur DLT |
+| `KafkaIngestionListener` | `@KafkaListener` : mapping clé→identité, métriques, délégation à l'upsert |
+| `KafkaPayloadMapper` | Mapping optionnel : extraction d'un champ JSON (contenu) + champs → métadonnées |
+| `IngestionService.upsertFromStream(...)` | Delete-by-source (ChromaDB + BM25) puis réindexation |
+| `StreamSourceEntity` / `StreamSourceRepository` | État par clé métier (`content_hash`, `version`, `last_updated_at`) — table `kafka_stream_source` |
+| `KafkaStreamRetentionService` | Cron de purge des sources périmées (`retention-ttl-days`) |
+
+**Identité et upsert.** La clé du message devient `sourceFile = kafka://<topic>/<key>` (fallback `kafka://<topic>/<partition>-<offset>` sans clé). L'upsert = `deleteBySource` (les deux index) puis réindexation → une clé = une seule version dans l'index. Prérequis : la métadonnée `sourceFile` est portée par **tous** les chunks (cf. correctif `ChunkingService`), sinon `deleteBySource` (filtre `where sourceFile == X`) ne matcherait pas côté vecteur.
+
+**Sémantique de traitement**
+
+| Cas | Comportement |
+|---|---|
+| Nouvelle clé | Indexation |
+| Contenu modifié | Purge + réindexation (`UPSERTED`, `version++`) |
+| Contenu identique (hash) | No-op (`UNCHANGED`) — idempotence sur rejeu |
+| `value == null` | Tombstone → suppression (`DELETED`) |
+
+**Garanties.** Commit **manuel** de l'offset *après* indexation réussie (`AckMode.MANUAL`) → *at-least-once* ; les rejeux sont absorbés par l'idempotence (SHA-256 du texte nettoyé, stocké dans `content_hash`). Un message en échec est réessayé (`FixedBackOff(1s, 2)`) puis publié sur `<topic>.DLT`.
+
+**Mapping de champs (payload brut par défaut).** Sans `content-field`, la valeur brute est routée par extension (`format`). Avec `content-field` (nom simple ou pointeur JSON RFC 6901), seul ce champ est indexé (routé vers l'extracteur `txt`) ; `metadata-fields` recopie des champs choisis en métadonnées. JSON invalide → repli sur le payload brut (le message n'est pas mis en DLT pour autant).
+
+**Fraîcheur et rétention.** Chaque chunk porte `ingestedAt` (horodatage pipeline) et `eventTime` (timestamp Kafka). `KafkaStreamRetentionService` (cron `retention-cron`, défaut 03h30) purge les sources dont `last_updated_at` dépasse `retention-ttl-days` (0 = désactivé).
+
+**Métriques (Micrometer / `/actuator/prometheus`).** Compteur `spectra.kafka.messages{topic,result}` (`result` ∈ upserted/unchanged/deleted/failed) et timer `spectra.kafka.processing{topic}`.
+
+**Déploiement.** Service `kafka` sous profil Docker `kafka` (Apache Kafka en mode KRaft mono-nœud, listeners `kafka:29092` interne / `localhost:9092` hôte, broker `apache/kafka:4.2.0` identique à celui du docker-compose de Kafka Explorer). Variables `SPECTRA_KAFKA_*` (cf. `.env.example`). Voir aussi `docs/design-kafka-streaming-upsert.fr.md`.
+
+---
+
+## 4. Génération de Dataset (`DatasetGeneratorService`)
+
+### Types de paires générées par chunk
+
+| Type | Prompt système | Format JSON |
+|------|---------------|-------------|
+| Q&A | Expert du domaine | `{"question": "...", "answer": "..."}` |
+| Q&A raffinée | Instructeur validant la précision | idem (étape d'auto-correction) |
+| Résumé | Expert synthétisant le document | `{"instruction": "...", "summary": "..."}` |
+| Classification | Archiviste documentaire | `{"category": "...", "reason": "..."}` |
+| Négatif (30 %) | Apprentissage honnêteté LLM | question hors-contexte + réponse "je ne sais pas" |
+
+### Asynchronisme (`@Async` + self-injection)
+
+`@Async` ne fonctionne que via le proxy CGLIB. Un appel `this.generateAsync()` depuis la même instance contourne le proxy. Solution : auto-injection `@Autowired @Lazy` :
+
+```java
+@Autowired @Lazy
+private DatasetGeneratorService self;
+
+// Appel via le proxy → @Async fonctionne
+self.generateAsync(taskId, maxChunks);
+```
+
+Même pattern dans `FineTuningService` pour `self.runAsync()`.
+
+### Exécuteur de tâches asynchrones — Virtual Threads
+
+`AsyncConfig` configure un `SimpleAsyncTaskExecutor` avec `setVirtualThreads(true)` pour que les méthodes `@Async` s'exécutent sur des Virtual Threads (Project Loom) plutôt que sur un pool de threads classique :
+
+```java
+@Bean
+public Executor taskExecutor() {
+    SimpleAsyncTaskExecutor executor = new SimpleAsyncTaskExecutor("spectra-async-");
+    executor.setVirtualThreads(true);
+    return executor;
+}
+```
+
+### Garde de concurrence (`AtomicBoolean`)
+
+`DatasetGeneratorService` utilise un `AtomicBoolean generationRunning` pour rejeter toute tentative de génération concurrente. `submit()` retourne `null` si une génération est déjà en cours (le contrôleur retourne alors 409 Conflict). La liste `generatedPairs` est vidée (`clear()`) en début de chaque exécution pour éviter les doublons entre runs.
+
+---
+
+## 5. Fine-Tuning (`FineTuningService` + `scripts/train.sh`)
+
+### Modes de fonctionnement
+
+`train.sh` détecte automatiquement le backend disponible :
+
+| Condition | Mode | Résultat |
+|-----------|------|---------|
+| GPU CUDA + Python + unsloth | **GPU** | `adapter.gguf` (QLoRA 4-bit) dans `data/fine-tuning/merged/` |
+| CPU + Python + transformers | **CPU** | Dossier `adapter/` (HF PEFT format) |
+| Python absent | **Simulation** | `adapter/training_complete.json` + logs epoch simulés |
+
+### Étapes du pipeline fine-tuning
+
+```
+PENDING → EXPORTING_DATASET → TRAINING → IMPORTING_MODEL → COMPLETED
+                                                 │
+                                    ModelRegistryService.registerChatModel()
+                                    → data/models/registry.json
+```
+
+1. **Export dataset** : filtre les paires par `minConfidence`, écrit `dataset.jsonl`
+2. **Entraînement** : `ProcessBuilder` → `./scripts/train.sh`
+3. **Enregistrement** : `ModelRegistryService.registerChatModel()` avec source GGUF et métadonnées
+4. **Rapport** : génère `REPORT.md` dans le dossier du job
+
+### Telemetry Stream (SSE en temps réel)
+
+`TrainingLogBroadcaster` : Spring `@Service` basé sur `Sinks.Many<Map>` Reactor (multicast, buffer 500 messages). Publié par `FineTuningService` et consommé via `/api/sse/training-logs`.
+
+---
+
+## 6. RAG (`RagService`)
+
+> 📖 **Le raisonnement de conception** (pourquoi chaque étape existe : chunking, Multi-Query,
+> fusion RRF, re-ranking, compression de contexte, long-context bypass) est détaillé dans
+> **[Le pipeline RAG — pourquoi chaque étape](rag-pipeline.fr.md)**. La présente section est la
+> référence d'implémentation.
+
+### `RagContext` — record interne
+
+La phase de retrieval (embed → ChromaDB → rerank → sources) est encapsulée dans un record `RagContext` retourné par `retrieveContext(QueryRequest)`. Ce record est consommé par `query()` (réponse synchrone) et `queryStream()` (streaming SSE), évitant toute duplication de la logique de retrieval.
+
+### Streaming SSE (`queryStream`)
+
+`RagService.queryStream()` retourne un `Flux<ServerSentEvent<String>>` (émetteur bloquant `Flux.create` sur `boundedElastic`) avec la séquence d'événements :
+1. `stage` × N — étape du pipeline en cours (`routing`, `rewriting`, `retrieval`, `grading`, `compression`, `agentic_search` avec itération et requête reformulée, `reflection`, `refining`) — visibilité côté client et keep-alive pendant les étapes longues
+2. `sources` — JSON de la liste des chunks sources (avant génération)
+3. `token` × N — chaque token généré par le LLM ; en mode AGENTIC, la réponse (produite par la boucle ReAct) est émise en un seul bloc
+4. `replace` — Self-RAG uniquement : le brouillon streamé a été jugé insuffisant, le client doit l'effacer avant de recevoir les tokens de la version raffinée
+5. `done` — fin normale, avec un JSON de métadonnées du pipeline (`ragStrategy`, drapeaux appliqués, `chunkCount`, `rewrittenQuestion`, `agenticIterations`, `agenticStopReason`, `selfRagScores`, et `stages` — la timeline serveur : une entrée par étape avec `durationMs` et compteurs `inCount`/`outCount`). Chaque durée d'étape est aussi publiée en timer Micrometer `spectra.rag.stage{stage=…}` (observabilité agrégée Prometheus/Grafana).
+6. `error` — en cas d'erreur (circuit breaker, timeout, etc.)
+
+Tout le pipeline non-streaming est porté au streaming : Adaptive RAG (routage DIRECT / STANDARD / AGENTIC), Conversational, Corrective, Compression, Agentic (boucle ReAct) et Self-RAG (le brouillon est streamé pour préserver le TTFT, puis auto-évalué ; un raffinement déclenche `replace`).
+
+**Surcharges par requête.** `QueryRequest` porte un champ optionnel `overrides` ([`RagOverrides`](../../backend/src/main/java/fr/spectra/dto/RagOverrides.java)) : chaque module (rerank, hybrid, multiQuery, corrective, compression, selfRag, adaptive, conversational) peut être forcé OFF pour la requête (`false`) ou laissé au défaut de déploiement (`null`). `runStreamPipeline` résout chaque module via `RagOverrides.resolve`, comme le chemin non-streaming. Le Playground s'en sert pour ses toggles par module et sa comparaison A/B (rejouer une question avec un seul module désactivé). Un module absent du serveur ne peut pas être activé par ce biais.
+
+Un timeout de flux est appliqué côté serveur (configurable via `spectra.pipeline.stream-timeout-seconds`). Côté frontend, un `AbortController` avec `guardTimer` de 120 s annule le stream si aucun événement ne parvient — les événements `stage` comptent comme activité, ce qui couvre les boucles agentiques longues.
+
+### Flux d'une requête
+
+```
+POST /api/query {"question": "...", "maxContextChunks": N, "topCandidates": K}
+        │
+        ▼
+[0] Long-Context bypass (si spectra.long-context-rag.enabled=true)
+      ChromaDbClient.count(collectionId) ← taille de la collection
+      Si count ≤ maxCollectionChunks :
+        ChromaDbClient.getAllDocuments(collectionId) → tous les chunks
+        Sauter les étapes [1]–[4] → aller directement à [5]
+        │
+        ▼
+[1] Multi-Query (si spectra.multi-query.enabled=true)
+      MultiQueryService.generateQueries(question) ← 1 appel LLM
+      → [question originale, variante1, variante2, ...]
+      Pour chaque variante : embed + retrieval → fusion dédupliquée par texte
+      (si désactivé → retrieval simple pour la question originale)
+        │
+        ▼
+[2] EmbeddingService.embed(question)
+      → POST llm-embed:8080/v1/embeddings
+      ← vecteur Float[]
+        │
+        ▼
+[3a] Recherche VECTORIELLE (toujours active)
+      ChromaDbClient.query(collectionId, vector, topCandidates)
+      ← K documents + métadonnées + distances cosinus
+      │
+      │  (si spectra.hybrid-search.enabled=true : en parallèle avec [3a])
+[3b] Recherche BM25 (si hybride activé)
+      FtsService.search(question, collection, topBm25)
+      ← M documents triés par score BM25
+        │
+        ▼
+[4] Fusion RRF (si hybride activé)
+      HybridSearchService : score(d) = w_v/(k+rank_v) + w_bm25/(k+rank_bm25)
+      ← topCandidates docs triés par RRF desc
+      (si hybride désactivé → on utilise directement les K résultats vectoriels)
+        │
+        ▼
+[5] Re-ranking Cross-Encoder (si spectra.reranker.enabled=true)
+      → POST reranker:8000/rerank {"query": "...", "documents": [...K...], "top_n": N}
+      ← N indices triés par score Cross-Encoder décroissant
+      (si reranker désactivé → on garde les N premiers résultats)
+        │
+        ▼
+[6] Semantic Dedup (si spectra.semantic-dedup.enabled=true)
+      Pour chaque paire de chunks : Jaccard(mots_a ∩ mots_b) / Jaccard(mots_a ∪ mots_b)
+      Si similarité ≥ seuil → élimination du chunk de rang inférieur
+      Aucun appel API — calcul en mémoire JVM
+        │
+        ▼
+[7] Corrective RAG (si spectra.corrective-rag.enabled=true)
+      → LLM batch-grade chaque chunk : RELEVANT | AMBIGUOUS | IRRELEVANT
+      ← indices des chunks RELEVANT + AMBIGUOUS conservés
+        │
+        ▼
+[8] Context Compression (si spectra.context-compression.enabled=true)
+      Pour chaque chunk conservé : appel LLM pour extraire les phrases pertinentes
+      Si aucune phrase pertinente → chunk éliminé (IRRELEVANT)
+      Résultat : textes plus courts, contexte plus dense
+        │
+        ▼
+[9] Délégation Agentic RAG (si spectra.agentic-rag.enabled=true)
+      → AgenticRagService.query(request, contextChunks, ...) — boucle ReAct
+        THOUGHT/ACTION: SEARCH → nouveau retrieval → déduplique → enrichit le contexte
+        THOUGHT/ACTION: ANSWER → extraction RESPONSE → sortie
+      (si agentic désactivé → suite du pipeline standard)
+        │
+        ▼
+[10] Si sources vides → réponse sans LLM ("aucun document pertinent")
+     Si sources présentes →
+        │
+        ▼
+[11] Construction du systemPrompt :
+      "=== CONTEXTE ===\n[Source: fichier.pdf]\n<texte chunk>\n..."
+        │
+        ▼
+[12] LlamaCppChatClient.chat(systemPrompt, question)
+      → POST llm-chat:8080/v1/chat/completions
+        {"model": "spectra-domain", "stream": false, "messages": [...]}
+      ← answer (String)
+        │
+        ▼
+[13] QueryResponse {answer, sources, durationMs, rerankApplied, hybridSearchApplied,
+                    agenticApplied, agenticIterations, multiQueryApplied,
+                    compressionApplied, semanticDedupApplied, longContextApplied}
+        sources[i] = {text, sourceFile, distance, rerankScore, bm25Score}
+```
+
+### Re-ranking Cross-Encoder (`CrossEncoderRerankerClient`)
+
+La recherche vectorielle pure (embeddings cosinus) est rapide mais parfois imprécise : elle compare un vecteur de requête à des vecteurs de chunks pré-calculés, sans modéliser l'interaction directe entre la question et le texte.
+
+Le re-ranking utilise un modèle **Cross-Encoder** (architecture bi-encoder vs cross-encoder) : il reçoit la paire `(question, chunk)` complète et produit un score de pertinence fin.
+
+**Implémentation :**
+
+```
+RagService
+  ├── ChromaDbClient.query(..., topCandidates=20)   ← large retrieval pool
+  ├── CrossEncoderRerankerClient.rerank(q, docs, topN=5)
+  │     POST http://reranker:8000/rerank
+  │     → Python service (sentence-transformers CrossEncoder)
+  │     ← [{index: 2, score: 0.94}, {index: 7, score: 0.81}, ...]
+  └── contexte = docs reordonnés [2, 7, ...]  ← top-N
+```
+
+**Service Python `reranker/` :**
+
+| Fichier | Rôle |
+|---------|------|
+| `app.py` | FastAPI — `POST /rerank`, `GET /health` |
+| `requirements.txt` | `sentence-transformers`, `torch` (CPU), `fastapi`, `uvicorn` |
+| `Dockerfile` | Python 3.11-slim, modèle pré-téléchargé au build (`ARG RERANKER_MODEL`) |
+
+**Modèles recommandés :**
+
+| Modèle | Taille | Langues | Usage |
+|--------|--------|---------|-------|
+| `cross-encoder/ms-marco-MiniLM-L-6-v2` | ~22 Mo | EN (défaut) | CPU, latence ~50–200 ms |
+| `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1` | ~120 Mo | Multilingue (FR ✓) | Meilleur pour documents FR |
+| `BAAI/bge-reranker-base` | ~280 Mo | EN + ZH | Haute précision |
+
+**Configuration :**
+
+```yaml
+spectra:
+  reranker:
+    enabled: ${SPECTRA_RERANKER_ENABLED:false}   # désactivé par défaut
+    base-url: ${SPECTRA_RERANKER_URL:http://reranker:8000}
+    model: ${SPECTRA_RERANKER_MODEL:cross-encoder/ms-marco-MiniLM-L-6-v2}
+    timeout-seconds: ${SPECTRA_RERANKER_TIMEOUT:30}
+    top-candidates: ${SPECTRA_RERANKER_TOP_CANDIDATES:20}  # K initial
+```
+
+**Fallback :** si le service reranker est hors ligne ou retourne une erreur, `RagService` continue avec les `maxContextChunks` premiers résultats vectoriels. Le champ `rerankApplied` de la réponse sera `false`.
+
+### Recherche hybride BM25 + Vecteurs (`HybridSearchService`)
+
+La recherche vectorielle pure peut rater des termes techniques précis (codes de procédure, numéros d'article, abréviations métier) dont l'embedding dilue la spécificité. La recherche hybride combine les deux signaux.
+
+**Composants :**
+
+| Classe | Rôle |
+|--------|------|
+| `BM25Index` | BM25Okapi en mémoire, thread-safe (`ReentrantReadWriteLock`). Tokeniseur Unicode (accents FR inclus). k1=1.5, b=0.75. |
+| `FtsService` | Un `BM25Index` par collection. Rebuild asynchrone au démarrage depuis ChromaDB. Mis à jour à chaque ingestion / suppression. |
+| `HybridSearchService` | Lance vecteur + BM25 en parallèle (`CompletableFuture`). Fusionne via RRF. Activé par `@ConditionalOnProperty`. |
+
+**Reciprocal Rank Fusion (RRF) :**
+
+```
+score_rrf(d) = w_vec   / (k + rank_vec(d))
+             + w_bm25  / (k + rank_bm25(d))
+
+k = 60  (constante standard — réduit l'impact des documents très bien classés dans un seul signal)
+w_vec  = 1.0 (fixe)
+w_bm25 = 1.0 (configurable via spectra.hybrid-search.bm25-weight)
+```
+
+Si un document n'apparaît que dans l'un des deux signaux, sa contribution depuis l'autre signal est 0.
+
+**Cycle de vie de l'index BM25 :**
+
+```
+Démarrage :
+  FtsService.@PostConstruct → CompletableFuture → rebuildCollection(defaultColl)
+    ChromaDbClient.getDocumentsPaged(limit=500, offset) × N pages
+    → BM25Index.add(id, text, sourceFile)   [rebuild en arrière-plan, sans bloquer]
+
+Ingestion :
+  IngestionTaskExecutor.ingestOne()
+    → ChromaDbClient.addDocuments()   [vecteurs → ChromaDB]
+    → FtsService.indexChunks()        [texte → BM25Index]
+
+Suppression :
+  DocumentController.deleteDocument()
+    → ChromaDbClient.deleteBySource()   [ChromaDB]
+    → FtsService.removeBySource()       [BM25Index]
+```
+
+**Configuration :**
+
+```yaml
+spectra:
+  hybrid-search:
+    enabled:    ${SPECTRA_HYBRID_SEARCH_ENABLED:false}  # désactivé par défaut
+    top-bm25:   ${SPECTRA_HYBRID_BM25_TOP:20}           # candidats BM25 récupérés
+    bm25-weight: ${SPECTRA_HYBRID_BM25_WEIGHT:1.0}      # poids relatif du signal BM25
+```
+
+**Combinaison I1 + I2 :** quand les deux sont activés, le pipeline complet est :
+`BM25 + Vecteurs → RRF → pool K candidats → Cross-Encoder rerank → top N vers LLM`
+
+**Combinaison I1 + I2 + I4 :** quand les trois sont activés, le re-ranking s'applique au retrieval initial, puis `AgenticRagService` prend le relais avec ce contexte enrichi pour itérer si nécessaire.
+
+### Agentic RAG — boucle de raisonnement ReAct (`AgenticRagService`)
+
+La recherche RAG standard est un pipeline linéaire sans rétroaction : si le contexte initial est insuffisant, aucun mécanisme ne permet au modèle de formuler une requête complémentaire. L'Agentic RAG implémente un schéma **ReAct** (Reasoning and Acting) où le LLM peut demander des recherches supplémentaires avant de répondre.
+
+**Schéma de la boucle :**
+
+```
+RagService : retrieval initial → reranking (I1 opt.) → contextChunks₀
+    │
+    ▼ (si spectra.agentic-rag.enabled=true)
+AgenticRagService.query(request, contextChunks₀, ...)
+    │
+    ▼ Itération 1..maxIterations
+    ┌──────────────────────────────────────────────────────┐
+    │  Construire contextStr (chunks actuels)              │
+    │  LlmClient.chat(REACT_PROMPT, question + context)    │
+    │       ↓                                              │
+    │  Parser la réponse LLM :                             │
+    │    THOUGHT: ...                                      │
+    │    ACTION: SEARCH  →  QUERY: <requête affinée>       │
+    │          │    embed(query) → retrieval (vector|hybrid)│
+    │          │    filtrer chunks déjà vus (dedup texte)  │
+    │          │    ajouter nouveaux chunks au contexte    │
+    │          └────────────────────── itération suivante  │
+    │    ACTION: ANSWER  →  RESPONSE: <réponse finale>    │
+    │          └─── sortie de boucle                       │
+    └──────────────────────────────────────────────────────┘
+    │ (si max itérations atteint sans ANSWER)
+    ▼
+    Génération directe (fallback systemPrompt standard)
+    │
+    ▼
+QueryResponse {answer, sources, ..., agenticApplied: true, agenticIterations: N}
+```
+
+**Prompt ReAct :**
+
+Le LLM reçoit un système structuré en deux formats exclusifs :
+
+```
+Format RECHERCHE :
+THOUGHT: <raisonnement>
+ACTION: SEARCH
+QUERY: <requête affinée et distincte>
+
+Format RÉPONSE :
+THOUGHT: <raisonnement final>
+ACTION: ANSWER
+RESPONSE: <réponse complète>
+```
+
+Règles incluses dans le prompt : base-toi uniquement sur le contexte ; n'invente rien ; réponds en français.
+
+**Déduplication inter-itérations :** un `Set<String>` accumule les textes de tous les chunks vus depuis le début de la requête. Le retrieval complémentaire récupère `maxChunks × 2` candidats et ne retient que ceux absents du set — garantit que chaque itération apporte une information nouvelle.
+
+**Fallbacks :**
+- Format LLM inattendu (pas de `ACTION:`) → la réponse brute est utilisée directement
+- `ACTION: SEARCH` sans `QUERY:` → sortie de boucle
+- Budget `maxIterations` épuisé → génération directe sur les chunks cumulés
+- Aucun chunk initial → message d'indisponibilité sans appel LLM
+
+**Configuration :**
+
+```yaml
+spectra:
+  agentic-rag:
+    enabled:        ${SPECTRA_AGENTIC_RAG_ENABLED:false}   # désactivé par défaut
+    max-iterations: ${SPECTRA_AGENTIC_MAX_ITERATIONS:3}    # max tours SEARCH avant réponse forcée
+    initial-top-k:  ${SPECTRA_AGENTIC_INITIAL_TOP_K:5}     # chunks initiaux transmis par RagService
+```
+
+**Coût en tokens :** chaque itération consomme un appel LLM complet (contexte croissant + question). Avec `max-iterations=3` et 5 chunks par itération, la fenêtre de contexte peut atteindre ~4000 tokens. Assurez-vous que votre modèle a un contexte ≥ 4096 tokens avant d'activer ce mode.
+
+---
+
+### Multi-Query RAG (`MultiQueryService`)
+
+La recherche RAG standard encode une seule formulation de la question. Si l'utilisateur utilise un terme différent de celui présent dans les documents (synonyme, abréviation, reformulation), le vecteur produit peut s'éloigner des vecteurs des chunks pertinents.
+
+**Principe :** générer N reformulations de la question sous angles différents, exécuter le retrieval pour chacune, fusionner les résultats en dédupliquant sur le texte exact des chunks.
+
+```
+MultiQueryService.generateQueries("Procédure d'évacuation en cas d'incident ?")
+  ← LLM → [
+       "Procédure d'évacuation en cas d'incident ?",   ← question originale toujours en [0]
+       "Protocole de sécurité lors d'un sinistre",
+       "Que faire en situation d'urgence autoroutière"
+    ]
+
+Pour chaque query_i :
+  embed(query_i) → ChromaDbClient.query(…) → Liste<Chunk_i>
+
+Fusion :
+  Map<texte_chunk, distance_min> — premier trouvé = meilleure priorité
+  Tri par distance croissante → top retrieveCount chunks
+```
+
+**Déduplication :** les chunks dont le texte est identique ne sont conservés qu'une fois (avec la meilleure distance parmi les requêtes qui les ont retournés).
+
+**Configuration :**
+
+```yaml
+spectra:
+  multi-query:
+    enabled:     ${SPECTRA_MULTI_QUERY_ENABLED:false}
+    query-count: ${SPECTRA_MULTI_QUERY_COUNT:2}   # variantes générées (hors question originale)
+```
+
+**Coût :** 1 appel LLM (génération des variantes) + N appels embedding + N requêtes ChromaDB. Avec `query-count=2` et nomic-embed-text, latence additionnelle typique : 300–800 ms.
+
+**Fallback :** si le LLM retourne une réponse vide ou identique à la question originale, le pipeline revient au retrieval simple sur la question originale.
+
+---
+
+### Context Compression (`ContextCompressionService`)
+
+Les chunks récupérés par le retrieval contiennent souvent des passages hors-sujet. Avec des chunks de 512 tokens, un chunk peut ne contenir que 2–3 phrases pertinentes sur 30. Injecter le chunk entier consomme la fenêtre de contexte inutilement.
+
+**Principe :** pour chaque chunk conservé après reranking/corrective RAG, soumettre au LLM une extraction des phrases strictement pertinentes à la question. Les chunks dont aucune phrase n'est pertinente sont éliminés.
+
+```
+Pour chunk_i dans contextChunks :
+  LLM.chat(COMPRESS_SYSTEM,
+    "Extrais les passages pertinents pour : <question>\nTexte : <chunk_i>")
+  Si réponse == "IRRELEVANT" → supprimer chunk_i
+  Sinon → remplacer chunk_i par les passages extraits
+```
+
+**Avantages :**
+- Contexte plus dense : 5 chunks compressés peuvent faire la taille de 1–2 chunks bruts
+- Moins de bruit : le LLM n'est pas distrait par du texte hors-sujet
+- Permet d'inclure plus de sources distinctes dans la même fenêtre
+
+**Configuration :**
+
+```yaml
+spectra:
+  context-compression:
+    enabled: ${SPECTRA_CONTEXT_COMPRESSION_ENABLED:false}
+```
+
+**Coût :** N appels LLM séquentiels (un par chunk). Avec 5 chunks et phi-4-mini, latence additionnelle : 2–6 s. Recommandé uniquement avec un modèle de chat rapide.
+
+**Positionnement dans le pipeline :** s'applique après le Corrective RAG et avant la génération finale, sur les chemins non-streaming et streaming (le client est informé via l'événement SSE `stage: compression`).
+
+---
+
+### Déduplication sémantique (inline dans `RagService`)
+
+Après retrieval et reranking, plusieurs chunks peuvent être quasi-identiques — typique avec des documents versionés (révisions successives d'une procédure) ou avec le Multi-Query (deux variantes de la question peuvent retourner le même contenu légèrement reformulé).
+
+**Principe :** similarité de Jaccard sur les mots (bag-of-words) entre chaque paire de chunks. Si la similarité dépasse le seuil configuré, le chunk de rang inférieur (moins bien classé) est éliminé.
+
+```java
+// Pour chaque paire (chunk_i, chunk_j) avec j < i (j déjà conservé) :
+wordsA = Set(chunk_i.split(" "))
+wordsB = Set(chunk_j.split(" "))
+jaccard = |wordsA ∩ wordsB| / |wordsA ∪ wordsB|
+
+si jaccard ≥ threshold → chunk_i est un doublon → éliminer
+```
+
+**Propriétés :**
+- O(n²) sur le nombre de chunks (5–20 typiquement) — négligeable
+- Aucun appel API — calcul en mémoire JVM
+- Sensible à l'ordre : le chunk de meilleur rang (premier dans la liste post-rerank) est toujours conservé
+
+**Configuration :**
+
+```yaml
+spectra:
+  semantic-dedup:
+    enabled:              ${SPECTRA_SEMANTIC_DEDUP_ENABLED:false}
+    similarity-threshold: ${SPECTRA_SEMANTIC_DEDUP_THRESHOLD:0.85}
+```
+
+**Valeurs typiques du seuil :**
+- `0.95` : ne supprime que les copies quasi-exactes (overlap de copier-coller)
+- `0.85` : supprime les révisions légères et paraphrases proches (recommandé)
+- `0.70` : plus agressif — à utiliser uniquement si le corpus est très redondant
+
+---
+
+### Long-Context RAG bypass (inline dans `RagService`)
+
+Pour de petits corpus (< 100 chunks), la recherche vectorielle peut être contre-productive : elle risque de rater des informations pertinentes (faux négatifs) car le vecteur de la question ne s'aligne pas parfaitement avec tous les chunks utiles.
+
+**Principe :** si le nombre total de chunks dans la collection est inférieur ou égal à `maxCollectionChunks`, charger tous les documents directement via `ChromaDbClient.getAllDocuments()` et les injecter intégralement dans le contexte — la recherche vectorielle est contournée.
+
+```
+ChromaDbClient.count(collectionId) → N chunks
+Si N ≤ maxCollectionChunks :
+  ChromaDbClient.getAllDocuments(collectionId)
+  → tous les chunks avec distance=0.0 (pas de score vectoriel)
+  → buildRagContext(..., longContextApplied=true)
+  Sauter embedding + query + reranking + dedup
+
+Sinon :
+  Pipeline RAG standard
+```
+
+**Avantages :**
+- Rappel parfait : aucun document manqué
+- Pas d'artefact de similarité vectorielle
+- Mise à jour instantanée : pas de re-indexation nécessaire après ingestion
+
+**Limite :** la taille totale du contexte doit tenir dans la fenêtre du modèle. Avec `maxCollectionChunks=100` et des chunks de 512 tokens, cela représente ~50 000 tokens — nécessite un modèle à grand contexte (Gemma 3, Llama 4, Mistral Large…).
+
+**Configuration :**
+
+```yaml
+spectra:
+  long-context-rag:
+    enabled:              ${SPECTRA_LONG_CONTEXT_RAG_ENABLED:false}
+    max-collection-chunks: ${SPECTRA_LONG_CONTEXT_MAX_CHUNKS:100}
+```
+
+### Contrainte de contexte
+
+Le prompt RAG complet (system prompt + chunks + question) doit tenir dans la fenêtre de contexte du modèle :
+
+```
+[system prompt (~100 tokens)]
+[chunks : N × ~600 tokens]
+[question (~20 tokens)]
+[réponse générée (~200–400 tokens)]
+```
+
+Avec le modèle fine-tuné (contexte = 2048 tokens) :
+- 1 chunk = ~720 tokens utilisés → ~1328 tokens pour la réponse ✅
+- 2 chunks = ~1320 tokens utilisés → ~728 tokens pour la réponse ✅
+- 3 chunks = ~1920 tokens utilisés → ~128 tokens pour la réponse ⚠️ (réponse tronquée)
+- 5 chunks = ~3100 tokens → dépassement → **400 Bad Request** ❌
+
+La valeur recommandée de `maxContextChunks` est donc **2** pour le modèle fine-tuné standard.
+
+---
+
+## 7. Interface Utilisateur (React 19 + Vite + Tailwind)
+
+### Architecture frontend
+
+```
+frontend/
+├── Dockerfile          ← multi-stage (node:22-alpine → nginx:alpine)
+├── nginx.conf          ← proxy /api/* → spectra-api:8080, SSE sans buffering
+├── src/
+│   ├── pages/
+│   │   ├── Datasets.tsx      ← pipeline 3 étapes + polling temps réel
+│   │   ├── FineTuning.tsx    ← formulaire + step bar + historique API
+│   │   ├── Playground.tsx    ← chat RAG · sélecteur de modèle · sliders temp/top-p
+│   │   ├── Dashboard.tsx     ← 3 cartes (Chat · Embed · ChromaDB) + modèle actif
+│   │   ├── Comparison.tsx    ← tableau comparatif modèles
+│   │   └── Optimization.tsx  ← ablation A/B (gain RAG/fine-tuning) + graphes recharts
+│   ├── components/charts/AblationCharts.tsx  ← barres ±σ, Pareto coût/qualité, waterfall
+│   ├── services/api.ts       ← client Axios /api/*
+│   ├── hooks/
+│   │   ├── useSse.ts         ← EventSource SSE
+│   │   └── useStatus.ts      ← polling /api/status (30 s)
+│   └── types/api.ts          ← types TypeScript miroir des DTO Java
+```
+
+**Dashboard — service health (3 cartes) :**
+- `Chat` : trouve le service `llama-cpp` ; affiche `details.activeModel`
+- `Embed` : trouve `llm-embed` ; affiche `details.activeModel` ; indicateur secondary (bleu-vert)
+- `ChromaDB` : affiche `available` + nombre de chunks depuis les stats dataset
+
+**Dataset Pipelines — ingestion URL :**
+- Barre URL sous la zone de dépôt fichiers : `<input type="url">` + bouton **Ingest URL**
+- Validation côté frontend : `new URL(trimmed)` — lève une exception si l'URL est syntaxiquement invalide
+- Appel : `POST /api/ingest/url` via `ingestApi.ingestUrls([url])`
+- Polling : réutilise le même `pollIngest(id, taskId)` à 3 s que les fichiers
+- La progression apparaît dans **Live Ingestion Stream** avec `fileName = url`
+
+**Playground — sélecteur de modèle :**
+- Au montage : `GET /api/fine-tuning/models` (filtre `type === 'chat'`) + `GET /api/config/model`
+- Clic sur un modèle → `POST /api/config/model` + toast : *"Effectif au prochain redémarrage de llm-chat"*
+- N'affiche la section que si au moins un modèle de chat est présent dans le registre
+
+**Playground — fiabilité :**
+- Historique localStorage plafonné à 50 messages. `QuotaExceededError` → tentative à 25 messages, puis abandon silencieux.
+- Streaming via `POST /api/query/stream` (SSE) avec `AbortController` + `guardTimer` de 120 s.
+- Sliders temperature [0.0–2.0] et top-p [0.0–1.0] transmis dans le corps de la requête.
+
+**Optimization — ablation A/B des options :**
+- Presets : gain du RAG (LLM seul vs RAG), ablation cumulative, leave-one-out, gain du fine-tuning.
+- Appelle `POST /api/ablation` (`ablationApi.run`) avec timeout large (passage bloquant).
+- Tableau de deltas vs premier bras : couleur selon le sens d'amélioration, `±σ` par métrique, deltas non significatifs grisés (« ≈ ») quand `runs > 1`.
+- Colonne **Tokens contexte** (coût déterministe) en plus de la latence p50.
+- 3 graphes recharts (`AblationCharts`) + badges des modules déclenchés + export CSV.
+
+**Datasets / Comparison — fiabilité des polling :**
+- Compteur de failures par intervalle : arrêt automatique après 5 erreurs consécutives.
+- Cleanup systématique des intervalles au démontage du composant (`useRef<Set>` + `useEffect` cleanup).
+- Interval réduit à 5 s pour Comparison (était 3 s).
+
+### Nginx et Server-Sent Events
+
+```nginx
+location /api/sse/ {
+    proxy_pass http://spectra-api:8080;
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_read_timeout 3600s;
+    proxy_set_header Connection '';
+    proxy_http_version 1.1;
+    chunked_transfer_encoding on;
+}
+```
+
+Sans `proxy_buffering off`, nginx accumule les événements SSE et les envoie en bloc — le client ne voit rien pendant la session.
+
+---
+
+## 8. API REST
+
+### Ingestion
+
+```
+POST /api/ingest
+  Corps : multipart/form-data, champ "files" (1..N fichiers)
+  Réponse : {"taskId": "...", "status": "PENDING"}
+
+POST /api/ingest/url
+  Corps : {"urls": ["https://...", "https://..."]}  — max 20 URLs
+  Réponse : {"taskId": "...", "status": "PENDING", "files": ["https://..."]}
+  Note : "files" contient les URLs soumises (même structure que pour les fichiers)
+
+GET /api/ingest/{taskId}
+  Réponse : {"status": "COMPLETED|FAILED|PROCESSING",
+             "chunksCreated": N, "files": [...], "error": null}
+  Note : fonctionne pour les tâches fichiers ET les tâches URL (registre partagé)
+
+GET /api/ingest
+  Réponse : liste de toutes les tâches d'ingestion actives (fichiers + URLs)
+
+GET /api/ingest/files
+  Réponse : historique des fichiers ingérés (depuis la base H2)
+```
+
+### Dataset
+
+```
+POST /api/dataset/generate?maxChunks=N
+  maxChunks : nombre de chunks à traiter (0 = tous)
+  Réponse : {"taskId": "...", "status": "PENDING"}
+
+GET /api/dataset/generate/{taskId}
+  Réponse : {"status": "...", "pairsGenerated": N,
+             "chunksProcessed": N, "totalChunks": N}
+
+GET /api/dataset/stats
+GET /api/dataset/export (→ fichier JSONL)
+```
+
+### Fine-tuning et Modèles
+
+```
+POST /api/fine-tuning
+  Corps : {"modelName": "spectra-domain", "baseModel": "phi3",
+           "loraRank": 64, "loraAlpha": 128, "epochs": 3,
+           "learningRate": 2e-4, "minConfidence": 0.8}
+
+GET /api/fine-tuning/models
+  Réponse : liste des modèles dans registry.json
+
+POST /api/fine-tuning/models/register
+  Corps : {"name": "mon-modele", "type": "chat",
+           "source": "./data/models/mon-modele.gguf", "activate": true}
+  → Enregistre un GGUF dans le registre local sans passer par un daemon
+
+POST /api/fine-tuning/models/{name}/pull
+  → Non supporté avec llama-cpp (lève UnsupportedOperationException)
+    Les modèles doivent être gérés localement sous forme de GGUF
+```
+
+### Évaluation, qualité et ablation
+
+```
+POST /api/evaluation                    body: {modelName?, testSetSize?, jobId?}
+  Évaluation LLM-as-a-judge d'un modèle sur un échantillon du dataset (5 %,
+  min 5 / max 50). Le modèle ciblé est chargé (bascule puis restauration du
+  modèle actif) ; latence de génération et débit estimé (tokens/s) sont mesurés.
+GET  /api/evaluation                    Liste tous les rapports.
+GET  /api/evaluation/{evalId}           Rapport détaillé (progression temps réel).
+DELETE /api/evaluation/{evalId}         Annule une évaluation en cours.
+
+POST /api/evaluation/batch              body: {modelNames[], testSetSize?}
+  Évalue plusieurs modèles SÉQUENTIELLEMENT sur un MÊME jeu de test (échantillon
+  partagé) → comparaison équitable. Renvoie la liste des evalIds.
+GET  /api/evaluation/compare?evalIds=a,b,c&baseline=a
+  Agrège plusieurs rapports : score, deltas global et par catégorie vs baseline,
+  écart-type + IC 95 % + significativité (sig/ns), latence/débit, et nombre de
+  documents liés (GED TRAINED_ON / EVALUATED_ON) par modèle.
+
+POST /api/evaluation/ab                 body: {modelA, modelB, testSetSize?}
+  Comparaison directe A/B (head-to-head) : un juge désigne la meilleure des deux
+  réponses par paire, ordre randomisé (anti-biais de position). Trois phases :
+  génération A, génération B, jugement. Renvoie aWins/bWins/ties + verdict/paire.
+GET  /api/evaluation/ab   ·   GET /api/evaluation/ab/{abId}   ·   DELETE /api/evaluation/ab/{abId}
+
+GET  /api/config/models                 Liste des modèles de chat enregistrés
+                                        (picker des comparaisons).
+
+POST /api/quality-benchmark            (?model=<nom> optionnel)
+POST /api/quality-benchmark/compare?baseline=<m1>&candidate=<m2>
+  Benchmark qualité du modèle BRUT sur le jeu tenu à l'écart
+  (exactitude + taux d'hallucination). Bascule temporaire du modèle actif.
+
+POST /api/benchmark/{rag|embedding|llm}   (?iterations=N&maxChunks=N)
+  Mesures de performance/latence des composants.
+
+POST /api/ablation
+  Corps (optionnel) :
+    {"runs": 3, "maxContextChunks": 5,
+     "arms": [
+       {"label": "...", "model": "phi3"|null, "useRag": true|false,
+        "overrides": {"rerank": true|false|null, "hybrid": ..., "multiQuery": ...,
+                      "corrective": ..., "compression": ..., "selfRag": ...,
+                      "adaptive": ..., "conversational": ...}}
+     ]}
+  Corps vide = matrice par défaut (LLM seul vs RAG sur le modèle actif).
+  Chaque question passe dans le PIPELINE RAG COMPLET (≠ /api/quality-benchmark
+  qui interroge le modèle brut). Réponse : un AblationArmReport par bras avec
+  quality (exactitude/hallucination/refus), retrieval (Hit@k/MRR/Recall@k vs
+  expectedSources), avgContextTokens, p50/avgLatencyMs, runs, stdDev (±σ par
+  métrique) et appliedCounts (modules réellement déclenchés).
+  overrides tri-état : null = défaut config, true = actif si dispo, false = inactif.
+```
+
+**`EvaluationService` — juge, deux phases et rétention.** Par défaut le modèle évalué
+sert aussi de juge. Si `spectra.evaluation.judge-model` est défini, un **juge neutre** fixe
+note tous les modèles ; l'évaluation passe alors en **deux phases** (génération de toutes
+les réponses avec le modèle évalué, puis un unique changement de modèle vers le juge pour
+noter — évite de recharger `llama-server` à chaque paire). Ce schéma s'applique aussi à
+`QualityBenchmarkService` (benchmark tenu à l'écart) et `RagAblationService`. Les
+comparaisons batch/A/B réutilisent ce mécanisme (`sampleTestSet`, `generateAnswer`, bascule
++ restauration du modèle actif). La significativité (`compareReports`) est un test à deux
+échantillons : `|Δ| > 1,96·√(SEM² + SEM_baseline²)`, ≥ 2 paires notées de part et d'autre.
+Rétention : les rapports COMPLETED sont conservés (cap
+`spectra.evaluation.max-completed-reports`, défaut 200) et seuls les FAILED/CANCELLED
+anciens sont purgés ; persistance dans `evaluations.json` et `ab-comparisons.json`
+(répertoire `spectra.fine-tuning.work-dir`).
+
+**`ModelSwitchCoordinator` — bascule fiable du modèle actif.** Tous les harnais
+ci-dessus basculent temporairement le modèle servi globalement : ils sérialisent leurs
+passages sur le **verrou global** de ce bean (deux mesures concurrentes se voleraient le
+modèle actif), et chaque activation **attend que le serveur serve réellement** le modèle
+demandé avant de mesurer (`activeModelLoaded` de `/v1/models`). Sans cette attente, en
+mode conteneurs séparés (le superviseur `llm-chat` suit le pointeur du registre ~10 s puis
+recharge le GGUF), les premières réponses seraient produites par l'ancien modèle encore
+chargé. Timeout `spectra.llm.switch.convergence-timeout-seconds` (défaut 300 s, doit
+couvrir le chargement du GGUF le plus lourd), sonde toutes les
+`spectra.llm.switch.poll-interval-millis` (défaut 2 s). La restauration du modèle initial
+reste best-effort : son échec n'invalide jamais le rapport calculé.
+
+`RagAblationService` réutilise `QualityBenchmarkService` (`judgeAnswer`, `aggregate`,
+`loadBenchmark`) et `RagService.query(request, overrides)`. Les requêtes sont émises à
+température 0 ; avec `runs > 1`, les scalaires sont des moyennes et `stdDev` l'écart-type
+(échantillon N-1) pour distinguer un gain réel du bruit. Benchmark annoté + corpus aligné :
+`benchmarks/highway_benchmark.jsonl` ↔ `examples/highway/`.
+
+### Commentaires d'articles (Article Commenting)
+
+```
+GET  /api/ged/documents/{sha256}/comments
+  Réponse : liste d'objets ArticleComment triés par date décroissante
+  {
+    "id": 42,
+    "sha256": "abc123...",
+    "content": "Ce document couvre la procédure R23...",
+    "author": "ui",
+    "type": "AI_GENERATED",   ← HUMAN | AI_GENERATED
+    "rating": "APPROVED",     ← NONE | APPROVED | REJECTED
+    "focus": "procédures de sécurité",
+    "createdAt": "2026-06-02T10:30:00Z",
+    "updatedAt": "2026-06-02T10:31:00Z"
+  }
+
+POST /api/ged/documents/{sha256}/comments?actor=ui
+  Corps :
+    { "content": "Mon annotation manuelle.", "generate": false }
+    → Enregistre un commentaire humain directement.
+
+    { "content": "procédures de sécurité et contacts d'urgence", "generate": true }
+    → Déclenche la génération IA via RAG :
+       1. content est utilisé comme focus/requête de retrieval
+       2. RagService.retrieveContext() récupère 6 chunks (température 0.4)
+       3. LLM génère un commentaire analytique ancré dans ces chunks
+       4. Le commentaire est persisté avec le contexte RAG (JSON) et le focus
+
+PATCH /api/ged/documents/{sha256}/comments/{id}/rating?rating=APPROVED
+  → Évalue un commentaire IA. Valeurs : NONE | APPROVED | REJECTED
+  Réponse : l'entité mise à jour.
+
+DELETE /api/ged/documents/{sha256}/comments/{id}
+  → Supprime définitivement le commentaire.
+
+POST /api/ged/documents/export/comments-dpo
+  → Exporte les commentaires IA évalués en paires DPO JSONL
+     compatibles avec trl.DPOTrainer.
+  Format de chaque ligne :
+  {
+    "prompt":     "procédures de sécurité et contacts d'urgence",
+    "chosen":     "Le document décrit...",       ← commentaire APPROVED
+    "rejected":   "Le document stipule...",      ← commentaire REJECTED ou synthétique
+    "source":     "article_comment:abc123...",
+    "exportedAt": "2026-06-02T10:35:00Z"
+  }
+  Fichier de sortie : data/dataset/comments_dpo.jsonl
+  Réponse : {"pairs": 18, "file": "...", "exportedAt": "..."}
+```
+
+**Entité persistée** (`article_comments`, H2) :
+
+| Colonne | Type | Description |
+|---|---|---|
+| `id` | BIGINT PK auto | Identifiant |
+| `document_sha256` | VARCHAR | Référence au document GED |
+| `content` | TEXT | Corps du commentaire |
+| `author` | VARCHAR | Identifiant de l'auteur |
+| `comment_type` | ENUM | `HUMAN` ou `AI_GENERATED` |
+| `rating` | ENUM | `NONE`, `APPROVED`, `REJECTED` |
+| `rag_context` | TEXT | JSON des chunks utilisés lors de la génération (null pour HUMAN) |
+| `focus` | TEXT | Angle d'analyse fourni par l'utilisateur (null pour HUMAN) |
+| `created_at` | TIMESTAMP | Date de création |
+| `updated_at` | TIMESTAMP | Date de dernière modification |
+
+**Boucle RAG → DPO :**
+
+```
+Cycle n                              Cycle n+1
+──────────────────────               ──────────────────────
+Générer commentaire (RAG)            Fine-tune sur comments_dpo.jsonl
+  → ancré dans chunks réels          → modèle apprend à produire
+                                       des commentaires du style
+Évaluer (👍/👎)                       que VOUS approuvez
+  → paires (chosen, rejected)
+                                     Générer commentaires avec
+Exporter → comments_dpo.jsonl         le modèle affiné
+  → même schema que dpo_pairs.jsonl    → meilleure qualité dès le départ
+```
+
+Le fichier `comments_dpo.jsonl` peut être utilisé **en complément** du `dpo_pairs.jsonl`
+existant lors du fine-tuning : les deux sources sont au même format et peuvent être
+concaténées avant de lancer `trl.DPOTrainer`.
+
+---
+
+### Garde de similarité Jaccard sur les paires DPO (`DpoGenerationService`)
+
+Avant d'accepter une paire `(chosen, rejected)`, `DpoGenerationService` calcule la similarité de Jaccard sur les sacs de mots des deux réponses.
+
+**Formule :**
+
+```
+J(A, B) = |A ∩ B| / |A ∪ B|
+
+où A = ensemble des mots (lowercase) de chosen
+   B = ensemble des mots (lowercase) de rejected
+```
+
+**Seuil :** `SIMILARITY_THRESHOLD = 0.85` (constant de classe, non configurable via propriétés — modifiable dans le code).
+
+**Exemple :**
+
+| chosen | rejected | Jaccard | Résultat |
+|--------|----------|---------|----------|
+| `"la procédure exige un casque"` | `"un casque est exigé par la procédure"` | 0.71 | ✅ Paire acceptée |
+| `"la procédure exige un casque"` | `"la procédure nécessite un casque"` | 0.80 | ✅ Paire acceptée |
+| `"la procédure exige un casque blanc"` | `"la procédure exige un casque blanc de sécurité"` | 0.90 | ❌ Paire rejetée (trop similaires) |
+
+**Implémentation (`DpoGenerationService.generateRejected()`) :**
+
+```java
+private static final double SIMILARITY_THRESHOLD = 0.85;
+
+// Dans generateRejected(), après avoir obtenu la réponse du LLM :
+double similarity = jaccardSimilarity(chosen, rejectedTrimmed);
+if (similarity > SIMILARITY_THRESHOLD) {
+    log.warn("Paire DPO ignorée — chosen/rejected trop similaires (Jaccard={}) pour : {}",
+            String.format("%.2f", similarity), user.substring(0, Math.min(60, user.length())));
+    return null;
+}
+
+private double jaccardSimilarity(String a, String b) {
+    Set<String> setA = Arrays.stream(a.toLowerCase().split("\\s+")).collect(Collectors.toSet());
+    Set<String> setB = Arrays.stream(b.toLowerCase().split("\\s+")).collect(Collectors.toSet());
+    if (setA.isEmpty() && setB.isEmpty()) return 1.0;
+    long intersection = setA.stream().filter(setB::contains).count();
+    long union = setA.size() + setB.size() - intersection;
+    return union == 0 ? 1.0 : (double) intersection / union;
+}
+```
+
+**Pourquoi cette garde est nécessaire :** `trl.DPOTrainer` apprend à maximiser `log P(chosen) - log P(rejected)`. Si les deux textes sont presque identiques, ce différentiel est nul — la paire ne contribue pas à l'apprentissage et peut introduire du bruit de gradient.
+
+**La même garde** est appliquée indépendamment dans `ArticleCommentService` lors de l'export `comments_dpo.jsonl`.
+
+---
+
+### Déclencheur automatique de re-entraînement (`ArticleCommentService`)
+
+Chaque appel à `PATCH /rating?rating=APPROVED` déclenche une vérification du seuil de re-entraînement après sauvegarde en base.
+
+**Logique :**
+
+```
+rateComment(commentId, APPROVED)
+  │
+  ├── commentRepo.save(comment)
+  │
+  ├── approvedCount = countByCommentTypeAndRating(AI_GENERATED, APPROVED)
+  │
+  └── if approvedCount > 0 && approvedCount % autoRetrainThreshold == 0 :
+        CompletableFuture.runAsync(() → {
+          pairs = exportDpoPairs(dpoExportPath)    ← écriture JSONL sur disque
+          if pairs == 0 → return (rien à entraîner)
+          jobId = fineTuningService.submit(
+                    FineTuningRequest("auto-dpo-<epoch>", dpoEnabled=true))
+          log.info("Re-entraînement DPO automatique soumis : {} paires, jobId={}", pairs, jobId)
+        })
+```
+
+**Points clés de conception :**
+
+| Aspect | Choix | Raison |
+|--------|-------|--------|
+| Asynchronisme | `CompletableFuture.runAsync()` | `@Async` ne fonctionne pas en appel intra-classe (contourne le proxy CGLIB) |
+| Injection FineTuningService | `@Lazy` | Évite les dépendances circulaires au démarrage Spring |
+| Comptage | `countByCommentTypeAndRating()` JPA | Requête SQL directe, pas de chargement en mémoire |
+| Nommage du job | `"auto-dpo-" + Instant.now().toEpochMilli()` | Unicité garantie même si deux triggers se chevauchent |
+
+**Configuration :**
+
+```yaml
+spectra:
+  ged:
+    auto-retrain-threshold: 5   # 0 = désactivé ; N > 0 = déclencher tous les N commentaires approuvés
+  dataset:
+    dir: ./data/dataset          # dossier de sortie du fichier comments_dpo.jsonl
+```
+
+Variables d'environnement équivalentes :
+```bash
+SPECTRA_GED_AUTO_RETRAIN_THRESHOLD=20   # recommandé en production : 20–50
+SPECTRA_DATASET_DIR=./data/dataset
+```
+
+**Suivi :** les jobs déclenchés automatiquement apparaissent dans l'historique `GET /api/fine-tuning` avec le préfixe `auto-dpo-` dans le nom du modèle.
+
+---
+
+### Vérification de cohérence registre ↔ llama-server (`LlamaCppChatClient`)
+
+Après chaque appel `setActiveModel(model)`, une tâche asynchrone vérifie que llama-server sert effectivement le modèle activé dans le registre.
+
+**Flux :**
+
+```
+setActiveModel("spectra-v2")
+  │
+  ├── activeModel.getAndSet("spectra-v2")
+  ├── modelRegistry.setActiveChatModel("spectra-v2")
+  ├── runtimeOrchestrator.ensureChatModelServed("spectra-v2")
+  │
+  └── CompletableFuture.runAsync(() → verifyModelLoaded("spectra-v2"))
+        │
+        ├── checkHealth()               ← GET /v1/models (timeout 5 s)
+        │
+        ├── !health.available()
+        │     → WARN "llama-server inaccessible après activation de 'spectra-v2'"
+        │
+        ├── !"ok".equals(health.version())
+        │     → WARN "ALERTE REGISTRE/SERVEUR : 'spectra-v2' actif dans le registre
+        │             mais pas reconnu par llama-server (status='model-not-loaded').
+        │             Vérifiez que l'alias GGUF correspond au modèle chargé avec '-a'."
+        │
+        └── else
+              → DEBUG "Vérification modèle 'spectra-v2' : OK"
+```
+
+**`health.version()`** contient `"ok"` si `activeModelLoaded=true`, `"model-not-loaded"` sinon (voir `ServiceStatus` record — le champ `version` porte le statut de santé).
+
+**Cas d'alerte typique :**
+
+```
+# Registre : activeChatModel = "spectra-v2"
+# llama-server démarré avec : llama-server -m model.gguf -a old-name
+#                                                              ↑ alias différent
+# → WARN ALERTE REGISTRE/SERVEUR : 'spectra-v2' non reconnu par llama-server
+#        status='model-not-loaded'
+```
+
+**Correction :** redémarrer llama-server avec `-a spectra-v2`, ou enregistrer le modèle avec le même alias que celui passé à `-a`.
+
+---
+
+### Tableau de bord de personnalisation (`PersonalizationMetricsService` + `MetricsController`)
+
+Le service agrège en un seul appel toutes les métriques du cycle de personnalisation : commentaires, paires DPO, jobs de fine-tuning et scores d'évaluation.
+
+**Endpoint :**
+
+```
+GET /api/metrics/personalization
+  Réponse :
+  {
+    "approvedComments":         12,        ← commentaires IA approuvés (total)
+    "rejectedComments":          3,        ← commentaires IA rejetés (total)
+    "totalAiComments":          15,        ← total commentaires IA (approuvés + rejetés + NONE)
+    "dpoPairs":                 47,        ← paires DPO dans le dataset courant
+    "fineTuningJobs":           [...],     ← liste de tous les jobs (voir §5)
+    "evaluations":              [...],     ← liste de tous les rapports (voir §EvaluationService)
+    "completedCycles":           2,        ← approvedComments / autoRetrainThreshold
+    "nextTriggerIn":             3,        ← nombre d'approbations avant prochain trigger
+    "autoRetrainThreshold":      5,        ← valeur du seuil configuré
+    "completedFineTuningJobs":   2,        ← jobs en statut COMPLETED
+    "latestEvalScore":           7.4       ← score moyen du dernier rapport COMPLETED (-1.0 si aucun)
+  }
+```
+
+**Logique de `PersonalizationMetricsService.getMetrics()` :**
+
+```java
+long approved = commentRepo.countByCommentTypeAndRating(AI_GENERATED, APPROVED);
+long rejected = commentRepo.countByCommentTypeAndRating(AI_GENERATED, REJECTED);
+long total    = commentRepo.countByCommentType(AI_GENERATED);
+int  dpoPairs = dpoService.getAllPairs().size();
+List<FineTuningJob>    jobs  = fineTuningService.getAllJobs();
+List<EvaluationReport> evals = evaluationService.getAllReports();
+
+long completedCycles = threshold > 0 ? approved / threshold : 0;
+long nextTriggerIn   = threshold > 0 ? threshold - (approved % threshold) : -1;
+long completedJobs   = jobs.stream().filter(j -> j.status() == COMPLETED).count();
+double latestScore   = evals.stream()
+    .filter(r -> "COMPLETED".equals(r.status()))
+    .mapToDouble(EvaluationReport::averageScore)
+    .max().orElse(-1.0);
+```
+
+**Utilisation frontend :** le composant `Dashboard.tsx` consomme cet endpoint via `metricsApi.getPersonalization()` et affiche :
+- 4 cartes KPI : Approuvés · Paires DPO · Fine-Tunings terminés · Score éval
+- Une barre de progression vers le prochain trigger automatique
+- La liste des jobs récents avec leur statut
+
+### Statut et RAG
+
+```
+GET /api/status
+  Réponse :
+  {
+    "services": [
+      {
+        "name": "llama-cpp",                      ← serveur de chat
+        "url": "http://llm-chat:8081",
+        "available": true,
+        "details": {
+          "activeModel": "spectra-domain",
+          "activeModelLoaded": true,
+          "availableModels": ["spectra-domain"],
+          "registeredModels": [...],
+          "runtime": {"enabled": false, "running": false}
+        }
+      },
+      {
+        "name": "llm-embed",                ← serveur d'embedding
+        "url": "http://llm-embed:8082",
+        "available": true,
+        "version": "ok",
+        "details": {
+          "activeModel": "nomic-embed-text",
+          "serverStatus": "ok"
+        }
+      },
+      {
+        "name": "chromadb",
+        "available": true
+      }
+    ]
+  }
+
+GET /api/status/deep
+  Vérifie les 3 services (chat + embed + chromadb)
+  → 200 {"status": "UP", ...} si tous disponibles
+  → 503 {"status": "DOWN", ...} si au moins un est down
+
+POST /api/query
+  Corps : {
+    "question": "...",
+    "maxContextChunks": 2,      ← chunks finaux passés au LLM (défaut 5, max 20)
+    "topCandidates": 20,        ← candidats récupérés avant re-ranking (défaut 20, max 100)
+    "collection": "optional",   ← collection ChromaDB cible (défaut : collection configurée)
+    "temperature": 0.7,         ← température de génération [0.0–2.0] (défaut 0.7)
+    "topP": 0.9                 ← nucleus sampling [0.0–1.0] (défaut 0.9)
+  }
+  Réponse : {
+    "answer": "...",
+    "sources": [{"text": "...", "sourceFile": "...", "distance": 0.42, "rerankScore": 0.91, "bm25Score": 3.14}],
+    "durationMs": N,
+    "rerankApplied": true,            ← false si reranker désactivé ou fallback vectoriel
+    "hybridSearchApplied": true,      ← false si hybride désactivé
+    "agenticApplied": true,           ← false si agentic-rag désactivé
+    "agenticIterations": 2            ← nombre de tours SEARCH effectués (0 si non agentique)
+  }
+
+POST /api/query/stream
+  Corps : même structure que POST /api/query (temperature + topP supportés)
+  Réponse : text/event-stream (SSE)
+    data: {"type":"sources","sources":[...]}
+    data: {"type":"token","token":"..."}   ← répété N fois
+    data: {"type":"done"}
+    data: {"type":"error","message":"..."}  ← en cas d'erreur
+
+GET  /api/config/model → {"model": "spectra-domain"}
+POST /api/config/model ← {"model": "autre-modele"}
+  → Met à jour le registre (ne recharge pas llama-server automatiquement
+    en mode runtime.enabled=false)
+
+GET /api/config/resources
+  Réponse : profil de ressources détecté par ResourceAdvisorService + arguments CLI calculés
+  {
+    "profile": "CPU_ONLY",          ← ou "NVIDIA_HIGH", "NVIDIA_MID", "AMD_ROCM", "VULKAN"
+    "detectedCpuThreads": 4,
+    "detectedRamMb": 7800,
+    "gpuVramMb": 0,
+    "chat": {
+      "threads": 4,
+      "contextSize": 2048,
+      "batch": 512,
+      "nGpuLayers": 0,
+      "flashAttn": true,
+      "cacheTypeK": "q8_0",
+      "cacheTypeV": "q8_0",
+      "cliArgs": "--threads 4 -c 2048 -b 512 --flash-attn --cache-type-k q8_0 --cache-type-v q8_0"
+    },
+    "embed": {
+      "threads": 2,
+      "flashAttn": false,
+      "cliArgs": "--threads 2 -b 2048 -ub 2048"
+    }
+  }
+
+POST /api/config/resources/refresh
+  Déclenche une nouvelle détection des ressources (ResourceAdvisorService.refresh())
+  Utile si un GPU a été ajouté ou si les limites cgroup ont changé sans redémarrage
+  Réponse : même structure que GET /api/config/resources, avec le nouveau profil
+
+GET /api/metrics/personalization
+  Réponse : tableau de bord du cycle de personnalisation
+  {
+    "approvedComments":         12,      ← commentaires IA approuvés (total cumulé)
+    "rejectedComments":          3,      ← commentaires IA rejetés (total cumulé)
+    "totalAiComments":          15,      ← tous commentaires IA (APPROVED + REJECTED + NONE)
+    "dpoPairs":                 47,      ← paires dans le dataset DPO courant (en mémoire)
+    "fineTuningJobs":           [...],   ← liste complète des jobs (voir GET /api/fine-tuning)
+    "evaluations":              [...],   ← liste complète des rapports d'évaluation
+    "completedCycles":           2,      ← approvedComments / autoRetrainThreshold
+    "nextTriggerIn":             3,      ← approbations restantes avant prochain auto-trigger
+    "autoRetrainThreshold":      5,      ← valeur du seuil (0 = désactivé)
+    "completedFineTuningJobs":   2,      ← jobs avec statut COMPLETED
+    "latestEvalScore":           7.4     ← score moyen du dernier rapport COMPLETED (-1.0 si aucun)
+  }
+  Contrôleur : MetricsController → GET /api/metrics/personalization (200 OK)
+```
+
+---
+
+## 9. Infrastructure Docker
+
+### Dockerfile — multi-stage
+
+```dockerfile
+# Stage 1 : compilation Java
+FROM maven:3.9-eclipse-temurin-25 AS build
+RUN mvn package -DskipTests -B
+
+# Stage 2 : compilation llama-server depuis les sources
+FROM debian:bookworm-slim AS llama_cpp_build
+ARG LLAMA_CPP_REPO=https://github.com/TheTom/llama-cpp-turboquant.git
+ARG LLAMA_CPP_REF=master
+RUN git clone --depth=1 && cmake -B build -DCMAKE_BUILD_TYPE=Release \
+    && cmake --build build -t llama-server -j$(nproc)
+# Produit : /src/llama-cpp/build/bin/llama-server + lib*.so*
+
+# Stage 3 : image runtime minimale pour les conteneurs llama-server
+FROM debian:bookworm-slim AS llama_cpp_runtime
+RUN apt-get install -y libstdc++6 libgomp1 wget  # wget requis pour les health checks HTTP
+COPY --from=llama_cpp_build /src/llama-cpp/build/bin/llama-server /usr/local/bin/
+COPY --from=llama_cpp_build /src/llama-cpp/build/bin/lib*.so*     /usr/local/lib/
+RUN ldconfig   # ← indispensable pour que llama-server trouve libmtmd.so.0 et consorts
+
+# Stage 4 : image runtime Spring Boot
+FROM eclipse-temurin:25-jre
+COPY --from=build /app/target/*.jar app.jar
+COPY --from=llama_cpp_build /src/llama-cpp/build/bin/llama-server /usr/local/bin/
+# (binaire embarqué dans spectra-api pour le mode runtime.enabled=true)
+```
+
+**Bibliothèques partagées de llama-server :**
+
+| Bibliothèque | Rôle |
+|-------------|------|
+| `libllama.so.0` | Cœur de l'inférence llama.cpp |
+| `libggml.so.0` | Opérations tensorielles GGML |
+| `libggml-base.so.0` | Primitives de base GGML |
+| `libggml-cpu.so.0` | Backend CPU (BLAS, AVX, etc.) |
+| `libmtmd.so.0` | Support multimodal (texte + images) |
+
+Ces `.so` sont copiés depuis le stage `llama_cpp_build` vers `llama_cpp_runtime`, puis `ldconfig` les rend accessibles. Sans cette étape, llama-server échoue avec `libmtmd.so.0: cannot open shared object file`.
+
+### Variables d'environnement `spectra-api`
+
+| Variable | Valeur Docker | Description |
+|----------|--------------|-------------|
+| `SPECTRA_LLM_PROVIDER` | `llama-cpp` | Provider actif |
+| `SPECTRA_LLM_REGISTRY_PATH` | `/app/data/models/registry.json` | Chemin du registre local |
+| `SPECTRA_LLM_RUNTIME_ENABLED` | `false` | Orchestration interne désactivée (services séparés) |
+| `SPECTRA_LLM_CHAT_BASE_URL` | `http://llm-chat:8081` | URL interne du serveur chat |
+| `SPECTRA_LLM_CHAT_MODEL` | `spectra-domain` | Alias du modèle (doit correspondre à `-a` de llama-server) |
+| `SPECTRA_LLM_EMBEDDING_BASE_URL` | `http://llm-embed:8082` | URL interne du serveur embedding |
+| `SPECTRA_LLM_EMBEDDING_MODEL` | `nomic-embed-text` | Alias du modèle d'embedding |
+| `SPECTRA_CHROMADB_BASE_URL` | `http://chromadb:8000` | URL ChromaDB |
+| `SPECTRA_INGESTION_BROWSERLESS_URL` | `http://browserless:3000` | URL du service Chrome headless pour le rendu JS |
+| `SPECTRA_LAYOUT_PARSER_ENABLED` | `false` | Active le parsing PDF layout-aware (`true` pour activer) |
+| `SPECTRA_LAYOUT_PARSER_URL` | `http://docparser:8001` | URL interne du service docparser |
+| `SPECTRA_LAYOUT_PARSER_TIMEOUT` | `120` | Timeout d'appel au docparser (secondes) |
+| `SPECTRA_RERANKER_ENABLED` | `false` | Active le re-ranking Cross-Encoder (`true` pour activer) |
+| `SPECTRA_RERANKER_URL` | `http://reranker:8000` | URL interne du service reranker |
+| `SPECTRA_RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Modèle Cross-Encoder (voir table section 6) |
+| `SPECTRA_RERANKER_TOP_CANDIDATES` | `20` | Nombre de candidats récupérés avant re-ranking |
+| `SPECTRA_HYBRID_SEARCH_ENABLED` | `false` | Active la recherche hybride BM25 + vecteurs |
+| `SPECTRA_HYBRID_BM25_TOP` | `20` | Candidats BM25 récupérés avant fusion RRF |
+| `SPECTRA_HYBRID_BM25_WEIGHT` | `1.0` | Poids du signal BM25 dans le score RRF |
+| `SPECTRA_AGENTIC_RAG_ENABLED` | `false` | Active la boucle de raisonnement ReAct (`true` pour activer) |
+| `SPECTRA_AGENTIC_MAX_ITERATIONS` | `3` | Nombre maximal de tours de recherche complémentaire avant réponse forcée |
+| `SPECTRA_AGENTIC_INITIAL_TOP_K` | `5` | Chunks du retrieval initial transmis à la boucle agentique |
+| `SPECTRA_GED_AUTO_RETRAIN_THRESHOLD` | `5` | Commentaires IA approuvés par déclencheur automatique de fine-tuning (0 = désactivé) |
+| `SPECTRA_DATASET_DIR` | `./data/dataset` | Dossier de sortie du fichier `comments_dpo.jsonl` |
+
+### Paramètres JVM (`Dockerfile` runtime Java)
+
+```
+-Xms256m -Xmx2g -XX:+UseG1GC -Djava.net.preferIPv4Stack=true
+```
+
+`preferIPv4Stack` : force le résolveur JDK à choisir l'adresse IPv4. Reactor Netty utilise son propre résolveur DNS (Netty) qui ignore ce flag. Le `WebClient` est configuré avec `DefaultAddressResolverGroup.INSTANCE` pour forcer le résolveur JDK côté HTTP.
+
+### Volumes montés sur `spectra-api`
+
+```yaml
+volumes:
+  - ./data/documents:/app/data/documents
+  - ./data/dataset:/app/data/dataset
+  - ./data/fine-tuning:/app/data/fine-tuning    ← modèle GGUF fine-tuné
+  - ./data/models:/app/data/models              ← registre + embed.gguf
+  - ./scripts:/app/scripts                      ← train.sh accessible depuis FineTuningService
+```
+
+### Volumes montés sur les serveurs llama
+
+```yaml
+# llm-chat et llm-embed partagent le même volume
+volumes:
+  - ./data/models:/models:ro  ← LLM_CHAT_MODEL_FILE / LLM_EMBED_MODEL_FILE
+```
+
+### `scripts/llama-autostart.sh` — point d'entrée intelligent des conteneurs llama-server
+
+Ce script remplace le `command:` statique qui était précédemment codé en dur dans `docker-compose.yml` pour les services `llm-chat` et `llm-embed`. Il est défini comme `entrypoint` de chaque conteneur et s'exécute avant `llama-server`.
+
+**Rôle :** inspecter les ressources disponibles dans le conteneur au moment du démarrage, calculer les paramètres optimaux, puis lancer `llama-server` avec ces paramètres. Les variables d'environnement (définies dans `.env` ou `docker-compose.yml`) prennent toujours la priorité sur les valeurs calculées.
+
+**Séquence de détection :**
+
+```
+1. CPU
+   └── Lire /sys/fs/cgroup/cpu.max
+       ├── Format "quota period" (ex. "400000 100000" = 4 cœurs)
+       ├── "max period" → pas de quota → nproc
+       └── Fichier absent → nproc (cgroups v1 ou sans limite)
+   → threads = min(CPUs_disponibles, 8)  [plafonné pour éviter la contention]
+
+2. RAM
+   └── Lire /proc/meminfo → MemAvailable
+       └── Lire /sys/fs/cgroup/memory.max
+           ├── Valeur numérique → min(MemAvailable, memory.max)
+           └── "max" → pas de limite cgroup → utiliser MemAvailable
+   → context_size = f(RAM) : <2Go→768, <4Go→1536, <8Go→2048, <16Go→4096, ≥16Go→8192
+
+3. GPU
+   ├── nvidia-smi disponible ?
+   │   ├── Oui → VRAM totale (Mo)
+   │   │   ├── ≥8192 → ngl=-1, cacheTypeK=iq4_nl, context=8192
+   │   │   └── ≥4096 → ngl=-1, cacheTypeK=q8_0, context=4096
+   │   └── Non → étape suivante
+   ├── /dev/kfd existe ? → AMD ROCm → ngl=-1, cacheTypeK=q8_0
+   ├── /dev/dri/renderD128 existe ? → Vulkan → ngl=20, cacheTypeK=q8_0
+   └── Rien détecté → CPU-only → ngl=0
+
+4. Paramètres dérivés
+   batch = min(context_size / 4, 512)
+   flashAttn = 1 (chat) / 0 (embed)
+   cacheTypeK = cacheTypeV = q8_0 (sauf NVIDIA haute VRAM → iq4_nl)
+
+5. Surcharge par variables d'environnement
+   LLAMA_CHAT_CONTEXT_SIZE → écrase context_size calculé
+   LLAMA_CHAT_THREADS      → écrase threads calculé
+   LLAMA_CHAT_NGL          → écrase ngl calculé
+   (et toutes les autres variables du tableau d'overrides)
+
+6. Résumé imprimé dans les logs Docker
+   [llama-autostart] Profile : CPU_ONLY
+   [llama-autostart] Threads : 4, Context : 2048, Batch : 512
+   [llama-autostart] GPU layers : 0, Flash-attn : 1
+   [llama-autostart] Cache KV : q8_0 / q8_0
+   [llama-autostart] Launching: llama-server -m /fine-tuning/merged/model.gguf -a spectra-domain ...
+
+7. exec llama-server <arguments calculés + overrides>
+```
+
+**Pourquoi un script shell plutôt qu'une configuration statique ?** Les environnements cibles varient fortement : machine de développement à 4 cœurs / 8 Go RAM, serveur de production à 32 cœurs / 128 Go RAM, ou instance cloud avec GPU. Un `command:` statique sur-configure les petites machines (OOM) et sous-configure les grandes (performance laissée sur la table). Le script adapte les paramètres au contexte réel sans nécessiter d'édition manuelle du `docker-compose.yml`.
+
+---
+
+## 10. Points Techniques Notables
+
+### Séparation chat / embedding en deux processus
+
+llama-server ne peut charger qu'un modèle à la fois. Chat et embedding utilisent des modèles différents (modèle instruction-tuned vs. modèle d'embedding). Deux instances séparées (`llm-chat` et `llm-embed`) sont donc nécessaires.
+
+Avec `--embeddings`, une même instance peut faire du chat ET des embeddings si le modèle le supporte. Non utilisé ici car les modèles optimaux pour chaque tâche sont différents.
+
+### `@Async` et self-invocation Spring
+
+`@Async` ne fonctionne que via le proxy CGLIB. Appeler `this.generateAsync()` depuis la même instance contourne le proxy → exécution synchrone. Correction : auto-injection `@Autowired @Lazy`.
+
+Symptôme avant correction : `curl` sur `POST /api/dataset/generate` bloquait sur le thread HTTP et tombait en timeout (exit code 52 = réponse vide).
+
+### Gestion d'erreurs structurée (`GlobalExceptionHandler`)
+
+`GlobalExceptionHandler` produit des `ProblemDetail` (RFC 7807) pour toutes les exceptions métier :
+
+| Exception | Code HTTP | Usage |
+|-----------|----------|-------|
+| `LlmUnavailableException` | 503 Service Unavailable | Circuit breaker Resilience4j déclenché (llm-chat injoignable) |
+| `MethodArgumentNotValidException` | 400 Bad Request | Validation Bean Validation échouée (`@Valid @RequestBody`) |
+| `ResponseStatusException` | statut de l'exception | Erreurs métier explicites (404, 409, etc.) |
+
+Le circuit breaker `llm-chat` est configuré via `@CircuitBreaker(name="llm-chat")` dans `LlamaCppChatClient`. Le fallback lève `LlmUnavailableException` capturée par `GlobalExceptionHandler`.
+
+### Multipart et fichiers temporaires
+
+Tomcat supprime les fichiers temporaires multipart à la fin de la requête HTTP. Les `MultipartFile` sont copiés dans des fichiers persistants (`Files.copy`) **avant** le retour du contrôleur, puis nettoyés dans le `finally` du traitement asynchrone.
+
+### Buffer WebClient ChromaDB
+
+La réponse de `getAllDocuments()` pour 400+ chunks dépasse 256 Ko (buffer par défaut Spring WebClient). Le client ChromaDB est configuré avec `ExchangeStrategies` à 16 Mo.
+
+### Encodage UTF-8 et curl sur Windows
+
+Les requêtes curl depuis un shell Git Bash/MINGW sur Windows peuvent envoyer les caractères accentués en ISO-8859-1 plutôt qu'UTF-8. Jackson lève alors `JsonParseException: Invalid UTF-8 middle byte`. Solution : utiliser `--data-binary` avec `-H "Content-Type: application/json; charset=utf-8"`, et éviter les accents dans les chaînes de test ou les passer en entités JSON (`\u00e9` pour `é`).
+
+---
+
+## 11. Optimisations de Performance
+
+Cette section documente les optimisations appliquées à la configuration de `llama-server` et explique pourquoi elles ont été choisies. La plupart sont activées automatiquement par `llama-autostart.sh` ; elles peuvent être désactivées via les variables d'environnement correspondantes.
+
+### Flash Attention (`--flash-attn`)
+
+**Activé pour le chat, désactivé pour l'embedding.**
+
+Flash Attention est un algorithme de calcul de l'attention (Vaswani et al.) qui fusionne les opérations de matrice en un seul kernel GPU/CPU, réduisant les transferts mémoire et la consommation de KV cache d'environ **2×**. Concrètement :
+
+- Sur un modèle à contexte 2048 et cache `f16` (défaut), le KV cache occupe ~256 Mo
+- Avec Flash Attention + cache `q8_0`, cette empreinte descend à ~64 Mo
+- Vitesse d'attention : gain de 20–40 % sur CPU selon l'implémentation GGML
+
+Pour l'embedding, Flash Attention est désactivé car le modèle `nomic-embed-text` ne génère pas de KV cache long (chaque chunk est indépendant), et certaines architectures d'embedding ne sont pas compatibles avec ce mode.
+
+**Variable de contrôle :** `LLAMA_CHAT_FLASH_ATTN=1` (ou `0` pour désactiver).
+
+### Quantization du cache KV (`--cache-type-k`, `--cache-type-v`)
+
+Par défaut, llama-server stocke le cache KV en `f16` (flottants 16 bits). Les options disponibles :
+
+| Type | Taille relative | Perte de qualité | Cas d'usage |
+|------|----------------|-----------------|-------------|
+| `f16` | 100 % (référence) | 0 % | Précision maximale |
+| `q8_0` | ~50 % | ~1–2 % | **Défaut Spectra (CPU / GPU <8 Go)** |
+| `iq4_nl` | ~25 % | ~3–5 % | NVIDIA ≥ 8 Go VRAM |
+
+Le choix `q8_0` offre le meilleur rapport entre réduction mémoire et fidélité des réponses. Avec `iq4_nl` (NVIDIA haute VRAM), on réduit encore la mémoire KV pour augmenter la taille de contexte servable, au prix d'une légère dégradation de précision acceptable en RAG.
+
+**Variables de contrôle :** `LLAMA_CHAT_CACHE_TYPE_K` et `LLAMA_CHAT_CACHE_TYPE_V`.
+
+### CPU Pinning via `cpuset`
+
+Les deux serveurs llama-server (`chat` et `embed`) s'exécutent en parallèle dans des conteneurs distincts sur la même machine. Sans isolation, ils se disputent le cache L3 du processeur, ce qui dégrade les performances de chacun.
+
+La configuration `cpuset` de Docker alloue des cœurs physiques dédiés :
+
+```yaml
+# docker-compose.yml
+llm-chat:
+  cpuset: "0-3"    # cœurs 0, 1, 2, 3 pour le chat
+
+llm-embed:
+  cpuset: "4-5"    # cœurs 4, 5 pour l'embedding
+```
+
+**Pourquoi cette répartition ?** Le chat est plus demandeur en calcul (génération autoregressive token par token) → 4 cœurs. L'embedding est plus simple (un seul passage en avant par chunk) → 2 cœurs suffisent. Sur une machine à moins de 6 cœurs, supprimez les variables `LLAMA_CHAT_CPUSET` et `LLAMA_EMBED_CPUSET` pour laisser le scheduler OS décider.
+
+### Réduction du contexte par défaut (2048 tokens)
+
+La valeur `LLAMA_CHAT_CONTEXT_SIZE=2048` peut sembler conservatrice, mais elle est justifiée par plusieurs contraintes :
+
+1. **Plafond d'entraînement** : le modèle fine-tuné standard est entraîné sur des séquences de 2048 tokens. Au-delà, la qualité de génération se dégrade (interpolation de position hors distribution).
+2. **Usage RAG** : avec `maxContextChunks=2`, le prompt complet (system + 2 chunks + question + réponse) consomme ~1500 tokens. Un contexte de 2048 est suffisant.
+3. **Mémoire** : le KV cache croît linéairement avec la taille de contexte. Réduire de 8192 à 2048 réduit la consommation mémoire d'un facteur 4, ce qui permet de faire tourner le service sur des machines avec 4–8 Go de RAM.
+
+Pour des contextes plus longs, utilisez un modèle de base avec une fenêtre plus large (ex. Phi-4-mini → 4096 tokens) et augmentez `LLAMA_CHAT_CONTEXT_SIZE=4096`.
+
+---
+
+## 12. Benchmarks de référence
+
+Ces mesures constituent la baseline de performance de Spectra sur CPU-only (configuration par défaut). Elles permettent de détecter une régression de performance ou de comparer l'impact d'un changement de configuration.
+
+### Conditions de mesure
+
+- **Matériel** : CPU-only, sans GPU
+- **Modèle de chat** : modèle fine-tuné standard (format GGUF Q4)
+- **Modèle d'embedding** : `nomic-embed-text-v1.5.Q4_K_M.gguf`
+- **Contexte** : 2048 tokens, 1 slot parallèle
+- **Optimisations actives** : Flash Attention, cache KV `q8_0`
+
+### Résultats
+
+| Scénario | P50 | Débit | Taux de succès |
+|----------|-----|-------|---------------|
+| Embedding (10 requêtes × ~512 tokens) | 801 ms | 639 vecteurs/s | 10/10 |
+| Génération LLM pure (3 générations) | 9 234 ms | 36,7 tokens/s | 3/3 |
+| RAG bout en bout (5 requêtes, maxChunks=2) | 17 909 ms | 18,0 tokens/s | 5/5 |
+
+**Lecture des résultats :**
+- Le débit de 36,7 tokens/s est la vitesse de génération pure (hors temps de préfill du contexte). Une réponse de 100 tokens prend environ 2,7 s.
+- Le RAG bout en bout (~18 s) inclut : embedding de la question (~0,8 s) + recherche ChromaDB (<0,1 s) + génération LLM (~17 s). Le goulot est exclusivement la génération.
+- L'embedding à 639 vecteurs/s signifie qu'un document de 100 chunks (~50 pages) s'indexe en ~10 s.
+
+### Reproduire les benchmarks
+
+```bash
+./scripts/benchmark.sh --api-only
+```
+
+Ce script envoie des requêtes réelles à l'API Spectra et mesure les temps de réponse. L'option `--api-only` utilise les serveurs Docker déjà démarrés (pas de démarrage local de llama-server).
+
+### Impact des optimisations GPU
+
+À titre indicatif, sur GPU NVIDIA avec 8 Go de VRAM (toutes couches GPU, cache `iq4_nl`) :
+
+| Scénario | Gain typique vs CPU |
+|----------|---------------------|
+| Embedding | ×3 à ×5 |
+| Génération LLM | ×8 à ×15 |
+| RAG bout en bout | ×6 à ×12 |
+
+---
+
+## 13. Limitations et Points d'Attention
+
+| Limitation | Impact | Contournement |
+|------------|--------|---------------|
+| Contexte modèle fine-tuné = 2048 tokens | RAG limité à ~2 chunks par requête | Utiliser un modèle avec contexte plus large (Phi-4-mini) ou `maxContextChunks=2` |
+| Inférence CPU uniquement | 20–60 s par réponse RAG | GPU via `nvidia` runtime Docker (non configuré par défaut) |
+| Rechargement du modèle de **chat** : automatique | L'entrypoint superviseur de `llm-chat` suit le pointeur `active-chat-model` du registre (~10 s) | Rien à faire ; pour l'**embedding**, `docker compose restart llm-embed` reste requis (et impose une ré-ingestion) |
+| Vecteurs non portables entre modèles d'embedding | Changement de modèle = ré-ingestion complète | Prévoir une plage de maintenance pour la ré-ingestion |
+| `pullModel` non supporté | `POST /api/fine-tuning/models/{name}/pull` lève une exception | Les modèles doivent être gérés localement (téléchargement manuel GGUF) |
+| Paires dataset en mémoire | Perdues au redémarrage du conteneur | Export JSONL avant redémarrage |
+| `.doc` non supporté | Apache POI XWPF ne lit pas le format binaire OLE2 | Convertir en `.docx` |
+| ChromaDB API v2 uniquement | L'API v1 retourne 501 | Ne pas rétrograder l'image ChromaDB |
+| Historique jobs en mémoire | Perdu au redémarrage de l'API | Persistance DB non implémentée |
+| Ingestion URL : pas d'authentification | Pages derrière login inaccessibles | Télécharger manuellement et uploader comme fichier |
+| Ingestion URL : max 20 URLs par requête | Volume limité par appel API | Effectuer plusieurs appels successifs |
+| Rendu JS (browserless) : timeout 60 s | Pages très lentes non rendues | Augmenter `BROWSERLESS_TIMEOUT` dans `UrlFetcherService` |
+| Extraction HTML : sélecteurs CSS fixes | Certains sites avec structures non-standards perdent du contenu | Ajouter les sélecteurs dans `HtmlExtractor.java` et recompiler |

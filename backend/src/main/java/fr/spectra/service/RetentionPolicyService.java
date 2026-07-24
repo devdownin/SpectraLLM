@@ -64,12 +64,23 @@ public class RetentionPolicyService {
 
     private void autoPurge() {
         Instant cutoff = Instant.now().minus(purgeAfterDays, ChronoUnit.DAYS);
+        // Base : date d'archivage réelle (archivedAt) — un document archivé hier mais ingéré
+        // il y a un an ne doit pas être purgé immédiatement. Repli ingestedAt pour l'historique.
         List<IngestedFileEntity> toDelete =
-                fileRepo.findByLifecycleAndIngestedAtBefore(IngestedFileEntity.Lifecycle.ARCHIVED, cutoff);
+                fileRepo.findArchivedBefore(IngestedFileEntity.Lifecycle.ARCHIVED, cutoff);
+        int purged = 0;
         for (IngestedFileEntity doc : toDelete) {
-            fileRepo.delete(doc);
-            log.info("Rétention : document {} purgé de la DB", doc.getSha256());
+            try {
+                // Suppression complète (DB + ChromaDB + BM25 + liens + audit) : l'ancien
+                // fileRepo.delete(doc) laissait les chunks indexés à vie — un document
+                // « purgé » restait servi par le RAG, et sa ré-ingestion dupliquait les chunks.
+                gedService.deleteDocument(doc.getSha256(), "retention-policy");
+                purged++;
+                log.info("Rétention : document {} purgé (DB + index)", doc.getSha256());
+            } catch (Exception e) {
+                log.warn("Rétention : purge de {} échouée : {}", doc.getSha256(), e.getMessage());
+            }
         }
-        if (!toDelete.isEmpty()) log.info("Rétention : {} document(s) purgé(s)", toDelete.size());
+        if (purged > 0) log.info("Rétention : {} document(s) purgé(s)", purged);
     }
 }

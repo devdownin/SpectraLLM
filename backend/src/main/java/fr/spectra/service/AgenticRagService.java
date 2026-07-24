@@ -53,6 +53,9 @@ public class AgenticRagService {
 
             Règles absolues :
             - Base-toi UNIQUEMENT sur le contexte fourni.
+            - Dans RESPONSE, cite les passages du contexte avec leur numéro entre crochets [n] \
+            juste après l'information qu'ils justifient (ex. « la valeur par défaut est 512 [3]. »). \
+            N'invente jamais de numéro.
             - Si le contexte est insuffisant même après recherche, dis-le clairement dans RESPONSE.
             - N'invente aucune information. %s
             """;
@@ -60,6 +63,8 @@ public class AgenticRagService {
     private static final String FALLBACK_SYSTEM_PROMPT_TEMPLATE = """
             Tu es un assistant spécialisé. Réponds de manière précise et concise \
             en te basant UNIQUEMENT sur le contexte fourni.
+            Chaque passage du contexte est numéroté [1], [2], … : cite tes sources en insérant le \
+            numéro correspondant entre crochets juste après l'information qu'il justifie. N'invente jamais de numéro.
             Si le contexte ne contient pas l'information demandée, dis-le clairement.
             Ne fabrique pas d'information. %s
 
@@ -162,6 +167,27 @@ public class AgenticRagService {
     // ---------- API publique -----------------------------------------------
 
     /**
+     * Callback de progression de la boucle ReAct — une notification par recherche
+     * complémentaire décidée par le LLM. Utilisé par le pipeline streaming pour émettre
+     * des événements SSE {@code stage} (visibilité + keep-alive de la connexion).
+     */
+    @FunctionalInterface
+    public interface SearchProgressListener {
+        void onSearch(int iteration, String refinedQuery);
+    }
+
+    /** Variante sans suivi de progression (pipeline non-streaming). */
+    public QueryResponse query(QueryRequest request,
+                                List<String> initialChunks,
+                                List<Map<String, String>> initialMetadatas,
+                                List<Double> initialDistances,
+                                boolean rerankApplied,
+                                boolean hybridApplied) {
+        return query(request, initialChunks, initialMetadatas, initialDistances,
+                rerankApplied, hybridApplied, null);
+    }
+
+    /**
      * Exécute la boucle ReAct à partir du contexte initial fourni par {@link RagService}.
      *
      * @param request         requête utilisateur
@@ -170,6 +196,7 @@ public class AgenticRagService {
      * @param initialDistances distances vectorielles associées
      * @param rerankApplied   {@code true} si le re-ranking a déjà été appliqué sur les chunks initiaux
      * @param hybridApplied   {@code true} si la recherche hybride a été utilisée pour le retrieval initial
+     * @param progressListener notifié à chaque recherche complémentaire ({@code null} accepté)
      * @return {@link QueryResponse} enrichi des champs agentiques
      */
     public QueryResponse query(QueryRequest request,
@@ -177,7 +204,8 @@ public class AgenticRagService {
                                 List<Map<String, String>> initialMetadatas,
                                 List<Double> initialDistances,
                                 boolean rerankApplied,
-                                boolean hybridApplied) {
+                                boolean hybridApplied,
+                                SearchProgressListener progressListener) {
 
         long start = System.currentTimeMillis();
 
@@ -223,7 +251,8 @@ public class AgenticRagService {
                     + "\n=== FIN DU CONTEXTE ===";
 
             log.debug("Agentic RAG itération {} — {} chunks en contexte", iterations + 1, budgetedChunks.size());
-            String llmResponse = llmClient.chat(buildReactSystemPrompt(), userMsg);
+            String llmResponse = llmClient.chat(buildReactSystemPrompt(), userMsg,
+                    request.temperature(), request.topP());
 
             Matcher actionMatcher = ACTION_PATTERN.matcher(llmResponse);
             if (!actionMatcher.find()) {
@@ -255,6 +284,7 @@ public class AgenticRagService {
                 }
                 String refinedQuery = queryMatcher.group(1).trim();
                 log.info("Agentic RAG itération {} : recherche complémentaire «{}»", iterations, refinedQuery);
+                if (progressListener != null) progressListener.onSearch(iterations, refinedQuery);
 
                 List<RetrievedChunk> newChunks = retrieveAdditionalChunks(
                         refinedQuery, collectionId, collectionName, request.maxContextChunks(), seenTexts);
@@ -283,7 +313,8 @@ public class AgenticRagService {
             String contextStr = buildContextString(
                     fallbackChunks,
                     contextMetadatas.subList(0, fallbackChunks.size()));
-            finalAnswer = llmClient.chat(buildFallbackSystemPrompt(contextStr), request.question());
+            finalAnswer = llmClient.chat(buildFallbackSystemPrompt(contextStr), request.question(),
+                    request.temperature(), request.topP());
         }
 
         // ── Construction des sources pour la réponse ───────────────────────
@@ -361,7 +392,9 @@ public class AgenticRagService {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < chunks.size(); i++) {
             String sourceFile = metadatas.get(i).getOrDefault("sourceFile", "inconnu");
-            sb.append("[Source: ").append(sourceFile).append("]\n");
+            // Passage numéroté [n] : même convention que RagService (sources.get(i) ↔ [i+1]) pour
+            // que les citations [n] de la réponse soient résolubles côté Playground vers le bon extrait.
+            sb.append("[").append(i + 1).append("] (Source: ").append(sourceFile).append(")\n");
             sb.append(chunks.get(i)).append("\n\n");
         }
         return sb.toString();

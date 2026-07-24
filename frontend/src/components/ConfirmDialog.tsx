@@ -45,7 +45,7 @@ const ConfirmDialog: FC<ConfirmDialogProps> = ({
         aria-modal="true"
         aria-label={title}
         onClick={e => e.stopPropagation()}
-        className="bg-surface-container border border-outline-variant/30 shadow-2xl w-full max-w-md outline-none animate-in zoom-in-95 duration-200"
+        className="bg-surface-container rounded-xl ring-1 ring-white/[0.06] shadow-2xl w-full max-w-md outline-none animate-in zoom-in-95 duration-200"
       >
         <div className="px-6 py-5 space-y-3">
           <div className="flex items-start gap-3">
@@ -56,17 +56,17 @@ const ConfirmDialog: FC<ConfirmDialogProps> = ({
               {danger ? 'warning' : 'help'}
             </span>
             <div className="min-w-0 space-y-1.5">
-              <h2 className="font-headline font-bold text-base">{title}</h2>
-              <div className="text-sm text-on-surface-variant leading-relaxed">{message}</div>
+              <h2 className="text-[15px] font-semibold text-on-surface">{title}</h2>
+              <div className="text-[13px] text-on-surface-variant leading-relaxed">{message}</div>
             </div>
           </div>
         </div>
-        <div className="px-6 py-4 border-t border-outline-variant/10 flex items-center justify-end gap-3">
+        <div className="px-6 py-4 border-t border-outline-variant/60 flex items-center justify-end gap-2">
           {/* Annuler en premier dans l'ordre de tabulation : le focus initial n'est jamais l'action destructive. */}
           <button
             type="button"
             onClick={onCancel}
-            className="px-4 py-2 text-[11px] font-label uppercase tracking-widest text-on-surface-variant hover:text-on-surface border border-outline-variant/30 hover:border-outline-variant/60 transition-colors"
+            className="h-9 px-4 rounded-lg text-[13px] font-medium text-on-surface-variant hover:text-on-surface border border-outline-variant hover:bg-surface-container-high transition-colors"
           >
             {t('confirm.cancel')}
           </button>
@@ -74,10 +74,10 @@ const ConfirmDialog: FC<ConfirmDialogProps> = ({
             type="button"
             onClick={onConfirm}
             disabled={busy}
-            className={`px-4 py-2 text-[11px] font-bold uppercase tracking-widest border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+            className={`h-9 px-4 rounded-lg text-[13px] font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
               danger
-                ? 'border-error/40 text-error hover:bg-error hover:text-white'
-                : 'border-primary/40 text-primary hover:bg-primary/10'
+                ? 'bg-error-container text-on-error-container hover:brightness-110'
+                : 'bg-primary text-on-primary hover:bg-primary-fixed'
             }`}
           >
             {busy ? t('confirm.working') : (confirmLabel ?? t('confirm.confirm'))}

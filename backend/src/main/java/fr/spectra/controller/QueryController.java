@@ -9,6 +9,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -45,10 +46,24 @@ public class QueryController {
     @PostMapping("/feedback")
     @Operation(summary = "Enregistre un feedback 👍/👎 sur une réponse du Playground")
     public Map<String, String> feedback(@RequestBody FeedbackRequest request) {
-        feedbackService.record(request.question(), request.answer(), request.rating());
+        feedbackService.record(request.question(), request.answer(), request.rating(),
+                request.ragMeta(), request.overrides());
         return Map.of("status", "ok");
     }
 
-    /** Corps de requête du feedback. {@code rating} : "UP" ou "DOWN". */
-    public record FeedbackRequest(String question, String answer, String rating) {}
+    @GetMapping("/feedback/stats")
+    @Operation(summary = "Agrège le feedback Playground (taux de 👎 par stratégie et par module)")
+    public FeedbackService.FeedbackStats feedbackStats() {
+        return feedbackService.aggregate();
+    }
+
+    /**
+     * Corps de requête du feedback. {@code rating} : "UP" ou "DOWN".
+     *
+     * @param ragMeta   métadonnées du pipeline de la réponse notée (stratégie, drapeaux appliqués…),
+     *                  optionnel — permet de corréler les 👎 avec la configuration RAG effective
+     * @param overrides surcharges de modules actives pour cette réponse, optionnel
+     */
+    public record FeedbackRequest(String question, String answer, String rating,
+                                  Map<String, Object> ragMeta, Map<String, Object> overrides) {}
 }

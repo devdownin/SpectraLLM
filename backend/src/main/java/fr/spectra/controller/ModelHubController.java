@@ -43,6 +43,18 @@ public class ModelHubController {
         return llmFitService.getStorageReport();
     }
 
+    @DeleteMapping("/storage/files")
+    @Operation(summary = "Supprimer un GGUF orphelin du volume des modèles",
+            description = "Supprime un fichier GGUF de data/models/ qui n'est référencé par "
+                    + "AUCUN modèle du registre (fichier orphelin du rapport de stockage : "
+                    + "déposé à la main, laissé par un incident…). Un fichier référencé est "
+                    + "refusé en 409 — retirez le modèle via "
+                    + "DELETE /api/fine-tuning/models/{name}?deleteFile=true. "
+                    + "Le paramètre file est un nom simple (« modele.gguf »), sans chemin.")
+    public Map<String, Object> deleteOrphanFile(@RequestParam("file") String file) {
+        return llmFitService.deleteOrphanGguf(file);
+    }
+
     @PostMapping("/storage/llmfit-cache/purge")
     @Operation(summary = "Purger les doublons du cache llmfit",
             description = "Supprime du cache llmfit les GGUF dont un fichier de même nom et "

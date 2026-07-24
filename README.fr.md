@@ -2,7 +2,7 @@
 
 <img src="docs/assets/logo.png" alt="Spectra LLM — transformez n'importe quel document en IA experte" width="360">
 
-### Transformez vos documents en IA privée et fine-tunée — en une commande.
+### Transformez vos documents en IA privée et fine-tunée avec une application tout en un.
 
 **100 % local · Sans cloud · Sans clé API · Sans abonnement**
 
@@ -62,8 +62,8 @@ Construire cela vous-même, c'est assembler un framework d'orchestration, une ba
 
 Quatre étapes, un flux continu — le tout piloté par une interface web guidée (FR/EN) :
 
-- **📥 Ingestion** — PDF, DOCX, HTML, JSON, XML, TXT, ZIP, URLs, et même des flux Kafka en continu. Le parsing préserve tableaux et titres.
-- **🔍 Questions** — Recherche hybride (mots-clés + vecteurs) avec re-ranking et **sources citées**. Six stratégies de récupération choisies adaptativement par question — jusqu'à une boucle agentique ReAct pour le raisonnement multi-étapes.
+- **📥 Ingestion** — PDF, DOCX, HTML, Markdown, CSV, JSON, XML, Avro, TXT, ZIP, URLs, et même des flux Kafka en continu. Le parsing préserve tableaux et titres.
+- **🔍 Questions** — Recherche hybride (mots-clés + vecteurs) avec re-ranking et **sources citées**. Six stratégies de récupération choisies adaptativement par question — jusqu'à une boucle agentique ReAct pour le raisonnement multi-étapes. **Voyez exactement comment chaque réponse a été construite** : étapes du pipeline en direct, timeline mesurée côté serveur, interrupteurs par module et comparaison A/B d'un module en un clic.
 - **🎓 Fine-tuning** — Spectra construit un dataset d'entraînement à partir de votre corpus, puis grave le savoir dans les poids du modèle (QLoRA/DPO, CPU ou GPU). Les réponses approuvées alimentent une boucle d'apprentissage continu.
 - **📦 Déploiement** — En sortie, un fichier GGUF unique, exécutable partout (llama.cpp, Ollama, LM Studio…). Évaluation intégrée, comparaison A/B et benchmarks d'ablation prouvent le gain à chaque étape.
 
@@ -72,7 +72,7 @@ Quatre étapes, un flux continu — le tout piloté par une interface web guidé
 | <img src="docs/assets/playground.png" alt="Dialoguer avec vos documents, réponses sourcées" width="100%"> | <img src="docs/assets/training.png" alt="Fine-tuner un modèle local sur votre corpus" width="100%"> |
 | **Interrogez** vos documents — réponses avec sources citées | **Fine-tunez** un modèle local qui garde le savoir |
 
-*Curieux du fonctionnement réel de la fusion hybride, du re-ranking et de la compression de contexte — et du **pourquoi** ? → **[Les internes du pipeline RAG](docs/tech/rag-pipeline.en.md)** · **[Architecture](docs/architecture.en.md)***
+*Curieux du fonctionnement réel de la fusion hybride, du re-ranking et de la compression de contexte — et du **pourquoi** ? → **[Les internes du pipeline RAG](docs/tech/rag-pipeline.fr.md)** · **[Architecture](docs/architecture.en.md)***
 
 ## 📚 Documentation
 
@@ -83,17 +83,17 @@ Tout est accessible depuis l'**[index de la documentation](docs/README.md)**, ou
 | **[Getting Started](docs/getting-started.en.md)** | Installation pas-à-pas, téléchargement des modèles, profils Docker, déploiement Kubernetes/GKE |
 | **[Architecture & Services](docs/architecture.en.md)** | Chaque service en détail : internals RAG, ingestion, évaluation, stack technique |
 | **[Configuration](docs/configuration.en.md)** | Toutes les variables d'environnement, endpoints de santé, métriques Prometheus |
-| **[Manuel utilisateur](docs/user/user-manual.en.md)** | Parcours complet de l'interface web |
-| **[Référence technique](docs/tech/technical-doc.en.md)** | Détail au niveau implémentation |
+| **[Manuel utilisateur](docs/user/user-manual.fr.md)** ([EN](docs/user/user-manual.en.md)) | Parcours complet de l'interface web |
+| **[Référence technique](docs/tech/technical-doc.fr.md)** | Détail au niveau implémentation |
 | **[Comment marche Spectra (FR)](docs/user/documentation-pedagogique.fr.md)** | Les idées en clair : embeddings, BM25 + RRF, les stratégies RAG, DPO/QLoRA |
-| **[Guide llama.cpp](docs/tech/llama-cpp.en.md)** | Détails et réglages du moteur d'inférence |
-| **[Fiabilité](docs/process/reliability.en.md)** · **[Sécurité](SECURITY.md)** | Garanties opérationnelles et politique de sécurité |
+| **[Guide llama.cpp](docs/tech/llama-cpp.fr.md)** | Détails et réglages du moteur d'inférence |
+| **[Fiabilité](docs/process/reliability.fr.md)** · **[Sécurité](SECURITY.md)** | Garanties opérationnelles et politique de sécurité |
 
 **Stack :** Java 25 / Spring Boot 4 · React 19 · llama.cpp · ChromaDB · Python (fine-tuning, parsing, re-ranking) — détaillée dans [Architecture](docs/architecture.en.md#technology-stack).
 
 ## 🤝 Contribuer
 
-Issues et pull requests bienvenues — voir [CONTRIBUTING.md](CONTRIBUTING.md). Si Spectra vous est utile, une ⭐ aide les autres à le découvrir.
+Issues et pull requests bienvenues — voir [CONTRIBUTING.md](CONTRIBUTING.md). Curieux de la suite ? → **[Roadmap](ROADMAP.fr.md)**. Si Spectra vous est utile, une ⭐ aide les autres à le découvrir.
 
 ## 📄 Licence
 

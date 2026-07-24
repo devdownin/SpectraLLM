@@ -16,8 +16,12 @@ CREATE TABLE IF NOT EXISTS ingested_files (
     tags             TEXT,
     quality_score    DOUBLE PRECISION,
     collection_name  VARCHAR(255),
+    archived_at      TIMESTAMP WITH TIME ZONE,
     PRIMARY KEY (sha256)
 );
+
+-- Migration : bases créées avant l'ajout de archived_at (idempotent sous H2)
+ALTER TABLE ingested_files ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP WITH TIME ZONE;
 
 CREATE TABLE IF NOT EXISTS ingestion_tasks (
     task_id              VARCHAR(255)             NOT NULL,
@@ -30,11 +34,14 @@ CREATE TABLE IF NOT EXISTS ingestion_tasks (
     completed_at         TIMESTAMP WITH TIME ZONE,
     parser_used          VARCHAR(255),
     layout_aware_chunks  INTEGER                  NOT NULL DEFAULT 0,
+    file_errors          TEXT,
     PRIMARY KEY (task_id)
 );
 
 -- Migration : bases créées avant l'ajout de chunks_expected (idempotent sous H2)
 ALTER TABLE ingestion_tasks ADD COLUMN IF NOT EXISTS chunks_expected INTEGER NOT NULL DEFAULT 0;
+-- Migration : bases créées avant l'ajout des erreurs par fichier (idempotent sous H2)
+ALTER TABLE ingestion_tasks ADD COLUMN IF NOT EXISTS file_errors TEXT;
 
 CREATE TABLE IF NOT EXISTS generation_tasks (
     task_id          VARCHAR(255) NOT NULL,

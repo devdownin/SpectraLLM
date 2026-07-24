@@ -1,9 +1,11 @@
 package fr.spectra.service;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import fr.spectra.config.SpectraProperties;
 import io.micrometer.core.annotation.Timed;
+import io.micrometer.core.instrument.MeterRegistry;
 import fr.spectra.dto.QueryRequest;
 import fr.spectra.dto.QueryResponse;
 import fr.spectra.dto.RagOverrides;
@@ -11,7 +13,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
+import reactor.core.Disposable;
+import reactor.core.Exceptions;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.FluxSink;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
@@ -26,6 +31,9 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Service RAG principal — orchestre le pipeline de retrieval et de génération.
@@ -72,6 +80,9 @@ public class RagService {
             fr.spectra.model.AssistantPersona.SYSTEM_PROMPT + "\n"
             + """
             Réponds de manière précise et concise en te basant UNIQUEMENT sur le contexte fourni ci-dessous.
+            Chaque passage du contexte est numéroté [1], [2], … : cite tes sources en insérant le numéro
+            correspondant entre crochets juste après l'information qu'il justifie (ex. « la valeur par défaut
+            est 512 [3]. »). N'invente jamais de numéro et ne cite que des passages réellement présents.
             Si le contexte ne contient pas l'information demandée, dis-le clairement.
             Ne fabrique pas d'information.
 
@@ -106,6 +117,8 @@ public class RagService {
             List<Map<String, String>> metadatas,
             List<Double> distances,
             List<Float> bm25Scores,
+            /** Scores RRF de la recherche hybride, alignés sur {@code chunks} ({@code null} en vectoriel pur). */
+            List<Double> rrfScores,
             boolean hybridApplied
     ) {}
 
@@ -132,6 +145,7 @@ public class RagService {
     private final Optional<MultiQueryService> multiQueryService;
     private final SpectraProperties props;
     private final ObjectMapper objectMapper;
+    private final MeterRegistry meterRegistry;
     private final Duration streamTimeout;
 
     public RagService(ChromaDbClient chromaDbClient,
@@ -147,7 +161,8 @@ public class RagService {
                       Optional<ContextCompressionService> contextCompressionService,
                       Optional<MultiQueryService> multiQueryService,
                       SpectraProperties props,
-                      ObjectMapper objectMapper) {
+                      ObjectMapper objectMapper,
+                      MeterRegistry meterRegistry) {
         this.chromaDbClient = chromaDbClient;
         this.embeddingService = embeddingService;
         this.llmClient = llmClient;
@@ -162,13 +177,38 @@ public class RagService {
         this.multiQueryService = multiQueryService;
         this.props = props;
         this.objectMapper = objectMapper;
+        this.meterRegistry = meterRegistry;
         int timeoutSecs = props.pipeline() != null ? props.pipeline().generationTimeoutSeconds() : 120;
         this.streamTimeout = Duration.ofSeconds(timeoutSecs);
     }
 
     @Timed(value = "spectra.rag.query", description = "Latence du traitement d'une requête RAG (hors I/O HTTP)")
     public QueryResponse query(QueryRequest request) {
-        return query(request, RagOverrides.NONE);
+        // Les surcharges éventuellement portées par la requête (toggles Playground) priment ;
+        // l'appel explicite query(request, overrides) reste la voie de l'ablation.
+        return query(request, request.overrides());
+    }
+
+    /**
+     * Disponibilité RÉELLE de chaque module RAG côté serveur (bean présent = module déployé via
+     * sa variable d'environnement). Permet au Playground de refléter l'état effectif du serveur :
+     * un toggle pour un module non déployé est désactivé (on ne peut pas l'activer par requête),
+     * et le RAG Advisor peut afficher « déjà actif » plutôt que « pose telle variable d'env ».
+     */
+    public Map<String, Boolean> moduleAvailability() {
+        Map<String, Boolean> m = new LinkedHashMap<>();
+        m.put("adaptive",       adaptiveRagService.isPresent());
+        m.put("conversational", conversationalRagService.isPresent());
+        m.put("multiQuery",     multiQueryService.isPresent());
+        m.put("hybrid",         hybridSearchService.isPresent());
+        m.put("rerank",         rerankerClient.isPresent());
+        m.put("corrective",     correctiveRagService.isPresent());
+        m.put("compression",    contextCompressionService.isPresent());
+        m.put("selfRag",        selfRagService.isPresent());
+        m.put("agentic",        agenticRagService.isPresent());
+        m.put("semanticDedup",  props.semanticDedup() != null && props.semanticDedup().isEnabled());
+        m.put("longContext",    props.longContextRag() != null && props.longContextRag().isEnabled());
+        return m;
     }
 
     /**
@@ -233,21 +273,14 @@ public class RagService {
         RagContext ctx = retrieveContext(request, retrievalQuestion, ov);
 
         // ── 4. Corrective RAG : filtrage des chunks non pertinents ─────────
+        //       (+ retrieval complémentaire si trop peu de chunks pertinents)
         boolean correctiveApplied = false;
 
         if (RagOverrides.resolve(ov.corrective(), correctiveRagService.isPresent()) && !ctx.contextChunks().isEmpty()) {
-            List<Integer> keptIndices = correctiveRagService.get()
-                    .gradeChunks(request.question(), ctx.contextChunks());
-
-            if (keptIndices.size() < ctx.contextChunks().size()) {
-                CorrectiveRagService.FilteredContext filtered = correctiveRagService.get().filterByIndices(
-                        keptIndices,
-                        ctx.contextChunks(), ctx.chunkMetadatas(), ctx.chunkDistances(),
-                        ctx.rerankScores(), ctx.bm25Scores());
-                ctx = rebuildContext(filtered, ctx.rerankApplied(), ctx.hybridApplied(),
-                        ctx.multiQueryApplied(), ctx.semanticDedupApplied(), ctx.longContextApplied());
-                correctiveApplied = true;
-            }
+            boolean useHybrid = RagOverrides.resolve(ov.hybrid(), hybridSearchService.isPresent());
+            CorrectiveOutcome outcome = applyCorrectiveRag(request, retrievalQuestion, ctx, useHybrid);
+            ctx = outcome.ctx();
+            correctiveApplied = outcome.applied();
         }
 
         // ── 4.5. Context Compression : extraction des passages pertinents ──
@@ -275,20 +308,18 @@ public class RagService {
         // Déclenché uniquement quand le routage adaptatif a classé la requête comme
         // AGENTIC (forceAgentic) ET que le service agentique est disponible.
         if (agenticRagService.isPresent() && forceAgentic) {
-            if (agenticRagService.isPresent()) {
-                QueryResponse agenticResp = agenticRagService.get().query(
-                        request,
-                        ctx.contextChunks(), ctx.chunkMetadatas(), ctx.chunkDistances(),
-                        ctx.rerankApplied(), ctx.hybridApplied());
-                long duration = System.currentTimeMillis() - start;
-                return new QueryResponse(
-                        agenticResp.answer(), agenticResp.sources(), duration,
-                        agenticResp.rerankApplied(), agenticResp.hybridSearchApplied(),
-                        true, agenticResp.agenticIterations(), agenticResp.agenticStopReason(),
-                        conversationalApplied, correctiveApplied, false,
-                        ragStrategy.equals("STANDARD") ? "AGENTIC" : ragStrategy,
-                        ctx.multiQueryApplied(), false, ctx.semanticDedupApplied(), ctx.longContextApplied());
-            }
+            QueryResponse agenticResp = agenticRagService.get().query(
+                    request,
+                    ctx.contextChunks(), ctx.chunkMetadatas(), ctx.chunkDistances(),
+                    ctx.rerankApplied(), ctx.hybridApplied());
+            long duration = System.currentTimeMillis() - start;
+            return new QueryResponse(
+                    agenticResp.answer(), agenticResp.sources(), duration,
+                    agenticResp.rerankApplied(), agenticResp.hybridSearchApplied(),
+                    true, agenticResp.agenticIterations(), agenticResp.agenticStopReason(),
+                    conversationalApplied, correctiveApplied, false,
+                    ragStrategy.equals("STANDARD") ? "AGENTIC" : ragStrategy,
+                    ctx.multiQueryApplied(), false, ctx.semanticDedupApplied(), ctx.longContextApplied());
         }
 
         // ── 6. Génération (standard ou Self-RAG) ───────────────────────────
@@ -304,7 +335,8 @@ public class RagService {
 
             if (RagOverrides.resolve(ov.selfRag(), selfRagService.isPresent())) {
                 SelfRagService.SelfRagResult result = selfRagService.get()
-                        .reflect(request.question(), ctx.contextChunks(), systemPrompt, userMessage);
+                        .reflect(request.question(), ctx.contextChunks(), systemPrompt, userMessage,
+                                request.temperature(), request.topP());
                 answer = result.answer();
                 selfRagApplied = result.reflectionApplied();
             } else {
@@ -326,15 +358,75 @@ public class RagService {
                 ctx.multiQueryApplied(), compressionApplied, ctx.semanticDedupApplied(), ctx.longContextApplied());
     }
 
-    /** Tuple interne pour la phase de setup du streaming. */
-    private record StreamSetup(RagContext ctx, boolean conversationalApplied,
-                               boolean correctiveApplied, boolean compressionApplied) {}
+    /**
+     * Métadonnées du pipeline émises dans l'événement SSE {@code done}.
+     * Sérialisées via Jackson ; les champs {@code null} sont omis.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private record PipelineMeta(
+            boolean conversationalApplied,
+            boolean correctiveApplied,
+            boolean selfRagApplied,
+            String ragStrategy,
+            boolean rerankApplied,
+            boolean hybridSearchApplied,
+            boolean multiQueryApplied,
+            boolean semanticDedupApplied,
+            boolean longContextApplied,
+            boolean compressionApplied,
+            int chunkCount,
+            /** Question autonome utilisée pour le retrieval (Conversational RAG), {@code null} sinon. */
+            String rewrittenQuestion,
+            int agenticIterations,
+            String agenticStopReason,
+            /** Scores de réflexion Self-RAG (ISREL/ISSUP/ISUSE), {@code null} si non évalué. */
+            String selfRagScores,
+            /** Chronologie des étapes du pipeline (durée serveur + compteurs), pour la timeline du Trace. */
+            List<StageTrace> stages,
+            /** Taille (caractères) du contexte récupéré injecté dans le prompt — budget d'entrée
+             *  estimé côté client (~4 caractères/token). 0 en mode DIRECT / sans contexte. */
+            int contextChars
+    ) {
+        /** Variante sans timeline (chemins directs). */
+        PipelineMeta(boolean conversationalApplied, boolean correctiveApplied, boolean selfRagApplied,
+                     String ragStrategy, boolean rerankApplied, boolean hybridSearchApplied,
+                     boolean multiQueryApplied, boolean semanticDedupApplied, boolean longContextApplied,
+                     boolean compressionApplied, int chunkCount, String rewrittenQuestion,
+                     int agenticIterations, String agenticStopReason, String selfRagScores) {
+            this(conversationalApplied, correctiveApplied, selfRagApplied, ragStrategy, rerankApplied,
+                    hybridSearchApplied, multiQueryApplied, semanticDedupApplied, longContextApplied,
+                    compressionApplied, chunkCount, rewrittenQuestion, agenticIterations, agenticStopReason,
+                    selfRagScores, null, 0);
+        }
+    }
 
     /**
-     * Streaming SSE token par token. Émet : sources → token* → done | error.
-     * Le mode agentic, adaptive et self-RAG sont réservés au pipeline non-streaming.
-     * Le Conversational RAG (contextualisation légère) est cependant appliqué.
-     * L'événement {@code done} contient un JSON avec les métadonnées du pipeline.
+     * Une étape du pipeline mesurée côté serveur pour la timeline du panneau Trace.
+     *
+     * @param stage      identifiant de l'étape (routing, retrieval, grading, compression, agentic, generation…)
+     * @param durationMs durée serveur de l'étape (isole le temps par phase, sans jitter réseau)
+     * @param inCount    cardinalité en entrée ({@code null} si non pertinent) — ex. chunks avant filtrage
+     * @param outCount   cardinalité en sortie ({@code null} si non pertinent) — ex. chunks après filtrage
+     * @param detail     précision optionnelle (stratégie retenue, scores…)
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private record StageTrace(String stage, long durationMs, Integer inCount, Integer outCount, String detail) {}
+
+    /**
+     * Streaming SSE token par token. Émet : {@code stage}* → {@code sources} →
+     * ({@code replace}? {@code token}*)* → {@code done} | {@code error}.
+     *
+     * <p>Tout le pipeline non-streaming est désormais porté : Adaptive RAG (routage
+     * DIRECT/STANDARD/AGENTIC), Conversational, Corrective, Compression, Agentic (boucle
+     * ReAct, réponse émise en un bloc à la fin) et Self-RAG (le brouillon est streamé
+     * normalement, puis auto-évalué ; s'il est raffiné, un événement {@code replace}
+     * demande au client d'effacer le brouillon avant de streamer la version raffinée).</p>
+     *
+     * <p>Les événements {@code stage} tracent l'étape en cours (routing, retrieval,
+     * grading, agentic_search…) : ils donnent au client la visibilité sur le pipeline et
+     * servent de keep-alive pendant les étapes longues (boucle agentique sur CPU).</p>
+     *
+     * <p>L'événement {@code done} contient un JSON {@link PipelineMeta}.</p>
      */
     public Flux<ServerSentEvent<String>> queryStream(QueryRequest request) {
         // Direct LLM mode (RAG disabled by caller)
@@ -349,126 +441,335 @@ public class RagService {
                         Flux<ServerSentEvent<String>> tokens = tokenFlux
                                 .timeout(streamTimeout)
                                 .map(t -> ServerSentEvent.<String>builder().event("token").data(t).build());
-                        ServerSentEvent<String> doneEvent = ServerSentEvent.<String>builder()
-                                .event("done")
-                                .data("{\"conversationalApplied\":false,\"correctiveApplied\":false,"
-                                        + "\"selfRagApplied\":false,\"ragStrategy\":\"DIRECT\","
-                                        + "\"rerankApplied\":false,\"hybridSearchApplied\":false,"
-                                        + "\"multiQueryApplied\":false,\"semanticDedupApplied\":false,"
-                                        + "\"longContextApplied\":false,\"compressionApplied\":false}")
-                                .build();
+                        ServerSentEvent<String> doneEvent = doneEvent(new PipelineMeta(
+                                false, false, false, "DIRECT", false, false, false, false, false, false,
+                                0, null, 0, null, null));
                         return Flux.concat(Flux.just(sourcesEvent), tokens, Flux.just(doneEvent));
                     })
                     .onErrorResume(e -> {
                         log.error("Erreur streaming direct: {}", e.getMessage());
-                        String safeMsg = e.getMessage() != null ? e.getMessage().replace("\"", "'") : "Erreur interne";
-                        return Flux.just(ServerSentEvent.<String>builder()
-                                .event("error").data("{\"message\":\"" + safeMsg + "\"}").build());
+                        return Flux.just(errorEvent(e));
                     });
         }
 
-        return Mono.fromCallable(() -> {
-                    String retrievalQuestion = request.question();
-                    boolean conversationalApplied = false;
-                    if (conversationalRagService.isPresent()
-                            && request.conversationHistory() != null
-                            && !request.conversationHistory().isEmpty()) {
-                        String standalone = conversationalRagService.get()
-                                .contextualizeQuestion(request.question(), request.conversationHistory());
-                        if (!standalone.equals(request.question())) {
-                            retrievalQuestion = standalone;
-                            conversationalApplied = true;
-                        }
-                    }
-                    RagContext ctx = retrieveContext(request, retrievalQuestion);
-
-                    boolean correctiveApplied = false;
-                    if (correctiveRagService.isPresent() && !ctx.contextChunks().isEmpty()) {
-                        List<Integer> keptIndices = correctiveRagService.get()
-                                .gradeChunks(request.question(), ctx.contextChunks());
-                        if (keptIndices.size() < ctx.contextChunks().size()) {
-                            CorrectiveRagService.FilteredContext filtered = correctiveRagService.get().filterByIndices(
-                                    keptIndices,
-                                    ctx.contextChunks(), ctx.chunkMetadatas(), ctx.chunkDistances(),
-                                    ctx.rerankScores(), ctx.bm25Scores());
-                            ctx = rebuildContext(filtered, ctx.rerankApplied(), ctx.hybridApplied(),
-                                    ctx.multiQueryApplied(), ctx.semanticDedupApplied(), ctx.longContextApplied());
-                            correctiveApplied = true;
-                        }
-                    }
-
-                    boolean compressionApplied = false;
-                    if (contextCompressionService.isPresent() && !ctx.contextChunks().isEmpty()) {
-                        ContextCompressionService.CompressionResult cr =
-                                contextCompressionService.get().compress(request.question(), ctx.contextChunks());
-                        if (!cr.keptIndices().isEmpty()) {
-                            ctx = buildRagContext(
-                                    cr.compressedTexts(),
-                                    filterByIndices(ctx.chunkMetadatas(), cr.keptIndices()),
-                                    filterByIndices(ctx.chunkDistances(), cr.keptIndices()),
-                                    ctx.rerankScores()  != null ? filterByIndices(ctx.rerankScores(), cr.keptIndices())  : null,
-                                    ctx.bm25Scores()    != null ? filterByIndices(ctx.bm25Scores(), cr.keptIndices())    : null,
-                                    ctx.rerankApplied(), ctx.hybridApplied(),
-                                    ctx.multiQueryApplied(), ctx.semanticDedupApplied(), ctx.longContextApplied());
-                            compressionApplied = true;
-                        }
-                    }
-
-                    return new StreamSetup(ctx, conversationalApplied, correctiveApplied, compressionApplied);
-                })
-                .subscribeOn(Schedulers.boundedElastic())
-                .flatMapMany(setup -> {
-                    RagContext ctx = setup.ctx();
-
-                    ServerSentEvent<String> sourcesEvent;
+        // Pipeline RAG complet : émetteur bloquant sur boundedElastic. Flux.create permet
+        // d'émettre des événements au fil du pipeline (stages, boucle agentique, passes
+        // Self-RAG) là où l'ancien Mono.fromCallable ne pouvait rien émettre avant la fin
+        // du setup — le client restait silencieux pendant tout le retrieval.
+        return Flux.<ServerSentEvent<String>>create(sink -> {
                     try {
-                        sourcesEvent = ServerSentEvent.<String>builder()
-                                .event("sources")
-                                .data(objectMapper.writeValueAsString(ctx.sources()))
-                                .build();
-                    } catch (JsonProcessingException e) {
-                        sourcesEvent = ServerSentEvent.<String>builder()
-                                .event("sources").data("[]").build();
+                        runStreamPipeline(request, sink);
+                    } catch (Exception e) {
+                        log.error("Erreur streaming RAG: {}", e.getMessage());
+                        if (!sink.isCancelled()) sink.next(errorEvent(e));
+                    } finally {
+                        sink.complete();
                     }
-
-                    Flux<ServerSentEvent<String>> tokenFlux;
-                    if (ctx.contextChunks().isEmpty()) {
-                        String msg = "Aucun document pertinent trouvé dans la base de connaissances.";
-                        tokenFlux = Flux.just(ServerSentEvent.<String>builder()
-                                .event("token").data(msg).build());
-                    } else {
-                        String userMessage = buildUserMessage(request, setup.conversationalApplied());
-                        tokenFlux = llmClient.chatStream(
-                                        ctx.systemPrompt(), userMessage,
-                                        request.temperature(), request.topP())
-                                .timeout(streamTimeout)
-                                .map(token -> ServerSentEvent.<String>builder()
-                                        .event("token").data(token).build());
-                    }
-
-                    String doneMeta = String.format(
-                            "{\"conversationalApplied\":%b,\"correctiveApplied\":%b,"
-                            + "\"selfRagApplied\":false,\"ragStrategy\":\"STANDARD\","
-                            + "\"rerankApplied\":%b,\"hybridSearchApplied\":%b,"
-                            + "\"multiQueryApplied\":%b,\"semanticDedupApplied\":%b,"
-                            + "\"longContextApplied\":%b,\"compressionApplied\":%b}",
-                            setup.conversationalApplied(), setup.correctiveApplied(),
-                            ctx.rerankApplied(), ctx.hybridApplied(),
-                            ctx.multiQueryApplied(), ctx.semanticDedupApplied(), ctx.longContextApplied(),
-                            setup.compressionApplied());
-                    ServerSentEvent<String> doneEvent = ServerSentEvent.<String>builder()
-                            .event("done").data(doneMeta).build();
-
-                    return Flux.concat(Flux.just(sourcesEvent), tokenFlux, Flux.just(doneEvent));
                 })
-                .onErrorResume(e -> {
-                    log.error("Erreur streaming RAG: {}", e.getMessage());
-                    String safeMsg = e.getMessage() != null ? e.getMessage().replace("\"", "'") : "Erreur interne";
-                    return Flux.just(ServerSentEvent.<String>builder()
-                            .event("error")
-                            .data("{\"message\":\"" + safeMsg + "\"}")
-                            .build());
-                });
+                .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    /** Corps du pipeline RAG streaming — exécuté de façon bloquante sur boundedElastic. */
+    private void runStreamPipeline(QueryRequest request, FluxSink<ServerSentEvent<String>> sink) {
+        // Surcharges par requête (toggles Playground / comparaison A/B) : chaque module
+        // optionnel est résolu via RagOverrides.resolve, exactement comme le chemin non-streaming.
+        RagOverrides ov = request.overrides() != null ? request.overrides() : RagOverrides.NONE;
+        // Timeline serveur : durée + compteurs par étape, remontés dans l'événement done.
+        List<StageTrace> trace = new ArrayList<>();
+
+        // ── 1. Adaptive RAG : routage ──────────────────────────────────────
+        String ragStrategy = "STANDARD";
+        boolean forceAgentic = false;
+        if (RagOverrides.resolve(ov.adaptive(), adaptiveRagService.isPresent())) {
+            long t0 = System.currentTimeMillis();
+            emitStage(sink, "routing", null, null);
+            AdaptiveRagService.RagStrategy strategy = adaptiveRagService.get().classifyQuery(request.question());
+            ragStrategy = strategy.name();
+            trace.add(new StageTrace("routing", System.currentTimeMillis() - t0, null, null, strategy.name()));
+
+            if (strategy == AdaptiveRagService.RagStrategy.DIRECT) {
+                sink.next(ServerSentEvent.<String>builder().event("sources").data("[]").build());
+                long tg = System.currentTimeMillis();
+                forwardTokens(sink, llmClient.chatStream(DIRECT_SYSTEM_PROMPT, request.question(),
+                        request.temperature(), request.topP()));
+                trace.add(new StageTrace("generation", System.currentTimeMillis() - tg, null, null, null));
+                sink.next(doneEvent(new PipelineMeta(false, false, false, "DIRECT",
+                        false, false, false, false, false, false, 0, null, 0, null, null, trace, 0)));
+                return;
+            }
+            // Comme en non-streaming : AGENTIC sans service agentique → dégradation STANDARD
+            // (la stratégie affichée reste AGENTIC, cf. query()).
+            forceAgentic = strategy == AdaptiveRagService.RagStrategy.AGENTIC && agenticRagService.isPresent();
+        }
+
+        // ── 2. Conversational RAG : contextualisation de la question ──────
+        String retrievalQuestion = request.question();
+        boolean conversationalApplied = false;
+        if (RagOverrides.resolve(ov.conversational(), conversationalRagService.isPresent())
+                && request.conversationHistory() != null
+                && !request.conversationHistory().isEmpty()) {
+            long t0 = System.currentTimeMillis();
+            emitStage(sink, "rewriting", null, null);
+            String standalone = conversationalRagService.get()
+                    .contextualizeQuestion(request.question(), request.conversationHistory());
+            if (!standalone.equals(request.question())) {
+                retrievalQuestion = standalone;
+                conversationalApplied = true;
+            }
+            trace.add(new StageTrace("rewriting", System.currentTimeMillis() - t0, null, null,
+                    conversationalApplied ? "rephrased" : "unchanged"));
+        }
+        String rewrittenQuestion = conversationalApplied ? retrievalQuestion : null;
+
+        // ── 3. Retrieval ───────────────────────────────────────────────────
+        long tRetrieval = System.currentTimeMillis();
+        emitStage(sink, "retrieval", null, null);
+        RagContext ctx = retrieveContext(request, retrievalQuestion, ov);
+        trace.add(new StageTrace("retrieval", System.currentTimeMillis() - tRetrieval,
+                null, ctx.contextChunks().size(), null));
+
+        // ── 4. Corrective RAG ──────────────────────────────────────────────
+        boolean correctiveApplied = false;
+        if (RagOverrides.resolve(ov.corrective(), correctiveRagService.isPresent()) && !ctx.contextChunks().isEmpty()) {
+            long t0 = System.currentTimeMillis();
+            int before = ctx.contextChunks().size();
+            emitStage(sink, "grading", null, null);
+            boolean useHybrid = RagOverrides.resolve(ov.hybrid(), hybridSearchService.isPresent());
+            CorrectiveOutcome outcome = applyCorrectiveRag(request, retrievalQuestion, ctx, useHybrid);
+            ctx = outcome.ctx();
+            correctiveApplied = outcome.applied();
+            trace.add(new StageTrace("grading", System.currentTimeMillis() - t0,
+                    before, ctx.contextChunks().size(), null));
+        }
+
+        // ── 4.5. Context Compression ───────────────────────────────────────
+        boolean compressionApplied = false;
+        if (RagOverrides.resolve(ov.compression(), contextCompressionService.isPresent()) && !ctx.contextChunks().isEmpty()) {
+            long t0 = System.currentTimeMillis();
+            int before = ctx.contextChunks().size();
+            emitStage(sink, "compression", null, null);
+            ContextCompressionService.CompressionResult cr =
+                    contextCompressionService.get().compress(request.question(), ctx.contextChunks());
+            if (!cr.keptIndices().isEmpty()) {
+                ctx = buildRagContext(
+                        cr.compressedTexts(),
+                        filterByIndices(ctx.chunkMetadatas(), cr.keptIndices()),
+                        filterByIndices(ctx.chunkDistances(), cr.keptIndices()),
+                        ctx.rerankScores()  != null ? filterByIndices(ctx.rerankScores(), cr.keptIndices())  : null,
+                        ctx.bm25Scores()    != null ? filterByIndices(ctx.bm25Scores(), cr.keptIndices())    : null,
+                        ctx.rerankApplied(), ctx.hybridApplied(),
+                        ctx.multiQueryApplied(), ctx.semanticDedupApplied(), ctx.longContextApplied());
+                compressionApplied = true;
+            }
+            trace.add(new StageTrace("compression", System.currentTimeMillis() - t0,
+                    before, ctx.contextChunks().size(), null));
+        }
+
+        // ── 5. Agentic RAG : boucle ReAct ──────────────────────────────────
+        // La réponse est produite PAR la boucle (dernier appel ReAct) : elle ne peut pas
+        // être streamée token par token — elle est émise en un bloc à la fin. Les stages
+        // agentic_search (une par itération, avec la requête reformulée) donnent la
+        // visibilité sur le raisonnement et maintiennent la connexion active.
+        if (forceAgentic) {
+            long t0 = System.currentTimeMillis();
+            QueryResponse resp = agenticRagService.get().query(
+                    request, ctx.contextChunks(), ctx.chunkMetadatas(), ctx.chunkDistances(),
+                    ctx.rerankApplied(), ctx.hybridApplied(),
+                    (iteration, query) -> emitStage(sink, "agentic_search", iteration, query));
+            trace.add(new StageTrace("agentic", System.currentTimeMillis() - t0,
+                    null, resp.agenticIterations(),
+                    resp.agenticStopReason() != null ? resp.agenticStopReason().name() : null));
+            sink.next(sourcesEvent(resp.sources()));
+            if (resp.answer() != null && !resp.answer().isEmpty() && !sink.isCancelled()) {
+                sink.next(ServerSentEvent.<String>builder().event("token").data(resp.answer()).build());
+            }
+            sink.next(doneEvent(new PipelineMeta(
+                    conversationalApplied, correctiveApplied, false, "AGENTIC",
+                    resp.rerankApplied(), resp.hybridSearchApplied(),
+                    ctx.multiQueryApplied(), ctx.semanticDedupApplied(), ctx.longContextApplied(),
+                    compressionApplied, resp.sources().size(), rewrittenQuestion,
+                    resp.agenticIterations(),
+                    resp.agenticStopReason() != null ? resp.agenticStopReason().name() : null,
+                    null, trace, contextChars(ctx))));
+            return;
+        }
+
+        // ── 6. Sources + génération (standard ou Self-RAG) ─────────────────
+        sink.next(sourcesEvent(ctx.sources()));
+
+        if (ctx.contextChunks().isEmpty()) {
+            sink.next(ServerSentEvent.<String>builder().event("token")
+                    .data("Aucun document pertinent trouvé dans la base de connaissances.").build());
+            sink.next(doneEvent(new PipelineMeta(
+                    conversationalApplied, correctiveApplied, false, ragStrategy,
+                    ctx.rerankApplied(), ctx.hybridApplied(), ctx.multiQueryApplied(),
+                    ctx.semanticDedupApplied(), ctx.longContextApplied(), compressionApplied,
+                    0, rewrittenQuestion, 0, null, null, trace, 0)));
+            return;
+        }
+
+        String userMessage = buildUserMessage(request, conversationalApplied);
+        boolean selfRagApplied = false;
+        String selfRagScores = null;
+        long tGen = System.currentTimeMillis();
+
+        if (RagOverrides.resolve(ov.selfRag(), selfRagService.isPresent())) {
+            // Self-RAG streaming : le brouillon est streamé normalement (TTFT préservé)
+            // puis auto-évalué. Si un raffinement s'impose, l'événement replace demande
+            // au client d'effacer le brouillon avant de streamer la version raffinée.
+            SelfRagService selfRag = selfRagService.get();
+            String draft = forwardTokens(sink, llmClient.chatStream(ctx.systemPrompt(), userMessage,
+                    request.temperature(), request.topP()));
+            if (sink.isCancelled()) return;
+            trace.add(new StageTrace("generation", System.currentTimeMillis() - tGen, null, null, null));
+
+            long tReflect = System.currentTimeMillis();
+            emitStage(sink, "reflection", null, null);
+            SelfRagService.ReflectionScores scores = selfRag.evaluate(request.question(), ctx.contextChunks(), draft);
+            selfRagScores = formatScores(scores);
+
+            if (selfRag.requiresRefinement(scores) && selfRag.maxReflectionIterations() > 0) {
+                sink.next(ServerSentEvent.<String>builder().event("replace").data("{}").build());
+                emitStage(sink, "refining", null, null);
+                String refined = forwardTokens(sink, llmClient.chatStream(
+                        selfRag.refineSystemPrompt(ctx.systemPrompt()), userMessage,
+                        request.temperature(), request.topP()));
+                if (!sink.isCancelled()) {
+                    selfRagScores = formatScores(selfRag.evaluate(request.question(), ctx.contextChunks(), refined));
+                }
+                selfRagApplied = true;
+            }
+            trace.add(new StageTrace("reflection", System.currentTimeMillis() - tReflect, null, null, selfRagScores));
+        } else {
+            forwardTokens(sink, llmClient.chatStream(ctx.systemPrompt(), userMessage,
+                    request.temperature(), request.topP()));
+            trace.add(new StageTrace("generation", System.currentTimeMillis() - tGen, null, null, null));
+        }
+
+        sink.next(doneEvent(new PipelineMeta(
+                conversationalApplied, correctiveApplied, selfRagApplied, ragStrategy,
+                ctx.rerankApplied(), ctx.hybridApplied(), ctx.multiQueryApplied(),
+                ctx.semanticDedupApplied(), ctx.longContextApplied(), compressionApplied,
+                ctx.contextChunks().size(), rewrittenQuestion, 0, null, selfRagScores, trace,
+                contextChars(ctx))));
+    }
+
+    // ── Helpers SSE ────────────────────────────────────────────────────────────
+
+    /**
+     * Consomme un flux de tokens de façon bloquante en les relayant au sink SSE, et
+     * retourne la réponse complète concaténée. La déconnexion du client (cancel) est
+     * détectée par polling et dispose la génération LLM ; timeout d'inactivité
+     * ({@code streamTimeout}) et erreurs LLM sont propagés à l'appelant.
+     */
+    private String forwardTokens(FluxSink<ServerSentEvent<String>> sink, Flux<String> tokens) {
+        StringBuilder full = new StringBuilder();
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Disposable subscription = tokens.timeout(streamTimeout).subscribe(
+                t -> {
+                    full.append(t);
+                    if (!sink.isCancelled()) {
+                        sink.next(ServerSentEvent.<String>builder().event("token").data(t).build());
+                    }
+                },
+                e -> { failure.set(e); latch.countDown(); },
+                latch::countDown);
+        try {
+            while (!latch.await(500, TimeUnit.MILLISECONDS)) {
+                if (sink.isCancelled()) {
+                    subscription.dispose();
+                    return full.toString();
+                }
+            }
+        } catch (InterruptedException ie) {
+            subscription.dispose();
+            Thread.currentThread().interrupt();
+            return full.toString();
+        }
+        Throwable e = failure.get();
+        if (e != null) throw Exceptions.propagate(e);
+        return full.toString();
+    }
+
+    /**
+     * Émet un événement SSE {@code stage} décrivant l'étape de pipeline en cours —
+     * visibilité côté client et keep-alive pendant les étapes longues.
+     */
+    private void emitStage(FluxSink<ServerSentEvent<String>> sink, String stage,
+                           Integer iteration, String query) {
+        if (sink.isCancelled()) return;
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("stage", stage);
+        if (iteration != null) payload.put("iteration", iteration);
+        if (query != null) payload.put("query", query);
+        try {
+            sink.next(ServerSentEvent.<String>builder().event("stage")
+                    .data(objectMapper.writeValueAsString(payload)).build());
+        } catch (JsonProcessingException e) {
+            // étape purement informative — jamais bloquante
+        }
+    }
+
+    private ServerSentEvent<String> sourcesEvent(List<QueryResponse.Source> sources) {
+        try {
+            return ServerSentEvent.<String>builder().event("sources")
+                    .data(objectMapper.writeValueAsString(sources)).build();
+        } catch (JsonProcessingException e) {
+            return ServerSentEvent.<String>builder().event("sources").data("[]").build();
+        }
+    }
+
+    /** Somme des caractères des chunks de contexte injectés — budget d'entrée du prompt. */
+    private static int contextChars(RagContext ctx) {
+        return ctx.contextChunks().stream().mapToInt(c -> c != null ? c.length() : 0).sum();
+    }
+
+    /** Formate les scores de réflexion Self-RAG pour l'événement {@code done}. */
+    private static String formatScores(SelfRagService.ReflectionScores scores) {
+        return scores.isRel() + "/" + scores.isSup() + "/" + scores.isUse();
+    }
+
+    /**
+     * Construit l'événement SSE {@code done} contenant les métadonnées du pipeline,
+     * sérialisées via Jackson (l'assemblage manuel de JSON cassait le parsing côté
+     * client dès qu'une valeur contenait un caractère à échapper).
+     */
+    private ServerSentEvent<String> doneEvent(PipelineMeta meta) {
+        recordStageTimers(meta.stages());
+        String json;
+        try {
+            json = objectMapper.writeValueAsString(meta);
+        } catch (JsonProcessingException e) {
+            json = "{\"ragStrategy\":\"" + meta.ragStrategy() + "\"}";
+        }
+        return ServerSentEvent.<String>builder().event("done").data(json).build();
+    }
+
+    /**
+     * Publie la durée de chaque étape du pipeline en timer Micrometer
+     * {@code spectra.rag.stage{stage=...}} : la timeline par requête devient de
+     * l'observabilité agrégée (p95 retrieval vs génération) dans Prometheus/Grafana.
+     * Point de passage unique — appelé à l'émission de l'événement {@code done}.
+     */
+    private void recordStageTimers(List<StageTrace> stages) {
+        if (stages == null) return;
+        for (StageTrace st : stages) {
+            meterRegistry.timer("spectra.rag.stage", "stage", st.stage())
+                    .record(st.durationMs(), TimeUnit.MILLISECONDS);
+        }
+    }
+
+    /** Construit l'événement SSE {@code error} avec un message JSON toujours valide. */
+    private ServerSentEvent<String> errorEvent(Throwable e) {
+        String msg = e.getMessage() != null ? e.getMessage() : "Erreur interne";
+        String json;
+        try {
+            json = objectMapper.writeValueAsString(Map.of("message", msg));
+        } catch (JsonProcessingException ex) {
+            json = "{\"message\":\"Erreur interne\"}";
+        }
+        return ServerSentEvent.<String>builder().event("error").data(json).build();
     }
 
     // ── Retrieval ──────────────────────────────────────────────────────────────
@@ -507,9 +808,13 @@ public class RagService {
             try {
                 int collectionSize = chromaDbClient.count(collectionId);
                 if (collectionSize > 0 && collectionSize <= maxChunks) {
-                    log.info("Long-context RAG : {} chunks ≤ {} → chargement intégral sans retrieval vectoriel",
-                            collectionSize, maxChunks);
-                    return buildFullContextResult(collectionId);
+                    RagContext fullContext = buildFullContextResult(collectionId);
+                    // null = corpus au-delà du budget de tokens → retrieval standard
+                    if (fullContext != null) {
+                        log.info("Long-context RAG : {} chunks ≤ {} → chargement intégral sans retrieval vectoriel",
+                                collectionSize, maxChunks);
+                        return fullContext;
+                    }
                 }
             } catch (Exception e) {
                 log.warn("Long-context RAG : erreur lors du comptage, fallback retrieval standard — {}", e.getMessage());
@@ -626,6 +931,119 @@ public class RagService {
 
     // ── Helpers privés ─────────────────────────────────────────────────────────
 
+    /** Résultat de l'étape Corrective RAG : contexte éventuellement filtré/complété. */
+    private record CorrectiveOutcome(RagContext ctx, boolean applied) {}
+
+    /**
+     * Applique le Corrective RAG : grading LLM des chunks, filtrage des non-pertinents, et —
+     * si le nombre de chunks conservés tombe sous {@code spectra.corrective-rag.min-relevant-chunks}
+     * — reformulation de la question puis retrieval complémentaire (un seul essai), dont les
+     * nouveaux chunks sont gradés à leur tour avant d'être ajoutés au contexte.
+     *
+     * <p>Partagé entre {@link #query(QueryRequest, RagOverrides)} et {@link #queryStream}.</p>
+     *
+     * @param retrievalQuestion question utilisée pour le retrieval (éventuellement reformulée
+     *                          par le Conversational RAG) — sert de base à la reformulation
+     */
+    private CorrectiveOutcome applyCorrectiveRag(QueryRequest request, String retrievalQuestion,
+                                                 RagContext ctx, boolean useHybrid) {
+        CorrectiveRagService corrective = correctiveRagService.get();
+        List<Integer> keptIndices = corrective.gradeChunks(request.question(), ctx.contextChunks());
+
+        boolean applied = false;
+        RagContext result = ctx;
+
+        if (keptIndices.size() < ctx.contextChunks().size()) {
+            CorrectiveRagService.FilteredContext filtered = corrective.filterByIndices(
+                    keptIndices,
+                    ctx.contextChunks(), ctx.chunkMetadatas(), ctx.chunkDistances(),
+                    ctx.rerankScores(), ctx.bm25Scores());
+            result = rebuildContext(filtered, ctx.rerankApplied(), ctx.hybridApplied(),
+                    ctx.multiQueryApplied(), ctx.semanticDedupApplied(), ctx.longContextApplied());
+            applied = true;
+        }
+
+        if (keptIndices.size() < corrective.minRelevantChunks()) {
+            RagContext completed = complementaryRetrieval(request, retrievalQuestion, result, corrective, useHybrid);
+            if (completed != null) {
+                result = completed;
+                applied = true;
+            }
+        }
+        return new CorrectiveOutcome(result, applied);
+    }
+
+    /**
+     * Retrieval complémentaire du Corrective RAG : reformule la question, exécute un retrieval
+     * simple (vectoriel ou hybride, sans multi-query ni re-ranking pour borner la latence),
+     * grade les chunks inédits et ajoute les pertinents au contexte, borné à
+     * {@code maxContextChunks}.
+     *
+     * @return le contexte complété, ou {@code null} si rien n'a pu être ajouté (reformulation
+     *         impossible, aucun chunk nouveau, aucun jugé pertinent, ou erreur — dégradation
+     *         gracieuse : le contexte courant est conservé)
+     */
+    private RagContext complementaryRetrieval(QueryRequest request, String retrievalQuestion,
+                                              RagContext current, CorrectiveRagService corrective,
+                                              boolean useHybrid) {
+        Optional<String> reformulated = corrective.reformulateQuery(retrievalQuestion);
+        if (reformulated.isEmpty()) return null;
+
+        try {
+            String collectionName = request.collection() != null ? request.collection()
+                    : (props.chromadb() != null ? props.chromadb().effectiveCollection() : COLLECTION_NAME);
+            String collectionId = chromaDbClient.getOrCreateCollection(collectionName);
+            SingleQueryResult extra = executeSingleQuery(reformulated.get(), collectionId, collectionName,
+                    request.maxContextChunks(), useHybrid);
+
+            // Ne considérer que les chunks pas déjà présents dans le contexte courant.
+            Set<String> seen = new HashSet<>(current.contextChunks());
+            List<Integer> newIdx = new ArrayList<>();
+            for (int i = 0; i < extra.chunks().size(); i++) {
+                if (seen.add(extra.chunks().get(i))) newIdx.add(i);
+            }
+            if (newIdx.isEmpty()) {
+                log.info("Corrective RAG : retrieval complémentaire sans chunk nouveau");
+                return null;
+            }
+
+            List<String> newChunks = filterByIndices(extra.chunks(), newIdx);
+            List<Integer> gradedKept = corrective.gradeChunks(request.question(), newChunks);
+            if (gradedKept.isEmpty()) {
+                log.info("Corrective RAG : aucun chunk complémentaire jugé pertinent");
+                return null;
+            }
+
+            // Fusion : contexte conservé + nouveaux chunks pertinents (non re-rankés → score null).
+            List<String>              chunks = new ArrayList<>(current.contextChunks());
+            List<Map<String, String>> metas  = new ArrayList<>(current.chunkMetadatas());
+            List<Double>              dists  = new ArrayList<>(current.chunkDistances());
+            List<Float> rerank = current.rerankScores() != null ? new ArrayList<>(current.rerankScores()) : null;
+            List<Float> bm25   = current.bm25Scores()   != null ? new ArrayList<>(current.bm25Scores())   : null;
+
+            int before = chunks.size();
+            for (int k : gradedKept) {
+                if (chunks.size() >= request.maxContextChunks()) break;
+                int i = newIdx.get(k);
+                chunks.add(extra.chunks().get(i));
+                metas.add(extra.metadatas().get(i));
+                dists.add(extra.distances().get(i));
+                if (rerank != null) rerank.add(null);
+                if (bm25   != null) bm25.add(extra.bm25Scores() != null ? extra.bm25Scores().get(i) : null);
+            }
+            if (chunks.size() == before) return null;
+
+            log.info("Corrective RAG : retrieval complémentaire — {} chunk(s) ajouté(s) au contexte",
+                    chunks.size() - before);
+            return buildRagContext(chunks, metas, dists, rerank, bm25,
+                    current.rerankApplied(), current.hybridApplied() || extra.hybridApplied(),
+                    current.multiQueryApplied(), current.semanticDedupApplied(), current.longContextApplied());
+        } catch (Exception e) {
+            log.warn("Corrective RAG : retrieval complémentaire échoué — {}", e.getMessage());
+            return null;
+        }
+    }
+
     /**
      * Reconstruit un {@link RagContext} après filtrage par le Corrective RAG.
      */
@@ -653,7 +1071,11 @@ public class RagService {
             double distance   = distances.get(i);
             Float rerankScore = (rerankScores != null && i < rerankScores.size()) ? rerankScores.get(i) : null;
             Float bm25Score   = (bm25Scores   != null && i < bm25Scores.size())   ? bm25Scores.get(i)   : null;
-            context.append("[Source: ").append(sourceFile).append("]\n").append(chunkText).append("\n\n");
+            // Passage numéroté [n] : la numérotation suit l'ordre de la liste des sources renvoyée
+            // au client (sources.get(i) ↔ [i+1]), pour que les citations [n] de la réponse soient
+            // résolubles côté Playground vers le bon extrait.
+            context.append("[").append(i + 1).append("] (Source: ").append(sourceFile).append(")\n")
+                    .append(chunkText).append("\n\n");
             sources.add(new QueryResponse.Source(
                     chunkText.length() > 200 ? chunkText.substring(0, 200) + "..." : chunkText,
                     sourceFile, distance, rerankScore, bm25Score));
@@ -701,13 +1123,15 @@ public class RagService {
             List<Map<String, String>> metadatas = new ArrayList<>(results.size());
             List<Double>              distances = new ArrayList<>(results.size());
             List<Float>               bm25      = new ArrayList<>(results.size());
+            List<Double>              rrf       = new ArrayList<>(results.size());
             for (HybridSearchService.HybridChunk hc : results) {
                 chunks.add(hc.text());
                 metadatas.add(Map.of("sourceFile", hc.sourceFile()));
                 distances.add(hc.vectorDistance());
                 bm25.add(hc.bm25Score());
+                rrf.add(hc.rrfScore());
             }
-            return new SingleQueryResult(chunks, metadatas, distances, bm25, !results.isEmpty());
+            return new SingleQueryResult(chunks, metadatas, distances, bm25, rrf, !results.isEmpty());
         } else {
             Map<String, Object> results = chromaDbClient.query(collectionId, embedding, retrieveCount);
             List<List<String>>              documents = (List<List<String>>) results.get("documents");
@@ -717,14 +1141,22 @@ public class RagService {
                     (documents == null || documents.isEmpty()) ? List.of() : documents.getFirst(),
                     (metadatas == null || metadatas.isEmpty()) ? List.of() : metadatas.getFirst(),
                     (distances == null || distances.isEmpty()) ? List.of() : distances.getFirst(),
-                    null, false);
+                    null, null, false);
         }
     }
 
     /**
      * Exécute le retrieval pour chaque requête de la liste, fusionne les résultats
-     * en déduplication exacte sur le texte du chunk (premier trouvé = meilleur score).
-     * Le résultat est limité à {@code retrieveCount} chunks triés par distance croissante.
+     * en déduplication exacte sur le texte du chunk.
+     *
+     * <p><b>Classement de la fusion.</b> En recherche hybride, chaque résultat porte un score
+     * RRF ; les scores d'un même chunk sont SOMMÉS entre les variantes (fusion RRF standard :
+     * un chunk retrouvé par plusieurs reformulations est renforcé) et le tri final se fait par
+     * score RRF décroissant. Trier par distance vectorielle écraserait le classement hybride :
+     * les chunks issus du BM25 seul portent une distance sentinelle (1.0) qui les reléguait
+     * systématiquement en queue. En vectoriel pur (pas de RRF), tri par distance croissante.</p>
+     *
+     * <p>Le résultat est limité à {@code retrieveCount} chunks.</p>
      */
     private MultiQueryMerge executeMultiQueryRetrieval(List<String> queries, String collectionId,
                                                         String collectionName, int retrieveCount, boolean useHybrid) {
@@ -734,13 +1166,16 @@ public class RagService {
         List<Map<String, String>> mergedMetadatas = new ArrayList<>();
         List<Double>              mergedDistances = new ArrayList<>();
         List<Float>               mergedBm25      = new ArrayList<>();
+        List<Double>              mergedRrf       = new ArrayList<>();
         boolean hybridApplied = false;
         boolean trackBm25 = true; // désactivé si un résultat n'a pas de scores BM25
+        boolean trackRrf  = true; // désactivé si un résultat n'a pas de scores RRF (vectoriel pur)
 
         for (String query : queries) {
             SingleQueryResult r = executeSingleQuery(query, collectionId, collectionName, retrieveCount, useHybrid);
             hybridApplied = hybridApplied || r.hybridApplied();
             if (r.bm25Scores() == null) trackBm25 = false;
+            if (r.rrfScores()  == null) trackRrf  = false;
 
             for (int i = 0; i < r.chunks().size(); i++) {
                 String text = r.chunks().get(i);
@@ -750,20 +1185,31 @@ public class RagService {
                     mergedMetadatas.add(r.metadatas().get(i));
                     mergedDistances.add(r.distances().get(i));
                     if (trackBm25 && r.bm25Scores() != null) mergedBm25.add(r.bm25Scores().get(i));
+                    if (trackRrf  && r.rrfScores()  != null) mergedRrf.add(r.rrfScores().get(i));
                 } else {
-                    // Conserve la meilleure distance (plus faible = plus proche) pour ce chunk
                     int existingIdx = indexByText.get(text);
+                    // Conserve la meilleure distance (plus faible = plus proche) pour ce chunk
                     if (r.distances().get(i) < mergedDistances.get(existingIdx)) {
                         mergedDistances.set(existingIdx, r.distances().get(i));
+                    }
+                    // Somme les contributions RRF des différentes variantes (fusion RRF standard)
+                    if (trackRrf && r.rrfScores() != null && existingIdx < mergedRrf.size()) {
+                        mergedRrf.set(existingIdx, mergedRrf.get(existingIdx) + r.rrfScores().get(i));
                     }
                 }
             }
         }
 
-        // Trier par distance croissante et limiter à retrieveCount
+        // Tri : score RRF décroissant si disponible (hybride), sinon distance croissante —
+        // puis limite à retrieveCount.
+        boolean sortByRrf = trackRrf && mergedRrf.size() == mergedChunks.size() && !mergedRrf.isEmpty();
         List<Integer> sortedIdx = new ArrayList<>();
         for (int i = 0; i < mergedChunks.size(); i++) sortedIdx.add(i);
-        sortedIdx.sort((a, b) -> Double.compare(mergedDistances.get(a), mergedDistances.get(b)));
+        if (sortByRrf) {
+            sortedIdx.sort((a, b) -> Double.compare(mergedRrf.get(b), mergedRrf.get(a)));
+        } else {
+            sortedIdx.sort((a, b) -> Double.compare(mergedDistances.get(a), mergedDistances.get(b)));
+        }
         List<Integer> topIdx = sortedIdx.subList(0, Math.min(retrieveCount, sortedIdx.size()));
 
         log.info("Multi-query : {} chunks uniques fusionnés depuis {} requêtes → {} retenus",
@@ -777,8 +1223,17 @@ public class RagService {
                 hybridApplied);
     }
 
+    /** Heuristique d'estimation de tokens (identique à AgenticRagService) : 1 token ≈ 4 caractères. */
+    private static final int CHARS_PER_TOKEN = 4;
+
     /**
      * Charge tous les documents d'une collection pour le Long-Context RAG bypass.
+     *
+     * <p>Retourne {@code null} si le corpus dépasse le budget
+     * {@code spectra.long-context-rag.max-context-tokens} : injecter un corpus qui déborde
+     * de la fenêtre du modèle tronquerait silencieusement le prompt, et un préfixe
+     * arbitraire du corpus est moins pertinent qu'un retrieval vectoriel ciblé — l'appelant
+     * retombe alors sur le retrieval standard.</p>
      */
     @SuppressWarnings("unchecked")
     private RagContext buildFullContextResult(String collectionId) {
@@ -790,6 +1245,18 @@ public class RagService {
             log.warn("Long-context RAG : collection vide, aucun document chargé");
             return buildRagContext(List.of(), List.of(), List.of(), null, null,
                     false, false, false, false, true);
+        }
+
+        int maxContextTokens = props.longContextRag().effectiveMaxContextTokens();
+        long totalChars = 0;
+        for (String doc : documents) {
+            if (doc != null) totalChars += doc.length();
+        }
+        long estimatedTokens = totalChars / CHARS_PER_TOKEN;
+        if (estimatedTokens > maxContextTokens) {
+            log.info("Long-context RAG : corpus estimé à ~{} tokens > budget {} → fallback retrieval standard",
+                    estimatedTokens, maxContextTokens);
+            return null;
         }
 
         // Distance 0.0 : tous les chunks sont directement pertinents (pas de filtrage vectoriel)

@@ -290,10 +290,52 @@ public class LlmFitService {
                 // models-dir après cet instant est un candidat produit par ce téléchargement.
                 Instant downloadStart = Instant.now();
 
-                List<String> command = new ArrayList<>(List.of(llmfitPath, "download", modelName));
+                String resolvedModelName = modelName;
+                if (resolvedModelName.contains("/")) {
+                    try {
+                        String shortName = resolvedModelName.substring(resolvedModelName.indexOf('/') + 1);
+                        java.net.http.HttpClient client = java.net.http.HttpClient.newHttpClient();
+                        java.net.http.HttpRequest request = java.net.http.HttpRequest.newBuilder()
+                                .uri(java.net.URI.create("https://huggingface.co/api/models?search=" + java.net.URLEncoder.encode(shortName, java.nio.charset.StandardCharsets.UTF_8) + "&filter=gguf&sort=downloads&direction=-1&limit=1"))
+                                .GET()
+                                .build();
+                        java.net.http.HttpResponse<String> response = client.send(request, java.net.http.HttpResponse.BodyHandlers.ofString());
+                        if (response.statusCode() == 200 && response.body().contains("\"id\"")) {
+                            java.util.regex.Matcher m = java.util.regex.Pattern.compile("\"id\":\"([^\"]+)\"").matcher(response.body());
+                            if (m.find()) {
+                                String autoGgufRepo = m.group(1);
+                                if (!autoGgufRepo.equals(resolvedModelName)) {
+                                    log.info("Auto-discovery GGUF : {} remplacé automatiquement par {}", resolvedModelName, autoGgufRepo);
+                                    resolvedModelName = autoGgufRepo;
+                                    String finalName = resolvedModelName;
+                                    updateInstallation(jobId, j -> j.withStatus(InstallationJob.Status.DOWNLOADING, "Redirection vers " + finalName));
+                                }
+                            }
+                        }
+                    } catch (Exception e) {
+                        log.warn("Recherche automatique de GGUF échouée pour {} : {}", resolvedModelName, e.getMessage());
+                    }
+                }
+
+                String activeCacheDir = llmfitCacheDirPath;
+                if (activeCacheDir != null && !activeCacheDir.isBlank()) {
+                    try {
+                        Files.createDirectories(Path.of(activeCacheDir));
+                    } catch (Exception e) {
+                        log.warn("Impossible de créer le dossier de cache llmfit '{}' ({}), repli sur ./data/llmfit-cache", activeCacheDir, e.getMessage());
+                        activeCacheDir = "./data/llmfit-cache";
+                        Files.createDirectories(Path.of(activeCacheDir));
+                    }
+                }
+
+                List<String> command = new ArrayList<>(List.of(llmfitPath, "download", resolvedModelName));
                 if (quant != null && !quant.isBlank()) {
                     command.add("--quant");
                     command.add(quant);
+                }
+                if (activeCacheDir != null && !activeCacheDir.isBlank()) {
+                    command.add("--output-dir");
+                    command.add(activeCacheDir);
                 }
 
                 ProcessBuilder pb = new ProcessBuilder(command);
@@ -602,6 +644,67 @@ public class LlmFitService {
         // téléchargements partiels (installations annulées) restaient invisibles.
         report.put("llmfitCache", buildLlmfitCacheReport(modelsDir));
         return report;
+    }
+
+    /** Nom de fichier GGUF simple — pas de séparateur de chemin (anti-traversée). */
+    private static final Pattern SAFE_GGUF_FILENAME =
+            Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,254}\\.[gG][gG][uU][fF]");
+
+    /**
+     * Supprime un GGUF <b>orphelin</b> du volume des modèles : un fichier visible dans
+     * le rapport de stockage mais absent du registre (déposé à la main, laissé par un
+     * bug…) n'était supprimable qu'en shell — {@code DELETE /api/fine-tuning/models}
+     * exige un modèle enregistré. Refuse (409) un fichier encore référencé : pour
+     * ceux-là, la suppression passe par le retrait du modèle, qui gère les alias
+     * multiples et le modèle actif.
+     *
+     * @throws ResponseStatusException 400 nom invalide ou hors de models-dir,
+     *         404 fichier absent, 409 fichier référencé par le registre.
+     */
+    public Map<String, Object> deleteOrphanGguf(String fileName) {
+        if (fileName == null || !SAFE_GGUF_FILENAME.matcher(fileName).matches()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Nom de fichier invalide : nom simple attendu (« modele.gguf »)");
+        }
+        Path modelsDir = Path.of(modelsDirPath).toAbsolutePath().normalize();
+        Path file = modelsDir.resolve(fileName).normalize();
+        // Double barrière anti-traversée : startsWith sur le chemin normalisé (la forme
+        // canonique reconnue par l'analyse statique — CodeQL java/path-injection) ET
+        // parent exact (interdit aussi un sous-répertoire de models-dir).
+        if (!file.startsWith(modelsDir) || !modelsDir.equals(file.getParent())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Le fichier doit être directement dans le répertoire des modèles");
+        }
+        if (!Files.isRegularFile(file)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND,
+                    "Fichier inconnu du volume des modèles : " + fileName);
+        }
+        boolean referenced = Stream.concat(
+                        modelRegistryService.listModels("chat").stream(),
+                        modelRegistryService.listModels("embedding").stream())
+                .map(model -> model.get("source"))
+                .filter(java.util.Objects::nonNull)
+                .anyMatch(source -> fileName.equals(Path.of(source.toString()).getFileName().toString()));
+        if (referenced) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Fichier référencé par le registre — retirez d'abord le modèle "
+                    + "(DELETE /api/fine-tuning/models/{name}?deleteFile=true)");
+        }
+        try {
+            long size = Files.size(file);
+            Files.delete(file);
+            log.info("GGUF orphelin supprimé du volume des modèles : {} ({} octets)", file, size);
+            Map<String, Object> result = new java.util.LinkedHashMap<>();
+            result.put("file", fileName);
+            result.put("freedBytes", size);
+            result.put("status", "deleted");
+            return result;
+        } catch (ResponseStatusException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Suppression impossible : " + e.getMessage(), e);
+        }
     }
 
     /**

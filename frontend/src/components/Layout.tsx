@@ -5,6 +5,7 @@ import Sidebar from './Sidebar';
 import Header from './Header';
 import WizardProgress from './WizardProgress';
 import ServiceHealthBanner from './ServiceHealthBanner';
+import CommandPalette from './CommandPalette';
 
 interface LayoutProps {
   children: ReactNode;
@@ -15,9 +16,22 @@ const DESKTOP_QUERY = '(min-width: 768px)';
 const Layout: FC<LayoutProps> = ({ children }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const [isDesktop, setIsDesktop] = useState(
     () => typeof window !== 'undefined' && window.matchMedia(DESKTOP_QUERY).matches,
   );
+
+  // Raccourci global ⌘K / Ctrl+K : ouvre/ferme la palette de commandes.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPaletteOpen((o) => !o);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // Suit le breakpoint : ferme le drawer en repassant desktop.
   useEffect(() => {
@@ -35,16 +49,16 @@ const Layout: FC<LayoutProps> = ({ children }) => {
 
   return (
     <div className="min-h-screen bg-background bg-scene">
-      <div className="accent-bar" />
       <Toaster
         theme="dark"
         position="bottom-right"
         toastOptions={{
           style: {
-            background: '#192540',
-            border: '1px solid rgba(143, 245, 255, 0.1)',
-            borderRadius: '0px',
-            color: '#dee5ff',
+            background: '#191d24',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            borderRadius: '10px',
+            boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)',
+            color: '#e8eaf0',
             fontFamily: 'Inter',
             // Les toasts portent de l'information (erreurs, confirmations) : taille
             // lisible et casse normale — le style micro-caps reste réservé aux
@@ -70,8 +84,10 @@ const Layout: FC<LayoutProps> = ({ children }) => {
         />
       )}
 
-      <main className={`transition-all duration-300 ml-0 ${isCollapsed ? 'md:ml-20' : 'md:ml-64'} min-h-screen flex flex-col`}>
-        <Header onMenuClick={() => setMobileOpen(true)} />
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+
+      <main className={`transition-all duration-300 ml-0 ${isCollapsed ? 'md:ml-[68px]' : 'md:ml-64'} min-h-screen flex flex-col`}>
+        <Header onMenuClick={() => setMobileOpen(true)} onSearchClick={() => setPaletteOpen(true)} />
         <ServiceHealthBanner />
         <WizardProgress />
         <div className="flex-1 p-4 md:p-8 max-w-[1600px] mx-auto w-full">

@@ -437,18 +437,37 @@ public class ChromaDbClient {
 
     /**
      * Liste les fichiers sources dans une collection avec leur nombre de chunks.
+     *
+     * <p>Agrégation page par page en ne demandant que les <b>métadonnées</b> : l'ancienne
+     * implémentation ({@code getAllDocuments}) accumulait ids + textes + métadonnées de toute
+     * la collection en mémoire pour n'en compter que les sources.</p>
      */
     @SuppressWarnings("unchecked")
     public Map<String, Integer> listSources(String collectionId) {
-        Map<String, Object> result = getAllDocuments(collectionId);
-        List<Map<String, String>> metadatas =
-                (List<Map<String, String>>) result.get("metadatas");
         Map<String, Integer> sources = new java.util.LinkedHashMap<>();
-        if (metadatas != null) {
+        int offset = 0;
+        while (true) {
+            Map<String, Object> body = Map.of(
+                    "limit",   BULK_PAGE_SIZE,
+                    "offset",  offset,
+                    "include", List.of("metadatas")
+            );
+            Map<String, Object> page = webClient.post()
+                    .uri(COLLECTIONS_BASE + "/{id}/get", collectionId)
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block(TIMEOUT_BULK_GET);
+            List<Map<String, String>> metadatas =
+                    page != null ? (List<Map<String, String>>) page.get("metadatas") : null;
+            if (metadatas == null || metadatas.isEmpty()) break;
+
             for (Map<String, String> meta : metadatas) {
-                String source = meta.getOrDefault("sourceFile", "unknown");
+                String source = meta != null ? meta.getOrDefault("sourceFile", "unknown") : "unknown";
                 sources.merge(source, 1, Integer::sum);
             }
+            if (metadatas.size() < BULK_PAGE_SIZE) break;
+            offset += BULK_PAGE_SIZE;
         }
         return sources;
     }
@@ -458,11 +477,22 @@ public class ChromaDbClient {
      * Utilise le filtre {@code where} ChromaDB pour ne récupérer que les IDs concernés
      * au lieu de charger toute la collection en mémoire.
      */
-    @SuppressWarnings("unchecked")
     public int deleteBySource(String collectionId, String sourceFile) {
-        // P2 — filtre where : seuls les IDs du fichier source sont récupérés
+        return deleteByMetadata(collectionId, "sourceFile", sourceFile);
+    }
+
+    /**
+     * Supprime tous les chunks dont la métadonnée {@code field} vaut {@code value}.
+     * Utilisé avec {@code sha256} pour supprimer/remplacer un document par son identité de
+     * contenu (les collisions de noms de fichiers homonymes ne suppriment plus les chunks
+     * d'un autre document), et avec {@code sourceFile} en repli pour les chunks historiques
+     * indexés avant l'ajout de la métadonnée {@code sha256}.
+     */
+    @SuppressWarnings("unchecked")
+    public int deleteByMetadata(String collectionId, String field, String value) {
+        // P2 — filtre where : seuls les IDs concernés sont récupérés
         Map<String, Object> body = Map.of(
-                "where",   Map.of("sourceFile", Map.of("$eq", sourceFile)),
+                "where",   Map.of(field, Map.of("$eq", value)),
                 "limit",   1000000,
                 "include", List.of()  // IDs uniquement, pas de documents ni métadonnées
         );
@@ -478,12 +508,14 @@ public class ChromaDbClient {
         List<String> ids = (List<String>) result.get("ids");
         if (ids == null || ids.isEmpty()) return 0;
 
+        // Suppression par filtre where (un seul appel, payload constant) : une liste d'ids
+        // pouvant atteindre le million d'entrées explosait le timeout court (10 s).
         webClient.post()
                 .uri(COLLECTIONS_BASE + "/{id}/delete", collectionId)
-                .bodyValue(Map.of("ids", ids))
+                .bodyValue(Map.of("where", Map.of(field, Map.of("$eq", value))))
                 .retrieve()
                 .bodyToMono(Void.class)
-                .block(TIMEOUT_DEFAULT);
+                .block(TIMEOUT_BULK_GET);
 
         return ids.size();
     }

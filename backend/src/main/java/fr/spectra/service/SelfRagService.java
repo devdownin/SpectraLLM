@@ -89,26 +89,31 @@ public class SelfRagService {
      * @param chunks      chunks de contexte sélectionnés
      * @param systemPrompt prompt système avec contexte RAG déjà injecté
      * @param userMessage  message utilisateur (avec historique conversationnel si applicable)
+     * @param temperature  température de génération demandée par la requête
+     * @param topP         top-p de génération demandé par la requête
      * @return {@link SelfRagResult} contenant la meilleure réponse et les scores de réflexion
      */
     public SelfRagResult reflect(String question,
                                   List<String> chunks,
                                   String systemPrompt,
-                                  String userMessage) {
+                                  String userMessage,
+                                  float temperature,
+                                  float topP) {
 
-        int maxIterations = props.selfRag() != null
-                ? props.selfRag().effectiveMaxReflectionIterations() : 1;
+        int maxIterations = maxReflectionIterations();
 
-        String answer = llmClient.chat(systemPrompt, userMessage);
+        // Les appels de GÉNÉRATION respectent les paramètres de la requête ; les appels
+        // d'ÉVALUATION (evaluateAnswer) restent aux défauts du provider, le grading
+        // devant être aussi déterministe que possible.
+        String answer = llmClient.chat(systemPrompt, userMessage, temperature, topP);
         ReflectionScores scores = evaluateAnswer(question, chunks, answer);
         log.info("Self-RAG évaluation initiale — ISREL={}, ISSUP={}, ISUSE={}",
                 scores.isRel(), scores.isSup(), scores.isUse());
 
         int reflectionIterations = 0;
-        if (needsRefinement(scores) && maxIterations > 0) {
+        if (requiresRefinement(scores) && maxIterations > 0) {
             log.info("Self-RAG : qualité insuffisante, tentative de raffinement");
-            String refinedSystemPrompt = systemPrompt + REFINE_SYSTEM_ADDENDUM;
-            answer = llmClient.chat(refinedSystemPrompt, userMessage);
+            answer = llmClient.chat(refineSystemPrompt(systemPrompt), userMessage, temperature, topP);
             scores = evaluateAnswer(question, chunks, answer);
             reflectionIterations = 1; // une passe de raffinement a bien été exécutée
             log.info("Self-RAG après raffinement — ISREL={}, ISSUP={}, ISUSE={}",
@@ -118,6 +123,31 @@ public class SelfRagService {
         // Refléter si un raffinement a réellement eu lieu (indépendamment du score final),
         // pour ne pas sous-compter les cas où la réflexion a corrigé la réponse.
         return new SelfRagResult(answer, scores, reflectionIterations);
+    }
+
+    // ── API décomposée (pipeline streaming) ──────────────────────────────────
+    // Le streaming génère le brouillon lui-même (token par token, TTFT préservé) puis
+    // demande l'évaluation et un éventuel raffinement séparément — {@link #reflect}
+    // reste le chemin tout-en-un du pipeline non-streaming.
+
+    /** Évalue une réponse déjà générée par rapport à la question et aux chunks sources. */
+    public ReflectionScores evaluate(String question, List<String> chunks, String answer) {
+        return evaluateAnswer(question, chunks, answer);
+    }
+
+    /** Indique si les scores de réflexion justifient une passe de raffinement. */
+    public boolean requiresRefinement(ReflectionScores scores) {
+        return scores.isUse() == IsUse.NOT_USEFUL || scores.isSup() == IsSup.NO_SUPPORT;
+    }
+
+    /** Prompt système renforcé pour la passe de raffinement. */
+    public String refineSystemPrompt(String systemPrompt) {
+        return systemPrompt + REFINE_SYSTEM_ADDENDUM;
+    }
+
+    /** Nombre maximal de passes de raffinement configuré. */
+    public int maxReflectionIterations() {
+        return props.selfRag() != null ? props.selfRag().effectiveMaxReflectionIterations() : 1;
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -154,10 +184,6 @@ public class SelfRagService {
         if (mUse.find()) isUse = IsUse.valueOf(mUse.group(1).toUpperCase().replace(" ", "_"));
 
         return new ReflectionScores(isRel, isSup, isUse);
-    }
-
-    private boolean needsRefinement(ReflectionScores scores) {
-        return scores.isUse() == IsUse.NOT_USEFUL || scores.isSup() == IsSup.NO_SUPPORT;
     }
 
     // ── DTOs internes ─────────────────────────────────────────────────────────

@@ -74,7 +74,7 @@ class RagQueryE2ETest {
                 chromaDbClient, embeddingService, llmClient,
                 Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
                 Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
-                props, objectMapper);
+                props, objectMapper, new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
 
         QueryController controller = new QueryController(ragService, mock(FeedbackService.class));
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();

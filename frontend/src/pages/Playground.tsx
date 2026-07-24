@@ -1,93 +1,61 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import type { FC } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Trans, useTranslation } from 'react-i18next';
+import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { queryApi, configApi, fineTuningApi, ingestApi, healthApi } from '../services/api';
-import type { StreamDoneMeta } from '../services/api';
+import type { StreamDoneMeta, StreamStageInfo } from '../services/api';
 import type { ServiceStatus } from '../types/api';
 import Tooltip from '../components/Tooltip';
+import ConfirmDialog from '../components/ConfirmDialog';
 import RagAdvisor from '../components/RagAdvisor';
 import ChatMarkdown from '../components/ChatMarkdown';
-import { useFocusTrap } from '../hooks/useFocusTrap';
+import {
+  RAG_MODULES, appliedModules, overridesFromDisabled, isBm25Only, relevancePct,
+} from '../lib/ragPipeline';
+import type { OverrideKey, ModuleDef } from '../lib/ragPipeline';
+import { parseCitations } from '../lib/citations';
+import type { Source, RagMeta, MessageMetrics, RequestParams, Message } from '../components/playground/ragTypes';
+import { STRATEGY_COLORS, STAGE_LABELS } from '../components/playground/ragTypes';
 
-interface Source {
-  preview?: string;
-  text?: string;
-  sourceFile: string;
-  distance: number;
-}
-
-interface RagMeta {
-  conversationalApplied: boolean;
-  correctiveApplied: boolean;
-  selfRagApplied: boolean;
-  ragStrategy: string;
-  rerankApplied: boolean;
-  hybridSearchApplied: boolean;
-  multiQueryApplied: boolean;
-  compressionApplied: boolean;
-  semanticDedupApplied: boolean;
-  longContextApplied: boolean;
-  agenticIterations?: number;
-}
-
-interface MessageMetrics {
-  ttftMs: number;   // time to first token
-  totalMs: number;  // total generation time
-  tokens: number;   // approximate token count
-}
-
-interface Message {
-  role: 'user' | 'assistant';
-  content: string;
-  sources?: Source[];
-  ragMeta?: RagMeta;
-  status?: 'PENDING' | 'SENT' | 'ERROR' | 'STREAMING';
-  metrics?: MessageMetrics;
-  feedback?: 'UP' | 'DOWN';
-  /** Réponse interrompue par l'utilisateur (Stop) — donc potentiellement incomplète. */
-  stopped?: boolean;
-}
-
-const STRATEGY_COLORS: Record<string, string> = {
-  DIRECT:   'border-secondary/40 text-secondary bg-secondary/5',
-  STANDARD: 'border-outline-variant/30 text-outline',
-  AGENTIC:  'border-primary/40 text-primary bg-primary/5',
-};
-
-const BADGE_LABELS = ['CONV', 'CORR', 'SELF', 'RRNK', 'HYB', 'MQ', 'CMPR', 'DEDUP', 'FULL'] as const;
+// Panneaux lourds chargés à la demande (React.lazy) : n'entrent dans le bundle que lorsque
+// l'utilisateur ouvre une comparaison A/B ou une trace — allège le chunk initial du Playground.
+const RagComparisonDialog = lazy(() => import('../components/playground/RagComparisonDialog'));
+const RagTracePanel = lazy(() => import('../components/playground/RagTracePanel'));
 
 const RagBadges: FC<{ meta: RagMeta; onShowTrace?: () => void }> = ({ meta, onShowTrace }) => {
-  const { t } = useTranslation();
-  const activeByLabel: Record<(typeof BADGE_LABELS)[number], boolean> = {
-    CONV:  meta.conversationalApplied,
-    CORR:  meta.correctiveApplied,
-    SELF:  meta.selfRagApplied,
-    RRNK:  meta.rerankApplied,
-    HYB:   meta.hybridSearchApplied,
-    MQ:    meta.multiQueryApplied,
-    CMPR:  meta.compressionApplied,
-    DEDUP: meta.semanticDedupApplied,
-    FULL:  meta.longContextApplied,
-  };
+  const badges: { label: string; active: boolean; tooltip: string }[] = [
+    { label: 'CONV',  active: meta.conversationalApplied, tooltip: meta.rewrittenQuestion
+        ? `Conversational RAG — question rephrased for retrieval: “${meta.rewrittenQuestion}”`
+        : 'Conversational RAG — question rephrased using conversation history' },
+    { label: 'CORR',  active: meta.correctiveApplied,     tooltip: 'Corrective RAG — irrelevant chunks filtered out' },
+    { label: 'SELF',  active: meta.selfRagApplied,        tooltip: meta.selfRagScores
+        ? `Self-RAG — answer self-evaluated and refined (scores: ${meta.selfRagScores})`
+        : 'Self-RAG — self-evaluated and refined answer' },
+    { label: 'RRNK',  active: meta.rerankApplied,         tooltip: 'Cross-Encoder re-ranking applied' },
+    { label: 'HYB',   active: meta.hybridSearchApplied,   tooltip: 'Hybrid Search (Vector + BM25) used' },
+    { label: 'MQ',    active: meta.multiQueryApplied,     tooltip: 'Multi-Query — N question variants merged' },
+    { label: 'CMPR',  active: meta.compressionApplied,    tooltip: 'Context Compression — relevant passages extracted' },
+    { label: 'DEDUP', active: meta.semanticDedupApplied,  tooltip: 'Semantic Dedup — near-duplicate passages removed' },
+    { label: 'FULL',  active: meta.longContextApplied,    tooltip: 'Long-Context RAG — full corpus loaded' },
+  ];
 
-  const activeBadges = BADGE_LABELS.filter(label => activeByLabel[label]);
+  const activeBadges = badges.filter(b => b.active);
   if (activeBadges.length === 0 && meta.ragStrategy === 'STANDARD') return null;
 
   return (
     <div className="mt-3 pt-3 border-t border-outline-variant/20 flex flex-wrap items-center justify-between gap-2">
       <div className="flex flex-wrap items-center gap-1.5">
-        <Tooltip content={t('playground.strategyTooltip', { name: meta.ragStrategy })}>
+        <Tooltip content={`Strategy: ${meta.ragStrategy}`}>
           <span className={`text-[10px] font-bold px-1.5 py-0.5 border uppercase tracking-wider cursor-help ${STRATEGY_COLORS[meta.ragStrategy] ?? STRATEGY_COLORS.STANDARD}`}>
             {meta.ragStrategy}
           </span>
         </Tooltip>
-        {activeBadges.map(label => (
-          <Tooltip key={label} content={t(`playground.badges.${label}`)}>
+        {activeBadges.map(b => (
+          <Tooltip key={b.label} content={b.tooltip}>
             <span className="text-[10px] font-bold px-1.5 py-0.5 border border-primary/30 text-primary bg-primary/5 uppercase tracking-wider cursor-help">
-              {label}
+              {b.label}
             </span>
           </Tooltip>
         ))}
@@ -97,10 +65,10 @@ const RagBadges: FC<{ meta: RagMeta; onShowTrace?: () => void }> = ({ meta, onSh
           type="button"
           onClick={onShowTrace}
           className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-outline hover:text-primary transition-colors px-1.5 py-0.5"
-          aria-label={t('playground.traceAria')}
+          aria-label="View algorithm trace details"
         >
           <span className="material-symbols-outlined text-[13px]">insights</span>
-          {t('playground.trace')}
+          Trace
         </button>
       )}
     </div>
@@ -108,12 +76,29 @@ const RagBadges: FC<{ meta: RagMeta; onShowTrace?: () => void }> = ({ meta, onSh
 };
 
 /** Source de réponse dépliable : nom de fichier + pertinence + passage récupéré. */
-const SourceItem: FC<{ src: Source; expert?: boolean }> = ({ src, expert = false }) => {
+const SourceItem: FC<{
+  src: Source;
+  expert?: boolean;
+  /** Numéro de citation [n] affiché en tête (correspond aux marqueurs [n] de la réponse). */
+  citeNumber?: number;
+  /** Source réellement citée dans la réponse — mise en évidence. */
+  cited?: boolean;
+  /** Compteur incrémenté à chaque clic sur la citation [n] : déplie et défile jusqu'ici. */
+  openSignal?: number;
+}> = ({ src, expert = false, citeNumber, cited = false, openSignal = 0 }) => {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
   const snippet = src.preview ?? src.text ?? '';
-  const pct = typeof src.distance === 'number' ? Math.max(0, Math.min(100, Math.round((1 - src.distance) * 100))) : null;
+  const pct = relevancePct(src);
+
+  useEffect(() => {
+    if (openSignal > 0) {
+      setOpen(true);
+      ref.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [openSignal]);
 
   const openInDatabase = async () => {
     try {
@@ -121,40 +106,49 @@ const SourceItem: FC<{ src: Source; expert?: boolean }> = ({ src, expert = false
       const items: any[] = res.data?.content ?? res.data ?? [];
       const match = items.find(d => d.fileName === src.sourceFile) ?? items[0];
       if (match?.sha256) navigate(`/documents?doc=${encodeURIComponent(match.sha256)}`);
-      else toast.error(t('playground.docNotFound'));
+      else toast.error('Document not found in Documents');
     } catch {
-      toast.error(t('playground.docOpenFailed'));
+      toast.error('Could not open the document');
     }
   };
 
   return (
-    <div className="border-b border-outline-variant/10 last:border-0">
+    <div ref={ref} className={`border-b border-outline-variant/10 last:border-0 ${cited ? 'bg-primary/5 -mx-1 px-1 rounded' : ''}`}>
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
         aria-expanded={open}
         className="w-full flex items-center gap-2 py-1 text-left hover:text-primary transition-colors"
       >
-        <span aria-hidden="true" className="material-symbols-outlined text-[12px] text-primary shrink-0">article</span>
+        {typeof citeNumber === 'number'
+          ? <span className={`font-mono text-[10px] font-bold shrink-0 w-4 text-center rounded ${cited ? 'text-primary bg-primary/15' : 'text-outline'}`} title={cited ? 'Cited in the answer' : 'Not cited in the answer'}>{citeNumber}</span>
+          : <span aria-hidden="true" className="material-symbols-outlined text-[12px] text-primary shrink-0">article</span>}
         <span className="font-mono text-[10px] text-on-surface-variant truncate flex-1">{src.sourceFile}</span>
         {pct !== null && <span className="text-[10px] font-bold text-primary shrink-0" title={t('playground.relevance')}>{pct}%</span>}
+        {isBm25Only(src) && (
+          <span className="text-[10px] font-bold text-secondary shrink-0" title="Found by keyword search (BM25) — no vector distance available">BM25</span>
+        )}
         <span aria-hidden="true" className={`material-symbols-outlined text-[12px] text-outline shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}>expand_more</span>
       </button>
       {open && (
         <div className="pl-5 pb-2 space-y-1.5">
           {snippet
             ? <p className="text-[11px] text-on-surface-variant leading-relaxed whitespace-pre-wrap">{snippet}</p>
-            : <p className="text-[11px] text-outline italic">{t('playground.noPreview')}</p>}
+            : <p className="text-[11px] text-outline italic">No preview available.</p>}
           <div className={`flex items-center ${expert ? 'justify-between' : 'justify-end'}`}>
             {expert && (
-              <span className="text-[10px] font-mono text-outline">distance: {typeof src.distance === 'number' ? src.distance.toFixed(3) : '—'}</span>
+              <span className="text-[10px] font-mono text-outline">
+                distance: {typeof src.distance === 'number' ? src.distance.toFixed(3) : '—'}
+                {typeof src.rerankScore === 'number' && ` · rerank: ${src.rerankScore.toFixed(2)}`}
+                {typeof src.bm25Score === 'number' && src.bm25Score > 0 && ` · bm25: ${src.bm25Score.toFixed(2)}`}
+              </span>
             )}
             <button
               type="button"
               onClick={openInDatabase}
               className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-primary hover:text-primary/70 transition-colors"
             >
-              <span aria-hidden="true" className="material-symbols-outlined text-[11px]">open_in_new</span>{t('playground.openInDocuments')}
+              <span aria-hidden="true" className="material-symbols-outlined text-[11px]">open_in_new</span>Open in Documents
             </button>
           </div>
         </div>
@@ -165,11 +159,9 @@ const SourceItem: FC<{ src: Source; expert?: boolean }> = ({ src, expert = false
 
 const Playground: FC = () => {
   const { t } = useTranslation();
+  const defaultWelcome: Message = { role: 'assistant', content: 'Welcome to the Spectra Playground. I am ready to answer questions based on your ingested documents. How can I help you today?', status: 'SENT', local: true };
   const [traceMsg, setTraceMsg] = useState<Message | null>(null);
-  // Piège de focus + Échap sur la modale de trace — même comportement que la fiche Documents.
-  const traceRef = useFocusTrap<HTMLDivElement>(traceMsg !== null, () => setTraceMsg(null));
   const [messages, setMessages] = useState<Message[]>(() => {
-    const defaultWelcome: Message = { role: 'assistant', content: t('playground.welcome'), status: 'SENT' };
     const saved = localStorage.getItem('spectra_chat_history');
     if (!saved) return [defaultWelcome];
     try {
@@ -185,6 +177,8 @@ const Playground: FC = () => {
   });
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  /** Étape du pipeline RAG en cours (événements SSE `stage`) — affichée dans la bulle en streaming. */
+  const [liveStage, setLiveStage] = useState<string | null>(null);
 
   const [temperature, setTemperature] = useState(() =>
     parseFloat(localStorage.getItem('spectra_temp') || '0.7'));
@@ -204,6 +198,25 @@ const Playground: FC = () => {
   const [atBottom, setAtBottom] = useState(true);
   const [regenMenuOpen, setRegenMenuOpen] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  /** Modules RAG désactivés par l'utilisateur (surcharges par requête → override `false`). */
+  const [disabledModules, setDisabledModules] = useState<Set<OverrideKey>>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('spectra_disabled_modules') || '[]') as OverrideKey[];
+      return new Set(saved);
+    } catch { return new Set(); }
+  });
+  /** Comparaison A/B en cours : réponse de référence + module désactivé pour la variante. */
+  const [comparison, setComparison] = useState<{
+    baseline: Message; question: string; module: ModuleDef; history: { role: string; content: string }[];
+  } | null>(null);
+  const [compareMenuIdx, setCompareMenuIdx] = useState<number | null>(null);
+  // Cible de citation : clé `${messageIdx}-${sourceNumber}` + compteur de clics. Un changement
+  // déclenche l'ouverture + le défilement de la source correspondante (cf. SourceItem.openSignal).
+  const [citeTarget, setCiteTarget] = useState<{ key: string; tick: number } | null>(null);
+  const jumpToSource = (msgIdx: number, n: number) => {
+    const key = `${msgIdx}-${n}`;
+    setCiteTarget(prev => ({ key, tick: (prev?.key === key ? prev.tick : 0) + 1 }));
+  };
 
   const [activeModel, setActiveModel] = useState<string>('');
   const queryClient = useQueryClient();
@@ -233,6 +246,17 @@ const Playground: FC = () => {
     staleTime: 30_000,
   });
   const availableModels = modelsData?.chatModels ?? [];
+
+  // Disponibilité RÉELLE des modules RAG côté serveur (bean déployé) : un toggle pour un
+  // module absent est désactivé (on ne peut pas l'activer par requête).
+  const { data: ragConfig } = useQuery<Record<string, boolean>>({
+    queryKey: ['playground-rag-config'],
+    queryFn: async () => (await configApi.getRagConfig()).data.modules ?? {},
+    staleTime: 60_000,
+  });
+  /** true si le module est déployé serveur, ou si l'info n'est pas encore connue (optimiste). */
+  const moduleAvailable = (key: OverrideKey): boolean => ragConfig ? ragConfig[key] !== false : true;
+
   // `undefined` avant le premier poll → on n'empêche pas l'envoi (optimiste).
   const llmDown = chatService ? !chatService.available : false;
   const ragDegraded = ragEnabled && chromaService ? !chromaService.available : false;
@@ -264,6 +288,21 @@ const Playground: FC = () => {
   }, [temperature, topP, ragEnabled, topCandidates, convEnabled, expertMode]);
 
   useEffect(() => {
+    localStorage.setItem('spectra_disabled_modules', JSON.stringify([...disabledModules]));
+  }, [disabledModules]);
+
+  /** Surcharges RAG à partir des modules désactivés de la session (cf. {@link overridesFromDisabled}). */
+  const buildOverrides = (extraDisabled?: OverrideKey) => overridesFromDisabled(disabledModules, extraDisabled);
+
+  const toggleModule = (key: OverrideKey) => {
+    setDisabledModules(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
+  useEffect(() => {
     // N'auto-scroll que si l'utilisateur est déjà proche du bas — évite de
     // combattre un défilement manuel pendant le streaming des tokens.
     const c = scrollContainerRef.current;
@@ -286,23 +325,32 @@ const Playground: FC = () => {
       d ? { ...d, activeModel: modelName } : d);
     try {
       await configApi.setModelConfig({ model: modelName });
-      toast.info(t('playground.modelUpdated'), {
-        description: t('playground.modelUpdatedDesc', { name: modelName }),
+      toast.info('Active model updated', {
+        description: `llm-chat reloads "${modelName}" automatically within a few seconds.`,
       });
     } catch (error: any) {
       setActiveModel(previous);
       queryClient.setQueryData(['playground-models'], (d: typeof modelsData) =>
         d ? { ...d, activeModel: previous } : d);
       // 400 : alias inconnu du registre — le détail liste les modèles enregistrés.
-      toast.error(t('playground.modelSwitchFailed'), {
+      toast.error('Failed to switch model', {
         description: error?.response?.data?.error ?? error?.response?.data?.detail ?? error?.message,
       });
     }
   };
 
+  const [confirmClear, setConfirmClear] = useState(false);
+
   const clearChat = () => {
-    setMessages([{ role: 'assistant', content: t('playground.cleared'), status: 'SENT' }]);
-    toast.info(t('playground.chatCleared'));
+    setMessages([{ role: 'assistant', content: 'Discussion cleared. System ready.', status: 'SENT', local: true }]);
+    setConfirmClear(false);
+    toast.info('Chat history cleared');
+  };
+
+  /** Confirme uniquement s'il y a une vraie conversation à perdre. */
+  const requestClearChat = () => {
+    if (messages.length > 1) setConfirmClear(true);
+    else clearChat();
   };
 
   /** Déclenche le téléchargement d'un blob texte côté navigateur. */
@@ -326,13 +374,14 @@ const Playground: FC = () => {
     ];
     for (const m of messages) {
       if (!m.content?.trim()) continue;
-      lines.push(m.role === 'user' ? `## 🧑 ${t('playground.roleUser')}` : `## 🤖 ${t('playground.roleAssistant')}`, '', m.content.trim(), '');
+      lines.push(m.role === 'user' ? '## 🧑 Architect' : '## 🤖 Spectra Core', '', m.content.trim(), '');
       if (m.role === 'assistant') {
         if (m.sources?.length) {
-          lines.push(`**${t('playground.mdSources')}**`);
+          lines.push('**Sources:**');
           for (const s of m.sources) {
-            const pct = typeof s.distance === 'number' ? ` (${Math.max(0, Math.min(100, Math.round((1 - s.distance) * 100)))}%)` : '';
-            lines.push(`- ${s.sourceFile}${pct}`);
+            const pct = relevancePct(s);
+            const tag = pct !== null ? ` (${pct}%)` : isBm25Only(s) ? ' (BM25)' : '';
+            lines.push(`- ${s.sourceFile}${tag}`);
           }
           lines.push('');
         }
@@ -340,10 +389,10 @@ const Playground: FC = () => {
           const flags = Object.entries(m.ragMeta)
             .filter(([k, v]) => v === true && k.endsWith('Applied'))
             .map(([k]) => k.replace('Applied', ''));
-          lines.push(`**${t('playground.mdPipeline')}** ${m.ragMeta.ragStrategy}${flags.length ? ` · ${flags.join(', ')}` : ''}`, '');
+          lines.push(`**Pipeline:** ${m.ragMeta.ragStrategy}${flags.length ? ` · ${flags.join(', ')}` : ''}`, '');
         }
         if (m.metrics) {
-          lines.push(`_TTFT ${(m.metrics.ttftMs / 1000).toFixed(1)}s · ${(m.metrics.totalMs / 1000).toFixed(1)}s · ${m.metrics.tokens} tok${m.stopped ? ` · ${t('playground.stopped')}` : ''}_`, '');
+          lines.push(`_TTFT ${(m.metrics.ttftMs / 1000).toFixed(1)}s · ${(m.metrics.totalMs / 1000).toFixed(1)}s · ${m.metrics.tokens} tok${m.stopped ? ' · stopped' : ''}_`, '');
         }
       }
       lines.push('---', '');
@@ -355,21 +404,29 @@ const Playground: FC = () => {
   const exportConversation = (format: 'md' | 'json') => {
     setExportMenuOpen(false);
     const real = messages.filter(m => m.content?.trim());
-    if (real.length <= 1) { toast.info(t('playground.nothingToExport')); return; }
+    if (real.length <= 1) { toast.info('Nothing to export yet'); return; }
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
     if (format === 'md') {
       downloadFile(`spectra-chat-${stamp}.md`, 'text/markdown', conversationToMarkdown());
     } else {
       downloadFile(`spectra-chat-${stamp}.json`, 'application/json', JSON.stringify(messages, null, 2));
     }
-    toast.success(t('playground.exported', { format: format.toUpperCase() }));
+    toast.success(`Conversation exported (${format.toUpperCase()})`);
   };
 
-  /** Builds the conversation history from SENT messages to send to the backend. */
-  const buildHistory = (): { role: string; content: string }[] => {
+  /**
+   * Builds the conversation history from SENT messages to send to the backend.
+   * Local system messages (welcome, "discussion cleared") are excluded: they would
+   * pollute the Conversational RAG rewriting step.
+   * @param uptoIndex  if set, only messages BEFORE this index are considered — used by
+   *                   Regenerate to exclude the turn being regenerated (sending the old
+   *                   answer back in the history anchors the model on it).
+   */
+  const buildHistory = (uptoIndex?: number): { role: string; content: string }[] => {
     if (!convEnabled) return [];
-    return messages
-      .filter(m => m.status === 'SENT' && m.content.trim())
+    const scope = uptoIndex === undefined ? messages : messages.slice(0, uptoIndex);
+    return scope
+      .filter(m => m.status === 'SENT' && !m.local && m.content.trim())
       .slice(-20)
       .map(m => ({ role: m.role, content: m.content }));
   };
@@ -385,10 +442,14 @@ const Playground: FC = () => {
   const submitQuery = async (text: string, regenerate = false, tempOverride?: number) => {
     if (!text.trim() || isTyping) return;
     if (llmDown) {
-      toast.error(t('playground.modelOffline'), { description: t('playground.modelOfflineDesc') });
+      toast.error('Model offline', { description: 'The chat model service is unreachable. Check llama-cpp-chat.' });
       return;
     }
     const effTemperature = tempOverride ?? temperature;
+    // Config effective de CETTE requête, mémorisée sur la réponse pour une comparaison A/B
+    // rigoureuse (rejouée depuis cette config, pas les réglages courants de la session).
+    const effOverrides = buildOverrides();
+    const reqParams: RequestParams = { temperature: effTemperature, topP, topCandidates, overrides: effOverrides };
 
     abortRef.current?.abort();
     const controller = new AbortController();
@@ -405,7 +466,10 @@ const Playground: FC = () => {
     };
 
     const currentInput = text;
-    const history = buildHistory();
+    // En régénération, l'historique s'arrête AVANT le tour régénéré : renvoyer
+    // l'ancienne réponse dans l'historique ancre le modèle dessus (il la répète).
+    const lastUserIdxForHistory = regenerate ? messages.findLastIndex(m => m.role === 'user') : -1;
+    const history = buildHistory(lastUserIdxForHistory >= 0 ? lastUserIdxForHistory : undefined);
 
     setIsTyping(true);
     setMessages(prev => {
@@ -430,9 +494,28 @@ const Playground: FC = () => {
     let firstTokenTs: number | null = null;
     let tokenCount = 0;
 
+    // Batching du rendu : un setMessages PAR token re-parsait tout le Markdown de la
+    // réponse à chaque token (rendu O(n²) sur les longues réponses). Les tokens sont
+    // accumulés puis flushés au plus toutes les ~80 ms — imperceptible à l'œil.
+    let pendingTokens = '';
+    let flushTimer: ReturnType<typeof setTimeout> | null = null;
+    const flushTokens = () => {
+      if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+      if (!pendingTokens) return;
+      const chunk = pendingTokens;
+      pendingTokens = '';
+      setMessages(prev => {
+        const lastIdx = prev.findLastIndex(m => m.role === 'assistant');
+        if (lastIdx < 0) return prev;
+        return prev.map((m, i) =>
+          i === lastIdx ? { ...m, content: m.content + chunk } : m
+        );
+      });
+    };
+
     try {
       for await (const event of queryApi.queryStream(
-        currentInput, ragEnabled, controller.signal, topCandidates, history, effTemperature, topP
+        currentInput, ragEnabled, controller.signal, topCandidates, history, effTemperature, topP, effOverrides
       )) {
         if (event.type === 'sources') {
           try { sources = JSON.parse(event.data); } catch { /* ignore */ }
@@ -440,14 +523,31 @@ const Playground: FC = () => {
           if (firstTokenTs === null) firstTokenTs = Date.now();
           tokenCount++;
           resetGuard(); // activité : repousser la garde d'inactivité
+          setLiveStage(null); // la génération a commencé — l'étape pipeline est finie
+          pendingTokens += event.data;
+          if (!flushTimer) flushTimer = setTimeout(flushTokens, 80);
+        } else if (event.type === 'stage') {
+          // Étape du pipeline en cours côté backend (retrieval, boucle agentique,
+          // réflexion Self-RAG…) : affichée dans la bulle et compte comme activité
+          // pour la garde d'inactivité (une boucle agentique peut être longue).
+          resetGuard();
+          try {
+            const s = JSON.parse(event.data) as StreamStageInfo;
+            setLiveStage(s.stage === 'agentic_search'
+              ? `Agentic search #${s.iteration ?? '?'}: “${s.query ?? ''}”`
+              : STAGE_LABELS[s.stage] ?? s.stage);
+          } catch { /* ignore */ }
+        } else if (event.type === 'replace') {
+          // Self-RAG : le brouillon affiché va être remplacé par la version raffinée.
+          if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+          pendingTokens = '';
           setMessages(prev => {
             const lastIdx = prev.findLastIndex(m => m.role === 'assistant');
             if (lastIdx < 0) return prev;
-            return prev.map((m, i) =>
-              i === lastIdx ? { ...m, content: m.content + event.data } : m
-            );
+            return prev.map((m, i) => i === lastIdx ? { ...m, content: '' } : m);
           });
         } else if (event.type === 'done') {
+          flushTokens();
           const metrics: MessageMetrics = {
             ttftMs: firstTokenTs ? firstTokenTs - startTs : 0,
             totalMs: Date.now() - startTs,
@@ -467,6 +567,13 @@ const Playground: FC = () => {
               compressionApplied:    parsed.compressionApplied     ?? false,
               semanticDedupApplied:  parsed.semanticDedupApplied   ?? false,
               longContextApplied:    parsed.longContextApplied     ?? false,
+              chunkCount:            parsed.chunkCount,
+              rewrittenQuestion:     parsed.rewrittenQuestion,
+              agenticIterations:     parsed.agenticIterations,
+              agenticStopReason:     parsed.agenticStopReason,
+              selfRagScores:         parsed.selfRagScores,
+              stages:                parsed.stages,
+              contextChars:          parsed.contextChars,
             };
           } catch { /* ignore */ }
 
@@ -475,14 +582,15 @@ const Playground: FC = () => {
             const lastAsstIdx = prev.findLastIndex(m => m.role === 'assistant');
             return prev.map((m, i) => {
               if (i === lastUserIdx) return { ...m, status: 'SENT' };
-              if (i === lastAsstIdx) return { ...m, status: 'SENT', sources, ragMeta: meta, metrics };
+              if (i === lastAsstIdx) return { ...m, status: 'SENT', sources, ragMeta: meta, metrics, params: reqParams };
               return m;
             });
           });
         } else if (event.type === 'error') {
-          let msg = t('playground.queryFailedDesc');
+          flushTokens();
+          let msg = 'Spectra core is currently unreachable or timed out.';
           try { msg = JSON.parse(event.data).message ?? msg; } catch { /* ignore */ }
-          toast.error(t('playground.queryFailed'), { description: msg });
+          toast.error('Query Uplink Failed', { description: msg });
           setMessages(prev => {
             const lastUserIdx = prev.findLastIndex(m => m.role === 'user' && m.content === currentInput);
             const lastAsstIdx = prev.findLastIndex(m => m.role === 'assistant');
@@ -499,6 +607,7 @@ const Playground: FC = () => {
         }
       }
     } catch (err: unknown) {
+      flushTokens(); // fige les tokens déjà reçus avant de statuer sur la bulle
       if (err instanceof Error && err.name === 'AbortError') {
         // Stop manuel : on fige la réponse partielle (SENT) au lieu de la laisser
         // en STREAMING indéfiniment. Si rien n'a été reçu, on retire la bulle vide.
@@ -520,12 +629,12 @@ const Playground: FC = () => {
               return m;
             });
         });
-        if (timedOut) toast.warning(t('playground.timedOut'));
-        else toast.info(t('playground.generationStopped'));
+        if (timedOut) toast.warning('Generation timed out (stalled)');
+        else toast.info('Generation stopped');
         return;
       }
-      toast.error(t('playground.queryFailed'), {
-        description: t('playground.queryFailedDesc'),
+      toast.error('Query Uplink Failed', {
+        description: 'Spectra core is currently unreachable or timed out.'
       });
       setMessages(prev => {
         const lastUserIdx = prev.findLastIndex(m => m.role === 'user' && m.content === currentInput);
@@ -543,12 +652,26 @@ const Playground: FC = () => {
           });
       });
     } finally {
+      // Flux terminé sans événement done/error (connexion coupée) : flush du reliquat
+      // et déblocage des statuts transitoires — sinon curseur clignotant à vie.
+      flushTokens();
+      setMessages(prev => prev.some(m => m.status === 'STREAMING' || m.status === 'PENDING')
+        ? prev.map(m => (m.status === 'STREAMING' || m.status === 'PENDING') ? { ...m, status: 'SENT' as const } : m)
+        : prev);
       clearTimeout(guardTimer);
+      setLiveStage(null);
       setIsTyping(false);
     }
   };
 
   const handleSend = () => {
+    // Valide AVANT de vider la saisie : appuyer sur Entrée avec le modèle offline
+    // (ou pendant une génération) effaçait le texte tapé sans l'envoyer.
+    if (!input.trim() || isTyping) return;
+    if (llmDown) {
+      toast.error('Model offline', { description: 'The chat model service is unreachable. Check llama-cpp-chat.' });
+      return;
+    }
     const text = input;
     setInput('');
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
@@ -565,12 +688,12 @@ const Playground: FC = () => {
     if (lastUser) submitQuery(lastUser.content, true, tempOverride);
   };
 
-  const clamp = (v: number) => Math.max(0, Math.min(2, Math.round(v * 10) / 10));
+  const clamp = (t: number) => Math.max(0, Math.min(2, Math.round(t * 10) / 10));
   /** Variantes de régénération : décale la température autour du réglage courant. */
   const regenVariants = [
-    { label: t('playground.regenSame'),     icon: 'refresh',      temp: undefined as number | undefined },
-    { label: t('playground.regenFactual'),  icon: 'target',       temp: clamp(temperature - 0.4) },
-    { label: t('playground.regenCreative'), icon: 'auto_awesome', temp: clamp(temperature + 0.4) },
+    { label: 'Same temperature', icon: 'refresh',     temp: undefined as number | undefined },
+    { label: 'More factual',     icon: 'target',      temp: clamp(temperature - 0.4) },
+    { label: 'More creative',    icon: 'auto_awesome', temp: clamp(temperature + 0.4) },
   ];
 
   /** Charge un message user dans la saisie et tronque la conversation pour le réécrire. */
@@ -585,7 +708,17 @@ const Playground: FC = () => {
   const stopGeneration = () => abortRef.current?.abort();
 
   const copyAnswer = (text: string) => {
-    navigator.clipboard.writeText(text).then(() => toast.success(t('playground.copied'))).catch(() => {});
+    navigator.clipboard.writeText(text).then(() => toast.success('Answer copied')).catch(() => {});
+  };
+
+  /** Lance une comparaison A/B : rejoue la question de ce tour avec {@code mod} désactivé. */
+  const openComparison = (msgIndex: number, mod: ModuleDef) => {
+    setCompareMenuIdx(null);
+    const before = messages.slice(0, msgIndex);
+    const userIdx = before.map(m => m.role).lastIndexOf('user');
+    const question = userIdx >= 0 ? before[userIdx].content : '';
+    if (!question) { toast.error('No question found to compare'); return; }
+    setComparison({ baseline: messages[msgIndex], question, module: mod, history: buildHistory(userIdx) });
   };
 
   /** Note une réponse (👍/👎) — toggle + envoi au backend (signal de préférence DPO). */
@@ -596,8 +729,12 @@ const Playground: FC = () => {
     const next = msg.feedback === rating ? undefined : rating;
     setMessages(prev => prev.map((m, i) => i === index ? { ...m, feedback: next } : m));
     if (next) {
-      queryApi.feedback(question, msg.content, next).catch(() => { /* non bloquant */ });
-      toast.success(next === 'UP' ? t('playground.upRecorded') : t('playground.downRecorded'));
+      // On joint le pipeline (ragMeta) et les surcharges effectives : un 👎 devient
+      // corrélable à la configuration RAG qui a produit la réponse.
+      queryApi.feedback(question, msg.content, next,
+        msg.ragMeta as Record<string, unknown> | undefined, msg.params?.overrides
+      ).catch(() => { /* non bloquant */ });
+      toast.success(next === 'UP' ? 'Thanks — 👍 recorded' : 'Feedback noted — 👎');
     }
   };
 
@@ -614,42 +751,40 @@ const Playground: FC = () => {
       <aside className="w-80 bg-surface-container p-6 space-y-8 overflow-y-auto custom-scrollbar">
         {services && (
           <div>
-            <h3 className="font-headline text-sm font-bold tracking-tight mb-4 uppercase">{t('playground.system')}</h3>
+            <h3 className="font-headline text-sm font-bold tracking-tight mb-4 uppercase">System</h3>
             <div className="space-y-2">
               {[
-                { label: t('playground.chatModel'), svc: chatService, warn: llmDown },
-                ...(ragEnabled ? [{ label: t('playground.knowledgeBase'), svc: chromaService, warn: ragDegraded }] : []),
+                { label: 'Chat Model', svc: chatService, warn: llmDown },
+                ...(ragEnabled ? [{ label: 'Knowledge Base', svc: chromaService, warn: ragDegraded }] : []),
               ].map(({ label, svc, warn }) => (
                 <div key={label} className="flex items-center justify-between">
                   <span className="text-[11px] font-label uppercase tracking-widest text-on-surface-variant">{label}</span>
                   <span className={`flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider ${warn ? 'text-error' : 'text-primary'}`}>
                     <span className={`w-1.5 h-1.5 rounded-full ${warn ? 'bg-error animate-pulse' : 'bg-primary'}`} />
-                    {svc?.available ? t('playground.online') : t('playground.offline')}
+                    {svc?.available ? 'online' : 'offline'}
                   </span>
                 </div>
               ))}
               {llmDown && (
-                <p className="text-xs text-error leading-relaxed pt-1">
-                  <Trans i18nKey="playground.llmDownHint">
-                    Chat model unreachable — start <span className="font-mono">llama-cpp-chat</span> to send messages.
-                  </Trans>
+                <p className="text-[10px] text-error leading-relaxed pt-1">
+                  Chat model unreachable — start <span className="font-mono">llama-cpp-chat</span> to send messages.
                 </p>
               )}
               {ragDegraded && !llmDown && (
-                <p className="text-xs text-error leading-relaxed pt-1">
-                  {t('playground.ragDegradedHint')}
+                <p className="text-[10px] text-error leading-relaxed pt-1">
+                  Vector DB unreachable — retrieval may fail. Disable the Knowledge Base for a direct answer.
                 </p>
               )}
             </div>
           </div>
         )}
         <div>
-          <h3 className="font-headline text-sm font-bold tracking-tight mb-4 uppercase">{t('playground.modelParameters')}</h3>
+          <h3 className="font-headline text-sm font-bold tracking-tight mb-4 uppercase">Model Parameters</h3>
           <div className="space-y-6">
             <div className="space-y-2">
               <div className="flex justify-between items-center">
-                <Tooltip content={t('playground.temperatureTooltip')}>
-                  <label className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant cursor-help">{t('playground.temperature')}</label>
+                <Tooltip content="Controls randomness: Lower is more deterministic, higher is more creative.">
+                  <label className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant cursor-help">Temperature</label>
                 </Tooltip>
                 <span className="text-[11px] font-mono text-primary">{temperature.toFixed(1)}</span>
               </div>
@@ -664,8 +799,8 @@ const Playground: FC = () => {
 
             <div className="space-y-2">
               <div className="flex justify-between items-center">
-                <Tooltip content={t('playground.topPTooltip')}>
-                  <label className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant cursor-help">{t('playground.topP')}</label>
+                <Tooltip content="Limits the cumulative probability of the most likely tokens.">
+                  <label className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant cursor-help">Top P</label>
                 </Tooltip>
                 <span className="text-[11px] font-mono text-primary">{topP.toFixed(2)}</span>
               </div>
@@ -682,7 +817,7 @@ const Playground: FC = () => {
 
         {availableModels.length > 0 && (
           <div>
-            <h3 className="font-headline text-sm font-bold tracking-tight mb-4 uppercase">{t('playground.activeModel')}</h3>
+            <h3 className="font-headline text-sm font-bold tracking-tight mb-4 uppercase">Active Model</h3>
             <div className="space-y-3">
               {availableModels.map(m => (
                 <button
@@ -700,14 +835,17 @@ const Playground: FC = () => {
                   )}
                 </button>
               ))}
-              {/* La note « effectif au prochain redémarrage » a été retirée : elle contredisait
-                  le toast (llm-chat recharge le modèle automatiquement, cf. superviseur). */}
+              {availableModels.length > 1 && (
+                <p className="text-[10px] text-outline uppercase tracking-widest leading-relaxed">
+                  Effective on the next chat service restart.
+                </p>
+              )}
             </div>
           </div>
         )}
 
         <div>
-          <h3 className="font-headline text-sm font-bold tracking-tight mb-4 uppercase">{t('playground.ragConfig')}</h3>
+          <h3 className="font-headline text-sm font-bold tracking-tight mb-4 uppercase">RAG Configuration</h3>
           <div className="space-y-3">
             <label className="flex items-center gap-3 cursor-pointer group">
               <input
@@ -716,14 +854,14 @@ const Playground: FC = () => {
                 onChange={(e) => {
                   const next = e.target.checked;
                   setRagEnabled(next);
-                  toast.info(next ? t('playground.kbLinked') : t('playground.kbDisconnected'));
+                  toast.info(next ? 'Knowledge Base Linked' : 'Knowledge Base Disconnected');
                 }}
                 className="sr-only peer"
               />
               <div className="w-4 h-4 border border-primary flex items-center justify-center group-hover:bg-primary/10 transition-colors peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-primary peer-focus-visible:outline-offset-2">
                 {ragEnabled && <div className="w-2 h-2 bg-primary"></div>}
               </div>
-              <span className="text-xs font-label uppercase tracking-widest">{t('playground.enableKb')}</span>
+              <span className="text-xs font-label uppercase tracking-widest">Enable Knowledge Base</span>
             </label>
 
             {ragEnabled && (
@@ -735,15 +873,15 @@ const Playground: FC = () => {
                     onChange={(e) => {
                       const next = e.target.checked;
                       setConvEnabled(next);
-                      toast.info(next ? t('playground.convEnabled') : t('playground.convDisabled'));
+                      toast.info(next ? 'Conversational RAG enabled' : 'Conversational RAG disabled');
                     }}
                     className="sr-only peer"
                   />
                   <div className="w-4 h-4 border border-secondary flex items-center justify-center group-hover:bg-secondary/10 transition-colors peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-secondary peer-focus-visible:outline-offset-2">
                     {convEnabled && <div className="w-2 h-2 bg-secondary"></div>}
                   </div>
-                  <Tooltip content={t('playground.convTooltip')}>
-                    <span className="text-xs font-label uppercase tracking-widest cursor-help">{t('playground.convHistory')}</span>
+                  <Tooltip content="Sends the conversation history to rephrase the question before retrieval (Conversational RAG).">
+                    <span className="text-xs font-label uppercase tracking-widest cursor-help">Conversational History</span>
                   </Tooltip>
                 </label>
 
@@ -753,26 +891,72 @@ const Playground: FC = () => {
                     onClick={() => setShowAdvanced(v => !v)}
                   >
                     <span className="material-symbols-outlined text-[11px]">{showAdvanced ? 'expand_less' : 'expand_more'}</span>
-                    {t('playground.advanced')}
+                    Advanced
                   </button>
 
                   {showAdvanced && (
-                    <div className="mt-3 space-y-2">
-                      <div className="flex justify-between items-center">
-                        <Tooltip content={t('playground.topCandidatesTooltip')}>
-                          <label className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant cursor-help">
-                            {t('playground.topCandidates')}
-                          </label>
-                        </Tooltip>
-                        <span className="text-[11px] font-mono text-primary">{topCandidates}</span>
+                    <div className="mt-3 space-y-4">
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-center">
+                          <Tooltip content="Number of candidates sent to the re-ranker (higher = better coverage, slower).">
+                            <label className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant cursor-help">
+                              Top Candidates
+                            </label>
+                          </Tooltip>
+                          <span className="text-[11px] font-mono text-primary">{topCandidates}</span>
+                        </div>
+                        <input
+                          type="range"
+                          className="w-full accent-primary bg-outline-variant h-1 appearance-none cursor-pointer"
+                          min="5" max="50" step="5"
+                          value={topCandidates}
+                          onChange={(e) => setTopCandidates(parseInt(e.target.value, 10))}
+                        />
                       </div>
-                      <input
-                        type="range"
-                        className="w-full accent-primary bg-outline-variant h-1 appearance-none cursor-pointer"
-                        min="5" max="50" step="5"
-                        value={topCandidates}
-                        onChange={(e) => setTopCandidates(parseInt(e.target.value, 10))}
-                      />
+
+                      {/* Toggles par module (chantier 3) : décocher force le module OFF pour
+                          les requêtes. On ne peut pas forcer ON un module absent du serveur. */}
+                      <div className="space-y-2">
+                        <Tooltip content="Toggle individual pipeline modules for your queries. Unchecking forces a module off; a module not enabled server-side stays off regardless.">
+                          <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant cursor-help">
+                            Pipeline Modules
+                          </p>
+                        </Tooltip>
+                        {RAG_MODULES.map(mod => {
+                          const available = moduleAvailable(mod.key);
+                          const enabled = available && !disabledModules.has(mod.key);
+                          // Module non déployé serveur : case décochée, verrouillée, libellé grisé.
+                          return (
+                            <label key={mod.key} className={`flex items-center gap-2.5 group ${available ? 'cursor-pointer' : 'cursor-not-allowed'}`}>
+                              <input
+                                type="checkbox"
+                                checked={enabled}
+                                disabled={!available}
+                                onChange={() => available && toggleModule(mod.key)}
+                                className="sr-only peer"
+                              />
+                              <div className={`w-3.5 h-3.5 border flex items-center justify-center transition-colors peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-primary peer-focus-visible:outline-offset-2 ${available ? 'border-primary/60 group-hover:bg-primary/10' : 'border-outline/40'}`}>
+                                {enabled && <div className="w-1.5 h-1.5 bg-primary" />}
+                              </div>
+                              <Tooltip content={available ? mod.hint : `${mod.label} is not enabled on the server (deploy-time env var). It stays off regardless of this toggle.`}>
+                                <span className={`text-[11px] tracking-wide flex items-center gap-1 ${available ? `cursor-help ${enabled ? 'text-on-surface-variant' : 'text-outline line-through'}` : 'cursor-not-allowed text-outline/60'}`}>
+                                  {mod.label}
+                                  {!available && <span className="text-[9px] uppercase tracking-widest text-outline/50">off</span>}
+                                </span>
+                              </Tooltip>
+                            </label>
+                          );
+                        })}
+                        {disabledModules.size > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setDisabledModules(new Set())}
+                            className="text-[10px] uppercase tracking-widest text-primary hover:text-primary/70 transition-colors pt-1"
+                          >
+                            Reset — enable all
+                          </button>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -805,7 +989,7 @@ const Playground: FC = () => {
             className="w-full py-3 px-4 border border-primary/30 text-primary text-[11px] font-headline uppercase tracking-widest hover:bg-primary/5 transition-colors flex items-center justify-center gap-2"
           >
             <span className="material-symbols-outlined text-sm">psychology</span>
-            {t('playground.ragAdvisor')}
+            RAG Advisor
           </button>
           <div className="relative">
             <button
@@ -814,7 +998,7 @@ const Playground: FC = () => {
               className="w-full py-3 px-4 border border-outline-variant/40 text-on-surface-variant text-[11px] font-headline uppercase tracking-widest hover:border-primary/40 hover:text-primary transition-colors flex items-center justify-center gap-2"
             >
               <span className="material-symbols-outlined text-sm">download</span>
-              {t('playground.exportConversation')}
+              Export Conversation
             </button>
             {exportMenuOpen && (
               <>
@@ -824,25 +1008,34 @@ const Playground: FC = () => {
                   className="absolute left-0 right-0 bottom-full mb-1 z-20 bg-surface-container-high border border-outline-variant/30 shadow-lg py-1 animate-in fade-in slide-in-from-bottom-1">
                   <button type="button" role="menuitem" onClick={() => exportConversation('md')}
                     className="w-full flex items-center gap-2 px-3 py-2 text-left text-[11px] uppercase tracking-widest text-on-surface-variant hover:bg-primary/10 hover:text-primary transition-colors">
-                    <span aria-hidden="true" className="material-symbols-outlined text-[14px]">description</span>{t('playground.exportMd')}
+                    <span aria-hidden="true" className="material-symbols-outlined text-[14px]">description</span>As Markdown
                   </button>
                   <button type="button" role="menuitem" onClick={() => exportConversation('json')}
                     className="w-full flex items-center gap-2 px-3 py-2 text-left text-[11px] uppercase tracking-widest text-on-surface-variant hover:bg-primary/10 hover:text-primary transition-colors">
-                    <span aria-hidden="true" className="material-symbols-outlined text-[14px]">data_object</span>{t('playground.exportJson')}
+                    <span aria-hidden="true" className="material-symbols-outlined text-[14px]">data_object</span>As JSON
                   </button>
                 </div>
               </>
             )}
           </div>
           <button
-            onClick={clearChat}
-            className="w-full py-3 px-4 border border-error/30 text-error text-[11px] font-headline uppercase tracking-widest hover:bg-error/5 transition-colors flex items-center justify-center gap-2"
+            onClick={requestClearChat}
+            className="w-full h-10 px-4 rounded-lg border border-error/30 text-error text-[13px] font-medium hover:bg-error/10 transition-colors flex items-center justify-center gap-2"
           >
-            <span className="material-symbols-outlined text-sm">delete_sweep</span>
-            {t('playground.clearChat')}
+            <span aria-hidden="true" className="material-symbols-outlined text-[16px]">delete_sweep</span>
+            Clear Chat History
           </button>
         </div>
       </aside>
+
+      <ConfirmDialog
+        open={confirmClear}
+        title={t('playground.clearConfirmTitle', 'Clear chat history?')}
+        message={t('playground.clearConfirmMsg', 'The current conversation will be permanently removed.')}
+        confirmLabel={t('playground.clearConfirmAction', 'Clear history')}
+        onConfirm={clearChat}
+        onCancel={() => setConfirmClear(false)}
+      />
 
       <div className="flex-1 flex flex-col bg-surface-container overflow-hidden relative">
         <div
@@ -851,7 +1044,7 @@ const Playground: FC = () => {
           role="log"
           aria-live="polite"
           aria-busy={isTyping}
-          aria-label={t('playground.conversationAria')}
+          aria-label="Conversation"
           className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar"
         >
           {messages.map((msg, i) => (
@@ -871,27 +1064,57 @@ const Playground: FC = () => {
                 )}
 
                 <p className="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-3">
-                  {msg.role === 'user' ? t('playground.roleUser') : t('playground.roleAssistant')}
+                  {msg.role === 'user' ? 'Architect' : 'Spectra Core'}
                 </p>
                 {msg.role === 'assistant' ? (
                   <div className="text-sm">
-                    {msg.content && <ChatMarkdown content={msg.content} />}
+                    {msg.content && (
+                      <ChatMarkdown
+                        content={msg.content}
+                        citationCount={msg.status === 'SENT' ? msg.sources?.length : undefined}
+                        onCitationClick={n => jumpToSource(i, n)}
+                      />
+                    )}
                     {msg.status === 'STREAMING' && (
                       <span className="inline-block w-1.5 h-3.5 bg-primary ml-0.5 animate-pulse align-middle" />
+                    )}
+                    {/* Étape pipeline en direct (retrieval, boucle agentique, réflexion…) */}
+                    {msg.status === 'STREAMING' && liveStage && (
+                      <p className="mt-2 flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-outline">
+                        <span aria-hidden="true" className="material-symbols-outlined text-[12px] animate-spin">progress_activity</span>
+                        {liveStage}
+                      </p>
                     )}
                   </div>
                 ) : (
                   <p className="text-sm font-body leading-relaxed whitespace-pre-wrap">{msg.content}</p>
                 )}
 
-                {msg.sources && msg.sources.length > 0 && (
-                  <div className="mt-4 pt-4 border-t border-outline-variant/20">
-                    <p className="font-label text-[10px] uppercase tracking-widest text-outline mb-1">{t('playground.sourcesTitle', { count: msg.sources.length })}</p>
-                    {msg.sources.map((src, j) => <SourceItem key={j} src={src} expert={expertMode} />)}
-                  </div>
-                )}
+                {msg.sources && msg.sources.length > 0 && (() => {
+                  // Sources citées dans la réponse (marqueurs [n]) : numérotées et mises en évidence.
+                  const cited = new Set(parseCitations(msg.content, msg.sources.length));
+                  return (
+                    <div className="mt-4 pt-4 border-t border-outline-variant/20">
+                      <p className="font-label text-[10px] uppercase tracking-widest text-outline mb-1">
+                        Sources ({msg.sources.length}){cited.size > 0 && <span className="text-primary normal-case tracking-normal ml-1">· {cited.size} cited</span>}
+                      </p>
+                      {msg.sources.map((src, j) => (
+                        <SourceItem
+                          key={j}
+                          src={src}
+                          expert={expertMode}
+                          citeNumber={j + 1}
+                          cited={cited.has(j + 1)}
+                          openSignal={citeTarget?.key === `${i}-${j + 1}` ? citeTarget.tick : 0}
+                        />
+                      ))}
+                    </div>
+                  );
+                })()}
 
-                {expertMode && msg.ragMeta && msg.status === 'SENT' && msg.role === 'assistant' && (
+                {/* Badges pipeline visibles pour tous (visibilité du fonctionnement RAG) ;
+                    le mode expert reste réservé aux distances brutes et métriques. */}
+                {msg.ragMeta && msg.status === 'SENT' && msg.role === 'assistant' && (
                   <RagBadges meta={msg.ragMeta} onShowTrace={() => setTraceMsg(msg)} />
                 )}
 
@@ -900,40 +1123,40 @@ const Playground: FC = () => {
                   <div className="mt-3 flex items-center justify-between gap-3">
                     {msg.metrics && expertMode ? (
                       <div className="flex items-center gap-3 text-[10px] font-mono text-outline">
-                        <span title={t('playground.ttftTitle')}>TTFT {(msg.metrics.ttftMs / 1000).toFixed(1)}s</span>
-                        <span title={t('playground.totalTitle')}>{(msg.metrics.totalMs / 1000).toFixed(1)}s</span>
-                        <span title={t('playground.tokensTitle')}>{msg.metrics.tokens} tok</span>
+                        <span title="Time to first token">TTFT {(msg.metrics.ttftMs / 1000).toFixed(1)}s</span>
+                        <span title="Total time">{(msg.metrics.totalMs / 1000).toFixed(1)}s</span>
+                        <span title="Tokens (approx.)">{msg.metrics.tokens} tok</span>
                         {msg.stopped && (
-                          <span className="text-error font-bold uppercase tracking-wider" title={t('playground.stoppedTitle')}>
-                            {t('playground.stopped')}
+                          <span className="text-error font-bold uppercase tracking-wider" title="Generation stopped — answer may be incomplete">
+                            stopped
                           </span>
                         )}
                       </div>
                     ) : msg.stopped ? (
-                      <span className="text-[10px] font-mono text-error font-bold uppercase tracking-wider" title={t('playground.stoppedTitle')}>
-                        {t('playground.stopped')}
+                      <span className="text-[10px] font-mono text-error font-bold uppercase tracking-wider" title="Generation stopped — answer may be incomplete">
+                        stopped
                       </span>
                     ) : <span />}
 
                     <div className="flex items-center gap-1">
                       <button type="button" onClick={() => sendFeedback(i, 'UP')}
-                        aria-label={t('playground.goodAnswer')} aria-pressed={msg.feedback === 'UP'}
+                        aria-label="Good answer" aria-pressed={msg.feedback === 'UP'}
                         className={`material-symbols-outlined text-[14px] px-1 transition-colors ${msg.feedback === 'UP' ? 'text-primary' : 'text-outline hover:text-primary'}`}>thumb_up</button>
                       <button type="button" onClick={() => sendFeedback(i, 'DOWN')}
-                        aria-label={t('playground.badAnswer')} aria-pressed={msg.feedback === 'DOWN'}
+                        aria-label="Bad answer" aria-pressed={msg.feedback === 'DOWN'}
                         className={`material-symbols-outlined text-[14px] px-1 transition-colors ${msg.feedback === 'DOWN' ? 'text-error' : 'text-outline hover:text-error'}`}>thumb_down</button>
 
                       <span className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-                        <button type="button" onClick={() => copyAnswer(msg.content)} aria-label={t('playground.copy')}
+                        <button type="button" onClick={() => copyAnswer(msg.content)} aria-label="Copy answer"
                           className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-outline hover:text-primary transition-colors px-1.5 py-0.5">
-                          <span aria-hidden="true" className="material-symbols-outlined text-[13px]">content_copy</span>{t('playground.copy')}
+                          <span aria-hidden="true" className="material-symbols-outlined text-[13px]">content_copy</span>Copy
                         </button>
                         {i === lastAssistantIdx && (
                           <div className="relative">
                             <button type="button" onClick={() => setRegenMenuOpen(o => !o)} disabled={isTyping}
-                              aria-label={t('playground.regenerate')} aria-haspopup="menu" aria-expanded={regenMenuOpen}
+                              aria-label="Regenerate" aria-haspopup="menu" aria-expanded={regenMenuOpen}
                               className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-outline hover:text-primary transition-colors px-1.5 py-0.5 disabled:opacity-40">
-                              <span aria-hidden="true" className="material-symbols-outlined text-[13px]">refresh</span>{t('playground.regenerate')}
+                              <span aria-hidden="true" className="material-symbols-outlined text-[13px]">refresh</span>Regenerate
                               <span aria-hidden="true" className={`material-symbols-outlined text-[12px] transition-transform ${regenMenuOpen ? 'rotate-180' : ''}`}>expand_more</span>
                             </button>
                             {regenMenuOpen && (
@@ -957,20 +1180,49 @@ const Playground: FC = () => {
                             )}
                           </div>
                         )}
+                        {/* Comparaison A/B : rejouer sans un module qui a réellement agi (chantier 4) */}
+                        {appliedModules(msg.ragMeta).length > 0 && (
+                          <div className="relative">
+                            <button type="button" onClick={() => setCompareMenuIdx(idx => idx === i ? null : i)} disabled={isTyping}
+                              aria-label="Compare without a module" aria-haspopup="menu" aria-expanded={compareMenuIdx === i}
+                              className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-outline hover:text-primary transition-colors px-1.5 py-0.5 disabled:opacity-40">
+                              <span aria-hidden="true" className="material-symbols-outlined text-[13px]">compare_arrows</span>Compare
+                              <span aria-hidden="true" className={`material-symbols-outlined text-[12px] transition-transform ${compareMenuIdx === i ? 'rotate-180' : ''}`}>expand_more</span>
+                            </button>
+                            {compareMenuIdx === i && (
+                              <>
+                                <button type="button" aria-hidden="true" tabIndex={-1}
+                                  className="fixed inset-0 z-10 cursor-default" onClick={() => setCompareMenuIdx(null)} />
+                                <div role="menu"
+                                  className="absolute right-0 bottom-full mb-1 z-20 w-52 bg-surface-container-high border border-outline-variant/30 shadow-lg py-1 animate-in fade-in slide-in-from-bottom-1">
+                                  <p className="px-3 py-1 text-[9px] uppercase tracking-widest text-outline">Re-run without…</p>
+                                  {appliedModules(msg.ragMeta).map(mod => (
+                                    <button key={mod.key} type="button" role="menuitem"
+                                      onClick={() => openComparison(i, mod)}
+                                      className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-[11px] uppercase tracking-widest text-on-surface-variant hover:bg-primary/10 hover:text-primary transition-colors">
+                                      <span aria-hidden="true" className="material-symbols-outlined text-[13px]">block</span>
+                                      <span className="flex-1">{mod.label}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        )}
                       </span>
                     </div>
                   </div>
                 )}
                 {msg.role === 'user' && (
                   <div className="mt-2 flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-                    <button type="button" onClick={() => editMessage(i)} disabled={isTyping} aria-label={t('playground.edit')}
+                    <button type="button" onClick={() => editMessage(i)} disabled={isTyping} aria-label="Edit message"
                       className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-outline hover:text-secondary transition-colors px-1.5 py-0.5 disabled:opacity-40">
-                      <span aria-hidden="true" className="material-symbols-outlined text-[13px]">edit</span>{t('playground.edit')}
+                      <span aria-hidden="true" className="material-symbols-outlined text-[13px]">edit</span>Edit
                     </button>
                     {msg.status === 'ERROR' && (
-                      <button type="button" onClick={() => regenerateLast()} disabled={isTyping} aria-label={t('playground.retry')}
+                      <button type="button" onClick={() => regenerateLast()} disabled={isTyping} aria-label="Retry"
                         className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-error hover:text-error/80 transition-colors px-1.5 py-0.5 disabled:opacity-40">
-                        <span aria-hidden="true" className="material-symbols-outlined text-[13px]">replay</span>{t('playground.retry')}
+                        <span aria-hidden="true" className="material-symbols-outlined text-[13px]">replay</span>Retry
                       </button>
                     )}
                   </div>
@@ -986,7 +1238,7 @@ const Playground: FC = () => {
                   <div className="w-1 h-1 bg-primary animate-bounce [animation-delay:0.2s]"></div>
                   <div className="w-1 h-1 bg-primary animate-bounce [animation-delay:0.4s]"></div>
                 </div>
-                <span className="text-[10px] uppercase tracking-widest text-outline">{t('playground.processing')}</span>
+                <span className="text-[10px] uppercase tracking-widest text-outline">Processing...</span>
               </div>
             </div>
           )}
@@ -998,29 +1250,29 @@ const Playground: FC = () => {
           <button
             type="button"
             onClick={scrollToBottom}
-            aria-label={t('playground.scrollAria')}
+            aria-label="Scroll to latest message"
             className="absolute bottom-28 right-6 z-10 flex items-center gap-1 bg-surface-container-high border border-outline-variant/30 text-on-surface-variant hover:text-primary px-2.5 py-1.5 shadow-lg text-[10px] uppercase tracking-widest transition-colors animate-in fade-in slide-in-from-bottom-2"
           >
             <span aria-hidden="true" className={`material-symbols-outlined text-[14px] ${isTyping ? 'text-primary animate-bounce' : ''}`}>arrow_downward</span>
-            {isTyping ? t('playground.scrollNew') : t('playground.scrollLatest')}
+            {isTyping ? 'New' : 'Latest'}
           </button>
         )}
 
         <div className="p-8 border-t border-outline-variant/10">
-          {convEnabled && messages.filter(m => m.status === 'SENT').length > 1 && (
+          {convEnabled && buildHistory().length > 0 && (
             <p className="text-[10px] font-label uppercase tracking-widest text-secondary mb-2 flex items-center gap-1">
               <span className="material-symbols-outlined text-[11px]">forum</span>
-              {t('playground.conversationalBar', { count: messages.filter(m => m.status === 'SENT').length })}
+              Conversational — {buildHistory().length} messages in history
             </p>
           )}
           <div className="flex items-end gap-3 bg-surface-container-lowest border border-outline-variant/20 p-2">
-            <label htmlFor="chat-input" className="sr-only">{t('playground.messageLabel')}</label>
+            <label htmlFor="chat-input" className="sr-only">Message</label>
             <textarea
               id="chat-input"
               ref={textareaRef}
               rows={1}
               className="flex-1 bg-transparent border-none focus:ring-0 focus:outline-none text-sm font-body px-4 py-2 resize-none max-h-40 custom-scrollbar"
-              placeholder={llmDown ? t('playground.inputPlaceholderOffline') : t('playground.inputPlaceholder')}
+              placeholder={llmDown ? 'Chat model offline — start llama-cpp-chat to send messages' : 'Ask a question…  (Enter to send · Shift+Enter for a new line)'}
               value={input}
               onChange={(e) => {
                 setInput(e.target.value);
@@ -1039,7 +1291,7 @@ const Playground: FC = () => {
               <button
                 type="button"
                 onClick={stopGeneration}
-                aria-label={t('playground.stop')}
+                aria-label="Stop generation"
                 className="bg-error/90 text-on-error p-2 transition-all hover:bg-error flex items-center justify-center"
               >
                 <span aria-hidden="true" className="material-symbols-outlined">stop</span>
@@ -1049,7 +1301,7 @@ const Playground: FC = () => {
                 type="button"
                 onClick={handleSend}
                 disabled={!input.trim() || llmDown}
-                aria-label={t('playground.send')}
+                aria-label="Send message"
                 className="bg-primary text-on-primary-fixed p-2 transition-all hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center"
               >
                 <span aria-hidden="true" className="material-symbols-outlined">send</span>
@@ -1059,119 +1311,28 @@ const Playground: FC = () => {
         </div>
       </div>
       <RagAdvisor open={advisorOpen} onClose={() => setAdvisorOpen(false)} />
+      {/* La comparaison A/B rejoue avec la config EXACTE de la réponse de référence
+          (fallback : réglages courants pour les réponses d'avant cette fonctionnalité). */}
+      {comparison && (
+        <Suspense fallback={null}>
+          <RagComparisonDialog
+            baseline={comparison.baseline}
+            question={comparison.question}
+            module={comparison.module}
+            history={comparison.history}
+            temperature={comparison.baseline.params?.temperature ?? temperature}
+            topP={comparison.baseline.params?.topP ?? topP}
+            topCandidates={comparison.baseline.params?.topCandidates ?? topCandidates}
+            ragEnabled={ragEnabled}
+            baseOverrides={comparison.baseline.params?.overrides ?? buildOverrides()}
+            onClose={() => setComparison(null)}
+          />
+        </Suspense>
+      )}
       {traceMsg && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300"
-          onClick={() => setTraceMsg(null)}
-        >
-          <div
-            ref={traceRef}
-            tabIndex={-1}
-            role="dialog"
-            aria-modal="true"
-            aria-label={t('playground.traceTitle')}
-            onClick={e => e.stopPropagation()}
-            className="bg-surface-container border border-outline-variant/30 shadow-2xl w-full max-w-4xl max-h-full flex flex-col rounded-xl overflow-hidden outline-none animate-in zoom-in-95 duration-300"
-          >
-            <header className="px-6 py-4 border-b border-outline-variant/10 flex items-center justify-between bg-surface-container-high shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-primary/20 text-primary flex items-center justify-center">
-                  <span className="material-symbols-outlined text-sm">insights</span>
-                </div>
-                <div>
-                  <h2 className="font-headline font-bold text-lg text-on-surface">{t('playground.traceTitle')}</h2>
-                  <p className="text-[11px] uppercase tracking-widest text-on-surface-variant">{t('playground.traceSubtitle')}</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setTraceMsg(null)}
-                className="w-8 h-8 flex items-center justify-center text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest transition-colors rounded-full"
-                aria-label={t('playground.traceClose')}
-              >
-                <span className="material-symbols-outlined text-sm">close</span>
-              </button>
-            </header>
-
-            <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
-              <div className="space-y-3">
-                <h3 className="font-headline font-bold text-sm text-primary uppercase tracking-widest flex items-center gap-2">
-                  <span className="material-symbols-outlined text-base">route</span>
-                  {t('playground.strategyApplied')}
-                </h3>
-                <div className="bg-surface-container-low border border-outline-variant/10 rounded-lg p-4">
-                  <div className="flex flex-col md:flex-row gap-6 md:items-center justify-between">
-                    <div>
-                       <p className="text-xl font-headline font-bold text-on-surface">{traceMsg.ragMeta?.ragStrategy}</p>
-                       <p className="text-xs text-on-surface-variant mt-1">
-                         {traceMsg.ragMeta?.ragStrategy === 'AGENTIC' ? t('playground.stratAgentic') :
-                          traceMsg.ragMeta?.ragStrategy === 'STANDARD' ? t('playground.stratStandard') :
-                          t('playground.stratDirect')}
-                       </p>
-                    </div>
-                    {traceMsg.ragMeta?.ragStrategy === 'AGENTIC' && traceMsg.ragMeta?.agenticIterations && (
-                      <div className="text-right">
-                        <p className="text-2xl font-mono text-primary">{traceMsg.ragMeta?.agenticIterations}</p>
-                        <p className="text-[11px] uppercase tracking-widest text-on-surface-variant mt-1">{t('playground.iterations')}</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <h3 className="font-headline font-bold text-sm text-secondary uppercase tracking-widest flex items-center gap-2">
-                  <span className="material-symbols-outlined text-base">filter_alt</span>
-                  {t('playground.optimizationsTriggered')}
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                   {[
-                      { active: traceMsg.ragMeta?.hybridSearchApplied, key: 'hybrid' },
-                      { active: traceMsg.ragMeta?.rerankApplied, key: 'rerank' },
-                      { active: traceMsg.ragMeta?.multiQueryApplied, key: 'multiQuery' },
-                      { active: traceMsg.ragMeta?.compressionApplied, key: 'compression' },
-                      { active: traceMsg.ragMeta?.semanticDedupApplied, key: 'dedup' },
-                      { active: traceMsg.ragMeta?.correctiveApplied, key: 'corrective' },
-                   ].map(opt => (
-                     <div key={opt.key} className={`p-4 rounded-lg border ${opt.active ? 'bg-secondary/10 border-secondary/30' : 'bg-surface-container-low border-outline-variant/10 opacity-50'}`}>
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className={`material-symbols-outlined text-sm ${opt.active ? 'text-secondary' : 'text-on-surface-variant'}`}>
-                            {opt.active ? 'check_circle' : 'cancel'}
-                          </span>
-                          <span className={`font-bold text-xs ${opt.active ? 'text-secondary' : 'text-on-surface-variant'}`}>{t(`playground.opts.${opt.key}.label`)}</span>
-                        </div>
-                        <p className="text-[11px] text-on-surface-variant leading-relaxed">{t(`playground.opts.${opt.key}.desc`)}</p>
-                     </div>
-                   ))}
-                </div>
-              </div>
-
-              {traceMsg.sources && traceMsg.sources.length > 0 && (
-                <div className="space-y-3">
-                  <h3 className="font-headline font-bold text-sm text-primary uppercase tracking-widest flex items-center gap-2">
-                    <span className="material-symbols-outlined text-base">format_list_numbered</span>
-                    {t('playground.finalContext')}
-                  </h3>
-                  <div className="space-y-2">
-                     {traceMsg.sources.map((src, i) => {
-                       const pct = typeof src.distance === 'number' ? Math.max(0, Math.min(100, Math.round((1 - src.distance) * 100))) : null;
-                       return (
-                        <div key={i} className="bg-surface-container-low border border-outline-variant/10 p-3 rounded text-xs space-y-1">
-                           <div className="flex items-center justify-between">
-                             <span className="font-bold text-on-surface break-all">{src.sourceFile}</span>
-                             {pct !== null && (
-                               <span className="text-[11px] bg-primary/20 text-primary px-1.5 rounded">{t('playground.relevancePct', { pct })}</span>
-                             )}
-                           </div>
-                           <p className="text-on-surface-variant line-clamp-2" title={src.text || src.preview}>{src.text || src.preview}</p>
-                        </div>
-                       );
-                     })}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+        <Suspense fallback={null}>
+          <RagTracePanel traceMsg={traceMsg} onClose={() => setTraceMsg(null)} />
+        </Suspense>
       )}
     </div>
   );

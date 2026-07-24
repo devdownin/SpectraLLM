@@ -53,6 +53,7 @@ public class IngestionTaskExecutor {
     private final Counter chunksIngested;
     private final Counter filesIngested;
     private final Timer ingestionTimer;
+    private final Counter submissionsRejected;
 
     public IngestionTaskExecutor(DocumentExtractorFactory extractorFactory,
                                  TextCleanerService textCleaner,
@@ -62,7 +63,7 @@ public class IngestionTaskExecutor {
                                  FtsService ftsService,
                                  MeterRegistry meterRegistry,
                                  SpectraProperties properties,
-                                 @Value("${spectra.pipeline.embedding-batch-size:10}") int embeddingBatchSize,
+                                 @Value("${spectra.pipeline.embedding-batch-size:32}") int embeddingBatchSize,
                                  @Value("${spectra.pipeline.max-uncompressed-mb:0}") int maxUncompressedMb,
                                  @Value("${spectra.pipeline.concurrent-ingestions:4}") int concurrentIngestions) {
         this.extractorFactory = extractorFactory;
@@ -88,6 +89,9 @@ public class IngestionTaskExecutor {
         this.ingestionTimer = Timer.builder("spectra.ingestion.file.duration")
                 .description("Durée d'ingestion par fichier")
                 .register(meterRegistry);
+        this.submissionsRejected = Counter.builder("spectra.ingestion.rejected")
+                .description("Soumissions d'ingestion refusées par la contre-pression (429, plafond de tâches actives)")
+                .register(meterRegistry);
         // Profondeur de file / capacité disponible — détecte la saturation du pipeline d'ingestion.
         meterRegistry.gauge("spectra.ingestion.concurrency.available", concurrencySemaphore, Semaphore::availablePermits);
         meterRegistry.gauge("spectra.ingestion.concurrency.queued", concurrencySemaphore, s -> (double) s.getQueueLength());
@@ -104,6 +108,11 @@ public class IngestionTaskExecutor {
                         Map<String, IngestionTask> tasks, String collectionName,
                         Map<Path, String> tempFileToHash, IngestionCallback onIngested) {
         execute(taskId, fileNames, tempFiles, tasks, collectionName, tempFileToHash, onIngested, null);
+    }
+
+    /** Compte une soumission refusée par la contre-pression (plafond de tâches actives → 429). */
+    public void recordSubmissionRejected() {
+        submissionsRejected.increment();
     }
 
     @Async
@@ -129,11 +138,14 @@ public class IngestionTaskExecutor {
 
             // Progression live : chaque lot d'embeddings ajouté incrémente le compteur de la
             // tâche, immédiatement visible via le polling de l'UI — y compris pour un seul fichier.
+            // Sert aussi de heartbeat : l'appelant rafraîchit ses réservations in-flight, pour
+            // qu'une ingestion plus longue que le TTL ne soit pas « reprise » par un doublon.
             final int[] addedSoFar = {0};
             final IntConsumer progress = delta -> {
                 final int now = (addedSoFar[0] += delta);
                 tasks.computeIfPresent(taskId, (k, t) ->
                         t.status() == IngestionTask.Status.CANCELLED ? t : t.progress(now));
+                if (onIngested != null) onIngested.heartbeat();
             };
             // Dénominateur live : dès qu'un fichier (ou une entrée ZIP) est découpé, son total de
             // chunks s'ajoute au « attendu » — l'UI peut afficher une barre déterminée pendant
@@ -145,6 +157,7 @@ public class IngestionTaskExecutor {
                         t.status() == IngestionTask.Status.CANCELLED ? t : t.expecting(now));
             };
 
+            int failedFiles = 0;
             for (int i = 0; i < tempFiles.size(); i++) {
                 // Point de contrôle d'annulation : interrompt proprement la boucle.
                 IngestionTask current = tasks.get(taskId);
@@ -155,21 +168,42 @@ public class IngestionTaskExecutor {
                 String declaredName = i < fileNames.size() ? fileNames.get(i) : null;
                 String name = declaredName != null ? declaredName : tempFiles.get(i).getFileName().toString();
                 Path currentTempFile = tempFiles.get(i);
+                String hash = tempFileToHash != null ? tempFileToHash.get(currentTempFile) : null;
+                // Ré-ingestion (force) : laisse l'appelant purger l'ancienne version des index
+                // AVANT la ré-indexation — sans cela, chaque force dupliquait tous les chunks
+                // du document dans ChromaDB et BM25.
+                if (hash != null && onIngested != null) {
+                    try {
+                        onIngested.beforeIndex(hash, name);
+                    } catch (Exception e) {
+                        log.warn("Purge pré-réindexation échouée pour {} : {}", name, e.getMessage());
+                    }
+                }
                 final int[] resultHolder = new int[1];
                 final String[] parserHolder = new String[1];
                 final int[] layoutHolder = new int[1];
+                final String[] errorHolder = new String[1];
                 ingestionTimer.record(() -> {
                     try {
-                        IngestOneResult r = ingestOne(name, currentTempFile, collectionId, collectionName, progress, discovered);
+                        IngestOneResult r = ingestOne(name, currentTempFile, collectionId, collectionName,
+                                progress, discovered, hash);
                         resultHolder[0] = r.chunks();
                         parserHolder[0] = r.parserUsed();
                         layoutHolder[0] = r.layoutAwareChunks();
                     } catch (Exception e) {
                         log.error("Erreur lors de l'ingestion du fichier {}: {}", name, e.getMessage());
                         resultHolder[0] = 0;
+                        errorHolder[0] = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
                     }
                 });
                 int chunks = resultHolder[0];
+                // L'échec d'un fichier n'interrompt pas la tâche, mais il est désormais visible
+                // dans le suivi (fileErrors) au lieu d'un COMPLETED silencieux.
+                if (errorHolder[0] != null) {
+                    failedFiles++;
+                    final String fileError = name + ": " + errorHolder[0];
+                    tasks.computeIfPresent(taskId, (k, t) -> t.withFileError(fileError));
+                }
                 if (parserHolder[0] != null) lastParserUsed = parserHolder[0];
                 totalLayoutAwareChunks += layoutHolder[0];
                 totalChunks += chunks;
@@ -180,17 +214,25 @@ public class IngestionTaskExecutor {
                 // On enregistre le document dès qu'au moins un chunk a été indexé (y compris en cas
                 // d'échec partiel d'un lot tardif) : on conserve ce qui a réussi.
                 if (chunks > 0 && onIngested != null) {
-                    String hash = tempFileToHash != null ? tempFileToHash.get(tempFiles.get(i)) : null;
                     onIngested.onIngested(hash, name, chunks);
                 }
             }
             final int finalChunks = totalChunks;
             final String finalParser = lastParserUsed;
             final int finalLayout = totalLayoutAwareChunks;
-            // Ne pas écraser un statut CANCELLED par COMPLETED.
-            tasks.computeIfPresent(taskId, (k, t) ->
-                    t.status() == IngestionTask.Status.CANCELLED ? t : t.completed(finalChunks, finalParser, finalLayout));
-            log.info("Ingestion {} terminée: {} chunks total, parser={}", taskId, totalChunks, lastParserUsed);
+            final boolean allFailed = failedFiles > 0 && failedFiles == tempFiles.size();
+            // Ne pas écraser un statut CANCELLED. Tous les fichiers en échec → FAILED
+            // (et non plus COMPLETED avec 0 chunk, indiscernable d'un succès).
+            tasks.computeIfPresent(taskId, (k, t) -> {
+                if (t.status() == IngestionTask.Status.CANCELLED) return t;
+                if (allFailed) {
+                    return t.failed("Aucun fichier n'a pu être ingéré : "
+                            + String.join(" ; ", t.fileErrors()));
+                }
+                return t.completed(finalChunks, finalParser, finalLayout);
+            });
+            log.info("Ingestion {} terminée: {} chunks total, {} fichier(s) en échec, parser={}",
+                    taskId, totalChunks, failedFiles, lastParserUsed);
         } catch (OutOfMemoryError e) {
             // Convertit un OOM en échec de tâche explicite plutôt que de laisser mourir le thread
             // d'ingestion : le semaphore est libéré dans le finally, le service reste opérationnel.
@@ -218,23 +260,59 @@ public class IngestionTaskExecutor {
      *  réutilisé par {@link IngestionService} (URL / batch) pour éviter un pipeline dupliqué. */
     IngestOneResult ingestOne(String fileName, Path tempFile, String collectionId, String collectionName,
                                       IntConsumer progress) throws Exception {
-        return ingestOne(fileName, tempFile, collectionId, collectionName, progress, NOOP_PROGRESS);
+        return ingestOne(fileName, tempFile, collectionId, collectionName, progress, NOOP_PROGRESS, null);
+    }
+
+    IngestOneResult ingestOne(String fileName, Path tempFile, String collectionId, String collectionName,
+                                      IntConsumer progress, IntConsumer discovered) throws Exception {
+        return ingestOne(fileName, tempFile, collectionId, collectionName, progress, discovered, null);
+    }
+
+    /**
+     * Variante qui acquiert un slot du sémaphore de concurrence — pour les chemins qui
+     * n'entrent pas par {@link #execute} (ingestion URL, batch local) : sans cela, N requêtes
+     * simultanées lançaient N pipelines d'extraction/embedding en parallèle, hors de tout
+     * plafond {@code concurrent-ingestions}.
+     */
+    public IngestOneResult ingestOneWithPermit(String fileName, Path tempFile, String collectionId,
+                                               String collectionName, IntConsumer progress,
+                                               String sha256) throws Exception {
+        concurrencySemaphore.acquire();
+        try {
+            return ingestOne(fileName, tempFile, collectionId, collectionName, progress, NOOP_PROGRESS, sha256);
+        } finally {
+            concurrencySemaphore.release();
+        }
     }
 
     /**
      * @param discovered notifié du nombre total de chunks d'un fichier dès le découpage terminé
      *   (avant l'embedding) — alimente {@link IngestionTask#chunksExpected()} pour la progression.
+     * @param sha256 hachage du contenu, ajouté aux métadonnées de chaque chunk : c'est
+     *   l'identité utilisée pour la suppression/le remplacement (les noms de fichiers ne sont
+     *   pas uniques — deux documents homonymes ne doivent plus partager leur sort). Nullable
+     *   (flux streaming Kafka, qui a sa propre identité {@code sourceKey}).
      */
     IngestOneResult ingestOne(String fileName, Path tempFile, String collectionId, String collectionName,
-                                      IntConsumer progress, IntConsumer discovered) throws Exception {
+                                      IntConsumer progress, IntConsumer discovered, String sha256) throws Exception {
         log.info("Ingestion de: {}", fileName);
 
         if (fileName.toLowerCase().endsWith(".zip")) {
             try (InputStream is = Files.newInputStream(tempFile)) {
-                int chunks = ingestZip(is, fileName, fileName, collectionId, collectionName, 0, progress, discovered);
+                int chunks = ingestZip(is, fileName, fileName, collectionId, collectionName, 0, progress, discovered, sha256);
                 // L'archive est enregistrée comme une unité (dédup au niveau archive).
                 return new IngestOneResult(chunks, null, 0, true);
             }
+        }
+
+        // Même garde-fou mémoire que les entrées ZIP et le batch local : la limite
+        // décompressée ne s'appliquait pas aux uploads directs ni aux URLs, alors que la
+        // plupart des extracteurs chargent tout le contenu en mémoire (readAllBytes).
+        long fileSize = Files.size(tempFile);
+        if (fileSize > maxEntryUncompressedBytes) {
+            throw new ExtractionException("Fichier trop volumineux (" + fileSize / (1024 * 1024)
+                    + " Mo > limite " + maxEntryUncompressedBytes / (1024 * 1024)
+                    + " Mo) : " + fileName);
         }
 
         String contentType = extractorFactory.resolveContentType(fileName);
@@ -255,7 +333,11 @@ public class IngestionTaskExecutor {
         log.debug("Avant chunking '{}': textLen={} chars, heap used={}MB / max={}MB",
                 fileName, cleanedText.length(), usedMb, rt.maxMemory() / 1024 / 1024);
 
-        List<TextChunk> chunks = chunkingService.chunk(cleanedText, fileName, doc.metadata());
+        Map<String, String> meta = new java.util.HashMap<>(doc.metadata() != null ? doc.metadata() : Map.of());
+        if (sha256 != null) {
+            meta.put("sha256", sha256);
+        }
+        List<TextChunk> chunks = chunkingService.chunk(cleanedText, fileName, meta);
 
         if (chunks.isEmpty()) {
             log.warn("Aucun chunk produit pour: {}", fileName);
@@ -317,7 +399,7 @@ public class IngestionTaskExecutor {
     /** Surcharge (utilisée par les tests) : la source racine par défaut est le nom d'archive. */
     int ingestZip(InputStream zipStream, String archiveName, String collectionId,
                   String collectionName, int depth, IntConsumer progress) throws Exception {
-        return ingestZip(zipStream, archiveName, archiveName, collectionId, collectionName, depth, progress, NOOP_PROGRESS);
+        return ingestZip(zipStream, archiveName, archiveName, collectionId, collectionName, depth, progress, NOOP_PROGRESS, null);
     }
 
     /**
@@ -325,9 +407,11 @@ public class IngestionTaskExecutor {
      *   Toutes les entrées (y compris imbriquées) portent CETTE {@code sourceFile}, afin que la
      *   suppression GED ({@code deleteBySource(rootSource)}) et la purge BM25 retrouvent bien leurs
      *   chunks. Le chemin réel de l'entrée est conservé dans la métadonnée {@code zipEntry}.
+     * @param sha256 hachage de l'archive racine, propagé inchangé aux entrées (même identité GED).
      */
     int ingestZip(InputStream zipStream, String archiveName, String rootSource, String collectionId,
-                  String collectionName, int depth, IntConsumer progress, IntConsumer discovered) throws Exception {
+                  String collectionName, int depth, IntConsumer progress, IntConsumer discovered,
+                  String sha256) throws Exception {
         if (depth >= MAX_ZIP_DEPTH) {
             log.warn("Profondeur ZIP max ({}) atteinte — archive imbriquée ignorée: {}", MAX_ZIP_DEPTH, archiveName);
             return 0;
@@ -368,7 +452,7 @@ public class IngestionTaskExecutor {
                         @Override public void close() {}
                     }, maxEntryUncompressedBytes);
                     totalChunks += ingestZip(nonClosing, archiveName + "/" + entryName, rootSource,
-                            collectionId, collectionName, depth + 1, progress, discovered);
+                            collectionId, collectionName, depth + 1, progress, discovered, sha256);
                     continue;
                 }
                 if (!isSupportedFile(fileName)) {
@@ -383,7 +467,8 @@ public class IngestionTaskExecutor {
                     InputStream entryStream = new LimitedInputStream(new FilterInputStream(zis) {
                         @Override public void close() { /* ne pas fermer le ZipInputStream parent */ }
                     }, maxEntryUncompressedBytes);
-                    totalChunks += ingestEntry(qualifiedName, rootSource, entryStream, collectionId, collectionName, progress, discovered);
+                    totalChunks += ingestEntry(qualifiedName, rootSource, entryStream, collectionId,
+                            collectionName, progress, discovered, sha256);
                 } catch (ExtractionException e) {
                     log.warn("Erreur sur entrée ZIP {}: {}", qualifiedName, e.getMessage());
                 }
@@ -399,7 +484,7 @@ public class IngestionTaskExecutor {
      */
     private int ingestEntry(String fileName, String rootSource, InputStream inputStream,
                             String collectionId, String collectionName, IntConsumer progress,
-                            IntConsumer discovered) throws Exception {
+                            IntConsumer discovered, String sha256) throws Exception {
         String shortName = fileName.contains("/") ? fileName.substring(fileName.lastIndexOf('/') + 1) : fileName;
         String contentType = extractorFactory.resolveContentType(shortName);
         var extractor = extractorFactory.getExtractor(contentType);
@@ -410,6 +495,9 @@ public class IngestionTaskExecutor {
         // gardant le chemin réel de l'entrée dans les métadonnées.
         Map<String, String> meta = new java.util.HashMap<>(doc.metadata() != null ? doc.metadata() : Map.of());
         meta.put("zipEntry", fileName);
+        if (sha256 != null) {
+            meta.put("sha256", sha256);
+        }
         List<TextChunk> chunks = chunkingService.chunk(cleanedText, rootSource, meta);
 
         if (chunks.isEmpty()) {
@@ -440,6 +528,22 @@ public class IngestionTaskExecutor {
 
     public interface IngestionCallback {
         void onIngested(String hash, String fileName, int chunks);
+
+        /**
+         * Appelé juste avant l'indexation d'un fichier dont le hachage est connu. Permet à
+         * l'appelant de purger l'ancienne version des index (ChromaDB + BM25) quand le
+         * document existe déjà en GED (ré-ingestion {@code force=true}) — le remplacement
+         * suit ainsi la même sémantique delete-then-index que le flux streaming, au lieu
+         * d'empiler des chunks dupliqués.
+         */
+        default void beforeIndex(String hash, String fileName) {}
+
+        /**
+         * Battement de cœur émis à chaque lot d'embeddings indexé : l'appelant peut y
+         * rafraîchir ses réservations in-flight pour qu'elles survivent aux ingestions
+         * plus longues que leur TTL.
+         */
+        default void heartbeat() {}
 
         /**
          * Appelé une fois la tâche terminée (succès, échec partiel ou total). Permet à

@@ -5,24 +5,35 @@
 #
 # La source de données est paramétrée (variable "datasource") → fonctionne quel
 # que soit l'uid du Prometheus dans votre Grafana.
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: spectra-grafana-dashboard
-  namespace: spectra
-  labels:
-    grafana_dashboard: "1"
-data:
-  spectra-dashboard.json: |
+"apiVersion": |-
+  v1
+"kind": |-
+  ConfigMap
+"metadata":
+  "name": |-
+    spectra-grafana-dashboard
+  "namespace": |-
+    spectra
+  "labels":
+    "grafana_dashboard": |-
+      1
+"data":
+  "spectra-dashboard.json": |-
     {
-      "title": "SpectraLLM — API & RAG",
+      "title": "SpectraLLM \u2014 API & RAG",
       "uid": "spectrallm-api",
-      "tags": ["spectra", "rag"],
+      "tags": [
+        "spectra",
+        "rag"
+      ],
       "timezone": "browser",
       "schemaVersion": 39,
       "version": 1,
       "refresh": "30s",
-      "time": { "from": "now-6h", "to": "now" },
+      "time": {
+        "from": "now-6h",
+        "to": "now"
+      },
       "templating": {
         "list": [
           {
@@ -37,10 +48,15 @@ data:
       "panels": [
         {
           "id": 1,
-          "title": "Débit HTTP (req/s) par statut",
+          "title": "D\u00e9bit HTTP (req/s) par statut",
           "type": "timeseries",
           "datasource": "${datasource}",
-          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 0
+          },
           "targets": [
             {
               "expr": "sum(rate(http_server_requests_seconds_count{application=\"spectrallm\"}[5m])) by (status)",
@@ -54,8 +70,18 @@ data:
           "title": "Latence HTTP p95 (s)",
           "type": "timeseries",
           "datasource": "${datasource}",
-          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
-          "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 0
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            },
+            "overrides": []
+          },
           "targets": [
             {
               "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{application=\"spectrallm\"}[5m])) by (le, uri))",
@@ -69,8 +95,18 @@ data:
           "title": "Taux d'erreurs 5xx (%)",
           "type": "stat",
           "datasource": "${datasource}",
-          "gridPos": { "h": 8, "w": 6, "x": 0, "y": 8 },
-          "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] },
+          "gridPos": {
+            "h": 8,
+            "w": 6,
+            "x": 0,
+            "y": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit"
+            },
+            "overrides": []
+          },
           "targets": [
             {
               "expr": "sum(rate(http_server_requests_seconds_count{application=\"spectrallm\", status=~\"5..\"}[5m])) / clamp_min(sum(rate(http_server_requests_seconds_count{application=\"spectrallm\"}[5m])), 1e-9)",
@@ -83,8 +119,18 @@ data:
           "title": "Latence RAG p95 (s)",
           "type": "timeseries",
           "datasource": "${datasource}",
-          "gridPos": { "h": 8, "w": 12, "x": 6, "y": 8 },
-          "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 6,
+            "y": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            },
+            "overrides": []
+          },
           "targets": [
             {
               "expr": "histogram_quantile(0.95, sum(rate(spectra_rag_query_seconds_bucket{application=\"spectrallm\"}[5m])) by (le))",
@@ -95,11 +141,21 @@ data:
         },
         {
           "id": 5,
-          "title": "Heap JVM utilisée / max",
+          "title": "Heap JVM utilis\u00e9e / max",
           "type": "timeseries",
           "datasource": "${datasource}",
-          "gridPos": { "h": 8, "w": 6, "x": 18, "y": 8 },
-          "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+          "gridPos": {
+            "h": 8,
+            "w": 6,
+            "x": 18,
+            "y": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes"
+            },
+            "overrides": []
+          },
           "targets": [
             {
               "expr": "sum(jvm_memory_used_bytes{application=\"spectrallm\", area=\"heap\"})",
@@ -110,6 +166,167 @@ data:
               "expr": "sum(jvm_memory_max_bytes{application=\"spectrallm\", area=\"heap\"})",
               "legendFormat": "max",
               "refId": "B"
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "title": "Coh\u00e9rence des index \u2014 chunks par magasin",
+          "type": "timeseries",
+          "datasource": "${datasource}",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 16
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "expr": "spectra_consistency_chroma_chunks{application=\"spectrallm\"}",
+              "legendFormat": "ChromaDB (d\u00e9faut)",
+              "refId": "A"
+            },
+            {
+              "expr": "spectra_consistency_fts_chunks{application=\"spectrallm\"}",
+              "legendFormat": "BM25 (d\u00e9faut)",
+              "refId": "B"
+            },
+            {
+              "expr": "spectra_consistency_db_chunks{application=\"spectrallm\"}",
+              "legendFormat": "GED (H2)",
+              "refId": "C"
+            }
+          ]
+        },
+        {
+          "id": 7,
+          "title": "Divergence FTS/ChromaDB par collection",
+          "type": "timeseries",
+          "datasource": "${datasource}",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 16
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "expr": "spectra_consistency_collection_fts_chroma_divergence{application=\"spectrallm\"}",
+              "legendFormat": "{{collection}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 8,
+          "title": "Circuit Breakers (State)",
+          "type": "timeseries",
+          "datasource": "${datasource}",
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 0,
+            "y": 24
+          },
+          "targets": [
+            {
+              "expr": "resilience4j_circuitbreaker_state{application=\"spectrallm\"}",
+              "legendFormat": "{{name}} - {{state}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 9,
+          "title": "Erreurs (Logs ERROR/WARN)",
+          "type": "timeseries",
+          "datasource": "${datasource}",
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 8,
+            "y": 24
+          },
+          "targets": [
+            {
+              "expr": "sum(rate(logback_events_total{application=\"spectrallm\", level=~\"error|warn\"}[5m])) by (level)",
+              "legendFormat": "{{level}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 10,
+          "title": "HikariCP - Connexions",
+          "type": "timeseries",
+          "datasource": "${datasource}",
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 16,
+            "y": 24
+          },
+          "targets": [
+            {
+              "expr": "hikaricp_connections_active{application=\"spectrallm\"}",
+              "legendFormat": "Active",
+              "refId": "A"
+            },
+            {
+              "expr": "hikaricp_connections_pending{application=\"spectrallm\"}",
+              "legendFormat": "Pending",
+              "refId": "B"
+            }
+          ]
+        },
+        {
+          "id": 11,
+          "title": "JVM Threads (incl. Virtual)",
+          "type": "timeseries",
+          "datasource": "${datasource}",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 32
+          },
+          "targets": [
+            {
+              "expr": "jvm_threads_live{application=\"spectrallm\"}",
+              "legendFormat": "Live",
+              "refId": "A"
+            },
+            {
+              "expr": "jvm_threads_daemon{application=\"spectrallm\"}",
+              "legendFormat": "Daemon",
+              "refId": "B"
+            }
+          ]
+        },
+        {
+          "id": 12,
+          "title": "Latence RAG par étape p95 (s)",
+          "type": "timeseries",
+          "datasource": "${datasource}",
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 40 },
+          "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum(rate(spectra_rag_stage_seconds_bucket{application=\"spectrallm\"}[5m])) by (le, stage))",
+              "legendFormat": "{{stage}} p95",
+              "refId": "A"
             }
           ]
         }

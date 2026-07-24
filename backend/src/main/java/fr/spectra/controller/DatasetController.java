@@ -1,6 +1,7 @@
 package fr.spectra.controller;
 
 import fr.spectra.dto.DatasetStats;
+import fr.spectra.model.DpoPair;
 import fr.spectra.service.dataset.DatasetExportService;
 import fr.spectra.service.dataset.DatasetGeneratorService;
 import fr.spectra.service.dataset.DatasetGeneratorService.GenerationTask;
@@ -18,6 +19,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -134,11 +136,34 @@ public class DatasetController {
     }
 
     @GetMapping("/dpo/stats")
-    @Operation(summary = "Statistiques des paires DPO générées")
+    @Operation(summary = "Statistiques des paires DPO (générées + préférences A/B)")
     public Map<String, Object> getDpoStats() {
         int total = dpoService.getAllPairs().size();
-        return Map.of("totalPairs", total, "status", total > 0 ? "READY" : "EMPTY");
+        int preferences = dpoService.getPreferencePairs().size();
+        return Map.of(
+                "totalPairs", total,
+                "generatedPairs", total - preferences,
+                "preferencePairs", preferences,
+                "status", total > 0 ? "READY" : "EMPTY");
     }
+
+    @PostMapping("/dpo/preference")
+    @Operation(summary = "Enregistre une préférence A/B du Playground comme paire DPO (chosen/rejected)")
+    public ResponseEntity<Map<String, Object>> recordPreference(@RequestBody PreferenceRequest request) {
+        DpoPair pair = dpoService.addPreferencePair(
+                request.prompt(), request.chosen(), request.rejected(), request.source());
+        if (pair == null) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "Préférence invalide : prompt/chosen/rejected requis et chosen ≠ rejected"));
+        }
+        return ResponseEntity.ok(Map.of(
+                "status", "ok",
+                "totalPairs", dpoService.getAllPairs().size(),
+                "preferencePairs", dpoService.getPreferencePairs().size()));
+    }
+
+    /** Corps de requête d'une préférence A/B : {@code chosen} = réponse préférée, {@code rejected} = l'autre. */
+    public record PreferenceRequest(String prompt, String chosen, String rejected, String source) {}
 
     @PostMapping("/dpo/export")
     @Operation(summary = "Exporter les paires DPO au format JSONL {prompt, chosen, rejected}")

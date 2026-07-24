@@ -88,6 +88,46 @@ describe('normalizers', () => {
     expect(task.startedAt).toBe('2026-07-13T10:00:00Z');
   });
 
+  it('surfaces per-file errors of a partially successful ingestion in the error field', () => {
+    // Tâche COMPLETED avec fileErrors : succès partiel — les échecs doivent rester
+    // visibles dans le panneau global, pas seulement sur la page Ingestion.
+    const [task] = normalizeIngestTasks([{
+      taskId: 't1', status: 'COMPLETED', files: ['ok.pdf', 'bad.png'], chunksCreated: 7,
+      error: null, fileErrors: ['bad.png: Extension de fichier non supportée: bad.png'],
+    }]);
+    expect(task.status).toBe('completed');
+    expect(task.error).toBe('bad.png: Extension de fichier non supportée: bad.png');
+  });
+
+  it('keeps the task-level error over fileErrors, and null when neither is set', () => {
+    const tasks = normalizeIngestTasks([
+      { taskId: 't1', status: 'FAILED', files: ['a.pdf'], error: 'boom', fileErrors: ['a.pdf: boom'] },
+      { taskId: 't2', status: 'COMPLETED', files: ['b.pdf'], error: null },
+      { taskId: 't3', status: 'COMPLETED', files: ['c.pdf'], error: null, fileErrors: 'oops' },
+    ]);
+    expect(tasks[0].error).toBe('boom');
+    expect(tasks[1].error).toBeNull();
+    // fileErrors non-tableau (payload inattendu) → ignoré proprement.
+    expect(tasks[2].error).toBeNull();
+  });
+
+  it('exposes retryUrls for a URL ingestion (all files are http(s) URLs)', () => {
+    const [task] = normalizeIngestTasks([{
+      taskId: 't1', status: 'FAILED', files: ['https://example.com/a.pdf', 'http://example.org/b'],
+      error: 'timeout',
+    }]);
+    expect(task.retryUrls).toEqual(['https://example.com/a.pdf', 'http://example.org/b']);
+  });
+
+  it('leaves retryUrls undefined for a file upload (not server-re-submittable)', () => {
+    const [uploaded] = normalizeIngestTasks([{ taskId: 't1', status: 'FAILED', files: ['a.pdf'] }]);
+    const [mixed] = normalizeIngestTasks([{ taskId: 't2', status: 'FAILED', files: ['https://x/y', 'a.pdf'] }]);
+    const [empty] = normalizeIngestTasks([{ taskId: 't3', status: 'FAILED', files: [] }]);
+    expect(uploaded.retryUrls).toBeUndefined();
+    expect(mixed.retryUrls).toBeUndefined();
+    expect(empty.retryUrls).toBeUndefined();
+  });
+
   it('normalizes a dataset generation task with chunk-based progress', () => {
     const [task] = normalizeDatasetTasks([{
       taskId: 'gen-12345678', status: 'PROCESSING',

@@ -81,7 +81,7 @@ class UrlIngestionServiceTest {
                 mock(IngestedFileRepository.class),
                 mock(GedService.class),
                 mock(fr.spectra.persistence.StreamSourceRepository.class),
-                props, 50, 4);
+                props, 50, 4, 0);
 
         urlFetcher = mock(UrlFetcherService.class);
 

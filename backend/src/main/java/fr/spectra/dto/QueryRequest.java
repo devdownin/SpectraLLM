@@ -40,7 +40,15 @@ public record QueryRequest(
          * {@code null} ou {@code true} = RAG actif (comportement par défaut).
          * {@code false} = réponse directe du LLM, sans retrieval.
          */
-        Boolean useRag
+        Boolean useRag,
+
+        /**
+         * Surcharges par requête des modules RAG optionnels (rerank, corrective, multi-query…).
+         * {@code null} = comportement de déploiement par défaut ({@link RagOverrides#NONE}).
+         * Permet au Playground de désactiver un module pour une requête (toggles UI, comparaison A/B)
+         * sans redéploiement. Un module absent du déploiement ne peut pas être activé par ce biais.
+         */
+        RagOverrides overrides
 ) {
     public QueryRequest {
         if (maxContextChunks == null) maxContextChunks = 5;
@@ -49,5 +57,14 @@ public record QueryRequest(
         if (temperature == null) temperature = 0.7f;
         if (topP == null)        topP = 0.9f;
         if (useRag == null)      useRag = true;
+        if (overrides == null)   overrides = RagOverrides.NONE;
+    }
+
+    /** Constructeur de compatibilité (sans surcharges RAG) — {@link RagOverrides#NONE} par défaut. */
+    public QueryRequest(String question, Integer maxContextChunks, Integer topCandidates,
+                        String collection, Float temperature, Float topP,
+                        List<ConversationMessage> conversationHistory, Boolean useRag) {
+        this(question, maxContextChunks, topCandidates, collection, temperature, topP,
+                conversationHistory, useRag, null);
     }
 }

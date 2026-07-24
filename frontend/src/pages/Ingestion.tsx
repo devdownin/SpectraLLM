@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import type { FC } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -6,35 +6,49 @@ import { toast } from 'sonner';
 import Tooltip from '../components/Tooltip';
 import Skeleton from '../components/Skeleton';
 import ConfirmDialog from '../components/ConfirmDialog';
+import { PageHeader, Button } from '../components/ui';
 import { ingestApi, datasetApi } from '../services/api';
-import { useGlobalTasks, etaMs, formatEta } from '../hooks/useGlobalTasks';
-import type { GlobalTask } from '../hooks/useGlobalTasks';
+import { etaMs, formatEta } from '../hooks/useGlobalTasks';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type IngestStatus = 'UPLOADING' | 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+type IngestStatus = 'UPLOADING' | 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
 
-/**
- * Entrée du flux d'ingestion affiché : soit un envoi local encore sans taskId
- * (optimiste, le temps du POST), soit une tâche du suivi global (SSE + repli REST).
- */
-interface StreamEntry {
-  id: string;
+interface IngestEntry {
+  id: string;           // local ID (Date.now + random)
+  taskId: string | null;
   fileName: string;
   status: IngestStatus;
   chunksCreated: number;
   /** Total de chunks découvert au fil du chunking (0 = encore inconnu). */
   chunksExpected: number;
   error?: string;
+  /** Échecs par fichier ("nom: cause") remontés par la tâche — succès partiel possible. */
+  fileErrors?: string[];
+  /** Source conservée pour relancer une ingestion échouée/partielle (fichier uploadé ou URL).
+   *  Disponible uniquement le temps où la page reste montée (l'objet File n'est pas persisté). */
+  retryFile?: File;
+  retryUrl?: string;
 }
 
-/** Envoi local en cours (avant que la tâche n'apparaisse dans le suivi global). */
-interface LocalUpload {
-  id: string;
-  fileName: string;
-  status: 'UPLOADING' | 'FAILED';
-  taskId?: string;
-  error?: string;
+interface GenerationTask {
+  taskId: string;
+  status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
+  pairsGenerated: number;
+  chunksProcessed: number;
+  totalChunks: number;
+  error: string | null;
+  createdAt?: string;
+}
+
+interface IngestionTask {
+  taskId: string;
+  status: IngestStatus;
+  files: string[];
+  chunksCreated: number;
+  chunksExpected?: number;
+  error: string | null;
+  fileErrors?: string[];
 }
 
 interface IngestedFile {
@@ -60,7 +74,6 @@ const statusColor: Record<IngestStatus, string> = {
   PROCESSING: 'text-secondary',
   COMPLETED: 'text-primary',
   FAILED: 'text-error',
-  CANCELLED: 'text-outline',
 };
 
 const statusIcon: Record<IngestStatus, string> = {
@@ -69,13 +82,62 @@ const statusIcon: Record<IngestStatus, string> = {
   PROCESSING: 'sync',
   COMPLETED: 'check_circle',
   FAILED: 'error',
-  CANCELLED: 'cancel',
 };
 
+// ── Pipeline step indicator ──────────────────────────────────────────────────
+
+const PIPELINE_STEPS = [
+  { key: 'ingest',    labelKey: 'ingestion.stepIngest',   icon: 'cloud_upload' },
+  { key: 'generate',  labelKey: 'ingestion.stepGenerate', icon: 'dataset' },
+  { key: 'ready',     labelKey: 'ingestion.stepReady',    icon: 'check_circle' },
+];
+
+interface PipelineStepProps {
+  icon: string;
+  label: string;
+  state: 'idle' | 'active' | 'done';
+  nextState?: 'idle' | 'active' | 'done';
+  isLast?: boolean;
+}
+
+const PipelineStep: FC<PipelineStepProps> = ({ icon, label, state, nextState, isLast }) => (
+  <div className="flex items-center gap-0">
+    <div className="flex flex-col items-center gap-2">
+      {/* Step icon with radar rings when active */}
+      <div className="relative">
+        {state === 'active' && (
+          <>
+            <div className="absolute -inset-[6px] border border-secondary/50 ripple-ring pointer-events-none" />
+            <div className="absolute -inset-[6px] border border-secondary/25 ripple-ring-delayed pointer-events-none" />
+          </>
+        )}
+        <div className={`w-10 h-10 flex items-center justify-center border transition-all duration-500 relative z-10 ${
+          state === 'done'   ? 'border-primary bg-primary/10 text-primary' :
+          state === 'active' ? 'border-secondary bg-secondary/10 text-secondary' :
+                               'border-outline-variant/30 text-outline'
+        }`}>
+          <span className="material-symbols-outlined text-base">{icon}</span>
+        </div>
+      </div>
+      <span className={`font-label text-[10px] uppercase tracking-widest ${
+        state === 'idle' ? 'text-outline' : state === 'done' ? 'text-primary' : 'text-secondary'
+      }`}>{label}</span>
+    </div>
+    {!isLast && (
+      <div className={`relative w-16 h-px mb-5 mx-1 overflow-hidden ${state === 'done' ? 'bg-primary/30' : 'bg-outline-variant/20'}`}>
+        {state === 'done' && nextState !== 'active' && (
+          <div className="absolute inset-0 bg-primary" />
+        )}
+        {/* Flow particle traveling toward the active step */}
+        {state === 'done' && nextState === 'active' && (
+          <div className="absolute inset-0 flow-connector" />
+        )}
+      </div>
+    )}
+  </div>
+);
+
 // ── Main component ───────────────────────────────────────────────────────────
-// (Le mini-pipeline local Ingest → Generate → Ready a été retiré : le fil de
-// parcours global WizardProgress, affiché juste au-dessus et câblé sur l'état
-// réel, racontait déjà la même histoire — constat #21 de l'audit.)
 
 const Ingestion: FC = () => {
   const { t, i18n } = useTranslation();
@@ -86,28 +148,25 @@ const Ingestion: FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const queryClient = useQueryClient();
+  const [ingestEntries, setIngestEntries] = useState<IngestEntry[]>([]);
+  const [genTask, setGenTask] = useState<GenerationTask | null>(null);
   const [history, setHistory] = useState<IngestedFile[]>([]);
   const [historyTotal, setHistoryTotal] = useState(0);
   const [historyPage, setHistoryPage] = useState(0);
   const [historySearch, setHistorySearch] = useState('');
-  // Mirror historySearch in a ref so the transition effect can read the latest value
-  // without depending on it (which would re-run the effect on every keystroke).
+  // Mirror historySearch in a ref so pollIngest can read the latest value without
+  // taking it as a dependency (which would rebuild pollIngest on every keystroke and
+  // re-trigger the mount-only restore effect).
   const historySearchRef = useRef(historySearch);
   historySearchRef.current = historySearch;
   const [historyLoading, setHistoryLoading] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
 
-  // ── Suivi des tâches : LE hook global (SSE + repli polling) remplace les anciens
-  //    pollers setInterval locaux — plus de suivi qui s'arrête en silence après
-  //    5 échecs, plus de double logique page/TaskCenter.
-  const { tasks } = useGlobalTasks();
-  const ingestTasks = useMemo(() => tasks.filter(task => task.kind === 'ingestion'), [tasks]);
-  const datasetTasks = useMemo(() => tasks.filter(task => task.kind === 'dataset'), [tasks]);
+  const pollingTasks   = useRef<Set<string>>(new Set());
+  const activeIntervals = useRef<Set<ReturnType<typeof setInterval>>>(new Set());
 
-  // Envois locaux en attente d'apparition dans le suivi global (latence SSE ~2 s).
-  const [localUploads, setLocalUploads] = useState<LocalUpload[]>([]);
-  // Génération demandée mais pas encore visible dans le suivi global.
-  const [pendingGen, setPendingGen] = useState(false);
+  // Cleanup all intervals on unmount (Fix 7)
+  useEffect(() => () => { activeIntervals.current.forEach(clearInterval); }, []);
 
   // ── Stats — React Query, polling 10 s ─────────────────────────────────────
   const { data: statsData } = useQuery({
@@ -136,69 +195,84 @@ const Ingestion: FC = () => {
     finally { setHistoryLoading(false); }
   }, []);
 
-  useEffect(() => { loadHistory(0, ''); }, [loadHistory]);
+  // ── Ingest task polling ───────────────────────────────────────────────────
+  const pollIngest = useCallback((entryId: string, taskId: string) => {
+    if (pollingTasks.current.has(taskId) && entryId !== taskId) return;
+    pollingTasks.current.add(taskId);
 
-  // ── Réactions aux transitions de tâches (observées via le suivi global) ────
-  // Remplace les callbacks des anciens pollers : rafraîchir stats/historique à la
-  // fin d'une ingestion ou d'une génération, signaler les échecs (cas OOM dédié).
-  // Le TaskCenter ne toaste pas quand on est SUR cette page : c'est elle qui notifie.
-  const prevStatuses = useRef<Map<string, string> | null>(null);
-  useEffect(() => {
-    const watched = [...ingestTasks, ...datasetTasks];
-    const prev = prevStatuses.current;
-    prevStatuses.current = new Map(watched.map(task => [task.id, task.status]));
-    if (!prev) return; // premier instantané = historique, pas des transitions
-    for (const task of watched) {
-      const before = prev.get(task.id);
-      const wasActive = before === 'running' || before === 'pending';
-      if (!wasActive || (task.status !== 'completed' && task.status !== 'failed')) continue;
-
-      if (task.status === 'completed') {
-        loadStats();
-        if (task.kind === 'ingestion') loadHistory(0, historySearchRef.current);
-      } else if (task.kind === 'ingestion') {
-        if (task.error?.includes('OOM')) {
-          toast.error(i18n.t('ingestion.oomTitle', { id: task.label.slice(0, 24) }), {
+    let failures = 0;
+    const interval = setInterval(async () => {
+      try {
+        const res = await ingestApi.getTaskStatus(taskId);
+        failures = 0;
+        const t = res.data;
+        if (t.status === 'FAILED' && t.error?.includes('OOM')) {
+          toast.error(i18n.t('ingestion.oomTitle', { id: taskId.slice(0, 8) }), {
             description: i18n.t('ingestion.oomDesc'),
             duration: 10000,
           });
-        } else {
-          toast.error(i18n.t('ingestion.ingestFailed', { name: task.label }), {
-            description: task.error ?? undefined,
+        }
+        // Succès partiel : la tâche aboutit mais certains fichiers ont échoué (fileErrors).
+        // Signalé une seule fois — le polling s'arrête à l'état terminal juste après.
+        if (t.status === 'COMPLETED' && (t.fileErrors?.length ?? 0) > 0) {
+          toast.warning(i18n.t('ingestion.partialTitle', { name: t.files?.[0] ?? taskId.slice(0, 8) }), {
+            description: i18n.t('ingestion.partialDesc', { count: t.fileErrors!.length }),
+            duration: 10000,
           });
         }
-      } else {
-        toast.error(i18n.t('ingestion.generationError'), { description: task.error ?? undefined });
+        setIngestEntries(prev => {
+          const patch = {
+            status: t.status,
+            chunksCreated: t.chunksCreated,
+            chunksExpected: t.chunksExpected ?? 0,
+            error: t.error ?? undefined,
+            fileErrors: t.fileErrors ?? undefined,
+          };
+          if (entryId === taskId) {
+            return prev.map(e => e.taskId === taskId ? { ...e, ...patch } : e);
+          }
+          return prev.map(e => e.id === entryId ? { ...e, ...patch } : e);
+        });
+        if (t.status === 'COMPLETED' || t.status === 'FAILED') {
+          clearInterval(interval);
+          activeIntervals.current.delete(interval);
+          pollingTasks.current.delete(taskId);
+          if (t.status === 'COMPLETED') { loadStats(); loadHistory(0, historySearchRef.current); }
+        }
+      } catch {
+        if (++failures >= 5) {
+          clearInterval(interval);
+          activeIntervals.current.delete(interval);
+          pollingTasks.current.delete(taskId);
+        }
       }
-    }
-  }, [ingestTasks, datasetTasks, loadStats, loadHistory, i18n]);
-
-  // Purge les envois locaux dont la tâche est désormais suivie globalement.
-  useEffect(() => {
-    setLocalUploads(prev => {
-      const next = prev.filter(u =>
-        u.status === 'FAILED' || !u.taskId || !ingestTasks.some(task => task.id === `ingestion:${u.taskId}`));
-      return next.length === prev.length ? prev : next;
-    });
-  }, [ingestTasks]);
+    }, 3000);
+    activeIntervals.current.add(interval);
+  }, [loadStats, loadHistory, i18n]);
 
   // ── Upload file ───────────────────────────────────────────────────────────
   const uploadFile = useCallback(async (file: File) => {
     const id = `${Date.now()}-${Math.random()}`;
-    setLocalUploads(prev => [...prev, { id, fileName: file.name, status: 'UPLOADING' }]);
+    const entry: IngestEntry = { id, taskId: null, fileName: file.name, status: 'UPLOADING', chunksCreated: 0, chunksExpected: 0, retryFile: file };
+    setIngestEntries(prev => [...prev, entry]);
 
     try {
       const res = await ingestApi.uploadFile(file);
       const taskId: string = res.data.taskId;
-      // L'entrée locale reste visible (avec le taskId) jusqu'à ce que le suivi
-      // global reprenne la main — aucun trou d'affichage pendant la latence SSE.
-      setLocalUploads(prev => prev.map(u => u.id === id ? { ...u, taskId } : u));
+      setIngestEntries(prev => prev.map(e => e.id === id ? { ...e, taskId, status: 'PENDING' } : e));
+      pollIngest(id, taskId);
     } catch (err: any) {
       const msg = err?.response?.data?.detail ?? err.message;
-      setLocalUploads(prev => prev.map(u => u.id === id ? { ...u, status: 'FAILED', error: msg } : u));
-      toast.error(i18n.t('ingestion.ingestFailed', { name: file.name }), { description: msg });
+      setIngestEntries(prev => prev.map(e => e.id === id ? { ...e, status: 'FAILED', error: msg } : e));
+      // 429 = contre-pression du serveur (trop d'ingestions actives) : message dédié, non alarmant.
+      // La ligne reste relançable (bouton « Relancer ») une fois le pipeline désengorgé.
+      if (err?.response?.status === 429) {
+        toast.warning(i18n.t('ingestion.busyTitle'), { description: i18n.t('ingestion.busyDesc', { name: file.name }) });
+      } else {
+        toast.error(i18n.t('ingestion.ingestFailed', { name: file.name }), { description: msg });
+      }
     }
-  }, [i18n]);
+  }, [pollIngest, i18n]);
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault(); e.stopPropagation();
@@ -224,43 +298,131 @@ const Ingestion: FC = () => {
     }
 
     const id = `${Date.now()}-${Math.random()}`;
-    setLocalUploads(prev => [...prev, { id, fileName: trimmed, status: 'UPLOADING' }]);
+    const entry: IngestEntry = { id, taskId: null, fileName: trimmed, status: 'UPLOADING', chunksCreated: 0, chunksExpected: 0, retryUrl: trimmed };
+    setIngestEntries(prev => [...prev, entry]);
     setUrlInput('');
 
     try {
       const res = await ingestApi.ingestUrls([trimmed]);
       const taskId: string = res.data.taskId;
-      setLocalUploads(prev => prev.map(u => u.id === id ? { ...u, taskId } : u));
+      setIngestEntries(prev => prev.map(e => e.id === id ? { ...e, taskId, status: 'PENDING' } : e));
+      pollIngest(id, taskId);
     } catch (err: any) {
       const msg = err?.response?.data?.detail ?? err.message;
-      setLocalUploads(prev => prev.map(u => u.id === id ? { ...u, status: 'FAILED', error: msg } : u));
-      toast.error(i18n.t('ingestion.urlIngestFailed'), { description: msg });
+      setIngestEntries(prev => prev.map(e => e.id === id ? { ...e, status: 'FAILED', error: msg } : e));
+      if (err?.response?.status === 429) {
+        toast.warning(i18n.t('ingestion.busyTitle'), { description: i18n.t('ingestion.busyDesc', { name: trimmed }) });
+      } else {
+        toast.error(i18n.t('ingestion.urlIngestFailed'), { description: msg });
+      }
     }
-  }, [i18n]);
+  }, [pollIngest, i18n]);
+
+  // ── Relance d'une ingestion échouée / partielle ───────────────────────────
+  // Ré-injecte la source d'origine encore en mémoire (fichier uploadé ou URL) ; la
+  // déduplication SHA-256 côté serveur rend la relance sûre — les fragments déjà
+  // ingérés sont ignorés, seuls les fichiers en échec retentent leur chance.
+  const retryEntry = useCallback((entry: IngestEntry) => {
+    if (entry.retryFile) {
+      setIngestEntries(prev => prev.filter(e => e.id !== entry.id));
+      uploadFile(entry.retryFile);
+    } else if (entry.retryUrl) {
+      setIngestEntries(prev => prev.filter(e => e.id !== entry.id));
+      ingestUrl(entry.retryUrl);
+    }
+  }, [uploadFile, ingestUrl]);
 
   // ── Dataset generation ────────────────────────────────────────────────────
+  const pollGenTask = useCallback((taskId: string) => {
+    if (pollingTasks.current.has(taskId)) return;
+    pollingTasks.current.add(taskId);
 
-  /** Tâche de génération la plus récente (le suivi global remonte tout l'historique). */
-  const genTask: GlobalTask | null = useMemo(() => {
-    if (datasetTasks.length === 0) return null;
-    return [...datasetTasks].sort((a, b) =>
-      (b.startedAt ?? '').localeCompare(a.startedAt ?? ''))[0];
-  }, [datasetTasks]);
+    let failures = 0;
+    const interval = setInterval(async () => {
+      try {
+        const res = await datasetApi.getGenerationStatus(taskId);
+        failures = 0;
+        setGenTask(res.data);
+        if (res.data.status === 'COMPLETED' || res.data.status === 'FAILED') {
+          clearInterval(interval);
+          activeIntervals.current.delete(interval);
+          pollingTasks.current.delete(taskId);
+          loadStats();
+        }
+      } catch {
+        if (++failures >= 5) {
+          clearInterval(interval);
+          activeIntervals.current.delete(interval);
+          pollingTasks.current.delete(taskId);
+        }
+      }
+    }, 5000);
+    activeIntervals.current.add(interval);
+  }, [loadStats]);
 
-  const genActive = pendingGen || genTask?.status === 'pending' || genTask?.status === 'running';
-  // Le flag local ne sert que le temps que la tâche apparaisse dans le suivi global.
+  // ── Restore tasks on mount ────────────────────────────────────────────────
+  const didRestore = useRef(false);
   useEffect(() => {
-    if (pendingGen && genTask && (genTask.status === 'pending' || genTask.status === 'running')) {
-      setPendingGen(false);
-    }
-  }, [pendingGen, genTask]);
+    if (didRestore.current) return;
+    didRestore.current = true;
+    const restoreTasks = async () => {
+      loadHistory(0, '');
+      try {
+        // Restore Ingestion Tasks
+        const ingestRes = await ingestApi.getAllTasks();
+        const ingestTasks: IngestionTask[] = ingestRes.data;
+        
+        const newEntries: IngestEntry[] = [];
+        ingestTasks.forEach(t => {
+          // Only show recent or active tasks
+          if (t.status === 'PROCESSING' || t.status === 'PENDING' || t.status === 'UPLOADING') {
+            t.files.forEach(fileName => {
+              const id = `restored-${t.taskId}-${fileName}`;
+              newEntries.push({
+                id,
+                taskId: t.taskId,
+                fileName,
+                status: t.status,
+                chunksCreated: t.chunksCreated,
+                chunksExpected: t.chunksExpected ?? 0,
+              });
+            });
+            pollIngest(t.taskId, t.taskId); // entryId matches taskId for restored group
+          }
+        });
+        if (newEntries.length > 0) setIngestEntries(newEntries);
+
+        // Restore Generation Task (most recent active one)
+        const genRes = await datasetApi.getAllTasks();
+        const genTasks: GenerationTask[] = genRes.data;
+        const activeGenTask = genTasks
+          .filter(t => t.status === 'PROCESSING' || t.status === 'PENDING')
+          .sort((a, b) => b.taskId.localeCompare(a.taskId))[0]; 
+
+        if (activeGenTask) {
+          setGenTask(activeGenTask);
+          pollGenTask(activeGenTask.taskId);
+        }
+      } catch (err) {
+        console.error("Failed to restore tasks", err);
+      }
+    };
+
+    restoreTasks();
+    // Run exactly once on mount; pollIngest/pollGenTask/loadHistory are stable and the
+    // didRestore guard prevents re-entry. Depending on them here caused the effect to
+    // re-run on every history-search keystroke, clobbering results and spawning
+    // duplicate pollers.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const startGeneration = async () => {
     try {
       // maxChunks=0 = préréglage « tout le corpus ».
       const res = await datasetApi.generateDataset(maxChunks);
       const taskId: string = res.data.taskId;
-      setPendingGen(true);
+      setGenTask({ taskId, status: 'PENDING', pairsGenerated: 0, chunksProcessed: 0, totalChunks: 0, error: null });
+      pollGenTask(taskId);
       toast.success(t('ingestion.generationStarted'), { description: t('ingestion.generationTask', { id: taskId.slice(0, 8) }) });
     } catch (err: any) {
       toast.error(t('ingestion.generationError'), { description: err?.response?.data?.detail ?? err.message });
@@ -268,70 +430,61 @@ const Ingestion: FC = () => {
   };
 
   const handleGenerateDataset = () => {
-    const hasActiveIngestion = localUploads.some(u => u.status === 'UPLOADING')
-      || ingestTasks.some(task => task.status === 'pending' || task.status === 'running');
+    const hasActiveIngestion = ingestEntries.some(
+      e => e.status === 'PENDING' || e.status === 'PROCESSING'
+    );
     // Générer pendant une ingestion produit un dataset incomplet : on demande confirmation
     // (dialogue maison, cohérent avec le reste de l'app — pas de window.confirm).
     if (hasActiveIngestion) setConfirmGenerate(true);
     else startGeneration();
   };
 
-  // ── Flux d'ingestion affiché : envois locaux + tâches globales (actives puis récentes) ──
-  const streamEntries: StreamEntry[] = useMemo(() => {
-    const fromLocal: StreamEntry[] = localUploads.map(u => ({
-      id: u.id,
-      fileName: u.fileName,
-      status: u.status,
-      chunksCreated: 0,
-      chunksExpected: 0,
-      error: u.error,
-    }));
-    const trackedIds = new Set(localUploads.map(u => u.taskId && `ingestion:${u.taskId}`).filter(Boolean));
-    const fromGlobal: StreamEntry[] = ingestTasks
-      .filter(task => !trackedIds.has(task.id))
-      .sort((a, b) => {
-        const activeA = a.status === 'running' || a.status === 'pending';
-        const activeB = b.status === 'running' || b.status === 'pending';
-        if (activeA !== activeB) return activeA ? -1 : 1;
-        return (b.timestamp ?? '').localeCompare(a.timestamp ?? '');
-      })
-      .slice(0, 8)
-      .map(task => ({
-        id: task.id,
-        fileName: task.label,
-        status: (task.raw.status ?? 'PENDING') as IngestStatus,
-        chunksCreated: typeof task.raw.chunksCreated === 'number' ? task.raw.chunksCreated : 0,
-        chunksExpected: typeof task.raw.chunksExpected === 'number' ? task.raw.chunksExpected : 0,
-        error: task.error ?? undefined,
-      }));
-    return [...fromLocal, ...fromGlobal];
-  }, [localUploads, ingestTasks]);
+  // ── Pipeline state derivation ─────────────────────────────────────────────
+  const hasIngestedDocs = ingestEntries.some(e => e.status === 'COMPLETED')
+    || (stats?.chunksInStore ?? 0) > 0;
+  const genDone = genTask?.status === 'COMPLETED' || (stats?.totalPairs ?? 0) > 0;
+  const genActive = genTask?.status === 'PENDING' || genTask?.status === 'PROCESSING';
 
-  // Temps restant estimé de la génération (extrapolation linéaire) ; recalculé à
-  // chaque instantané du suivi global (~2 s pendant un run), suffisant pour un
-  // compte à rebours indicatif.
-  const genEta = genTask && genTask.status === 'running' ? etaMs(genTask, Date.now()) : null;
+  // Temps restant estimé de la génération (extrapolation linéaire depuis le lancement) ;
+  // recalculé à chaque poll de la tâche (5 s), suffisant pour un compte à rebours indicatif.
+  const genEta = genTask && genTask.status === 'PROCESSING' && genTask.createdAt && genTask.totalChunks > 0
+    ? etaMs({
+        status: 'running',
+        progress: Math.min(1, genTask.chunksProcessed / genTask.totalChunks),
+        startedAt: genTask.createdAt,
+      }, Date.now())
+    : null;
 
-  const genRaw = genTask?.raw ?? null;
-  const genStatusLabel = pendingGen ? 'PENDING' : (genRaw?.status ?? '');
+  const pipelineState = (step: string): 'idle' | 'active' | 'done' => {
+    if (step === 'ingest')   return hasIngestedDocs ? 'done' : ingestEntries.length > 0 ? 'active' : 'idle';
+    if (step === 'generate') return genDone ? 'done' : genActive ? 'active' : 'idle';
+    if (step === 'ready')    return genDone ? 'done' : 'idle';
+    return 'idle';
+  };
 
   return (
     <div className="space-y-12 animate-in fade-in duration-700">
 
       {/* Header */}
-      <header className="flex justify-between items-end">
-        <div>
-          <p className="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-1">{t('ingestion.kicker')}</p>
-          <h2 className="font-headline text-3xl font-bold tracking-tighter">{t('ingestion.title')}</h2>
-        </div>
-        <button
-          onClick={loadStats}
-          className="flex items-center gap-1.5 text-[10px] font-label uppercase tracking-widest text-on-surface-variant hover:text-primary transition-colors"
-        >
-          <span className="material-symbols-outlined text-sm">refresh</span>
-          {t('ingestion.refresh')}
-        </button>
-      </header>
+      <PageHeader
+        kicker={t('ingestion.kicker')}
+        title={t('ingestion.title')}
+        actions={
+          <>
+            <Button variant="ghost" size="sm" icon="refresh" onClick={loadStats}>
+              {t('ingestion.refresh')}
+            </Button>
+            <div className="flex items-center gap-3">
+              {PIPELINE_STEPS.map((s, i) => (
+                <PipelineStep key={s.key} icon={s.icon} label={t(s.labelKey)}
+                  state={pipelineState(s.key)}
+                  nextState={i < PIPELINE_STEPS.length - 1 ? pipelineState(PIPELINE_STEPS[i + 1].key) : undefined}
+                  isLast={i === PIPELINE_STEPS.length - 1} />
+              ))}
+            </div>
+          </>
+        }
+      />
 
       {/* ── System State Banner ── */}
       <div className={`grid grid-cols-3 gap-4 p-5 border ${
@@ -510,7 +663,7 @@ const Ingestion: FC = () => {
                 {/* List */}
                 <div className="flex-1 space-y-2 overflow-y-auto custom-scrollbar max-h-64">
                   {history.length === 0 && !historyLoading ? (
-                    <p className="text-xs text-outline italic text-center py-4">
+                    <p className="text-[12px] text-on-surface-variant text-center py-4">
                       {historySearch ? t('ingestion.noResults') : t('ingestion.emptyHistory')}
                     </p>
                   ) : (
@@ -550,42 +703,70 @@ const Ingestion: FC = () => {
                   </button>
                 )}
               </div>
-            ) : streamEntries.length === 0 ? (
+            ) : ingestEntries.length === 0 ? (
               <div className="flex-1 flex items-center justify-center">
-                <p className="text-xs text-outline italic text-center">
+                <p className="text-[12px] text-on-surface-variant text-center">
                   {t('ingestion.noActiveIngest1')}<br />{t('ingestion.noActiveIngest2')}
                 </p>
               </div>
             ) : (
               <div className="flex-1 space-y-3 overflow-y-auto custom-scrollbar">
-                {streamEntries.map(entry => (
+                {ingestEntries.map(entry => {
+                  // Erreurs par fichier pertinentes pour CETTE ligne : celles préfixées par
+                  // son nom ("nom: cause") ; si la ligne est seule pour sa tâche (upload
+                  // unitaire, URL, archive ZIP), toutes les erreurs de la tâche.
+                  const siblings = entry.taskId
+                    ? ingestEntries.filter(e => e.taskId === entry.taskId).length
+                    : 1;
+                  const entryErrors = (entry.fileErrors ?? []).filter(
+                    fe => siblings <= 1 || fe.startsWith(`${entry.fileName}:`)
+                  );
+                  // Succès partiel : tâche COMPLETED mais ce fichier (ou cette archive) porte
+                  // des erreurs — ne plus l'afficher comme un succès plein.
+                  const partial = entry.status === 'COMPLETED' && entryErrors.length > 0;
+                  // Relance possible si la ligne a échoué (ou partiellement) ET que sa source
+                  // d'origine est encore en mémoire (page non rechargée).
+                  const canRetry = (entry.status === 'FAILED' || partial) && Boolean(entry.retryFile || entry.retryUrl);
+                  return (
                   <div key={entry.id} className={`space-y-1.5 transition-colors duration-300 ${entry.status === 'PROCESSING' ? 'bg-secondary/3 -mx-1 px-1' : ''}`}>
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 min-w-0">
                         {/* Icon: spin for PROCESSING, static otherwise */}
-                        <span className={`material-symbols-outlined text-sm ${statusColor[entry.status]}`}
+                        <span className={`material-symbols-outlined text-sm ${partial ? 'text-error' : statusColor[entry.status]}`}
                           style={entry.status === 'PROCESSING' ? { animation: 'rotate-slow 1.2s linear infinite' } : undefined}>
-                          {statusIcon[entry.status]}
+                          {partial ? 'warning' : statusIcon[entry.status]}
                         </span>
-                        <span className="text-[11px] font-label truncate" title={entry.fileName}>{entry.fileName}</span>
+                        <span className="text-[11px] font-label truncate">{entry.fileName}</span>
                       </div>
-                      <span key={`${entry.status}-${entry.chunksCreated}`}
-                        className={`text-[10px] font-bold uppercase tracking-widest shrink-0 ${statusColor[entry.status]} ${entry.status === 'COMPLETED' ? 'count-flash' : ''}`}>
-                        {entry.status === 'COMPLETED'
-                          ? t('ingestion.chunks', { count: entry.chunksCreated })
-                          : entry.status === 'PROCESSING' && entry.chunksExpected > 0
-                            ? t('ingestion.chunksProgress', { done: entry.chunksCreated, total: entry.chunksExpected })
-                            : entry.status === 'PROCESSING' && entry.chunksCreated > 0
-                              ? t('ingestion.chunksSoFar', { count: entry.chunksCreated })
-                              : entry.status}
-                      </span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span key={`${entry.status}-${entry.chunksCreated}`}
+                          className={`text-[10px] font-bold uppercase tracking-widest ${partial ? 'text-error' : statusColor[entry.status]} ${entry.status === 'COMPLETED' ? 'count-flash' : ''}`}>
+                          {entry.status === 'COMPLETED'
+                            ? (partial
+                                ? t('ingestion.chunksPartial', { count: entry.chunksCreated })
+                                : t('ingestion.chunks', { count: entry.chunksCreated }))
+                            : entry.status === 'PROCESSING' && entry.chunksExpected > 0
+                              ? t('ingestion.chunksProgress', { done: entry.chunksCreated, total: entry.chunksExpected })
+                              : entry.status === 'PROCESSING' && entry.chunksCreated > 0
+                                ? t('ingestion.chunksSoFar', { count: entry.chunksCreated })
+                                : entry.status}
+                        </span>
+                        {canRetry && (
+                          <button type="button" onClick={() => retryEntry(entry)}
+                            title={t('ingestion.retry')}
+                            className="flex items-center gap-0.5 text-[10px] font-bold uppercase tracking-widest text-secondary hover:text-primary transition-colors">
+                            <span className="material-symbols-outlined text-sm">refresh</span>
+                            {t('ingestion.retry')}
+                          </button>
+                        )}
+                      </div>
                     </div>
                     {(entry.status === 'PROCESSING' || entry.status === 'COMPLETED') && (
                       <div className="relative w-full bg-outline-variant/20 h-0.5 overflow-hidden">
                         {/* Barre déterminée dès que le total de chunks est connu (chunking fait),
                             sinon balayage indéterminé le temps de l'extraction. */}
                         <div className={`h-full transition-all duration-700 ${
-                          entry.status === 'COMPLETED' ? 'bg-primary w-full' : 'bg-secondary/50'
+                          entry.status === 'COMPLETED' ? (partial ? 'bg-error/60 w-full' : 'bg-primary w-full') : 'bg-secondary/50'
                         }`}
                           style={entry.status === 'PROCESSING' ? {
                             width: entry.chunksExpected > 0
@@ -598,10 +779,14 @@ const Ingestion: FC = () => {
                       </div>
                     )}
                     {entry.error && (
-                      <p className="text-xs text-error truncate" title={entry.error}>{entry.error}</p>
+                      <p className="text-[10px] text-error truncate">{entry.error}</p>
                     )}
+                    {entryErrors.map((fe, i) => (
+                      <p key={i} className="text-[10px] text-error truncate" title={fe}>{fe}</p>
+                    ))}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -662,26 +847,25 @@ const Ingestion: FC = () => {
               )}
             </div>
 
-            <button
+            <Button
               onClick={handleGenerateDataset}
               disabled={genActive}
-              className={`w-full font-bold py-3 px-6 text-[11px] uppercase tracking-widest transition-opacity flex items-center justify-center gap-2 ${
-                genActive ? 'bg-surface-container-high text-outline cursor-not-allowed' :
-                'bg-primary text-on-primary-fixed hover:opacity-90'
-              }`}
+              size="lg"
+              variant={genActive ? 'secondary' : 'primary'}
+              className="w-full"
             >
-              <span className={`material-symbols-outlined text-sm ${genActive ? 'animate-spin' : ''}`}>
+              <span aria-hidden="true" className={`material-symbols-outlined text-[16px] ${genActive ? 'animate-spin' : ''}`}>
                 {genActive ? 'sync' : 'rocket_launch'}
               </span>
               {genActive ? t('ingestion.generating') : t('ingestion.generate')}
-            </button>
+            </Button>
           </div>
 
           {/* Progress */}
           <div className="lg:col-span-2 bg-surface-container p-6 space-y-5">
-            {!genTask && !pendingGen ? (
+            {!genTask ? (
               <div className="h-full flex items-center justify-center">
-                <p className="text-xs text-outline italic text-center">
+                <p className="text-[12px] text-on-surface-variant text-center">
                   {t('ingestion.noGeneration1')}<br />
                   {t('ingestion.noGeneration2')}
                 </p>
@@ -691,26 +875,25 @@ const Ingestion: FC = () => {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">{t('ingestion.taskId')}</p>
-                    <p className="font-headline font-bold text-sm">{genTask ? genTask.label : '…'}</p>
+                    <p className="font-headline font-bold text-sm">{genTask.taskId.slice(0, 8).toUpperCase()}…</p>
                   </div>
                   <span className={`font-label text-[11px] font-bold uppercase tracking-widest px-3 py-1 border ${
-                    genStatusLabel === 'COMPLETED' ? 'border-primary text-primary' :
-                    genStatusLabel === 'FAILED'    ? 'border-error text-error' :
-                    genStatusLabel === 'CANCELLED' ? 'border-outline text-outline' :
-                    genStatusLabel === 'PROCESSING'? 'border-secondary text-secondary' :
+                    genTask.status === 'COMPLETED' ? 'border-primary text-primary' :
+                    genTask.status === 'FAILED'    ? 'border-error text-error' :
+                    genTask.status === 'PROCESSING'? 'border-secondary text-secondary' :
                                                      'border-outline text-outline'
                   }`}>
-                    {genStatusLabel}
+                    {genTask.status}
                   </span>
                 </div>
 
                 {/* Chunks progress */}
-                {genRaw && genRaw.totalChunks > 0 && (
+                {genTask.totalChunks > 0 && (
                   <div className="space-y-2">
                     <div className="flex justify-between text-[11px] font-label uppercase tracking-widest">
                       <span className="text-on-surface-variant">{t('ingestion.chunksProcessed')}</span>
                       <span className="font-bold">
-                        {genRaw.chunksProcessed ?? 0} / {genRaw.totalChunks}
+                        {genTask.chunksProcessed} / {genTask.totalChunks}
                         {genEta !== null && (
                           <span className="ml-2 font-normal text-outline tabular-nums normal-case">
                             {t('taskCenter.etaLeft', { time: formatEta(genEta) })}
@@ -721,10 +904,10 @@ const Ingestion: FC = () => {
                     <div className="relative w-full bg-outline-variant/20 h-1.5 overflow-hidden">
                       <div
                         className="absolute top-0 left-0 h-full bg-primary transition-all duration-500"
-                        style={{ width: `${((genRaw.chunksProcessed ?? 0) / genRaw.totalChunks) * 100}%` }}
+                        style={{ width: `${(genTask.chunksProcessed / genTask.totalChunks) * 100}%` }}
                       />
                       {/* Scan beam travels ahead of the fill when active */}
-                      {genStatusLabel === 'PROCESSING' && <div className="scan-beam-primary" />}
+                      {genTask.status === 'PROCESSING' && <div className="scan-beam-primary" />}
                     </div>
                   </div>
                 )}
@@ -734,19 +917,19 @@ const Ingestion: FC = () => {
                   <div className="bg-surface-container-lowest p-4 border-l-2 border-primary">
                     <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">{t('ingestion.pairsGenerated')}</p>
                     {/* key forces re-mount → count-flash animation replays on each new value */}
-                    <p key={genRaw?.pairsGenerated ?? 0} className={`font-headline font-bold text-2xl ${genStatusLabel === 'PROCESSING' ? 'count-flash' : ''}`}>
-                      {genRaw?.pairsGenerated ?? 0}
+                    <p key={genTask.pairsGenerated} className={`font-headline font-bold text-2xl ${genTask.status === 'PROCESSING' ? 'count-flash' : ''}`}>
+                      {genTask.pairsGenerated}
                     </p>
                   </div>
                   <div className="bg-surface-container-lowest p-4 border-l-2 border-secondary">
                     <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">{t('ingestion.chunksTotal')}</p>
-                    <p className="font-headline font-bold text-2xl">{genRaw?.totalChunks || '—'}</p>
+                    <p className="font-headline font-bold text-2xl">{genTask.totalChunks || '—'}</p>
                   </div>
                 </div>
 
-                {genTask?.error && (
+                {genTask.error && (
                   <div className="p-3 bg-error/10 border border-error/30">
-                    <p className="text-xs text-error">{genTask.error}</p>
+                    <p className="text-[11px] text-error">{genTask.error}</p>
                   </div>
                 )}
               </>
@@ -768,7 +951,7 @@ const Ingestion: FC = () => {
 
           {stats.totalPairs === 0 && stats.chunksInStore === 0 ? (
             <div className="bg-surface-container p-8 flex items-center justify-center">
-              <p className="text-xs text-outline italic text-center">
+              <p className="text-[12px] text-on-surface-variant text-center">
                 {t('ingestion.noData1')}<br />
                 {t('ingestion.noData2')}
               </p>

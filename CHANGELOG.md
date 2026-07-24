@@ -8,6 +8,191 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Perf — Playground découpé en chunks chargés à la demande
+
+- **Lazy-loading des panneaux lourds** : le dialogue de comparaison A/B (`RagComparisonDialog`) et le panneau Trace (`RagTracePanel`) sont extraits dans `components/playground/` et chargés via `React.lazy` — ils n'entrent dans le bundle que lorsque l'utilisateur les ouvre. Le chunk d'entrée du Playground passe de **~240 kB à ~59 kB** ; les deux panneaux (~8 kB et ~14 kB) sont différés. Types et constantes partagés isolés dans `playground/ragTypes.ts` pour éviter toute dépendance circulaire. Aucun changement fonctionnel.
+
+### UI — compteurs animés sur les écrans d'évaluation
+
+- **CountUp / SpotlightCard étendus** : le score global, la latence et le débit (tok/s) de **Comparison** s'animent au chargement (`CountUp`) ; les cartes de modules d'**Optimization** et la taille de dataset d'un job de **Fine-Tuning** reçoivent halo au survol / compteur animé. Les valeurs en direct (perte, progression d'entraînement) restent statiques pour ne pas ré-animer à chaque tick.
+
+### RAG — citations en ligne sur le chemin Agentic (couverture universelle)
+
+- **Citations pour l'Agentic RAG** : la boucle ReAct numérote désormais chaque passage du contexte (`[1]`, `[2]`, …) et ses prompts (ReAct + fallback) demandent au modèle de citer ses sources avec ces marqueurs — même convention que le chemin STANDARD (`sources[i]` ↔ `[i+1]`). Les puces de citation cliquables du Playground fonctionnent maintenant aussi sur les réponses agentiques (questions complexes multi-hop), sans changement côté front. Comble le dernier chemin où les citations manquaient.
+
+### UI — effet « déchiffrement » sur l'écran de démarrage
+
+- **StartupOverlay animé** : le titre « Spectra Core » se révèle par un effet de déchiffrement caractère par caractère (composant `DecryptedText`, sans dépendance, cohérent avec la persona). Respecte `prefers-reduced-motion` (texte final immédiat) et reste accessible (vrai texte via `aria-label`, bruit visible en `aria-hidden`).
+
+### UI — animations discrètes (compteurs, révélation, halo au survol)
+
+Trois primitives d'animation **sans dépendance** (inspirées de [React Bits](https://reactbits.dev), réécrites pour le design system : tokens de thème, Tailwind v4, `prefers-reduced-motion`), ajoutées au kit `components/ui` :
+
+- **`CountUp`** — un chiffre qui s'anime jusqu'à sa valeur (et ré-anime depuis l'affichage courant quand la donnée change au polling). Câblé sur les métriques du **Dashboard** (chunks, paires, confiance, catégories, cycle de personnalisation) et les grands nombres du **panneau Trace** du Playground (itérations agentiques, chunks de contexte).
+- **`AnimatedContent`** — révélation en fondu + glissement à l'entrée dans le viewport (grille « RAG Capabilities » du Dashboard).
+- **`SpotlightCard`** — halo radial suivant le curseur au survol, sensible au thème (cartes « RAG Capabilities » du Dashboard, cartes « Optimizations Triggered » du Trace).
+
+Toutes dégradent proprement : sans `IntersectionObserver`/`matchMedia` (ou en mode « réduire les animations »), le contenu s'affiche directement. Logique pure (`easeOutCubic`, `countUpValue`, `formatCount`) extraite dans `lib/animation.ts` et testée ; impact bundle négligeable (aucune lib d'animation tirée).
+
+### Playground — visibilité RAG approfondie : citations en ligne, entonnoir de récupération, budget de tokens
+
+Trois compléments qui ouvrent le « comment » du pipeline là où l'utilisateur ne voyait que le « quoi » :
+
+- **Citations en ligne.** Le backend numérote désormais chaque passage du contexte (`[1]`, `[2]`, …) et demande au modèle de citer ses sources avec ces marqueurs. Côté Playground, les `[n]` de la réponse deviennent des puces **cliquables** qui déplient et défilent jusqu'à la source correspondante ; la liste des sources est numérotée et les sources **réellement citées** sont mises en évidence (« N cited »). Dégrade proprement : sans marqueur (mode DIRECT, réponse non citée), le rendu est inchangé. `RagService` (contexte numéroté + consigne de citation), `rehypeCitations` (rendu Markdown), `parseCitations` (extraction).
+- **Entonnoir de récupération.** Nouveau panneau du Trace : `Récupérés → après Corrective → après Compression → contexte final`, avec le nombre de chunks retirés par chaque étape filtrante. Rend visible **où** et **par quoi** les chunks disparaissent, là où la timeline ne montrait que les durées. Reconstruit côté client depuis les compteurs de la timeline serveur (`buildFunnel`) — aucun surcoût backend.
+- **Budget de tokens.** L'événement `done` porte la taille du contexte injecté (`contextChars`) ; le Trace affiche une barre **contexte récupéré (entrée) vs réponse générée (sortie)**, estimée à ~4 caractères/token (convention déjà utilisée pour les budgets long-contexte/agentique). Répond à « combien du budget est parti dans le contexte plutôt que dans la réponse ? ». `tokenBudget`/`estimateTokens`.
+
+### Correctif — dashboard Grafana : panneaux dupliqués supprimés
+
+- **Dédoublonnage du dashboard** ([grafana-dashboard.yaml](deploy/k8s/monitoring/grafana-dashboard.yaml)) : un merge côté `main` (PR #264/#265) avait introduit une **seconde copie** de quatre panneaux (« Circuit Breakers (State) », « Erreurs (Logs ERROR/WARN) », « HikariCP - Connexions », « JVM Threads (incl. Virtual) »). Le JSON importé par le sidecar Grafana affichait donc ces graphes en double. La copie superflue est retirée ; le dashboard revient à 12 panneaux uniques (ids 1 à 12), sans changement fonctionnel.
+
+### RAG — état serveur des modules exposé (toggles et Advisor fidèles au déploiement)
+
+Comble l'écart entre le RAG Advisor (qui recommande des variables d'environnement, donc un redéploiement) et les toggles du Playground (jusqu'ici purement navigateur, sans savoir ce qui est réellement déployé) :
+
+- **`GET /api/config/rag`** : renvoie la disponibilité **réelle** de chaque module RAG côté serveur (bean présent = déployé via sa variable d'environnement) — adaptive, conversational, hybrid, rerank, corrective, compression, selfRag, multiQuery, agentic, semanticDedup, longContext. `RagService.moduleAvailability()`.
+- **Toggles Playground fidèles** : un module non déployé apparaît **grisé, mention « OFF », interrupteur verrouillé** — plus de faux-semblant qu'on pourrait l'activer par requête (on ne peut que le désactiver s'il est déployé). Les modules déployés restent pilotables.
+- **RAG Advisor conscient de l'état** : dans le guide des stratégies, un module déployé porte un badge **« ● active »** (au lieu de seulement « ✓ recommended ») — on distingue ce qui tourne déjà de ce qu'il reste à activer.
+
+### Playground — comparaison A/B → paires DPO (boucle vers le fine-tuning)
+
+- **Vote de préférence dans la comparaison A/B** : le dialogue « Compare » propose désormais « Which is better? » (réponse de référence vs variante sans un module). Le choix humain est enregistré comme **paire DPO** (`chosen`/`rejected`) sur la **même question** — un signal de préférence bien plus propre que l'agrégation 👍/👎. `POST /api/dataset/dpo/preference`.
+- **Stockage sans collision** : les préférences vont dans un fichier `dpo_preference_pairs.jsonl` **séparé** de `dpo_pairs.jsonl` (que la génération DPO tronque et réécrit). `DpoGenerationService.getAllPairs()`/`exportJsonl()` fusionnent les deux ; les stats DPO distinguent `generatedPairs` et `preferencePairs`. Ainsi une préférence votée n'est jamais perdue par une régénération.
+- **Correctif** : dans le dialogue de comparaison, le rendu de la variante utilisait `requestAnimationFrame` pour batcher les tokens — non fiable hors compositing (la variante pouvait rester vide alors que les métadonnées arrivaient). Aligné sur le même batching `setTimeout` que le chat principal ; la variante s'affiche désormais de façon déterministe.
+
+### Observabilité & feedback — dashboards de latence par étape, analytique du feedback
+
+Boucle les deux signaux ouverts précédemment (métriques d'étapes émises mais non visualisées, feedback enrichi mais non analysé) :
+
+- **Latence RAG par étape dans Grafana** : le timer `spectra.rag.stage` publie désormais un histogramme (`spectra.rag.stage: true` sous `management.metrics.distribution.percentiles-histogram`). Nouveau panneau Grafana « Latence RAG par étape p95 (s) » (une série par étape : retrieval, grading, compression, génération, réflexion, agentic) et alerte Prometheus **`SpectraHighRetrievalLatencyP95`** (p95 retrieval > 5s / 15 min — isole un problème d'infra embedding/ChromaDB, distinct de la génération bornée par le modèle).
+- **Analytique du feedback** : `GET /api/query/feedback/stats` agrège `playground_feedback.jsonl` en taux de 👎 **par stratégie** et **par module** (à partir du `ragMeta` enregistré par vote). Le **RAG Advisor** affiche un « Feedback signal » — taux de 👎 global et par module trié du plus problématique au moins, avec code couleur — qui rend ses recommandations data-driven (« le Corrective augmente les 👎 sur ce corpus » se lit directement). `FeedbackService.aggregate()` dégrade gracieusement (fichier absent, lignes corrompues ignorées).
+
+### RAG & Playground — observabilité des étapes, comparaison A/B rigoureuse, feedback enrichi
+
+- **Durées d'étapes exposées en métriques** : la timeline mesurée côté serveur alimente désormais un timer Micrometer `spectra.rag.stage{stage=…}` (retrieval, grading, compression, génération, réflexion, boucle agentique). La chronologie par requête devient de l'**observabilité agrégée** (p95 retrieval vs génération) dans Prometheus/Grafana, sans surcoût — la durée était déjà mesurée.
+- **Comparaison A/B « toutes choses égales par ailleurs »** : chaque réponse mémorise les **paramètres effectifs** de sa requête (température, top-p, top candidates, surcharges de modules). La comparaison A/B rejoue à partir de **cette** configuration, pas des réglages courants de la session — la variante ne diffère plus que par le module comparé, même si l'utilisateur a changé un réglage depuis.
+- **Feedback 👍/👎 enrichi** : le signal envoyé au backend joint le **pipeline de la réponse** (`ragMeta` : stratégie, drapeaux appliqués) et les **surcharges actives**. Un 👎 devient corrélable à la configuration RAG effective (« les pouces rouges arrivent surtout quand le corrective a tout filtré »), et le corpus DPO (`playground_feedback.jsonl`) s'en trouve enrichi. `FeedbackRequest`/`FeedbackService` acceptent ces champs, optionnels et rétrocompatibles.
+
+### Documentation — guide Playground à jour (visibilité du pipeline)
+
+- **Manuel utilisateur** ([user-manual.fr.md](docs/user/user-manual.fr.md)) : section Playground réécrite pour couvrir toutes les fonctionnalités livrées — étapes du pipeline visibles en direct, badges et bouton Trace, timeline mesurée côté serveur avec compteurs, question reformulée, toggles par module (surcharges `RagOverrides`), comparaison A/B, mode expert, RAG Advisor et export.
+- **README (EN/FR)** : le bloc « Ask / Questions » met en avant la transparence du pipeline (étapes en direct, timeline, toggles, comparaison A/B).
+- **C4 composants** ([c4-level-3-components.fr.md](docs/tech/c4-level-3-components.fr.md)) : libellé du composant Playground actualisé (streaming SSE, toggles, Trace/timeline/A-B).
+- **Captures d'écran** : `docs/assets/playground.png` (et sa copie Hugging Face) régénérée — elle montre désormais les badges du pipeline, le % de pertinence des sources (avec l'étiquette BM25) et les métriques ; nouvelle capture `docs/assets/playground-trace.png` du panneau Trace (timeline mesurée côté serveur avec compteurs), intégrée au manuel utilisateur.
+- Les références techniques (streaming SSE, événements `stage`/`replace`, champ `stages`, surcharges par requête) étaient déjà à jour côté `technical-doc.fr.md`.
+
+### Playground — logique RAG extraite et testée (`lib/ragPipeline`)
+
+- La logique pure du pipeline RAG côté Playground (calcul de pertinence `relevancePct`/`isBm25Only`, construction des surcharges `overridesFromDisabled`, modules appliqués `appliedModules`, formatage de la timeline `formatStageCounts`/`fmtMs`, registre `RAG_MODULES`) est extraite de `Playground.tsx` vers un module dédié [`frontend/src/lib/ragPipeline.ts`](frontend/src/lib/ragPipeline.ts), testable indépendamment du composant.
+- **23 tests unitaires** ([`ragPipeline.test.ts`](frontend/src/lib/ragPipeline.test.ts)) couvrent les cas limites : chunks BM25-only (distance sentinelle 1.0), bornage de la pertinence, surcharges (jamais forcer ON, dédup du module A/B), adaptive listé seulement en AGENTIC, compteurs de timeline (`avant→après (−N)`, itérations, absence de compteur). Aucun changement de comportement — refactor à iso-fonctionnalité.
+
+### Playground — timeline du pipeline, compteurs, toggles par module et comparaison A/B
+
+Quatre ajouts qui approfondissent la visibilité du RAG et rendent le pipeline explorable depuis l'interface :
+
+- **Timeline du pipeline (panneau Trace)** : chaque étape est désormais **mesurée côté serveur** (durée réelle, sans jitter réseau) et remontée dans l'événement SSE `done` (champ `stages`). Le panneau Trace affiche un waterfall — routing, retrieval, grading, compression, boucle agentique, génération, réflexion — qui répond à « où est parti le temps ? » là où le TTFT global restait muet.
+- **Compteurs par étape** : la timeline porte les cardinalités (retrieval : N chunks ; corrective grading : `avant→après` avec le nombre écarté ; compression : idem ; boucle agentique : nombre d'itérations). Un badge CORR binaire devient « Corrective grading 5→3 chunks (−2) ».
+- **Toggles par module** : la section « Advanced » de la configuration RAG expose des interrupteurs par module (Hybrid Search, Cross-Encoder, Multi-Query, Corrective, Compression, Self-RAG, Adaptive routing). Décocher **force le module OFF pour la requête** via les surcharges `RagOverrides` (déjà utilisées par l'ablation), désormais acceptées par `POST /api/query/stream` et persistées localement. On ne peut pas forcer ON un module absent du serveur — sémantique tri-état exacte de `RagOverrides.resolve`.
+- **Comparaison A/B dans le chat** : un bouton « Compare » sur une réponse propose de la **rejouer sans un module qui a réellement agi** (menu construit depuis les drapeaux de la réponse). La référence et la variante (streamée en direct, un module désactivé) s'affichent côte à côte avec leurs badges pipeline et leurs sources — l'apport du module devient visible sur la question que l'utilisateur vient de poser, pas seulement en batch d'ablation.
+- Backend : `QueryRequest` porte un champ `RagOverrides overrides` (constructeur de compatibilité conservé) ; `runStreamPipeline` résout chaque module via `RagOverrides.resolve` (parité avec le chemin non-streaming) et accumule la timeline serveur.
+
+### Documentation & CI — audit sécurité, contrainte mono-instance, CI kustomize épinglée
+
+- **Manuel utilisateur en anglais** ([docs/user/user-manual.en.md](docs/user/user-manual.en.md)) : traduction complète du manuel utilisateur (prérequis, démarrage, pipeline en 4 étapes, guide de l'interface, gestion des modèles, dépannage). Les deux versions se renvoient l'une à l'autre (bandeau « 🌍 »), et le hub docs / les README pointent la version anglaise avec un lien `FR` de repli.
+- **Pipeline RAG en anglais** ([docs/tech/rag-pipeline.en.md](docs/tech/rag-pipeline.en.md)) : traduction du « pourquoi de chaque étape » (chunking, Multi-Query, fusion RRF, re-ranking Cross-Encoder, compression de contexte, long-context bypass). Blocs de code, chemins et clés de configuration conservés tels quels ; les deux versions se renvoient l'une à l'autre et le hub docs / le README anglais pointent la version EN.
+- **Audit sécurité** ([docs/process/audit-securite.fr.md](docs/process/audit-securite.fr.md), remplace l'ancien `SECURITY_AUDIT.md` supprimé) : constat technique de la surface auth/exposition/DoS. Points saillants — pas d'identité par utilisateur (le paramètre `?actor=` de la GED est déclaratif → audit trail non probant), auth désactivée par défaut, l'activation de `SPECTRA_API_KEY` casse le SSE (`EventSource` ne peut pas envoyer d'en-tête), actuator exposé. Les entrées « externes » (SSRF, ZIP-bombs, désérialisation, traversée de chemin) sont, elles, bien durcies. Rapport d'analyse : aucun correctif d'auth appliqué (choix d'architecture à trancher).
+- **Contrainte mono-instance documentée** : `spectra-api` n'est pas conçu pour tourner en plusieurs réplicas (index BM25 en mémoire, registres de tâches, H2 fichier, fan-out SSE non partagés). Nouvelle section [architecture § Scaling & Operational Constraints](docs/architecture.en.md#scaling--operational-constraints) et item de suivi dans reliability.
+- **Release : garde-fou de convention de tag** (`release.yml`) : le workflow échoue si le tag ne commence pas par `v` (ex. `v0.7.1`) et avertit si les notes curées `.github/release-notes/vX.Y.Z.md` sont absentes. La release `0.7` avait été taguée sans `v`, contournant silencieusement le fichier de notes → corps générique recyclé de v0.5. Notes curées `v0.7.1.md` préparées pour la prochaine release.
+- **CI kustomize épinglée** (`k8s-validate.yml`) : la validation installait kustomize « latest » depuis master — non reproductible (un nouveau kustomize peut casser un manifeste valide sans changement dans le dépôt, ce qui a fait surgir un bug de `seed` à un moment arbitraire). Version figée à `v5.8.1`, comme le pin de `LLAMA_CPP_IMAGE_TAG`.
+
+### RAG — pipeline complet porté au streaming SSE (Adaptive, Agentic, Self-RAG) + étapes visibles en direct
+
+Le chemin streaming (`POST /api/query/stream`, utilisé par le Playground) n'exécutait ni le routage adaptatif, ni la boucle agentique, ni le Self-RAG — réservés au chemin non-streaming que l'UI n'appelle jamais. Le pipeline streaming est désormais complet :
+
+- **Adaptive RAG en streaming** : la question est classifiée (DIRECT / STANDARD / AGENTIC) avant le retrieval. Une question générale saute l'index et streame une réponse directe ; une question complexe déclenche la boucle agentique.
+- **Agentic RAG en streaming** : la boucle ReAct s'exécute avec une **visibilité en direct** — chaque recherche complémentaire décidée par le LLM émet un événement SSE `stage` (`agentic_search`, avec numéro d'itération et requête reformulée) affiché dans la bulle de réponse. La réponse finale (produite par la boucle) est émise en un bloc ; `done` transporte `agenticIterations` et `agenticStopReason`, affichés dans le panneau Trace.
+- **Self-RAG en streaming** : le brouillon est streamé normalement (TTFT préservé) puis auto-évalué (ISREL/ISSUP/ISUSE). S'il est jugé insuffisant, un événement `replace` demande au client d'effacer le brouillon avant de streamer la version raffinée. Les scores de réflexion sont exposés (`selfRagScores`) dans le tooltip du badge SELF et le panneau Trace.
+- **Étapes du pipeline visibles en direct** : le backend émet des événements `stage` (`routing`, `rewriting`, `retrieval`, `grading`, `compression`, `reflection`, `refining`…) que le Playground affiche sous le curseur de streaming (« Searching the knowledge base… », « Agentic search #2… »). Ces événements servent aussi de keep-alive : ils réarment la garde d'inactivité de 120 s du frontend, qui aurait sinon coupé une boucle agentique longue sur CPU.
+- Architecture : `queryStream` passe d'un `Mono.fromCallable` (muet pendant tout le setup) à un émetteur bloquant `Flux.create` sur `boundedElastic`, capable d'émettre au fil du pipeline ; `AgenticRagService` accepte un `SearchProgressListener` optionnel ; `SelfRagService` expose son évaluation décomposée (`evaluate` / `requiresRefinement` / `refineSystemPrompt`) pour le brouillon streamé.
+
+### Playground — audit : visibilité du pipeline RAG, correctifs et fluidité (streaming)
+
+Correctifs et améliorations issus d'un audit de la page Playground, avec pour objectif de rendre le fonctionnement du RAG visible pour l'utilisateur :
+
+- **Badges pipeline visibles pour tous** : les badges RAG (CONV, CORR, HYB, RRNK…) et le bouton « Trace » ne sont plus réservés au mode expert — chaque réponse montre les étapes réellement appliquées. Le mode expert conserve les distances brutes et les métriques de latence.
+- **Question reformulée exposée** (Conversational RAG) : l'événement SSE `done` inclut désormais `rewrittenQuestion` (question autonome utilisée pour le retrieval) et `chunkCount` (chunks injectés dans le contexte). Le panneau Trace affiche la reformulation et le nombre de chunks ; le tooltip du badge CONV montre la question réécrite.
+- **Scores de retrieval affichés** : les scores Cross-Encoder (`rerankScore`) et BM25 (`bm25Score`) envoyés par le backend étaient ignorés par l'UI — ils apparaissent dans le détail des sources (mode expert) et le panneau Trace.
+- **Sources BM25-only correctement étiquetées** : un chunk retrouvé uniquement par mot-clé porte la distance sentinelle 1.0 et s'affichait « 0% relevance » — il est désormais étiqueté « BM25 » (liste de sources, Trace, export Markdown).
+- **Panneau Trace complété** : cartes Conversational RAG et Long-Context RAG ajoutées à la grille des optimisations (elles étaient absentes).
+- **Régénération sans ancrage** : « Regenerate » renvoyait l'ancienne réponse dans l'historique conversationnel — le modèle avait tendance à la répéter. L'historique s'arrête maintenant avant le tour régénéré.
+- **Historique assaini** : les messages locaux (« Welcome… », « Discussion cleared ») ne sont plus envoyés dans l'historique Conversational RAG, et le compteur « N messages in history » reflète ce qui est réellement transmis.
+- **Saisie préservée** : appuyer sur Entrée avec le modèle offline (ou pendant une génération) effaçait le texte tapé sans l'envoyer.
+- **Rendu du streaming fluidifié** : les tokens sont regroupés et affichés au plus toutes les ~80 ms au lieu d'un re-parse Markdown complet par token (rendu O(n²) sur les longues réponses).
+- **Fin de flux sans `done` gérée** : une connexion SSE coupée proprement laissait la bulle en STREAMING (curseur clignotant à vie) — les statuts transitoires sont désormais débloqués.
+- **JSON SSE toujours valide (backend)** : les événements `done`/`error` sont sérialisés via Jackson — un message d'erreur contenant `"`, `\` ou un retour à la ligne cassait le parsing côté client (le Playground affichait alors un message générique).
+
+### GED — version, dates d'ingestion et d'archivage dans la fiche document
+
+- La fiche document (page Database) affiche désormais la **version** (incrémentée à chaque ré-ingestion `force`), la **date d'ingestion** et — pour les documents archivés — la **date d'archivage** (`archivedAt`, base de la purge de rétention). Ces champs étaient renvoyés par l'API depuis l'audit ingestion/GED mais absents de l'UI.
+
+### Observabilité — alertes et panneaux sur la cohérence des index
+
+- **Deux alertes Prometheus** (`deploy/k8s/monitoring/prometheus-rules.yaml`) : `SpectraIndexDivergence` (warning — divergence FTS/ChromaDB persistante > 2h sur une collection, c.-à-d. que la réparation automatique horaire ne converge pas) et `SpectraChromaEmptyButGedPopulated` (critical — ChromaDB vide alors que la GED déclare des documents : volume perdu/reset, le RAG ne répond plus sur le corpus).
+- **Deux panneaux Grafana** : chunks par magasin (ChromaDB / BM25 / GED) et divergence par collection — le tableau de bord montre d'un coup d'œil si les trois sources de vérité comptent pareil.
+- **Test d'intégration multi-collections** (`ChromaDbConsistencyIntegrationTest`, Testcontainers) : la réconciliation reconstruit l'index BM25 depuis un **vrai** ChromaDB pour la seule collection divergente, en laissant intacte une collection cohérente — le chemin multi-collections (corrigé pendant l'audit) n'était couvert que par des tests mockés.
+- **Instantané de cohérence au démarrage** (`ConsistencyReconciliationService.snapshotOnStartup`, `ApplicationReadyEvent`) : au boot, les comptes DB / ChromaDB / BM25 sont comparés une fois et journalisés (INFO si cohérent, WARN par collection divergente, ERROR si ChromaDB est vide alors que la GED déclare des chunks — volume vectoriel perdu/reset). Les gauges Prometheus sont peuplées immédiatement au lieu d'attendre le premier cycle de réconciliation (T+2 min). Purement informatif : ne déclenche aucune reconstruction et ne bloque jamais le démarrage (ChromaDB peut encore être indisponible au boot).
+
+### UI — erreurs d'ingestion par fichier visibles (succès partiels)
+
+- **Live Ingestion Stream** : une tâche terminée dont certains fichiers ont échoué n'apparaît plus comme un succès plein — la ligne passe en avertissement « N chunks · partiel » (icône et barre en couleur d'erreur) avec le détail de chaque échec (`fileErrors`) sous le fichier concerné, et un toast signale la fin de tâche partielle. Le backend remontait ces erreurs depuis l'audit ingestion/GED ; l'UI les ignorait.
+- **Panneau global des tâches** : les échecs par fichier d'une ingestion partielle sont repris dans la ligne de la tâche (champ erreur), visibles depuis n'importe quelle page.
+- **Relance d'une ingestion échouée / partielle** (page Ingestion) : un bouton « Relancer » apparaît sur chaque ligne en échec ou en succès partiel et ré-injecte la source d'origine encore en mémoire (fichier uploadé ou URL). La déduplication SHA-256 côté serveur rend la relance sûre — les fragments déjà ingérés sont ignorés, seuls les fichiers en échec retentent leur chance. Auparavant, une erreur transitoire (timeout LLM, circuit ChromaDB ouvert) imposait de re-sélectionner les fichiers à la main.
+- **Relance inter-pages d'une ingestion d'URLs** (centre d'activité global) : une tâche d'ingestion d'URLs échouée porte un bouton « Relancer » depuis n'importe quelle page — les URLs (toutes les entrées `files` sont des URLs http(s)) sont ré-injectées côté serveur. Un upload de fichier n'expose pas ce bouton (octets non conservés, non ré-injectables sans re-sélection).
+- **Validation fail-fast de la configuration au démarrage** (`PipelineConfigValidator`) : les combinaisons incohérentes (overlap de chunking ≥ taille de chunk → aucune progression, lot d'embedding ≤ 0, re-ranker/multi-query/long-context activés avec un paramètre invalide, `max-active-ingestions` < 0) refusent le démarrage avec un message clair listant **toutes** les erreurs, au lieu d'échouer plus tard à la première ingestion/requête. Une configuration par défaut passe sans bruit.
+- **Contre-pression à la soumission d'ingestion** (`spectra.pipeline.max-active-ingestions`, défaut `0` = illimité) : au-delà du plafond de tâches actives (PENDING/PROCESSING), une nouvelle soumission est rejetée en **HTTP 429** *avant* toute écriture temporaire. Le sémaphore bornait déjà le traitement concurrent, mais rien ne bornait le nombre de tâches en attente — un flot de soumissions empilait fichiers temporaires et entrées de registre (en mémoire, mono-instance) plus vite que le sémaphore ne les draine. Le 429 porte un en-tête **`Retry-After`**, incrémente le compteur Prometheus **`spectra.ingestion.rejected`**, et l'UI Ingestion affiche un toast « Serveur occupé » non alarmant (la ligne reste relançable).
+- **Authentification API compatible SSE** (`ApiKeyFilter`) : la clé est désormais résolue depuis le header `X-API-Key`, sinon le **paramètre de requête `apiKey`**, sinon le **cookie `X-API-Key`**. L'API navigateur `EventSource` ne peut pas envoyer d'en-tête personnalisé ; sans ce repli, activer `SPECTRA_API_KEY` renvoyait 401 sur tous les flux SSE (audit sécurité S3). ⚠️ Le paramètre de requête peut apparaître dans les journaux ; préférez le cookie ou le header hors SSE. (Le mécanisme de saisie de la clé côté UI reste à faire.)
+
+---
+
+## [1.13.0] — 2026-07-18
+
+### Qualité & performance — tests d'intégration ChromaDB réel, lot d'embedding ×3
+
+- **Tests d'intégration contre un vrai ChromaDB** (`ChromaDbConsistencyIntegrationTest`, Testcontainers) : les scénarios critiques de l'audit — ré-ingestion forcée sans duplication, suppression purgeant vecteur + BM25, homonymes protégés par l'identité `sha256` — sont désormais vérifiés de bout en bout contre un conteneur `chromadb/chroma` jetable (même image que la stack). En CI le conteneur démarre automatiquement ; sans Docker le test est ignoré, ou peut viser un serveur existant via `SPECTRA_TEST_CHROMA_URL`. Ces bugs étaient invisibles aux tests unitaires (ChromaDB mocké partout).
+- **Lot d'embedding par défaut 10 → 32** (`SPECTRA_EMBEDDING_BATCH_SIZE`) : 500 chunks = 16 requêtes HTTP au lieu de 50. Abaisser sur CPU très lent.
+- **`SPECTRA_EMBEDDING_TIMEOUT` enfin câblé au client d'embedding** : la variable documentée n'alimentait que `spectra.pipeline.embedding-timeout-seconds`, que rien ne consommait — le client llama.cpp utilisait son propre défaut (30 s). Elle pilote désormais le timeout réel des requêtes `/v1/embeddings` (défaut relevé à 60 s pour couvrir un lot complet sur CPU lent).
+
+### Ingestion & GED — cohérence des index, suppression unifiée, erreurs visibles (audit)
+
+Correctifs issus de l'[audit ingestion/GED](docs/process/archive/audit-ingestion-ged.fr.md) (PR #244, #249) :
+
+- **Ré-ingestion `force=true` = remplacement** : les anciens chunks sont purgés (ChromaDB + BM25) avant la ré-indexation — chaque force dupliquait auparavant tous les chunks du document dans les réponses. C'est aussi la voie de réparation d'un document partiellement indexé.
+- **Identité `sha256` des chunks** : les suppressions/remplacements ciblent le contenu, plus le nom de fichier — deux documents homonymes ne partagent plus leur sort (repli `sourceFile` pour les chunks historiques).
+- **Suppression unifiée** : `DELETE /api/documents/{sourceFile}` supprime désormais aussi la fiche GED (la dédup SHA-256 ne bloquait plus la ré-ingestion d'un document devenu invisible du RAG) ; la purge de rétention passe par la suppression complète (DB + index) au lieu de laisser les chunks servis à vie.
+- **Erreurs par fichier** : nouveau champ `fileErrors` dans le suivi des tâches d'ingestion (upload, exécuteur, URLs) ; une tâche dont tous les fichiers échouent finit `FAILED` au lieu d'un faux `COMPLETED` à 0 chunk. Nouvelle colonne `ingestion_tasks.file_errors` (migration idempotente).
+- **Garde-fous** : limite de taille décompressée appliquée aussi aux uploads directs ; l'ingestion URL/batch passe par le sémaphore de concurrence et la réservation in-flight (heartbeat pour les ingestions plus longues que le TTL).
+- **Rétention sur la date d'archivage** : nouvelle colonne `ingested_files.archived_at` (posée à l'archivage, effacée au retour) — la purge n'éliminait plus un vieux document fraîchement archivé ; `incrementVersion` rafraîchit `ingestedAt`.
+- **Score de qualité atteignant 1.0** : l'ancienne pondération plafonnait le score réel à 0.86 — un seuil d'auto-qualification ≥ 0.9 ne qualifiait jamais rien.
+- **Cycle de vie `TRAINED` automatique** : en fin de fine-tuning réussi, les documents sources du dataset sont liés au modèle (`TRAINED_ON`) et avancent vers `TRAINED` via la machine à états — ces liens n'étaient posés que manuellement.
+- **FTS/BM25** : le rebuild fusionne avec l'index vivant au lieu de l'écraser, l'index disque est validé contre ChromaDB (fraîcheur), le flush passe à 30 s ; réconciliation étendue à toutes les collections (GED + flux Kafka) avec gauges par collection.
+- **Divers** : locale de chunking configurable (`SPECTRA_CHUNK_LOCALE`), formats `.md`/`.markdown`/`.csv` supportés, profondeur d'aplatissement JSON bornée, delete ChromaDB par filtre `where`, suppressions SQL en masse, tri des tâches, filtre tag échappé.
+
+### Documentation — renommage kebab-case, liens réparés, référence de configuration complète
+
+Correctifs issus de l'[audit documentation](docs/process/audit-documentation.fr.md) :
+
+- **Convention de nommage unifiée** : les documents de `docs/` passent en kebab-case suffixé langue (`getting-started.en.md`, `technical-doc.fr.md`…) — les 30 liens internes cassés (dont toute la section Documentation des READMEs) sont réparés.
+- **`getting-started` exécutable tel quel** : chemins réels (`scripts/`, `deploy/docker`, `deploy/k8s`), URL du dépôt, renvois GKE redirigés vers `deploy/k8s/README.md`.
+- **Java 25 réaligné partout** : `pom.xml` et la CI, rétrogradés à 21 par un commit d'optimisation CI sans trace, reviennent à la cible **25** — conformément à la migration documentée ici même et aux images Docker (Temurin 25). Prérequis contributeur : JDK 25. Suite de tests et SpotBugs validés sous JDK 25.
+- **`configuration.en.md` complet** : ~40 variables ajoutées (bloc Kafka entier, llmfit, gardes-fous d'ingestion, `SPECTRA_CHUNK_LOCALE`, reranker, évaluation…) ; `spectra.ged.auto-retrain-threshold` désormais câblée dans `application.yml` comme les autres propriétés.
+- **Exactitude** : liste des formats unifiée (table de référence unique dans `technical-doc`), pipeline d'ingestion corrigé (dédup SHA-256, BM25 toujours indexé, machine à états réelle), sémantique `force`/URLs corrigée dans le manuel, section « fiche document / cycle de vie » ajoutée au manuel.
+
+### Model Hub — GGUF orphelins supprimables, rétention de l'historique, doc à jour
+
+- **Suppression des GGUF orphelins depuis l'UI** (`DELETE /api/models/hub/storage/files?file=…` + bouton dans le panneau Stockage) : un fichier présent dans `data/models/` mais absent du registre (déposé à la main, laissé par un incident) était visible dans le rapport de stockage mais insupprimable sans shell — la suppression de modèle exige un alias enregistré. Garde-fous : nom simple uniquement (anti-traversée), fichier directement dans `models-dir`, refus en 409 s'il est encore référencé par le registre (retirer le modèle dans ce cas).
+- **Rétention de l'historique des installations** (`InstallationRetentionService`, propriété `llmfit.installations-retention-days`, env `LLMFIT_INSTALL_RETENTION_DAYS`, défaut `0` = conserver) : cron nocturne purgeant les jobs **terminaux** (COMPLETED/FAILED/CANCELLED) plus vieux que N jours — même convention que les rétentions GED et Kafka. Les jobs non-terminaux ne sont jamais purgés (la réconciliation au démarrage les traite d'abord).
+- **Documentation utilisateur à jour** : le manuel (`user-manual.fr.md` § Gestion des modèles) documente le panneau Stockage (volume + cache llmfit, purge des doublons, suppression des orphelins), l'historique des installations (bouton Réessayer, rétention) et le badge du modèle actif ; la documentation pédagogique corrige « copié » → « déplacé » et décrit le cycle de vie du stockage. Variables `LLMFIT_CACHE_DIR` / `LLMFIT_INSTALL_RETENTION_DAYS` ajoutées à `.env.example` et transmises par docker-compose.
+
 ### UI — relance des installations échouées, badge modèle actif cliquable
 
 - **Bouton « Réessayer » dans l'historique des installations** : un téléchargement FAILED ou CANCELLED se relance en un clic avec les mêmes paramètres (modèle, quantisation, auto-activation) — le job les porte déjà. Le serveur répond 409 si un téléchargement du même modèle est déjà en cours.
@@ -58,7 +243,7 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 - **Rétention** (`KafkaStreamRetentionService`) : cron nocturne purgeant les sources non mises à jour depuis `retention-ttl-days` jours (0 = désactivé).
 - **Métriques Micrometer** : `spectra.kafka.messages{topic,result}` et `spectra.kafka.processing{topic}` sur `/actuator/prometheus`.
 - **Déploiement** : profil Docker `kafka` (Apache Kafka mode KRaft mono-nœud) dans `docker-compose.yml`, variables `SPECTRA_KAFKA_*` (`.env.example`). Dépendance `spring-kafka` (gérée par le BOM Spring Boot).
-- **Documentation** : `docs/DESIGN_KAFKA_STREAMING_UPSERT.fr.md` (design détaillé), sections dédiées dans le README, la doc technique, le manuel utilisateur et le mini-livre pédagogique.
+- **Documentation** : `docs/design-kafka-streaming-upsert.fr.md` (design détaillé), sections dédiées dans le README, la doc technique, le manuel utilisateur et le mini-livre pédagogique.
 
 ### Évaluation — mesure des gains des enrichissements LLM
 
@@ -152,7 +337,7 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ### Documentation
 
-- **Guide pédagogique réécrit** : `DOCUMENTATION_PEDAGOGIQUE.fr.md` réorganisé en « mini-livre » des idées et algorithmes ; cross-links EN/FR ajoutés depuis le README.
+- **Guide pédagogique réécrit** : `documentation-pedagogique.fr.md` réorganisé en « mini-livre » des idées et algorithmes ; cross-links EN/FR ajoutés depuis le README.
 
 ---
 
@@ -435,7 +620,7 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ### Modifié
 - `pipeline.bat` : support des flags `--packing` et `--dpo` (transmission à `train_host.py`)
-- Documentation : `IMPROVEMENTS.md`, `README.md`, `USER_MANUAL.md` mis à jour avec H1–H4
+- Documentation : `IMPROVEMENTS.md`, `README.md`, `user-manual.fr.md` mis à jour avec H1–H4
 
 ---
 

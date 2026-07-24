@@ -7,9 +7,17 @@ import { useStatus } from '../hooks/useStatus';
 
 interface HeaderProps {
   onMenuClick?: () => void;
+  /** Ouvre la palette de commandes (⌘K). */
+  onSearchClick?: () => void;
 }
 
-const Header: FC<HeaderProps> = ({ onMenuClick }) => {
+interface ServiceInfo {
+  name: string;
+  available?: boolean;
+  details?: { activeModel?: string; activeModelLoaded?: boolean };
+}
+
+const Header: FC<HeaderProps> = ({ onMenuClick, onSearchClick }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { t, i18n } = useTranslation();
@@ -20,41 +28,48 @@ const Header: FC<HeaderProps> = ({ onMenuClick }) => {
   const nextLang = currentLang === 'fr' ? 'en' : 'fr';
   const { status } = useStatus();
 
-  const chatStatus = status?.services?.find((s: any) => s.name === 'llama-cpp');
-  const embedStatus = status?.services?.find((s: any) => s.name === 'llama-cpp-embed');
+  const services: ServiceInfo[] = status?.services ?? [];
+  const chatStatus = services.find((s) => s.name === 'llama-cpp');
+  const embedStatus = services.find((s) => s.name === 'llama-cpp-embed');
 
-  const getStatusColor = (s: any) => {
-    if (!s) return 'bg-outline'; // Unknown
-    if (!s.available) return 'bg-error'; // Missing/Down
-    if (s.details?.activeModelLoaded === false) return 'bg-warning animate-pulse'; // Loading
-    return 'bg-success'; // OK
+  const getStatusColor = (s?: ServiceInfo) => {
+    if (!s) return 'bg-outline';
+    if (!s.available) return 'bg-error';
+    if (s.details?.activeModelLoaded === false) return 'bg-warning animate-pulse';
+    return 'bg-success';
   };
 
+  const statusTitle = (label: string, s?: ServiceInfo) =>
+    `${label}\nStatus: ${s?.available ? (s.details?.activeModelLoaded === false ? 'Loading model' : 'Ready') : 'Offline'}\nModel: ${s?.details?.activeModel || 'None'}`;
 
   return (
-    <header className="header-border flex justify-between items-center px-4 md:px-6 py-3 sticky top-0 z-30 bg-surface-container/80 backdrop-blur-md">
-      <div className="flex items-center gap-3">
+    <header className="header-border flex justify-between items-center px-4 md:px-6 h-14 sticky top-0 z-30 bg-surface/80 backdrop-blur-md">
+      <div className="flex items-center gap-2 min-w-0">
         <button
           type="button"
           onClick={onMenuClick}
           aria-label="Open navigation"
-          className="md:hidden p-1.5 -ml-1.5 hover:bg-surface-variant/60 text-on-surface-variant hover:text-primary transition-colors"
+          className="md:hidden p-1.5 -ml-1.5 rounded-md hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors"
         >
           <span aria-hidden="true" className="material-symbols-outlined text-[22px]">menu</span>
         </button>
-        <span className="font-label text-[10px] uppercase tracking-[0.15em] text-outline select-none">Spectra</span>
-        {pageName && (
-          <>
-            <span className="text-outline/40 text-[11px]">/</span>
-            <span className="font-headline font-bold text-[11px] uppercase tracking-[0.08em] text-on-surface">{pageName}</span>
-          </>
-        )}
+        <nav aria-label="Breadcrumb" className="flex items-center gap-2 min-w-0">
+          <span className="text-[13px] text-on-surface-variant select-none">Spectra</span>
+          {pageName && (
+            <>
+              <span aria-hidden="true" className="text-outline-variant text-[13px]">/</span>
+              <span className="text-[13px] font-medium text-on-surface truncate">{pageName}</span>
+            </>
+          )}
+        </nav>
       </div>
+
       <div className="flex items-center gap-1">
-        <div className="flex items-center gap-2 mr-4 border-r border-border pr-4 hidden md:flex">
-          <div className="flex items-center gap-1.5" title={`Chat Server\nStatus: ${chatStatus?.available ? (chatStatus.details?.activeModelLoaded === false ? 'Loading Model' : 'Ready') : 'Offline'}\nModel: ${chatStatus?.details?.activeModel || 'None'}`}>
-            <div className={`w-2 h-2 rounded-full ${getStatusColor(chatStatus)}`} />
-            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Chat</span>
+        {/* État des services (desktop) */}
+        <div className="hidden md:flex items-center gap-3 mr-3 pr-3 border-r border-outline-variant/60">
+          <div className="flex items-center gap-1.5" title={statusTitle('Chat server', chatStatus)}>
+            <div className={`w-1.5 h-1.5 rounded-full ${getStatusColor(chatStatus)}`} />
+            <span className="text-[12px] text-on-surface-variant">Chat</span>
             {chatStatus?.details?.activeModel && (
               // Raccourci vers le Playground, où l'on change de modèle actif.
               <button
@@ -62,39 +77,56 @@ const Header: FC<HeaderProps> = ({ onMenuClick }) => {
                 onClick={() => navigate('/playground')}
                 title={t('header.activeModelHint')}
                 aria-label={t('header.activeModelHint')}
-                className="text-[10px] font-mono text-primary max-w-[160px] truncate hover:underline underline-offset-2 transition-colors"
+                className="text-[12px] font-mono text-primary max-w-[160px] truncate hover:underline underline-offset-2 transition-colors"
               >
                 {chatStatus.details.activeModel}
               </button>
             )}
           </div>
-          <div className="flex items-center gap-1.5" title={`Embedding Server\nStatus: ${embedStatus?.available ? (embedStatus.details?.activeModelLoaded === false ? 'Loading Model' : 'Ready') : 'Offline'}\nModel: ${embedStatus?.details?.activeModel || 'None'}`}>
-            <div className={`w-2 h-2 rounded-full ${getStatusColor(embedStatus)}`} />
-            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Embed</span>
+          <div className="flex items-center gap-1.5" title={statusTitle('Embedding server', embedStatus)}>
+            <div className={`w-1.5 h-1.5 rounded-full ${getStatusColor(embedStatus)}`} />
+            <span className="text-[12px] text-on-surface-variant">Embed</span>
           </div>
         </div>
-      <TaskCenter />
-      {navItem?.docSection && (
+
+        {onSearchClick && (
+          <button
+            type="button"
+            onClick={onSearchClick}
+            aria-label={t('palette.title', 'Command palette')}
+            title={t('palette.title', 'Command palette')}
+            className="hidden sm:flex items-center gap-2 h-8 px-2.5 mr-1 rounded-md border border-outline-variant/60 text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors"
+          >
+            <span aria-hidden="true" className="material-symbols-outlined text-[16px]">search</span>
+            <span className="text-[12px]">{t('palette.searchShort', 'Search')}</span>
+            <kbd className="text-[10px] text-outline border border-outline-variant rounded px-1 py-px">⌘K</kbd>
+          </button>
+        )}
+
+        <TaskCenter />
+
+        {navItem?.docSection && (
+          <button
+            type="button"
+            onClick={() => navigate(`/documentation?section=${navItem.docSection}`)}
+            aria-label={t('header.help')}
+            title={t('header.help')}
+            className="p-1.5 rounded-md hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors"
+          >
+            <span aria-hidden="true" className="material-symbols-outlined text-[18px]">help</span>
+          </button>
+        )}
+
         <button
           type="button"
-          onClick={() => navigate(`/documentation?section=${navItem.docSection}`)}
-          aria-label={t('header.help')}
-          title={t('header.help')}
-          className="p-1.5 hover:bg-surface-variant/60 text-on-surface-variant hover:text-primary transition-colors"
+          onClick={() => i18n.changeLanguage(nextLang)}
+          aria-label={t('header.switchLanguage')}
+          title={t('header.switchLanguage')}
+          className="flex items-center gap-1.5 px-2 py-1.5 rounded-md hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors"
         >
-          <span aria-hidden="true" className="material-symbols-outlined text-[18px]">help</span>
+          <span aria-hidden="true" className="material-symbols-outlined text-[18px]">language</span>
+          <span className="text-[12px] font-medium uppercase">{currentLang}</span>
         </button>
-      )}
-      <button
-        type="button"
-        onClick={() => i18n.changeLanguage(nextLang)}
-        aria-label={t('header.switchLanguage')}
-        title={t('header.switchLanguage')}
-        className="flex items-center gap-1.5 px-2 py-1.5 hover:bg-surface-variant/60 text-on-surface-variant hover:text-primary transition-colors"
-      >
-        <span aria-hidden="true" className="material-symbols-outlined text-[18px]">language</span>
-        <span className="font-headline font-bold text-[11px] uppercase tracking-widest">{currentLang}</span>
-      </button>
       </div>
     </header>
   );

@@ -127,6 +127,12 @@ export const dpoApi = {
   getAllTasks: () => api.get('/dataset/dpo/generate'),
   cancelTask: (taskId: string) => api.delete(`/dataset/dpo/generate/${taskId}`),
   getStats: () => api.get('/dataset/dpo/stats'),
+  /**
+   * Enregistre une préférence A/B du Playground comme paire DPO.
+   * `chosen` = réponse préférée, `rejected` = l'autre ; `source` trace le module comparé.
+   */
+  recordPreference: (pref: { prompt: string; chosen: string; rejected: string; source: string }) =>
+    api.post('/dataset/dpo/preference', pref),
 };
 
 export const commentApi = {
@@ -145,8 +151,46 @@ export const commentApi = {
 };
 
 export interface StreamEvent {
-  type: 'sources' | 'token' | 'done' | 'error';
+  type: 'sources' | 'token' | 'done' | 'error' | 'stage' | 'replace';
   data: string;
+}
+
+/** Événement SSE `stage` : étape du pipeline RAG en cours d'exécution côté backend. */
+export interface StreamStageInfo {
+  stage: string;
+  /** Itération de la boucle agentique (stage `agentic_search`). */
+  iteration?: number;
+  /** Requête reformulée par le LLM (stage `agentic_search`). */
+  query?: string;
+}
+
+/** Étape du pipeline mesurée côté serveur (timeline du panneau Trace). */
+export interface StreamStageTrace {
+  stage: string;
+  /** Durée serveur de l'étape en millisecondes. */
+  durationMs: number;
+  /** Cardinalité en entrée (ex. chunks avant filtrage), absente si non pertinente. */
+  inCount?: number;
+  /** Cardinalité en sortie (ex. chunks après filtrage), absente si non pertinente. */
+  outCount?: number;
+  /** Précision optionnelle (stratégie retenue, scores de réflexion…). */
+  detail?: string;
+}
+
+/**
+ * Surcharges par requête des modules RAG (tri-état) : `false` force le module OFF pour la
+ * requête, `null`/absent = défaut de déploiement. On ne force jamais ON (un module absent
+ * du serveur ne peut pas être activé). Alimenté par les toggles et la comparaison A/B.
+ */
+export interface RagOverridesDto {
+  adaptive?: boolean | null;
+  conversational?: boolean | null;
+  multiQuery?: boolean | null;
+  hybrid?: boolean | null;
+  rerank?: boolean | null;
+  corrective?: boolean | null;
+  compression?: boolean | null;
+  selfRag?: boolean | null;
 }
 
 export interface StreamDoneMeta {
@@ -160,14 +204,51 @@ export interface StreamDoneMeta {
   compressionApplied: boolean;
   semanticDedupApplied: boolean;
   longContextApplied: boolean;
+  /** Nombre de chunks injectés dans le contexte final envoyé au LLM. */
+  chunkCount?: number;
+  /** Question autonome utilisée pour le retrieval (Conversational RAG), absente si non reformulée. */
+  rewrittenQuestion?: string;
+  /** Itérations de recherche de la boucle agentique (stratégie AGENTIC). */
+  agenticIterations?: number;
+  /** Raison d'arrêt de la boucle agentique (ANSWER, MAX_ITERATIONS, NO_NEW_CHUNKS, FORMAT_ERROR). */
+  agenticStopReason?: string;
+  /** Scores de réflexion Self-RAG « ISREL/ISSUP/ISUSE », absents si non évalué. */
+  selfRagScores?: string;
+  /** Chronologie des étapes du pipeline (durée serveur + compteurs), pour la timeline du Trace. */
+  stages?: StreamStageTrace[];
+  /** Taille (caractères) du contexte récupéré injecté dans le prompt — budget d'entrée estimé (~4 c/token). */
+  contextChars?: number;
+}
+
+/** Décompte 👍/👎 pour une strate (stratégie ou module). */
+export interface RatingCounts {
+  up: number;
+  down: number;
+}
+
+/** Agrégats du feedback Playground renvoyés par `GET /query/feedback/stats`. */
+export interface FeedbackStats {
+  total: number;
+  up: number;
+  down: number;
+  /** Taux de 👎 global (0–1). */
+  downRate: number;
+  byStrategy: Record<string, RatingCounts>;
+  byModule: Record<string, RatingCounts>;
 }
 
 export const queryApi = {
   query: (question: string, model?: string, useRag = true) =>
     api.post('/query', { question, model, useRag }),
 
-  feedback: (question: string, answer: string, rating: 'UP' | 'DOWN') =>
-    api.post('/query/feedback', { question, answer, rating }),
+  feedback: (
+    question: string, answer: string, rating: 'UP' | 'DOWN',
+    ragMeta?: Record<string, unknown>, overrides?: RagOverridesDto,
+  ) =>
+    api.post('/query/feedback', { question, answer, rating, ragMeta, overrides }),
+
+  /** Agrégats du feedback Playground (taux de 👎 par stratégie et par module). */
+  getFeedbackStats: () => api.get<FeedbackStats>('/query/feedback/stats'),
 
   /**
    * Streaming RAG query via POST SSE (EventSource ne supporte pas POST).
@@ -182,6 +263,7 @@ export const queryApi = {
     conversationHistory?: { role: string; content: string }[],
     temperature?: number,
     topP?: number,
+    overrides?: RagOverridesDto,
   ): AsyncGenerator<StreamEvent> {
     const body: Record<string, unknown> = { question, useRag };
     if (topCandidates !== undefined) body.topCandidates = topCandidates;
@@ -189,6 +271,10 @@ export const queryApi = {
     if (topP !== undefined) body.topP = topP;
     if (conversationHistory && conversationHistory.length > 0) {
       body.conversationHistory = conversationHistory;
+    }
+    // N'inclure les surcharges que si au moins une est posée (sinon = défaut serveur).
+    if (overrides && Object.values(overrides).some(v => v === false || v === true)) {
+      body.overrides = overrides;
     }
     const response = await fetch('/api/query/stream', {
       method: 'POST',
@@ -268,6 +354,11 @@ export const ablationApi = {
   cancelJob: (jobId: string) => api.delete(`/ablation/jobs/${jobId}`),
 };
 
+/** Disponibilité serveur des modules RAG (bean déployé) renvoyée par `GET /config/rag`. */
+export interface RagModuleConfig {
+  modules: Record<string, boolean>;
+}
+
 export const configApi = {
   getModelConfig: () => api.get('/config/model'),
   setModelConfig: (config: any) => api.post('/config/model', config),
@@ -276,6 +367,8 @@ export const configApi = {
   reindexCollection: (collection: string) =>
     api.post('/config/embedding-consistency/reindex', { collection }),
   getReindexStatuses: () => api.get('/config/embedding-consistency/reindex'),
+  /** État réel des modules RAG côté serveur (module → déployé ou non). */
+  getRagConfig: () => api.get<RagModuleConfig>('/config/rag'),
 };
 
 export const qualityBenchmarkApi = {
@@ -299,6 +392,8 @@ export const modelsHubApi = {
   cancelInstallation: (jobId: string) => api.delete(`/models/hub/installations/${jobId}`),
   getStorage: () => api.get('/models/hub/storage'),
   purgeLlmfitCache: () => api.post('/models/hub/storage/llmfit-cache/purge'),
+  deleteOrphanFile: (file: string) =>
+    api.delete('/models/hub/storage/files', { params: { file } }),
   deleteModel: (name: string, type = 'chat', deleteFile = true) =>
     api.delete(`/fine-tuning/models/${encodeURIComponent(name)}`, { params: { type, deleteFile } }),
 };

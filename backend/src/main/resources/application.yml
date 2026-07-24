@@ -48,6 +48,9 @@ spectra:
       base-url: ${SPECTRA_LLM_EMBEDDING_BASE_URL:http://llm-embed:8082}
       # Fichier GGUF servi par llm-embed (même volume partagé).
       file: ${SPECTRA_LLM_EMBEDDING_FILE:}
+      # Timeout des requêtes /v1/embeddings. Doit couvrir un lot complet
+      # (embedding-batch-size × chunk-max-tokens) sur du CPU lent.
+      timeout-seconds: ${SPECTRA_EMBEDDING_TIMEOUT:60}
     # Bascule du modèle actif par les harnais d'évaluation (ModelSwitchCoordinator) :
     # attente que llama-server serve RÉELLEMENT le modèle demandé avant de mesurer.
     # En mode conteneurs séparés, llm-chat suit le pointeur du registre (~10 s) puis
@@ -92,13 +95,22 @@ spectra:
   pipeline:
     chunk-max-tokens: ${SPECTRA_CHUNK_MAX_TOKENS:512}
     chunk-overlap-tokens: ${SPECTRA_CHUNK_OVERLAP_TOKENS:64}
-    embedding-batch-size: ${SPECTRA_EMBEDDING_BATCH_SIZE:10}
+    # Locale des frontières de phrases au chunking (tag BCP 47 : fr, en, de…).
+    # Ne change PAS la tokenization (cl100k) — uniquement le découpage des phrases.
+    chunk-locale: ${SPECTRA_CHUNK_LOCALE:fr}
+    # 32 : divise par 3 les allers-retours HTTP vs l'ancien défaut 10 (500 chunks =
+    # 16 requêtes au lieu de 50). Le timeout d'embedding (60 s) couvre un lot complet.
+    embedding-batch-size: ${SPECTRA_EMBEDDING_BATCH_SIZE:32}
     # Taille décompressée max par fichier / entrée ZIP (Mo). Borne la mémoire
     # d'ingestion. 0 = auto : calculé selon le heap JVM et la concurrence.
     max-uncompressed-mb: ${SPECTRA_MAX_UNCOMPRESSED_MB:0}
-    embedding-timeout-seconds: ${SPECTRA_EMBEDDING_TIMEOUT:30}
+    embedding-timeout-seconds: ${SPECTRA_EMBEDDING_TIMEOUT:60}
     generation-timeout-seconds: ${SPECTRA_GENERATION_TIMEOUT:120}
     concurrent-ingestions: ${SPECTRA_CONCURRENT_INGESTIONS:1}
+    # Plafond de tâches d'ingestion actives (PENDING/PROCESSING) ; au-delà, une nouvelle
+    # soumission est rejetée en HTTP 429 (contre-pression). 0 = illimité. Le sémaphore borne
+    # le traitement concurrent ; ceci borne le nombre de tâches EN ATTENTE (mémoire/disque temp).
+    max-active-ingestions: ${SPECTRA_MAX_ACTIVE_INGESTIONS:0}
   layout-parser:
     enabled: ${SPECTRA_LAYOUT_PARSER_ENABLED:false}
     base-url: ${SPECTRA_LAYOUT_PARSER_URL:http://docparser:8001}
@@ -141,6 +153,10 @@ spectra:
   long-context-rag:
     enabled: ${SPECTRA_LONG_CONTEXT_RAG_ENABLED:false}
     max-collection-chunks: ${SPECTRA_LONG_CONTEXT_MAX_CHUNKS:100}
+    # Budget de tokens (estimés à 4 caractères/token) du contexte intégral injecté dans le
+    # prompt système. Si le corpus dépasse ce budget, retour au retrieval vectoriel standard
+    # (un préfixe arbitraire du corpus serait moins pertinent qu'une recherche ciblée).
+    max-context-tokens: ${SPECTRA_LONG_CONTEXT_MAX_CONTEXT_TOKENS:3000}
   dataset:
     dir: ./data/dataset
     # Génère un exemple de refus (« je ne sais pas ») toutes les N portions (0 = désactivé).
@@ -167,6 +183,10 @@ spectra:
   ged:
     archive-dir: ${SPECTRA_GED_ARCHIVE_DIR:./data/archive}
     auto-qualify-threshold: ${SPECTRA_GED_AUTO_QUALIFY_THRESHOLD:0.0}
+    # Nombre de commentaires IA approuvés déclenchant un fine-tuning automatique (0 = désactivé).
+    # Câblé ici comme toutes les autres propriétés : la variable d'environnement documentée
+    # n'était pas garantie de se lier via le seul @Value d'ArticleCommentService.
+    auto-retrain-threshold: ${SPECTRA_GED_AUTO_RETRAIN_THRESHOLD:5}
     retention:
       archive-after-days: ${SPECTRA_GED_ARCHIVE_AFTER_DAYS:0}
       purge-after-days: ${SPECTRA_GED_PURGE_AFTER_DAYS:0}
@@ -181,6 +201,10 @@ llmfit:
   # its duplicates (files whose name AND size match a GGUF already in models-dir).
   # Point it to wherever your llmfit build actually caches downloads.
   cache-dir: ${LLMFIT_CACHE_DIR:${user.home}/.llmfit}
+  # Retention of the Model Hub installation history: terminal jobs
+  # (COMPLETED/FAILED/CANCELLED) older than this many days are purged nightly.
+  # 0 (default) = keep forever — same convention as the GED and Kafka retentions.
+  installations-retention-days: ${LLMFIT_INSTALL_RETENTION_DAYS:0}
 
 resilience4j:
   circuitbreaker:
@@ -254,8 +278,11 @@ logging:
       percentiles-histogram:
         http.server.requests: true
         spectra.rag.query: true
+        # Latence par étape du pipeline RAG (tag `stage`) → panneau Grafana + alerte retrieval.
+        spectra.rag.stage: true
       slo:
         http.server.requests: 50ms, 100ms, 250ms, 500ms, 1s, 2s, 5s
+        spectra.rag.query: 1s, 2s, 5s, 10s, 30s
 
 # OpenAPI
 springdoc:

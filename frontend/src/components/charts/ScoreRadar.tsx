@@ -45,8 +45,8 @@ const ScoreRadar: FC<Props> = ({ scoresByCategory }) => {
         />
         <Radar
           dataKey="score"
-          stroke="#8ff5ff"
-          fill="#8ff5ff"
+          stroke="#6673f0"
+          fill="#6673f0"
           fillOpacity={0.12}
           strokeWidth={1.5}
         />

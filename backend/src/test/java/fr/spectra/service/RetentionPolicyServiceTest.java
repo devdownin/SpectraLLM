@@ -34,10 +34,14 @@ class RetentionPolicyServiceTest {
                     Instant cutoff = inv.getArgument(1);
                     return ingested.stream().filter(d -> d.getIngestedAt().isBefore(cutoff)).toList();
                 });
-        when(repo.findByLifecycleAndIngestedAtBefore(eq(IngestedFileEntity.Lifecycle.ARCHIVED), any()))
+        // La purge s'appuie sur archivedAt (repli ingestedAt pour l'historique) via findArchivedBefore.
+        when(repo.findArchivedBefore(eq(IngestedFileEntity.Lifecycle.ARCHIVED), any()))
                 .thenAnswer(inv -> {
                     Instant cutoff = inv.getArgument(1);
-                    return archived.stream().filter(d -> d.getIngestedAt().isBefore(cutoff)).toList();
+                    return archived.stream()
+                            .filter(d -> (d.getArchivedAt() != null ? d.getArchivedAt() : d.getIngestedAt())
+                                    .isBefore(cutoff))
+                            .toList();
                 });
         return repo;
     }
@@ -106,10 +110,14 @@ class RetentionPolicyServiceTest {
                 IngestedFileEntity.Lifecycle.ARCHIVED);
         IngestedFileRepository repo = fileRepo(List.of(), List.of(old));
         GedService ged = gedService(repo);
+        // La purge passe désormais par GedService.deleteDocument (DB + index) et non plus
+        // par un fileRepo.delete direct qui laissait les chunks indexés à vie.
+        when(repo.findById("arch1")).thenReturn(java.util.Optional.of(old));
 
         RetentionPolicyService svc = new RetentionPolicyService(repo, ged, props(0, 90));
         svc.applyRetentionPolicy();
 
+        verify(ged).deleteDocument("arch1", "retention-policy");
         verify(repo).delete(old);
     }
 
