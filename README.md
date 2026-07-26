@@ -85,7 +85,7 @@ Browse everything from the **[documentation index](docs/README.md)**, or jump st
 | **[Configuration](docs/configuration.en.md)** | All environment variables, health endpoints, Prometheus metrics |
 | **[User Manual](docs/user/user-manual.en.md)** ([FR](docs/user/user-manual.fr.md)) | Complete walkthrough of the web interface |
 | **[Technical Reference](docs/tech/technical-doc.fr.md)** | Implementation-level detail |
-| **[How Spectra works (FR)](docs/user/documentation-pedagogique.fr.md)** | The ideas in plain language: embeddings, BM25 + RRF, the RAG strategies, DPO/QLoRA |
+| **[How Spectra works](docs/user/documentation-pedagogique.en.md)** ([FR](docs/user/documentation-pedagogique.fr.md)) | The ideas in plain language: embeddings, BM25 + RRF, the RAG strategies, DPO/QLoRA |
 | **[llama.cpp Guide](docs/tech/llama-cpp.fr.md)** | Inference engine details and tuning |
 | **[Reliability](docs/process/reliability.fr.md)** · **[Security](SECURITY.md)** | Operational guarantees and security policy |
 

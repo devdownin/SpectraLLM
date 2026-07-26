@@ -594,6 +594,11 @@ LORA_TARGET=all NEFTUNE_ALPHA=5 WARMUP_RATIO=0.05 VAL_SPLIT=0.1 \
 | `NEFTUNE_ALPHA` | NEFTune noise on the embeddings (0 = off, 5 common) | `0` |
 | `WARMUP_RATIO` | fraction of steps in warm-up | `0.03` |
 | `VAL_SPLIT` | fraction held out for `eval_loss` | `0` |
+| `MAX_CHUNKS` | cap the chunks used for dataset generation (`0` = whole corpus) — handy for a quick trial run | `0` |
+
+> **API authentication:** if `SPECTRA_API_KEY` is set (environment or `.env`), the pipeline picks it up automatically and sends it as `X-API-Key` on every `/api/**` call — no extra flag needed. A partially-failed ingestion (some files erroring) is reported but does not abort the run.
+>
+> **Backpressure:** if the server rejects the ingestion submission with `429` (too many active ingestions, `spectra.pipeline.max-active-ingestions`), `pipeline.sh` honors the `Retry-After` header and retries — up to `INGEST_MAX_RETRIES` times (default `5`) — instead of failing.
 
 **Server config** (`application.yml`):
 - `spectra.dataset.refusal-every-n` — frequency of "I don't know" refusal examples (anti-hallucination).

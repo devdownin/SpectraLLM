@@ -78,7 +78,16 @@ echo.
 :: ── 0a. Vérification des fichiers GGUF ───────────────────────────────────────
 echo ^> [0/5] Verification des prerequis...
 
-set GGUF_CHAT=data\fine-tuning\merged\model.gguf
+:: Modele de chat charge par la stack : data\models\%LLM_CHAT_MODEL_FILE% (comme pipeline.sh),
+:: et non un modele deja fine-tune (qui n'existe pas au premier lancement).
+set "CHAT_MODEL_FILE=%LLM_CHAT_MODEL_FILE%"
+if "!CHAT_MODEL_FILE!"=="" if exist ".env" (
+    for /f "usebackq tokens=1,* delims==" %%A in (".env") do (
+        if /i "%%A"=="LLM_CHAT_MODEL_FILE" set "CHAT_MODEL_FILE=%%~B"
+    )
+)
+if "!CHAT_MODEL_FILE!"=="" set "CHAT_MODEL_FILE=Phi-4-mini-reasoning-UD-IQ1_S.gguf"
+set "GGUF_CHAT=data\models\!CHAT_MODEL_FILE!"
 set GGUF_EMBED=data\models\embed.gguf
 
 if not exist "%GGUF_CHAT%" (
@@ -128,6 +137,24 @@ for /l %%i in (1,1,20) do (
 if !API_READY!==0 (
     echo   [ERREUR] API inaccessible. Lancez start.bat d'abord.
     exit /b 1
+)
+
+:: ── Cle API (si l'authentification est activee) ──────────────────
+:: Si SPECTRA_API_KEY est definie (env ou .env), toutes les requetes /api/**
+:: portent l'en-tete X-API-Key (sinon 401). !AUTHPS! est injecte dans les
+:: appels PowerShell ; vide si aucune cle, laissant le chemin par defaut inchange.
+set "API_KEY=%SPECTRA_API_KEY%"
+if "!API_KEY!"=="" if exist ".env" (
+    for /f "usebackq tokens=1,* delims==" %%A in (".env") do (
+        if /i "%%A"=="SPECTRA_API_KEY" set "API_KEY=%%~B"
+    )
+)
+set "AUTHPS="
+set "AUTHCURL="
+if not "!API_KEY!"=="" (
+    set "AUTHPS=-Headers @{'X-API-Key'='!API_KEY!'}"
+    set AUTHCURL=-H "X-API-Key: !API_KEY!"
+    echo   [OK] Authentification API activee ^(X-API-Key^)
 )
 
 :: ══════════════════════════════════════════════════════════════
@@ -180,7 +207,7 @@ foreach ($f in $files) { ^
 $end = [System.Text.Encoding]::UTF8.GetBytes("--$boundary--`r`n"); ^
 $body.Write($end,0,$end.Length); ^
 try { ^
-    $r = Invoke-WebRequest -Uri '%API_URL%/api/ingest' -Method POST -Body $body.ToArray() -ContentType "multipart/form-data; boundary=$boundary" -UseBasicParsing -TimeoutSec 120; ^
+    $r = Invoke-WebRequest !AUTHPS! -Uri '%API_URL%/api/ingest' -Method POST -Body $body.ToArray() -ContentType "multipart/form-data; boundary=$boundary" -UseBasicParsing -TimeoutSec 120; ^
     ($r.Content | ConvertFrom-Json).taskId ^
 } catch { Write-Host "ERROR:$($_.Exception.Message)"; exit 1 }
 
@@ -197,7 +224,7 @@ set /a POLL=0
 if !POLL! geq %MAX_POLL_INGEST% ( echo   [TIMEOUT] Ingestion trop longue. & exit /b 1 )
 timeout /t %POLL_INTERVAL% /nobreak >nul
 set /a POLL+=1
-for /f "delims=" %%S in ('powershell -Command "try { $j=(Invoke-WebRequest -Uri '%API_URL%/api/ingest/!INGEST_TASK!' -UseBasicParsing -TimeoutSec 5).Content|ConvertFrom-Json; Write-Host $j.status '|' $j.chunksCreated } catch { Write-Host 'ERROR|0' }"') do set INR=%%S
+for /f "delims=" %%S in ('powershell -Command "try { $j=(Invoke-WebRequest !AUTHPS! -Uri '%API_URL%/api/ingest/!INGEST_TASK!' -UseBasicParsing -TimeoutSec 5).Content|ConvertFrom-Json; Write-Host $j.status '|' $j.chunksCreated } catch { Write-Host 'ERROR|0' }"') do set INR=%%S
 for /f "tokens=1 delims=|" %%A in ("!INR!") do set INGEST_STATUS=%%A
 for /f "tokens=2 delims=|" %%B in ("!INR!") do set INGEST_CHUNKS=%%B
 set INGEST_STATUS=!INGEST_STATUS: =!
@@ -215,10 +242,10 @@ echo.
 echo ^> [2/5] Generation du dataset d'entrainement (modele: %BASE_MODEL%)...
 
 :: S'assurer que le modele de generation est bien le bon
-powershell -Command "try { Invoke-WebRequest -Uri '%API_URL%/api/config/model' -Method POST -Body '{\"model\":\"%BASE_MODEL%\"}' -ContentType 'application/json' -UseBasicParsing -TimeoutSec 5 | Out-Null } catch { exit 1 }" >nul 2>&1
+powershell -Command "try { Invoke-WebRequest !AUTHPS! -Uri '%API_URL%/api/config/model' -Method POST -Body '{\"model\":\"%BASE_MODEL%\"}' -ContentType 'application/json' -UseBasicParsing -TimeoutSec 5 | Out-Null } catch { exit 1 }" >nul 2>&1
 if !errorlevel! neq 0 echo   [AVERT] Basculement vers %BASE_MODEL% echoue — modele actif inchange
 
-for /f "delims=" %%T in ('powershell -Command "try { $r=Invoke-WebRequest -Uri '%API_URL%/api/dataset/generate' -Method POST -UseBasicParsing -TimeoutSec 30; ($r.Content|ConvertFrom-Json).taskId } catch { Write-Host 'ERROR' }"') do set DATASET_TASK=%%T
+for /f "delims=" %%T in ('powershell -Command "try { $r=Invoke-WebRequest !AUTHPS! -Uri '%API_URL%/api/dataset/generate' -Method POST -UseBasicParsing -TimeoutSec 30; ($r.Content|ConvertFrom-Json).taskId } catch { Write-Host 'ERROR' }"') do set DATASET_TASK=%%T
 
 if "!DATASET_TASK!"=="" ( echo   [ERREUR] Echec du lancement de la generation. & exit /b 1 )
 echo   TaskId : !DATASET_TASK!
@@ -228,7 +255,7 @@ set /a POLL=0
 if !POLL! geq %MAX_POLL_DATASET% ( echo   [TIMEOUT] Generation trop longue. & exit /b 1 )
 timeout /t %POLL_INTERVAL% /nobreak >nul
 set /a POLL+=1
-for /f "delims=" %%S in ('powershell -Command "try { $j=(Invoke-WebRequest -Uri '%API_URL%/api/dataset/generate/!DATASET_TASK!' -UseBasicParsing -TimeoutSec 5).Content|ConvertFrom-Json; Write-Host $j.status '|' $j.pairsGenerated } catch { Write-Host 'ERROR|0' }"') do set DSR=%%S
+for /f "delims=" %%S in ('powershell -Command "try { $j=(Invoke-WebRequest !AUTHPS! -Uri '%API_URL%/api/dataset/generate/!DATASET_TASK!' -UseBasicParsing -TimeoutSec 5).Content|ConvertFrom-Json; Write-Host $j.status '|' $j.pairsGenerated } catch { Write-Host 'ERROR|0' }"') do set DSR=%%S
 for /f "tokens=1 delims=|" %%A in ("!DSR!") do set DS_STATUS=%%A
 for /f "tokens=2 delims=|" %%B in ("!DSR!") do set DS_PAIRS=%%B
 set DS_STATUS=!DS_STATUS: =!
@@ -254,7 +281,7 @@ echo ^> [3/5] Export du dataset...
 
 if not exist "data\fine-tuning\" mkdir "data\fine-tuning"
 
-powershell -Command "Invoke-WebRequest -Uri '%API_URL%/api/dataset/export' -Method POST -OutFile '%DATASET_FILE%' -UseBasicParsing -TimeoutSec 30" >nul 2>&1
+powershell -Command "Invoke-WebRequest !AUTHPS! -Uri '%API_URL%/api/dataset/export' -Method POST -OutFile '%DATASET_FILE%' -UseBasicParsing -TimeoutSec 30" >nul 2>&1
 if not exist "%DATASET_FILE%" (
     echo   [ERREUR] Export du dataset echoue.
     exit /b 1
@@ -275,7 +302,7 @@ set PREF_FLAG=
 if "!DPO_FLAG!"=="--dpo"   set PREF_FLAG=1
 if "!ORPO_FLAG!"=="--orpo" set PREF_FLAG=1
 if defined PREF_FLAG (
-    for /f "delims=" %%N in ('powershell -Command "try { $j=(Invoke-WebRequest -Uri '%API_URL%/api/dataset/dpo/stats' -UseBasicParsing -TimeoutSec 5).Content|ConvertFrom-Json; Write-Host $j.totalPairs } catch { Write-Host 0 }"') do set DPO_PAIRS=%%N
+    for /f "delims=" %%N in ('powershell -Command "try { $j=(Invoke-WebRequest !AUTHPS! -Uri '%API_URL%/api/dataset/dpo/stats' -UseBasicParsing -TimeoutSec 5).Content|ConvertFrom-Json; Write-Host $j.totalPairs } catch { Write-Host 0 }"') do set DPO_PAIRS=%%N
     set DPO_PAIRS=!DPO_PAIRS: =!
     if "!DPO_PAIRS!"=="0" (
         echo   [ERREUR] alignement demande mais aucune paire de preference trouvee.
@@ -286,7 +313,7 @@ if defined PREF_FLAG (
     echo   [OK] !DPO_PAIRS! paires de preference disponibles
 
     :: DPO et ORPO consomment le format {prompt, chosen, rejected}, PAS l'export SFT.
-    curl -sf --max-time 30 -X POST "%API_URL%/api/dataset/dpo/export" -o "%DPO_DATASET_FILE%"
+    curl -sf --max-time 30 !AUTHCURL! -X POST "%API_URL%/api/dataset/dpo/export" -o "%DPO_DATASET_FILE%"
     if errorlevel 1 (
         echo   [ERREUR] Export des paires de preference echoue.
         exit /b 1
@@ -349,7 +376,7 @@ if errorlevel 1 (
 echo   [OK] Modele %MODEL_NAME% importe dans Ollama
 
 :: Basculer le modele actif de l'API vers le modele enrichi
-powershell -Command "try { Invoke-WebRequest -Uri '%API_URL%/api/config/model' -Method POST -Body '{\"model\":\"%MODEL_NAME%\"}' -ContentType 'application/json' -UseBasicParsing -TimeoutSec 5 | Out-Null } catch { exit 1 }" >nul 2>&1
+powershell -Command "try { Invoke-WebRequest !AUTHPS! -Uri '%API_URL%/api/config/model' -Method POST -Body '{\"model\":\"%MODEL_NAME%\"}' -ContentType 'application/json' -UseBasicParsing -TimeoutSec 5 | Out-Null } catch { exit 1 }" >nul 2>&1
 if !errorlevel! neq 0 (
     echo   [AVERT] Basculement du modele echoue — modele actif inchange
 ) else (

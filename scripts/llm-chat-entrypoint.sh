@@ -128,7 +128,8 @@ start_server() {
   [ -n "${BATCH}" ] && set -- "$@" -b "${BATCH}" -ub "${BATCH}"
   [ -n "${RECO_CACHE_TYPE_K}" ] && set -- "$@" --cache-type-k "${RECO_CACHE_TYPE_K}"
   [ -n "${RECO_CACHE_TYPE_V}" ] && set -- "$@" --cache-type-v "${RECO_CACHE_TYPE_V}"
-  # shellcheck disable=SC2086 — LLM_CHAT_EXTRA_ARGS est volontairement éclaté en mots
+  # LLM_CHAT_EXTRA_ARGS est volontairement éclaté en mots (word-splitting voulu).
+  # shellcheck disable=SC2086
   "${SERVER_BIN}" "$@" ${LLM_CHAT_EXTRA_ARGS:-} &
   CHILD=$!
 }

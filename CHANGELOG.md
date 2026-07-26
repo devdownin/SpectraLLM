@@ -8,6 +8,28 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Pipeline CLI — authentification API, succès partiel et essai rapide (`pipeline.sh` / `pipeline.bat`)
+
+- **Authentification API prise en charge** : le pipeline complet (ingestion → dataset → fine-tuning) lit `SPECTRA_API_KEY` (environnement ou `.env`) et l'envoie en `X-API-Key` sur **tous** les appels `/api/**`. Sans cela, dès que l'authentification était activée, chaque étape recevait un **401** (seul `/actuator` est exempté). Portable jusqu'à bash 3.2 (macOS) via une expansion de tableau sûre sous `set -u`.
+- **Succès partiel d'ingestion visible** : une tâche terminée avec des `fileErrors` n'est plus traitée comme un succès plein — le pipeline liste les fichiers en échec et continue (les autres sont vectorisés), et échoue proprement si 0 chunk n'a été produit ou si la tâche est `CANCELLED`.
+- **`MAX_CHUNKS`** : plafonne les chunks utilisés pour la génération du dataset (`0` = tout le corpus) — pour un essai rapide.
+- **`pipeline.bat` (Windows)** : mêmes correctifs, plus la correction d'un prérequis erroné — il vérifiait `data\fine-tuning\merged\model.gguf` (un modèle déjà fine-tuné, absent au premier lancement) au lieu du modèle de chat `data\models\<LLM_CHAT_MODEL_FILE>` chargé par la stack (comme `pipeline.sh`).
+- **Contre-pression respectée (HTTP 429)** : la soumission d'ingestion de `pipeline.sh` respecte désormais l'en-tête `Retry-After` d'un `429` (plafond `max-active-ingestions`) et réessaie jusqu'à `INGEST_MAX_RETRIES` fois (défaut 5) au lieu d'abandonner.
+
+### CI — lint statique des scripts shell (shellcheck)
+
+- Nouveau workflow **Shellcheck** : lint de `scripts/*.sh` au niveau `error` (vrais bugs, sans le bruit des avertissements de style pré-existants ; seuil resserrable à `warning` plus tard). Correction d'une directive `# shellcheck disable` malformée dans `llm-chat-entrypoint.sh` (un tiret cadratin après le code produisait SC1125) ; tous les scripts sont propres au niveau `error`.
+
+### Documentation — guide pédagogique en anglais
+
+- **Guide des idées et des algorithmes en anglais** ([documentation-pedagogique.en.md](docs/user/documentation-pedagogique.en.md)) : traduction complète (~1660 lignes) du guide « du document brut à l'expertise métier » — embeddings, HNSW, ingestion (dont Kafka/upsert), recherche hybride + RRF, re-ranking, six stratégies RAG, jeu de données & QLoRA/DPO/ORPO, évaluation (juge neutre, significativité, A/B), auto-réglage & dimensionnement, résilience, souveraineté/sécurité, déploiement, comparatif des algorithmes, glossaire. Blocs de code, formules mathématiques, diagrammes Mermaid et ancres préservés (18/18 sections, 60/60 blocs de code) ; les deux versions se renvoient l'une à l'autre et le hub docs / les README pointent la version EN.
+
+## [1.14.0] — 2026-07-21
+
+> Publiée comme release **[v0.7.1](https://github.com/devdownin/SpectraLLM/releases/tag/v0.7.1)**
+> (point release au-dessus de v0.7). Notes curées :
+> [`.github/release-notes/v0.7.1.md`](.github/release-notes/v0.7.1.md).
+
 ### Perf — Playground découpé en chunks chargés à la demande
 
 - **Lazy-loading des panneaux lourds** : le dialogue de comparaison A/B (`RagComparisonDialog`) et le panneau Trace (`RagTracePanel`) sont extraits dans `components/playground/` et chargés via `React.lazy` — ils n'entrent dans le bundle que lorsque l'utilisateur les ouvre. Le chunk d'entrée du Playground passe de **~240 kB à ~59 kB** ; les deux panneaux (~8 kB et ~14 kB) sont différés. Types et constantes partagés isolés dans `playground/ragTypes.ts` pour éviter toute dépendance circulaire. Aucun changement fonctionnel.
