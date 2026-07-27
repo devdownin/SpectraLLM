@@ -21,11 +21,17 @@ public record QueryRequest(
 
         String collection,
 
-        /** Température de génération (0.0–2.0). Defaults to 0.7. */
+        /**
+         * Température de génération (0.0–2.0). {@code null} = non imposée par l'appelant :
+         * le paramètre du modèle actif s'applique, sinon le défaut Spectra (0.7).
+         */
         @DecimalMin("0.0") @DecimalMax("2.0")
         Float temperature,
 
-        /** Top-P (nucleus sampling, 0.0–1.0). Defaults to 0.9. */
+        /**
+         * Top-P (nucleus sampling, 0.0–1.0). {@code null} = non imposé par l'appelant :
+         * le paramètre du modèle actif s'applique, sinon le défaut Spectra (0.9).
+         */
         @DecimalMin("0.0") @DecimalMax("1.0")
         Float topP,
 
@@ -54,10 +60,23 @@ public record QueryRequest(
         if (maxContextChunks == null) maxContextChunks = 5;
         if (topCandidates == null)    topCandidates = 20;
         if (topCandidates < maxContextChunks) topCandidates = maxContextChunks;
-        if (temperature == null) temperature = 0.7f;
-        if (topP == null)        topP = 0.9f;
+        // temperature / topP ne sont volontairement PAS défaultés ici : un null doit rester
+        // distinguable d'une valeur explicite, sans quoi les paramètres du modèle actif
+        // (registre) seraient systématiquement masqués par un défaut du DTO. Ils sont arbitrés
+        // à l'entrée du pipeline RAG (cf. ActiveModelProfileService.ModelProfile#applyTo).
         if (useRag == null)      useRag = true;
         if (overrides == null)   overrides = RagOverrides.NONE;
+    }
+
+    /**
+     * Copie de la requête dont les paramètres de génération sont figés sur les valeurs
+     * effectives (déjà arbitrées entre requête, modèle actif et défauts Spectra). Permet au
+     * pipeline de propager une requête dont {@code temperature}/{@code topP} ne sont plus
+     * jamais {@code null}.
+     */
+    public QueryRequest withGenerationParams(float resolvedTemperature, float resolvedTopP) {
+        return new QueryRequest(question, maxContextChunks, topCandidates, collection,
+                resolvedTemperature, resolvedTopP, conversationHistory, useRag, overrides);
     }
 
     /** Constructeur de compatibilité (sans surcharges RAG) — {@link RagOverrides#NONE} par défaut. */

@@ -2,6 +2,7 @@ package fr.spectra.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import fr.spectra.config.SpectraProperties;
+import fr.spectra.service.ActiveModelProfileService;
 import fr.spectra.service.ChromaDbClient;
 import fr.spectra.service.EmbeddingService;
 import fr.spectra.service.FeedbackService;
@@ -74,10 +75,22 @@ class RagQueryE2ETest {
                 chromaDbClient, embeddingService, llmClient,
                 Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
                 Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
-                props, objectMapper, new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
+                defaultProfiles(), props, objectMapper,
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
 
         QueryController controller = new QueryController(ragService, mock(FeedbackService.class));
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
+    }
+
+    /**
+     * Profil de modèle actif neutre : persona canonique Spectra et défauts 0.7/0.9 — ce test
+     * E2E vérifie le pipeline, pas la personnalisation par modèle.
+     */
+    private static ActiveModelProfileService defaultProfiles() {
+        ActiveModelProfileService profiles = mock(ActiveModelProfileService.class);
+        org.mockito.Mockito.lenient().when(profiles.current())
+                .thenReturn(ActiveModelProfileService.ModelProfile.DEFAULT);
+        return profiles;
     }
 
     @Test

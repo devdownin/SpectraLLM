@@ -8,6 +8,16 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### RAG — la personnalisation enregistrée avec un modèle pilote enfin la génération
+
+Le registre persiste depuis toujours une persona (`systemPrompt`) et des paramètres (`parameters`) par modèle — enregistrés par le fine-tuning, llmfit ou `POST /api/fine-tuning/models/register`. Ces champs n'étaient toutefois que de la **traçabilité** : le RAG servait une persona figée dans le code et une température issue d'un défaut du DTO. Un modèle personnalisé était donc interrogé sous une identité et des réglages qui n'étaient pas les siens.
+
+- **Persona du modèle actif appliquée.** Le prompt système RAG est désormais composé à la génération : persona du modèle actif, puis consignes de citation, puis contexte. Un modèle sans `systemPrompt` enregistré conserve la persona canonique Spectra (`AssistantPersona`) — et les modèles issus du fine-tuning enregistrent précisément cette persona, donc la cohérence entraînement ↔ service est préservée. Les consignes de citation et le bloc de contexte ne sont **jamais** remplacés : le RAG continue de citer ses sources quelle que soit la persona. S'applique aux chemins standard, direct, Self-RAG et streaming.
+- **Paramètres du modèle actif appliqués.** `temperature` et `top_p` (ou `topP`) lus dans les `parameters` du registre servent de défauts de génération. Précédence : **valeur explicite de la requête > paramètres du modèle > défauts Spectra (0.7 / 0.9)** — les curseurs du Playground et les harnais d'ablation restent donc souverains. Les clés non numériques de la carte (`jobId`, `baseModel`…) sont ignorées.
+- **`GET /api/config/model` expose le profil effectif.** En plus de l'alias actif, la réponse porte `systemPrompt` (la persona réellement servie), `personaSource` (`model` ou `spectra-default`) et `parameters` (température et top-P effectifs) — la personnalisation devient vérifiable via l'API. Ajout rétro-compatible : le champ `model` est inchangé.
+
+Note technique : `QueryRequest.temperature`/`topP` ne sont plus défaultés dans le DTO (un `null` doit rester distinguable d'une valeur explicite, sans quoi les paramètres du modèle seraient toujours masqués) ; ils sont arbitrés à l'entrée du pipeline puis figés sur la requête propagée, de sorte que le reste de la chaîne les lit toujours non nuls. Nouveau bean `ActiveModelProfileService`.
+
 ### Perf — Playground découpé en chunks chargés à la demande
 
 - **Lazy-loading des panneaux lourds** : le dialogue de comparaison A/B (`RagComparisonDialog`) et le panneau Trace (`RagTracePanel`) sont extraits dans `components/playground/` et chargés via `React.lazy` — ils n'entrent dans le bundle que lorsque l'utilisateur les ouvre. Le chunk d'entrée du Playground passe de **~240 kB à ~59 kB** ; les deux panneaux (~8 kB et ~14 kB) sont différés. Types et constantes partagés isolés dans `playground/ragTypes.ts` pour éviter toute dépendance circulaire. Aucun changement fonctionnel.
