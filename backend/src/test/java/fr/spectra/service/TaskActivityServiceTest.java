@@ -107,7 +107,7 @@ class TaskActivityServiceTest {
     @SuppressWarnings("unchecked")
     void evaluationReportDropsScoreDetails() {
         EvaluationReport report = new EvaluationReport("e1", "RUNNING", "m1", null, 12, 3,
-                0.0, Map.of(), List.of(), 0.0, 0.0, null,
+                0.0, Map.of(), Map.of(), List.of(), 0.0, 0.0, null,
                 Instant.parse("2026-07-13T10:00:00Z"), null, null);
         when(evaluationService.getAllReports()).thenReturn(List.of(report));
 

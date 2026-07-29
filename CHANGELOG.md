@@ -21,6 +21,16 @@ Les documents ingérés n'étaient identifiables que par leur nom de fichier et 
 - **UI Documents** : catégories affichées sur chaque ligne (visuellement distinctes des tags manuels) et dans la fiche document avec leur confiance et le résumé généré, filtre par catégorie et « non classifiés », classification d'un document ou d'une sélection, barre de progression du lot en cours.
 - **Les catégories ne remplacent pas les tags** : une reclassification n'écrase jamais l'annotation humaine. Les deux coexistent, et l'écart entre elles mesure la qualité du classifieur.
 
+### Évaluation — diagnostic thématique par catégorie de document
+
+Dernier maillon de la boucle ouverte par la classification : mesurer *où* le modèle est faible, et non plus seulement *combien* il vaut.
+
+- **`scoresByDocumentCategory` sur chaque rapport d'évaluation** : un score global de 8,1 ne dit pas s'il recouvre 9,2 sur les procédures et 5,4 sur la réglementation. La ventilation par thème le dit — et renvoie directement au levier livré juste avant : rééquilibrer le corpus, réentraîner, remesurer. À ne pas confondre avec `scoresByCategory`, qui existait déjà et ventile par **nature d'exercice** (q/r, résumé, refus) : les deux dimensions sont orthogonales et désormais toutes deux exposées.
+- **`deltaByDocumentCategory` dans la comparaison de modèles** : dit si un ré-entraînement a progressé *là où on l'attendait*. Un modèle peut gagner en moyenne tout en régressant sur le thème visé — invisible jusqu'ici. Les thèmes présents d'un seul côté sont écartés du calcul : ce serait un faux gain, reflet d'une différence de jeu de test et non d'une progression.
+- **Paires sans catégorie documentaire écartées** de la ventilation plutôt que regroupées sous « non classé » : cet agrégat fourre-tout n'a pas de sens comme point de comparaison entre thèmes. La ventilation est donc simplement vide sur un corpus non classifié, sans rien casser du rapport.
+- **UI Comparison** : nouveau panneau « Score par thème de document », trié du plus faible au plus fort (c'est le point bas qui appelle une action) et signalé en rouge sous 6/10.
+- Le **benchmark qualité** (`/api/quality-benchmark`) est délibérément laissé inchangé : ses catégories viennent d'un jeu de test curé et tenu à l'écart du corpus, et doivent le rester pour garder sa valeur de juge indépendant.
+
 ### Dataset — échantillonnage stratifié par catégorie et corpus d'entraînement pilotable
 
 Suite directe de la classification automatique : les catégories cessent d'être un attribut d'affichage pour devenir un levier sur la qualité du modèle.

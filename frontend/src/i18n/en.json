@@ -545,7 +545,9 @@
     "judgeJustification": "Judge justification",
     "source": "Source: {{source}}",
     "scoreDetailAria": "Toggle details for score {{score}} out of 10 in category {{category}}",
-    "reportAria": "Select report for model {{name}} completed at {{date}}"
+    "reportAria": "Select report for model {{name}} completed at {{date}}",
+    "byDocumentCategory": "Score by document theme",
+    "byDocumentCategoryHint": "A low theme points to a gap in the training corpus, not just a weakness of the model."
   },
   "fineTuning": {
     "kicker": "Architecture Evolution",

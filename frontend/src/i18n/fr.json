@@ -545,7 +545,9 @@
     "judgeJustification": "Justification du juge",
     "source": "Source : {{source}}",
     "scoreDetailAria": "Afficher le détail du score {{score}}/10 en catégorie {{category}}",
-    "reportAria": "Sélectionner le rapport du modèle {{name}} du {{date}}"
+    "reportAria": "Sélectionner le rapport du modèle {{name}} du {{date}}",
+    "byDocumentCategory": "Score par thème de document",
+    "byDocumentCategoryHint": "Un thème bas signale un manque dans le corpus d'entraînement, pas seulement une faiblesse du modèle."
   },
   "fineTuning": {
     "kicker": "Évolution de l'architecture",

@@ -566,12 +566,12 @@ The exported JSONL file uses the same `{"prompt","chosen","rejected","source","e
 
 ### `EvaluationService` — LLM-as-a-Judge & multi-model comparison
 
-After dataset generation, you can evaluate model quality automatically. Spectra samples 5% of the dataset (min 5, max 50 pairs), loads the target model (switching the active model for the run, then restoring it), and scores each response from 1 to 10 — also recording generation **latency** and **estimated throughput** (tokens/s). Scores are aggregated by category (`qa`, `summary`, `classification`, `negative`), giving a quantitative baseline before and after fine-tuning.
+After dataset generation, you can evaluate model quality automatically. Spectra samples 5% of the dataset (min 5, max 50 pairs), loads the target model (switching the active model for the run, then restoring it), and scores each response from 1 to 10 — also recording generation **latency** and **estimated throughput** (tokens/s). Scores are aggregated along two orthogonal axes: by **exercise category** (`qa`, `summary`, `classification`, `negative`) and — when documents are classified (R8) — by **document theme** (`scoresByDocumentCategory`). The second axis turns a single number into a diagnosis: a model weak on `reglementation` usually reflects a corpus where that theme is under-represented, which points back to dataset composition rather than hyperparameters.
 
 **Compare your custom models against each other:**
 
 - **Batch-evaluate** several models on the *same* shared test set (`POST /api/evaluation/batch`) — apples-to-apples.
-- **Compare** completed runs (`GET /api/evaluation/compare`): per-category deltas vs a movable baseline, an overlaid radar, latency/throughput, document attribution (GED `TRAINED_ON` / `EVALUATED_ON`), and each delta flagged `sig`/`ns` via a 95% confidence interval.
+- **Compare** completed runs (`GET /api/evaluation/compare`): per-category and per-document-theme deltas vs a movable baseline (themes present on only one side are skipped — that would be a test-set artefact, not a gain), an overlaid radar, latency/throughput, document attribution (GED `TRAINED_ON` / `EVALUATED_ON`), and each delta flagged `sig`/`ns` via a 95% confidence interval.
 - **A/B head-to-head** (`POST /api/evaluation/ab`): a judge picks the better of two answers per pair, with randomized order to cancel position bias → win rates, more robust than comparing absolute means.
 - **Neutral judge** (`SPECTRA_EVALUATION_JUDGE_MODEL`): a fixed third model scores everyone impartially (two-phase evaluation — generate, then judge).
 

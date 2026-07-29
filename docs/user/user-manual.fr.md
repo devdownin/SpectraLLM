@@ -1142,6 +1142,37 @@ L'évaluation se fait alors en deux temps : génération de toutes les réponses
 
 > **Interprétation des scores :** un score ≥ 7 indique que le modèle répond correctement et précisément. Un score entre 4 et 6 suggère des réponses partielles ou trop vagues. En dessous de 4, le modèle hallucine ou est hors-sujet. **Ne promouvez pas un écart marqué `ns`** : élargissez le jeu de test (`testSetSize`) ou tranchez par un A/B head-to-head.
 
+#### Diagnostic par thème — où le modèle est-il faible ?
+
+Un score global de 8,1 ne dit pas s'il recouvre 9,2 sur les procédures et 5,4 sur la réglementation. Si vos documents sont classifiés (étape 1d), le rapport porte deux ventilations **orthogonales** :
+
+| Champ | Ventile par | Répond à |
+|---|---|---|
+| `scoresByCategory` | nature de l'exercice (q/r, résumé, refus) | « sur quel *type* de tâche ? » |
+| `scoresByDocumentCategory` | thème du document d'origine | « sur quel *sujet* ? » |
+
+```bash
+curl http://localhost:8080/api/evaluation/eval-123
+# → "averageScore": 8.1,
+#   "scoresByCategory":         {"qa": 8.4, "summary": 8.0, "negative": 7.6}
+#   "scoresByDocumentCategory": {"procedures": 9.2, "maintenance": 8.5, "reglementation": 5.4}
+```
+
+La réglementation à 5,4 n'est pas d'abord une faiblesse du modèle : c'est le reflet des 12 paires réglementaires sur 490 vues à l'étape 2. Le diagnostic renvoie donc à une action sur le **corpus** — ingérer plus de documents de ce thème — avant toute retouche des hyperparamètres. Dans l'interface, le panneau **Score par thème de document** trie du plus faible au plus fort, et signale en rouge tout thème sous 6/10.
+
+**En comparaison de modèles**, `deltaByDocumentCategory` dit si un ré-entraînement a progressé *là où on l'attendait* :
+
+```bash
+curl "http://localhost:8080/api/evaluation/compare?evalIds=base,tuned&baseline=base"
+# → "deltaByDocumentCategory": {"procedures": +3.0, "reglementation": -2.0}
+```
+
+Ici le modèle gagne en moyenne, mais **régresse sur le thème visé** — invisible sur le seul score global. Les thèmes présents d'un seul côté sont écartés du calcul : ce serait un faux gain, reflet d'une différence de jeu de test plutôt que d'une progression réelle.
+
+> Les paires issues de documents non classifiés sont **exclues** de cette ventilation (et non regroupées sous « non classé » : un agrégat fourre-tout n'est pas un point de comparaison valable entre thèmes). Sur un corpus non classifié, la ventilation est simplement vide et le reste du rapport est inchangé.
+
+> Le **benchmark qualité** (`/api/quality-benchmark`) garde ses propres catégories, issues d'un jeu de test curé et tenu à l'écart du corpus. C'est délibéré : sa valeur vient précisément de son indépendance vis-à-vis des documents ingérés.
+
 ---
 
 ## 5. Gestion des Modèles
