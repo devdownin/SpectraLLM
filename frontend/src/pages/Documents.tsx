@@ -653,6 +653,9 @@ const Documents: FC = () => {
   if (isLoading) return <div className="p-8 space-y-4"><Skeleton className="h-10 w-1/4" /><Skeleton className="h-64 w-full" /></div>;
 
   const total = stats?.total ?? 0;
+  // R8 — documents restant à classifier, tirés des stats serveur (et non de la page
+  // chargée) : le bouton d'en-tête doit refléter tout le fonds, pas l'échantillon visible.
+  const pendingClassification = stats?.classification?.unclassified ?? 0;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-700 pb-32">
@@ -668,6 +671,26 @@ const Documents: FC = () => {
               {t('documents.shownCount', { shown: filtered.length, loaded: documents.length })}
               {totalDocuments > documents.length ? t('documents.ofTotal', { total: totalDocuments }) : ''}
             </span>
+            {/* R8 — action principale de l'écran : lancer la classification du fonds. Elle vit
+                dans l'en-tête et non dans le panneau de filtres, où elle était invisible.
+                Le libellé porte le reste à faire : « Classifier (23) » dit à la fois quoi
+                et combien, et disparaît quand tout est déjà classifié. */}
+            {classificationConfig?.enabled && (
+              <Button
+                variant={pendingClassification > 0 ? 'primary' : 'outline'}
+                size="sm"
+                disabled={bulkClassifyMutation.isPending || !!classifyTaskId || pendingClassification === 0}
+                title={t('documents.classifyHint', { model: classificationConfig.model })}
+                onClick={() => bulkClassifyMutation.mutate({ sha256List: null, force: false })}
+              >
+                <span aria-hidden="true" className={`material-symbols-outlined text-[16px] ${classifyTaskId ? 'animate-spin' : ''}`}>
+                  {classifyTaskId ? 'progress_activity' : 'auto_awesome'}
+                </span>
+                {pendingClassification > 0
+                  ? t('documents.classifyPending', { count: pendingClassification })
+                  : t('documents.allClassified')}
+              </Button>
+            )}
             <Button variant="outline" size="sm" onClick={() => refetch()}>
               <span aria-hidden="true" className={`material-symbols-outlined text-[16px] ${isFetching ? 'animate-spin' : ''}`}>refresh</span>
               {t('documents.sync')}
@@ -845,20 +868,11 @@ const Documents: FC = () => {
                   </span>
                 )}
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] text-outline uppercase tracking-widest">
-                  {t('documents.classifierModel', { model: classificationConfig.model })}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={bulkClassifyMutation.isPending || !!classifyTaskId}
-                  onClick={() => bulkClassifyMutation.mutate({ sha256List: null, force: false })}
-                >
-                  <span aria-hidden="true" className="material-symbols-outlined text-[16px]">auto_awesome</span>
-                  {t('documents.classifyUnclassified')}
-                </Button>
-              </div>
+              {/* Le déclencheur global vit désormais dans l'en-tête ; il ne reste ici que
+                  le contexte (modèle utilisé), pour ne pas offrir deux boutons identiques. */}
+              <span className="text-[10px] text-outline uppercase tracking-widest">
+                {t('documents.classifierModel', { model: classificationConfig.model })}
+              </span>
             </div>
 
             <div className="flex flex-wrap gap-2">

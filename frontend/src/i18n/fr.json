@@ -757,14 +757,16 @@
     "classifierModel": "Modèle : {{model}}",
     "category": "Catégorie",
     "unclassified": "Non classifiés",
-    "classifyUnclassified": "Classifier les non classifiés",
     "classificationCoverage": "{{classified}} / {{total}} documents classifiés",
     "classifyProgress": "Classification : {{processed}} / {{total}} ({{failed}} en échec)",
     "bulkClassifyStarted": "Classification par lot lancée",
     "bulkClassifyDone": "Classification terminée : {{succeeded}} réussis, {{failed}} en échec",
     "bulkClassifyFailed": "Impossible de lancer la classification par lot",
     "bulkClassifyCancelled": "Annulation demandée",
-    "cancel": "Annuler"
+    "cancel": "Annuler",
+    "classifyPending": "Classifier ({{count}})",
+    "allClassified": "Tout est classifié",
+    "classifyHint": "Classer les documents en attente avec {{model}}"
   },
   "batchEval": {
     "kicker": "Comparer des modèles",
