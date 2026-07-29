@@ -437,7 +437,8 @@ Allowed transitions: `INGESTED → QUALIFIED | ARCHIVED` · `QUALIFIED → TRAIN
 | **Auto-qualification** | If `autoQualifyThreshold > 0`, documents scoring above it are auto-promoted to `QUALIFIED` at ingestion |
 | **Retention policies** | Nightly cron: auto-archive INGESTED after N days, auto-purge ARCHIVED M days after their **archival date** (`archivedAt`) — the purge removes the DB record *and* the indexed chunks |
 | **Synchronized deletion** | Deleting a document removes it from the GED (H2), ChromaDB and the BM25 index in one call, targeting the chunk `sha256` identity; `DELETE /api/documents/{sourceFile}` follows the same path |
-| **Statistics** | Lifecycle distribution, quality histogram, top tags, total indexed chunks |
+| **Statistics** | Lifecycle distribution, quality histogram, top tags, classification coverage and top categories, total indexed chunks |
+| **Automatic classification** | The active LLM labels each document against a configurable taxonomy, from excerpts sampled across its whole length; categories drive thematic filtering and corpus balancing before dataset generation |
 | **Article commenting** | Human and AI-generated comments per document; rated comments export as DPO training pairs |
 
 **API endpoints:**
@@ -455,6 +456,13 @@ GET    /api/ged/documents/{sha256}/audit               # Audit trail
 GET    /api/ged/stats                                  # Aggregate statistics
 POST   /api/ged/documents/bulk/lifecycle               # Bulk lifecycle transition
 POST   /api/ged/documents/bulk/tags                    # Bulk tag assignment
+
+# Automatic classification (R8)
+GET    /api/ged/classification                         # Effective taxonomy, limits, active model
+POST   /api/ged/documents/{sha256}/classify            # Classify one document (?force to re-label)
+POST   /api/ged/documents/bulk/classify                # Background batch (empty body = all unclassified)
+GET    /api/ged/classification/tasks/{taskId}          # Batch progress
+DELETE /api/ged/classification/tasks/{taskId}          # Request batch cancellation
 
 # Article commenting
 GET    /api/ged/documents/{sha256}/comments            # List comments for a document

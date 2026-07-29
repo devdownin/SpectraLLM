@@ -2,6 +2,7 @@ package fr.spectra.controller;
 
 import fr.spectra.dto.GedDocumentFilter;
 import fr.spectra.persistence.*;
+import fr.spectra.service.DocumentClassificationService;
 import fr.spectra.service.GedService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -18,6 +19,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
@@ -28,13 +30,15 @@ import static org.mockito.Mockito.*;
  */
 class GedControllerTest {
 
-    private GedService    gedService;
-    private GedController controller;
+    private GedService                    gedService;
+    private DocumentClassificationService  classificationService;
+    private GedController                  controller;
 
     @BeforeEach
     void setUp() {
-        gedService  = mock(GedService.class);
-        controller  = new GedController(gedService);
+        gedService            = mock(GedService.class);
+        classificationService = mock(DocumentClassificationService.class);
+        controller            = new GedController(gedService, classificationService);
     }
 
     // ── listAll — filtrage paginé (amélioration 2) ────────────────────────────
@@ -45,7 +49,7 @@ class GedControllerTest {
                 List.of(entity("sha1"), entity("sha2")), PageRequest.of(0, 20), 2);
         when(gedService.findFiltered(any())).thenReturn(page);
 
-        Map<String, Object> result = controller.listAll(null, null, null, null, null, null, null, 0, 20);
+        Map<String, Object> result = controller.listAll(null, null, null, null, null, null, null, null, null, 0, 20);
 
         assertThat((List<?>) result.get("content")).hasSize(2);
         assertThat(result).containsKey("totalElements");
@@ -56,7 +60,7 @@ class GedControllerTest {
         Page<IngestedFileEntity> page = new PageImpl<>(List.of(entity("sha1")));
         when(gedService.findFiltered(any())).thenReturn(page);
 
-        controller.listAll("QUALIFIED", null, null, null, null, null, null, 0, 20);
+        controller.listAll("QUALIFIED", null, null, null, null, null, null, null, null, 0, 20);
 
         verify(gedService).findFiltered(argThat(f ->
                 f.lifecycle() == IngestedFileEntity.Lifecycle.QUALIFIED));
@@ -67,7 +71,7 @@ class GedControllerTest {
         Page<IngestedFileEntity> page = new PageImpl<>(List.of());
         when(gedService.findFiltered(any())).thenReturn(page);
 
-        controller.listAll(null, "kafka", null, null, null, null, null, 0, 20);
+        controller.listAll(null, "kafka", null, null, null, null, null, null, null, 0, 20);
 
         verify(gedService).findFiltered(argThat(f -> "kafka".equals(f.tag())));
     }
@@ -75,13 +79,13 @@ class GedControllerTest {
     @Test
     void listAll_invalidLifecycle_throwsIllegalArgumentException() {
         org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
-                () -> controller.listAll("BROKEN", null, null, null, null, null, null, 0, 20));
+                () -> controller.listAll("BROKEN", null, null, null, null, null, null, null, null, 0, 20));
     }
 
     @Test
     void listAll_invalidFromDate_throwsIllegalArgumentException() {
         org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
-                () -> controller.listAll(null, null, null, null, "22-04-2026", null, null, 0, 20));
+                () -> controller.listAll(null, null, null, null, "22-04-2026", null, null, null, null, 0, 20));
     }
 
     @Test
@@ -89,7 +93,7 @@ class GedControllerTest {
         Page<IngestedFileEntity> page = new PageImpl<>(List.of(entity("sha1")));
         when(gedService.findFiltered(any())).thenReturn(page);
 
-        Map<String, Object> result = controller.listAll(null, null, null, null, null, null, null, 0, 20);
+        Map<String, Object> result = controller.listAll(null, null, null, null, null, null, null, null, null, 0, 20);
         @SuppressWarnings("unchecked")
         Map<String, Object> sheet = ((List<Map<String, Object>>) result.get("content")).get(0);
 
@@ -103,7 +107,7 @@ class GedControllerTest {
                 List.of(entity("sha1")), PageRequest.of(0, 5), 42);
         when(gedService.findFiltered(any())).thenReturn(page);
 
-        Map<String, Object> result = controller.listAll(null, null, null, null, null, null, null, 0, 5);
+        Map<String, Object> result = controller.listAll(null, null, null, null, null, null, null, null, null, 0, 5);
 
         assertThat(result.get("totalElements")).isEqualTo(42L);
         assertThat(result.get("totalPages")).isEqualTo(9);
@@ -353,6 +357,135 @@ class GedControllerTest {
     void bulkLifecycle_invalidLifecycle_throwsIllegalArgumentException() {
         org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
                 () -> controller.bulkLifecycle(List.of("sha1"), "BROKEN", "api"));
+    }
+
+    // ── R8 — Classification automatique ──────────────────────────────────────
+
+    @Test
+    void classify_success_returns200WithCategories() {
+        when(classificationService.classify("sha1", "api", false)).thenReturn(
+                new DocumentClassificationService.ClassificationResult(
+                        "sha1", "doc.pdf", List.of("procedures"), Map.of("procedures", 0.9),
+                        "Une procédure.", "phi-4-mini", Instant.now(), false));
+
+        ResponseEntity<Map<String, Object>> resp = controller.classify("sha1", false, "api");
+
+        assertThat(resp.getStatusCode().value()).isEqualTo(200);
+        assertThat(resp.getBody()).containsEntry("categories", List.of("procedures"))
+                                  .containsEntry("model", "phi-4-mini")
+                                  .containsEntry("reused", false);
+    }
+
+    @Test
+    void classify_unknownDocument_returns404() {
+        when(classificationService.classify(eq("missing"), anyString(), anyBoolean()))
+                .thenThrow(new NoSuchElementException());
+
+        assertThat(controller.classify("missing", false, "api").getStatusCode().value())
+                .isEqualTo(404);
+    }
+
+    @Test
+    void classify_llmUnusable_returns422NotServerError() {
+        // La requête est recevable ; c'est son traitement qui n'aboutit pas.
+        when(classificationService.classify(eq("sha1"), anyString(), anyBoolean()))
+                .thenThrow(new IllegalStateException("Aucun contenu indexé pour sha1"));
+
+        ResponseEntity<Map<String, Object>> resp = controller.classify("sha1", false, "api");
+
+        assertThat(resp.getStatusCode().value()).isEqualTo(422);
+        assertThat(resp.getBody().get("error").toString()).contains("Aucun contenu indexé");
+    }
+
+    @Test
+    void bulkClassify_accepted_returns202WithTaskId() {
+        when(classificationService.submitBatch(any(), anyString(), anyBoolean()))
+                .thenReturn("task-1");
+
+        ResponseEntity<Map<String, Object>> resp =
+                controller.bulkClassify(List.of("sha1"), false, "api");
+
+        assertThat(resp.getStatusCode().value()).isEqualTo(202);
+        assertThat(resp.getBody()).containsEntry("taskId", "task-1");
+    }
+
+    @Test
+    void bulkClassify_batchAlreadyRunning_returns409() {
+        when(classificationService.submitBatch(any(), anyString(), anyBoolean())).thenReturn(null);
+
+        ResponseEntity<Map<String, Object>> resp = controller.bulkClassify(null, false, "api");
+
+        assertThat(resp.getStatusCode().value()).isEqualTo(409);
+    }
+
+    @Test
+    void bulkClassify_serviceDisabled_returns422() {
+        when(classificationService.submitBatch(any(), anyString(), anyBoolean()))
+                .thenThrow(new IllegalStateException("La classification automatique est désactivée"));
+
+        assertThat(controller.bulkClassify(null, false, "api").getStatusCode().value())
+                .isEqualTo(422);
+    }
+
+    @Test
+    void classificationTask_unknownId_returns404() {
+        when(classificationService.getBatchTask("nope")).thenReturn(null);
+
+        assertThat(controller.classificationTask("nope").getStatusCode().value()).isEqualTo(404);
+    }
+
+    @Test
+    void classificationTask_known_returnsProgressPayload() {
+        when(classificationService.getBatchTask("task-1")).thenReturn(
+                new DocumentClassificationService.BatchTask("task-1",
+                        DocumentClassificationService.BatchTask.Status.PROCESSING,
+                        3, 10, 2, 1, List.of("shaX : LLM muet"), Instant.now()));
+
+        ResponseEntity<Map<String, Object>> resp = controller.classificationTask("task-1");
+
+        assertThat(resp.getStatusCode().value()).isEqualTo(200);
+        assertThat(resp.getBody()).containsEntry("status", "PROCESSING")
+                                  .containsEntry("processed", 3)
+                                  .containsEntry("total", 10)
+                                  .containsEntry("failed", 1);
+    }
+
+    @Test
+    void cancelClassification_terminatedTask_returns400() {
+        when(classificationService.cancelBatch("done")).thenReturn(false);
+
+        assertThat(controller.cancelClassification("done").getStatusCode().value()).isEqualTo(400);
+    }
+
+    @Test
+    void listAll_passesCategoryAndClassifiedFiltersToService() {
+        when(gedService.findFiltered(any())).thenReturn(new PageImpl<>(List.of()));
+
+        controller.listAll(null, null, null, null, null, null, null, "securite", false, 0, 20);
+
+        verify(gedService).findFiltered(argThat(f ->
+                "securite".equals(f.category()) && Boolean.FALSE.equals(f.classified())));
+    }
+
+    @Test
+    void sheet_exposesClassificationFields() {
+        IngestedFileEntity doc = entity("sha1");
+        doc.setCategories(List.of("procedures"));
+        doc.setCategoryScores("{\"procedures\":0.9}");
+        doc.setClassificationSummary("Une procédure.");
+        doc.setClassifierModel("phi-4-mini");
+        doc.setClassifiedAt(Instant.now());
+        when(gedService.findById("sha1")).thenReturn(Optional.of(doc));
+        when(gedService.getLinksForDocument("sha1")).thenReturn(List.of());
+        when(gedService.getAuditTrail("sha1")).thenReturn(List.of());
+
+        Map<String, Object> sheet = controller.getDocument("sha1").getBody();
+
+        assertThat(sheet).containsEntry("categories", List.of("procedures"))
+                         .containsEntry("categoryScores", Map.of("procedures", 0.9))
+                         .containsEntry("classificationSummary", "Une procédure.")
+                         .containsEntry("classifierModel", "phi-4-mini");
+        assertThat(sheet.get("classifiedAt")).isNotNull();
     }
 
     @Test

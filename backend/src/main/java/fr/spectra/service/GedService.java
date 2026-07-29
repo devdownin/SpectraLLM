@@ -35,6 +35,10 @@ public class GedService {
     private volatile List<Map<String, Object>> cachedTopTags = List.of();
     private volatile long topTagsCachedAt = 0L;
 
+    // Même cache pour la répartition par catégorie (R8).
+    private volatile List<Map<String, Object>> cachedTopCategories = List.of();
+    private volatile long topCategoriesCachedAt = 0L;
+
     private final IngestedFileRepository      fileRepo;
     private final DocumentModelLinkRepository linkRepo;
     private final AuditLogRepository          auditRepo;
@@ -99,6 +103,10 @@ public class GedService {
             manifest.put("lifecycle", doc.getLifecycle().name());
             manifest.put("version", doc.getVersion());
             manifest.put("tags", doc.getTags());
+            manifest.put("categories", doc.getCategories());
+            manifest.put("classificationSummary", doc.getClassificationSummary());
+            manifest.put("classifierModel", doc.getClassifierModel());
+            manifest.put("classifiedAt", doc.getClassifiedAt() != null ? doc.getClassifiedAt().toString() : null);
             manifest.put("qualityScore", doc.getQualityScore());
             manifest.put("collectionName", doc.getCollectionName());
             manifest.put("chunksCreated", doc.getChunksCreated());
@@ -163,6 +171,42 @@ public class GedService {
         fileRepo.save(doc);
         audit(sha256, AuditLogEntity.Action.UNTAGGED, actor,
               Map.of("removed", String.join(",", removedTags)));
+        return doc;
+    }
+
+    // ── R8 — Classification automatique ──────────────────────────────────────
+
+    /**
+     * Persiste le verdict du classifieur sur un document.
+     *
+     * <p>Les catégories remplacent intégralement les précédentes (une reclassification est
+     * un nouveau jugement, pas un cumul) mais ne touchent jamais aux {@code tags} saisis à
+     * la main : les deux annotations coexistent et restent comparables.</p>
+     *
+     * @param categories  étiquettes retenues, triées par confiance décroissante
+     * @param scoresJson  confiances sérialisées ({@code {"label":0.87}})
+     * @param summary     résumé d'une phrase, nullable
+     * @param model       modèle ayant produit le verdict
+     */
+    @Transactional
+    public IngestedFileEntity applyClassification(String sha256, List<String> categories,
+                                                   String scoresJson, String summary,
+                                                   String model, String actor) {
+        IngestedFileEntity doc = requireDoc(sha256);
+        doc.setCategories(new ArrayList<>(categories));
+        doc.setCategoryScores(scoresJson);
+        doc.setClassificationSummary(summary);
+        doc.setClassifierModel(model);
+        doc.setClassifiedAt(Instant.now());
+        fileRepo.save(doc);
+
+        // Invalide le cache : les stats afficheraient sinon l'ancienne répartition
+        // pendant tout un TTL après une classification par lot.
+        topCategoriesCachedAt = 0L;
+
+        audit(sha256, AuditLogEntity.Action.CLASSIFIED, actor,
+              Map.of("categories", String.join(",", categories),
+                     "model", model != null ? model : ""));
         return doc;
     }
 
@@ -273,11 +317,20 @@ public class GedService {
         // Tag : recherche dans le JSON sérialisé (LIKE '%"tag"%'), jokers SQL échappés
         // (un tag contenant % ou _ filtrait trop large).
         if (f.tag() != null && !f.tag().isBlank()) {
-            String escaped = f.tag().replace("\"", "")
-                    .replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
-            String pattern = "%\"" + escaped + "\"%";
             spec = spec.and((root, q, cb) ->
-                    cb.like(root.get("tags"), pattern, '\\'));
+                    cb.like(root.get("tags"), jsonListPattern(f.tag()), '\\'));
+        }
+        // Catégorie (R8) : même stratégie que les tags sur la colonne categories —
+        // c'est ce filtre qui permet de composer un corpus d'entraînement par thème.
+        if (f.category() != null && !f.category().isBlank()) {
+            spec = spec.and((root, q, cb) ->
+                    cb.like(root.get("categories"), jsonListPattern(f.category()), '\\'));
+        }
+        // Tri « classifiés / non classifiés » : la file d'attente de la classification.
+        if (f.classified() != null) {
+            spec = spec.and((root, q, cb) -> f.classified()
+                    ? cb.isNotNull(root.get("classifiedAt"))
+                    : cb.isNull(root.get("classifiedAt")));
         }
         // Recherche par nom de fichier (insensible à la casse) — côté serveur pour couvrir
         // l'ensemble du corpus, pas seulement la page chargée par l'UI.
@@ -393,8 +446,9 @@ public class GedService {
         for (Object[] row : fileRepo.countByLifecycle()) {
             byLifecycle.put(row[0].toString(), (Long) row[1]);
         }
+        long total = byLifecycle.values().stream().mapToLong(Long::longValue).sum();
         result.put("byLifecycle", byLifecycle);
-        result.put("total", byLifecycle.values().stream().mapToLong(Long::longValue).sum());
+        result.put("total", total);
 
         // Score qualité
         Double avg = fileRepo.avgQualityScore();
@@ -410,6 +464,17 @@ public class GedService {
 
         // Top 10 tags — reparse coûteux mis en cache avec un TTL court.
         result.put("topTags", topTags());
+
+        // R8 — couverture et répartition de la classification automatique. C'est la lecture
+        // utile pour composer un corpus d'entraînement : quelle proportion du fonds est
+        // étiquetée, et quels thèmes y sont sur- ou sous-représentés.
+        long classified = fileRepo.countClassified();
+        Map<String, Object> classification = new LinkedHashMap<>();
+        classification.put("classified", classified);
+        classification.put("unclassified", Math.max(0, total - classified));
+        classification.put("coverage", total > 0 ? Math.round((double) classified / total * 100.0) / 100.0 : 0.0);
+        classification.put("topCategories", topCategories());
+        result.put("classification", classification);
 
         // Total chunks
         Long totalChunks = fileRepo.sumChunks();
@@ -427,29 +492,58 @@ public class GedService {
         long now = System.currentTimeMillis();
         if (now - topTagsCachedAt < TOP_TAGS_TTL_MS) return cachedTopTags;
 
-        Map<String, Long> tagCounts = new HashMap<>();
-        fileRepo.findAllTagsJson().forEach(tagsJson -> {
-            if (tagsJson != null && !tagsJson.isBlank()) {
+        cachedTopTags = countJsonLists(fileRepo.findAllTagsJson(), "tag");
+        topTagsCachedAt = now;
+        return cachedTopTags;
+    }
+
+    /**
+     * Top 10 des catégories attribuées par le classifieur (R8), mis en cache comme les tags.
+     * Le cache est invalidé à chaque classification pour ne pas afficher une répartition
+     * périmée juste après un traitement par lot.
+     */
+    private List<Map<String, Object>> topCategories() {
+        long now = System.currentTimeMillis();
+        if (now - topCategoriesCachedAt < TOP_TAGS_TTL_MS) return cachedTopCategories;
+
+        cachedTopCategories = countJsonLists(fileRepo.findAllCategoriesJson(), "category");
+        topCategoriesCachedAt = now;
+        return cachedTopCategories;
+    }
+
+    /** Compte les occurrences de valeurs sur une colonne de listes JSON, top 10 décroissant. */
+    private static List<Map<String, Object>> countJsonLists(List<String> jsonColumns, String key) {
+        Map<String, Long> counts = new HashMap<>();
+        jsonColumns.forEach(json -> {
+            if (json != null && !json.isBlank()) {
                 try {
                     @SuppressWarnings("unchecked")
-                    List<String> tags = MAPPER.readValue(tagsJson, List.class);
-                    tags.forEach(t -> tagCounts.merge(t, 1L, Long::sum));
+                    List<String> values = MAPPER.readValue(json, List.class);
+                    values.forEach(v -> counts.merge(v, 1L, Long::sum));
                 } catch (Exception ignored) {}
             }
         });
-        List<Map<String, Object>> topTags = tagCounts.entrySet().stream()
+        return counts.entrySet().stream()
                 .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
                 .limit(10)
-                .map(e -> Map.<String, Object>of("tag", e.getKey(), "count", e.getValue()))
+                .map(e -> Map.<String, Object>of(key, e.getKey(), "count", e.getValue()))
                 .toList();
-        cachedTopTags = topTags;
-        topTagsCachedAt = now;
-        return topTags;
     }
 
     // ── Internal helpers ─────────────────────────────────────────────────────
 
     private static long nullToZero(Long v) { return v != null ? v : 0L; }
+
+    /**
+     * Motif {@code LIKE} ciblant une valeur exacte dans une liste JSON sérialisée
+     * ({@code ["a","b"]}). Les jokers SQL sont échappés : sans cela une valeur contenant
+     * {@code %} ou {@code _} filtrerait bien trop large.
+     */
+    private static String jsonListPattern(String value) {
+        String escaped = value.replace("\"", "")
+                .replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+        return "%\"" + escaped + "\"%";
+    }
 
     // ── Queries ──────────────────────────────────────────────────────────────
 

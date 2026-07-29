@@ -191,6 +191,44 @@ spectra:
       archive-after-days: ${SPECTRA_GED_ARCHIVE_AFTER_DAYS:0}
       purge-after-days: ${SPECTRA_GED_PURGE_AFTER_DAYS:0}
 
+  # R8 — Classification automatique des documents par le LLM.
+  # Le modèle lit des extraits représentatifs de chaque document et lui attribue les
+  # catégories qui caractérisent son contenu. C'est ce qui rend le corpus filtrable par
+  # thème — et donc un jeu d'entraînement composable et équilibré.
+  classification:
+    enabled: ${SPECTRA_CLASSIFICATION_ENABLED:true}
+    # Classifier chaque document dès la fin de son ingestion. Désactivé par défaut : un
+    # import massif enchaînerait autant d'appels LLM que de fichiers. Préférer la
+    # classification par lot (POST /api/ged/documents/bulk/classify) quand le corpus est
+    # déjà en place, et activer ceci pour un flux d'arrivée continu.
+    auto-classify: ${SPECTRA_CLASSIFICATION_AUTO:false}
+    # Catégories autorisées. Les quatre premières sont celles du générateur de dataset
+    # (spectra.dataset) : filtrage et génération parlent ainsi le même vocabulaire.
+    # À remplacer par la nomenclature de VOTRE domaine — c'est le principal réglage utile.
+    taxonomy:
+      - procedures
+      - evenements
+      - nomenclatures
+      - reglementation
+      - technique
+      - securite
+      - maintenance
+      - formation
+      - contractuel
+      - rapport
+    # true = le modèle peut proposer une catégorie hors taxonomie quand aucune ne convient.
+    # Utile pour découvrir la nomenclature d'un fonds inconnu ; à refermer ensuite, sinon
+    # les étiquettes se dispersent et le filtrage perd son sens.
+    open-taxonomy: ${SPECTRA_CLASSIFICATION_OPEN_TAXONOMY:false}
+    max-categories: ${SPECTRA_CLASSIFICATION_MAX_CATEGORIES:3}
+    # Confiance minimale pour retenir une catégorie (0.0–1.0).
+    min-confidence: ${SPECTRA_CLASSIFICATION_MIN_CONFIDENCE:0.5}
+    # Extraits échantillonnés dans le document et budget de caractères soumis au modèle :
+    # à réduire si la fenêtre de contexte du modèle est courte.
+    max-chunks: ${SPECTRA_CLASSIFICATION_MAX_CHUNKS:8}
+    max-excerpt-chars: ${SPECTRA_CLASSIFICATION_MAX_EXCERPT_CHARS:6000}
+    temperature: ${SPECTRA_CLASSIFICATION_TEMPERATURE:0.1}
+
 llmfit:
   path: ${LLMFIT_PATH:llmfit}
   # Target directory for downloaded models — must match the volume shared with llm-chat.

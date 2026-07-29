@@ -561,6 +561,99 @@ class GedServiceTest {
         assertThat(topTags.get(0).get("count")).isEqualTo(2L);
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // R8 — Classification automatique
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    void applyClassification_storesCategoriesScoresSummaryAndModel() {
+        IngestedFileEntity doc = entity("abc");
+        when(fileRepo.findById("abc")).thenReturn(Optional.of(doc));
+        when(fileRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        IngestedFileEntity updated = ged.applyClassification("abc",
+                List.of("procedures", "securite"), "{\"procedures\":0.9}",
+                "Une procédure.", "phi-4-mini", "user");
+
+        assertThat(updated.getCategories()).containsExactly("procedures", "securite");
+        assertThat(updated.getCategoryScores()).isEqualTo("{\"procedures\":0.9}");
+        assertThat(updated.getClassificationSummary()).isEqualTo("Une procédure.");
+        assertThat(updated.getClassifierModel()).isEqualTo("phi-4-mini");
+        assertThat(updated.getClassifiedAt()).isNotNull();
+        assertThat(updated.isClassified()).isTrue();
+    }
+
+    @Test
+    void applyClassification_replacesPreviousCategoriesButLeavesManualTagsUntouched() {
+        IngestedFileEntity doc = entity("abc");
+        doc.setTags(List.of("relu-2024"));
+        doc.setCategories(List.of("obsolete"));
+        when(fileRepo.findById("abc")).thenReturn(Optional.of(doc));
+        when(fileRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        IngestedFileEntity updated = ged.applyClassification("abc",
+                List.of("maintenance"), "{}", null, "phi-4-mini", "user");
+
+        assertThat(updated.getCategories()).containsExactly("maintenance");
+        assertThat(updated.getTags()).containsExactly("relu-2024");
+    }
+
+    @Test
+    void applyClassification_writesAuditEntry() {
+        IngestedFileEntity doc = entity("abc");
+        when(fileRepo.findById("abc")).thenReturn(Optional.of(doc));
+        when(fileRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        ged.applyClassification("abc", List.of("procedures"), "{}", null, "phi-4-mini", "user");
+
+        verify(auditRepo).save(argThat(a ->
+                a.getAction() == AuditLogEntity.Action.CLASSIFIED
+                && a.getDetails() != null && a.getDetails().contains("procedures")));
+    }
+
+    @Test
+    void applyClassification_unknownDocument_throws() {
+        when(fileRepo.findById("missing")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> ged.applyClassification("missing",
+                List.of("procedures"), "{}", null, "m", "user"))
+                .isInstanceOf(NoSuchElementException.class);
+    }
+
+    @Test
+    void stats_reportsClassificationCoverageAndTopCategories() {
+        // Témoin de type explicite : avec un seul tableau, List.of le prendrait pour des varargs.
+        when(fileRepo.countByLifecycle()).thenReturn(List.<Object[]>of(
+                new Object[]{IngestedFileEntity.Lifecycle.INGESTED, 4L}));
+        when(fileRepo.countClassified()).thenReturn(3L);
+        when(fileRepo.findAllCategoriesJson()).thenReturn(List.of(
+                "[\"procedures\",\"securite\"]", "[\"procedures\"]", "[\"procedures\"]"));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> classification =
+                (Map<String, Object>) ged.stats().get("classification");
+
+        assertThat(classification).containsEntry("classified", 3L)
+                                  .containsEntry("unclassified", 1L)
+                                  .containsEntry("coverage", 0.75);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> top = (List<Map<String, Object>>) classification.get("topCategories");
+        assertThat(top.get(0)).containsEntry("category", "procedures").containsEntry("count", 3L);
+    }
+
+    @Test
+    void findFiltered_categoryFilter_matchesExactJsonListEntry() {
+        when(fileRepo.findAll(any(org.springframework.data.jpa.domain.Specification.class), any(PageRequest.class)))
+                .thenReturn(new PageImpl<>(List.of(entity("a"))));
+
+        ged.findFiltered(new fr.spectra.dto.GedDocumentFilter(
+                null, null, null, null, null, null, null, "procedures", null, 0, 20));
+
+        // Le filtre est bien poussé au dépôt (la traduction en SQL est couverte par l'IT JPA).
+        verify(fileRepo).findAll(any(org.springframework.data.jpa.domain.Specification.class),
+                any(PageRequest.class));
+    }
+
     @Test
     void findAll_delegatesToRepository() {
         when(fileRepo.findAllByOrderByIngestedAtDesc()).thenReturn(List.of(entity("a"), entity("b")));

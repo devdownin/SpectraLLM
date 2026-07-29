@@ -17,11 +17,23 @@ CREATE TABLE IF NOT EXISTS ingested_files (
     quality_score    DOUBLE PRECISION,
     collection_name  VARCHAR(255),
     archived_at      TIMESTAMP WITH TIME ZONE,
+    categories             TEXT,
+    category_scores        TEXT,
+    classification_summary TEXT,
+    classified_at          TIMESTAMP WITH TIME ZONE,
+    classifier_model       VARCHAR(255),
     PRIMARY KEY (sha256)
 );
 
 -- Migration : bases créées avant l'ajout de archived_at (idempotent sous H2)
 ALTER TABLE ingested_files ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP WITH TIME ZONE;
+
+-- Migration : bases créées avant la classification automatique (R8, idempotent sous H2)
+ALTER TABLE ingested_files ADD COLUMN IF NOT EXISTS categories             TEXT;
+ALTER TABLE ingested_files ADD COLUMN IF NOT EXISTS category_scores        TEXT;
+ALTER TABLE ingested_files ADD COLUMN IF NOT EXISTS classification_summary TEXT;
+ALTER TABLE ingested_files ADD COLUMN IF NOT EXISTS classified_at          TIMESTAMP WITH TIME ZONE;
+ALTER TABLE ingested_files ADD COLUMN IF NOT EXISTS classifier_model       VARCHAR(255);
 
 CREATE TABLE IF NOT EXISTS ingestion_tasks (
     task_id              VARCHAR(255)             NOT NULL,
@@ -148,6 +160,7 @@ CREATE INDEX IF NOT EXISTS idx_kafka_stream_collection    ON kafka_stream_source
 CREATE INDEX IF NOT EXISTS idx_ingested_files_lifecycle   ON ingested_files(lifecycle);
 CREATE INDEX IF NOT EXISTS idx_ingested_files_ingested_at ON ingested_files(ingested_at);
 CREATE INDEX IF NOT EXISTS idx_ingested_files_collection  ON ingested_files(collection_name);
+CREATE INDEX IF NOT EXISTS idx_ingested_files_classified   ON ingested_files(classified_at);
 CREATE INDEX IF NOT EXISTS idx_ged_audit_sha256           ON ged_audit_log(document_sha256);
 CREATE INDEX IF NOT EXISTS idx_ged_audit_timestamp        ON ged_audit_log(timestamp);
 CREATE INDEX IF NOT EXISTS idx_doc_model_sha256           ON document_model_links(document_sha256);
