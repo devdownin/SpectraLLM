@@ -5,11 +5,12 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import java.util.List;
 
 @ConfigurationProperties(prefix = "spectra")
-public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, PipelineProperties pipeline, IngestionProperties ingestion, RerankerProperties reranker, HybridSearchProperties hybridSearch, LayoutParserProperties layoutParser, AgenticRagProperties agenticRag, GedProperties ged, ConversationalRagProperties conversationalRag, CorrectiveRagProperties correctiveRag, AdaptiveRagProperties adaptiveRag, SelfRagProperties selfRag, ContextCompressionProperties contextCompression, MultiQueryProperties multiQuery, SemanticDedupProperties semanticDedup, LongContextRagProperties longContextRag, KafkaProperties kafka) {
+public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, PipelineProperties pipeline, IngestionProperties ingestion, RerankerProperties reranker, HybridSearchProperties hybridSearch, LayoutParserProperties layoutParser, AgenticRagProperties agenticRag, GedProperties ged, ConversationalRagProperties conversationalRag, CorrectiveRagProperties correctiveRag, AdaptiveRagProperties adaptiveRag, SelfRagProperties selfRag, ContextCompressionProperties contextCompression, MultiQueryProperties multiQuery, SemanticDedupProperties semanticDedup, LongContextRagProperties longContextRag, KafkaProperties kafka, ClassificationProperties classification) {
 
     public SpectraProperties {
         if (pipeline == null) pipeline = new PipelineProperties(null, null, null, null, null, null);
         if (ged == null) ged = new GedProperties(null, null, null);
+        if (classification == null) classification = ClassificationProperties.defaults();
     }
 
     /**
@@ -350,6 +351,101 @@ public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, 
         public List<String> effectiveMetadataFields() { return metadataFields != null ? metadataFields : List.of(); }
         /** Le mapping de champs est-il actif (extraction d'un champ JSON) ? */
         public boolean hasFieldMapping() { return effectiveContentField() != null; }
+    }
+
+    /**
+     * R8 — Classification automatique des documents par le LLM.
+     *
+     * <p>Chaque document ingéré est présenté au modèle (extraits représentatifs + prompt
+     * dédié) qui lui attribue des catégories issues d'une taxonomie configurable. L'intérêt
+     * est double : on retrouve un document par son <i>sujet</i> et non plus seulement par son
+     * nom, et surtout on peut <b>composer un corpus d'entraînement équilibré</b> — filtrer les
+     * documents d'une catégorie sous-représentée avant de générer le dataset de fine-tuning.</p>
+     *
+     * <p>La boucle se referme : le modèle entraîné sur le corpus sert lui-même à classifier
+     * les documents suivants, et {@code classifierModel} garde trace de la version qui a
+     * produit chaque étiquette.</p>
+     *
+     * @param enabled            active le service (sinon les endpoints répondent 503)
+     * @param autoClassify       classifie automatiquement chaque document juste après son ingestion
+     * @param taxonomy           catégories autorisées ; les quatre premières par défaut sont
+     *                           celles du générateur de dataset, pour que filtrage et génération
+     *                           parlent le même vocabulaire
+     * @param openTaxonomy       autorise le modèle à proposer des catégories hors taxonomie
+     * @param maxCategories      nombre maximum de catégories retenues par document
+     * @param minConfidence      confiance minimale (0.0–1.0) en deçà de laquelle une catégorie est écartée
+     * @param maxChunks          nombre d'extraits échantillonnés dans le document
+     * @param maxExcerptChars    budget de caractères de l'extrait soumis au modèle
+     * @param temperature        température de génération (basse = étiquetage déterministe)
+     */
+    public record ClassificationProperties(
+            Boolean enabled,
+            Boolean autoClassify,
+            List<String> taxonomy,
+            Boolean openTaxonomy,
+            Integer maxCategories,
+            Double minConfidence,
+            Integer maxChunks,
+            Integer maxExcerptChars,
+            Double temperature
+    ) {
+        /** Taxonomie par défaut : les 4 catégories du générateur de dataset + 6 transverses. */
+        public static final List<String> DEFAULT_TAXONOMY = List.of(
+                "procedures", "evenements", "nomenclatures", "reglementation",
+                "technique", "securite", "maintenance", "formation",
+                "contractuel", "rapport");
+
+        public static ClassificationProperties defaults() {
+            return new ClassificationProperties(null, null, null, null, null, null, null, null, null);
+        }
+
+        /** Activé par défaut : la classification n'a de coût que lorsqu'elle est déclenchée. */
+        public boolean isEnabled() { return !Boolean.FALSE.equals(enabled); }
+
+        /** Désactivée par défaut : une ingestion en masse ne doit pas saturer le LLM sans arbitrage. */
+        public boolean isAutoClassify() { return Boolean.TRUE.equals(autoClassify); }
+
+        public boolean isOpenTaxonomy() { return Boolean.TRUE.equals(openTaxonomy); }
+
+        /** Taxonomie normalisée (minuscules, sans doublon ni entrée vide), défaut si non configurée. */
+        public List<String> effectiveTaxonomy() {
+            if (taxonomy == null || taxonomy.isEmpty()) return DEFAULT_TAXONOMY;
+            List<String> cleaned = taxonomy.stream()
+                    .filter(java.util.Objects::nonNull)
+                    .map(t -> t.trim().toLowerCase())
+                    .filter(t -> !t.isEmpty())
+                    .distinct()
+                    .toList();
+            return cleaned.isEmpty() ? DEFAULT_TAXONOMY : cleaned;
+        }
+
+        public int effectiveMaxCategories() {
+            return maxCategories != null && maxCategories > 0 ? maxCategories : 3;
+        }
+
+        /** Borné à [0,1] : un seuil hors bornes rejetterait tout ou n'écarterait rien. */
+        public double effectiveMinConfidence() {
+            if (minConfidence == null) return 0.5;
+            return Math.max(0.0, Math.min(1.0, minConfidence));
+        }
+
+        public int effectiveMaxChunks() {
+            return maxChunks != null && maxChunks > 0 ? maxChunks : 8;
+        }
+
+        /**
+         * Budget de caractères de l'extrait. Le défaut (3000 ≈ 860 tokens en français) est
+         * calibré pour tenir dans une fenêtre de 2048 tokens — celle du déploiement par
+         * défaut — une fois ajoutés le prompt, l'entête et la réponse. Au-delà, llama.cpp
+         * tronque le début de la requête, donc les consignes de format.
+         */
+        public int effectiveMaxExcerptChars() {
+            return maxExcerptChars != null && maxExcerptChars > 0 ? maxExcerptChars : 3000;
+        }
+
+        public float effectiveTemperature() {
+            return temperature != null ? temperature.floatValue() : 0.1f;
+        }
     }
 
     public record GedProperties(

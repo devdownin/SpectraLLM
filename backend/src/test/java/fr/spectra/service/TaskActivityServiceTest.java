@@ -90,7 +90,7 @@ class TaskActivityServiceTest {
     @SuppressWarnings("unchecked")
     void trainingJobKeepsProgressFieldsButDropsHeavyOnes() {
         FineTuningJob job = new FineTuningJob("j1", FineTuningJob.Status.TRAINING, "spectra-domain",
-                "phi3", null, 120, "Époque 2", 2, 3, 0.42, null, null, null,
+                "phi3", null, 120, "Époque 2", 2, 3, 0.42, 0.51, null, null, null,
                 Instant.parse("2026-07-13T10:00:00Z"), null);
         when(fineTuningService.getAllJobs()).thenReturn(List.of(job));
 
@@ -100,14 +100,14 @@ class TaskActivityServiceTest {
         assertThat(m.get("totalEpochs")).isEqualTo(3);
         assertThat(m.get("createdAt")).isEqualTo(Instant.parse("2026-07-13T10:00:00Z"));
         // Les champs lourds / hors-suivi ne sont pas émis sur le flux SSE.
-        assertThat(m).doesNotContainKeys("parameters", "loss", "outputPath", "reportPath");
+        assertThat(m).doesNotContainKeys("parameters", "loss", "evalLoss", "outputPath", "reportPath");
     }
 
     @Test
     @SuppressWarnings("unchecked")
     void evaluationReportDropsScoreDetails() {
         EvaluationReport report = new EvaluationReport("e1", "RUNNING", "m1", null, 12, 3,
-                0.0, Map.of(), List.of(), 0.0, 0.0, null,
+                0.0, Map.of(), Map.of(), List.of(), 0.0, 0.0, null,
                 Instant.parse("2026-07-13T10:00:00Z"), null, null);
         when(evaluationService.getAllReports()).thenReturn(List.of(report));
 

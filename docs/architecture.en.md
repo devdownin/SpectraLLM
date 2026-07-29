@@ -437,7 +437,8 @@ Allowed transitions: `INGESTED → QUALIFIED | ARCHIVED` · `QUALIFIED → TRAIN
 | **Auto-qualification** | If `autoQualifyThreshold > 0`, documents scoring above it are auto-promoted to `QUALIFIED` at ingestion |
 | **Retention policies** | Nightly cron: auto-archive INGESTED after N days, auto-purge ARCHIVED M days after their **archival date** (`archivedAt`) — the purge removes the DB record *and* the indexed chunks |
 | **Synchronized deletion** | Deleting a document removes it from the GED (H2), ChromaDB and the BM25 index in one call, targeting the chunk `sha256` identity; `DELETE /api/documents/{sourceFile}` follows the same path |
-| **Statistics** | Lifecycle distribution, quality histogram, top tags, total indexed chunks |
+| **Statistics** | Lifecycle distribution, quality histogram, top tags, classification coverage and top categories, total indexed chunks |
+| **Automatic classification** | The active LLM labels each document against a configurable taxonomy, from excerpts sampled across its whole length; categories drive thematic filtering and corpus balancing before dataset generation |
 | **Article commenting** | Human and AI-generated comments per document; rated comments export as DPO training pairs |
 
 **API endpoints:**
@@ -455,6 +456,13 @@ GET    /api/ged/documents/{sha256}/audit               # Audit trail
 GET    /api/ged/stats                                  # Aggregate statistics
 POST   /api/ged/documents/bulk/lifecycle               # Bulk lifecycle transition
 POST   /api/ged/documents/bulk/tags                    # Bulk tag assignment
+
+# Automatic classification (R8)
+GET    /api/ged/classification                         # Effective taxonomy, limits, active model
+POST   /api/ged/documents/{sha256}/classify            # Classify one document (?force to re-label)
+POST   /api/ged/documents/bulk/classify                # Background batch (empty body = all unclassified)
+GET    /api/ged/classification/tasks/{taskId}          # Batch progress
+DELETE /api/ged/classification/tasks/{taskId}          # Request batch cancellation
 
 # Article commenting
 GET    /api/ged/documents/{sha256}/comments            # List comments for a document
@@ -558,12 +566,12 @@ The exported JSONL file uses the same `{"prompt","chosen","rejected","source","e
 
 ### `EvaluationService` — LLM-as-a-Judge & multi-model comparison
 
-After dataset generation, you can evaluate model quality automatically. Spectra samples 5% of the dataset (min 5, max 50 pairs), loads the target model (switching the active model for the run, then restoring it), and scores each response from 1 to 10 — also recording generation **latency** and **estimated throughput** (tokens/s). Scores are aggregated by category (`qa`, `summary`, `classification`, `negative`), giving a quantitative baseline before and after fine-tuning.
+After dataset generation, you can evaluate model quality automatically. Spectra samples 5% of the dataset (min 5, max 50 pairs), loads the target model (switching the active model for the run, then restoring it), and scores each response from 1 to 10 — also recording generation **latency** and **estimated throughput** (tokens/s). Scores are aggregated along two orthogonal axes: by **exercise category** (`qa`, `summary`, `classification`, `negative`) and — when documents are classified (R8) — by **document theme** (`scoresByDocumentCategory`). The second axis turns a single number into a diagnosis: a model weak on `reglementation` usually reflects a corpus where that theme is under-represented, which points back to dataset composition rather than hyperparameters.
 
 **Compare your custom models against each other:**
 
 - **Batch-evaluate** several models on the *same* shared test set (`POST /api/evaluation/batch`) — apples-to-apples.
-- **Compare** completed runs (`GET /api/evaluation/compare`): per-category deltas vs a movable baseline, an overlaid radar, latency/throughput, document attribution (GED `TRAINED_ON` / `EVALUATED_ON`), and each delta flagged `sig`/`ns` via a 95% confidence interval.
+- **Compare** completed runs (`GET /api/evaluation/compare`): per-category and per-document-theme deltas vs a movable baseline (themes present on only one side are skipped — that would be a test-set artefact, not a gain), an overlaid radar, latency/throughput, document attribution (GED `TRAINED_ON` / `EVALUATED_ON`), and each delta flagged `sig`/`ns` via a 95% confidence interval.
 - **A/B head-to-head** (`POST /api/evaluation/ab`): a judge picks the better of two answers per pair, with randomized order to cancel position bias → win rates, more robust than comparing absolute means.
 - **Neutral judge** (`SPECTRA_EVALUATION_JUDGE_MODEL`): a fixed third model scores everyone impartially (two-phase evaluation — generate, then judge).
 

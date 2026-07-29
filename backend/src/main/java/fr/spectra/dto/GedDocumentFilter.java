@@ -17,6 +17,10 @@ public record GedDocumentFilter(
         /** Recherche plein-texte sur le nom de fichier (insensible à la casse), côté serveur —
          *  pour retrouver un document au-delà de la page courante. */
         String q,
+        /** R8 — catégorie attribuée par le classifieur : sélectionne un corpus thématique. */
+        String category,
+        /** R8 — {@code true} = déjà classifiés, {@code false} = à classifier, {@code null} = indifférent. */
+        Boolean classified,
         int page,
         int size
 ) {

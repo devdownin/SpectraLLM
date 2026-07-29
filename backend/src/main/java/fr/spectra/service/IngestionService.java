@@ -110,6 +110,16 @@ public class IngestionService {
     // Streaming (Kafka) upsert deps
     private final fr.spectra.persistence.StreamSourceRepository streamSourceRepository;
 
+    /**
+     * R8 — classification automatique. Injecté par champ et optionnel : les tests unitaires
+     * construisent {@code IngestionService} directement, et le classifieur dépend lui-même de
+     * {@link GedService} — l'injecter par constructeur alourdirait la signature partagée par
+     * une dizaine de tests pour une dépendance que l'ingestion n'exige pas.
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    @org.springframework.context.annotation.Lazy
+    private DocumentClassificationService classificationService;
+
     private final Map<String, IngestionTask> tasks = new ConcurrentHashMap<>();
     private final Set<String> cancelledTaskIds = ConcurrentHashMap.newKeySet();
     /**
@@ -498,6 +508,8 @@ public class IngestionService {
             if (alreadyExists) {
                 // R4 — re-ingestion : incrémenter la version
                 gedService.incrementVersion(hash, "system");
+                // R8 — le contenu a changé : la classification précédente ne le décrit plus.
+                triggerAutoClassification(hash, true);
             } else {
                 IngestedFileEntity entity = new IngestedFileEntity(
                         hash, fileName, format, Instant.now(), chunks, collection, qualityScore);
@@ -518,9 +530,28 @@ public class IngestionService {
                         log.warn("Auto-qualification échouée pour {} : {}", hash, e.getMessage());
                     }
                 }
+                // R8 — classification automatique si activée (asynchrone et best-effort).
+                triggerAutoClassification(hash, false);
             }
         } catch (Exception e) {
             log.warn("Erreur persistance ingestion {}: {}", hash, e.getMessage());
+        }
+    }
+
+    /**
+     * Déclenche la classification automatique du document fraîchement indexé.
+     *
+     * <p>Best-effort par construction : le service est injecté en option (il est absent des
+     * tests unitaires qui instancient {@code IngestionService} directement) et toute erreur
+     * est absorbée — une ingestion réussie ne doit jamais être signalée en échec parce que
+     * le LLM était indisponible au moment de l'étiquetage.</p>
+     */
+    private void triggerAutoClassification(String hash, boolean force) {
+        if (classificationService == null) return;
+        try {
+            classificationService.triggerAutoClassification(hash, force);
+        } catch (Exception e) {
+            log.warn("Classification automatique non déclenchée pour {} : {}", hash, e.getMessage());
         }
     }
 

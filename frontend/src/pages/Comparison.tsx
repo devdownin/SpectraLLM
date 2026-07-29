@@ -194,6 +194,9 @@ const Comparison: FC = () => {
   };
 
   const categories = selected ? Object.entries(selected.scoresByCategory) : [];
+  // R8 — ventilation thématique : « faible sur la réglementation », par opposition à
+  // scoresByCategory qui ventile par type d'exercice (q/r, résumé, refus).
+  const documentCategories = selected ? Object.entries(selected.scoresByDocumentCategory ?? {}) : [];
 
   const filteredReports = reports.filter(r => r.modelName.toLowerCase().includes(searchTerm.toLowerCase()));
 
@@ -482,6 +485,28 @@ const Comparison: FC = () => {
                             <ScoreRadar scoresByCategory={selected.scoresByCategory} />
                           </div>
                         )}
+                      </div>
+                    )}
+
+                    {/* R8 — diagnostic thématique : sur quel sujet le modèle est-il faible ?
+                        Trié du plus faible au plus fort, car c'est le point bas qui appelle
+                        une action sur le corpus. */}
+                    {documentCategories.length > 0 && (
+                      <div className="mt-6">
+                        <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant mb-1">
+                          {t('comparison.byDocumentCategory')}
+                        </p>
+                        <p className="text-[11px] text-outline mb-3">{t('comparison.byDocumentCategoryHint')}</p>
+                        <div className="space-y-2">
+                          {[...documentCategories].sort((a, b) => a[1] - b[1]).map(([cat, avg]) => (
+                            <div key={cat} className="grid grid-cols-[120px_1fr] gap-3 items-center">
+                              <span className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant truncate">
+                                {cat}
+                              </span>
+                              <ScoreBar score={avg} color={avg < 6 ? 'bg-error' : 'bg-secondary'} />
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </>

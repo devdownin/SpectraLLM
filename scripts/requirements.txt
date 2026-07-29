@@ -2,23 +2,35 @@
 # Installation : pip install -r scripts/requirements.txt
 #
 # Prérequis : Python 3.10+
-# Note      : unsloth nécessite CUDA pour les GPU NVIDIA.
-#             Sur CPU uniquement, remplacer unsloth par transformers + peft.
+# Note      : unsloth nécessite CUDA pour les GPU NVIDIA. Sur CPU uniquement, unsloth et
+#             bitsandbytes peuvent être retirés — train_host.py bascule automatiquement sur
+#             le chemin transformers + peft, dont les dépendances sont listées ici.
+#
+# Bornes supérieures : train_host.py utilise des API qui ont déjà été renommées dans ces
+# bibliothèques (processing_class, eval_strategy, neftune_noise_alpha). Sans borne majeure,
+# deux installations faites à quelques mois d'intervalle n'exécutent pas le même code — et
+# rien ne le signalerait, faute de test automatisé sur scripts/.
 
-# Fine-tuning QLoRA (Unsloth = version optimisée de HuggingFace PEFT)
-unsloth>=2026.5.2
+# Fine-tuning QLoRA (Unsloth = version optimisée de HuggingFace PEFT). Versionné par date.
+unsloth>=2026.5.2,<2027
 
-# Trainer supervisé
-trl>=1.4.0
+# Trainer supervisé + DPO/ORPO
+trl>=1.4.0,<2
 
 # Modèles et tokenizers HuggingFace
-transformers>=5.8.1
+transformers>=5.8.1,<6
 
-# Gestion des datasets
-datasets>=4.8.5
+# Gestion des datasets (chemin DPO/ORPO ; le SFT utilise un Dataset PyTorch natif)
+datasets>=4.8.5,<5
 
 # Quantification 4-bit (requis par unsloth)
-bitsandbytes>=0.49.2
+bitsandbytes>=0.49.2,<1
 
 # Accélération HuggingFace (gestion multi-GPU / CPU)
-accelerate>=1.13.0
+accelerate>=1.13.0,<2
+
+# Importés DIRECTEMENT par train_host.py (`import torch`, `from peft import …`) et par
+# export_gguf.py. Ils n'arrivaient jusqu'ici que par transitivité d'unsloth : une
+# installation CPU sans unsloth échouait à l'import.
+torch
+peft

@@ -288,6 +288,101 @@ Posez ensuite votre question habituelle dans le Playground : la réponse reflèt
 
 ---
 
+### Étape 1d — Classification automatique des documents (optionnel)
+
+**Objectif** : attribuer à chaque document les catégories qui caractérisent son contenu, pour savoir ce que contient réellement votre corpus — et le filtrer par thème.
+
+Tant qu'un document n'est identifiable que par son nom de fichier, un fonds de plusieurs centaines de pièces reste opaque : impossible de voir que la moitié parle de maintenance et que la réglementation n'est représentée que par trois documents. C'est pourtant exactement ce qu'il faut savoir avant de générer un dataset : **un corpus déséquilibré produit un modèle déséquilibré**.
+
+C'est le modèle lui-même qui classe. Spectra lui présente des extraits représentatifs du document — échantillonnés sur toute sa longueur, car les premières pages sont souvent une page de garde ou un sommaire qui caractérisent mal le fond — accompagnés d'un prompt d'étiquetage, et lui demande de répondre en JSON strict. Le modèle utilisé est le modèle de chat actif : après un premier cycle de fine-tuning, c'est **votre** modèle spécialisé qui étiquette vos documents, et il le fait mieux qu'un classifieur générique. Le nom du modèle est conservé sur chaque fiche, de sorte qu'une reclassification après un nouvel entraînement reste comparable à la précédente.
+
+#### Définir votre taxonomie
+
+C'est le principal réglage utile : remplacez la liste par défaut par la nomenclature de votre domaine.
+
+```yaml
+# backend/src/main/resources/application.yml
+spectra:
+  classification:
+    taxonomy:
+      - procedures
+      - evenements
+      - nomenclatures
+      - reglementation
+      - securite
+      # … vos propres catégories
+```
+
+Les catégories proposées par le modèle sont ramenées à leur forme canonique : la casse, les accents et la ponctuation sont ignorés (« Procédures » désigne bien `procedures`). En mode fermé — le défaut — toute étiquette absente de la taxonomie est écartée. Pour explorer un fonds dont vous ne connaissez pas encore la nomenclature, passez `SPECTRA_CLASSIFICATION_OPEN_TAXONOMY=true` : le modèle proposera ses propres catégories, que vous pourrez ensuite figer dans la taxonomie.
+
+| Variable | Rôle | Défaut |
+|---|---|---|
+| `SPECTRA_CLASSIFICATION_ENABLED` | Active le service | `true` |
+| `SPECTRA_CLASSIFICATION_AUTO` | Classifie chaque document dès la fin de son ingestion | `false` |
+| `SPECTRA_CLASSIFICATION_OPEN_TAXONOMY` | Autorise des catégories hors taxonomie | `false` |
+| `SPECTRA_CLASSIFICATION_MAX_CATEGORIES` | Catégories retenues par document | `3` |
+| `SPECTRA_CLASSIFICATION_MIN_CONFIDENCE` | Confiance minimale pour retenir une catégorie | `0.5` |
+| `SPECTRA_CLASSIFICATION_MAX_CHUNKS` | Extraits échantillonnés dans le document | `8` |
+| `SPECTRA_CLASSIFICATION_MAX_EXCERPT_CHARS` | Budget de caractères soumis au modèle | `3000` |
+
+> **Le budget d'extrait doit tenir dans la fenêtre de contexte.** Avec le déploiement par défaut (`LLM_CONTEXT=2048`), comptez en français ~3,5 caractères par token : un extrait de 3000 caractères ≈ 860 tokens, auxquels s'ajoutent le prompt (~350), l'entête (~40) et la réponse (~120), soit ~1370 sur 2048. Si vous dépassez, llama.cpp tronque le **début** de la requête — donc les consignes « réponds uniquement en JSON » et la taxonomie — et le modèle répond en prose : la classification échoue alors systématiquement. Remontez ce budget seulement si vous augmentez `LLM_CONTEXT`.
+
+> `auto-classify` est désactivé par défaut à dessein : un import de 500 fichiers enchaînerait 500 appels au LLM. Pour un corpus déjà en place, préférez la classification par lot ci-dessous ; activez `auto-classify` pour un flux d'arrivée continu.
+
+#### Via l'interface
+
+1. Page **Documents**, section **Catégorie** de la barre de filtres.
+2. **Classifier les non classifiés** lance un lot en arrière-plan sur tous les documents encore sans catégorie ; une barre de progression suit l'avancement et le lot est annulable.
+3. Les puces de catégorie filtrent la liste par thème ; **Non classifiés** isole la file d'attente.
+4. Dans la fiche d'un document, la section **Classification automatique** montre les catégories avec leur confiance, le résumé généré, le modèle et la date. **Reclassifier** relance le modèle sur un document déjà étiqueté.
+
+Sur chaque ligne de la liste, les catégories issues du modèle sont affichées distinctement des tags manuels (préfixés `#`) : une reclassification ne touche jamais à votre annotation humaine, et l'écart entre les deux vous dit ce que vaut le classifieur.
+
+#### Via l'API
+
+```bash
+# Taxonomie effective et modèle qui classera
+curl http://localhost:8080/api/ged/classification
+
+# Classifier un document (force=true pour ré-étiqueter un document déjà classifié)
+curl -X POST "http://localhost:8080/api/ged/documents/{sha256}/classify"
+# → {"categories":["procedures","securite"],"scores":{"procedures":0.92,"securite":0.68},
+#    "summary":"Procédure d'intervention sur les postes haute tension.","model":"phi-4-mini"}
+
+# Classifier tout le corpus non classifié (corps vide), en tâche de fond
+curl -X POST http://localhost:8080/api/ged/documents/bulk/classify
+# → {"taskId":"c1a2…","status":"PENDING"}
+
+# Suivre — ou annuler — le lot
+curl http://localhost:8080/api/ged/classification/tasks/c1a2…
+# → {"status":"PROCESSING","processed":37,"total":210,"succeeded":35,"failed":2}
+curl -X DELETE http://localhost:8080/api/ged/classification/tasks/c1a2…
+```
+
+#### Piloter la composition du corpus
+
+C'est là que la classification paie. `GET /api/ged/stats` renvoie la couverture et la répartition par catégorie :
+
+```bash
+curl http://localhost:8080/api/ged/stats
+# → "classification": {"classified": 187, "unclassified": 23, "coverage": 0.89,
+#                      "topCategories": [{"category":"maintenance","count":94}, …]}
+```
+
+Un thème à 94 documents face à un autre à 3 : le déséquilibre est visible avant l'entraînement, pas après. Le filtre `category` permet alors de travailler thème par thème :
+
+```bash
+# Les documents d'une catégorie sous-représentée
+curl "http://localhost:8080/api/ged/documents?category=reglementation&size=100"
+
+# Ceux qui restent à classifier
+curl "http://localhost:8080/api/ged/documents?classified=false"
+```
+
+> Une ré-ingestion (`?force=true`) reclassifie automatiquement le document : son contenu a changé, l'ancienne classification ne le décrit plus.
+
+---
+
 ### Étape 2 — Génération du dataset d'entraînement
 
 **Objectif** : générer des paires question/réponse à partir de vos documents, pour entraîner le modèle.
@@ -300,6 +395,31 @@ Posez ensuite votre question habituelle dans le Playground : la réponse reflèt
    - Valeur `5–20` = test rapide pour vérifier que le pipeline fonctionne (~10–30 min sur CPU)
 3. Cliquez sur **Initialize Pipeline**.
 4. La progression s'affiche en temps réel : nombre de chunks traités, paires générées.
+
+> **Ce que `Max Chunks` échantillonne.** Si vos documents sont classifiés (étape 1d), les chunks sont prélevés **en tourniquet entre les catégories** plutôt qu'en tête de collection. Un essai à 20 chunks couvre donc l'éventail thématique du fonds, au lieu de ne voir que les premiers documents ingérés. Une catégorie qui s'épuise cède son quota aux autres : le budget demandé est toujours atteint. Sans classification, le comportement reste un simple troncage.
+
+> **Une seule taxonomie.** Quand un document est classifié, la paire de classification produite reprend son verdict au lieu d'interroger à nouveau le LLM : la génération est plus rapide d'environ un tiers (un appel sur trois économisé) et une paire ne peut plus contredire la fiche de son document.
+
+#### Composer un corpus équilibré
+
+`GET /api/dataset/stats` renvoie `byDocumentCategory` — la répartition des paires **par thème d'origine**, à ne pas confondre avec `byCategory` qui décrit la nature des paires (q/r, résumé, refus) :
+
+```bash
+curl http://localhost:8080/api/dataset/stats
+# → "byCategory":         {"qa": 210, "summary": 210, "negative": 70}
+#   "byDocumentCategory": {"maintenance": 380, "reglementation": 12, "(non classé)": 98}
+```
+
+Ici la réglementation pèse 12 paires sur 490 : le modèle sera faible dessus. Deux leviers avant de lancer le fine-tuning — ingérer davantage de documents de ce thème, ou écarter le thème dominant :
+
+```bash
+# Exclut du SFT toutes les paires issues de documents « contractuel ».
+# Le filtre porte sur trois champs de chaque paire : la catégorie du document source,
+# la nature de la paire (qa, summary, negative) et son type (refusal, summarization…).
+SPECTRA_SFT_EXCLUDED_CATEGORIES=contractuel
+```
+
+Un document non classifié n'est jamais écarté par ce filtre : rien ne permettrait d'affirmer qu'il relève du thème exclu.
 
 #### Via l'API
 
@@ -604,6 +724,11 @@ LORA_TARGET=all NEFTUNE_ALPHA=5 WARMUP_RATIO=0.05 VAL_SPLIT=0.1 \
 | `NEFTUNE_ALPHA` | bruit NEFTune sur les embeddings (0 = off, 5 courant) | `0` |
 | `WARMUP_RATIO` | fraction d'étapes en warm-up | `0.03` |
 | `VAL_SPLIT` | fraction tenue à l'écart pour l'`eval_loss` | `0` |
+| `MAX_CHUNKS` | plafonne les chunks utilisés pour la génération du dataset (`0` = tout le corpus) — pratique pour un essai rapide | `0` |
+
+> **Authentification API :** si `SPECTRA_API_KEY` est définie (environnement ou `.env`), le pipeline la récupère automatiquement et l'envoie en `X-API-Key` sur chaque appel `/api/**` — aucun drapeau supplémentaire. Une ingestion partiellement en échec (certains fichiers en erreur) est signalée sans interrompre le pipeline.
+>
+> **Contre-pression :** si le serveur refuse la soumission d'ingestion en `429` (trop d'ingestions actives, `spectra.pipeline.max-active-ingestions`), `pipeline.sh` respecte l'en-tête `Retry-After` et réessaie — jusqu'à `INGEST_MAX_RETRIES` fois (défaut `5`) — au lieu d'échouer.
 
 **Config serveur** (`application.yml`) :
 - `spectra.dataset.refusal-every-n` — fréquence des exemples de refus « je ne sais pas » (anti-hallucination).
@@ -1018,6 +1143,37 @@ SPECTRA_EVALUATION_JUDGE_MODEL=phi-4-mini
 L'évaluation se fait alors en deux temps : génération de toutes les réponses avec le modèle évalué, puis notation avec le juge (un seul changement de modèle, pour ne pas recharger le serveur à chaque paire).
 
 > **Interprétation des scores :** un score ≥ 7 indique que le modèle répond correctement et précisément. Un score entre 4 et 6 suggère des réponses partielles ou trop vagues. En dessous de 4, le modèle hallucine ou est hors-sujet. **Ne promouvez pas un écart marqué `ns`** : élargissez le jeu de test (`testSetSize`) ou tranchez par un A/B head-to-head.
+
+#### Diagnostic par thème — où le modèle est-il faible ?
+
+Un score global de 8,1 ne dit pas s'il recouvre 9,2 sur les procédures et 5,4 sur la réglementation. Si vos documents sont classifiés (étape 1d), le rapport porte deux ventilations **orthogonales** :
+
+| Champ | Ventile par | Répond à |
+|---|---|---|
+| `scoresByCategory` | nature de l'exercice (q/r, résumé, refus) | « sur quel *type* de tâche ? » |
+| `scoresByDocumentCategory` | thème du document d'origine | « sur quel *sujet* ? » |
+
+```bash
+curl http://localhost:8080/api/evaluation/eval-123
+# → "averageScore": 8.1,
+#   "scoresByCategory":         {"qa": 8.4, "summary": 8.0, "negative": 7.6}
+#   "scoresByDocumentCategory": {"procedures": 9.2, "maintenance": 8.5, "reglementation": 5.4}
+```
+
+La réglementation à 5,4 n'est pas d'abord une faiblesse du modèle : c'est le reflet des 12 paires réglementaires sur 490 vues à l'étape 2. Le diagnostic renvoie donc à une action sur le **corpus** — ingérer plus de documents de ce thème — avant toute retouche des hyperparamètres. Dans l'interface, le panneau **Score par thème de document** trie du plus faible au plus fort, et signale en rouge tout thème sous 6/10.
+
+**En comparaison de modèles**, `deltaByDocumentCategory` dit si un ré-entraînement a progressé *là où on l'attendait* :
+
+```bash
+curl "http://localhost:8080/api/evaluation/compare?evalIds=base,tuned&baseline=base"
+# → "deltaByDocumentCategory": {"procedures": +3.0, "reglementation": -2.0}
+```
+
+Ici le modèle gagne en moyenne, mais **régresse sur le thème visé** — invisible sur le seul score global. Les thèmes présents d'un seul côté sont écartés du calcul : ce serait un faux gain, reflet d'une différence de jeu de test plutôt que d'une progression réelle.
+
+> Les paires issues de documents non classifiés sont **exclues** de cette ventilation (et non regroupées sous « non classé » : un agrégat fourre-tout n'est pas un point de comparaison valable entre thèmes). Sur un corpus non classifié, la ventilation est simplement vide et le reste du rapport est inchangé.
+
+> Le **benchmark qualité** (`/api/quality-benchmark`) garde ses propres catégories, issues d'un jeu de test curé et tenu à l'écart du corpus. C'est délibéré : sa valeur vient précisément de son indépendance vis-à-vis des documents ingérés.
 
 ---
 

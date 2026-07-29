@@ -79,4 +79,23 @@ public interface IngestedFileRepository
     // Stats : uniquement la colonne tags — évite de charger les entités complètes
     @Query("SELECT f.tags FROM IngestedFileEntity f WHERE f.tags IS NOT NULL AND f.tags <> '[]'")
     List<String> findAllTagsJson();
+
+    // ── R8 — classification automatique ──────────────────────────────────────
+
+    /** Stats : uniquement la colonne categories (même optimisation que pour les tags). */
+    @Query("SELECT f.categories FROM IngestedFileEntity f "
+            + "WHERE f.categories IS NOT NULL AND f.categories <> '[]'")
+    List<String> findAllCategoriesJson();
+
+    @Query("SELECT COUNT(f) FROM IngestedFileEntity f WHERE f.classifiedAt IS NOT NULL")
+    long countClassified();
+
+    /**
+     * Documents jamais classifiés, les plus récents d'abord — file d'attente de la
+     * classification par lot. Paginé : un corpus de plusieurs milliers de documents ne
+     * doit pas être chargé d'un bloc pour alimenter un traitement séquentiel.
+     */
+    @Query("SELECT f FROM IngestedFileEntity f WHERE f.classifiedAt IS NULL "
+            + "ORDER BY f.ingestedAt DESC")
+    Page<IngestedFileEntity> findUnclassified(Pageable pageable);
 }

@@ -145,6 +145,78 @@ class EvaluationServiceComparisonTest {
         assertThat(base.significantVsBaseline()).isFalse(); // la baseline n'est jamais "significative vs elle-même"
     }
 
+    // ── R8 — ventilation par catégorie de document ───────────────────────────
+
+    @Test
+    void exposesDocumentCategoryDeltas_showingWhereARetrainActuallyGained() throws Exception {
+        // Le cas qui motive la fonctionnalité : le modèle réentraîné progresse globalement,
+        // mais la ventilation révèle qu'il a gagné sur les procédures en RÉGRESSANT sur la
+        // réglementation — invisible sur le seul score moyen.
+        Map<String, EvaluationReport> seed = new LinkedHashMap<>();
+        seed.put("base",  withDocCategories("base",  "m-base",
+                Map.of("procedures", 6.0, "reglementation", 7.0)));
+        seed.put("tuned", withDocCategories("tuned", "m-tuned",
+                Map.of("procedures", 9.0, "reglementation", 5.0)));
+
+        ModelComparisonReport report =
+                serviceWith(seed).compareReports(List.of("base", "tuned"), "base");
+
+        assertThat(report.documentCategories()).containsExactlyInAnyOrder("procedures", "reglementation");
+        var tuned = report.models().stream()
+                .filter(m -> m.evalId().equals("tuned")).findFirst().orElseThrow();
+        assertThat(tuned.deltaByDocumentCategory())
+                .containsEntry("procedures", 3.0)
+                .containsEntry("reglementation", -2.0);
+        assertThat(tuned.scoresByDocumentCategory()).containsEntry("reglementation", 5.0);
+    }
+
+    @Test
+    void documentCategoryDeltasSkipThemesAbsentFromTheBaseline() throws Exception {
+        // Un thème présent d'un seul côté produirait un faux gain : ce n'est pas une
+        // progression du modèle, seulement une différence de jeu de test.
+        Map<String, EvaluationReport> seed = new LinkedHashMap<>();
+        seed.put("base",  withDocCategories("base",  "m-base",  Map.of("procedures", 6.0)));
+        seed.put("tuned", withDocCategories("tuned", "m-tuned",
+                Map.of("procedures", 8.0, "securite", 9.0)));
+
+        ModelComparisonReport report =
+                serviceWith(seed).compareReports(List.of("base", "tuned"), "base");
+
+        var tuned = report.models().stream()
+                .filter(m -> m.evalId().equals("tuned")).findFirst().orElseThrow();
+        assertThat(tuned.deltaByDocumentCategory()).containsOnlyKeys("procedures");
+        // Le thème reste listé au niveau du rapport (il existe bel et bien).
+        assertThat(report.documentCategories()).contains("securite");
+    }
+
+    @Test
+    void unclassifiedCorpus_leavesDocumentCategoriesEmptyWithoutBreakingTheComparison() {
+        // Les rapports historiques n'ont pas de ventilation thématique : la comparaison
+        // doit rester exploitable, simplement sans ce diagnostic.
+        ModelComparisonReport report =
+                service.compareReports(List.of("eval-base", "eval-tuned"), "eval-base");
+
+        assertThat(report.documentCategories()).isEmpty();
+        assertThat(report.models()).allSatisfy(m ->
+                assertThat(m.deltaByDocumentCategory()).isEmpty());
+        assertThat(report.models()).isNotEmpty();
+    }
+
+    /** Rapport dont les scores portent une catégorie de document (une paire par thème). */
+    private static EvaluationReport withDocCategories(String evalId, String modelName,
+                                                      Map<String, Double> byDocCategory) {
+        List<EvaluationScore> scores = new ArrayList<>();
+        byDocCategory.forEach((docCat, score) ->
+                scores.add(new EvaluationScore("q", "ref", "ans", score, "j", "qa", docCat, "doc")));
+        double avg = byDocCategory.values().stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
+        return new EvaluationReport(
+                evalId, "COMPLETED", modelName, null,
+                scores.size(), scores.size(), avg,
+                Map.of("qa", avg), new java.util.TreeMap<>(byDocCategory), scores,
+                100.0, 20.0, null,
+                Instant.parse("2026-01-01T00:00:00Z"), Instant.parse("2026-01-01T00:05:00Z"), modelName);
+    }
+
     private EvaluationService serviceWith(Map<String, EvaluationReport> seed) throws Exception {
         Path dir = Files.createTempDirectory(tempDir, "eval");
         MAPPER.writerWithDefaultPrettyPrinter().writeValue(dir.resolve("evaluations.json").toFile(), seed);
@@ -161,12 +233,12 @@ class EvaluationServiceComparisonTest {
     private static EvaluationReport scored(String evalId, String modelName, double[] values) {
         List<EvaluationScore> scores = new ArrayList<>();
         for (double v : values) {
-            scores.add(new EvaluationScore("q", "ref", "ans", v, "j", "qa", "doc"));
+            scores.add(new EvaluationScore("q", "ref", "ans", v, "j", "qa", null, "doc"));
         }
         double mean = java.util.Arrays.stream(values).average().orElse(0.0);
         return new EvaluationReport(
                 evalId, "COMPLETED", modelName, null,
-                values.length, values.length, mean, Map.of("qa", mean), scores,
+                values.length, values.length, mean, Map.of("qa", mean), Map.of(), scores,
                 100.0, 20.0, null,
                 Instant.parse("2026-01-01T00:00:00Z"), Instant.parse("2026-01-01T00:05:00Z"), modelName);
     }
@@ -175,7 +247,7 @@ class EvaluationServiceComparisonTest {
                                               double avg, Map<String, Double> byCategory) {
         return new EvaluationReport(
                 evalId, "COMPLETED", modelName, null,
-                byCategory.size(), byCategory.size(), avg, byCategory, List.of(),
+                byCategory.size(), byCategory.size(), avg, byCategory, Map.of(), List.of(),
                 120.0, 25.0, null,
                 Instant.parse("2026-01-01T00:00:00Z"), Instant.parse("2026-01-01T00:05:00Z"), modelName);
     }

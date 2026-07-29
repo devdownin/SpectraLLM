@@ -181,7 +181,8 @@ public class FineTuningService {
                     request.packingEnabled(),
                     request.dpoEnabled(),
                     request.orpoEnabled(),
-                    request.exportGguf()
+                    request.exportGguf(),
+                    request.valSplit()
             );
 
             FineTuningJob job = FineTuningJob.pending(jobId, resolved);
@@ -387,18 +388,36 @@ public class FineTuningService {
         return new ExportedDataset(file, sources);
     }
 
-    /** Vrai si la paire relève d'une catégorie/type exclu du SFT (laissé au RAG). */
+    /**
+     * Vrai si la paire relève d'une catégorie/type exclu du SFT (laissé au RAG).
+     *
+     * <p>La catégorie du <b>document source</b> (R8) est prise en compte au même titre que
+     * celle de la paire : c'est ce qui permet d'écarter tout un pan thématique du corpus
+     * — « n'entraîne pas sur le contractuel » — sans avoir à raisonner sur la nature de
+     * chaque paire produite.</p>
+     */
     private boolean isExcludedFromSft(TrainingPair p) {
         if (sftExcludedCategories.isEmpty()) return false;
-        String category = p.metadata().category();
-        String type = p.metadata().type();
-        return (category != null && sftExcludedCategories.contains(category.toLowerCase()))
-                || (type != null && sftExcludedCategories.contains(type.toLowerCase()));
+        return isExcluded(p.metadata().category())
+                || isExcluded(p.metadata().type())
+                || isExcluded(p.metadata().documentCategory());
+    }
+
+    private boolean isExcluded(String value) {
+        return value != null && sftExcludedCategories.contains(value.toLowerCase());
     }
 
     /**
-     * Exporte les paires DPO ({@code {prompt, chosen, rejected}}) pour l'entraînement DPO.
-     * Sans cet export, le mode DPO recevait à tort le dataset SFT au format {@code conversations}.
+     * Exporte les paires DPO pour l'entraînement DPO/ORPO au <b>format conversationnel</b> de
+     * TRL : {@code prompt}, {@code chosen} et {@code rejected} sont des <i>listes de messages</i>
+     * {@code {role, content}}.
+     *
+     * <p>C'est ce format — et lui seul — qui fait appliquer par TRL le gabarit de conversation du
+     * modèle de base, donc <b>la même mise en forme que le SFT et que le service</b>. L'export
+     * précédent sérialisait le {@code DpoPair} tel quel : un {@code prompt} en texte brut
+     * (persona et question concaténées, sans aucun marqueur de rôle) auquel TRL n'applique aucun
+     * gabarit. La phase DPO optimisait ainsi sur une troisième convention, ni celle apprise en
+     * SFT ni celle servie en production.</p>
      */
     private ExportedDataset exportDpoDataset(Path dir) throws Exception {
         List<DpoPair> pairs = dpoGenerator.getAllPairs();
@@ -406,7 +425,7 @@ public class FineTuningService {
         Path file = dir.resolve("dataset.jsonl");
         try (BufferedWriter writer = Files.newBufferedWriter(file)) {
             for (DpoPair pair : pairs) {
-                writer.write(mapper.writeValueAsString(pair));
+                writer.write(mapper.writeValueAsString(toConversationalPair(pair)));
                 writer.newLine();
             }
         }
@@ -415,6 +434,37 @@ public class FineTuningService {
                 .filter(FineTuningService::isTraceableSource)
                 .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
         return new ExportedDataset(file, sources);
+    }
+
+    /**
+     * Convertit une paire de préférence en format conversationnel TRL.
+     *
+     * <p>Le {@code prompt} est reconstruit comme la conversation réellement servie : la persona
+     * en message système (même constante qu'en SFT et qu'au service — cf. {@link AssistantPersona})
+     * puis la question en message utilisateur. Les paires historiques dont le {@code prompt}
+     * embarque déjà la persona concaténée sont normalisées, sinon celle-ci apparaîtrait deux
+     * fois.</p>
+     *
+     * <p>Seules les trois clés attendues par TRL sont émises : les métadonnées
+     * ({@code category}, {@code source}) ne servent qu'à la traçabilité côté Spectra.</p>
+     */
+    static Map<String, Object> toConversationalPair(DpoPair pair) {
+        return Map.of(
+                "prompt", List.of(
+                        Map.of("role", "system", "content", AssistantPersona.SYSTEM_PROMPT),
+                        Map.of("role", "user", "content", stripPersonaPrefix(pair.prompt()))),
+                "chosen", List.of(Map.of("role", "assistant", "content", pair.chosen())),
+                "rejected", List.of(Map.of("role", "assistant", "content", pair.rejected())));
+    }
+
+    /** Retire la persona d'un prompt historique où elle était concaténée à la question. */
+    private static String stripPersonaPrefix(String prompt) {
+        if (prompt == null) return "";
+        String trimmed = prompt.strip();
+        if (trimmed.startsWith(AssistantPersona.SYSTEM_PROMPT)) {
+            return trimmed.substring(AssistantPersona.SYSTEM_PROMPT.length()).strip();
+        }
+        return trimmed;
     }
 
     /** Vrai si la provenance d'une paire pointe un document GED identifiable. */
@@ -477,7 +527,8 @@ public class FineTuningService {
 
     /**
      * Lance le script d'entraînement externe avec les paramètres LoRA.
-     * Le script reçoit les arguments : dataset_path output_path base_model lora_rank lora_alpha epochs lr
+     * Le script reçoit les arguments (positionnels, cf. en-tête de {@code train.sh}) :
+     * dataset_path output_path base_model lora_rank lora_alpha epochs lr packing dpo orpo val_split
      */
     private int runTrainingProcess(String jobId, FineTuningRequest request,
                                    Path datasetFile, Path adapterPath) throws Exception {
@@ -495,7 +546,8 @@ public class FineTuningService {
                 String.valueOf(request.learningRate()),
                 String.valueOf(request.packingEnabled()),
                 String.valueOf(request.dpoEnabled()),
-                String.valueOf(request.orpoEnabled())
+                String.valueOf(request.orpoEnabled()),
+                String.valueOf(request.valSplit())
         );
         return runProcess(jobId, "train", command, line -> parseTrainingOutput(jobId, line));
     }
@@ -611,33 +663,41 @@ public class FineTuningService {
         return cleaned.isEmpty() ? "model" : cleaned;
     }
 
+    private static final java.util.regex.Pattern EPOCH_PATTERN =
+            java.util.regex.Pattern.compile("epoch[= ]*(\\d+)");
+    /**
+     * Loss d'entraînement. Le {@code (?<!eval_)} est essentiel : sans lui, la ligne
+     * « eval_loss=0.45 » satisfait aussi « loss=… » et l'{@code eval_loss} était enregistré
+     * comme loss d'entraînement — écrasant silencieusement la vraie courbe.
+     */
+    private static final java.util.regex.Pattern LOSS_PATTERN =
+            java.util.regex.Pattern.compile("(?<!eval_)loss[= ]*([\\d.]+)");
+    private static final java.util.regex.Pattern EVAL_LOSS_PATTERN =
+            java.util.regex.Pattern.compile("eval_loss[= ]*([\\d.]+)");
+
     /**
      * Parse les lignes de sortie du script pour mettre à jour la progression.
-     * Format attendu : "epoch=2 loss=0.4523" ou "EPOCH 2/3 loss=0.4523"
+     * Formats émis par {@code ProgressLogger} : « epoch=2.00  loss=0.4523 » et,
+     * quand un split de validation est actif, « epoch=2.00  eval_loss=0.4102 ».
      */
     private void parseTrainingOutput(String jobId, String line) {
         try {
             String lower = line.toLowerCase();
-            if (lower.contains("epoch")) {
-                Integer epoch = extractInt(lower, "epoch[= ]*");
-                Double loss = extractDouble(lower, "loss[= ]*");
-                if (epoch != null) {
-                    updateJob(jobId, j -> j.withTrainingProgress(epoch, loss));
-                }
-            }
+            if (!lower.contains("epoch")) return;
+            Integer epoch = extract(EPOCH_PATTERN, lower, Integer::parseInt);
+            if (epoch == null) return;
+            Double loss = extract(LOSS_PATTERN, lower, Double::parseDouble);
+            Double evalLoss = extract(EVAL_LOSS_PATTERN, lower, Double::parseDouble);
+            updateJob(jobId, j -> j.withTrainingProgress(epoch, loss, evalLoss));
         } catch (Exception e) {
             // Parsing best-effort, on ne casse pas le process pour une ligne mal formatée
         }
     }
 
-    private Integer extractInt(String text, String prefix) {
-        var matcher = java.util.regex.Pattern.compile(prefix + "(\\d+)").matcher(text);
-        return matcher.find() ? Integer.parseInt(matcher.group(1)) : null;
-    }
-
-    private Double extractDouble(String text, String prefix) {
-        var matcher = java.util.regex.Pattern.compile(prefix + "([\\d.]+)").matcher(text);
-        return matcher.find() ? Double.parseDouble(matcher.group(1)) : null;
+    private static <T> T extract(java.util.regex.Pattern pattern, String text,
+                                 java.util.function.Function<String, T> parser) {
+        var matcher = pattern.matcher(text);
+        return matcher.find() ? parser.apply(matcher.group(1)) : null;
     }
 
     private int countLines(Path file) throws Exception {

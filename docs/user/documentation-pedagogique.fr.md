@@ -1,5 +1,7 @@
 # 📚 Spectra — Guide des Idées et des Algorithmes
 
+> 🌍 English version : **[documentation-pedagogique.en.md](documentation-pedagogique.en.md)**.
+
 > *Du document brut à l'expertise métier souveraine.*
 >
 > Ce document cherche à éclairer **trois choses** : l'**intuition** (le problème résolu),

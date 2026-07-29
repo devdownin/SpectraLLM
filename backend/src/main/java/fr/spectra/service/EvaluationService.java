@@ -169,7 +169,8 @@ public class EvaluationService {
                 e.setValue(new EvaluationReport(
                         r.evalId(), "FAILED", r.modelName(), r.jobId(),
                         r.testSetSize(), r.processed(), r.averageScore(),
-                        r.scoresByCategory(), r.scores(), r.avgLatencyMs(), r.avgTokensPerSec(),
+                        r.scoresByCategory(), r.scoresByDocumentCategory(), r.scores(),
+                        r.avgLatencyMs(), r.avgTokensPerSec(),
                         "Interrompu par un redémarrage du serveur", r.startedAt(), Instant.now(), r.judgeModel()));
                 changed = true;
             }
@@ -361,19 +362,17 @@ public class EvaluationService {
         // Union ordonnée des catégories rencontrées (préserve l'ordre d'apparition).
         Set<String> categories = new LinkedHashSet<>();
         selected.forEach(r -> categories.addAll(r.scoresByCategory().keySet()));
+        Set<String> documentCategories = new LinkedHashSet<>();
+        selected.forEach(r -> documentCategories.addAll(r.scoresByDocumentCategory().keySet()));
 
         ScoreStats baselineStats = computeStats(baseline);
 
         List<ModelComparisonEntry> entries = new ArrayList<>();
         for (EvaluationReport report : selected) {
-            Map<String, Double> deltaByCategory = new LinkedHashMap<>();
-            for (String category : categories) {
-                Double mine = report.scoresByCategory().get(category);
-                Double base = baseline.scoresByCategory().get(category);
-                if (mine != null && base != null) {
-                    deltaByCategory.put(category, round(mine - base));
-                }
-            }
+            Map<String, Double> deltaByCategory =
+                    deltas(categories, report.scoresByCategory(), baseline.scoresByCategory());
+            Map<String, Double> deltaByDocumentCategory = deltas(documentCategories,
+                    report.scoresByDocumentCategory(), baseline.scoresByDocumentCategory());
 
             ScoreStats stats = computeStats(report);
             boolean isBaseline = report.evalId().equals(baseline.evalId());
@@ -385,6 +384,7 @@ public class EvaluationService {
                     report.processed(),
                     round(report.averageScore()),
                     report.scoresByCategory(),
+                    report.scoresByDocumentCategory(),
                     report.completedAt(),
                     round(report.avgLatencyMs()),
                     round(report.avgTokensPerSec()),
@@ -395,12 +395,32 @@ public class EvaluationService {
                     isBaseline,
                     round(delta),
                     isSignificant(delta, stats, baselineStats, isBaseline),
-                    deltaByCategory
+                    deltaByCategory,
+                    deltaByDocumentCategory
             ));
         }
 
         entries.sort(Comparator.comparingDouble(ModelComparisonEntry::averageScore).reversed());
-        return new ModelComparisonReport(baseline.modelName(), new ArrayList<>(categories), entries);
+        return new ModelComparisonReport(baseline.modelName(), new ArrayList<>(categories),
+                new ArrayList<>(documentCategories), entries);
+    }
+
+    /**
+     * Écarts de score par clé vs la baseline, restreints aux clés que <b>les deux</b> rapports
+     * possèdent : comparer un thème présent d'un seul côté produirait un faux gain (ou une
+     * fausse régression) qui n'est qu'une différence de jeu de test.
+     */
+    private Map<String, Double> deltas(Set<String> keys,
+                                       Map<String, Double> mine, Map<String, Double> baseline) {
+        Map<String, Double> out = new LinkedHashMap<>();
+        for (String key : keys) {
+            Double a = mine.get(key);
+            Double b = baseline.get(key);
+            if (a != null && b != null) {
+                out.put(key, round(a - b));
+            }
+        }
+        return out;
     }
 
     /** Statistiques de dispersion des scores par paire d'un rapport. */
@@ -703,7 +723,8 @@ public class EvaluationService {
         updateReport(evalId, r -> new EvaluationReport(
                 r.evalId(), "CANCELLED", r.modelName(), r.jobId(),
                 r.testSetSize(), r.processed(), r.averageScore(),
-                r.scoresByCategory(), r.scores(), r.avgLatencyMs(), r.avgTokensPerSec(),
+                r.scoresByCategory(), r.scoresByDocumentCategory(), r.scores(),
+                r.avgLatencyMs(), r.avgTokensPerSec(),
                 "Annulé par l'utilisateur", r.startedAt(), Instant.now(), r.judgeModel()
         ));
         persistReports();
@@ -863,7 +884,7 @@ public class EvaluationService {
 
         updateReport(evalId, r -> new EvaluationReport(
                 r.evalId(), "RUNNING", r.modelName(), r.jobId(),
-                testPairs.size(), 0, 0.0, Map.of(), List.of(), 0.0, 0.0, null, r.startedAt(), null, r.judgeModel()
+                testPairs.size(), 0, 0.0, Map.of(), Map.of(), List.of(), 0.0, 0.0, null, r.startedAt(), null, r.judgeModel()
         ));
 
         String evaluatedModel = chatClient.getActiveModel();
@@ -879,6 +900,7 @@ public class EvaluationService {
         List<EvaluationScore> finalScores = List.copyOf(result.scores());
         double finalAvg = averageScore(finalScores);
         Map<String, Double> finalByCat = scoresByCategory(finalScores);
+        Map<String, Double> finalByDocCat = scoresByDocumentCategory(finalScores);
         double latency = round(result.perf().avgLatencyMs());
         double tps = round(result.perf().avgTokensPerSec());
         log.info("Évaluation {} terminée — score {}/10, latence {} ms, ~{} tok/s ({} paires)",
@@ -888,7 +910,7 @@ public class EvaluationService {
         updateReport(evalId, r -> new EvaluationReport(
                 r.evalId(), "COMPLETED", r.modelName(), r.jobId(),
                 r.testSetSize(), finalScores.size(), finalAvg,
-                finalByCat, finalScores, latency, tps, null, r.startedAt(), Instant.now(), r.judgeModel()
+                finalByCat, finalByDocCat, finalScores, latency, tps, null, r.startedAt(), Instant.now(), r.judgeModel()
         ));
     }
 
@@ -969,11 +991,12 @@ public class EvaluationService {
         List<EvaluationScore> snapshot = List.copyOf(scores);
         double avg = averageScore(snapshot);
         Map<String, Double> byCat = scoresByCategory(snapshot);
+        Map<String, Double> byDocCat = scoresByDocumentCategory(snapshot);
         double latency = round(perf.avgLatencyMs());
         double tps = round(perf.avgTokensPerSec());
         updateReport(evalId, r -> new EvaluationReport(
                 r.evalId(), "RUNNING", r.modelName(), r.jobId(),
-                r.testSetSize(), done, avg, byCat, snapshot, latency, tps, null, r.startedAt(), null, r.judgeModel()
+                r.testSetSize(), done, avg, byCat, byDocCat, snapshot, latency, tps, null, r.startedAt(), null, r.judgeModel()
         ));
     }
 
@@ -1050,14 +1073,15 @@ public class EvaluationService {
         updateReport(evalId, r -> new EvaluationReport(
                 r.evalId(), "FAILED", r.modelName(), r.jobId(),
                 r.testSetSize(), r.processed(), r.averageScore(),
-                r.scoresByCategory(), r.scores(), r.avgLatencyMs(), r.avgTokensPerSec(),
+                r.scoresByCategory(), r.scoresByDocumentCategory(), r.scores(),
+                r.avgLatencyMs(), r.avgTokensPerSec(),
                 message, r.startedAt(), Instant.now(), r.judgeModel()
         ));
     }
 
     /** Réponse générée par le modèle évalué pour une paire, avant notation (avec mesure de perf). */
     private record Generated(String question, String reference, String modelAnswer,
-                             String category, String source,
+                             String category, String documentCategory, String source,
                              long latencyMs, int approxTokens, double serverTps) {}
 
     /** Interroge le modèle actif (évalué) pour produire une réponse à la question de la paire. */
@@ -1084,7 +1108,8 @@ public class EvaluationService {
                     ? result.completionTokens()
                     : estimateTokens(result.content());
             return new Generated(question, reference, result.content(),
-                    pair.metadata().category(), pair.metadata().source(),
+                    pair.metadata().category(), pair.metadata().documentCategory(),
+                    pair.metadata().source(),
                     latencyMs, tokens, result.tokensPerSecond());
         } catch (Exception e) {
             log.warn("Erreur inattendue génération réponse: {}", e.getMessage());
@@ -1128,7 +1153,7 @@ public class EvaluationService {
 
             return new EvaluationScore(
                     g.question(), g.reference(), g.modelAnswer(),
-                    score, justification, g.category(), g.source()
+                    score, justification, g.category(), g.documentCategory(), g.source()
             );
         } catch (Exception e) {
             log.warn("Erreur inattendue notation paire: {}", e.getMessage());
@@ -1163,6 +1188,24 @@ public class EvaluationService {
                 TreeMap::new,
                 Collectors.averagingDouble(EvaluationScore::score)
         ));
+    }
+
+    /**
+     * Score moyen par catégorie de document (R8).
+     *
+     * <p>Les paires sans catégorie documentaire sont <b>écartées</b> plutôt que regroupées
+     * sous une clé « non classé » : cette ventilation sert à comparer des thèmes entre eux,
+     * et un agrégat fourre-tout n'a pas de sens comme point de comparaison. Le résultat est
+     * vide tant qu'aucune paire évaluée ne vient d'un document classifié.</p>
+     */
+    private Map<String, Double> scoresByDocumentCategory(List<EvaluationScore> scores) {
+        return scores.stream()
+                .filter(s -> s.documentCategory() != null && !s.documentCategory().isBlank())
+                .collect(Collectors.groupingBy(
+                        EvaluationScore::documentCategory,
+                        TreeMap::new,
+                        Collectors.averagingDouble(EvaluationScore::score)
+                ));
     }
 
     private void updateReport(String evalId, UnaryOperator<EvaluationReport> updater) {

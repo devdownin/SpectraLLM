@@ -72,6 +72,16 @@ export const gedApi = {
     api.post(`/ged/documents/bulk/lifecycle?lifecycle=${lifecycle}&actor=${actor}`, sha256List),
   bulkAddTags: (sha256List: string[], tags: string[], actor = 'ui') =>
     api.post(`/ged/documents/bulk/tags?actor=${actor}`, { sha256List, tags }),
+
+  // R8 — classification automatique par le LLM
+  getClassificationConfig: () => api.get('/ged/classification'),
+  classify: (sha256: string, force = false, actor = 'ui') =>
+    api.post(`/ged/documents/${sha256}/classify?force=${force}&actor=${actor}`),
+  /** sha256List vide/omise = tous les documents non classifiés. */
+  bulkClassify: (sha256List: string[] | null, force = false, actor = 'ui') =>
+    api.post(`/ged/documents/bulk/classify?force=${force}&actor=${actor}`, sha256List ?? []),
+  getClassificationTask: (taskId: string) => api.get(`/ged/classification/tasks/${taskId}`),
+  cancelClassificationTask: (taskId: string) => api.delete(`/ged/classification/tasks/${taskId}`),
 };
 
 export const documentsApi = {

@@ -9,7 +9,7 @@ New here? Start with **[Getting Started](getting-started.en.md)**.
 |---|---|
 | **[Getting Started](getting-started.en.md)** | Install step by step, download models, pick a Docker profile, deploy to Kubernetes/GKE. |
 | **[User Manual](user/user-manual.en.md)** ([FR](user/user-manual.fr.md)) | A full walkthrough of the web interface — ingestion, playground, fine-tuning, evaluation. |
-| **[How Spectra works (FR)](user/documentation-pedagogique.fr.md)** | The ideas in plain language: embeddings, hybrid search + RRF, the RAG strategies, QLoRA/DPO. |
+| **[How Spectra works](user/documentation-pedagogique.en.md)** ([FR](user/documentation-pedagogique.fr.md)) | The ideas in plain language: embeddings, hybrid search + RRF, the RAG strategies, QLoRA/DPO. |
 
 ## Architecture & configuration
 
@@ -39,6 +39,7 @@ New here? Start with **[Getting Started](getting-started.en.md)**.
 | **[Ingestion & GED audit (FR)](process/archive/audit-ingestion-ged.fr.md)** | Audit of the ingestion/GED pipeline and its fixes. |
 | **[Documentation audit (FR)](process/audit-documentation.fr.md)** | Audit of this documentation set (conformity, completeness). |
 | **[Security audit (FR)](process/audit-securite.fr.md)** | Technical security findings (auth model, exposure, DoS) — companion to [SECURITY.md](../SECURITY.md). |
+| **[Fine-tuning audit (FR)](process/audit-finetuning.fr.md)** | Technical findings on the fine-tuning chain (deployment, training correctness, DPO wiring). |
 
 ## Direction
 

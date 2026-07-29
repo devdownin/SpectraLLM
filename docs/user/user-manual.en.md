@@ -288,6 +288,101 @@ Then ask your usual question in the Playground: the answer reflects the **curren
 
 ---
 
+### Step 1d — Automatic document classification (optional)
+
+**Goal**: assign each document the categories that characterize its content, so you know what your corpus actually holds — and can filter it by theme.
+
+As long as a document is identifiable only by its file name, a collection of several hundred pieces stays opaque: you cannot see that half of it is about maintenance while regulation is represented by three documents. That is precisely what you need to know before generating a dataset: **an unbalanced corpus produces an unbalanced model**.
+
+The model does the classifying itself. Spectra shows it representative excerpts of the document — sampled across its whole length, since the opening pages are often a cover sheet or a table of contents that characterize the substance poorly — along with a labelling prompt, and asks for strict JSON back. The model used is the active chat model: after a first fine-tuning cycle it is **your** specialized model labelling your documents, and it does so better than a generic classifier. The model name is kept on each record, so a reclassification after a new training run stays comparable to the previous one.
+
+#### Defining your taxonomy
+
+This is the one setting that really matters: replace the default list with your domain's own nomenclature.
+
+```yaml
+# backend/src/main/resources/application.yml
+spectra:
+  classification:
+    taxonomy:
+      - procedures
+      - evenements
+      - nomenclatures
+      - reglementation
+      - securite
+      # … your own categories
+```
+
+Categories proposed by the model are reduced to a canonical form: case, accents and punctuation are ignored ("Procédures" does resolve to `procedures`). In closed mode — the default — any label outside the taxonomy is dropped. To explore a collection whose nomenclature you do not know yet, set `SPECTRA_CLASSIFICATION_OPEN_TAXONOMY=true`: the model will propose its own categories, which you can then freeze into the taxonomy.
+
+| Variable | Purpose | Default |
+|---|---|---|
+| `SPECTRA_CLASSIFICATION_ENABLED` | Enables the service | `true` |
+| `SPECTRA_CLASSIFICATION_AUTO` | Classifies each document as soon as its ingestion completes | `false` |
+| `SPECTRA_CLASSIFICATION_OPEN_TAXONOMY` | Allows categories outside the taxonomy | `false` |
+| `SPECTRA_CLASSIFICATION_MAX_CATEGORIES` | Categories kept per document | `3` |
+| `SPECTRA_CLASSIFICATION_MIN_CONFIDENCE` | Minimum confidence to keep a category | `0.5` |
+| `SPECTRA_CLASSIFICATION_MAX_CHUNKS` | Excerpts sampled from the document | `8` |
+| `SPECTRA_CLASSIFICATION_MAX_EXCERPT_CHARS` | Character budget submitted to the model | `3000` |
+
+> **The excerpt budget must fit the context window.** With the default deployment (`LLM_CONTEXT=2048`), count ~3.5 characters per token in French: a 3000-character excerpt ≈ 860 tokens, plus the prompt (~350), the header (~40) and the answer (~120) — about 1370 out of 2048. Go over and llama.cpp truncates the **start** of the request — that is, the "answer only in JSON" instructions and the taxonomy — and the model replies in prose: classification then fails systematically. Only raise this budget if you raise `LLM_CONTEXT` too.
+
+> `auto-classify` is off by default on purpose: importing 500 files would chain 500 LLM calls. For a corpus that is already in place, prefer the batch classification below; turn `auto-classify` on for a continuous arrival stream.
+
+#### Through the interface
+
+1. **Documents** page, **Category** section of the filter bar.
+2. **Classify unclassified** starts a background batch over every document still without a category; a progress bar tracks it and the batch can be cancelled.
+3. The category chips filter the list by theme; **Unclassified** isolates the queue.
+4. In a document's record, the **Automatic classification** section shows the categories with their confidence, the generated summary, the model and the date. **Reclassify** runs the model again on an already-labelled document.
+
+On each list row, model-assigned categories are displayed distinctly from manual tags (prefixed with `#`): a reclassification never touches your human annotation, and the gap between the two tells you what the classifier is worth.
+
+#### Through the API
+
+```bash
+# Effective taxonomy and the model that will classify
+curl http://localhost:8080/api/ged/classification
+
+# Classify one document (force=true to re-label an already classified document)
+curl -X POST "http://localhost:8080/api/ged/documents/{sha256}/classify"
+# → {"categories":["procedures","securite"],"scores":{"procedures":0.92,"securite":0.68},
+#    "summary":"Intervention procedure for high-voltage substations.","model":"phi-4-mini"}
+
+# Classify the whole unclassified corpus (empty body), in the background
+curl -X POST http://localhost:8080/api/ged/documents/bulk/classify
+# → {"taskId":"c1a2…","status":"PENDING"}
+
+# Follow — or cancel — the batch
+curl http://localhost:8080/api/ged/classification/tasks/c1a2…
+# → {"status":"PROCESSING","processed":37,"total":210,"succeeded":35,"failed":2}
+curl -X DELETE http://localhost:8080/api/ged/classification/tasks/c1a2…
+```
+
+#### Steering the composition of your corpus
+
+This is where classification pays off. `GET /api/ged/stats` returns coverage and the per-category breakdown:
+
+```bash
+curl http://localhost:8080/api/ged/stats
+# → "classification": {"classified": 187, "unclassified": 23, "coverage": 0.89,
+#                      "topCategories": [{"category":"maintenance","count":94}, …]}
+```
+
+One theme at 94 documents against another at 3: the imbalance is visible before training, not after. The `category` filter then lets you work theme by theme:
+
+```bash
+# Documents of an under-represented category
+curl "http://localhost:8080/api/ged/documents?category=reglementation&size=100"
+
+# Those still waiting to be classified
+curl "http://localhost:8080/api/ged/documents?classified=false"
+```
+
+> Re-ingesting a document (`?force=true`) reclassifies it automatically: its content changed, so the old classification no longer describes it.
+
+---
+
 ### Step 2 — Generating the training dataset
 
 **Goal**: generate question/answer pairs from your documents, to train the model.
@@ -300,6 +395,31 @@ Then ask your usual question in the Playground: the answer reflects the **curren
    - Value `5–20` = quick test to verify the pipeline works (~10–30 min on CPU)
 3. Click **Initialize Pipeline**.
 4. Progress is displayed in real time: number of chunks processed, pairs generated.
+
+> **What `Max Chunks` samples.** If your documents are classified (step 1d), chunks are drawn **round-robin across categories** rather than from the head of the collection. A 20-chunk trial therefore covers the thematic range of your corpus instead of seeing only the first documents ingested. A category that runs out yields its quota to the others, so the requested budget is always met. Without classification, the behaviour stays a plain truncation.
+
+> **One taxonomy.** When a document is classified, the classification pair produced reuses its verdict instead of querying the LLM again: generation is about a third faster (one call in three saved) and a pair can no longer contradict its own document's record.
+
+#### Composing a balanced corpus
+
+`GET /api/dataset/stats` returns `byDocumentCategory` — the breakdown of pairs **by source theme**, not to be confused with `byCategory` which describes the nature of the pairs (q/a, summary, refusal):
+
+```bash
+curl http://localhost:8080/api/dataset/stats
+# → "byCategory":         {"qa": 210, "summary": 210, "negative": 70}
+#   "byDocumentCategory": {"maintenance": 380, "reglementation": 12, "(non classé)": 98}
+```
+
+Here regulation accounts for 12 pairs out of 490: the model will be weak on it. Two levers before launching the fine-tuning — ingest more documents on that theme, or set the dominant one aside:
+
+```bash
+# Excludes from SFT every pair coming from "contractuel" documents.
+# The filter looks at three fields of each pair: the source document's category,
+# the nature of the pair (qa, summary, negative) and its type (refusal, summarization…).
+SPECTRA_SFT_EXCLUDED_CATEGORIES=contractuel
+```
+
+A document that is not classified is never excluded by this filter: nothing would justify asserting it belongs to the excluded theme.
 
 #### Via the API
 
@@ -594,6 +714,11 @@ LORA_TARGET=all NEFTUNE_ALPHA=5 WARMUP_RATIO=0.05 VAL_SPLIT=0.1 \
 | `NEFTUNE_ALPHA` | NEFTune noise on the embeddings (0 = off, 5 common) | `0` |
 | `WARMUP_RATIO` | fraction of steps in warm-up | `0.03` |
 | `VAL_SPLIT` | fraction held out for `eval_loss` | `0` |
+| `MAX_CHUNKS` | cap the chunks used for dataset generation (`0` = whole corpus) — handy for a quick trial run | `0` |
+
+> **API authentication:** if `SPECTRA_API_KEY` is set (environment or `.env`), the pipeline picks it up automatically and sends it as `X-API-Key` on every `/api/**` call — no extra flag needed. A partially-failed ingestion (some files erroring) is reported but does not abort the run.
+>
+> **Backpressure:** if the server rejects the ingestion submission with `429` (too many active ingestions, `spectra.pipeline.max-active-ingestions`), `pipeline.sh` honors the `Retry-After` header and retries — up to `INGEST_MAX_RETRIES` times (default `5`) — instead of failing.
 
 **Server config** (`application.yml`):
 - `spectra.dataset.refusal-every-n` — frequency of "I don't know" refusal examples (anti-hallucination).
@@ -947,6 +1072,37 @@ SPECTRA_EVALUATION_JUDGE_MODEL=phi-4-mini
 Evaluation then happens in two phases: generating all answers with the evaluated model, then scoring with the judge (a single model switch, to avoid reloading the server for every pair).
 
 > **Interpreting the scores:** a score ≥ 7 means the model answers correctly and precisely. A score between 4 and 6 suggests partial or too-vague answers. Below 4, the model hallucinates or is off-topic. **Do not promote a gap marked `ns`**: widen the test set (`testSetSize`) or decide with an A/B head-to-head.
+
+#### Diagnosis by theme — where is the model weak?
+
+An overall score of 8.1 does not tell you whether it covers 9.2 on procedures and 5.4 on regulation. If your documents are classified (step 1d), the report carries two **orthogonal** breakdowns:
+
+| Field | Breaks down by | Answers |
+|---|---|---|
+| `scoresByCategory` | nature of the exercise (q/a, summary, refusal) | "on which *kind* of task?" |
+| `scoresByDocumentCategory` | theme of the source document | "on which *subject*?" |
+
+```bash
+curl http://localhost:8080/api/evaluation/eval-123
+# → "averageScore": 8.1,
+#   "scoresByCategory":         {"qa": 8.4, "summary": 8.0, "negative": 7.6}
+#   "scoresByDocumentCategory": {"procedures": 9.2, "maintenance": 8.5, "reglementation": 5.4}
+```
+
+Regulation at 5.4 is not primarily a weakness of the model: it reflects the 12 regulatory pairs out of 490 seen at step 2. The diagnosis therefore points to an action on the **corpus** — ingest more documents on that theme — before any hyperparameter tweak. In the interface, the **Score by document theme** panel sorts weakest first and flags in red any theme below 6/10.
+
+**When comparing models**, `deltaByDocumentCategory` tells you whether a retrain gained *where you expected it to*:
+
+```bash
+curl "http://localhost:8080/api/evaluation/compare?evalIds=base,tuned&baseline=base"
+# → "deltaByDocumentCategory": {"procedures": +3.0, "reglementation": -2.0}
+```
+
+Here the model gains on average but **regresses on the very theme it targeted** — invisible from the overall score alone. Themes present on only one side are dropped from the calculation: that would be a false gain, reflecting a difference in test set rather than real progress.
+
+> Pairs from unclassified documents are **excluded** from this breakdown (not grouped under "unclassified": a catch-all aggregate is not a valid comparison point between themes). On an unclassified corpus the breakdown is simply empty and the rest of the report is unchanged.
+
+> The **quality benchmark** (`/api/quality-benchmark`) keeps its own categories, drawn from a curated test set held apart from the corpus. That is deliberate: its value comes precisely from being independent of the ingested documents.
 
 ---
 

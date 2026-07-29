@@ -473,6 +473,44 @@ public class ChromaDbClient {
     }
 
     /**
+     * Récupère le <b>texte</b> des chunks dont la métadonnée {@code field} vaut {@code value},
+     * dans la limite de {@code limit} entrées.
+     *
+     * <p>Pensé pour la classification automatique : reconstituer un document à partir de ses
+     * chunks, sans charger la collection entière comme le ferait {@link #getAllDocuments}. Le
+     * filtre {@code where} est appliqué côté ChromaDB, donc la réponse ne contient que les
+     * chunks du document visé.</p>
+     *
+     * @return textes des chunks (liste vide si aucun chunk ne correspond)
+     */
+    @SuppressWarnings("unchecked")
+    public List<String> getDocumentTextsByMetadata(String collectionId, String field,
+                                                   String value, int limit) {
+        if (limit <= 0) return List.of();
+        Map<String, Object> body = Map.of(
+                "where",   Map.of(field, Map.of("$eq", value)),
+                "limit",   limit,
+                "include", List.of("documents")
+        );
+
+        Map<String, Object> result = webClient.post()
+                .uri(COLLECTIONS_BASE + "/{id}/get", collectionId)
+                .bodyValue(body)
+                .retrieve()
+                .bodyToMono(Map.class)
+                .block(TIMEOUT_BULK_GET);
+
+        if (result == null) return List.of();
+        List<Object> documents = (List<Object>) result.get("documents");
+        if (documents == null) return List.of();
+        return documents.stream()
+                .filter(String.class::isInstance)
+                .map(String.class::cast)
+                .filter(s -> !s.isBlank())
+                .toList();
+    }
+
+    /**
      * Supprime tous les chunks correspondant à un fichier source.
      * Utilise le filtre {@code where} ChromaDB pour ne récupérer que les IDs concernés
      * au lieu de charger toute la collection en mémoire.

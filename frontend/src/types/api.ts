@@ -28,6 +28,9 @@ export interface DatasetStats {
   totalPairs: number;
   chunksInStore: number;
   byCategory: Record<string, number>;
+  /** R8 — répartition des paires par catégorie du document source ; révèle un thème
+   *  sur- ou sous-représenté dans le corpus d'entraînement. */
+  byDocumentCategory?: Record<string, number>;
   avgConfidence: number;
 }
 
@@ -46,6 +49,39 @@ export interface IngestedFile {
   collectionName: string | null;
   /** Date du dernier passage en ARCHIVED (base de la purge de rétention). */
   archivedAt?: string | null;
+  /** R8 — catégories attribuées par le classifieur, triées par confiance décroissante. */
+  categories?: string[];
+  /** Confiance par catégorie ({@code {"procedures": 0.87}}). */
+  categoryScores?: Record<string, number>;
+  /** Résumé d'une phrase produit par le classifieur. */
+  classificationSummary?: string | null;
+  /** Modèle ayant produit la classification. */
+  classifierModel?: string | null;
+  /** Date de la dernière classification ; absente tant que le document n'est pas classifié. */
+  classifiedAt?: string | null;
+}
+
+/** Configuration du classifieur exposée par GET /api/ged/classification. */
+export interface ClassificationConfig {
+  enabled: boolean;
+  autoClassify: boolean;
+  openTaxonomy: boolean;
+  taxonomy: string[];
+  maxCategories: number;
+  minConfidence: number;
+  model: string;
+}
+
+/** Progression d'une classification par lot. */
+export interface ClassificationTask {
+  taskId: string;
+  status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+  processed: number;
+  total: number;
+  succeeded: number;
+  failed: number;
+  errors: string[];
+  createdAt: string;
 }
 
 export interface AuditEntry {
@@ -123,6 +159,8 @@ export interface EvaluationScore {
   score: number;
   justification: string;
   category: string;
+  /** R8 — catégorie du document dont la paire est issue (null si non classifié). */
+  documentCategory?: string | null;
   source: string;
 }
 
@@ -135,6 +173,9 @@ export interface EvaluationReport {
   processed: number;
   averageScore: number;
   scoresByCategory: Record<string, number>;
+  /** R8 — score moyen par catégorie de document : le diagnostic thématique. Absent des
+   *  rapports antérieurs à la classification. */
+  scoresByDocumentCategory?: Record<string, number>;
   scores: EvaluationScore[];
   avgLatencyMs: number;
   avgTokensPerSec: number;
@@ -153,6 +194,7 @@ export interface ModelComparisonEntry {
   processed: number;
   averageScore: number;
   scoresByCategory: Record<string, number>;
+  scoresByDocumentCategory?: Record<string, number>;
   completedAt: string | null;
   avgLatencyMs: number;
   avgTokensPerSec: number;
@@ -164,11 +206,16 @@ export interface ModelComparisonEntry {
   deltaVsBaseline: number;
   significantVsBaseline: boolean;
   deltaByCategory: Record<string, number>;
+  /** R8 — écart par thème vs la baseline : dit si le ré-entraînement a progressé là où
+   *  on l'attendait. */
+  deltaByDocumentCategory?: Record<string, number>;
 }
 
 export interface ModelComparisonReport {
   baselineModel: string;
   categories: string[];
+  /** R8 — union des catégories de documents rencontrées (vide sans classification). */
+  documentCategories?: string[];
   models: ModelComparisonEntry[];
 }
 
