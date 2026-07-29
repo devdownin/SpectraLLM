@@ -394,6 +394,31 @@ curl "http://localhost:8080/api/ged/documents?classified=false"
 3. Cliquez sur **Initialize Pipeline**.
 4. La progression s'affiche en temps réel : nombre de chunks traités, paires générées.
 
+> **Ce que `Max Chunks` échantillonne.** Si vos documents sont classifiés (étape 1d), les chunks sont prélevés **en tourniquet entre les catégories** plutôt qu'en tête de collection. Un essai à 20 chunks couvre donc l'éventail thématique du fonds, au lieu de ne voir que les premiers documents ingérés. Une catégorie qui s'épuise cède son quota aux autres : le budget demandé est toujours atteint. Sans classification, le comportement reste un simple troncage.
+
+> **Une seule taxonomie.** Quand un document est classifié, la paire de classification produite reprend son verdict au lieu d'interroger à nouveau le LLM : la génération est plus rapide d'environ un tiers (un appel sur trois économisé) et une paire ne peut plus contredire la fiche de son document.
+
+#### Composer un corpus équilibré
+
+`GET /api/dataset/stats` renvoie `byDocumentCategory` — la répartition des paires **par thème d'origine**, à ne pas confondre avec `byCategory` qui décrit la nature des paires (q/r, résumé, refus) :
+
+```bash
+curl http://localhost:8080/api/dataset/stats
+# → "byCategory":         {"qa": 210, "summary": 210, "negative": 70}
+#   "byDocumentCategory": {"maintenance": 380, "reglementation": 12, "(non classé)": 98}
+```
+
+Ici la réglementation pèse 12 paires sur 490 : le modèle sera faible dessus. Deux leviers avant de lancer le fine-tuning — ingérer davantage de documents de ce thème, ou écarter le thème dominant :
+
+```bash
+# Exclut du SFT toutes les paires issues de documents « contractuel ».
+# Le filtre porte sur trois champs de chaque paire : la catégorie du document source,
+# la nature de la paire (qa, summary, negative) et son type (refusal, summarization…).
+SPECTRA_SFT_EXCLUDED_CATEGORIES=contractuel
+```
+
+Un document non classifié n'est jamais écarté par ce filtre : rien ne permettrait d'affirmer qu'il relève du thème exclu.
+
 #### Via l'API
 
 ```bash

@@ -28,6 +28,9 @@ export interface DatasetStats {
   totalPairs: number;
   chunksInStore: number;
   byCategory: Record<string, number>;
+  /** R8 — répartition des paires par catégorie du document source ; révèle un thème
+   *  sur- ou sous-représenté dans le corpus d'entraînement. */
+  byDocumentCategory?: Record<string, number>;
   avgConfidence: number;
 }
 

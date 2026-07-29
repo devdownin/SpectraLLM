@@ -387,13 +387,23 @@ public class FineTuningService {
         return new ExportedDataset(file, sources);
     }
 
-    /** Vrai si la paire relève d'une catégorie/type exclu du SFT (laissé au RAG). */
+    /**
+     * Vrai si la paire relève d'une catégorie/type exclu du SFT (laissé au RAG).
+     *
+     * <p>La catégorie du <b>document source</b> (R8) est prise en compte au même titre que
+     * celle de la paire : c'est ce qui permet d'écarter tout un pan thématique du corpus
+     * — « n'entraîne pas sur le contractuel » — sans avoir à raisonner sur la nature de
+     * chaque paire produite.</p>
+     */
     private boolean isExcludedFromSft(TrainingPair p) {
         if (sftExcludedCategories.isEmpty()) return false;
-        String category = p.metadata().category();
-        String type = p.metadata().type();
-        return (category != null && sftExcludedCategories.contains(category.toLowerCase()))
-                || (type != null && sftExcludedCategories.contains(type.toLowerCase()));
+        return isExcluded(p.metadata().category())
+                || isExcluded(p.metadata().type())
+                || isExcluded(p.metadata().documentCategory());
+    }
+
+    private boolean isExcluded(String value) {
+        return value != null && sftExcludedCategories.contains(value.toLowerCase());
     }
 
     /**

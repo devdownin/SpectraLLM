@@ -64,6 +64,8 @@ interface DatasetStats {
   chunksInStore: number;
   avgConfidence: number;
   byCategory: Record<string, number>;
+  /** R8 — répartition par catégorie du document source (absente des datasets antérieurs). */
+  byDocumentCategory?: Record<string, number>;
 }
 
 // ── Status badge helpers ─────────────────────────────────────────────────────

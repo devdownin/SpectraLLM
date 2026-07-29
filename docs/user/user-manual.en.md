@@ -394,6 +394,31 @@ curl "http://localhost:8080/api/ged/documents?classified=false"
 3. Click **Initialize Pipeline**.
 4. Progress is displayed in real time: number of chunks processed, pairs generated.
 
+> **What `Max Chunks` samples.** If your documents are classified (step 1d), chunks are drawn **round-robin across categories** rather than from the head of the collection. A 20-chunk trial therefore covers the thematic range of your corpus instead of seeing only the first documents ingested. A category that runs out yields its quota to the others, so the requested budget is always met. Without classification, the behaviour stays a plain truncation.
+
+> **One taxonomy.** When a document is classified, the classification pair produced reuses its verdict instead of querying the LLM again: generation is about a third faster (one call in three saved) and a pair can no longer contradict its own document's record.
+
+#### Composing a balanced corpus
+
+`GET /api/dataset/stats` returns `byDocumentCategory` — the breakdown of pairs **by source theme**, not to be confused with `byCategory` which describes the nature of the pairs (q/a, summary, refusal):
+
+```bash
+curl http://localhost:8080/api/dataset/stats
+# → "byCategory":         {"qa": 210, "summary": 210, "negative": 70}
+#   "byDocumentCategory": {"maintenance": 380, "reglementation": 12, "(non classé)": 98}
+```
+
+Here regulation accounts for 12 pairs out of 490: the model will be weak on it. Two levers before launching the fine-tuning — ingest more documents on that theme, or set the dominant one aside:
+
+```bash
+# Excludes from SFT every pair coming from "contractuel" documents.
+# The filter looks at three fields of each pair: the source document's category,
+# the nature of the pair (qa, summary, negative) and its type (refusal, summarization…).
+SPECTRA_SFT_EXCLUDED_CATEGORIES=contractuel
+```
+
+A document that is not classified is never excluded by this filter: nothing would justify asserting it belongs to the excluded theme.
+
 #### Via the API
 
 ```bash
