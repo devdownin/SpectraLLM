@@ -103,12 +103,22 @@ public class DpoGenerationService {
      * réponse de référence et la variante). Ajout thread-safe (append + liste concurrente),
      * indépendant de la génération DPO qui n'écrit que {@code dpo_pairs.jsonl}.
      *
-     * @return la paire créée, ou {@code null} si l'entrée est invalide (champ vide, chosen = rejected)
+     * <p>Idempotent : une paire déjà enregistrée (même prompt, même chosen, même rejected) est
+     * ignorée. Sans cela, un appelant répétitif — le ré-entraînement automatique déclenché tous
+     * les N commentaires approuvés, qui repart de l'ensemble des commentaires — réenregistrerait
+     * les mêmes paires à chaque cycle et les surpondérerait dans le dataset.</p>
+     *
+     * @return la paire créée, ou {@code null} si l'entrée est invalide (champ vide,
+     *         chosen = rejected) ou déjà enregistrée
      */
     public synchronized DpoPair addPreferencePair(String prompt, String chosen, String rejected, String source) {
         if (prompt == null || chosen == null || rejected == null) return null;
         String p = prompt.trim(), c = chosen.trim(), r = rejected.trim();
         if (p.isEmpty() || c.isEmpty() || r.isEmpty() || c.equals(r)) return null;
+
+        boolean duplicate = preferencePairs.stream().anyMatch(
+                e -> p.equals(e.prompt()) && c.equals(e.chosen()) && r.equals(e.rejected()));
+        if (duplicate) return null;
 
         DpoPair pair = new DpoPair(p, c, r, "playground-ab", source != null ? source : "playground-ab");
         try {

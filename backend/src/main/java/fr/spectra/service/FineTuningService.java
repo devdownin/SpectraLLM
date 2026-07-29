@@ -181,7 +181,8 @@ public class FineTuningService {
                     request.packingEnabled(),
                     request.dpoEnabled(),
                     request.orpoEnabled(),
-                    request.exportGguf()
+                    request.exportGguf(),
+                    request.valSplit()
             );
 
             FineTuningJob job = FineTuningJob.pending(jobId, resolved);
@@ -487,7 +488,8 @@ public class FineTuningService {
 
     /**
      * Lance le script d'entraînement externe avec les paramètres LoRA.
-     * Le script reçoit les arguments : dataset_path output_path base_model lora_rank lora_alpha epochs lr
+     * Le script reçoit les arguments (positionnels, cf. en-tête de {@code train.sh}) :
+     * dataset_path output_path base_model lora_rank lora_alpha epochs lr packing dpo orpo val_split
      */
     private int runTrainingProcess(String jobId, FineTuningRequest request,
                                    Path datasetFile, Path adapterPath) throws Exception {
@@ -505,7 +507,8 @@ public class FineTuningService {
                 String.valueOf(request.learningRate()),
                 String.valueOf(request.packingEnabled()),
                 String.valueOf(request.dpoEnabled()),
-                String.valueOf(request.orpoEnabled())
+                String.valueOf(request.orpoEnabled()),
+                String.valueOf(request.valSplit())
         );
         return runProcess(jobId, "train", command, line -> parseTrainingOutput(jobId, line));
     }
@@ -621,33 +624,41 @@ public class FineTuningService {
         return cleaned.isEmpty() ? "model" : cleaned;
     }
 
+    private static final java.util.regex.Pattern EPOCH_PATTERN =
+            java.util.regex.Pattern.compile("epoch[= ]*(\\d+)");
+    /**
+     * Loss d'entraînement. Le {@code (?<!eval_)} est essentiel : sans lui, la ligne
+     * « eval_loss=0.45 » satisfait aussi « loss=… » et l'{@code eval_loss} était enregistré
+     * comme loss d'entraînement — écrasant silencieusement la vraie courbe.
+     */
+    private static final java.util.regex.Pattern LOSS_PATTERN =
+            java.util.regex.Pattern.compile("(?<!eval_)loss[= ]*([\\d.]+)");
+    private static final java.util.regex.Pattern EVAL_LOSS_PATTERN =
+            java.util.regex.Pattern.compile("eval_loss[= ]*([\\d.]+)");
+
     /**
      * Parse les lignes de sortie du script pour mettre à jour la progression.
-     * Format attendu : "epoch=2 loss=0.4523" ou "EPOCH 2/3 loss=0.4523"
+     * Formats émis par {@code ProgressLogger} : « epoch=2.00  loss=0.4523 » et,
+     * quand un split de validation est actif, « epoch=2.00  eval_loss=0.4102 ».
      */
     private void parseTrainingOutput(String jobId, String line) {
         try {
             String lower = line.toLowerCase();
-            if (lower.contains("epoch")) {
-                Integer epoch = extractInt(lower, "epoch[= ]*");
-                Double loss = extractDouble(lower, "loss[= ]*");
-                if (epoch != null) {
-                    updateJob(jobId, j -> j.withTrainingProgress(epoch, loss));
-                }
-            }
+            if (!lower.contains("epoch")) return;
+            Integer epoch = extract(EPOCH_PATTERN, lower, Integer::parseInt);
+            if (epoch == null) return;
+            Double loss = extract(LOSS_PATTERN, lower, Double::parseDouble);
+            Double evalLoss = extract(EVAL_LOSS_PATTERN, lower, Double::parseDouble);
+            updateJob(jobId, j -> j.withTrainingProgress(epoch, loss, evalLoss));
         } catch (Exception e) {
             // Parsing best-effort, on ne casse pas le process pour une ligne mal formatée
         }
     }
 
-    private Integer extractInt(String text, String prefix) {
-        var matcher = java.util.regex.Pattern.compile(prefix + "(\\d+)").matcher(text);
-        return matcher.find() ? Integer.parseInt(matcher.group(1)) : null;
-    }
-
-    private Double extractDouble(String text, String prefix) {
-        var matcher = java.util.regex.Pattern.compile(prefix + "([\\d.]+)").matcher(text);
-        return matcher.find() ? Double.parseDouble(matcher.group(1)) : null;
+    private static <T> T extract(java.util.regex.Pattern pattern, String text,
+                                 java.util.function.Function<String, T> parser) {
+        var matcher = pattern.matcher(text);
+        return matcher.find() ? parser.apply(matcher.group(1)) : null;
     }
 
     private int countLines(Path file) throws Exception {

@@ -31,6 +31,7 @@ public class FineTuningJobEntity {
     private Integer currentEpoch;
     private Integer totalEpochs;
     private Double loss;
+    private Double evalLoss;
     private String outputPath;
     private String reportPath;
 
@@ -45,7 +46,7 @@ public class FineTuningJobEntity {
     public FineTuningJobEntity(String jobId, String status, String modelName, String baseModel,
                                String parameters, int datasetSize, String currentStep,
                                Integer currentEpoch, Integer totalEpochs, Double loss,
-                               String outputPath, String reportPath, String error,
+                               Double evalLoss, String outputPath, String reportPath, String error,
                                Instant createdAt, Instant completedAt) {
         this.jobId = jobId;
         this.status = status;
@@ -57,6 +58,7 @@ public class FineTuningJobEntity {
         this.currentEpoch = currentEpoch;
         this.totalEpochs = totalEpochs;
         this.loss = loss;
+        this.evalLoss = evalLoss;
         this.outputPath = outputPath;
         this.reportPath = reportPath;
         this.error = error;
@@ -74,7 +76,7 @@ public class FineTuningJobEntity {
         return new FineTuningJobEntity(
                 dto.jobId(), dto.status().name(), dto.modelName(), dto.baseModel(),
                 paramsJson, dto.datasetSize(), dto.currentStep(),
-                dto.currentEpoch(), dto.totalEpochs(), dto.loss(),
+                dto.currentEpoch(), dto.totalEpochs(), dto.loss(), dto.evalLoss(),
                 dto.outputPath(), dto.reportPath(), dto.error(),
                 dto.createdAt(), dto.completedAt());
     }
@@ -92,7 +94,7 @@ public class FineTuningJobEntity {
         return new FineTuningJob(
                 jobId, FineTuningJob.Status.valueOf(status),
                 modelName, baseModel, req, datasetSize,
-                currentStep, currentEpoch, totalEpochs, loss,
+                currentStep, currentEpoch, totalEpochs, loss, evalLoss,
                 outputPath, reportPath, error, createdAt, completedAt);
     }
 

@@ -70,7 +70,21 @@ public record FineTuningRequest(
          * lourde (téléchargement du modèle de base, fusion, conversion llama.cpp) et exige que le
          * poste dispose de la stack Python d'inférence.
          */
-        Boolean exportGguf
+        Boolean exportGguf,
+
+        /**
+         * Fraction du dataset (0..0.5) tenue à l'écart de l'entraînement pour mesurer
+         * l'{@code eval_loss} à chaque époque.
+         *
+         * <p>Sans elle, le seul indicateur remonté est la <i>training loss</i>, qui décroît par
+         * construction : le sur-apprentissage — mode de défaillance le plus probable sur un
+         * dataset synthétique de quelques centaines de paires entraîné sur plusieurs époques —
+         * n'est tout simplement pas observable. Défaut 0.1 ; {@code 0} désactive l'évaluation.
+         * Sans effet en DPO/ORPO, où le script n'évalue pas.</p>
+         */
+        @DecimalMin(value = "0.0", message = "valSplit doit être ≥ 0")
+        @DecimalMax(value = "0.5", message = "valSplit doit être ≤ 0.5")
+        Double valSplit
 ) {
     public FineTuningRequest {
         if (loraRank == null) loraRank = 64;
@@ -84,6 +98,7 @@ public record FineTuningRequest(
         if (dpoEnabled == null) dpoEnabled = false;
         if (orpoEnabled == null) orpoEnabled = false;
         if (exportGguf == null) exportGguf = false;
+        if (valSplit == null) valSplit = 0.1;
         // DPO et ORPO sont mutuellement exclusifs : ORPO a priorité.
         if (orpoEnabled && dpoEnabled) dpoEnabled = false;
     }

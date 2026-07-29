@@ -22,10 +22,10 @@
 > (`FineTuningGedTraceTest`, `FineTuningSftExclusionTest`) portent sur des méthodes périphériques
 > de `FineTuningService`, et il n'existe aucun test Python pour `train_host.py`.
 >
-> **Statut.** Les constats **F2, F5, F6 et F11** — les quatre correctifs sans risque ni décision
-> d'architecture — sont **corrigés** dans la même série de commits que ce rapport ; ils restent
-> décrits ci-dessous pour la traçabilité, avec la correction apportée. Tous les autres constats
-> sont **ouverts**.
+> **Statut.** Les constats **F2, F4, F5, F6, F7, F9 et F11** sont **corrigés** dans la même série
+> de commits que ce rapport ; ils restent décrits ci-dessous pour la traçabilité, avec la
+> correction apportée. Restent **ouverts** : F1 (décision d'architecture), F3 et F8 (refonte de la
+> mise en forme des conversations), F10, F12, F13, F14 et la documentation désynchronisée (§6).
 
 ---
 
@@ -102,8 +102,9 @@ lot « correctifs sans risque ».
 
 ### F3 — Le gabarit de conversation est codé en dur et ne correspond qu'à 1 modèle sur 4 — **critique**
 
-`train_host.py` construit les exemples avec un gabarit littéral
-(`ConversationDataset._encode`, lignes 143-155, et `PackedDataset._format`, lignes 246-255) :
+`train_host.py` construit les exemples avec un gabarit littéral, dans
+`ConversationDataset._encode` (depuis la correction de F4, c'est le seul point d'encodage :
+`PackedDataset` le réutilise au lieu de dupliquer le gabarit dans un `_format`) :
 
 ```
 <|system|>\n{content}</s>\n
@@ -141,7 +142,7 @@ le masque de supervision de la position réelle du segment assistant (par exempl
 deux fois, avec et sans le dernier tour, et en supervisant le delta). C'est la seule construction
 qui reste correcte quand le modèle de base change — ce que le catalogue autorise explicitement.
 
-### F4 — Le mode packing désactive silencieusement le masquage du prompt — **critique**
+### F4 — Le mode packing désactive silencieusement le masquage du prompt — **critique** — ✅ corrigé
 
 `ConversationDataset` masque soigneusement le prompt à `-100` (le commentaire de classe explique,
 à juste titre, que sans cela « le modèle apprend à régénérer la question au lieu de seulement
@@ -160,9 +161,14 @@ une simple optimisation de débit (« 20-40 % de réduction du nombre d'étapes 
 `ConversationDataset` avec `add_special_tokens=False`. Le BOS est donc présent dans un mode,
 absent dans l'autre, et présent au service — troisième variante de distribution.
 
-Recommandation : conserver les labels masqués lors du packing (concaténer les paires
-`(input_ids, labels)` déjà calculées par `ConversationDataset` plutôt que de re-tokeniser du
-texte brut), et harmoniser `add_special_tokens` entre les deux chemins.
+**Correction appliquée** : `PackedDataset` réutilise `ConversationDataset._encode` et `._fit`,
+puis concatène des paires `(input_ids, labels)` **déjà masquées**. Le séparateur EOS entre deux
+exemples n'appartient à aucune réponse : il est inséré avec un label `-100`. La re-tokenisation
+du texte brut disparaît, ce qui harmonise du même coup `add_special_tokens` entre les deux
+chemins et supprime `_format`, devenu inutile.
+
+Vérifié : sur un dataset de 4 exemples identiques, les deux modes supervisent la même proportion
+de tokens (~18 %) ; avant correction le mode packé en supervisait 100 %.
 
 ### F5 — Le chemin GPU (Unsloth) ignore `--max-length` — **moyen** — ✅ corrigé
 
@@ -218,7 +224,7 @@ d'interface, pas des correctifs.
 
 ## 3. Câblage des fonctionnalités
 
-### F7 — L'apprentissage continu à partir des commentaires approuvés n'entraîne pas sur ces commentaires — **élevé**
+### F7 — L'apprentissage continu à partir des commentaires approuvés n'entraîne pas sur ces commentaires — **élevé** — ✅ corrigé
 
 `ArticleCommentService.triggerRetraining` (ligne 189-205) :
 
@@ -247,6 +253,22 @@ Deux défauts aggravants sur le même bloc :
   fusionné, jamais converti, jamais enregistré — donc jamais servi. Un cycle d'apprentissage
   continu qui ne met rien en service n'a pas d'effet observable.
 
+**Correction appliquée** :
+
+- La construction des paires est extraite dans `buildDpoPairs()`, et ses paires sont désormais
+  **enregistrées dans `DpoGenerationService`** (via `addPreferencePair`, l'ingress déjà utilisé
+  par les préférences A/B du Playground) en plus d'être exportées dans `comments_dpo.jsonl`.
+  C'est ce registre — et lui seul — que lit `FineTuningService.exportDpoDataset`.
+- `addPreferencePair` devient **idempotent** : une paire identique déjà enregistrée est ignorée.
+  Sans cela, le déclenchement automatique repartant à chaque cycle de l'ensemble des
+  commentaires aurait surpondéré les mêmes paires à chaque ré-entraînement.
+- Le `null` de `submit()` est traité : le job est signalé comme différé (les paires restent
+  enregistrées pour le prochain déclenchement) au lieu d'être journalisé comme un succès.
+- `exportGguf = true` : le modèle produit est fusionné, converti et enregistré, donc réellement
+  servable.
+
+Couvert par `ArticleCommentAutoRetrainTest`.
+
 ### F8 — Trois formats de prompt différents entre SFT, DPO et service — **élevé**
 
 | Étape | Format du prompt |
@@ -263,7 +285,7 @@ Recommandation : centraliser la mise en forme (une seule fonction, dérivée du 
 par la génération de dataset SFT, la génération DPO et l'entraînement) — c'est le même correctif
 de fond que F3.
 
-### F9 — Les meilleurs réglages de `train_host.py` sont inaccessibles depuis l'application — **élevé**
+### F9 — Les meilleurs réglages de `train_host.py` sont inaccessibles depuis l'application — **élevé** — ✅ partiellement corrigé
 
 `train_host.py` expose `--val-split`, `--lora-target`, `--neftune-alpha`, `--warmup-ratio` et
 `--resume-adapter`. `train.sh` n'en transmet **aucun** : il ne relaie que `--packing`, `--dpo`,
@@ -280,10 +302,20 @@ de toute la chaîne — et c'est précisément celui qu'on ne mesure pas.
 de test documenté (`docs/process/test-plan-ingestion.fr.md:363`) mais n'est pas exposé par l'API.
 Chaque job repart de zéro.
 
-Recommandation : ajouter au minimum `valSplit` (défaut ~0.1) à `FineTuningRequest`, le relayer
-jusqu'au script, et afficher `eval_loss` à côté de la loss d'entraînement dans `LossChart` — le
-parseur de sortie (`parseTrainingOutput`) ne reconnaît d'ailleurs aujourd'hui que `loss`, alors
-que `ProgressLogger` imprime déjà `eval_loss` quand une évaluation existe.
+**Correction appliquée** : `valSplit` (défaut 0.1, `0` pour désactiver) est ajouté à
+`FineTuningRequest`, relayé en 11ᵉ argument positionnel jusqu'à `train.sh` puis `--val-split`,
+et exposé comme curseur dans le formulaire. `parseTrainingOutput` reconnaît désormais
+`eval_loss` et le porte dans un champ `evalLoss` du job (colonne `eval_loss`, migration
+idempotente dans `schema.sql`) ; `LossChart` trace la courbe de validation en pointillés à côté
+de celle d'entraînement — c'est l'écart entre les deux qui signale le sur-apprentissage.
+
+Au passage, un bug latent qui devenait actif dès l'activation de l'évaluation : le motif
+`loss[= ]*` reconnaissait aussi la sous-chaîne de `eval_loss=…`, donc l'eval_loss était
+enregistrée comme loss d'entraînement. Corrigé par un `(?<!eval_)` côté backend **et** côté
+frontend (le même bug existait dans le parseur de logs SSE).
+
+Restent ouverts : `--lora-target`, `--neftune-alpha`, `--warmup-ratio` et surtout
+`--resume-adapter` (entraînement incrémental) ne sont toujours pas exposés par l'API.
 
 ### F10 — Passage d'arguments positionnel et fragile — **faible**
 
@@ -348,16 +380,20 @@ Autres remarques sur le même fichier :
 - Côté Java, `FineTuningGedTraceTest` et `FineTuningSftExclusionTest` testent la traçabilité GED
   et le filtre de catégories — deux méthodes périphériques, atteintes par réflexion. Ni la
   machine à états, ni le verrou d'unicité (`trainingRunning`), ni l'annulation, ni la
-  construction de la ligne de commande ne sont couverts. (`FineTuningRequestTest`, ajouté avec le
-  correctif F6, couvre désormais les défauts de la requête — pas l'orchestration.)
-- Côté Python, il n'existe **aucun test** : les seuls `test_*.py` du dépôt sont dans
+  construction de la ligne de commande ne sont couverts. (`FineTuningRequestTest` et
+  `ArticleCommentAutoRetrainTest`, ajoutés avec les correctifs F6/F9 et F7, couvrent les défauts
+  de la requête et le câblage du ré-entraînement automatique — pas l'orchestration.)
+- Côté Python, il n'existe toujours **aucun test** : les seuls `test_*.py` du dépôt sont dans
   `services/reranker` et `services/docparser`. `ci.yml` ne lance rien sur `scripts/`, et
-  `shellcheck.yml` ne mentionne pas `train.sh`.
+  `shellcheck.yml` ne mentionne pas `train.sh`. `train_host.py` n'est de surcroît pas importable
+  — son corps s'exécute au chargement (argparse, `import torch`, détection Unsloth) — donc ses
+  classes de dataset ne peuvent pas être testées sans le restructurer d'abord.
 
 Les défauts F3, F4, F5 sont tous des invariants testables sans GPU ni téléchargement de modèle
 (un tokenizer factice suffit à vérifier que les labels du prompt valent `-100`, que le gabarit
 appliqué provient bien du tokenizer, que `max_length` est respecté). C'est le levier le moins
-cher pour éviter la réapparition de cette classe de bugs.
+cher pour éviter la réapparition de cette classe de bugs — et le corollaire naturel du refactor
+de F3, qui devra de toute façon rendre le module importable.
 
 ---
 
@@ -439,10 +475,10 @@ attendu du couplage RAG + fine-tuning revendiqué par le produit.
 | F1 | Script/Python absents de l'image `spectra-api` (fine-tuning inopérant en Docker) | Bloquant | Élevé — décision d'architecture | Ouvert |
 | F2 | `train.sh` sans bit exécutable | Bloquant | Trivial | ✅ corrigé |
 | F3 | Gabarit de conversation en dur, faux pour 3 bases sur 4 (dont le défaut `phi3`) | Critique | Moyen | Ouvert |
-| F4 | Le packing supprime le masquage du prompt | Critique | Faible | Ouvert |
-| F7 | Ré-entraînement automatique branché sur le mauvais jeu de données, et jamais déployé | Élevé | Faible | Ouvert |
+| F4 | Le packing supprime le masquage du prompt | Critique | Faible | ✅ corrigé |
+| F7 | Ré-entraînement automatique branché sur le mauvais jeu de données, et jamais déployé | Élevé | Faible | ✅ corrigé |
 | F8 | Trois formats de prompt SFT / DPO / service | Élevé | Moyen (même correctif que F3) | Ouvert |
-| F9 | Pas de split de validation → aucun signal de sur-apprentissage | Élevé | Faible | Ouvert |
+| F9 | Pas de split de validation → aucun signal de sur-apprentissage | Élevé | Faible | ✅ `valSplit` livré |
 | F6 | `loraAlpha` figé à 128 quel que soit le rang | Moyen | Trivial | ✅ corrigé |
 | F5 | `--max-length` ignoré sur GPU | Moyen | Trivial | ✅ corrigé |
 | F11 | Dépendances non bornées, `torch`/`peft` manquants | Moyen | Trivial | ✅ corrigé |
@@ -452,9 +488,12 @@ attendu du couplage RAG + fine-tuning revendiqué par le produit.
 | F10 | Arguments positionnels fragiles | Faible | Faible | Ouvert |
 | §6 | Documentation décrivant un système différent du code | Faible | Faible | Ouvert |
 
-**Ordre suggéré.** F2, F5, F6 et F11 sont faits. La suite : F4, F7 et F9 — trois corrections
-localisées à fort effet sur la qualité du modèle produit. Puis F3/F8 ensemble, en centralisant la
-mise en forme des conversations, accompagnés des tests de F13 qui les verrouillent. F1 en
-parallèle, car c'est une décision d'architecture, pas un correctif : tant qu'elle n'est pas prise,
-ajouter un contrôle de disponibilité au démarrage évite au moins que chaque job échoue
-silencieusement à mi-course.
+**Ordre suggéré.** F2, F4, F5, F6, F7, F9 et F11 sont faits. La suite est **F3/F8 ensemble**, en
+centralisant la mise en forme des conversations sur `tokenizer.apply_chat_template` — c'est le
+correctif qui débloque réellement `phi3`, `mistral` et `llama3`, et le seul qui rende cohérents
+SFT, DPO et service. Il demande les tests de F13 pour se verrouiller : le refactor supposera de
+rendre `train_host.py` importable (corps sous `if __name__ == "__main__"`), ce qui ouvre la porte
+à des tests unitaires sur les datasets sans GPU ni téléchargement de modèle. F1 en parallèle, car
+c'est une décision d'architecture, pas un correctif : tant qu'elle n'est pas prise, ajouter un
+contrôle de disponibilité au démarrage évite au moins que chaque job échoue silencieusement à
+mi-course.
