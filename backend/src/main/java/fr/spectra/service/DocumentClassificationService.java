@@ -490,14 +490,33 @@ public class DocumentClassificationService {
         if (raw == null || raw.isBlank()) {
             throw new IllegalStateException("Le modèle n'a retourné aucune réponse.");
         }
-        String json = extractJsonObject(raw);
-        if (json == null) {
+        // Le modèle de chat par défaut est un modèle « reasoning » : il expose sa réflexion
+        // avant de répondre. Ce préambule contient souvent des accolades (extraits, exemples),
+        // dont un premier objet JSON parfaitement équilibré mais qui n'est pas la réponse.
+        String cleaned = stripReasoning(raw);
+
+        List<String> candidates = jsonObjectCandidates(cleaned);
+        if (candidates.isEmpty()) {
             throw new IllegalStateException("Réponse du modèle sans objet JSON : " + preview(raw));
         }
-        JsonNode root;
-        try {
-            root = MAPPER.readTree(json);
-        } catch (Exception e) {
+
+        JsonNode root = null;
+        JsonNode fallback = null;
+        for (String candidate : candidates) {
+            JsonNode parsed;
+            try {
+                parsed = MAPPER.readTree(candidate);
+            } catch (Exception ignored) {
+                continue;   // fragment non parsable : on tente le suivant
+            }
+            if (parsed.has("categories")) { root = parsed; break; }
+            if (fallback == null) fallback = parsed;
+        }
+        if (root == null) root = fallback;
+
+        // Des accolades équilibrées existaient, mais rien n'était du JSON valide : le
+        // distinguer du cas « aucun JSON » aide à savoir si le modèle a essayé le format.
+        if (root == null) {
             throw new IllegalStateException("JSON invalide dans la réponse du modèle : " + preview(raw));
         }
 
@@ -527,29 +546,68 @@ public class DocumentClassificationService {
         return new LlmVerdict(categories, summary);
     }
 
+    /** Blocs de réflexion des modèles « reasoning », à écarter avant de chercher le JSON. */
+    private static final java.util.regex.Pattern REASONING_BLOCK = java.util.regex.Pattern.compile(
+            "<\\s*(think|thinking|reasoning|scratchpad)\\s*>.*?<\\s*/\\s*\\1\\s*>",
+            java.util.regex.Pattern.CASE_INSENSITIVE | java.util.regex.Pattern.DOTALL);
+
+    /** Bloc de réflexion jamais refermé (génération coupée par la limite de tokens). */
+    private static final java.util.regex.Pattern UNCLOSED_REASONING = java.util.regex.Pattern.compile(
+            "<\\s*(think|thinking|reasoning|scratchpad)\\s*>.*",
+            java.util.regex.Pattern.CASE_INSENSITIVE | java.util.regex.Pattern.DOTALL);
+
+    /**
+     * Retire la réflexion d'un modèle « reasoning » (le défaut du déploiement en est un).
+     *
+     * <p>Un bloc non refermé est supprimé jusqu'à la fin : il signifie que la génération a été
+     * coupée avant la réponse, et ce qu'il contient n'est pas un verdict.</p>
+     */
+    static String stripReasoning(String raw) {
+        String withoutBlocks = REASONING_BLOCK.matcher(raw).replaceAll(" ");
+        return UNCLOSED_REASONING.matcher(withoutBlocks).replaceAll(" ").strip();
+    }
+
     /**
      * Isole le premier objet JSON équilibré de la réponse — un simple
      * {@code indexOf('{')}/{@code lastIndexOf('}')} avalait la prose qui suit parfois le JSON.
      */
     static String extractJsonObject(String raw) {
-        int start = raw.indexOf('{');
-        if (start < 0) return null;
+        List<String> candidates = jsonObjectCandidates(raw);
+        return candidates.isEmpty() ? null : candidates.get(0);
+    }
+
+    /**
+     * Énumère tous les objets JSON équilibrés de premier niveau présents dans le texte.
+     *
+     * <p>Nécessaire parce que le premier objet rencontré n'est pas toujours la réponse : un
+     * modèle bavard cite volontiers le format attendu, ou un extrait du document, avant de
+     * conclure. L'appelant choisit celui qui porte réellement la clé {@code categories}.</p>
+     */
+    static List<String> jsonObjectCandidates(String raw) {
+        List<String> candidates = new ArrayList<>();
         int depth = 0;
+        int start = -1;
         boolean inString = false;
         boolean escaped = false;
-        for (int i = start; i < raw.length(); i++) {
+        for (int i = 0; i < raw.length(); i++) {
             char c = raw.charAt(i);
             if (inString) {
-                if (escaped)            escaped = false;
-                else if (c == '\\')     escaped = true;
-                else if (c == '"')      inString = false;
+                if (escaped)        escaped = false;
+                else if (c == '\\') escaped = true;
+                else if (c == '"')  inString = false;
                 continue;
             }
-            if (c == '"')      inString = true;
-            else if (c == '{') depth++;
-            else if (c == '}' && --depth == 0) return raw.substring(start, i + 1);
+            if (c == '"') {
+                inString = true;
+            } else if (c == '{') {
+                if (depth == 0) start = i;
+                depth++;
+            } else if (c == '}' && depth > 0 && --depth == 0 && start >= 0) {
+                candidates.add(raw.substring(start, i + 1));
+                start = -1;
+            }
         }
-        return null;
+        return candidates;
     }
 
     /**

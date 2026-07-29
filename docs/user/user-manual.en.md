@@ -323,7 +323,9 @@ Categories proposed by the model are reduced to a canonical form: case, accents 
 | `SPECTRA_CLASSIFICATION_MAX_CATEGORIES` | Categories kept per document | `3` |
 | `SPECTRA_CLASSIFICATION_MIN_CONFIDENCE` | Minimum confidence to keep a category | `0.5` |
 | `SPECTRA_CLASSIFICATION_MAX_CHUNKS` | Excerpts sampled from the document | `8` |
-| `SPECTRA_CLASSIFICATION_MAX_EXCERPT_CHARS` | Character budget submitted to the model | `6000` |
+| `SPECTRA_CLASSIFICATION_MAX_EXCERPT_CHARS` | Character budget submitted to the model | `3000` |
+
+> **The excerpt budget must fit the context window.** With the default deployment (`LLM_CONTEXT=2048`), count ~3.5 characters per token in French: a 3000-character excerpt ≈ 860 tokens, plus the prompt (~350), the header (~40) and the answer (~120) — about 1370 out of 2048. Go over and llama.cpp truncates the **start** of the request — that is, the "answer only in JSON" instructions and the taxonomy — and the model replies in prose: classification then fails systematically. Only raise this budget if you raise `LLM_CONTEXT` too.
 
 > `auto-classify` is off by default on purpose: importing 500 files would chain 500 LLM calls. For a corpus that is already in place, prefer the batch classification below; turn `auto-classify` on for a continuous arrival stream.
 

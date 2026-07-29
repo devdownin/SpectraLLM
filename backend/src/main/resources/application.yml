@@ -226,10 +226,17 @@ spectra:
     max-categories: ${SPECTRA_CLASSIFICATION_MAX_CATEGORIES:3}
     # Confiance minimale pour retenir une catégorie (0.0–1.0).
     min-confidence: ${SPECTRA_CLASSIFICATION_MIN_CONFIDENCE:0.5}
-    # Extraits échantillonnés dans le document et budget de caractères soumis au modèle :
-    # à réduire si la fenêtre de contexte du modèle est courte.
+    # Extraits échantillonnés dans le document et budget de caractères soumis au modèle.
+    #
+    # ATTENTION — ce budget doit tenir dans LLM_CONTEXT (2048 tokens par défaut, et le
+    # modèle fine-tuné plafonne à 2048 n_ctx_train). Compte, en français (~3,5 car./token) :
+    #   extrait 3000 car. ≈ 860 tokens + prompt ~350 + entête ~40 + réponse ~120 ≈ 1370.
+    # À 6000 caractères on dépassait 2048 : llama.cpp tronque alors le DÉBUT de la requête,
+    # c'est-à-dire les consignes « réponds uniquement en JSON » et la taxonomie — le modèle
+    # répondait en prose et la classification échouait systématiquement.
+    # Si vous augmentez LLM_CONTEXT, vous pouvez remonter ce budget d'autant.
     max-chunks: ${SPECTRA_CLASSIFICATION_MAX_CHUNKS:8}
-    max-excerpt-chars: ${SPECTRA_CLASSIFICATION_MAX_EXCERPT_CHARS:6000}
+    max-excerpt-chars: ${SPECTRA_CLASSIFICATION_MAX_EXCERPT_CHARS:3000}
     temperature: ${SPECTRA_CLASSIFICATION_TEMPERATURE:0.1}
 
 llmfit:

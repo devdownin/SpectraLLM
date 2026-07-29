@@ -433,8 +433,14 @@ public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, 
             return maxChunks != null && maxChunks > 0 ? maxChunks : 8;
         }
 
+        /**
+         * Budget de caractères de l'extrait. Le défaut (3000 ≈ 860 tokens en français) est
+         * calibré pour tenir dans une fenêtre de 2048 tokens — celle du déploiement par
+         * défaut — une fois ajoutés le prompt, l'entête et la réponse. Au-delà, llama.cpp
+         * tronque le début de la requête, donc les consignes de format.
+         */
         public int effectiveMaxExcerptChars() {
-            return maxExcerptChars != null && maxExcerptChars > 0 ? maxExcerptChars : 6000;
+            return maxExcerptChars != null && maxExcerptChars > 0 ? maxExcerptChars : 3000;
         }
 
         public float effectiveTemperature() {

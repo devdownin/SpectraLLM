@@ -146,6 +146,63 @@ class DocumentClassificationServiceTest {
         assertThat(extracted).isEqualTo("{\"summary\":\"accolade } dans le texte\"}");
     }
 
+    // ── Modèles « reasoning » (le chat par défaut en est un) ─────────────────
+
+    @Test
+    void parseVerdict_ignoresTheReasoningBlockAndReadsTheRealAnswer() {
+        // Phi-4-mini-reasoning expose sa réflexion avant de répondre. Le préambule contient
+        // ici un objet JSON parfaitement équilibré — mais ce n'est pas le verdict.
+        var verdict = DocumentClassificationService.parseVerdict("""
+                <think>
+                Le document parle d'interventions. Le format attendu est
+                {"categories":[{"label":"exemple","confidence":0.0}],"summary":"..."}
+                donc je vais répondre ainsi.
+                </think>
+                {"categories":[{"label":"procedures","confidence":0.88}],"summary":"Une procédure."}
+                """);
+
+        assertThat(verdict.categories()).extracting("label").containsExactly("procedures");
+        assertThat(verdict.summary()).isEqualTo("Une procédure.");
+    }
+
+    @Test
+    void parseVerdict_picksTheObjectCarryingCategories_notMerelyTheFirstOne() {
+        // Sans bloc <think>, un modèle bavard cite quand même le format avant de conclure.
+        var verdict = DocumentClassificationService.parseVerdict("""
+                Rappel du format : {"format":"objet JSON","exemple":true}
+                Ma réponse : {"categories":[{"label":"securite","confidence":0.7}]}
+                """);
+
+        assertThat(verdict.categories()).extracting("label").containsExactly("securite");
+    }
+
+    @Test
+    void stripReasoning_dropsAnUnclosedBlock_whenGenerationWasCutOff() {
+        // Bloc jamais refermé = génération coupée avant la réponse : rien d'exploitable.
+        String cleaned = DocumentClassificationService.stripReasoning(
+                "<think>Je réfléchis encore et la limite de tokens arrive");
+
+        assertThat(cleaned).isEmpty();
+        assertThatThrownBy(() -> DocumentClassificationService.parseVerdict(
+                "<think>Je réfléchis encore et la limite de tokens arrive"))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void stripReasoning_handlesThinkingTagVariantsCaseInsensitively() {
+        assertThat(DocumentClassificationService.stripReasoning("<Thinking>bla</Thinking>ok")).isEqualTo("ok");
+        assertThat(DocumentClassificationService.stripReasoning("<reasoning>bla</reasoning>ok")).isEqualTo("ok");
+        assertThat(DocumentClassificationService.stripReasoning("sans balise")).isEqualTo("sans balise");
+    }
+
+    @Test
+    void jsonObjectCandidates_enumeratesEveryTopLevelObject() {
+        var candidates = DocumentClassificationService.jsonObjectCandidates(
+                "un {\"a\":1} deux {\"b\":{\"c\":2}} fin");
+
+        assertThat(candidates).containsExactly("{\"a\":1}", "{\"b\":{\"c\":2}}");
+    }
+
     // ── Politique de taxonomie ───────────────────────────────────────────────
 
     @Test
