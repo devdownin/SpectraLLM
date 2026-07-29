@@ -274,13 +274,15 @@ public class DpoGenerationService {
 
     private DpoPair generateRejected(TrainingPair sft) {
         try {
-            String system  = extractRole(sft, "system");
             String user    = extractRole(sft, "user");
             String chosen  = extractRole(sft, "assistant");
             if (user == null || chosen == null) return null;
 
-            // Prompt = system + user combinés (format DPO standard)
-            String prompt = (system != null ? system + "\n\n" : "") + user;
+            // Prompt = la question SEULE. La persona (message système) est réintroduite au moment
+            // de l'export, sous forme de message à part entière du format conversationnel TRL.
+            // La concaténer ici produisait un prompt en texte brut, sans marqueur de rôle, que
+            // TRL passe tel quel au modèle — une mise en forme absente du SFT comme du service.
+            String prompt = user;
 
             String rejected = chatClient.chat(REJECTION_SYSTEM_PROMPT, "Question : " + user);
             if (rejected == null || rejected.isBlank()) return null;

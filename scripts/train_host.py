@@ -104,6 +104,17 @@ def find_target_modules(model, scope="attention"):
 import torch
 from torch.utils.data import Dataset as TorchDataset
 
+# ── Mise en forme des conversations ───────────────────────────────────────────
+# Déléguée à chat_format (module voisin, importable sans torch — donc testable) : le gabarit
+# provient du tokenizer du modèle de base, seul détenteur du format que llama-server appliquera
+# au service. Voir l'en-tête de chat_format.py pour le raisonnement complet.
+from chat_format import (  # noqa: E402
+    encode_supervised,
+    fit_to_max_length,
+    flatten_preference_row,
+    has_chat_template,
+)
+
 # ── Dataset PyTorch natif (sans lib datasets — incompatible Python 3.14) ──────
 class ConversationDataset(TorchDataset):
     """
@@ -111,6 +122,10 @@ class ConversationDataset(TorchDataset):
     réponse de l'assistant (EOS compris) contribuent à la loss. Les tokens système,
     utilisateur et marqueurs de rôle sont masqués à -100 — sinon le modèle apprend à
     régénérer la question/le prompt au lieu de seulement répondre.
+
+    La mise en forme provient du gabarit du modèle de base (cf. `chat_format.encode_supervised`),
+    pas d'un format écrit en dur : c'est ce qui garantit que l'entraînement et le service
+    parlent la même langue.
     """
 
     def __init__(self, path, tokenizer, max_length=512):
@@ -141,45 +156,13 @@ class ConversationDataset(TorchDataset):
 
     @staticmethod
     def _encode(example, tokenizer):
-        """Tokenise tour par tour ; renvoie (input_ids, labels) avec prompt masqué."""
-        input_ids, labels = [], []
-        for msg in example.get("conversations", []):
-            role    = msg.get("role", "")
-            content = msg.get("content", "")
-            if role == "system":
-                seg, supervised = f"<|system|>\n{content}</s>\n", False
-            elif role == "user":
-                seg, supervised = f"<|user|>\n{content}</s>\n<|assistant|>\n", False
-            elif role == "assistant":
-                seg, supervised = f"{content}</s>\n", True
-            else:
-                continue
-            ids = tokenizer.encode(seg, add_special_tokens=False)
-            input_ids.extend(ids)
-            labels.extend(ids if supervised else [-100] * len(ids))
-        return input_ids, labels
+        """Applique le gabarit du modèle ; renvoie (input_ids, labels) avec prompt masqué."""
+        return encode_supervised(example.get("conversations", []), tokenizer)
 
     @staticmethod
     def _fit(input_ids, labels, max_length):
-        """
-        Tronque à max_length en **préservant la réponse de l'assistant** : on supprime
-        d'abord les tokens de prompt (non supervisés, labels == -100) en tête. Sinon une
-        séquence prompt+réponse trop longue perdait toute la réponse (exemple inutile).
-        """
-        if len(input_ids) <= max_length:
-            return input_ids, labels
-        overflow = len(input_ids) - max_length
-        lead = 0
-        while lead < len(labels) and labels[lead] == -100:
-            lead += 1
-        drop = min(overflow, lead)
-        input_ids = input_ids[drop:]
-        labels = labels[drop:]
-        if len(input_ids) > max_length:
-            # La réponse seule dépasse max_length → troncature à droite en dernier recours
-            input_ids = input_ids[:max_length]
-            labels = labels[:max_length]
-        return input_ids, labels
+        """Troncature préservant la réponse de l'assistant (cf. chat_format)."""
+        return fit_to_max_length(input_ids, labels, max_length)
 
     def __len__(self):
         return len(self.samples)
@@ -356,6 +339,16 @@ else:
         model.config.use_cache = False
         model.enable_input_require_grads()
 
+# Gabarit de conversation effectivement utilisé : le tracer explicitement évite le pire des
+# cas — un entraînement qui « réussit » sur une mise en forme que le service n'utilisera pas.
+if has_chat_template(tokenizer):
+    print("Gabarit de conversation : celui du tokenizer du modèle de base "
+          "(identique à celui appliqué au service par llama-server).")
+else:
+    print("AVERTISSEMENT : le tokenizer ne fournit aucun gabarit de conversation — repli sur "
+          "le format littéral <|system|>/<|user|>/<|assistant|>. Vérifiez que le modèle servi "
+          "utilise bien ce format, sinon entraînement et service divergeront.")
+
 # Préférence (DPO/ORPO) : dataset au format {prompt, chosen, rejected}, chargé plus bas.
 # Les deux sont mutuellement exclusifs ; ORPO a priorité si les deux sont demandés.
 PREFERENCE = args.dpo or args.orpo
@@ -408,6 +401,20 @@ if PREFERENCE:
         print("ERREUR: le fichier de préférence doit contenir des objets {prompt, chosen, rejected}. "
               "Passez dpo_pairs.jsonl (et non l'export SFT 'conversations').")
         sys.exit(1)
+
+    # Format « conversationnel » de TRL : prompt/chosen/rejected sont des LISTES de messages,
+    # et TRL applique lui-même le gabarit du modèle — donc la même mise en forme que le SFT et
+    # que le service. Le backend émet désormais ce format ; l'ancien format « texte brut »
+    # (prompt = système + question concaténés, sans aucun marqueur) enseignait au modèle une
+    # troisième convention, ni celle du SFT ni celle du service.
+    conversational = bool(pref_data) and isinstance(pref_data[0].get("prompt"), list)
+    if conversational and not has_chat_template(tokenizer):
+        # Sans gabarit côté tokenizer, TRL ne peut pas rendre le format conversationnel :
+        # on l'aplatit avec le MÊME repli littéral que le SFT, pour rester cohérents.
+        print("  Format conversationnel aplati via le gabarit de repli (tokenizer sans gabarit).")
+        pref_data = [flatten_preference_row(row, tokenizer) for row in pref_data]
+        conversational = False
+    print(f"  Format : {'conversationnel (gabarit du modèle)' if conversational else 'texte brut'}")
 
     try:
         from datasets import Dataset as HFDataset

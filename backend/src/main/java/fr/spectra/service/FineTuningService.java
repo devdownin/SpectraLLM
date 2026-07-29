@@ -408,8 +408,16 @@ public class FineTuningService {
     }
 
     /**
-     * Exporte les paires DPO ({@code {prompt, chosen, rejected}}) pour l'entraînement DPO.
-     * Sans cet export, le mode DPO recevait à tort le dataset SFT au format {@code conversations}.
+     * Exporte les paires DPO pour l'entraînement DPO/ORPO au <b>format conversationnel</b> de
+     * TRL : {@code prompt}, {@code chosen} et {@code rejected} sont des <i>listes de messages</i>
+     * {@code {role, content}}.
+     *
+     * <p>C'est ce format — et lui seul — qui fait appliquer par TRL le gabarit de conversation du
+     * modèle de base, donc <b>la même mise en forme que le SFT et que le service</b>. L'export
+     * précédent sérialisait le {@code DpoPair} tel quel : un {@code prompt} en texte brut
+     * (persona et question concaténées, sans aucun marqueur de rôle) auquel TRL n'applique aucun
+     * gabarit. La phase DPO optimisait ainsi sur une troisième convention, ni celle apprise en
+     * SFT ni celle servie en production.</p>
      */
     private ExportedDataset exportDpoDataset(Path dir) throws Exception {
         List<DpoPair> pairs = dpoGenerator.getAllPairs();
@@ -417,7 +425,7 @@ public class FineTuningService {
         Path file = dir.resolve("dataset.jsonl");
         try (BufferedWriter writer = Files.newBufferedWriter(file)) {
             for (DpoPair pair : pairs) {
-                writer.write(mapper.writeValueAsString(pair));
+                writer.write(mapper.writeValueAsString(toConversationalPair(pair)));
                 writer.newLine();
             }
         }
@@ -426,6 +434,37 @@ public class FineTuningService {
                 .filter(FineTuningService::isTraceableSource)
                 .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
         return new ExportedDataset(file, sources);
+    }
+
+    /**
+     * Convertit une paire de préférence en format conversationnel TRL.
+     *
+     * <p>Le {@code prompt} est reconstruit comme la conversation réellement servie : la persona
+     * en message système (même constante qu'en SFT et qu'au service — cf. {@link AssistantPersona})
+     * puis la question en message utilisateur. Les paires historiques dont le {@code prompt}
+     * embarque déjà la persona concaténée sont normalisées, sinon celle-ci apparaîtrait deux
+     * fois.</p>
+     *
+     * <p>Seules les trois clés attendues par TRL sont émises : les métadonnées
+     * ({@code category}, {@code source}) ne servent qu'à la traçabilité côté Spectra.</p>
+     */
+    static Map<String, Object> toConversationalPair(DpoPair pair) {
+        return Map.of(
+                "prompt", List.of(
+                        Map.of("role", "system", "content", AssistantPersona.SYSTEM_PROMPT),
+                        Map.of("role", "user", "content", stripPersonaPrefix(pair.prompt()))),
+                "chosen", List.of(Map.of("role", "assistant", "content", pair.chosen())),
+                "rejected", List.of(Map.of("role", "assistant", "content", pair.rejected())));
+    }
+
+    /** Retire la persona d'un prompt historique où elle était concaténée à la question. */
+    private static String stripPersonaPrefix(String prompt) {
+        if (prompt == null) return "";
+        String trimmed = prompt.strip();
+        if (trimmed.startsWith(AssistantPersona.SYSTEM_PROMPT)) {
+            return trimmed.substring(AssistantPersona.SYSTEM_PROMPT.length()).strip();
+        }
+        return trimmed;
     }
 
     /** Vrai si la provenance d'une paire pointe un document GED identifiable. */

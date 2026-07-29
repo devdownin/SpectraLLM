@@ -15,17 +15,18 @@
 > dans l'image `spectra-api`. D'autre part, quand il est joignable, il **entraîne sur un format
 > de conversation qui ne correspond qu'à un seul des quatre modèles de base du catalogue** — pas
 > celui configuré par défaut. Le fine-tuning est la fonctionnalité mise en avant comme
-> différenciateur dans le README ; à ce stade elle n'est vérifiable ni en déploiement, ni en
-> qualité de résultat.
+> différenciateur dans le README ; au moment de l'audit, elle n'était vérifiable ni en
+> déploiement, ni en qualité de résultat.
 >
-> Aucun test automatisé ne couvre le moteur d'entraînement : les deux seuls tests
-> (`FineTuningGedTraceTest`, `FineTuningSftExclusionTest`) portent sur des méthodes périphériques
-> de `FineTuningService`, et il n'existe aucun test Python pour `train_host.py`.
+> Aucun test automatisé ne couvrait le moteur d'entraînement au moment de l'audit : les deux
+> seuls tests (`FineTuningGedTraceTest`, `FineTuningSftExclusionTest`) portaient sur des méthodes
+> périphériques de `FineTuningService`, et il n'existait aucun test Python pour `train_host.py`.
 >
-> **Statut.** Les constats **F2, F4, F5, F6, F7, F9 et F11** sont **corrigés** dans la même série
-> de commits que ce rapport ; ils restent décrits ci-dessous pour la traçabilité, avec la
-> correction apportée. Restent **ouverts** : F1 (décision d'architecture), F3 et F8 (refonte de la
-> mise en forme des conversations), F10, F12, F13, F14 et la documentation désynchronisée (§6).
+> **Statut.** Les constats **F2, F3, F4, F5, F6, F7, F8, F9 et F11** sont **corrigés** dans la
+> même série de commits que ce rapport ; ils restent décrits ci-dessous pour la traçabilité, avec
+> la correction apportée. Restent **ouverts** : **F1** (décision d'architecture — c'est désormais
+> le seul blocage restant), F10, F12, F14, la part non couverte de F13 et la documentation
+> désynchronisée (§6).
 
 ---
 
@@ -100,11 +101,10 @@ lot « correctifs sans risque ».
 
 ## 2. Correction de l'entraînement
 
-### F3 — Le gabarit de conversation est codé en dur et ne correspond qu'à 1 modèle sur 4 — **critique**
+### F3 — Le gabarit de conversation est codé en dur et ne correspond qu'à 1 modèle sur 4 — **critique** — ✅ corrigé
 
-`train_host.py` construit les exemples avec un gabarit littéral, dans
-`ConversationDataset._encode` (depuis la correction de F4, c'est le seul point d'encodage :
-`PackedDataset` le réutilise au lieu de dupliquer le gabarit dans un `_format`) :
+`train_host.py` construisait les exemples avec un gabarit littéral, écrit dans
+`ConversationDataset._encode` et dupliqué dans `PackedDataset._format` :
 
 ```
 <|system|>\n{content}</s>\n
@@ -137,10 +137,30 @@ Les conséquences ne sont pas cosmétiques :
   modèle n'apprend aucune structure de dialogue exploitable au service, et l'EOS n'est jamais
   supervisé.
 
-Recommandation : remplacer le gabarit littéral par `tokenizer.apply_chat_template()`, et dériver
-le masque de supervision de la position réelle du segment assistant (par exemple en templatisant
-deux fois, avec et sans le dernier tour, et en supervisant le delta). C'est la seule construction
-qui reste correcte quand le modèle de base change — ce que le catalogue autorise explicitement.
+**Correction appliquée** : la mise en forme est extraite dans `scripts/chat_format.py` — module
+voisin importable sans torch, sur le modèle de `base_models.py` — et délègue à
+`tokenizer.apply_chat_template()`. Le masque de supervision est dérivé de la position réelle du
+segment assistant : pour chaque tour, la conversation est tokenisée deux fois, avec et sans ce
+tour (prompt de génération inclus), et le **préfixe commun** aux deux tokenisations marque la
+frontière prompt / réponse. Cette construction reste correcte quel que soit le gabarit — y
+compris à marqueurs fusionnés — et gère les dialogues multi-tours.
+
+Trois cas limites traités explicitement :
+
+- **Tokenizer sans gabarit** → repli sur le format littéral historique, avec un avertissement
+  imprimé au démarrage de l'entraînement (le silence était précisément le problème).
+- **Gabarit refusant le rôle système** (Mistral-Instruct lève une exception) → la persona est
+  fusionnée dans le premier tour utilisateur. Sans ce repli, un dataset qui commence toujours par
+  la persona serait intégralement inexploitable sur ce modèle.
+- **Rendu non incrémental** → le préfixe commun dégrade proprement au lieu de produire un
+  masque faux.
+
+Vérifié : sur un gabarit de style Phi-3, le segment supervisé est exactement
+`REPONSE<|end|>` — la réponse **et le terminateur de tour du modèle**. C'est le cœur du
+correctif : le modèle apprend enfin à émettre le jeton sur lequel llama-server s'arrête.
+
+Couvert par `scripts/tests/test_chat_format.py` (19 tests, sans GPU ni téléchargement de modèle),
+exécuté par un nouveau job CI `training-scripts`.
 
 ### F4 — Le mode packing désactive silencieusement le masquage du prompt — **critique** — ✅ corrigé
 
@@ -269,7 +289,7 @@ Deux défauts aggravants sur le même bloc :
 
 Couvert par `ArticleCommentAutoRetrainTest`.
 
-### F8 — Trois formats de prompt différents entre SFT, DPO et service — **élevé**
+### F8 — Trois formats de prompt différents entre SFT, DPO et service — **élevé** — ✅ corrigé
 
 | Étape | Format du prompt |
 |---|---|
@@ -281,9 +301,26 @@ TRL n'applique aucun gabarit à un `prompt` déjà sous forme de chaîne : la ph
 sur une mise en forme qui n'est **ni celle du SFT, ni celle du service**. Un enchaînement
 SFT → DPO sur le même adaptateur enseigne successivement deux conventions incompatibles.
 
-Recommandation : centraliser la mise en forme (une seule fonction, dérivée du tokenizer, partagée
-par la génération de dataset SFT, la génération DPO et l'entraînement) — c'est le même correctif
-de fond que F3.
+**Correction appliquée** : l'export de préférence passe au **format conversationnel de TRL** —
+`prompt`, `chosen` et `rejected` sont des listes de messages `{role, content}`. C'est ce format,
+et lui seul, qui fait appliquer par TRL le gabarit du modèle : la phase DPO/ORPO utilise donc
+désormais exactement la même mise en forme que le SFT et que le service.
+
+Concrètement :
+
+- `DpoGenerationService` ne concatène plus persona et question : le `prompt` d'une paire est la
+  **question seule**. La persona est réintroduite à l'export comme message système à part
+  entière — la même constante `AssistantPersona.SYSTEM_PROMPT` qu'en SFT et au service.
+- `FineTuningService.toConversationalPair` construit la ligne exportée et **normalise les paires
+  historiques** dont le prompt embarque la persona concaténée, sinon celle-ci apparaîtrait deux
+  fois. Seules les trois clés attendues par TRL sont émises ; `category` et `source` restent des
+  métadonnées internes.
+- `train_host.py` détecte le format. Si le tokenizer n'a pas de gabarit, TRL ne peut pas rendre le
+  conversationnel : la ligne est aplatie avec **le même repli littéral que le SFT**, de sorte que
+  les deux phases restent cohérentes entre elles dans tous les cas.
+
+Couvert par `FineTuningDpoExportFormatTest` et par les tests d'aplatissement de
+`test_chat_format.py`.
 
 ### F9 — Les meilleurs réglages de `train_host.py` sont inaccessibles depuis l'application — **élevé** — ✅ partiellement corrigé
 
@@ -474,26 +511,29 @@ attendu du couplage RAG + fine-tuning revendiqué par le produit.
 |---|---|---|---|---|
 | F1 | Script/Python absents de l'image `spectra-api` (fine-tuning inopérant en Docker) | Bloquant | Élevé — décision d'architecture | Ouvert |
 | F2 | `train.sh` sans bit exécutable | Bloquant | Trivial | ✅ corrigé |
-| F3 | Gabarit de conversation en dur, faux pour 3 bases sur 4 (dont le défaut `phi3`) | Critique | Moyen | Ouvert |
+| F3 | Gabarit de conversation en dur, faux pour 3 bases sur 4 (dont le défaut `phi3`) | Critique | Moyen | ✅ corrigé |
 | F4 | Le packing supprime le masquage du prompt | Critique | Faible | ✅ corrigé |
 | F7 | Ré-entraînement automatique branché sur le mauvais jeu de données, et jamais déployé | Élevé | Faible | ✅ corrigé |
-| F8 | Trois formats de prompt SFT / DPO / service | Élevé | Moyen (même correctif que F3) | Ouvert |
+| F8 | Trois formats de prompt SFT / DPO / service | Élevé | Moyen (même correctif que F3) | ✅ corrigé |
 | F9 | Pas de split de validation → aucun signal de sur-apprentissage | Élevé | Faible | ✅ `valSplit` livré |
 | F6 | `loraAlpha` figé à 128 quel que soit le rang | Moyen | Trivial | ✅ corrigé |
 | F5 | `--max-length` ignoré sur GPU | Moyen | Trivial | ✅ corrigé |
 | F11 | Dépendances non bornées, `torch`/`peft` manquants | Moyen | Trivial | ✅ corrigé |
 | F12 | Téléchargement non épinglé de `convert_hf_to_gguf.py` | Moyen | Faible | Ouvert |
-| F13 | Aucun test du moteur d'entraînement | Moyen | Moyen | Ouvert |
+| F13 | Aucun test du moteur d'entraînement | Moyen | Moyen | ⚠️ partiel (`chat_format` couvert, orchestration non) |
 | F14 | Distribution d'entraînement ≠ distribution de service | Moyen | Moyen (conception) | Ouvert |
 | F10 | Arguments positionnels fragiles | Faible | Faible | Ouvert |
 | §6 | Documentation décrivant un système différent du code | Faible | Faible | Ouvert |
 
-**Ordre suggéré.** F2, F4, F5, F6, F7, F9 et F11 sont faits. La suite est **F3/F8 ensemble**, en
-centralisant la mise en forme des conversations sur `tokenizer.apply_chat_template` — c'est le
-correctif qui débloque réellement `phi3`, `mistral` et `llama3`, et le seul qui rende cohérents
-SFT, DPO et service. Il demande les tests de F13 pour se verrouiller : le refactor supposera de
-rendre `train_host.py` importable (corps sous `if __name__ == "__main__"`), ce qui ouvre la porte
-à des tests unitaires sur les datasets sans GPU ni téléchargement de modèle. F1 en parallèle, car
-c'est une décision d'architecture, pas un correctif : tant qu'elle n'est pas prise, ajouter un
-contrôle de disponibilité au démarrage évite au moins que chaque job échoue silencieusement à
-mi-course.
+**Ordre suggéré.** Tous les constats de correction de l'entraînement sont traités (F3, F4, F5,
+F8, F9), ainsi que F2, F6, F7 et F11. **F1 est désormais le seul blocage restant** — et c'est une
+décision d'architecture, pas un correctif : tant qu'elle n'est pas prise, le fine-tuning reste
+inexécutable via `docker compose up`, quelle que soit la qualité du moteur. Ajouter un contrôle de
+disponibilité du script au démarrage éviterait au moins que chaque job échoue silencieusement à
+mi-course sur une `IOException`.
+
+Ensuite, par ordre de valeur : compléter F13 (l'orchestration `FineTuningService` — machine à
+états, verrou d'unicité, annulation — reste non testée), puis F12 (téléchargement non épinglé de
+`convert_hf_to_gguf.py`, en contradiction avec la promesse « 100 % local »), F14 (aligner une part
+du dataset SFT sur la forme réellement servie, persona + contexte), F10 et la mise à jour de la
+documentation (§6).
