@@ -8,6 +8,15 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Correctif — la classification automatique échouait systématiquement
+
+Deux causes indépendantes, toutes deux liées au déploiement par défaut.
+
+- **Dépassement de la fenêtre de contexte.** Le budget d'extrait était fixé à 6000 caractères, soit ~1700 tokens en français. Ajoutés au prompt (~350), à l'entête (~40) et à la réponse (~120), on demandait ~2220 tokens à une fenêtre de **2048** (`LLM_CONTEXT` par défaut, et plafond `n_ctx_train` du modèle fine-tuné). llama.cpp tronque alors le **début** de la requête — précisément les consignes « réponds uniquement en JSON » et la taxonomie — et le modèle répondait en prose. Le défaut passe à **3000 caractères** (~1370 tokens au total), et la contrainte est désormais documentée dans `application.yml` et les deux manuels : ce budget doit être relevé en même temps que `LLM_CONTEXT`, pas indépendamment.
+- **Modèle « reasoning ».** Le modèle de chat par défaut (`Phi-4-mini-reasoning`) expose sa réflexion avant de répondre. Ce préambule contient souvent des accolades — le format cité en exemple, un extrait du document — donc un premier objet JSON parfaitement équilibré qui n'est pas le verdict. Le parsing retirait déjà la prose autour du JSON mais retenait le **premier** objet rencontré. Il ignore maintenant les blocs `<think>` / `<thinking>` / `<reasoning>` / `<scratchpad>` (y compris non refermés, signe d'une génération coupée), énumère tous les objets JSON de premier niveau et retient **celui qui porte réellement la clé `categories`**.
+
+Le diagnostic reste distinct entre « aucun objet JSON » et « JSON présent mais invalide » : savoir si le modèle a au moins tenté le format oriente le réglage.
+
 ### GED — classification automatique des documents par le LLM (R8)
 
 Les documents ingérés n'étaient identifiables que par leur nom de fichier et des tags saisis à la main. Impossible, sur un fonds de plusieurs centaines de pièces, de savoir que la moitié parle de maintenance et que la réglementation n'est représentée que par trois documents — donc impossible de composer un corpus d'entraînement équilibré. La classification automatique attribue à chaque document les catégories qui caractérisent son contenu, et rend ainsi le corpus filtrable et mesurable.
