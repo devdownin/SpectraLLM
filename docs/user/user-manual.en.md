@@ -394,6 +394,31 @@ curl "http://localhost:8080/api/ged/documents?classified=false"
 3. Click **Initialize Pipeline**.
 4. Progress is displayed in real time: number of chunks processed, pairs generated.
 
+> **What `Max Chunks` samples.** If your documents are classified (step 1d), chunks are drawn **round-robin across categories** rather than from the head of the collection. A 20-chunk trial therefore covers the thematic range of your corpus instead of seeing only the first documents ingested. A category that runs out yields its quota to the others, so the requested budget is always met. Without classification, the behaviour stays a plain truncation.
+
+> **One taxonomy.** When a document is classified, the classification pair produced reuses its verdict instead of querying the LLM again: generation is about a third faster (one call in three saved) and a pair can no longer contradict its own document's record.
+
+#### Composing a balanced corpus
+
+`GET /api/dataset/stats` returns `byDocumentCategory` — the breakdown of pairs **by source theme**, not to be confused with `byCategory` which describes the nature of the pairs (q/a, summary, refusal):
+
+```bash
+curl http://localhost:8080/api/dataset/stats
+# → "byCategory":         {"qa": 210, "summary": 210, "negative": 70}
+#   "byDocumentCategory": {"maintenance": 380, "reglementation": 12, "(non classé)": 98}
+```
+
+Here regulation accounts for 12 pairs out of 490: the model will be weak on it. Two levers before launching the fine-tuning — ingest more documents on that theme, or set the dominant one aside:
+
+```bash
+# Excludes from SFT every pair coming from "contractuel" documents.
+# The filter looks at three fields of each pair: the source document's category,
+# the nature of the pair (qa, summary, negative) and its type (refusal, summarization…).
+SPECTRA_SFT_EXCLUDED_CATEGORIES=contractuel
+```
+
+A document that is not classified is never excluded by this filter: nothing would justify asserting it belongs to the excluded theme.
+
 #### Via the API
 
 ```bash
@@ -1045,6 +1070,37 @@ SPECTRA_EVALUATION_JUDGE_MODEL=phi-4-mini
 Evaluation then happens in two phases: generating all answers with the evaluated model, then scoring with the judge (a single model switch, to avoid reloading the server for every pair).
 
 > **Interpreting the scores:** a score ≥ 7 means the model answers correctly and precisely. A score between 4 and 6 suggests partial or too-vague answers. Below 4, the model hallucinates or is off-topic. **Do not promote a gap marked `ns`**: widen the test set (`testSetSize`) or decide with an A/B head-to-head.
+
+#### Diagnosis by theme — where is the model weak?
+
+An overall score of 8.1 does not tell you whether it covers 9.2 on procedures and 5.4 on regulation. If your documents are classified (step 1d), the report carries two **orthogonal** breakdowns:
+
+| Field | Breaks down by | Answers |
+|---|---|---|
+| `scoresByCategory` | nature of the exercise (q/a, summary, refusal) | "on which *kind* of task?" |
+| `scoresByDocumentCategory` | theme of the source document | "on which *subject*?" |
+
+```bash
+curl http://localhost:8080/api/evaluation/eval-123
+# → "averageScore": 8.1,
+#   "scoresByCategory":         {"qa": 8.4, "summary": 8.0, "negative": 7.6}
+#   "scoresByDocumentCategory": {"procedures": 9.2, "maintenance": 8.5, "reglementation": 5.4}
+```
+
+Regulation at 5.4 is not primarily a weakness of the model: it reflects the 12 regulatory pairs out of 490 seen at step 2. The diagnosis therefore points to an action on the **corpus** — ingest more documents on that theme — before any hyperparameter tweak. In the interface, the **Score by document theme** panel sorts weakest first and flags in red any theme below 6/10.
+
+**When comparing models**, `deltaByDocumentCategory` tells you whether a retrain gained *where you expected it to*:
+
+```bash
+curl "http://localhost:8080/api/evaluation/compare?evalIds=base,tuned&baseline=base"
+# → "deltaByDocumentCategory": {"procedures": +3.0, "reglementation": -2.0}
+```
+
+Here the model gains on average but **regresses on the very theme it targeted** — invisible from the overall score alone. Themes present on only one side are dropped from the calculation: that would be a false gain, reflecting a difference in test set rather than real progress.
+
+> Pairs from unclassified documents are **excluded** from this breakdown (not grouped under "unclassified": a catch-all aggregate is not a valid comparison point between themes). On an unclassified corpus the breakdown is simply empty and the rest of the report is unchanged.
+
+> The **quality benchmark** (`/api/quality-benchmark`) keeps its own categories, drawn from a curated test set held apart from the corpus. That is deliberate: its value comes precisely from being independent of the ingested documents.
 
 ---
 

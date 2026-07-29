@@ -56,11 +56,19 @@ public class DatasetExportService {
 
         Map<String, Integer> byCategory = new HashMap<>();
         Map<String, Integer> byType = new HashMap<>();
+        Map<String, Integer> byDocumentCategory = new HashMap<>();
         double totalConfidence = 0;
 
         for (TrainingPair pair : pairs) {
             byCategory.merge(pair.metadata().category(), 1, Integer::sum);
             byType.merge(pair.metadata().type(), 1, Integer::sum);
+            // R8 — les paires antérieures à la classification n'ont pas de catégorie
+            // documentaire ; elles sont regroupées plutôt qu'ignorées, sans quoi le total
+            // de cette répartition ne correspondrait pas au nombre de paires.
+            String docCategory = pair.metadata().documentCategory();
+            byDocumentCategory.merge(
+                    docCategory != null ? docCategory : DatasetGeneratorService.UNCLASSIFIED_BUCKET,
+                    1, Integer::sum);
             totalConfidence += pair.metadata().confidence();
         }
 
@@ -77,6 +85,7 @@ public class DatasetExportService {
                 chunksInStore,
                 byCategory,
                 byType,
+                byDocumentCategory,
                 pairs.isEmpty() ? 0 : totalConfidence / pairs.size()
         );
     }

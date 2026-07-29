@@ -394,6 +394,31 @@ curl "http://localhost:8080/api/ged/documents?classified=false"
 3. Cliquez sur **Initialize Pipeline**.
 4. La progression s'affiche en temps réel : nombre de chunks traités, paires générées.
 
+> **Ce que `Max Chunks` échantillonne.** Si vos documents sont classifiés (étape 1d), les chunks sont prélevés **en tourniquet entre les catégories** plutôt qu'en tête de collection. Un essai à 20 chunks couvre donc l'éventail thématique du fonds, au lieu de ne voir que les premiers documents ingérés. Une catégorie qui s'épuise cède son quota aux autres : le budget demandé est toujours atteint. Sans classification, le comportement reste un simple troncage.
+
+> **Une seule taxonomie.** Quand un document est classifié, la paire de classification produite reprend son verdict au lieu d'interroger à nouveau le LLM : la génération est plus rapide d'environ un tiers (un appel sur trois économisé) et une paire ne peut plus contredire la fiche de son document.
+
+#### Composer un corpus équilibré
+
+`GET /api/dataset/stats` renvoie `byDocumentCategory` — la répartition des paires **par thème d'origine**, à ne pas confondre avec `byCategory` qui décrit la nature des paires (q/r, résumé, refus) :
+
+```bash
+curl http://localhost:8080/api/dataset/stats
+# → "byCategory":         {"qa": 210, "summary": 210, "negative": 70}
+#   "byDocumentCategory": {"maintenance": 380, "reglementation": 12, "(non classé)": 98}
+```
+
+Ici la réglementation pèse 12 paires sur 490 : le modèle sera faible dessus. Deux leviers avant de lancer le fine-tuning — ingérer davantage de documents de ce thème, ou écarter le thème dominant :
+
+```bash
+# Exclut du SFT toutes les paires issues de documents « contractuel ».
+# Le filtre porte sur trois champs de chaque paire : la catégorie du document source,
+# la nature de la paire (qa, summary, negative) et son type (refusal, summarization…).
+SPECTRA_SFT_EXCLUDED_CATEGORIES=contractuel
+```
+
+Un document non classifié n'est jamais écarté par ce filtre : rien ne permettrait d'affirmer qu'il relève du thème exclu.
+
 #### Via l'API
 
 ```bash
@@ -1116,6 +1141,37 @@ SPECTRA_EVALUATION_JUDGE_MODEL=phi-4-mini
 L'évaluation se fait alors en deux temps : génération de toutes les réponses avec le modèle évalué, puis notation avec le juge (un seul changement de modèle, pour ne pas recharger le serveur à chaque paire).
 
 > **Interprétation des scores :** un score ≥ 7 indique que le modèle répond correctement et précisément. Un score entre 4 et 6 suggère des réponses partielles ou trop vagues. En dessous de 4, le modèle hallucine ou est hors-sujet. **Ne promouvez pas un écart marqué `ns`** : élargissez le jeu de test (`testSetSize`) ou tranchez par un A/B head-to-head.
+
+#### Diagnostic par thème — où le modèle est-il faible ?
+
+Un score global de 8,1 ne dit pas s'il recouvre 9,2 sur les procédures et 5,4 sur la réglementation. Si vos documents sont classifiés (étape 1d), le rapport porte deux ventilations **orthogonales** :
+
+| Champ | Ventile par | Répond à |
+|---|---|---|
+| `scoresByCategory` | nature de l'exercice (q/r, résumé, refus) | « sur quel *type* de tâche ? » |
+| `scoresByDocumentCategory` | thème du document d'origine | « sur quel *sujet* ? » |
+
+```bash
+curl http://localhost:8080/api/evaluation/eval-123
+# → "averageScore": 8.1,
+#   "scoresByCategory":         {"qa": 8.4, "summary": 8.0, "negative": 7.6}
+#   "scoresByDocumentCategory": {"procedures": 9.2, "maintenance": 8.5, "reglementation": 5.4}
+```
+
+La réglementation à 5,4 n'est pas d'abord une faiblesse du modèle : c'est le reflet des 12 paires réglementaires sur 490 vues à l'étape 2. Le diagnostic renvoie donc à une action sur le **corpus** — ingérer plus de documents de ce thème — avant toute retouche des hyperparamètres. Dans l'interface, le panneau **Score par thème de document** trie du plus faible au plus fort, et signale en rouge tout thème sous 6/10.
+
+**En comparaison de modèles**, `deltaByDocumentCategory` dit si un ré-entraînement a progressé *là où on l'attendait* :
+
+```bash
+curl "http://localhost:8080/api/evaluation/compare?evalIds=base,tuned&baseline=base"
+# → "deltaByDocumentCategory": {"procedures": +3.0, "reglementation": -2.0}
+```
+
+Ici le modèle gagne en moyenne, mais **régresse sur le thème visé** — invisible sur le seul score global. Les thèmes présents d'un seul côté sont écartés du calcul : ce serait un faux gain, reflet d'une différence de jeu de test plutôt que d'une progression réelle.
+
+> Les paires issues de documents non classifiés sont **exclues** de cette ventilation (et non regroupées sous « non classé » : un agrégat fourre-tout n'est pas un point de comparaison valable entre thèmes). Sur un corpus non classifié, la ventilation est simplement vide et le reste du rapport est inchangé.
+
+> Le **benchmark qualité** (`/api/quality-benchmark`) garde ses propres catégories, issues d'un jeu de test curé et tenu à l'écart du corpus. C'est délibéré : sa valeur vient précisément de son indépendance vis-à-vis des documents ingérés.
 
 ---
 

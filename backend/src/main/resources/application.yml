@@ -170,12 +170,15 @@ spectra:
     # HuggingFace complet (« org/nom »). NB : un GGUF du registre local n'est pas
     # ré-entraînable, seuls des poids HuggingFace le sont.
     default-base-model: ${SPECTRA_FINE_TUNING_DEFAULT_BASE_MODEL:phi3}
-    # Catégories/types exclus du SFT (séparés par des virgules ; comparés à 'category' ET 'type').
+    # Catégories/types exclus du SFT (séparés par des virgules). Comparés à trois champs de
+    # chaque paire : 'category' (nature de la paire), 'type', et 'documentCategory' (catégorie
+    # du document source attribuée par le classifieur R8) — ce dernier permet d'écarter tout
+    # un thème du corpus sans raisonner sur la nature des paires produites.
     # Stratégie « fine-tuning vs RAG » : le fine-tuning encode mal les faits volatils et vieillit ;
     # laissez les faits changeants au RAG et réservez le SFT au style/format/procédure.
     # Exemple recommandé pour des faits volatils : "evenements,nomenclatures".
     # Vide = aucune exclusion (comportement par défaut).
-    sft-excluded-categories: ""
+    sft-excluded-categories: ${SPECTRA_SFT_EXCLUDED_CATEGORIES:}
   benchmark:
     # Fichier JSONL du benchmark qualité tenu à l'écart. Vide = ressource embarquée
     # (benchmarks/highway_benchmark.jsonl). À pointer vers un fichier curé pour votre corpus.

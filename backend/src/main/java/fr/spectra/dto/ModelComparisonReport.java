@@ -19,8 +19,13 @@ import java.util.Map;
 public record ModelComparisonReport(
         /** Nom du modèle de référence servant de base aux deltas. */
         String baselineModel,
-        /** Union ordonnée des catégories présentes dans les modèles comparés. */
+        /** Union ordonnée des catégories (nature d'exercice) présentes dans les modèles comparés. */
         List<String> categories,
+        /**
+         * Union ordonnée des catégories de documents (R8) rencontrées. Vide tant qu'aucune
+         * évaluation comparée ne porte sur des documents classifiés.
+         */
+        List<String> documentCategories,
         /** Une entrée par modèle comparé, classées par score décroissant. */
         List<ModelComparisonEntry> models
 ) {
@@ -33,6 +38,8 @@ public record ModelComparisonReport(
             int processed,
             double averageScore,
             Map<String, Double> scoresByCategory,
+            /** Score moyen par catégorie de document (R8). */
+            Map<String, Double> scoresByDocumentCategory,
             Instant completedAt,
             /** Latence moyenne de génération par réponse (ms). */
             double avgLatencyMs,
@@ -53,6 +60,12 @@ public record ModelComparisonReport(
             /** Vrai si l'écart vs la baseline est statistiquement significatif (≈ 95 %). */
             boolean significantVsBaseline,
             /** Écart de score par catégorie vs la baseline (catégories communes uniquement). */
-            Map<String, Double> deltaByCategory
+            Map<String, Double> deltaByCategory,
+            /**
+             * Écart de score par catégorie de document vs la baseline (R8). C'est la lecture
+             * qui dit si un ré-entraînement a progressé sur le thème visé — ou s'il a gagné
+             * ailleurs en régressant justement là où on l'attendait.
+             */
+            Map<String, Double> deltaByDocumentCategory
     ) {}
 }

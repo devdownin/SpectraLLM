@@ -28,6 +28,9 @@ export interface DatasetStats {
   totalPairs: number;
   chunksInStore: number;
   byCategory: Record<string, number>;
+  /** R8 — répartition des paires par catégorie du document source ; révèle un thème
+   *  sur- ou sous-représenté dans le corpus d'entraînement. */
+  byDocumentCategory?: Record<string, number>;
   avgConfidence: number;
 }
 
@@ -156,6 +159,8 @@ export interface EvaluationScore {
   score: number;
   justification: string;
   category: string;
+  /** R8 — catégorie du document dont la paire est issue (null si non classifié). */
+  documentCategory?: string | null;
   source: string;
 }
 
@@ -168,6 +173,9 @@ export interface EvaluationReport {
   processed: number;
   averageScore: number;
   scoresByCategory: Record<string, number>;
+  /** R8 — score moyen par catégorie de document : le diagnostic thématique. Absent des
+   *  rapports antérieurs à la classification. */
+  scoresByDocumentCategory?: Record<string, number>;
   scores: EvaluationScore[];
   avgLatencyMs: number;
   avgTokensPerSec: number;
@@ -186,6 +194,7 @@ export interface ModelComparisonEntry {
   processed: number;
   averageScore: number;
   scoresByCategory: Record<string, number>;
+  scoresByDocumentCategory?: Record<string, number>;
   completedAt: string | null;
   avgLatencyMs: number;
   avgTokensPerSec: number;
@@ -197,11 +206,16 @@ export interface ModelComparisonEntry {
   deltaVsBaseline: number;
   significantVsBaseline: boolean;
   deltaByCategory: Record<string, number>;
+  /** R8 — écart par thème vs la baseline : dit si le ré-entraînement a progressé là où
+   *  on l'attendait. */
+  deltaByDocumentCategory?: Record<string, number>;
 }
 
 export interface ModelComparisonReport {
   baselineModel: string;
   categories: string[];
+  /** R8 — union des catégories de documents rencontrées (vide sans classification). */
+  documentCategories?: string[];
   models: ModelComparisonEntry[];
 }
 
