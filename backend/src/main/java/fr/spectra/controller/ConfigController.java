@@ -1,6 +1,7 @@
 package fr.spectra.controller;
 
 import fr.spectra.dto.ResourceProfile;
+import fr.spectra.service.ActiveModelProfileService;
 import fr.spectra.service.EmbeddingConsistencyChecker;
 import fr.spectra.service.EmbeddingReindexService;
 import fr.spectra.service.LlmChatClient;
@@ -30,18 +31,21 @@ public class ConfigController {
     private final EmbeddingReindexService embeddingReindexService;
     private final RuntimeParamsMaterializer runtimeParamsMaterializer;
     private final RagService ragService;
+    private final ActiveModelProfileService activeModelProfile;
 
     public ConfigController(LlmChatClient chatClient, ResourceAdvisorService resourceAdvisor,
                             EmbeddingConsistencyChecker embeddingConsistencyChecker,
                             EmbeddingReindexService embeddingReindexService,
                             RuntimeParamsMaterializer runtimeParamsMaterializer,
-                            RagService ragService) {
+                            RagService ragService,
+                            ActiveModelProfileService activeModelProfile) {
         this.chatClient = chatClient;
         this.resourceAdvisor = resourceAdvisor;
         this.embeddingConsistencyChecker = embeddingConsistencyChecker;
         this.embeddingReindexService = embeddingReindexService;
         this.runtimeParamsMaterializer = runtimeParamsMaterializer;
         this.ragService = ragService;
+        this.activeModelProfile = activeModelProfile;
     }
 
     @Operation(
@@ -57,10 +61,26 @@ public class ConfigController {
         return ResponseEntity.ok(Map.of("modules", ragService.moduleAvailability()));
     }
 
-    @Operation(summary = "Retourne le modèle LLM actif")
+    @Operation(
+            summary = "Retourne le modèle LLM actif et son profil d'inférence effectif",
+            description = "En plus de l'alias actif ('model'), expose ce que le RAG applique "
+                    + "réellement pour ce modèle : 'systemPrompt' (la persona servie — celle "
+                    + "enregistrée avec le modèle, ou la persona canonique Spectra à défaut) et "
+                    + "'parameters' (température et top-P effectifs, issus des paramètres "
+                    + "enregistrés ou des défauts Spectra). Une valeur explicitement portée par "
+                    + "une requête reste prioritaire sur ces paramètres."
+    )
     @GetMapping("/model")
-    public ResponseEntity<Map<String, String>> getModel() {
-        return ResponseEntity.ok(Map.of("model", chatClient.getActiveModel()));
+    public ResponseEntity<Map<String, Object>> getModel() {
+        ActiveModelProfileService.ModelProfile profile = activeModelProfile.current();
+        return ResponseEntity.ok(Map.of(
+                "model", chatClient.getActiveModel(),
+                "systemPrompt", profile.personaOrDefault(),
+                "personaSource", profile.persona() != null ? "model" : "spectra-default",
+                "parameters", Map.of(
+                        "temperature", profile.resolveTemperature(null),
+                        "topP", profile.resolveTopP(null))
+        ));
     }
 
     @Operation(summary = "Liste les modèles de chat enregistrés (registre local)")

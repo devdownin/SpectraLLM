@@ -8,70 +8,15 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
-### Correctif — la classification automatique échouait systématiquement
+### RAG — la personnalisation enregistrée avec un modèle pilote enfin la génération
 
-Deux causes indépendantes, toutes deux liées au déploiement par défaut.
+Le registre persiste depuis toujours une persona (`systemPrompt`) et des paramètres (`parameters`) par modèle — enregistrés par le fine-tuning, llmfit ou `POST /api/fine-tuning/models/register`. Ces champs n'étaient toutefois que de la **traçabilité** : le RAG servait une persona figée dans le code et une température issue d'un défaut du DTO. Un modèle personnalisé était donc interrogé sous une identité et des réglages qui n'étaient pas les siens.
 
-- **Dépassement de la fenêtre de contexte.** Le budget d'extrait était fixé à 6000 caractères, soit ~1700 tokens en français. Ajoutés au prompt (~350), à l'entête (~40) et à la réponse (~120), on demandait ~2220 tokens à une fenêtre de **2048** (`LLM_CONTEXT` par défaut, et plafond `n_ctx_train` du modèle fine-tuné). llama.cpp tronque alors le **début** de la requête — précisément les consignes « réponds uniquement en JSON » et la taxonomie — et le modèle répondait en prose. Le défaut passe à **3000 caractères** (~1370 tokens au total), et la contrainte est désormais documentée dans `application.yml` et les deux manuels : ce budget doit être relevé en même temps que `LLM_CONTEXT`, pas indépendamment.
-- **Modèle « reasoning ».** Le modèle de chat par défaut (`Phi-4-mini-reasoning`) expose sa réflexion avant de répondre. Ce préambule contient souvent des accolades — le format cité en exemple, un extrait du document — donc un premier objet JSON parfaitement équilibré qui n'est pas le verdict. Le parsing retirait déjà la prose autour du JSON mais retenait le **premier** objet rencontré. Il ignore maintenant les blocs `<think>` / `<thinking>` / `<reasoning>` / `<scratchpad>` (y compris non refermés, signe d'une génération coupée), énumère tous les objets JSON de premier niveau et retient **celui qui porte réellement la clé `categories`**.
+- **Persona du modèle actif appliquée.** Le prompt système RAG est désormais composé à la génération : persona du modèle actif, puis consignes de citation, puis contexte. Un modèle sans `systemPrompt` enregistré conserve la persona canonique Spectra (`AssistantPersona`) — et les modèles issus du fine-tuning enregistrent précisément cette persona, donc la cohérence entraînement ↔ service est préservée. Les consignes de citation et le bloc de contexte ne sont **jamais** remplacés : le RAG continue de citer ses sources quelle que soit la persona. S'applique aux chemins standard, direct, Self-RAG et streaming.
+- **Paramètres du modèle actif appliqués.** `temperature` et `top_p` (ou `topP`) lus dans les `parameters` du registre servent de défauts de génération. Précédence : **valeur explicite de la requête > paramètres du modèle > défauts Spectra (0.7 / 0.9)** — les curseurs du Playground et les harnais d'ablation restent donc souverains. Les clés non numériques de la carte (`jobId`, `baseModel`…) sont ignorées.
+- **`GET /api/config/model` expose le profil effectif.** En plus de l'alias actif, la réponse porte `systemPrompt` (la persona réellement servie), `personaSource` (`model` ou `spectra-default`) et `parameters` (température et top-P effectifs) — la personnalisation devient vérifiable via l'API. Ajout rétro-compatible : le champ `model` est inchangé.
 
-Le diagnostic reste distinct entre « aucun objet JSON » et « JSON présent mais invalide » : savoir si le modèle a au moins tenté le format oriente le réglage.
-
-### GED — classification automatique des documents par le LLM (R8)
-
-Les documents ingérés n'étaient identifiables que par leur nom de fichier et des tags saisis à la main. Impossible, sur un fonds de plusieurs centaines de pièces, de savoir que la moitié parle de maintenance et que la réglementation n'est représentée que par trois documents — donc impossible de composer un corpus d'entraînement équilibré. La classification automatique attribue à chaque document les catégories qui caractérisent son contenu, et rend ainsi le corpus filtrable et mesurable.
-
-- **Le modèle classe ses propres documents** : pour chaque document, le service échantillonne des extraits **répartis sur toute sa longueur** (les premiers chunks sont souvent une page de garde, qui caractérise mal le fond), les soumet au LLM actif avec un prompt d'étiquetage strict, et parse sa réponse JSON. Le modèle utilisé est celui que Spectra vient d'entraîner sur ce même corpus : un modèle spécialisé du domaine étiquette mieux les documents du domaine qu'un classifieur générique. Le nom du modèle est conservé (`classifierModel`), de sorte qu'une reclassification après un nouveau fine-tuning reste traçable et comparable.
-- **Taxonomie configurable** (`spectra.classification.taxonomy`) : les catégories proposées par le modèle sont canonisées (casse, accents et ponctuation ignorés — « Procédures » désigne bien `procedures`), filtrées par un seuil de confiance, dédoublonnées et plafonnées. En mode fermé (défaut), toute étiquette hors taxonomie est écartée ; `open-taxonomy: true` laisse le modèle proposer ses propres catégories, utile pour découvrir la nomenclature d'un fonds inconnu. Les quatre catégories par défaut sont celles du générateur de dataset, pour que filtrage et génération parlent le même vocabulaire.
-- **Parsing tolérant** : les modèles locaux de petite taille encadrent volontiers leur JSON d'un bloc ```` ```json ````, d'une phrase d'introduction, ou rendent un tableau de chaînes sans confiance. Ces formes sont acceptées ; l'extraction s'arrête à la **première accolade équilibrée** plutôt qu'au dernier `}` du texte, sans quoi la prose qui suit cassait le parsing.
-- **API** : `POST /api/ged/documents/{sha256}/classify` (avec `force` pour reclassifier), `POST /api/ged/documents/bulk/classify` (corps vide = tous les documents non classifiés, exécuté en tâche de fond avec progression et annulation), `GET /api/ged/classification` (taxonomie et modèle actif), `GET|DELETE /api/ged/classification/tasks/{taskId}`.
-- **Filtrage et pilotage du corpus** : `GET /api/ged/documents` accepte `category` et `classified` ; `GET /api/ged/stats` renvoie la couverture de classification et le top des catégories — la lecture utile pour repérer un thème sous-représenté avant de générer un dataset. Les catégories figurent aussi dans le manifest d'archivage.
-- **Déclenchement** : à la demande, par lot, ou automatiquement à la fin de chaque ingestion (`auto-classify`, désactivé par défaut — un import massif enchaînerait autant d'appels LLM que de fichiers). Une ré-ingestion reclassifie d'office : le contenu a changé, l'ancienne classification ne le décrit plus. Le déclenchement est best-effort : une ingestion réussie n'est jamais mise en échec parce que le LLM était indisponible au moment de l'étiquetage.
-- **UI Documents** : catégories affichées sur chaque ligne (visuellement distinctes des tags manuels) et dans la fiche document avec leur confiance et le résumé généré, filtre par catégorie et « non classifiés », classification d'un document ou d'une sélection, barre de progression du lot en cours.
-- **Les catégories ne remplacent pas les tags** : une reclassification n'écrase jamais l'annotation humaine. Les deux coexistent, et l'écart entre elles mesure la qualité du classifieur.
-
-### Évaluation — diagnostic thématique par catégorie de document
-
-Dernier maillon de la boucle ouverte par la classification : mesurer *où* le modèle est faible, et non plus seulement *combien* il vaut.
-
-- **`scoresByDocumentCategory` sur chaque rapport d'évaluation** : un score global de 8,1 ne dit pas s'il recouvre 9,2 sur les procédures et 5,4 sur la réglementation. La ventilation par thème le dit — et renvoie directement au levier livré juste avant : rééquilibrer le corpus, réentraîner, remesurer. À ne pas confondre avec `scoresByCategory`, qui existait déjà et ventile par **nature d'exercice** (q/r, résumé, refus) : les deux dimensions sont orthogonales et désormais toutes deux exposées.
-- **`deltaByDocumentCategory` dans la comparaison de modèles** : dit si un ré-entraînement a progressé *là où on l'attendait*. Un modèle peut gagner en moyenne tout en régressant sur le thème visé — invisible jusqu'ici. Les thèmes présents d'un seul côté sont écartés du calcul : ce serait un faux gain, reflet d'une différence de jeu de test et non d'une progression.
-- **Paires sans catégorie documentaire écartées** de la ventilation plutôt que regroupées sous « non classé » : cet agrégat fourre-tout n'a pas de sens comme point de comparaison entre thèmes. La ventilation est donc simplement vide sur un corpus non classifié, sans rien casser du rapport.
-- **UI Comparison** : nouveau panneau « Score par thème de document », trié du plus faible au plus fort (c'est le point bas qui appelle une action) et signalé en rouge sous 6/10.
-- Le **benchmark qualité** (`/api/quality-benchmark`) est délibérément laissé inchangé : ses catégories viennent d'un jeu de test curé et tenu à l'écart du corpus, et doivent le rester pour garder sa valeur de juge indépendant.
-
-### Dataset — échantillonnage stratifié par catégorie et corpus d'entraînement pilotable
-
-Suite directe de la classification automatique : les catégories cessent d'être un attribut d'affichage pour devenir un levier sur la qualité du modèle.
-
-- **Échantillonnage stratifié (correction d'un biais)** : la limitation `maxChunks` de la génération de dataset était un `subList(0, maxChunks)` — elle prenait les N **premiers** chunks de la collection, c'est-à-dire les tout premiers documents ingérés. Un « essai rapide » à 20 chunks entraînait donc le modèle sur un ou deux documents, et même une génération partielle sur un gros corpus restait concentrée sur son début. Les chunks sont désormais prélevés en tourniquet entre les catégories : une catégorie qui s'épuise cède son quota aux autres, donc le budget demandé est toujours atteint, et l'ordre d'origine est préservé (génération déterministe). Sans classification, le comportement retombe sur une strate unique — identique à l'ancien.
-- **Un seul système de catégories** : la génération demandait au LLM de classer *chaque chunk*, avec sa propre liste de quatre catégories codées en dur, indépendante de la taxonomie configurable. Le verdict du classifieur documentaire est maintenant réutilisé quand il existe — ce qui **supprime un appel LLM sur trois** par chunk et évite qu'une paire contredise la fiche de son document. Le repli (document non classifié) interroge toujours le LLM, mais sur la taxonomie configurée.
-- **`documentCategory` sur chaque paire d'entraînement** : distincte de `category` (qui décrit la nature de la paire — qa, summary, negative), elle dit de quel thème vient la paire. Les paires antérieures n'en ont pas et restent lisibles.
-- **Exclusion thématique du fine-tuning** : `spectra.fine-tuning.sft-excluded-categories` filtre désormais aussi sur `documentCategory`. « N'entraîne pas sur le contractuel » devient une décision au niveau du fonds documentaire, sans avoir à raisonner sur la nature de chaque paire produite. Un document non classifié n'est jamais exclu par ce biais — rien ne permettrait de l'affirmer.
-- **Composition visible** : `GET /api/dataset/stats` renvoie `byDocumentCategory`, affiché sur le Dashboard à côté de la répartition par nature de paire. Le déséquilibre d'un corpus se lit avant le fine-tuning, plus après.
-- Remplacement d'un octet NUL brut par son échappement `\0` dans le calcul de clé de déduplication : le fichier source était classé « binaire » par git et les outils de recherche. Aucun changement de comportement.
-
-### Pipeline CLI — authentification API, succès partiel et essai rapide (`pipeline.sh` / `pipeline.bat`)
-
-- **Authentification API prise en charge** : le pipeline complet (ingestion → dataset → fine-tuning) lit `SPECTRA_API_KEY` (environnement ou `.env`) et l'envoie en `X-API-Key` sur **tous** les appels `/api/**`. Sans cela, dès que l'authentification était activée, chaque étape recevait un **401** (seul `/actuator` est exempté). Portable jusqu'à bash 3.2 (macOS) via une expansion de tableau sûre sous `set -u`.
-- **Succès partiel d'ingestion visible** : une tâche terminée avec des `fileErrors` n'est plus traitée comme un succès plein — le pipeline liste les fichiers en échec et continue (les autres sont vectorisés), et échoue proprement si 0 chunk n'a été produit ou si la tâche est `CANCELLED`.
-- **`MAX_CHUNKS`** : plafonne les chunks utilisés pour la génération du dataset (`0` = tout le corpus) — pour un essai rapide.
-- **`pipeline.bat` (Windows)** : mêmes correctifs, plus la correction d'un prérequis erroné — il vérifiait `data\fine-tuning\merged\model.gguf` (un modèle déjà fine-tuné, absent au premier lancement) au lieu du modèle de chat `data\models\<LLM_CHAT_MODEL_FILE>` chargé par la stack (comme `pipeline.sh`).
-- **Contre-pression respectée (HTTP 429)** : la soumission d'ingestion de `pipeline.sh` respecte désormais l'en-tête `Retry-After` d'un `429` (plafond `max-active-ingestions`) et réessaie jusqu'à `INGEST_MAX_RETRIES` fois (défaut 5) au lieu d'abandonner.
-
-### CI — lint statique des scripts shell (shellcheck)
-
-- Nouveau workflow **Shellcheck** : lint de `scripts/*.sh` au niveau `error` (vrais bugs, sans le bruit des avertissements de style pré-existants ; seuil resserrable à `warning` plus tard). Correction d'une directive `# shellcheck disable` malformée dans `llm-chat-entrypoint.sh` (un tiret cadratin après le code produisait SC1125) ; tous les scripts sont propres au niveau `error`.
-
-### Documentation — guide pédagogique en anglais
-
-- **Guide des idées et des algorithmes en anglais** ([documentation-pedagogique.en.md](docs/user/documentation-pedagogique.en.md)) : traduction complète (~1660 lignes) du guide « du document brut à l'expertise métier » — embeddings, HNSW, ingestion (dont Kafka/upsert), recherche hybride + RRF, re-ranking, six stratégies RAG, jeu de données & QLoRA/DPO/ORPO, évaluation (juge neutre, significativité, A/B), auto-réglage & dimensionnement, résilience, souveraineté/sécurité, déploiement, comparatif des algorithmes, glossaire. Blocs de code, formules mathématiques, diagrammes Mermaid et ancres préservés (18/18 sections, 60/60 blocs de code) ; les deux versions se renvoient l'une à l'autre et le hub docs / les README pointent la version EN.
-
-## [1.14.0] — 2026-07-21
-
-> Publiée comme release **[v0.7.1](https://github.com/devdownin/SpectraLLM/releases/tag/v0.7.1)**
-> (point release au-dessus de v0.7). Notes curées :
-> [`.github/release-notes/v0.7.1.md`](.github/release-notes/v0.7.1.md).
+Note technique : `QueryRequest.temperature`/`topP` ne sont plus défaultés dans le DTO (un `null` doit rester distinguable d'une valeur explicite, sans quoi les paramètres du modèle seraient toujours masqués) ; ils sont arbitrés à l'entrée du pipeline puis figés sur la requête propagée, de sorte que le reste de la chaîne les lit toujours non nuls. Nouveau bean `ActiveModelProfileService`.
 
 ### Perf — Playground découpé en chunks chargés à la demande
 

@@ -77,7 +77,19 @@ class RagServiceRetrievalTest {
                 Optional.empty(), hybrid, Optional.empty(),
                 Optional.empty(), corrective, Optional.empty(),
                 Optional.empty(), Optional.empty(), multiQuery,
-                props, new ObjectMapper(), new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
+                defaultProfiles(), props, new ObjectMapper(),
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
+    }
+
+    /**
+     * Profil de modèle actif neutre : persona canonique Spectra et défauts 0.7/0.9 — le
+     * comportement de référence de ces tests de retrieval.
+     */
+    private static ActiveModelProfileService defaultProfiles() {
+        ActiveModelProfileService profiles = org.mockito.Mockito.mock(ActiveModelProfileService.class);
+        org.mockito.Mockito.lenient().when(profiles.current())
+                .thenReturn(ActiveModelProfileService.ModelProfile.DEFAULT);
+        return profiles;
     }
 
     private static QueryRequest request() {

@@ -55,7 +55,7 @@ class RagServiceStreamTest {
                 Optional.empty(), Optional.empty(), Optional.empty(),
                 Optional.empty(), Optional.empty(), Optional.empty(),
                 Optional.empty(), Optional.empty(), Optional.empty(),
-                props, new ObjectMapper().findAndRegisterModules(), new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
+                defaultProfiles(), props, new ObjectMapper().findAndRegisterModules(), new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
     }
 
     // ── #7 — chemin nominal ────────────────────────────────────────────────────
@@ -238,6 +238,17 @@ class RagServiceStreamTest {
                 "distances", List.of(List.of(0.12))));
     }
 
+    /**
+     * Profil de modèle actif neutre : aucune persona ni paramètre enregistré, donc persona
+     * canonique Spectra et défauts 0.7/0.9 — le comportement de référence de ces tests.
+     */
+    private static ActiveModelProfileService defaultProfiles() {
+        ActiveModelProfileService profiles = org.mockito.Mockito.mock(ActiveModelProfileService.class);
+        org.mockito.Mockito.lenient().when(profiles.current())
+                .thenReturn(ActiveModelProfileService.ModelProfile.DEFAULT);
+        return profiles;
+    }
+
     private RagService serviceWith(Optional<AdaptiveRagService> adaptive,
                                    Optional<AgenticRagService> agentic,
                                    Optional<SelfRagService> selfRag) {
@@ -246,7 +257,7 @@ class RagServiceStreamTest {
                 Optional.empty(), Optional.empty(), agentic,
                 Optional.empty(), Optional.empty(), adaptive,
                 selfRag, Optional.empty(), Optional.empty(),
-                props, new ObjectMapper().findAndRegisterModules(), new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
+                defaultProfiles(), props, new ObjectMapper().findAndRegisterModules(), new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
     }
 
     /** Chaque étape de la timeline publie un timer Micrometer spectra.rag.stage. */
@@ -263,7 +274,7 @@ class RagServiceStreamTest {
                 Optional.empty(), Optional.empty(), Optional.empty(),
                 Optional.empty(), Optional.empty(), Optional.empty(),
                 Optional.empty(), Optional.empty(), Optional.empty(),
-                props, new ObjectMapper().findAndRegisterModules(), registry);
+                defaultProfiles(), props, new ObjectMapper().findAndRegisterModules(), registry);
 
         StepVerifier.create(svc.queryStream(ragRequest())).thenConsumeWhile(e -> true).verifyComplete();
 
@@ -462,7 +473,7 @@ class RagServiceStreamTest {
                 Optional.empty(), Optional.empty(), Optional.empty(),
                 Optional.empty(), Optional.of(corrective), Optional.empty(),
                 Optional.empty(), Optional.empty(), Optional.empty(),
-                props, new ObjectMapper().findAndRegisterModules(), new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
+                defaultProfiles(), props, new ObjectMapper().findAndRegisterModules(), new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
 
         RagOverrides ov = new RagOverrides(null, null, null, null, null, false, null, null);
         QueryRequest req = new QueryRequest("Question ?", null, null, null, null, null, null, true, ov);
