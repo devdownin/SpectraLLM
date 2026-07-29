@@ -27,6 +27,7 @@ interface FineTuningJob {
   currentEpoch: number | null;
   totalEpochs: number;
   loss: number | null;
+  evalLoss: number | null;
   outputPath: string | null;
   reportPath: string | null;
   error: string | null;
@@ -38,6 +39,7 @@ interface FineTuningJob {
     epochs: number;
     learningRate: number;
     minConfidence: number;
+    valSplit: number;
   };
 }
 
@@ -144,6 +146,7 @@ const makeTrainingSchema = (t: TFunction) => z.object({
   epochs: z.number().min(1).max(50),
   loraRank: z.number().min(4).max(256),
   minConfidence: z.number().min(0).max(1),
+  valSplit: z.number().min(0).max(0.5),
   packingEnabled: z.boolean().optional(),
   dpoEnabled: z.boolean().optional(),
   exportGguf: z.boolean().optional(),
@@ -171,7 +174,7 @@ const FineTuning: FC = () => {
   const [showForm, setShowForm] = useState(false);
   const jobRestoredRef = useRef(false);
   const [submitting, setSubmitting] = useState(false);
-  const [lossHistory, setLossHistory] = useState<{ epoch: number; loss: number }[]>([]);
+  const [lossHistory, setLossHistory] = useState<{ epoch: number; loss?: number; evalLoss?: number }[]>([]);
 
   const trainingSchema = useMemo(() => makeTrainingSchema(t), [t]);
 
@@ -183,6 +186,7 @@ const FineTuning: FC = () => {
       epochs: parseInt(localStorage.getItem('spectra_ft_epochs') || '3'),
       loraRank: parseInt(localStorage.getItem('spectra_ft_lora') || '64'),
       minConfidence: parseFloat(localStorage.getItem('spectra_ft_conf') || '0.8'),
+      valSplit: parseFloat(localStorage.getItem('spectra_ft_valsplit') || '0.1'),
       packingEnabled: false,
       dpoEnabled: false,
       exportGguf: false,
@@ -258,6 +262,7 @@ const FineTuning: FC = () => {
         epochs: r.epochs ?? 3,
         loraRank: r.loraRank ?? 64,
         minConfidence: r.minConfidence ?? 0.8,
+        valSplit: r.valSplit ?? 0.1,
         packingEnabled: r.packingEnabled ?? false,
         dpoEnabled: r.dpoEnabled ?? false,
       });
@@ -300,6 +305,7 @@ const FineTuning: FC = () => {
     localStorage.setItem('spectra_ft_epochs', (formValues.epochs || 3).toString());
     localStorage.setItem('spectra_ft_lora', (formValues.loraRank || 64).toString());
     localStorage.setItem('spectra_ft_conf', (formValues.minConfidence || 0.8).toString());
+    localStorage.setItem('spectra_ft_valsplit', (formValues.valSplit ?? 0.1).toString());
   }, [formValues]);
 
   // ── SSE logs + loss extraction ────────────────────────────────────────────
@@ -311,15 +317,22 @@ const FineTuning: FC = () => {
   useEffect(() => {
     if (!newLog) return;
     setLogs(prev => [...prev.slice(-999), newLog]);
-    // Parse "loss: 0.1234" or "loss=0.1234" from log messages
-    const m = newLog.message.match(/loss[=:\s]+([0-9]+\.[0-9]+)/i);
+    // Parse "loss: 0.1234" / "loss=0.1234" and "eval_loss=0.1234" from log messages.
+    // The (?<!eval_) guard matters: without it "eval_loss=…" also satisfies "loss=…" and the
+    // validation loss was plotted as the training loss, hiding the very gap it measures.
+    const trainMatch = newLog.message.match(/(?<!eval_)loss[=:\s]+([0-9]+\.[0-9]+)/i);
+    const evalMatch = newLog.message.match(/eval_loss[=:\s]+([0-9]+\.[0-9]+)/i);
     const epoch = currentEpochRef.current;
-    if (m && epoch) {
-      const loss = parseFloat(m[1]);
+    if ((trainMatch || evalMatch) && epoch) {
+      const point: { loss?: number; evalLoss?: number } = {};
+      if (trainMatch) point.loss = parseFloat(trainMatch[1]);
+      if (evalMatch) point.evalLoss = parseFloat(evalMatch[1]);
       setLossHistory(prev => {
         const last = prev[prev.length - 1];
-        if (last?.epoch === epoch) return [...prev.slice(0, -1), { epoch, loss }];
-        return [...prev, { epoch, loss }];
+        // Training loss and eval_loss arrive on separate lines : on fusionne dans le point
+        // de l'époque courante au lieu de créer deux points concurrents.
+        if (last?.epoch === epoch) return [...prev.slice(0, -1), { ...last, ...point }];
+        return [...prev, { epoch, ...point }];
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -538,6 +551,17 @@ const FineTuning: FC = () => {
                 type="range" min={0.5} max={1.0} step={0.05} {...register('minConfidence', { valueAsNumber: true })}
                 className="w-full accent-primary mt-3"
               />
+            </div>
+
+            <div className="space-y-2">
+              <label className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">
+                {t('fineTuning.valSplit')} — <span className="text-primary font-bold">{(formValues.valSplit ?? 0).toFixed(2)}</span>
+              </label>
+              <input
+                type="range" min={0} max={0.5} step={0.05} {...register('valSplit', { valueAsNumber: true })}
+                className="w-full accent-primary mt-3"
+              />
+              <p className="text-[10px] text-outline">{t('fineTuning.valSplitHint')}</p>
             </div>
 
             <div className="space-y-3">

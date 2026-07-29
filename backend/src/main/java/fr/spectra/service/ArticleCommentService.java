@@ -3,6 +3,7 @@ package fr.spectra.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import fr.spectra.dto.FineTuningRequest;
 import fr.spectra.dto.QueryRequest;
+import fr.spectra.model.DpoPair;
 import fr.spectra.persistence.ArticleCommentEntity;
 import fr.spectra.persistence.ArticleCommentRepository;
 import fr.spectra.persistence.IngestedFileRepository;
@@ -64,6 +65,13 @@ public class ArticleCommentService {
     private final RagService ragService;
     private final LlmChatClient chatClient;
     private final FineTuningService fineTuningService;
+    /**
+     * Registre des paires de préférence effectivement consommé par un job DPO/ORPO
+     * ({@code FineTuningService.exportDpoDataset} lit {@code DpoGenerationService.getAllPairs()}).
+     * Le fichier {@link #dpoExportPath} n'est qu'un <b>export</b> : il n'est lu par aucun
+     * entraînement.
+     */
+    private final fr.spectra.service.dataset.DpoGenerationService dpoGenerator;
     private final Path dpoExportPath;
     private final int autoRetrainThreshold;
 
@@ -72,6 +80,7 @@ public class ArticleCommentService {
                                  RagService ragService,
                                  LlmChatClient chatClient,
                                  @Lazy FineTuningService fineTuningService,
+                                 fr.spectra.service.dataset.DpoGenerationService dpoGenerator,
                                  @Value("${spectra.dataset.dir:./data/dataset}") String datasetDir,
                                  @Value("${spectra.ged.auto-retrain-threshold:5}") int autoRetrainThreshold) {
         this.commentRepo = commentRepo;
@@ -79,6 +88,7 @@ public class ArticleCommentService {
         this.ragService = ragService;
         this.chatClient = chatClient;
         this.fineTuningService = fineTuningService;
+        this.dpoGenerator = dpoGenerator;
         this.dpoExportPath = Path.of(datasetDir).resolve("comments_dpo.jsonl");
         this.autoRetrainThreshold = autoRetrainThreshold;
     }
@@ -183,22 +193,53 @@ public class ArticleCommentService {
     }
 
     /**
-     * Exporte les paires DPO et soumet un job de fine-tuning avec alignement DPO.
-     * Exécuté hors du thread HTTP pour ne pas bloquer la réponse.
+     * Enregistre les paires DPO issues des commentaires et soumet un job de fine-tuning aligné
+     * DPO. Exécuté hors du thread HTTP pour ne pas bloquer la réponse.
+     * Package-visible pour les tests.
      */
-    private void triggerRetraining(long approvedCount) {
+    void triggerRetraining(long approvedCount) {
         try {
-            int pairs = exportDpoPairs(dpoExportPath);
-            if (pairs == 0) {
-                log.warn("Re-entraînement automatique annulé : aucune paire DPO exportable");
+            List<DpoPair> pairs = buildDpoPairs();
+            if (pairs.isEmpty()) {
+                log.warn("Re-entraînement automatique annulé : aucune paire DPO exploitable");
                 return;
             }
+
+            // Écriture du fichier d'export (traçabilité / inspection humaine) ET, surtout,
+            // ENREGISTREMENT dans le registre de préférences lu par l'entraînement. Le job ne
+            // consomme que DpoGenerationService.getAllPairs() : se contenter d'écrire
+            // comments_dpo.jsonl faisait entraîner sur des paires sans rapport avec les
+            // commentaires déclencheurs — voire échouer, faute de toute paire disponible.
+            writeDpoPairs(pairs, dpoExportPath);
+            int registered = 0;
+            for (DpoPair pair : pairs) {
+                if (dpoGenerator.addPreferencePair(
+                        pair.prompt(), pair.chosen(), pair.rejected(), pair.source()) != null) {
+                    registered++;
+                }
+            }
+            if (registered == 0) {
+                log.info("Re-entraînement automatique annulé : les {} paire(s) issues des "
+                        + "commentaires sont déjà enregistrées, rien de nouveau à apprendre",
+                        pairs.size());
+                return;
+            }
+
             String modelName = "auto-dpo-" + Instant.now().toEpochMilli();
+            // exportGguf=true : sans conversion GGUF ni enregistrement, l'apprentissage continu
+            // produirait un adaptateur jamais servi — donc sans effet observable.
             FineTuningRequest request = new FineTuningRequest(
-                    modelName, null, null, null, null, null, null, null, true, null, null);
+                    modelName, null, null, null, null, null, null, null, true, null, true, null);
             String jobId = fineTuningService.submit(request);
-            log.info("Re-entraînement DPO automatique soumis : {} paires, {} approuvés, jobId={}",
-                    pairs, approvedCount, jobId);
+            if (jobId == null) {
+                // submit() renvoie null quand un entraînement tourne déjà (409). Les paires
+                // restent enregistrées : le prochain déclenchement les reprendra.
+                log.warn("Re-entraînement automatique différé : un entraînement est déjà en cours "
+                        + "({} nouvelle(s) paire(s) enregistrée(s) pour le prochain job)", registered);
+                return;
+            }
+            log.info("Re-entraînement DPO automatique soumis : {} nouvelle(s) paire(s) sur {}, "
+                    + "{} approuvés, jobId={}", registered, pairs.size(), approvedCount, jobId);
         } catch (Exception e) {
             log.warn("Échec du re-entraînement automatique : {}", e.getMessage());
         }
@@ -233,13 +274,28 @@ public class ArticleCommentService {
      * @return nombre de paires exportées
      */
     public int exportDpoPairs(Path outputPath) throws Exception {
+        List<DpoPair> pairs = buildDpoPairs();
+        writeDpoPairs(pairs, outputPath);
+        log.info("Export DPO : {} paires exportées vers {}", pairs.size(), outputPath);
+        return pairs.size();
+    }
+
+    /**
+     * Construit les paires de préférence à partir des commentaires IA évalués.
+     *
+     * <p>Séparé de l'écriture du fichier : les paires ont deux destinations distinctes — le
+     * fichier d'export (inspection humaine, endpoint {@code /export/comments-dpo}) et le
+     * registre {@link fr.spectra.service.dataset.DpoGenerationService}, seul lu par
+     * l'entraînement.</p>
+     */
+    List<DpoPair> buildDpoPairs() {
         List<ArticleCommentEntity> approved = commentRepo.findByCommentTypeAndRating(
                 ArticleCommentEntity.CommentType.AI_GENERATED,
                 ArticleCommentEntity.Rating.APPROVED);
 
         if (approved.isEmpty()) {
-            log.info("Export DPO : aucun commentaire approuvé — rien à exporter.");
-            return 0;
+            log.info("Paires DPO : aucun commentaire approuvé — rien à construire.");
+            return List.of();
         }
 
         List<ArticleCommentEntity> rejected = commentRepo.findByCommentTypeAndRating(
@@ -252,43 +308,46 @@ public class ArticleCommentService {
             rejectedByFocus.computeIfAbsent(r.getFocus(), k -> new ArrayList<>()).add(r.getContent());
         }
 
-        Files.createDirectories(outputPath.getParent());
-        int count = 0;
+        List<DpoPair> pairs = new ArrayList<>();
+        for (ArticleCommentEntity app : approved) {
+            String focus = app.getFocus();
+            List<String> rejects = rejectedByFocus.getOrDefault(focus, List.of());
+            String rejectedContent = null;
 
+            for (String candidate : rejects) {
+                if (jaccardSimilarity(app.getContent(), candidate) <= SIMILARITY_THRESHOLD) {
+                    rejectedContent = candidate;
+                    break;
+                }
+            }
+
+            if (rejectedContent == null) {
+                rejectedContent = generateSyntheticRejected(focus, app.getContent());
+                if (rejectedContent == null) continue;
+            }
+
+            pairs.add(new DpoPair(focus, app.getContent(), rejectedContent,
+                    "article_comment", "article_comment:" + app.getDocumentSha256()));
+        }
+        return pairs;
+    }
+
+    /** Écrit les paires au format JSONL historique du fichier d'export (avec {@code exportedAt}). */
+    private void writeDpoPairs(List<DpoPair> pairs, Path outputPath) throws Exception {
+        Files.createDirectories(outputPath.getParent());
         try (var writer = Files.newBufferedWriter(outputPath,
                 StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
-
-            for (ArticleCommentEntity app : approved) {
-                String focus = app.getFocus();
-                List<String> rejects = rejectedByFocus.getOrDefault(focus, List.of());
-                String rejectedContent = null;
-
-                for (String candidate : rejects) {
-                    if (jaccardSimilarity(app.getContent(), candidate) <= SIMILARITY_THRESHOLD) {
-                        rejectedContent = candidate;
-                        break;
-                    }
-                }
-
-                if (rejectedContent == null) {
-                    rejectedContent = generateSyntheticRejected(focus, app.getContent());
-                    if (rejectedContent == null) continue;
-                }
-
-                Map<String, Object> pair = Map.of(
-                        "prompt",     focus,
-                        "chosen",     app.getContent(),
-                        "rejected",   rejectedContent,
-                        "source",     "article_comment:" + app.getDocumentSha256(),
+            for (DpoPair pair : pairs) {
+                writer.write(mapper.writeValueAsString(Map.of(
+                        "prompt",     pair.prompt(),
+                        "chosen",     pair.chosen(),
+                        "rejected",   pair.rejected(),
+                        "source",     pair.source(),
                         "exportedAt", Instant.now().toString()
-                );
-                writer.write(mapper.writeValueAsString(pair));
+                )));
                 writer.newLine();
-                count++;
             }
         }
-        log.info("Export DPO : {} paires exportées vers {}", count, outputPath);
-        return count;
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

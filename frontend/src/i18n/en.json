@@ -575,6 +575,8 @@
     "epochs": "Epochs",
     "loraRank": "LoRA Rank",
     "minConfidence": "Min Confidence",
+    "valSplit": "Validation split",
+    "valSplitHint": "0 = off — without a validation split only the training loss is measured and overfitting goes unnoticed",
     "options": "Options",
     "multipacking": "Multipacking",
     "multipackingHint": "(-30% padding)",
@@ -629,7 +631,9 @@
     "pairsCount": "{{count}} pairs",
     "nameMin": "Name must be at least 3 characters",
     "namePattern": "Lowercase letters, digits, - and _ only",
-    "baseRequired": "Base model required"
+    "baseRequired": "Base model required",
+    "evalLoss": "Eval loss",
+    "trainLoss": "Training loss"
   },
   "documents": {
     "kicker": "Knowledge & Records",

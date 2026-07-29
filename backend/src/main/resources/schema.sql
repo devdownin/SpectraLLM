@@ -111,6 +111,7 @@ CREATE TABLE IF NOT EXISTS fine_tuning_jobs (
     current_epoch    INTEGER,
     total_epochs     INTEGER,
     loss             DOUBLE PRECISION,
+    eval_loss        DOUBLE PRECISION,
     output_path      VARCHAR(255),
     report_path      VARCHAR(255),
     error            TEXT,
@@ -118,6 +119,9 @@ CREATE TABLE IF NOT EXISTS fine_tuning_jobs (
     completed_at     TIMESTAMP WITH TIME ZONE,
     PRIMARY KEY (job_id)
 );
+
+-- Migration : bases créées avant le suivi de l'eval_loss (idempotent sous H2)
+ALTER TABLE fine_tuning_jobs ADD COLUMN IF NOT EXISTS eval_loss DOUBLE PRECISION;
 
 -- Suivi persistant des installations Model Hub (llmfit download) : survit au redémarrage
 -- de l'API pour un historique fiable et la réconciliation des téléchargements interrompus.

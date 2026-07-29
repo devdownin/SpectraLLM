@@ -48,6 +48,11 @@ parser.add_argument("--max-length",     type=int,
                          "la réponse). Défaut 512, surchargeable via SPECTRA_TRAIN_MAX_LENGTH.")
 args = parser.parse_args()
 
+# Longueur de séquence : UNE seule source pour tous les chemins (chargement du modèle
+# Unsloth compris, où elle était codée en dur à 512 — SPECTRA_TRAIN_MAX_LENGTH n'avait
+# donc aucun effet sur GPU, le seul cas où allonger le contexte a un intérêt pratique).
+MAX_SEQ_LENGTH = args.max_length
+
 # Mapping alias → repo HF chargé depuis le manifeste UNIQUE base_models.json (fichier
 # voisin, également embarqué côté backend Java) : entraînement, fusion et API partagent
 # ainsi la même vérité. Un identifiant hors manifeste est passé tel quel à HuggingFace
@@ -99,6 +104,17 @@ def find_target_modules(model, scope="attention"):
 import torch
 from torch.utils.data import Dataset as TorchDataset
 
+# ── Mise en forme des conversations ───────────────────────────────────────────
+# Déléguée à chat_format (module voisin, importable sans torch — donc testable) : le gabarit
+# provient du tokenizer du modèle de base, seul détenteur du format que llama-server appliquera
+# au service. Voir l'en-tête de chat_format.py pour le raisonnement complet.
+from chat_format import (  # noqa: E402
+    encode_supervised,
+    fit_to_max_length,
+    flatten_preference_row,
+    has_chat_template,
+)
+
 # ── Dataset PyTorch natif (sans lib datasets — incompatible Python 3.14) ──────
 class ConversationDataset(TorchDataset):
     """
@@ -106,6 +122,10 @@ class ConversationDataset(TorchDataset):
     réponse de l'assistant (EOS compris) contribuent à la loss. Les tokens système,
     utilisateur et marqueurs de rôle sont masqués à -100 — sinon le modèle apprend à
     régénérer la question/le prompt au lieu de seulement répondre.
+
+    La mise en forme provient du gabarit du modèle de base (cf. `chat_format.encode_supervised`),
+    pas d'un format écrit en dur : c'est ce qui garantit que l'entraînement et le service
+    parlent la même langue.
     """
 
     def __init__(self, path, tokenizer, max_length=512):
@@ -136,45 +156,13 @@ class ConversationDataset(TorchDataset):
 
     @staticmethod
     def _encode(example, tokenizer):
-        """Tokenise tour par tour ; renvoie (input_ids, labels) avec prompt masqué."""
-        input_ids, labels = [], []
-        for msg in example.get("conversations", []):
-            role    = msg.get("role", "")
-            content = msg.get("content", "")
-            if role == "system":
-                seg, supervised = f"<|system|>\n{content}</s>\n", False
-            elif role == "user":
-                seg, supervised = f"<|user|>\n{content}</s>\n<|assistant|>\n", False
-            elif role == "assistant":
-                seg, supervised = f"{content}</s>\n", True
-            else:
-                continue
-            ids = tokenizer.encode(seg, add_special_tokens=False)
-            input_ids.extend(ids)
-            labels.extend(ids if supervised else [-100] * len(ids))
-        return input_ids, labels
+        """Applique le gabarit du modèle ; renvoie (input_ids, labels) avec prompt masqué."""
+        return encode_supervised(example.get("conversations", []), tokenizer)
 
     @staticmethod
     def _fit(input_ids, labels, max_length):
-        """
-        Tronque à max_length en **préservant la réponse de l'assistant** : on supprime
-        d'abord les tokens de prompt (non supervisés, labels == -100) en tête. Sinon une
-        séquence prompt+réponse trop longue perdait toute la réponse (exemple inutile).
-        """
-        if len(input_ids) <= max_length:
-            return input_ids, labels
-        overflow = len(input_ids) - max_length
-        lead = 0
-        while lead < len(labels) and labels[lead] == -100:
-            lead += 1
-        drop = min(overflow, lead)
-        input_ids = input_ids[drop:]
-        labels = labels[drop:]
-        if len(input_ids) > max_length:
-            # La réponse seule dépasse max_length → troncature à droite en dernier recours
-            input_ids = input_ids[:max_length]
-            labels = labels[:max_length]
-        return input_ids, labels
+        """Troncature préservant la réponse de l'assistant (cf. chat_format)."""
+        return fit_to_max_length(input_ids, labels, max_length)
 
     def __len__(self):
         return len(self.samples)
@@ -190,69 +178,66 @@ class PackedDataset(TorchDataset):
 
     Gain typique sur CPU : 20-40 % de réduction du nombre d'étapes d'entraînement
     pour un dataset de courtes paires Q/R.
+
+    **Le masquage du prompt est conservé.** Cette classe re-tokenisait le texte complet et
+    recopiait les input_ids dans les labels : cocher « packing » changeait donc silencieusement
+    l'objectif d'apprentissage (« reproduire toute la conversation » au lieu de « répondre »),
+    alors que l'option est présentée comme une simple optimisation de débit. On réutilise
+    désormais l'encodage de ConversationDataset — mêmes (input_ids, labels), même troncature,
+    même convention add_special_tokens — et on ne concatène que des paires déjà masquées.
     """
 
     def __init__(self, path, tokenizer, max_length=512):
         self.packed = []
-        eos_id = tokenizer.eos_token_id or 0
+        eos_id = tokenizer.eos_token_id
 
-        # Tokenise sans padding
-        raw_sequences = []
+        # Encodage identique au mode non-packé : labels à -100 sur système/utilisateur.
+        encoded = []
         with open(path, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:
                     continue
                 record = json.loads(line)
-                text = self._format(record)
-                if not text.strip():
+                input_ids, labels = ConversationDataset._encode(record, tokenizer)
+                if not input_ids or all(l == -100 for l in labels):
                     continue
-                ids = tokenizer.encode(text, truncation=True, max_length=max_length,
-                                       add_special_tokens=True)
-                raw_sequences.append(ids)
+                input_ids, labels = ConversationDataset._fit(input_ids, labels, max_length)
+                if all(l == -100 for l in labels):
+                    continue
+                encoded.append((input_ids, labels))
 
-        # Greedy bin-packing
-        buffer = []
-        for ids in raw_sequences:
-            separator = [eos_id] if buffer else []
-            if len(buffer) + len(separator) + len(ids) <= max_length:
-                buffer.extend(separator)
-                buffer.extend(ids)
+        # Greedy bin-packing. Le séparateur EOS marque la frontière entre deux exemples : il
+        # n'appartient à aucune réponse, donc il n'est PAS supervisé (-100).
+        buf_ids, buf_labels = [], []
+        for input_ids, labels in encoded:
+            separator = [eos_id] if (buf_ids and eos_id is not None) else []
+            if len(buf_ids) + len(separator) + len(input_ids) <= max_length:
+                buf_ids.extend(separator)
+                buf_labels.extend([-100] * len(separator))
+                buf_ids.extend(input_ids)
+                buf_labels.extend(labels)
             else:
-                if buffer:
-                    self._flush(buffer, max_length)
-                buffer = list(ids)
-        if buffer:
-            self._flush(buffer, max_length)
+                if buf_ids:
+                    self._flush(buf_ids, buf_labels)
+                buf_ids, buf_labels = list(input_ids), list(labels)
+        if buf_ids:
+            self._flush(buf_ids, buf_labels)
 
-        original = len(raw_sequences)
+        original = len(encoded)
         packed = len(self.packed)
         ratio = original / packed if packed else 1.0
         print(f"  Multipacking: {original} exemples → {packed} séquences (ratio {ratio:.1f}x, "
               f"économie de padding: {(1 - 1/ratio)*100:.0f}%)")
 
-    def _flush(self, buffer, max_length):
+    def _flush(self, input_ids, labels):
         # Séquences de longueur variable (<= max_length) : le collator rembourre au
         # plus long du batch. Inutile de pré-rembourrer chaque séquence à max_length.
         self.packed.append({
-            "input_ids":      torch.tensor(buffer, dtype=torch.long),
-            "attention_mask": torch.tensor([1] * len(buffer), dtype=torch.long),
-            "labels":         torch.tensor(list(buffer), dtype=torch.long),
+            "input_ids":      torch.tensor(input_ids, dtype=torch.long),
+            "attention_mask": torch.tensor([1] * len(input_ids), dtype=torch.long),
+            "labels":         torch.tensor(labels, dtype=torch.long),
         })
-
-    @staticmethod
-    def _format(example):
-        text = ""
-        for msg in example.get("conversations", []):
-            role    = msg.get("role", "")
-            content = msg.get("content", "")
-            if role == "system":
-                text += f"<|system|>\n{content}</s>\n"
-            elif role == "user":
-                text += f"<|user|>\n{content}</s>\n<|assistant|>\n"
-            elif role == "assistant":
-                text += f"{content}</s>\n"
-        return text
 
     def __len__(self):
         return len(self.packed)
@@ -301,7 +286,7 @@ else:
 if USE_UNSLOTH:
     model, tokenizer = FastLanguageModel.from_pretrained(
         model_name=hf_model,
-        max_seq_length=512,
+        max_seq_length=MAX_SEQ_LENGTH,
         load_in_4bit=True,
     )
     if args.resume_adapter:
@@ -354,6 +339,16 @@ else:
         model.config.use_cache = False
         model.enable_input_require_grads()
 
+# Gabarit de conversation effectivement utilisé : le tracer explicitement évite le pire des
+# cas — un entraînement qui « réussit » sur une mise en forme que le service n'utilisera pas.
+if has_chat_template(tokenizer):
+    print("Gabarit de conversation : celui du tokenizer du modèle de base "
+          "(identique à celui appliqué au service par llama-server).")
+else:
+    print("AVERTISSEMENT : le tokenizer ne fournit aucun gabarit de conversation — repli sur "
+          "le format littéral <|system|>/<|user|>/<|assistant|>. Vérifiez que le modèle servi "
+          "utilise bien ce format, sinon entraînement et service divergeront.")
+
 # Préférence (DPO/ORPO) : dataset au format {prompt, chosen, rejected}, chargé plus bas.
 # Les deux sont mutuellement exclusifs ; ORPO a priorité si les deux sont demandés.
 PREFERENCE = args.dpo or args.orpo
@@ -362,7 +357,6 @@ if args.dpo and args.orpo:
     args.dpo = False
 
 # ── Chargement dataset (PyTorch natif — compatible Python 3.14) ────────────────
-MAX_SEQ_LENGTH = args.max_length
 dataset = None
 if not PREFERENCE:
     print(f"\nChargement du dataset : {args.dataset}")
@@ -407,6 +401,20 @@ if PREFERENCE:
         print("ERREUR: le fichier de préférence doit contenir des objets {prompt, chosen, rejected}. "
               "Passez dpo_pairs.jsonl (et non l'export SFT 'conversations').")
         sys.exit(1)
+
+    # Format « conversationnel » de TRL : prompt/chosen/rejected sont des LISTES de messages,
+    # et TRL applique lui-même le gabarit du modèle — donc la même mise en forme que le SFT et
+    # que le service. Le backend émet désormais ce format ; l'ancien format « texte brut »
+    # (prompt = système + question concaténés, sans aucun marqueur) enseignait au modèle une
+    # troisième convention, ni celle du SFT ni celle du service.
+    conversational = bool(pref_data) and isinstance(pref_data[0].get("prompt"), list)
+    if conversational and not has_chat_template(tokenizer):
+        # Sans gabarit côté tokenizer, TRL ne peut pas rendre le format conversationnel :
+        # on l'aplatit avec le MÊME repli littéral que le SFT, pour rester cohérents.
+        print("  Format conversationnel aplati via le gabarit de repli (tokenizer sans gabarit).")
+        pref_data = [flatten_preference_row(row, tokenizer) for row in pref_data]
+        conversational = False
+    print(f"  Format : {'conversationnel (gabarit du modèle)' if conversational else 'texte brut'}")
 
     try:
         from datasets import Dataset as HFDataset

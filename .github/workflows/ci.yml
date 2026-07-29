@@ -42,6 +42,24 @@ jobs:
         path: backend/target/spotbugs*
         if-no-files-found: ignore
 
+  # Invariants de la mise en forme des conversations d'entraînement (scripts/chat_format.py).
+  # Volontairement sans torch ni transformers : des tokenizers factices suffisent à vérifier
+  # que le gabarit provient bien du modèle et que seuls les tours assistant sont supervisés —
+  # deux propriétés dont la violation ne se voit pas avant d'inspecter le modèle entraîné.
+  training-scripts:
+    name: Training scripts (pytest)
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Install pytest
+      run: pip install pytest
+    - name: Unit tests (pytest)
+      run: python -m pytest scripts/tests -q
+
   frontend:
     name: Frontend (Vite)
     runs-on: ubuntu-latest

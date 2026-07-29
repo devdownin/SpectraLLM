@@ -575,6 +575,8 @@
     "epochs": "Époques",
     "loraRank": "Rang LoRA",
     "minConfidence": "Confiance min.",
+    "valSplit": "Split validation",
+    "valSplitHint": "0 = désactivé — sans validation, seule la loss d'entraînement est mesurée et le sur-apprentissage passe inaperçu",
     "options": "Options",
     "multipacking": "Multipacking",
     "multipackingHint": "(-30 % de padding)",
@@ -629,7 +631,9 @@
     "pairsCount": "{{count}} paires",
     "nameMin": "Le nom doit faire au moins 3 caractères",
     "namePattern": "Minuscules, chiffres, - et _ uniquement",
-    "baseRequired": "Modèle de base requis"
+    "baseRequired": "Modèle de base requis",
+    "evalLoss": "Loss validation",
+    "trainLoss": "Loss entraînement"
   },
   "documents": {
     "kicker": "Connaissances & archives",
