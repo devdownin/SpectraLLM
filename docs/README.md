@@ -39,6 +39,7 @@ New here? Start with **[Getting Started](getting-started.en.md)**.
 | **[Ingestion & GED audit (FR)](process/archive/audit-ingestion-ged.fr.md)** | Audit of the ingestion/GED pipeline and its fixes. |
 | **[Documentation audit (FR)](process/audit-documentation.fr.md)** | Audit of this documentation set (conformity, completeness). |
 | **[Security audit (FR)](process/audit-securite.fr.md)** | Technical security findings (auth model, exposure, DoS) — companion to [SECURITY.md](../SECURITY.md). |
+| **[Fine-tuning audit (FR)](process/audit-finetuning.fr.md)** | Technical findings on the fine-tuning chain (deployment, training correctness, DPO wiring). |
 
 ## Direction
 
