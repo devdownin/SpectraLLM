@@ -288,6 +288,99 @@ Then ask your usual question in the Playground: the answer reflects the **curren
 
 ---
 
+### Step 1d — Automatic document classification (optional)
+
+**Goal**: assign each document the categories that characterize its content, so you know what your corpus actually holds — and can filter it by theme.
+
+As long as a document is identifiable only by its file name, a collection of several hundred pieces stays opaque: you cannot see that half of it is about maintenance while regulation is represented by three documents. That is precisely what you need to know before generating a dataset: **an unbalanced corpus produces an unbalanced model**.
+
+The model does the classifying itself. Spectra shows it representative excerpts of the document — sampled across its whole length, since the opening pages are often a cover sheet or a table of contents that characterize the substance poorly — along with a labelling prompt, and asks for strict JSON back. The model used is the active chat model: after a first fine-tuning cycle it is **your** specialized model labelling your documents, and it does so better than a generic classifier. The model name is kept on each record, so a reclassification after a new training run stays comparable to the previous one.
+
+#### Defining your taxonomy
+
+This is the one setting that really matters: replace the default list with your domain's own nomenclature.
+
+```yaml
+# backend/src/main/resources/application.yml
+spectra:
+  classification:
+    taxonomy:
+      - procedures
+      - evenements
+      - nomenclatures
+      - reglementation
+      - securite
+      # … your own categories
+```
+
+Categories proposed by the model are reduced to a canonical form: case, accents and punctuation are ignored ("Procédures" does resolve to `procedures`). In closed mode — the default — any label outside the taxonomy is dropped. To explore a collection whose nomenclature you do not know yet, set `SPECTRA_CLASSIFICATION_OPEN_TAXONOMY=true`: the model will propose its own categories, which you can then freeze into the taxonomy.
+
+| Variable | Purpose | Default |
+|---|---|---|
+| `SPECTRA_CLASSIFICATION_ENABLED` | Enables the service | `true` |
+| `SPECTRA_CLASSIFICATION_AUTO` | Classifies each document as soon as its ingestion completes | `false` |
+| `SPECTRA_CLASSIFICATION_OPEN_TAXONOMY` | Allows categories outside the taxonomy | `false` |
+| `SPECTRA_CLASSIFICATION_MAX_CATEGORIES` | Categories kept per document | `3` |
+| `SPECTRA_CLASSIFICATION_MIN_CONFIDENCE` | Minimum confidence to keep a category | `0.5` |
+| `SPECTRA_CLASSIFICATION_MAX_CHUNKS` | Excerpts sampled from the document | `8` |
+| `SPECTRA_CLASSIFICATION_MAX_EXCERPT_CHARS` | Character budget submitted to the model | `6000` |
+
+> `auto-classify` is off by default on purpose: importing 500 files would chain 500 LLM calls. For a corpus that is already in place, prefer the batch classification below; turn `auto-classify` on for a continuous arrival stream.
+
+#### Through the interface
+
+1. **Documents** page, **Category** section of the filter bar.
+2. **Classify unclassified** starts a background batch over every document still without a category; a progress bar tracks it and the batch can be cancelled.
+3. The category chips filter the list by theme; **Unclassified** isolates the queue.
+4. In a document's record, the **Automatic classification** section shows the categories with their confidence, the generated summary, the model and the date. **Reclassify** runs the model again on an already-labelled document.
+
+On each list row, model-assigned categories are displayed distinctly from manual tags (prefixed with `#`): a reclassification never touches your human annotation, and the gap between the two tells you what the classifier is worth.
+
+#### Through the API
+
+```bash
+# Effective taxonomy and the model that will classify
+curl http://localhost:8080/api/ged/classification
+
+# Classify one document (force=true to re-label an already classified document)
+curl -X POST "http://localhost:8080/api/ged/documents/{sha256}/classify"
+# → {"categories":["procedures","securite"],"scores":{"procedures":0.92,"securite":0.68},
+#    "summary":"Intervention procedure for high-voltage substations.","model":"phi-4-mini"}
+
+# Classify the whole unclassified corpus (empty body), in the background
+curl -X POST http://localhost:8080/api/ged/documents/bulk/classify
+# → {"taskId":"c1a2…","status":"PENDING"}
+
+# Follow — or cancel — the batch
+curl http://localhost:8080/api/ged/classification/tasks/c1a2…
+# → {"status":"PROCESSING","processed":37,"total":210,"succeeded":35,"failed":2}
+curl -X DELETE http://localhost:8080/api/ged/classification/tasks/c1a2…
+```
+
+#### Steering the composition of your corpus
+
+This is where classification pays off. `GET /api/ged/stats` returns coverage and the per-category breakdown:
+
+```bash
+curl http://localhost:8080/api/ged/stats
+# → "classification": {"classified": 187, "unclassified": 23, "coverage": 0.89,
+#                      "topCategories": [{"category":"maintenance","count":94}, …]}
+```
+
+One theme at 94 documents against another at 3: the imbalance is visible before training, not after. The `category` filter then lets you work theme by theme:
+
+```bash
+# Documents of an under-represented category
+curl "http://localhost:8080/api/ged/documents?category=reglementation&size=100"
+
+# Those still waiting to be classified
+curl "http://localhost:8080/api/ged/documents?classified=false"
+```
+
+> Re-ingesting a document (`?force=true`) reclassifies it automatically: its content changed, so the old classification no longer describes it.
+
+---
+
 ### Step 2 — Generating the training dataset
 
 **Goal**: generate question/answer pairs from your documents, to train the model.

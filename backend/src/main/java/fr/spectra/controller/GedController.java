@@ -4,6 +4,7 @@ import fr.spectra.dto.GedDocumentFilter;
 import fr.spectra.persistence.AuditLogEntity;
 import fr.spectra.persistence.DocumentModelLinkEntity;
 import fr.spectra.persistence.IngestedFileEntity;
+import fr.spectra.service.DocumentClassificationService;
 import fr.spectra.service.GedService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -26,9 +27,12 @@ import java.util.NoSuchElementException;
 public class GedController {
 
     private final GedService gedService;
+    private final DocumentClassificationService classificationService;
 
-    public GedController(GedService gedService) {
+    public GedController(GedService gedService,
+                         DocumentClassificationService classificationService) {
         this.gedService = gedService;
+        this.classificationService = classificationService;
     }
 
     // ── Amélioration 2 — Filtrage combiné + pagination ────────────────────────
@@ -43,6 +47,8 @@ public class GedController {
             @RequestParam(required = false) String from,
             @RequestParam(required = false) String to,
             @RequestParam(required = false) String q,
+            @RequestParam(required = false) String category,
+            @RequestParam(required = false) Boolean classified,
             @RequestParam(defaultValue = "0")  int page,
             @RequestParam(defaultValue = "20") int size) {
         IngestedFileEntity.Lifecycle lc = parseLifecycle(lifecycle);
@@ -50,7 +56,7 @@ public class GedController {
         Instant toInst   = parseInstant(to, "to");
 
         GedDocumentFilter filter = new GedDocumentFilter(
-                lc, tag, collection, minQuality, fromInst, toInst, q, page, size);
+                lc, tag, collection, minQuality, fromInst, toInst, q, category, classified, page, size);
         Page<IngestedFileEntity> result = gedService.findFiltered(filter);
 
         return Map.of(
@@ -154,6 +160,75 @@ public class GedController {
         } catch (NoSuchElementException e) {
             return ResponseEntity.notFound().build();
         }
+    }
+
+    // ── Classification automatique (R8) ──────────────────────────────────────
+
+    @GetMapping("/classification")
+    @Operation(summary = "Configuration du classifieur : taxonomie, plafonds, modèle actif")
+    public Map<String, Object> classificationConfig() {
+        return classificationService.describeConfiguration();
+    }
+
+    @PostMapping("/documents/{sha256}/classify")
+    @Operation(summary = "Classifie un document avec le LLM et enregistre ses catégories")
+    public ResponseEntity<Map<String, Object>> classify(
+            @PathVariable String sha256,
+            @RequestParam(defaultValue = "false") boolean force,
+            @RequestParam(defaultValue = "api") String actor) {
+        try {
+            return ResponseEntity.ok(toClassificationPayload(
+                    classificationService.classify(sha256, actor, force)));
+        } catch (NoSuchElementException e) {
+            return ResponseEntity.notFound().build();
+        } catch (IllegalStateException e) {
+            // Classification impossible (service désactivé, LLM muet, document sans chunks) :
+            // 422 plutôt que 500 — la requête est recevable, c'est son traitement qui n'aboutit pas.
+            return ResponseEntity.unprocessableEntity().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @PostMapping("/documents/bulk/classify")
+    @Operation(summary = "Classifie un lot de documents en arrière-plan "
+            + "(corps vide ou absent = tous les documents non classifiés)")
+    public ResponseEntity<Map<String, Object>> bulkClassify(
+            @RequestBody(required = false) List<String> sha256List,
+            @RequestParam(defaultValue = "false") boolean force,
+            @RequestParam(defaultValue = "api") String actor) {
+        try {
+            String taskId = classificationService.submitBatch(sha256List, actor, force);
+            if (taskId == null) {
+                return ResponseEntity.status(409).body(Map.of(
+                        "error", "Une classification par lot est déjà en cours."));
+            }
+            return ResponseEntity.accepted().body(Map.of("taskId", taskId, "status", "PENDING"));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.unprocessableEntity().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @GetMapping("/classification/tasks/{taskId}")
+    @Operation(summary = "Progression d'une classification par lot")
+    public ResponseEntity<Map<String, Object>> classificationTask(@PathVariable String taskId) {
+        var task = classificationService.getBatchTask(taskId);
+        if (task == null) return ResponseEntity.notFound().build();
+        return ResponseEntity.ok(toTaskPayload(task));
+    }
+
+    @GetMapping("/classification/tasks")
+    @Operation(summary = "Liste les classifications par lot connues")
+    public List<Map<String, Object>> classificationTasks() {
+        return classificationService.getBatchTasks().stream().map(this::toTaskPayload).toList();
+    }
+
+    @DeleteMapping("/classification/tasks/{taskId}")
+    @Operation(summary = "Demande l'annulation d'une classification par lot en cours")
+    public ResponseEntity<Map<String, Object>> cancelClassification(@PathVariable String taskId) {
+        if (!classificationService.cancelBatch(taskId)) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "Tâche inconnue ou déjà terminée : " + taskId));
+        }
+        return ResponseEntity.ok(Map.of("taskId", taskId, "status", "CANCELLING"));
     }
 
     // ── Liens modèle (R1) ────────────────────────────────────────────────────
@@ -271,10 +346,44 @@ public class GedController {
         m.put("chunksCreated",  doc.getChunksCreated());
         m.put("collectionName", doc.getCollectionName());
         m.put("archivedAt",     doc.getArchivedAt() != null ? doc.getArchivedAt().toString() : null);
+        // R8 — classification automatique
+        m.put("categories",     doc.getCategories());
+        m.put("categoryScores", fr.spectra.service.DocumentClassificationService
+                                    .parseScores(doc.getCategoryScores()));
+        m.put("classificationSummary", doc.getClassificationSummary());
+        m.put("classifierModel",       doc.getClassifierModel());
+        m.put("classifiedAt",   doc.getClassifiedAt() != null ? doc.getClassifiedAt().toString() : null);
         return m;
     }
 
     record BulkTagRequest(List<String> sha256List, List<String> tags) {}
+
+    private Map<String, Object> toClassificationPayload(
+            DocumentClassificationService.ClassificationResult r) {
+        Map<String, Object> m = new java.util.LinkedHashMap<>();
+        m.put("sha256",       r.sha256());
+        m.put("fileName",     r.fileName());
+        m.put("categories",   r.categories());
+        m.put("scores",       r.scores());
+        m.put("summary",      r.summary());
+        m.put("model",        r.model());
+        m.put("classifiedAt", r.classifiedAt() != null ? r.classifiedAt().toString() : null);
+        m.put("reused",       r.reused());
+        return m;
+    }
+
+    private Map<String, Object> toTaskPayload(DocumentClassificationService.BatchTask t) {
+        Map<String, Object> m = new java.util.LinkedHashMap<>();
+        m.put("taskId",    t.taskId());
+        m.put("status",    t.status().name());
+        m.put("processed", t.processed());
+        m.put("total",     t.total());
+        m.put("succeeded", t.succeeded());
+        m.put("failed",    t.failed());
+        m.put("errors",    t.errors());
+        m.put("createdAt", t.createdAt() != null ? t.createdAt().toString() : null);
+        return m;
+    }
 
     private IngestedFileEntity.Lifecycle parseLifecycle(String lifecycle) {
         if (lifecycle == null || lifecycle.isBlank()) {

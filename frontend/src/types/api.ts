@@ -46,6 +46,39 @@ export interface IngestedFile {
   collectionName: string | null;
   /** Date du dernier passage en ARCHIVED (base de la purge de rétention). */
   archivedAt?: string | null;
+  /** R8 — catégories attribuées par le classifieur, triées par confiance décroissante. */
+  categories?: string[];
+  /** Confiance par catégorie ({@code {"procedures": 0.87}}). */
+  categoryScores?: Record<string, number>;
+  /** Résumé d'une phrase produit par le classifieur. */
+  classificationSummary?: string | null;
+  /** Modèle ayant produit la classification. */
+  classifierModel?: string | null;
+  /** Date de la dernière classification ; absente tant que le document n'est pas classifié. */
+  classifiedAt?: string | null;
+}
+
+/** Configuration du classifieur exposée par GET /api/ged/classification. */
+export interface ClassificationConfig {
+  enabled: boolean;
+  autoClassify: boolean;
+  openTaxonomy: boolean;
+  taxonomy: string[];
+  maxCategories: number;
+  minConfidence: number;
+  model: string;
+}
+
+/** Progression d'une classification par lot. */
+export interface ClassificationTask {
+  taskId: string;
+  status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+  processed: number;
+  total: number;
+  succeeded: number;
+  failed: number;
+  errors: string[];
+  createdAt: string;
 }
 
 export interface AuditEntry {
