@@ -761,14 +761,16 @@
     "classifierModel": "Model: {{model}}",
     "category": "Category",
     "unclassified": "Unclassified",
-    "classifyUnclassified": "Classify unclassified",
     "classificationCoverage": "{{classified}} / {{total}} documents classified",
     "classifyProgress": "Classifying: {{processed}} / {{total}} ({{failed}} failed)",
     "bulkClassifyStarted": "Batch classification started",
     "bulkClassifyDone": "Classification finished: {{succeeded}} succeeded, {{failed}} failed",
     "bulkClassifyFailed": "Could not start batch classification",
     "bulkClassifyCancelled": "Cancellation requested",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "classifyPending": "Classify ({{count}})",
+    "allClassified": "All classified",
+    "classifyHint": "Classify the pending documents with {{model}}"
   },
   "batchEval": {
     "kicker": "Compare models",
