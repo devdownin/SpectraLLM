@@ -48,6 +48,11 @@ parser.add_argument("--max-length",     type=int,
                          "la réponse). Défaut 512, surchargeable via SPECTRA_TRAIN_MAX_LENGTH.")
 args = parser.parse_args()
 
+# Longueur de séquence : UNE seule source pour tous les chemins (chargement du modèle
+# Unsloth compris, où elle était codée en dur à 512 — SPECTRA_TRAIN_MAX_LENGTH n'avait
+# donc aucun effet sur GPU, le seul cas où allonger le contexte a un intérêt pratique).
+MAX_SEQ_LENGTH = args.max_length
+
 # Mapping alias → repo HF chargé depuis le manifeste UNIQUE base_models.json (fichier
 # voisin, également embarqué côté backend Java) : entraînement, fusion et API partagent
 # ainsi la même vérité. Un identifiant hors manifeste est passé tel quel à HuggingFace
@@ -301,7 +306,7 @@ else:
 if USE_UNSLOTH:
     model, tokenizer = FastLanguageModel.from_pretrained(
         model_name=hf_model,
-        max_seq_length=512,
+        max_seq_length=MAX_SEQ_LENGTH,
         load_in_4bit=True,
     )
     if args.resume_adapter:
@@ -362,7 +367,6 @@ if args.dpo and args.orpo:
     args.dpo = False
 
 # ── Chargement dataset (PyTorch natif — compatible Python 3.14) ────────────────
-MAX_SEQ_LENGTH = args.max_length
 dataset = None
 if not PREFERENCE:
     print(f"\nChargement du dataset : {args.dataset}")

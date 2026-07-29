@@ -31,7 +31,13 @@ public record FineTuningRequest(
         @Min(4) @Max(256)
         Integer loraRank,
 
-        /** LoRA alpha. */
+        /**
+         * LoRA alpha. Omis, il est <b>dérivé du rang</b> ({@code 2 × loraRank}) et non figé à une
+         * constante : c'est le rapport {@code alpha / r} qui fixe l'amplitude effective de
+         * l'adaptation. Un alpha constant faisait dériver ce rapport avec le rang (rang 8 →
+         * échelle 16 au lieu de 2), ce qui rendait un entraînement « plus léger » nettement plus
+         * agressif — l'inverse de l'intention. Le formulaire de l'UI n'envoie pas ce champ.
+         */
         @Min(1) @Max(512)
         Integer loraAlpha,
 
@@ -68,7 +74,9 @@ public record FineTuningRequest(
 ) {
     public FineTuningRequest {
         if (loraRank == null) loraRank = 64;
-        if (loraAlpha == null) loraAlpha = 128;
+        // Dérivé du rang (et non constant) pour garder alpha/r = 2 quel que soit loraRank.
+        // Borné à 512 pour rester dans le domaine validé par @Max (loraRank max = 256).
+        if (loraAlpha == null) loraAlpha = Math.min(2 * loraRank, 512);
         if (epochs == null) epochs = 3;
         if (learningRate == null) learningRate = 2e-4;
         if (minConfidence == null) minConfidence = 0.8;

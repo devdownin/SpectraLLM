@@ -21,6 +21,11 @@
 > Aucun test automatisé ne couvre le moteur d'entraînement : les deux seuls tests
 > (`FineTuningGedTraceTest`, `FineTuningSftExclusionTest`) portent sur des méthodes périphériques
 > de `FineTuningService`, et il n'existe aucun test Python pour `train_host.py`.
+>
+> **Statut.** Les constats **F2, F5, F6 et F11** — les quatre correctifs sans risque ni décision
+> d'architecture — sont **corrigés** dans la même série de commits que ce rapport ; ils restent
+> décrits ci-dessous pour la traçabilité, avec la correction apportée. Tous les autres constats
+> sont **ouverts**.
 
 ---
 
@@ -70,7 +75,7 @@ Tant que ce n'est pas tranché, la voie la moins coûteuse est de **détecter l'
 démarrage** et de refuser les soumissions avec un message actionnable (HTTP 503 + explication),
 au lieu de laisser chaque job échouer à mi-course sur une `IOException`.
 
-### F2 — `scripts/train.sh` n'a pas le bit exécutable — **bloquant (mode hôte)**
+### F2 — `scripts/train.sh` n'a pas le bit exécutable — **bloquant (mode hôte)** — ✅ corrigé
 
 `git ls-files -s scripts/train.sh` renvoie le mode **`100644`**. `FineTuningService.runProcess`
 construit pourtant `ProcessBuilder(List.of(trainingScript, …))`, c'est-à-dire une **exécution
@@ -83,10 +88,13 @@ explicitement `chmod +x` sur ses entrypoints, et `gke-*.sh`, `llm-chat-entrypoin
 `check-doc-links.py` sont bien en `100755`. `train.sh` (comme `start.sh`, `setup.sh`,
 `pipeline.sh`) est resté en 644, et rien nulle part ne le `chmod`.
 
-Recommandation : `git update-index --chmod=+x scripts/train.sh` ; et, par robustesse, invoquer
-le script via un interpréteur explicite côté Java (`bash <script> …`) plutôt que de dépendre du
-bit de permission — ce qui règle du même coup l'impossibilité d'exécuter un `.sh` sous Windows,
-alors que le README annonce un support Windows (`scripts\start.bat`).
+**Correction appliquée** : `scripts/train.sh` passe en `100755`.
+
+Reste ouvert : invoquer le script via un interpréteur explicite côté Java (`bash <script> …`)
+plutôt que de dépendre du bit de permission serait plus robuste, et réglerait du même coup
+l'impossibilité d'exécuter un `.sh` sous Windows, alors que le README annonce un support Windows
+(`scripts\start.bat`). C'est un changement de comportement de `FineTuningService`, donc hors du
+lot « correctifs sans risque ».
 
 ---
 
@@ -156,7 +164,7 @@ Recommandation : conserver les labels masqués lors du packing (concaténer les 
 `(input_ids, labels)` déjà calculées par `ConversationDataset` plutôt que de re-tokeniser du
 texte brut), et harmoniser `add_special_tokens` entre les deux chemins.
 
-### F5 — Le chemin GPU (Unsloth) ignore `--max-length` — **moyen**
+### F5 — Le chemin GPU (Unsloth) ignore `--max-length` — **moyen** — ✅ corrigé
 
 `train_host.py:302-306` :
 
@@ -170,7 +178,11 @@ model, tokenizer = FastLanguageModel.from_pretrained(
 Sur GPU — c'est-à-dire dans le seul cas où allonger le contexte a un intérêt pratique —
 `SPECTRA_TRAIN_MAX_LENGTH` n'a donc aucun effet.
 
-### F6 — `loraAlpha` et `learningRate` ne sont jamais envoyés par l'UI — **moyen**
+**Correction appliquée** : `MAX_SEQ_LENGTH` est défini juste après le parsing des arguments,
+avant le chargement du modèle, et utilisé par les deux backends — une seule source pour tous les
+chemins.
+
+### F6 — `loraAlpha` et `learningRate` ne sont jamais envoyés par l'UI — **moyen** — ✅ corrigé
 
 `FineTuning.tsx` ne soumet que `modelName`, `baseModel`, `epochs`, `loraRank`, `minConfidence` et
 les drapeaux (`onFormSubmit`, ligne 399-402 : `fineTuningApi.createJob(data)` avec `data` = les
@@ -192,9 +204,15 @@ d'instabilité. Le même écran fait pourtant le bon calcul ailleurs :
 `exportRecipe` (ligne 277) envoie `loraAlpha: formValues.loraRank * 2`. Les deux chemins de la
 même page ne sont pas d'accord entre eux.
 
-Recommandation : soit exposer `loraAlpha` dans le formulaire, soit — plus simple et plus sûr —
-dériver le défaut de `loraRank` côté backend (`loraAlpha = 2 * loraRank` dans le compact
-constructor de `FineTuningRequest`) plutôt que de le figer à 128.
+**Correction appliquée** : le défaut de `loraAlpha` est dérivé du rang dans le compact
+constructor de `FineTuningRequest` (`Math.min(2 * loraRank, 512)`, la borne conservant le domaine
+de `@Max(512)`). L'échelle vaut donc 2 quel que soit le rang, y compris pour les appels API qui
+omettent le champ, et le chemin `exportRecipe` de l'UI redevient cohérent avec le chemin de
+soumission. Couvert par `FineTuningRequestTest`.
+
+Reste ouvert : `learningRate` n'est toujours pas exposé par le formulaire (valeur effective
+toujours 2e-4), et `orpoEnabled` n'a toujours aucun contrôle dans l'UI — ce sont des ajouts
+d'interface, pas des correctifs.
 
 ---
 
@@ -280,7 +298,7 @@ corriger.
 
 ## 4. Environnement d'exécution & chaîne d'approvisionnement
 
-### F11 — `scripts/requirements.txt` : bornes ouvertes et dépendances manquantes — **moyen**
+### F11 — `scripts/requirements.txt` : bornes ouvertes et dépendances manquantes — **moyen** — ✅ corrigé
 
 ```
 unsloth>=2026.5.2   trl>=1.4.0   transformers>=5.8.1   datasets>=4.8.5
@@ -297,8 +315,10 @@ bitsandbytes>=0.49.2   accelerate>=1.13.0
   utilisateurs CPU de « remplacer unsloth par transformers + peft » — ce qui, appliqué
   littéralement, produit un environnement sans `peft` installé et un `ImportError`.
 
-Recommandation : épingler des bornes (`>=x,<y`), ajouter `torch` et `peft`, et fournir un second
-fichier `requirements-cpu.txt` cohérent avec le chemin CPU réellement emprunté par le script.
+**Correction appliquée** : bornes majeures ajoutées sur les six dépendances existantes,
+`torch` et `peft` déclarés explicitement, et le commentaire d'en-tête corrigé — le chemin CPU
+consiste à retirer `unsloth`/`bitsandbytes`, pas à « remplacer unsloth par transformers + peft »
+(qui étaient de toute façon absents du fichier).
 
 ### F12 — `export_gguf.py` télécharge du code distant non épinglé à l'exécution — **moyen**
 
@@ -328,7 +348,8 @@ Autres remarques sur le même fichier :
 - Côté Java, `FineTuningGedTraceTest` et `FineTuningSftExclusionTest` testent la traçabilité GED
   et le filtre de catégories — deux méthodes périphériques, atteintes par réflexion. Ni la
   machine à états, ni le verrou d'unicité (`trainingRunning`), ni l'annulation, ni la
-  construction de la ligne de commande ne sont couverts.
+  construction de la ligne de commande ne sont couverts. (`FineTuningRequestTest`, ajouté avec le
+  correctif F6, couvre désormais les défauts de la requête — pas l'orchestration.)
 - Côté Python, il n'existe **aucun test** : les seuls `test_*.py` du dépôt sont dans
   `services/reranker` et `services/docparser`. `ci.yml` ne lance rien sur `scripts/`, et
   `shellcheck.yml` ne mentionne pas `train.sh`.
@@ -413,27 +434,27 @@ attendu du couplage RAG + fine-tuning revendiqué par le produit.
 
 ## 8. Priorisation
 
-| # | Constat | Gravité | Effort |
-|---|---|---|---|
-| F1 | Script/Python absents de l'image `spectra-api` (fine-tuning inopérant en Docker) | Bloquant | Élevé — décision d'architecture |
-| F2 | `train.sh` sans bit exécutable | Bloquant | Trivial |
-| F3 | Gabarit de conversation en dur, faux pour 3 bases sur 4 (dont le défaut `phi3`) | Critique | Moyen |
-| F4 | Le packing supprime le masquage du prompt | Critique | Faible |
-| F7 | Ré-entraînement automatique branché sur le mauvais jeu de données, et jamais déployé | Élevé | Faible |
-| F8 | Trois formats de prompt SFT / DPO / service | Élevé | Moyen (même correctif que F3) |
-| F9 | Pas de split de validation → aucun signal de sur-apprentissage | Élevé | Faible |
-| F6 | `loraAlpha` figé à 128 quel que soit le rang | Moyen | Trivial |
-| F5 | `--max-length` ignoré sur GPU | Moyen | Trivial |
-| F11 | Dépendances non bornées, `torch`/`peft` manquants | Moyen | Trivial |
-| F12 | Téléchargement non épinglé de `convert_hf_to_gguf.py` | Moyen | Faible |
-| F13 | Aucun test du moteur d'entraînement | Moyen | Moyen |
-| F14 | Distribution d'entraînement ≠ distribution de service | Moyen | Moyen (conception) |
-| F10 | Arguments positionnels fragiles | Faible | Faible |
-| §6 | Documentation décrivant un système différent du code | Faible | Faible |
+| # | Constat | Gravité | Effort | Statut |
+|---|---|---|---|---|
+| F1 | Script/Python absents de l'image `spectra-api` (fine-tuning inopérant en Docker) | Bloquant | Élevé — décision d'architecture | Ouvert |
+| F2 | `train.sh` sans bit exécutable | Bloquant | Trivial | ✅ corrigé |
+| F3 | Gabarit de conversation en dur, faux pour 3 bases sur 4 (dont le défaut `phi3`) | Critique | Moyen | Ouvert |
+| F4 | Le packing supprime le masquage du prompt | Critique | Faible | Ouvert |
+| F7 | Ré-entraînement automatique branché sur le mauvais jeu de données, et jamais déployé | Élevé | Faible | Ouvert |
+| F8 | Trois formats de prompt SFT / DPO / service | Élevé | Moyen (même correctif que F3) | Ouvert |
+| F9 | Pas de split de validation → aucun signal de sur-apprentissage | Élevé | Faible | Ouvert |
+| F6 | `loraAlpha` figé à 128 quel que soit le rang | Moyen | Trivial | ✅ corrigé |
+| F5 | `--max-length` ignoré sur GPU | Moyen | Trivial | ✅ corrigé |
+| F11 | Dépendances non bornées, `torch`/`peft` manquants | Moyen | Trivial | ✅ corrigé |
+| F12 | Téléchargement non épinglé de `convert_hf_to_gguf.py` | Moyen | Faible | Ouvert |
+| F13 | Aucun test du moteur d'entraînement | Moyen | Moyen | Ouvert |
+| F14 | Distribution d'entraînement ≠ distribution de service | Moyen | Moyen (conception) | Ouvert |
+| F10 | Arguments positionnels fragiles | Faible | Faible | Ouvert |
+| §6 | Documentation décrivant un système différent du code | Faible | Faible | Ouvert |
 
-**Ordre suggéré.** F2 puis F6/F5/F11 (corrections triviales, sans risque). Ensuite F4, F7 et F9 —
-trois corrections localisées à fort effet sur la qualité du modèle produit. Puis F3/F8 ensemble,
-en centralisant la mise en forme des conversations, accompagnés des tests de F13 qui les
-verrouillent. F1 en parallèle, car c'est une décision d'architecture, pas un correctif : tant
-qu'elle n'est pas prise, ajouter un contrôle de disponibilité au démarrage évite au moins que
-chaque job échoue silencieusement à mi-course.
+**Ordre suggéré.** F2, F5, F6 et F11 sont faits. La suite : F4, F7 et F9 — trois corrections
+localisées à fort effet sur la qualité du modèle produit. Puis F3/F8 ensemble, en centralisant la
+mise en forme des conversations, accompagnés des tests de F13 qui les verrouillent. F1 en
+parallèle, car c'est une décision d'architecture, pas un correctif : tant qu'elle n'est pas prise,
+ajouter un contrôle de disponibilité au démarrage évite au moins que chaque job échoue
+silencieusement à mi-course.
