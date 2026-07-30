@@ -126,6 +126,23 @@ spectra:
     model: ${SPECTRA_RERANKER_MODEL:cross-encoder/mmarco-mMiniLMv2-L12-H384-v1}
     timeout-seconds: ${SPECTRA_RERANKER_TIMEOUT:30}
     top-candidates: ${SPECTRA_RERANKER_TOP_CANDIDATES:20}
+    # Moteur : « http » (microservice Python services/reranker) ou « onnx » (Cross-Encoder
+    # exécuté DANS la JVM via ONNX Runtime, sans conteneur ni Python — cf.
+    # docs/process/audit-python-java.fr.md). Reste sur « http » par défaut : le moteur ONNX
+    # exige un artefact de modèle local, et la bascule doit être validée par le harnais de
+    # parité (RerankerParityTest) avant d'être imposée aux installations existantes.
+    engine: ${SPECTRA_RERANKER_ENGINE:http}
+    onnx:
+      # Répertoire contenant model.onnx et tokenizer.json. Même convention que les GGUF :
+      # un artefact déposé dans le volume des modèles, pas un fichier versionné.
+      model-path: ${SPECTRA_RERANKER_ONNX_PATH:./data/models/reranker}
+      # « sigmoid » reproduit l'échelle du service Python (sentence-transformers applique une
+      # sigmoïde sur un cross-encoder à un logit) ; « logit » publie le logit brut. Ne change
+      # PAS l'ordre — seulement l'échelle des rerankScores exposés par l'API, donc la
+      # comparabilité d'une campagne de benchmark à l'autre.
+      activation: ${SPECTRA_RERANKER_ONNX_ACTIVATION:sigmoid}
+      max-length: ${SPECTRA_RERANKER_ONNX_MAX_LENGTH:512}
+      batch-size: ${SPECTRA_RERANKER_ONNX_BATCH_SIZE:16}
   agentic-rag:
     enabled: ${SPECTRA_AGENTIC_RAG_ENABLED:false}
     max-iterations: ${SPECTRA_AGENTIC_MAX_ITERATIONS:3}

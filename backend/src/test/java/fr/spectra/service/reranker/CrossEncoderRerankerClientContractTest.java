@@ -54,7 +54,7 @@ class CrossEncoderRerankerClientContractTest {
         WebClient webClient = WebClient.builder().baseUrl(baseUrl).build();
         SpectraProperties props = mock(SpectraProperties.class);
         when(props.reranker()).thenReturn(new SpectraProperties.RerankerProperties(
-                true, baseUrl, "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1", 10, 20));
+                true, baseUrl, "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1", 10, 20, null, null));
         client = new CrossEncoderRerankerClient(webClient, props);
     }
 

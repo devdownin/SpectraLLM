@@ -39,12 +39,17 @@ import static org.mockito.Mockito.when;
  *       Options : {@code -Dreranker.parity.model=…} (nom du modèle réellement servi, lu sur
  *       {@code /health} si absent) et {@code -Dreranker.parity.scale=sigmoid|logit}.</li>
  *   <li><b>Vérification</b> — compare une implémentation à la référence. Neutralisée tant que la
- *       référence n'a pas été capturée ou qu'aucun moteur n'est fourni :
+ *       référence n'a pas été capturée ou qu'aucun moteur n'est fourni. Le moteur à vérifier est
+ *       désigné par une URL (service HTTP) ou par {@code onnx:<répertoire du modèle>} :
  *       <pre>
+ *       # le service Python contre lui-même — contrôle du harnais
  *       mvn test -Dtest=RerankerParityTest -Dreranker.parity.verify=http://localhost:8002
+ *       # le moteur exécuté dans la JVM contre la référence Python — LE test du portage
+ *       mvn test -Dtest=RerankerParityTest -Dreranker.parity.verify=onnx:./data/models/reranker
  *       </pre>
  *       {@code -Dreranker.parity.scores=ignore} contrôle l'ordre seul, pour un changement
- *       d'échelle assumé.</li>
+ *       d'échelle assumé ; {@code -Dreranker.parity.activation=logit} change le barème du moteur
+ *       ONNX vérifié.</li>
  *   <li><b>Tests du comparateur</b> — toujours exécutés : sans eux, le harnais pourrait rendre
  *       « aucun écart » par construction et donner une fausse assurance le jour du portage.</li>
  * </ol>
@@ -262,15 +267,53 @@ class RerankerParityTest {
                         ? RerankerParityCheck.ScorePolicy.IGNORE
                         : RerankerParityCheck.ScorePolicy.COMPARE;
 
-        List<RerankerParityCheck.Divergence> divergences = RerankerParityCheck.compare(
-                reference,
-                RerankerParityReference.replay(httpClient(baseUrl), corpus, reference.topN()),
-                policy, RerankerParityCheck.DEFAULT_SCORE_TOLERANCE);
+        RerankerClient engine = engineUnderTest(baseUrl);
+        try {
+            List<RerankerParityCheck.Divergence> divergences = RerankerParityCheck.compare(
+                    reference,
+                    RerankerParityReference.replay(engine, corpus, reference.topN()),
+                    policy, RerankerParityCheck.DEFAULT_SCORE_TOLERANCE);
 
-        assertThat(divergences)
-                .as("écarts de reranking par rapport à la référence (%s, modèle %s, échelle %s)",
-                        reference.source(), reference.model(), reference.scoreScale())
-                .isEmpty();
+            assertThat(divergences)
+                    .as("écarts de reranking par rapport à la référence (%s, modèle %s, échelle %s)",
+                            reference.source(), reference.model(), reference.scoreScale())
+                    .isEmpty();
+        } finally {
+            close(engine);
+        }
+    }
+
+    /**
+     * Résout le moteur à vérifier : {@code onnx:<répertoire>} pour l'implémentation exécutée dans
+     * la JVM, une URL pour un service HTTP.
+     */
+    private static RerankerClient engineUnderTest(String spec) {
+        if (!spec.startsWith("onnx:")) {
+            return httpClient(spec);
+        }
+        String modelPath = spec.substring("onnx:".length());
+        String activation = System.getProperty("reranker.parity.activation", "sigmoid");
+        SpectraProperties props = mock(SpectraProperties.class);
+        when(props.reranker()).thenReturn(new SpectraProperties.RerankerProperties(
+                true, null, null, null, null, "onnx",
+                new SpectraProperties.OnnxRerankerProperties(modelPath, activation, 512, 16)));
+
+        OnnxCrossEncoderReranker engine = new OnnxCrossEncoderReranker(props);
+        assertThat(engine.isLoaded())
+                .as("moteur ONNX chargé depuis %s — %s", modelPath,
+                        engine.checkHealth().details().get("error"))
+                .isTrue();
+        return engine;
+    }
+
+    private static void close(RerankerClient engine) {
+        if (engine instanceof AutoCloseable closeable) {
+            try {
+                closeable.close();
+            } catch (Exception e) {
+                System.err.println("Fermeture du moteur impossible : " + e.getMessage());
+            }
+        }
     }
 
     /** Nom du modèle publié par {@code GET /health} du service reranker. */
@@ -287,7 +330,7 @@ class RerankerParityTest {
         WebClient webClient = WebClient.builder().baseUrl(baseUrl).build();
         SpectraProperties props = mock(SpectraProperties.class);
         when(props.reranker()).thenReturn(new SpectraProperties.RerankerProperties(
-                true, baseUrl, null, 120, null));
+                true, baseUrl, null, 120, null, null, null));
         return new CrossEncoderRerankerClient(webClient, props);
     }
 

@@ -415,7 +415,51 @@ capturée. Les quatre garde-fous ont été validés de bout en bout contre un se
 l'API du reranker : capture, vérification conforme, détection d'une dérive de score, détection
 d'une inversion d'ordre même avec `scores=ignore`, et refus d'une référence obsolète.
 
-### 6.6 Deux constats collatéraux, trouvés en construisant le harnais
+### 6.6 Étape 2 — le moteur ONNX (livré, non validé sur modèle réel)
+
+**Ce qui est en place.** `OnnxCrossEncoderReranker` implémente `RerankerClient` et s'active par
+`spectra.reranker.engine=onnx`. `CrossEncoderRerankerClient` reste derrière `engine=http`, qui
+**demeure le défaut** : le moteur ONNX exige un artefact local, et l'imposer casserait toute
+installation existante ayant `SPECTRA_RERANKER_ENABLED=true`. La bascule et le retour arrière
+sont une propriété de configuration, comme prévu en §6.4.
+
+**ONNX Runtime est appelé directement, sans l'abstraction DJL** — inflexion par rapport à §6.2.
+Le barème des scores, la stratégie de troncature de la paire et le choix des entrées fournies au
+graphe sont exactement les réglages qui déplacent un classement sans lever d'erreur ; les confier
+à une couche de conventions rendrait la comparaison à la référence ininterprétable. DJL n'est
+conservé que pour `ai.djl.huggingface:tokenizers`, le binding JNI de la bibliothèque Rust
+`tokenizers` — donc la **même implémentation** que côté Python, condition pour obtenir les mêmes
+`input_ids`. Vérifié : la bibliothèque native est **extraite du jar**, sans téléchargement à
+l'exécution.
+
+Trois détails d'implémentation méritent d'être signalés, parce qu'ils sont silencieux :
+
+- **Entrées du graphe filtrées.** Les modèles de la famille XLM-R — dont `mMiniLMv2`, le
+  multilingue configuré par défaut — n'exposent pas toujours `token_type_ids`. Le moteur lit
+  `session.getInputNames()` et ne fournit que les entrées déclarées ; en passer une inconnue fait
+  échouer la session.
+- **Rembourrage au plus long du lot**, pas à `maxLength`, avec masque d'attention à 0 sur le
+  rembourrage. Sans ce masque, le score d'un passage dépendrait des autres passages du lot.
+- **Sortie contrôlée.** `[lot, 1]` et `[lot]` sont acceptés ; toute autre forme est rejetée
+  explicitement. Un modèle à plusieurs étiquettes n'est pas un reranker, et le réduire
+  silencieusement donnerait un classement plausible mais faux.
+
+**Ce qui n'est pas vérifié, et pourquoi.** L'appel `OrtSession.run` demande un artefact réel
+(~0,5 Go) et un accès au Hub, indisponibles ici. Tout le reste l'est : barème et classement
+(`CrossEncoderScoringTest`, 16 tests — dont la propriété centrale « le barème ne change jamais
+l'ordre »), encodage et rembourrage sur un tokenizer WordPiece écrit à la main
+(`PairBatchEncoderTest`, `HuggingFaceTokenizerSmokeTest`, 8 tests), configuration et dégradation
+(`OnnxCrossEncoderRerankerTest`, 9 tests). Le harnais de parité sait désormais viser le moteur
+local :
+
+```bash
+mvn test -Dtest=RerankerParityTest -Dreranker.parity.verify=onnx:./data/models/reranker
+```
+
+C'est **ce lancement-là** qui validera le portage, une fois la référence capturée (§6.5). Tant
+qu'il n'a pas tourné sur le vrai modèle, le moteur est du code livré, pas du code prouvé.
+
+### 6.7 Deux constats collatéraux, trouvés en construisant le harnais
 
 - **Le reranker n'avait aucun test.** `CrossEncoderRerankerClientContractTest` (12 tests,
   `MockWebServer`) fige désormais le contrat que l'implémentation Java devra reproduire : forme
@@ -610,7 +654,7 @@ Deux gains immédiats, quelle que soit l'option retenue :
 |---|---|---|---|---|---|
 | **0** | P5 (contrôleurs → interface `RerankerClient`), P7 (épinglage des scripts llama.cpp), P8 (déplacer `base_models.json`) | — | 3 correctifs isolés, aucun changement de comportement | trivial | ✅ livré |
 | **1** | `check-doc-links.py` → `DocumentationLinksTest` | — | `docs-links.yml` supprimé | trivial | ✅ livré |
-| **2** | Reranker Java (DJL/ONNX ou Jlama) + test de parité d'ordre | Lot 0, décision §6.3 | `services/reranker/` supprimé ; benchmark qualité stable | modéré | ⚠️ étape 1 livrée (§6.5) — reste la capture de la référence puis le moteur |
+| **2** | Reranker Java (ONNX Runtime) + test de parité d'ordre | Lot 0, décision §6.3 | `services/reranker/` supprimé ; benchmark qualité stable | modéré | ⚠️ harnais (§6.5) et moteur (§6.6) livrés — reste la capture de la référence, la validation sur modèle réel, puis la bascule du défaut |
 | **3** | `MarkdownPdfExtractor` (PDFBox + tabula-java) + corpus de référence | Lot 2 (rodage du schéma de bascule) | `services/` supprimé ; écart de qualité mesuré et publié | élevé | à faire |
 | **4** | `TrainingRunner` + `spectra-trainer` (option A) | décision §8 | fine-tuning fonctionnel en Docker **et** en K8s ; F1 clos | modéré | à faire |
 

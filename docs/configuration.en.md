@@ -82,6 +82,20 @@ Disabled by default — no Kafka bean is created unless `SPECTRA_KAFKA_ENABLED=t
 | `SPECTRA_RERANKER_TIMEOUT` | `30` | Reranker timeout (seconds) |
 | `SPECTRA_RERANKER_TOP_CANDIDATES` | `20` | Candidates fed to reranker |
 | `RERANKER_MODEL` | `cross-encoder/mmarco-...` | HuggingFace model ID (compose-level; feeds `SPECTRA_RERANKER_MODEL`) |
+| `SPECTRA_RERANKER_ENGINE` | `http` | `http` = Python microservice (compose profile `reranker`); `onnx` = Cross-Encoder run **inside the JVM** via ONNX Runtime — no container, no Python |
+| `SPECTRA_RERANKER_ONNX_PATH` | `./data/models/reranker` | Directory holding `model.onnx` and `tokenizer.json` (`engine=onnx` only). Same convention as GGUF files: an artifact dropped into the models volume, not a versioned file |
+| `SPECTRA_RERANKER_ONNX_ACTIVATION` | `sigmoid` | Score scale. `sigmoid` matches `sentence-transformers` (and therefore the Python service); `logit` publishes the raw logit. **Never changes the ranking** — sigmoid is monotonic — only the scale of the `rerankScores` the API exposes, hence their comparability across benchmark runs |
+| `SPECTRA_RERANKER_ONNX_MAX_LENGTH` | `512` | Max pair length in tokens (`longest_first` truncation, as in `CrossEncoder.predict`) |
+| `SPECTRA_RERANKER_ONNX_BATCH_SIZE` | `16` | Pairs scored per forward pass |
+
+> **`engine=onnx` — two things to know.** The model is loaded into the API process, so its
+> footprint moves from the reranker container into `spectra-api`: `mmarco-mMiniLMv2` is distilled
+> from XLM-R, and its ~250 k × 384 embedding matrix dominates (order of 0.5 GB in fp32 — measure
+> your artifact). ONNX Runtime allocates natively, so the constraint is the container memory
+> limit, not `-Xmx`. Second, the native access warning on Java 25 (`Restricted methods will be
+> blocked in a future release`) is silenced with `--enable-native-access=ALL-UNNAMED` in
+> `JAVA_OPTS`. If the artifact is missing, the application still starts: `/api/status` reports the
+> reranker unavailable with the cause, and RAG runs without reranking.
 | `SPECTRA_AGENTIC_RAG_ENABLED` | `false` | Enable ReAct loop |
 | `SPECTRA_AGENTIC_MAX_ITERATIONS` | `3` | Max search iterations |
 | `SPECTRA_AGENTIC_INITIAL_TOP_K` | `5` | Chunks retrieved per iteration |

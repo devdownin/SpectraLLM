@@ -223,6 +223,15 @@ services:
       - SPECTRA_RERANKER_URL=http://reranker:8000
       - SPECTRA_RERANKER_MODEL=${RERANKER_MODEL:-cross-encoder/mmarco-mMiniLMv2-L12-H384-v1}
       - SPECTRA_RERANKER_TOP_CANDIDATES=${SPECTRA_RERANKER_TOP_CANDIDATES:-20}
+      # Moteur de reranking : « http » (profil compose « reranker », conteneur Python) ou
+      # « onnx » (Cross-Encoder exécuté dans la JVM — ni conteneur, ni Python). En mode onnx,
+      # déposez model.onnx + tokenizer.json dans ./data/models/reranker : le volume ./data est
+      # déjà monté, même convention que les GGUF.
+      - SPECTRA_RERANKER_ENGINE=${SPECTRA_RERANKER_ENGINE:-http}
+      - SPECTRA_RERANKER_ONNX_PATH=${SPECTRA_RERANKER_ONNX_PATH:-/app/data/models/reranker}
+      - SPECTRA_RERANKER_ONNX_ACTIVATION=${SPECTRA_RERANKER_ONNX_ACTIVATION:-sigmoid}
+      - SPECTRA_RERANKER_ONNX_MAX_LENGTH=${SPECTRA_RERANKER_ONNX_MAX_LENGTH:-512}
+      - SPECTRA_RERANKER_ONNX_BATCH_SIZE=${SPECTRA_RERANKER_ONNX_BATCH_SIZE:-16}
       - SPECTRA_LAYOUT_PARSER_ENABLED=${SPECTRA_LAYOUT_PARSER_ENABLED:-false}
       - SPECTRA_LAYOUT_PARSER_URL=http://docparser:8001
       - SPECTRA_LAYOUT_PARSER_TIMEOUT=${SPECTRA_LAYOUT_PARSER_TIMEOUT:-120}

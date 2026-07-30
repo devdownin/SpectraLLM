@@ -5,7 +5,7 @@ import fr.spectra.dto.ServiceStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -16,10 +16,16 @@ import java.util.Map;
 
 /**
  * HTTP client for the Python Cross-Encoder reranker service.
- * Active only when {@code spectra.reranker.enabled=true}.
+ *
+ * <p>Active when {@code spectra.reranker.enabled=true} and {@code spectra.reranker.engine=http}
+ * (the default). {@code engine=onnx} selects
+ * {@link fr.spectra.service.reranker.OnnxCrossEncoderReranker} instead, which runs the same kind
+ * of model inside the JVM — see {@code docs/process/audit-python-java.fr.md}. Both satisfy
+ * {@link RerankerClient}, so switching engines (and switching back) is a configuration property.
  */
 @Service
-@ConditionalOnProperty(prefix = "spectra.reranker", name = "enabled", havingValue = "true")
+@ConditionalOnExpression(
+        "'${spectra.reranker.enabled:false}' == 'true' and '${spectra.reranker.engine:http}' == 'http'")
 public class CrossEncoderRerankerClient implements RerankerClient {
 
     private static final Logger log = LoggerFactory.getLogger(CrossEncoderRerankerClient.class);

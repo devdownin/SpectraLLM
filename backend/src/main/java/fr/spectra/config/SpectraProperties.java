@@ -150,13 +150,55 @@ public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, 
             String baseUrl,
             String model,
             Integer timeoutSeconds,
-            Integer topCandidates
+            Integer topCandidates,
+            /**
+             * Moteur de reranking : {@code http} (microservice Python) ou {@code onnx} (exécuté
+             * dans la JVM). Défaut {@code http} — le moteur ONNX reste opt-in tant que la
+             * référence de parité n'a pas été capturée et la qualité validée
+             * (cf. docs/process/audit-python-java.fr.md, lot 2).
+             */
+            String engine,
+            OnnxRerankerProperties onnx
     ) {
         public boolean isEnabled() { return Boolean.TRUE.equals(enabled); }
         public String effectiveBaseUrl() { return baseUrl != null ? baseUrl : "http://reranker:8000"; }
         public String effectiveModel() { return model != null ? model : "cross-encoder/ms-marco-MiniLM-L-6-v2"; }
         public int effectiveTimeoutSeconds() { return timeoutSeconds != null ? timeoutSeconds : 30; }
         public int effectiveTopCandidates() { return topCandidates != null ? topCandidates : 20; }
+        public String effectiveEngine() { return engine != null && !engine.isBlank() ? engine : "http"; }
+        public OnnxRerankerProperties effectiveOnnx() {
+            return onnx != null ? onnx : new OnnxRerankerProperties(null, null, null, null);
+        }
+    }
+
+    /**
+     * Réglages du moteur de reranking exécuté dans la JVM.
+     *
+     * @param modelPath  répertoire contenant {@code model.onnx} et {@code tokenizer.json}
+     * @param activation {@code sigmoid} ou {@code logit} — <b>barème</b> des scores publiés. Ne
+     *                   change pas l'ordre (la sigmoïde est monotone) mais change l'échelle des
+     *                   {@code rerankScores} exposés par l'API, donc la comparabilité entre
+     *                   campagnes de benchmark. {@code sentence-transformers} applique une
+     *                   sigmoïde sur un cross-encoder à un logit : {@code sigmoid} reproduit le
+     *                   service Python.
+     * @param maxLength  longueur maximale de la paire en tokens (troncature « longest_first »,
+     *                   comme {@code CrossEncoder.predict})
+     * @param batchSize  nombre de paires évaluées par passage avant
+     */
+    public record OnnxRerankerProperties(
+            String modelPath,
+            String activation,
+            Integer maxLength,
+            Integer batchSize
+    ) {
+        public String effectiveModelPath() {
+            return modelPath != null && !modelPath.isBlank() ? modelPath : "./data/models/reranker";
+        }
+        public String effectiveActivation() {
+            return activation != null && !activation.isBlank() ? activation : "sigmoid";
+        }
+        public int effectiveMaxLength() { return maxLength != null ? maxLength : 512; }
+        public int effectiveBatchSize() { return batchSize != null ? batchSize : 16; }
     }
 
     public record AgenticRagProperties(
