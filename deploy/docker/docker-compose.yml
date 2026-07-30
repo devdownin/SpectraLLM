@@ -117,9 +117,20 @@ services:
     ports:
       - "8002:8000"
     volumes:
+      # Cache HuggingFace persistant : le modèle (~500 Mo) y survit aux reconstructions
+      # d'image. C'est lui qui permet de servir — et d'exporter en ONNX — sans accès au Hub.
       - reranker-model-cache:/root/.cache/huggingface
     environment:
       - RERANKER_MODEL=${RERANKER_MODEL:-cross-encoder/mmarco-mMiniLMv2-L12-H384-v1}
+      # Environnements contraints (proxy d'entreprise, hors ligne) : HF_ENDPOINT pointe un
+      # miroir, HF_HUB_OFFLINE=1 interdit tout accès réseau et force l'usage exclusif du cache
+      # ci-dessus, HF_TOKEN authentifie sur un dépôt privé.
+      # Forme SANS « = » volontaire : la variable n'est transmise que si l'hôte la définit.
+      # Avec « ${HF_ENDPOINT:-} » elle vaudrait la chaîne VIDE, que huggingface_hub prendrait
+      # pour une URL d'endpoint — plus destructeur que de ne rien passer du tout.
+      - HF_ENDPOINT
+      - HF_HUB_OFFLINE
+      - HF_TOKEN
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s

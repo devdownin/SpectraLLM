@@ -4,3 +4,21 @@ sentence-transformers==5.5.0
 torch==2.12.0
 pydantic==2.13.4
 prometheus-fastapi-instrumentator==7.0.0
+
+# ── Dépendances transitives épinglées explicitement ──────────────────────────────────────────
+# sentence-transformers les déclare SANS borne supérieure utile (transformers<6,>=4.41.0 et
+# huggingface-hub>=0.23.0) : pip y installait donc « la dernière en date », si bien que deux
+# constructions de l'image à quelques mois d'intervalle n'exécutaient pas le même code — et rien
+# ne le signalait avant l'échec. Même défaut que celui corrigé pour scripts/requirements.txt
+# (F11 de l'audit fine-tuning) ; services/ ne l'avait jamais reçu, et la CI ne construit pas les
+# images des services profilés, ce qui a rendu la dérive invisible.
+#
+# Valeurs retenues : les versions en vigueur à la publication de sentence-transformers 5.5.0
+# (12/05/2026), donc celles contre lesquelles cette version a été développée. huggingface-hub
+# était déjà en 1.x à cette date ; ce n'est pas le passage à 1.x qui est dangereux, c'est
+# l'absence de borne.
+#
+# À ALIGNER sur le `pip freeze` du conteneur en production si les versions y diffèrent : c'est
+# ce jeu-là, et non celui-ci, qui définit le comportement à ne pas dégrader.
+transformers==5.8.0
+huggingface-hub==1.14.0

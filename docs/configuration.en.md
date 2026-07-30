@@ -87,6 +87,17 @@ Disabled by default — no Kafka bean is created unless `SPECTRA_KAFKA_ENABLED=t
 | `SPECTRA_RERANKER_ONNX_ACTIVATION` | `sigmoid` | Score scale. `sigmoid` matches `sentence-transformers` (and therefore the Python service); `logit` publishes the raw logit. **Never changes the ranking** — sigmoid is monotonic — only the scale of the `rerankScores` the API exposes, hence their comparability across benchmark runs |
 | `SPECTRA_RERANKER_ONNX_MAX_LENGTH` | `512` | Max pair length in tokens (`longest_first` truncation, as in `CrossEncoder.predict`) |
 | `SPECTRA_RERANKER_ONNX_BATCH_SIZE` | `16` | Pairs scored per forward pass |
+| `HF_ENDPOINT` | *(unset)* | HuggingFace mirror for the `reranker` container (corporate proxy). Only passed through when set on the host — an empty value would be read as an endpoint URL |
+| `HF_HUB_OFFLINE` | *(unset)* | Set to `1` to forbid any Hub access: the model is served exclusively from the persistent `reranker-model-cache` volume |
+| `HF_TOKEN` | *(unset)* | Authentication for a private/gated model repository |
+
+> **Air-gapped or proxied installs.** The `reranker` container mounts
+> `reranker-model-cache:/root/.cache/huggingface`, so the model (~500 MB) survives image rebuilds.
+> The build-time pre-download is best-effort: if the Hub is unreachable the image still builds, and
+> the model is loaded at startup from that volume. With a populated cache, `HF_HUB_OFFLINE=1` runs
+> the service with no network at all. The same cache is what lets you export the ONNX artifact
+> offline for `SPECTRA_RERANKER_ENGINE=onnx` — see
+> [the Python-to-Java migration audit](process/audit-python-java.fr.md).
 
 > **`engine=onnx` — two things to know.** The model is loaded into the API process, so its
 > footprint moves from the reranker container into `spectra-api`: `mmarco-mMiniLMv2` is distilled

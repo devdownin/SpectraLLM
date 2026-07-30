@@ -311,6 +311,69 @@ public class OnnxCrossEncoderReranker implements RerankerClient, AutoCloseable {
 }
 ```
 
+### 6.3 bis — Résolu : l'artefact s'exporte hors ligne depuis le cache existant
+
+La question ci-dessous (§6.3) est restée ouverte tant qu'on la posait en termes de
+« téléchargement ». Un blocage rencontré en pratique l'a tranchée autrement.
+
+**Le symptôme.** Sur une machine sans accès à `huggingface.co`, le build du service Python
+échoue :
+
+```
+process "/bin/sh -c python -c \"…CrossEncoder('${RERANKER_MODEL}')\"" … exit code: 1
+```
+
+**Le diagnostic.** L'échec est à la dernière ligne du `Dockerfile`, donc après un `pip install`
+réussi ; et le code de sortie est 1 (exception Python), pas 137 (tué faute de mémoire). C'est le
+**pré-téléchargement du modèle** qui casse, pas l'installation.
+
+**Le levier.** `docker-compose.yml` monte `reranker-model-cache:/root/.cache/huggingface`. Sur
+une installation qui a déjà servi, **le modèle est là**. Le build échouait donc en re-téléchargeant
+ce que l'installation possédait déjà — et ce même cache permet de produire l'artefact ONNX sans
+jamais joindre le Hub :
+
+```bash
+# 1. Localiser le modèle dans le volume (préfixe = nom de projet compose, cf. docker volume ls)
+docker run --rm -v spectra_reranker-model-cache:/cache alpine \
+  find /cache -name config.json | head
+
+# 2. Exporter en ONNX depuis ce chemin local, sans réseau
+docker run --rm -v spectra_reranker-model-cache:/cache -v "$PWD/data/models:/out" \
+  python:3.11-slim bash -c "pip install -q optimum[exporters] && \
+    HF_HUB_OFFLINE=1 optimum-cli export onnx --model /cache/<snapshot> \
+      --task text-classification /out/reranker"
+```
+
+`model.onnx` et `tokenizer.json` atterrissent dans `./data/models/reranker`, que
+`SPECTRA_RERANKER_ONNX_PATH` désigne par défaut. **La question « l'ONNX est-il publié en amont ? »
+devient sans objet** : on l'exporte depuis le modèle qu'on a déjà, ce qui garantit en prime que
+c'est bien *le même* modèle que celui servi — condition de validité de la comparaison de parité.
+
+**Corrections apportées au passage** (le service Python reste condamné, mais il est sur le chemin
+critique de sa propre migration) :
+
+- **Pré-téléchargement rendu non fatal.** Le commentaire du `Dockerfile` le présentait comme une
+  optimisation (« so startup is instant ») ; c'était pourtant la seule chose qui rendait l'image
+  inconstructible hors ligne. Le modèle est désormais chargé au démarrage depuis le cache si le
+  build n'a pas pu le récupérer.
+- **Dépendances transitives bornées.** `services/reranker/requirements.txt` épinglait
+  `sentence-transformers` et `torch` mais laissait `transformers` et `huggingface-hub` libres —
+  or `sentence-transformers` les déclare sans borne supérieure utile. Deux constructions à
+  quelques mois d'écart n'installaient donc pas le même code. C'est exactement le défaut corrigé
+  par F11 pour `scripts/requirements.txt` ; `services/` ne l'avait jamais reçu. Épinglés aux
+  versions en vigueur à la publication de `sentence-transformers 5.5.0`. Même traitement pour
+  `docling` côté docparser (seule dépendance non bornée de ce service).
+- **Passe-plat `HF_ENDPOINT` / `HF_HUB_OFFLINE` / `HF_TOKEN`**, sous forme sans valeur : une
+  variable absente reste absente, là où `${VAR:-}` aurait injecté une chaîne vide que
+  `huggingface_hub` prendrait pour une URL d'endpoint.
+
+**Constat nouveau — P11, angle mort de la CI.** `.github/workflows/ci.yml` lance
+`docker compose … build` **sans `--profile`** : les images des services profilés
+(`reranker`, `docparser`) ne sont **jamais construites en CI**. Une image devenue inconstructible
+ne se découvre donc que chez l'utilisateur. Non corrigé ici — construire une image de 2,5 Go
+(torch) en CI pour un service destiné à disparaître aux lots 2 et 3 est un coût difficile à
+justifier ; à réévaluer si l'échéance de suppression s'éloigne.
+
 ### 6.3 Le vrai point de décision : l'approvisionnement du modèle
 
 Le modèle configuré par défaut est **`cross-encoder/mmarco-mMiniLMv2-L12-H384-v1`** — choisi
@@ -761,6 +824,9 @@ toucher au code :
 | P8 | `backend/pom.xml` lit `../scripts` | Faible | Lot 0 | ✅ corrigé |
 | P9 | Heuristiques de nettoyage docparser à porter à l'identique | Moyen (régression) | Lot 3 | ouvert |
 | P10 | Trois toolchains en CI et en développement | Moyen | Lots 1 à 4 | ⚠️ partiel (1 job Python sur 3 supprimé) |
+| P11 | La CI ne construit jamais les images des services profilés — une image inconstructible ne se découvre que chez l'utilisateur | Moyen | §6.3 bis | ouvert (arbitrage assumé) |
+| P12 | Dépendances transitives non bornées dans `services/` (`transformers`, `huggingface-hub`, `docling`) | Moyen | §6.3 bis | ✅ corrigé |
+| P13 | Le pré-téléchargement du modèle au build rendait l'image inconstructible hors ligne | Élevé (bloquant en pratique) | §6.3 bis | ✅ corrigé |
 
 **Réponse en une phrase.** Oui, Spectra peut devenir full Java sur tout ce qui sert une
 requête — reranking et extraction PDF compris — pour un effort modéré et sans perte
