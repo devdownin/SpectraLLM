@@ -517,22 +517,58 @@ Deux gains immédiats, quelle que soit l'option retenue :
 
 ## 9. Plan d'exécution
 
-| Lot | Contenu | Prérequis | Critère de sortie | Effort |
-|---|---|---|---|---|
-| **0** | P5 (contrôleurs → interface `RerankerClient`), P7 (épinglage SHA des scripts llama.cpp), P8 (déplacer `base_models.json`) | — | 3 correctifs isolés, aucun changement de comportement | trivial |
-| **1** | `check-doc-links.py` → `DocumentationLinksTest` | — | `docs-links.yml` supprimé | trivial |
-| **2** | Reranker Java (DJL/ONNX ou Jlama) + test de parité d'ordre | Lot 0, décision §6.3 | `services/reranker/` supprimé ; benchmark qualité stable | modéré |
-| **3** | `MarkdownPdfExtractor` (PDFBox + tabula-java) + corpus de référence | Lot 2 (rodage du schéma de bascule) | `services/` supprimé ; écart de qualité mesuré et publié | élevé |
-| **4** | `TrainingRunner` + `spectra-trainer` (option A) | décision §8 | fine-tuning fonctionnel en Docker **et** en K8s ; F1 clos | modéré |
+| Lot | Contenu | Prérequis | Critère de sortie | Effort | Statut |
+|---|---|---|---|---|---|
+| **0** | P5 (contrôleurs → interface `RerankerClient`), P7 (épinglage des scripts llama.cpp), P8 (déplacer `base_models.json`) | — | 3 correctifs isolés, aucun changement de comportement | trivial | ✅ livré |
+| **1** | `check-doc-links.py` → `DocumentationLinksTest` | — | `docs-links.yml` supprimé | trivial | ✅ livré |
+| **2** | Reranker Java (DJL/ONNX ou Jlama) + test de parité d'ordre | Lot 0, décision §6.3 | `services/reranker/` supprimé ; benchmark qualité stable | modéré | à faire |
+| **3** | `MarkdownPdfExtractor` (PDFBox + tabula-java) + corpus de référence | Lot 2 (rodage du schéma de bascule) | `services/` supprimé ; écart de qualité mesuré et publié | élevé | à faire |
+| **4** | `TrainingRunner` + `spectra-trainer` (option A) | décision §8 | fine-tuning fonctionnel en Docker **et** en K8s ; F1 clos | modéré | à faire |
 
 Ordre volontairement croissant en risque : chaque lot livre une valeur autonome et est
 réversible par configuration. Après les lots 1 à 3, `find . -name '*.py'` ne renvoie plus que
 `scripts/` ; après le lot 4, plus rien dans le dépôt applicatif.
 
+### Lots 0 et 1 — ce qui a été livré
+
+**Lot 0**
+
+- `RerankerClient` porte désormais `checkHealth()`, et `StatusController` / `HealthController`
+  injectent l'interface. `RerankerHealthReportingTest` (3 tests) fige le découplage en
+  publiant l'état d'une implémentation *in-process* fictive : c'est exactement le scénario qui
+  échouait en silence auparavant.
+- Nouveau module partagé `scripts/llama_cpp_convert.py` : les deux scripts d'export y délèguent
+  la localisation du convertisseur, à **révision épinglée** (`b9828`, alignée sur
+  `LLAMA_CPP_IMAGE_TAG` du compose) et surchargeable par `LLAMA_CPP_REVISION`. Le fichier mis en
+  cache porte la révision dans son nom : une copie de `master` laissée par l'ancienne version ne
+  gèle plus la conversion. `test_llama_cpp_convert.py` (9 tests, sans réseau) interdit le retour
+  à une branche mobile et **vérifie que la révision reste alignée sur le tag de l'image servie** —
+  sans quoi les deux valeurs auraient dérivé sans bruit.
+- `base_models.json` vit dans `backend/src/main/resources/` ; la `<resource>` pointant sur
+  `../scripts` a disparu du `pom.xml`. Le couplage est inversé : `scripts/base_models.py` va
+  chercher le manifeste dans le backend (avec repli sur un fichier voisin et surcharge
+  `SPECTRA_BASE_MODELS_MANIFEST`, pour rester utilisable copié seul sur une machine
+  d'entraînement). `test_base_models.py` (6 tests) fige l'emplacement canonique et le mapping
+  alias → repo, en miroir de `BaseModelCatalogTest`.
+
+**Lot 1**
+
+- `DocumentationLinksTest` (4 tests) remplace `check-doc-links.py` : même expression rationnelle,
+  mêmes répertoires élagués, mêmes URL ignorées, et l'élagage se fait à la descente plutôt
+  qu'après coup. Vérifié en provoquant une vraie rupture de lien : le test échoue en donnant
+  `fichier:ligne -> cible`.
+- `scripts/check-doc-links.py` et `.github/workflows/docs-links.yml` supprimés ;
+  `CONTRIBUTING.md` mis à jour. Le contrôle tourne maintenant dans le job de build et échoue
+  **avant** le push.
+
+Net sur la surface Python : 13 fichiers → 13 (−1 script, +1 module partagé, +2 fichiers de
+tests), et **un job de CI Python sur trois supprimé**. Aucun changement de comportement
+fonctionnel.
+
 ### Définition de « full Java », mesurable
 
 - [ ] 0 fichier `.py` dans `backend/`, `services/`, `scripts/` du dépôt applicatif
-- [ ] 0 job Python dans `.github/workflows/`
+- [ ] 0 job Python dans `.github/workflows/` — *2 restants (`training-scripts`, `python-services`), le job `docs-links` est supprimé*
 - [ ] 0 image Docker Python construite par le dépôt (ChromaDB restant une dépendance amont)
 - [ ] `docker compose up` sans profil = pile complète, reranking et layout-aware inclus
 - [ ] fine-tuning déployable en Kubernetes (`Job`), ou explicitement signalé indisponible
@@ -577,18 +613,18 @@ toucher au code :
 
 ## 12. Synthèse
 
-| # | Constat | Gravité | Traité par |
-|---|---|---|---|
-| P1 | L'entraînement QLoRA est la seule dépendance Python non substituable | Structurant | §8 (option A) |
-| P2 | Deux runtimes ML pour 222 lignes de logique métier | Élevé | Lots 2 et 3 |
-| P3 | `docparser`/`reranker` non déployables en Kubernetes (`ServiceMonitor` orphelins) | Élevé | Lots 2 et 3 |
-| P4 | Contrats HTTP non typés (`Map` + casts) | Moyen | Lots 2 et 3 (disparaît) |
-| P5 | Contrôleurs couplés à la classe concrète du reranker | Faible → **bloquant** | Lot 0 |
-| P6 | Deux implémentations du format de conversation | Moyen | §8 (reste en A ; traité en C) |
-| P7 | Chaîne GGUF non reproductible (`master` téléchargé à l'exécution) | Moyen | Lot 0 (épinglage), §8.4 (suppression) |
-| P8 | `backend/pom.xml` lit `../scripts` | Faible | Lot 0 |
-| P9 | Heuristiques de nettoyage docparser à porter à l'identique | Moyen (régression) | Lot 3 |
-| P10 | Trois toolchains en CI et en développement | Moyen | Lots 1 à 4 |
+| # | Constat | Gravité | Traité par | Statut |
+|---|---|---|---|---|
+| P1 | L'entraînement QLoRA est la seule dépendance Python non substituable | Structurant | §8 (option A) | décision à prendre |
+| P2 | Deux runtimes ML pour 222 lignes de logique métier | Élevé | Lots 2 et 3 | ouvert |
+| P3 | `docparser`/`reranker` non déployables en Kubernetes (`ServiceMonitor` orphelins) | Élevé | Lots 2 et 3 | ouvert |
+| P4 | Contrats HTTP non typés (`Map` + casts) | Moyen | Lots 2 et 3 (disparaît) | ouvert |
+| P5 | Contrôleurs couplés à la classe concrète du reranker | Faible → **bloquant** | Lot 0 | ✅ corrigé |
+| P6 | Deux implémentations du format de conversation | Moyen | §8 (reste en A ; traité en C) | ouvert |
+| P7 | Chaîne GGUF non reproductible (`master` téléchargé à l'exécution) | Moyen | Lot 0 (épinglage), §8.4 (suppression) | ✅ épinglé |
+| P8 | `backend/pom.xml` lit `../scripts` | Faible | Lot 0 | ✅ corrigé |
+| P9 | Heuristiques de nettoyage docparser à porter à l'identique | Moyen (régression) | Lot 3 | ouvert |
+| P10 | Trois toolchains en CI et en développement | Moyen | Lots 1 à 4 | ⚠️ partiel (1 job Python sur 3 supprimé) |
 
 **Réponse en une phrase.** Oui, Spectra peut devenir full Java sur tout ce qui sert une
 requête — reranking et extraction PDF compris — pour un effort modéré et sans perte

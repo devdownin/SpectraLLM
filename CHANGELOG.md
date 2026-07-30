@@ -8,6 +8,22 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Migration « full Java » — audit de la surface Python, et premiers lots
+
+Nouvel audit [`docs/process/audit-python-java.fr.md`](docs/process/audit-python-java.fr.md) : les 13 fichiers Python du dépôt (1 745 lignes) et les dépendances Python indirectes de la pile (images, healthchecks compose, convertisseurs llama.cpp téléchargés à l'exécution, jobs de CI) sont inventoriés, puis un plan de migration en quatre lots est proposé. Constat structurant : les quatre blocs Python ne sont pas de même nature — reranking, extraction PDF et outillage sont substituables en Java, l'entraînement QLoRA ne l'est pas (l'outil `llama-finetune` de llama.cpp ne fait que du full finetune FP32, sans LoRA ni DPO/ORPO). La cible retenue est donc « Java pur sur le chemin de requête, entraînement sorti du produit dans un worker appelé par HTTP » — ce qui clôt au passage le constat F1 de l'audit fine-tuning, seul blocage de déploiement encore ouvert.
+
+**Lot 0 — trois correctifs de découplage, sans changement de comportement**
+
+- **L'état du reranker ne dépend plus de son implémentation.** `checkHealth()` remonte dans l'interface `RerankerClient`, et `/api/status` comme `/api/health/services` injectent l'interface au lieu de la classe concrète `CrossEncoderRerankerClient`. Un moteur de reranking exécuté dans la JVM aurait sinon disparu des deux endpoints sans qu'aucun test n'échoue.
+- **Convertisseurs GGUF épinglés.** `export_gguf.py` et `export_lora_gguf.py` tiraient `convert_hf_to_gguf.py` / `convert_lora_to_gguf.py` depuis la branche `master` de llama.cpp **au moment de l'exécution** : deux exports faits à quelques semaines d'intervalle n'utilisaient pas le même convertisseur — donc pas la même quantification ni les mêmes métadonnées GGUF — et rien ne le signalait. Les deux scripts délèguent désormais à un module partagé, à révision épinglée (`b9828`, alignée sur le tag de l'image llama.cpp servie par le compose) et surchargeable via `LLAMA_CPP_REVISION`. Le fichier mis en cache porte la révision dans son nom, si bien qu'une copie de `master` laissée par l'ancienne version ne gèle plus la conversion.
+- **`base_models.json` là où il appartient.** Le manifeste unique des modèles de base passe dans `backend/src/main/resources/`, et la `<resource>` par laquelle `backend/pom.xml` lisait `../scripts` disparaît. Le couplage est inversé : ce sont les scripts d'entraînement, périphériques et optionnels, qui viennent chercher le manifeste dans le backend — avec repli sur un fichier voisin et surcharge `SPECTRA_BASE_MODELS_MANIFEST`, pour rester utilisables copiés seuls sur une machine d'entraînement.
+
+**Lot 1 — le contrôle des liens de la documentation quitte Python**
+
+- `scripts/check-doc-links.py` et le workflow `docs-links` sont remplacés par `DocumentationLinksTest` (suite de tests du backend) : même expression rationnelle, mêmes répertoires élagués, mêmes URL ignorées, mais l'élagage se fait à la descente de l'arborescence et le contrôle tourne dans le job de build existant — un lien cassé échoue donc **avant** le push, avec `fichier:ligne -> cible`. Une chaîne d'outils de moins imposée aux contributeurs.
+
+Note technique : quatre nouvelles suites de tests verrouillent ces invariants — `RerankerHealthReportingTest`, `DocumentationLinksTest`, `test_llama_cpp_convert.py` (interdit le retour à une branche mobile et vérifie que la révision épinglée reste alignée sur le tag de l'image servie) et `test_base_models.py` (emplacement canonique du manifeste et mapping alias → repo, en miroir de `BaseModelCatalogTest`). Un job de CI Python sur trois est supprimé.
+
 ### RAG — la personnalisation enregistrée avec un modèle pilote enfin la génération
 
 Le registre persiste depuis toujours une persona (`systemPrompt`) et des paramètres (`parameters`) par modèle — enregistrés par le fine-tuning, llmfit ou `POST /api/fine-tuning/models/register`. Ces champs n'étaient toutefois que de la **traçabilité** : le RAG servait une persona figée dans le code et une température issue d'un défaut du DTO. Un modèle personnalisé était donc interrogé sous une identité et des réglages qui n'étaient pas les siens.

@@ -41,6 +41,7 @@ public class CrossEncoderRerankerClient implements RerankerClient {
                 : "http://reranker:8000";
     }
 
+    @Override
     public ServiceStatus checkHealth() {
         long start = System.currentTimeMillis();
         try {
