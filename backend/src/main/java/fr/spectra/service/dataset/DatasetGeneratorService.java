@@ -490,7 +490,7 @@ public class DatasetGeneratorService {
                 Texte:
                 %s""".formatted(chunkText);
 
-        String qaJson = llmChatClient.chat("Tu génères des paires d'entraînement pour un LLM.", qaPrompt);
+        String qaJson = llmChatClient.chatJson("Tu génères des paires d'entraînement pour un LLM.", qaPrompt);
         TrainingPair qaPair = parseQaPair(qaJson, chunkText, sourceFile, documentCategory);
         if (qaPair != null) pairs.add(qaPair);
 
@@ -504,7 +504,7 @@ public class DatasetGeneratorService {
                 Texte:
                 %s""".formatted(chunkText);
 
-        String summaryJson = llmChatClient.chat("Tu génères des paires d'entraînement pour un LLM.", summaryPrompt);
+        String summaryJson = llmChatClient.chatJson("Tu génères des paires d'entraînement pour un LLM.", summaryPrompt);
         TrainingPair summaryPair = parseSummaryPair(summaryJson, chunkText, sourceFile, documentCategory);
         if (summaryPair != null) pairs.add(summaryPair);
 
@@ -540,7 +540,7 @@ public class DatasetGeneratorService {
                 Texte:
                 %s""".formatted(taxonomyBlock, chunkText);
 
-        String classifJson = llmChatClient.chat("Tu es un classificateur de documents.", classifPrompt);
+        String classifJson = llmChatClient.chatJson("Tu es un classificateur de documents.", classifPrompt);
         return parseClassificationPair(classifJson, chunkText, sourceFile);
     }
 
@@ -620,7 +620,7 @@ public class DatasetGeneratorService {
                 Texte:
                 %s""".formatted(chunkText);
         try {
-            String json = llmChatClient.chat("Tu génères des questions de test pour un assistant.", prompt);
+            String json = llmChatClient.chatJson("Tu génères des questions de test pour un assistant.", prompt);
             JsonNode node = mapper.readTree(extractJson(json));
             String question = node.get("question").asText();
             if (question == null || question.strip().length() < 10) return null;

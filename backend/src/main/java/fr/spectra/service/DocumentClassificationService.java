@@ -167,7 +167,11 @@ public class DocumentClassificationService {
                     + "(le document a-t-il bien été ingéré dans une collection existante ?)");
         }
 
-        String raw = chatClient.chat(
+        // Décodage contraint : le modèle ne peut émettre qu'un objet JSON valide. Le parsing
+        // défensif ci-dessous reste néanmoins en place — un provider sans cette capacité
+        // retombe sur une génération libre, et le contenu du JSON n'est pas garanti conforme
+        // à notre schéma pour autant.
+        String raw = chatClient.chatJson(
                 buildSystemPrompt(),
                 buildUserMessage(doc, excerpt),
                 config.effectiveTemperature(),

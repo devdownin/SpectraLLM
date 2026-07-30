@@ -8,6 +8,15 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### LLM — décodage contraint : le JSON est garanti, plus seulement demandé
+
+Jusqu'ici, chaque endroit qui attendait du JSON le **demandait dans le prompt** puis rattrapait les écarts du modèle au parsing. Cette approche est structurellement fragile : elle suppose d'avoir anticipé toutes les façons dont un modèle peut dévier. Deux d'entre elles ont déjà causé des pannes en production — préambule en prose après troncature du contexte, bloc de réflexion d'un modèle « reasoning » contenant un JSON d'exemple.
+
+- **`LlmChatClient.chatJson(...)`** : nouvelle variante dont la validité JSON est imposée au **décodeur**. Sur llama.cpp, le champ `response_format: {"type":"json_object"}` est compilé en grammaire et restreint l'échantillonnage — le modèle ne peut littéralement pas émettre de préambule, de bloc de réflexion ou de bloc Markdown. L'implémentation par défaut de l'interface retombe sur une génération libre, donc un provider sans cette capacité reste fonctionnel.
+- **Sept sites de parsing basculés** : classification documentaire, les quatre prompts de génération de dataset (Q/R, résumé, classification, exemples de refus) et les deux juges LLM-as-a-judge (notation, A/B head-to-head). Ce sont exactement les endroits où une réponse hors format se traduisait par une paire perdue, un score manquant ou un document non classifié — le plus souvent en silence.
+- **Le parsing défensif reste en place.** Le décodage contraint garantit un JSON *valide*, pas un JSON *conforme au schéma attendu* : les clés peuvent manquer et les types varier. Il supprime une classe de défauts, il ne dispense pas de vérifier ce qu'on reçoit.
+- Le chat conversationnel n'est pas contraint : seuls les appels dont la sortie est parsée le sont.
+
 ### Migration « full Java » — audit de la surface Python, et premiers lots
 
 Nouvel audit [`docs/process/audit-python-java.fr.md`](docs/process/audit-python-java.fr.md) : les 13 fichiers Python du dépôt (1 745 lignes) et les dépendances Python indirectes de la pile (images, healthchecks compose, convertisseurs llama.cpp téléchargés à l'exécution, jobs de CI) sont inventoriés, puis un plan de migration en quatre lots est proposé. Constat structurant : les quatre blocs Python ne sont pas de même nature — reranking, extraction PDF et outillage sont substituables en Java, l'entraînement QLoRA ne l'est pas (l'outil `llama-finetune` de llama.cpp ne fait que du full finetune FP32, sans LoRA ni DPO/ORPO). La cible retenue est donc « Java pur sur le chemin de requête, entraînement sorti du produit dans un worker appelé par HTTP » — ce qui clôt au passage le constat F1 de l'audit fine-tuning, seul blocage de déploiement encore ouvert.

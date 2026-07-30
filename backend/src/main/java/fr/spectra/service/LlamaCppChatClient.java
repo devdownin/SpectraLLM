@@ -166,18 +166,41 @@ public class LlamaCppChatClient implements LlmChatClient {
 
     @Override
     @CircuitBreaker(name = "llm-chat", fallbackMethod = "chatFallbackParams")
-    @SuppressWarnings("unchecked")
     public String chat(String systemPrompt, String userMessage, float temperature, float topP) {
-        Map<String, Object> request = Map.of(
-                "model", activeModel.get(),
-                "stream", false,
-                "temperature", temperature,
-                "top_p", topP,
-                "messages", List.of(
-                        Map.of("role", "system", "content", systemPrompt),
-                        Map.of("role", "user", "content", userMessage)
-                )
-        );
+        return completion(systemPrompt, userMessage, temperature, topP, false);
+    }
+
+    /**
+     * Génération contrainte à un objet JSON valide (`response_format`), plutôt que demandée
+     * dans le prompt. llama.cpp compile ce format en grammaire et restreint l'échantillonnage :
+     * un préambule en prose ou un bloc de réflexion devient structurellement impossible.
+     */
+    @Override
+    @CircuitBreaker(name = "llm-chat", fallbackMethod = "chatFallbackParams")
+    public String chatJson(String systemPrompt, String userMessage, float temperature, float topP) {
+        return completion(systemPrompt, userMessage, temperature, topP, true);
+    }
+
+    /**
+     * @param jsonOnly contraint la sortie à un objet JSON valide. Construit avec un
+     *   {@code LinkedHashMap} et non {@code Map.of} : le champ est conditionnel, et
+     *   {@code Map.of} n'accepte ni valeur nulle ni clé optionnelle.
+     */
+    @SuppressWarnings("unchecked")
+    private String completion(String systemPrompt, String userMessage,
+                              float temperature, float topP, boolean jsonOnly) {
+        Map<String, Object> request = new java.util.LinkedHashMap<>();
+        request.put("model", activeModel.get());
+        request.put("stream", false);
+        request.put("temperature", temperature);
+        request.put("top_p", topP);
+        request.put("messages", List.of(
+                Map.of("role", "system", "content", systemPrompt),
+                Map.of("role", "user", "content", userMessage)
+        ));
+        if (jsonOnly) {
+            request.put("response_format", Map.of("type", "json_object"));
+        }
 
         Map<String, Object> response = webClient.post()
                 .uri("/v1/chat/completions")
