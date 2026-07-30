@@ -41,6 +41,7 @@ public class CrossEncoderRerankerClient implements RerankerClient {
                 : "http://reranker:8000";
     }
 
+    @Override
     public ServiceStatus checkHealth() {
         long start = System.currentTimeMillis();
         try {
@@ -61,6 +62,17 @@ public class CrossEncoderRerankerClient implements RerankerClient {
     @Override
     @SuppressWarnings("unchecked")
     public List<RankedResult> rerank(String query, List<String> documents, int topN) {
+        // Vivier vide : rien à classer. Le service Python répond « results: [] » dans ce cas,
+        // mais le contrôle d'anomalie plus bas transformait cette réponse légitime en
+        // IllegalStateException — avec un message absurde (« sans résultats pour 0 document »).
+        // Le seul appelant (RagService) garde déjà l'appel derrière !allChunks.isEmpty(), donc
+        // ce n'était pas atteignable ; on l'aligne néanmoins sur le service, car une
+        // implémentation exécutée dans la JVM renverrait naturellement une liste vide et ne doit
+        // pas avoir à reproduire ce défaut. Économise en outre un aller-retour HTTP inutile.
+        if (documents.isEmpty()) {
+            return List.of();
+        }
+
         Map<String, Object> body = Map.of(
                 "query", query,
                 "documents", documents,

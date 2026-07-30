@@ -82,8 +82,9 @@ Enhancements are also tracked as GitHub issues. Please use the [Feature Request 
   (defaults, limits, formats — single source of truth), and
   [rag-pipeline.fr.md](docs/tech/rag-pipeline.fr.md) explains the design rationale. Don't
   duplicate a fact in several documents — link to the reference instead.
-- **Links**: internal Markdown links are checked in CI (`scripts/check-doc-links.py`,
-  `docs-links` workflow) — renaming or deleting a doc requires updating every reference.
+- **Links**: internal Markdown links are checked by `DocumentationLinksTest` (backend test
+  suite, so `mvn test` catches them locally before the push) — renaming or deleting a doc
+  requires updating every reference.
 - **Changelog**: user-visible changes get an entry in `CHANGELOG.md` (section
   `[Non publié]`) in the same PR. GitHub release notes are derived from the changelog,
   not the other way around.

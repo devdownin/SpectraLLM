@@ -40,6 +40,7 @@ New here? Start with **[Getting Started](getting-started.en.md)**.
 | **[Documentation audit (FR)](process/audit-documentation.fr.md)** | Audit of this documentation set (conformity, completeness). |
 | **[Security audit (FR)](process/audit-securite.fr.md)** | Technical security findings (auth model, exposure, DoS) — companion to [SECURITY.md](../SECURITY.md). |
 | **[Fine-tuning audit (FR)](process/audit-finetuning.fr.md)** | Technical findings on the fine-tuning chain (deployment, training correctness, DPO wiring). |
+| **[Python surface audit & full-Java plan (FR)](process/audit-python-java.fr.md)** | Every Python dependency inventoried (docparser, reranker, training scripts, CI), and a four-batch plan to move the request path entirely into the JVM. |
 
 ## Direction
 

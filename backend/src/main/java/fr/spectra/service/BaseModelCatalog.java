@@ -16,17 +16,18 @@ import java.util.Optional;
  * Catalogue des modèles de base disponibles pour le fine-tuning.
  *
  * <p><b>Source de vérité unique.</b> Le catalogue est chargé depuis
- * {@code base_models.json} — le même fichier que lisent les scripts Python
- * ({@code train_host.py}, {@code export_gguf.py}, {@code export_lora_gguf.py}),
- * embarqué au classpath à la construction (cf. pom.xml). Un adaptateur LoRA n'est
- * valide que sur le modèle de base exact qui l'a entraîné : centraliser le mapping
- * alias → repo HuggingFace élimine les divergences entre entraînement et fusion.</p>
+ * {@code base_models.json}, ressource de ce module ({@code src/main/resources}) — le même
+ * fichier que lisent les scripts Python ({@code train_host.py}, {@code export_gguf.py},
+ * {@code export_lora_gguf.py}), qui viennent le chercher ici via
+ * {@code scripts/base_models.py}. Un adaptateur LoRA n'est valide que sur le modèle de base
+ * exact qui l'a entraîné : centraliser le mapping alias → repo HuggingFace élimine les
+ * divergences entre entraînement et fusion.</p>
  */
 @Service
 public class BaseModelCatalog {
 
     private static final Logger log = LoggerFactory.getLogger(BaseModelCatalog.class);
-    private static final String MANIFEST_RESOURCE = "/base_models.json";
+    private static final String MANIFEST_RESOURCE = "base_models.json";
 
     /** Description d'un modèle de base entraînable. */
     public record BaseModel(String alias, String hfRepo, Integer contextLength, String description) {}
@@ -44,7 +45,8 @@ public class BaseModelCatalog {
     private static Map<String, BaseModel> loadManifest() {
         Map<String, BaseModel> loaded = new LinkedHashMap<>();
         try {
-            org.springframework.core.io.Resource resource = new org.springframework.core.io.ClassPathResource("base_models.json");
+            org.springframework.core.io.Resource resource =
+                    new org.springframework.core.io.ClassPathResource(MANIFEST_RESOURCE);
             if (!resource.exists()) {
                 log.warn("Manifeste base_models.json introuvable au classpath — catalogue de modèles de base vide "
                         + "(seuls les repos HuggingFace complets seront acceptés).");

@@ -53,34 +53,21 @@ print("  Fusion terminée.\n")
 # ── Étape 2 : Conversion GGUF via llama.cpp ───────────────────
 print("=== Étape 2 : Conversion GGUF ===")
 
-# Chercher convert_hf_to_gguf.py dans les packages installés
-convert_script = None
-try:
-    import llama_cpp
-    pkg_dir = os.path.dirname(llama_cpp.__file__)
-    candidate = os.path.join(pkg_dir, "convert_hf_to_gguf.py")
-    if os.path.exists(candidate):
-        convert_script = candidate
-except ImportError:
-    pass
+# Convertisseur HF → GGUF : celui du paquet llama_cpp s'il est installé, sinon téléchargement
+# à révision ÉPINGLÉE (cf. llama_cpp_convert). Auparavant `master` était tiré à chaque export :
+# le convertisseur — donc la quantification et les métadonnées écrites dans le GGUF — changeait
+# d'un export à l'autre sans que rien ne le signale.
+from llama_cpp_convert import pinned_revision, resolve
 
-# Sinon télécharger le script depuis llama.cpp
-if not convert_script:
-    script_path = os.path.join(args.output, "convert_hf_to_gguf.py")
-    if not os.path.exists(script_path):
-        print("  Téléchargement du script de conversion llama.cpp...")
-        import urllib.request
-        url = "https://raw.githubusercontent.com/ggerganov/llama.cpp/master/convert_hf_to_gguf.py"
-        try:
-            urllib.request.urlretrieve(url, script_path)
-            print(f"  Script téléchargé : {script_path}")
-        except Exception as e:
-            print(f"  ERREUR téléchargement : {e}")
-            print("\n  Conversion manuelle :")
-            print(f"    1. Téléchargez convert_hf_to_gguf.py depuis github.com/ggerganov/llama.cpp")
-            print(f"    2. Exécutez : python convert_hf_to_gguf.py {args.output} --outtype q8_0")
-            sys.exit(1)
-    convert_script = script_path
+try:
+    convert_script = resolve("convert_hf_to_gguf.py", args.output)
+except Exception as e:
+    print(f"  ERREUR téléchargement : {e}")
+    print("\n  Conversion manuelle :")
+    print(f"    1. Récupérez convert_hf_to_gguf.py depuis github.com/ggml-org/llama.cpp "
+          f"à la révision {pinned_revision()}")
+    print(f"    2. Exécutez : python convert_hf_to_gguf.py {args.output} --outtype q8_0")
+    sys.exit(1)
 
 gguf_path = os.path.join(args.output, "model.gguf")
 print(f"  Conversion vers : {gguf_path}")

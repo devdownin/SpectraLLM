@@ -43,30 +43,19 @@ if not os.path.exists(os.path.join(args.adapter, "adapter_config.json")):
     print(f"ERREUR : adaptateur introuvable (adapter_config.json absent) dans {args.adapter}")
     sys.exit(1)
 
-# ── Localiser convert_lora_to_gguf.py (paquet llama_cpp, sinon téléchargement) ──
-convert_script = None
-try:
-    import llama_cpp
-    candidate = os.path.join(os.path.dirname(llama_cpp.__file__), "convert_lora_to_gguf.py")
-    if os.path.exists(candidate):
-        convert_script = candidate
-except ImportError:
-    pass
+# ── Localiser convert_lora_to_gguf.py (paquet llama_cpp, sinon téléchargement épinglé) ──
+# Même révision épinglée que export_gguf.py (cf. llama_cpp_convert) : l'adaptateur GGUF doit
+# être lisible par le llama-server qui le chargera, dont l'image est elle aussi épinglée.
+from llama_cpp_convert import pinned_revision, resolve
 
-if not convert_script:
-    os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
-    script_path = os.path.join(os.path.dirname(os.path.abspath(args.output)), "convert_lora_to_gguf.py")
-    if not os.path.exists(script_path):
-        print("  Téléchargement de convert_lora_to_gguf.py depuis llama.cpp...")
-        import urllib.request
-        url = "https://raw.githubusercontent.com/ggerganov/llama.cpp/master/convert_lora_to_gguf.py"
-        try:
-            urllib.request.urlretrieve(url, script_path)
-        except Exception as e:
-            print(f"  ERREUR téléchargement : {e}")
-            print("  Conversion manuelle : récupérez convert_lora_to_gguf.py depuis github.com/ggerganov/llama.cpp")
-            sys.exit(1)
-    convert_script = script_path
+try:
+    convert_script = resolve("convert_lora_to_gguf.py",
+                             os.path.dirname(os.path.abspath(args.output)))
+except Exception as e:
+    print(f"  ERREUR téléchargement : {e}")
+    print(f"  Conversion manuelle : récupérez convert_lora_to_gguf.py depuis "
+          f"github.com/ggml-org/llama.cpp à la révision {pinned_revision()}")
+    sys.exit(1)
 
 # ── Conversion adaptateur → GGUF ───────────────────────────────────────────────
 print(f"=== Conversion LoRA → GGUF (base: {hf_base}) ===")
