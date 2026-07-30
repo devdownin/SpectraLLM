@@ -89,6 +89,25 @@ public class ContextBudgetValidator {
     }
 
     /**
+     * Taille d'extrait de classification qui tient réellement dans {@code window}, marge et
+     * prompt déduits.
+     *
+     * <p>Cette méthode est le <b>seul</b> endroit où ce calcul existe : elle sert à la fois à
+     * suggérer une valeur dans l'avertissement de démarrage et à borner l'extrait à chaque
+     * classification ({@link DocumentClassificationService}). Deux formules distinctes
+     * finiraient par diverger, et l'avertissement annoncerait alors une valeur que le code
+     * n'applique pas.</p>
+     *
+     * <p>Le plancher de 500 caractères évite de produire un extrait si court qu'il ne
+     * caractérise plus rien : sur une fenêtre à ce point étroite, mieux vaut une
+     * classification médiocre et un avertissement lisible qu'un extrait vide.</p>
+     */
+    static int affordableExcerptChars(int window) {
+        int safe = (int) (window * SAFE_FRACTION);
+        return Math.max(500, (int) ((safe - CLASSIFICATION_OVERHEAD_TOKENS) * CHARS_PER_TOKEN));
+    }
+
+    /**
      * Cœur pur du contrôle : liste les budgets qui ne tiennent pas dans {@code window}.
      * Sans dépendance à Spring ni au réseau, donc directement testable.
      *
@@ -106,9 +125,9 @@ public class ContextBudgetValidator {
             if (needed > safe) {
                 problems.add(String.format(
                         "spectra.classification.max-excerpt-chars = %d → ~%d tokens avec le prompt, "
-                        + "pour une marge sûre de %d. Valeur tenable : ~%d caractères.",
-                        chars, needed, safe,
-                        Math.max(500, (int) ((safe - CLASSIFICATION_OVERHEAD_TOKENS) * CHARS_PER_TOKEN))));
+                        + "pour une marge sûre de %d. Valeur tenable : ~%d caractères "
+                        + "(appliquée d'office à chaque classification).",
+                        chars, needed, safe, affordableExcerptChars(window)));
             }
         }
 

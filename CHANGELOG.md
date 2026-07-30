@@ -8,6 +8,24 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Classification — l'extrait s'ajuste à la fenêtre servie au lieu de la dépasser
+
+Le contrôle de budget introduit précédemment a immédiatement produit son diagnostic en conditions réelles, sur le runner d'intégration continue :
+
+```
+Fenêtre servie : 2048 tokens par requête. 1 budget(s) trop large(s) :
+  • spectra.classification.max-excerpt-chars = 6000 → ~2224 tokens avec le prompt,
+    pour une marge sûre de 1740. Valeur tenable : ~4305 caractères.
+```
+
+Ce qu'il révèle n'est pas un incident mais **un défaut de conception du réglage lui-même** : le défaut livré de 6000 caractères n'entre que dans une fenêtre de 4096 tokens, donc à partir de 16 Go de RAM. Sur une machine de 8 à 16 Go, la classification échouerait sur chaque document — llama.cpp tronquant le début de la requête, c'est-à-dire les consignes de format et la taxonomie.
+
+`max-excerpt-chars` devient donc une **borne haute** et non une promesse. Avant chaque classification, le budget est ramené à ce que la fenêtre servie peut porter. Envoyer moins de texte dégrade la qualité ; en envoyer trop détruit la fonction — l'arbitrage n'a qu'un sens. Plutôt que d'exiger de l'utilisateur qu'il accorde sa configuration à un dimensionnement qu'il ne voit pas (en déploiement Docker, le backend ne connaît ni `LLM_CONTEXT` ni `LLM_PARALLEL`), on s'y ajuste.
+
+- **Une seule formule** : `ContextBudgetValidator.affordableExcerptChars(...)` sert à la fois à suggérer une valeur dans l'avertissement de démarrage et à borner l'extrait à l'exécution. Un test vérifie que les deux coïncident — deux calculs distincts finiraient par diverger, et l'avertissement annoncerait alors une valeur que le code n'applique pas.
+- **Sans information du serveur, la valeur configurée s'applique** : mieux vaut le comportement demandé qu'une restriction fondée sur une fenêtre supposée.
+- **La fenêtre servie est mémorisée** côté client llama.cpp, et invalidée au changement de modèle — seule opération qui puisse relancer le serveur avec un autre `--ctx-size`. Sans cela, un lot de mille documents produirait mille appels à `/props` pour une valeur qui ne bouge pas. L'avertissement de bornage suit la même logique : journalisé une fois par valeur, pas une fois par document.
+
 ### Tests — le contexte Spring est enfin démarré au moins une fois
 
 Aucun test du dépôt ne démarrait l'application. Les suites existantes instancient leurs classes à la main ou passent par `@WebMvcTest` : le graphe de dépendances réel n'était jamais assemblé avant le déploiement. Trois familles de défauts passaient donc entre les mailles.

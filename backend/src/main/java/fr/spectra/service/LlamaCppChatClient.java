@@ -41,6 +41,15 @@ public class LlamaCppChatClient implements LlmChatClient {
     private final ObjectMapper objectMapper;
     private final AtomicReference<String> activeModel;
 
+    /**
+     * Fenêtre servie mémorisée (0 = inconnue). Elle est fixée au lancement de llama-server par
+     * son {@code --ctx-size} et son {@code --parallel} : la redemander à chaque appel ferait
+     * une requête HTTP par document classifié pour une valeur qui ne bouge pas. Le cache est
+     * invalidé au changement de modèle, seule opération qui puisse relancer le serveur.
+     */
+    private final java.util.concurrent.atomic.AtomicInteger servedContext =
+            new java.util.concurrent.atomic.AtomicInteger(0);
+
     public LlamaCppChatClient(@Qualifier("llamaCppChatWebClient") WebClient webClient,
                               ModelRegistryService modelRegistry,
                               LlamaCppRuntimeOrchestrator runtimeOrchestrator,
@@ -81,6 +90,9 @@ public class LlamaCppChatClient implements LlmChatClient {
         // en mémoire : un nom invalide ne doit pas laisser le client incohérent.
         modelRegistry.setActiveChatModel(model);
         String previous = activeModel.getAndSet(model);
+        // Le serveur peut redémarrer avec une autre fenêtre : la valeur mémorisée n'est plus
+        // digne de foi tant qu'on ne l'a pas redemandée.
+        servedContext.set(0);
         runtimeOrchestrator.ensureChatModelServed(model);
         log.info("Modèle actif llama.cpp changé : {} → {}", previous, model);
         // Vérifie que le serveur sert bien le modèle demandé après le changement
@@ -184,6 +196,8 @@ public class LlamaCppChatClient implements LlmChatClient {
     @Override
     @SuppressWarnings("unchecked")
     public java.util.OptionalInt servedContextTokens() {
+        int cached = servedContext.get();
+        if (cached > 0) return java.util.OptionalInt.of(cached);
         try {
             Map<String, Object> props = webClient.get()
                     .uri("/props")
@@ -197,6 +211,7 @@ public class LlamaCppChatClient implements LlmChatClient {
                 nCtx = gen.get("n_ctx");
             }
             if (nCtx instanceof Number n && n.intValue() > 0) {
+                servedContext.set(n.intValue());
                 return java.util.OptionalInt.of(n.intValue());
             }
             return java.util.OptionalInt.empty();

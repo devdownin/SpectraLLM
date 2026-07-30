@@ -323,9 +323,13 @@ Categories proposed by the model are reduced to a canonical form: case, accents 
 | `SPECTRA_CLASSIFICATION_MAX_CATEGORIES` | Categories kept per document | `3` |
 | `SPECTRA_CLASSIFICATION_MIN_CONFIDENCE` | Minimum confidence to keep a category | `0.5` |
 | `SPECTRA_CLASSIFICATION_MAX_CHUNKS` | Excerpts sampled from the document | `8` |
-| `SPECTRA_CLASSIFICATION_MAX_EXCERPT_CHARS` | Character budget submitted to the model | `6000` |
+| `SPECTRA_CLASSIFICATION_MAX_EXCERPT_CHARS` | Character budget submitted to the model (upper bound) | `6000` |
 
-> **The excerpt budget must fit the PER-REQUEST window**, that is `LLM_CONTEXT / LLM_PARALLEL` — not `LLM_CONTEXT` alone. Count ~3.5 characters per token in French: a 6000-character excerpt ≈ 1715 tokens, plus the prompt (~350), the header (~40) and the answer (~120) — about 2225. That is comfortable from 4096 tokens per request upwards, the automatic sizing of a 16 GB machine. Go over and llama.cpp truncates the **start** of the request — the "answer only in JSON" instructions and the taxonomy — and the model replies in prose: classification then fails systematically, on every document.
+> **This budget is an upper bound, not a promise.** It must fit the PER-REQUEST window, that is `LLM_CONTEXT / LLM_PARALLEL` — not `LLM_CONTEXT` alone. Count ~3.5 characters per token in French: a 6000-character excerpt ≈ 1715 tokens, plus the prompt (~350), the header (~40) and the answer (~120) — about 2225. That is comfortable from 4096 tokens per request upwards, the automatic sizing of a 16 GB machine.
+>
+> **On a smaller machine the excerpt is automatically reduced to what fits**, and a warning reports it at startup and again on the first affected classification. You therefore have nothing to adjust for classification to work: it will simply be based on less text. To make use of the configured value, raise `LLM_CONTEXT` (bearing in mind that it is divided by `LLM_PARALLEL`).
+>
+> Without that clamp, going over would produce no error at all: llama.cpp truncates the **start** of the request — the "answer only in JSON" instructions and the taxonomy — and the model replies in prose, so classification fails systematically, on every document.
 
 > `auto-classify` is off by default on purpose: importing 500 files would chain 500 LLM calls. For a corpus that is already in place, prefer the batch classification below; turn `auto-classify` on for a continuous arrival stream.
 

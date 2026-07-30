@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.OptionalInt;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -331,6 +332,85 @@ class DocumentClassificationServiceTest {
                 .thenThrow(new RuntimeException("ChromaDB down"));
 
         assertThat(defaultService().buildExcerpt(doc("abc"))).isEmpty();
+    }
+
+    // ── Ajustement de l'extrait à la fenêtre servie ──────────────────────────
+    //
+    // Dépasser la fenêtre ne produit pas d'erreur : llama.cpp tronque le DÉBUT de la requête —
+    // le prompt système — et le modèle répond en prose. Le réglage est donc une borne haute,
+    // pas une promesse.
+
+    /** Configuration ne fixant que le budget d'extrait. */
+    private static SpectraProperties.ClassificationProperties withExcerpt(int chars) {
+        return new SpectraProperties.ClassificationProperties(
+                true, null, null, null, null, null, null, chars, null);
+    }
+
+    @Test
+    void excerpt_isClampedToWhatTheServedWindowCanCarry() {
+        // Cas observé en CI : machine de ~10 Go, 2048 tokens par requête, défaut de 6000.
+        when(chat.servedContextTokens()).thenReturn(OptionalInt.of(2048));
+
+        int chars = service(withExcerpt(6000)).effectiveExcerptChars();
+
+        assertThat(chars).isLessThan(6000);
+        assertThat(chars).isEqualTo(ContextBudgetValidator.affordableExcerptChars(2048));
+    }
+
+    @Test
+    void excerpt_keepsTheConfiguredValueWhenTheWindowIsWideEnough() {
+        // 4096 tokens : le dimensionnement d'une machine de 16 Go, minimum documenté.
+        when(chat.servedContextTokens()).thenReturn(OptionalInt.of(4096));
+
+        assertThat(service(withExcerpt(6000)).effectiveExcerptChars()).isEqualTo(6000);
+    }
+
+    @Test
+    void excerpt_neverExceedsTheConfiguredValue_evenOnAHugeWindow() {
+        // Le réglage borne par le haut : une fenêtre généreuse ne doit pas le contredire.
+        when(chat.servedContextTokens()).thenReturn(OptionalInt.of(131072));
+
+        assertThat(service(withExcerpt(6000)).effectiveExcerptChars()).isEqualTo(6000);
+    }
+
+    @Test
+    void excerpt_unknownWindow_appliesTheConfiguredValue() {
+        // Sans information du serveur, on fait ce qui est demandé plutôt que de restreindre
+        // sur la foi d'une fenêtre supposée.
+        when(chat.servedContextTokens()).thenReturn(OptionalInt.empty());
+
+        assertThat(service(withExcerpt(6000)).effectiveExcerptChars()).isEqualTo(6000);
+    }
+
+    @Test
+    void buildExcerpt_honoursTheClamp_notJustTheConfiguredValue() {
+        // Le bornage doit atteindre l'extrait réellement construit, pas rester théorique.
+        when(chat.servedContextTokens()).thenReturn(OptionalInt.of(2048));
+        when(chroma.getDocumentTextsByMetadata("col-id", "sha256", "abc", 1000))
+                .thenReturn(List.of("y".repeat(20_000)));
+
+        String excerpt = service(withExcerpt(6000)).buildExcerpt(doc("abc"));
+
+        assertThat(excerpt.length())
+                .isLessThanOrEqualTo(ContextBudgetValidator.affordableExcerptChars(2048) + 1);
+    }
+
+    @Test
+    void clampedExcerpt_matchesTheValueAnnouncedByTheStartupWarning() {
+        // L'avertissement de démarrage annonce une « valeur tenable » ; si le code en
+        // appliquait une autre, le message mentirait. Une seule formule pour les deux.
+        int window = 2048;
+        when(chat.servedContextTokens()).thenReturn(OptionalInt.of(window));
+        SpectraProperties props = mock(SpectraProperties.class);
+        when(props.classification()).thenReturn(withExcerpt(6000));
+        when(props.agenticRag()).thenReturn(null);
+        when(props.longContextRag()).thenReturn(null);
+
+        int applied = service(withExcerpt(6000)).effectiveExcerptChars();
+
+        assertThat(ContextBudgetValidator.problems(window, props))
+                .singleElement().asString()
+                .contains("~" + applied + " caractères");
     }
 
     // ── classify — bout en bout (dépendances mockées) ────────────────────────
