@@ -3,7 +3,7 @@
 # Echoue avec exit 1 si un fichier est absent ou trop petit (<1 Mo).
 set -e
 
-CHAT="${LLM_CHAT_MODEL_FILE:-Phi-4-mini-reasoning-UD-IQ1_S.gguf}"
+CHAT="${LLM_CHAT_MODEL_FILE:-Qwen2.5-7B-Instruct-Q4_K_M.gguf}"
 EMBED="${LLM_EMBED_MODEL_FILE:-embed.gguf}"
 OK=1
 
@@ -17,12 +17,12 @@ if [ ! -f "/models/${CHAT}" ] || [ "${SIZE_CHAT}" -lt 1048576 ]; then
   echo "  Placez-le dans ./data/models/ puis relancez."
   echo ""
   echo "  Téléchargement (huggingface-cli) :"
-  echo "    huggingface-cli download unsloth/Phi-4-mini-reasoning-GGUF \\"
-  echo "      Phi-4-mini-reasoning-UD-IQ1_S.gguf --local-dir ./data/models/"
+  echo "    huggingface-cli download bartowski/Qwen2.5-7B-Instruct-GGUF \\"
+  echo "      Qwen2.5-7B-Instruct-Q4_K_M.gguf --local-dir ./data/models/"
   echo ""
   echo "  Téléchargement (wget) :"
   echo "    wget -P ./data/models/ \\"
-  echo "      https://huggingface.co/unsloth/Phi-4-mini-reasoning-GGUF/resolve/main/Phi-4-mini-reasoning-UD-IQ1_S.gguf"
+  echo "      https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf"
   OK=0
 else
   echo "[OK] Chat  : ${CHAT} ($(( SIZE_CHAT / 1048576 )) Mo)"

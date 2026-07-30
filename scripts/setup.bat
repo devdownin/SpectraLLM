@@ -8,7 +8,7 @@ setlocal enabledelayedexpansion
 :: Usage : setup.bat [--download-embed] [--download-chat]
 ::
 ::   --download-embed   Télécharge nomic-embed-text (~81 Mo) si absent
-::   --download-chat    Télécharge Phi-3.5-mini Q4_K_M (~2.4 Go) si absent
+::   --download-chat    Télécharge Qwen2.5-7B-Instruct Q4_K_M (~4.7 Go) si absent
 ::
 :: Ce script vérifie les prérequis et prépare l'environnement avant le
 :: premier lancement. À exécuter une seule fois.
@@ -112,7 +112,7 @@ if exist "data\models\embed.gguf" (
 :: Le modele doit resider dans data\models\ sous le nom que la stack Docker lit
 :: (data\models\%%LLM_CHAT_MODEL_FILE%%), sinon model-init / llm-chat ne le
 :: trouvent pas — miroir de la section 6 de setup.sh.
-set "CHAT_DOWNLOAD_NAME=Phi-3.5-mini-instruct-Q4_K_M.gguf"
+set "CHAT_DOWNLOAD_NAME=Qwen2.5-7B-Instruct-Q4_K_M.gguf"
 set "CHAT_MODEL_FILE="
 set "CHAT_MODEL_NAME="
 if exist ".env" (
@@ -132,10 +132,10 @@ if exist "data\models\!CHAT_MODEL_FILE!" (
     call :set_env_var LLM_CHAT_MODEL_FILE "!CHAT_MODEL_FILE!"
 ) else (
     if !DOWNLOAD_CHAT!==1 (
-        echo   Telechargement de %CHAT_DOWNLOAD_NAME% (~2.4 Go^)...
+        echo   Telechargement de %CHAT_DOWNLOAD_NAME% (~4.7 Go^)...
         echo   (cela peut prendre plusieurs minutes selon votre connexion^)
         curl -L --progress-bar ^
-            "https://huggingface.co/bartowski/Phi-3.5-mini-instruct-GGUF/resolve/main/Phi-3.5-mini-instruct-Q4_K_M.gguf" ^
+            "https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf" ^
             -o "data\models\%CHAT_DOWNLOAD_NAME%"
         if errorlevel 1 (
             echo   [ERREUR] Echec du telechargement de %CHAT_DOWNLOAD_NAME%
@@ -145,25 +145,17 @@ if exist "data\models\!CHAT_MODEL_FILE!" (
             rem Aligner .env pour que la stack Docker charge bien ce fichier.
             call :set_env_var LLM_CHAT_MODEL_FILE "%CHAT_DOWNLOAD_NAME%"
             echo   LLM_CHAT_MODEL_FILE=%CHAT_DOWNLOAD_NAME% ecrit dans .env
-            rem Aligner aussi l'alias sur le modele telecharge : le defaut
-            rem « phi-4-mini » etiquetterait un Phi-3.5 de facon trompeuse.
-            rem Un alias personnalise n'est jamais ecrase.
-            if "!CHAT_MODEL_NAME!"=="" (
-                call :set_env_var LLM_CHAT_MODEL_NAME "phi-3.5-mini"
-                echo   LLM_CHAT_MODEL_NAME=phi-3.5-mini ecrit dans .env
-            ) else if "!CHAT_MODEL_NAME!"=="phi-4-mini" (
-                call :set_env_var LLM_CHAT_MODEL_NAME "phi-3.5-mini"
-                echo   LLM_CHAT_MODEL_NAME=phi-3.5-mini ecrit dans .env
-            )
+            rem Aucune reecriture d'alias : ce script telecharge desormais le modele
+            rem PAR DEFAUT du projet, dont l'alias par defaut est deja correct.
         )
     ) else (
         echo   [MANQUANT] data\models\!CHAT_MODEL_FILE! absent
         echo.
-        echo   Option 1 — Telechargement automatique (Phi-3.5-mini ~2.4 Go^) :
+        echo   Option 1 — Telechargement automatique (Qwen2.5-7B-Instruct ~4.7 Go^) :
         echo     setup.bat --download-chat
         echo.
         echo   Option 2 — Telechargement manuel :
-        echo     curl -L https://huggingface.co/bartowski/Phi-3.5-mini-instruct-GGUF/resolve/main/Phi-3.5-mini-instruct-Q4_K_M.gguf ^
+        echo     curl -L https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf ^
         echo       -o data\models\%CHAT_DOWNLOAD_NAME%
         echo.
         echo   Option 3 — Tout modele GGUF instruction-tuned fonctionne :

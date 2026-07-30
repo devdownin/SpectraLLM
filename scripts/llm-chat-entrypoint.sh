@@ -42,8 +42,8 @@ MODELS_DIR="${MODELS_DIR:-/models}"
 POINTER="${MODELS_DIR}/active-chat-model"
 PARAMS_FILE="${MODELS_DIR}/active-chat-params"
 POLL_SECONDS="${LLM_CHAT_WATCH_INTERVAL:-10}"
-DEFAULT_FILE="${LLM_CHAT_MODEL_FILE:-Phi-4-mini-reasoning-UD-IQ1_S.gguf}"
-DEFAULT_ALIAS="${LLM_CHAT_MODEL_NAME:-phi-4-mini}"
+DEFAULT_FILE="${LLM_CHAT_MODEL_FILE:-Qwen2.5-7B-Instruct-Q4_K_M.gguf}"
+DEFAULT_ALIAS="${LLM_CHAT_MODEL_NAME:-qwen2.5-7b-instruct}"
 
 log() { echo "[llm-chat] $*"; }
 

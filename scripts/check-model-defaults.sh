@@ -49,6 +49,11 @@ OPERATIONAL_FILES=(
   "scripts/llm-chat-entrypoint.sh"
   "scripts/pipeline.sh"
   "scripts/pipeline.bat"
+  # setup.sh/.bat téléchargent le modèle par défaut (--download-chat) : ils doivent
+  # servir le MÊME fichier que la stack, sinon le « chemin facile » installe un
+  # modèle que docker-compose ne chargera pas.
+  "scripts/setup.sh"
+  "scripts/setup.bat"
 )
 
 # Noms de GGUF légitimement différents des deux défauts. Tout ce qui n'est pas
@@ -63,6 +68,9 @@ ALLOWED_OTHER_GGUF=(
   "model-q4.gguf"
   "model-iq3.gguf"
   "model.gguf"
+  # Espace réservé dans le texte d'aide de setup.sh/.bat (« renseignez
+  # LLM_CHAT_MODEL_FILE=<nom-du-fichier.gguf> »).
+  "nom-du-fichier.gguf"
 )
 
 errors=0

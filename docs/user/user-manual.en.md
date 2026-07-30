@@ -18,7 +18,7 @@ You need two **GGUF** files placed in `data/models/`:
 
 | Variable | Default file | Role |
 |----------|--------------|------|
-| `LLM_CHAT_MODEL_FILE` | `Phi-4-mini-reasoning-UD-IQ1_S.gguf` | Answers questions, generates the dataset |
+| `LLM_CHAT_MODEL_FILE` | `Qwen2.5-7B-Instruct-Q4_K_M.gguf` | Answers questions, generates the dataset |
 | `LLM_EMBED_MODEL_FILE` | `embed.gguf` | Converts text into vectors for search |
 
 If a file is missing at startup, the `model-init` service prints the exact download commands and stops the stack before the LLM servers start.
@@ -27,8 +27,8 @@ If a file is missing at startup, the `model-init` service prints the exact downl
 
 ```bash
 # Chat model (~1.1 GB) — Phi-4-mini by default
-huggingface-cli download unsloth/Phi-4-mini-reasoning-GGUF \
-  Phi-4-mini-reasoning-UD-IQ1_S.gguf --local-dir data/models/
+huggingface-cli download bartowski/Qwen2.5-7B-Instruct-GGUF \
+  Qwen2.5-7B-Instruct-Q4_K_M.gguf --local-dir data/models/
 
 # Embedding model (~81 MB) — nomic-embed-text by default
 huggingface-cli download nomic-ai/nomic-embed-text-v1.5-GGUF \
@@ -347,7 +347,7 @@ curl http://localhost:8080/api/ged/classification
 # Classify one document (force=true to re-label an already classified document)
 curl -X POST "http://localhost:8080/api/ged/documents/{sha256}/classify"
 # → {"categories":["procedures","securite"],"scores":{"procedures":0.92,"securite":0.68},
-#    "summary":"Intervention procedure for high-voltage substations.","model":"phi-4-mini"}
+#    "summary":"Intervention procedure for high-voltage substations.","model":"qwen2.5-7b-instruct"}
 
 # Classify the whole unclassified corpus (empty body), in the background
 curl -X POST http://localhost:8080/api/ged/documents/bulk/classify
@@ -1067,7 +1067,7 @@ Choose two models: for each pair, a judge sees both answers **side by side** (or
 
 **Neutral judge (recommended for comparing).** By default the evaluated model judges itself (self-serving bias). Set a third-party judge, identical for all, in `.env`:
 ```
-SPECTRA_EVALUATION_JUDGE_MODEL=phi-4-mini
+SPECTRA_EVALUATION_JUDGE_MODEL=qwen2.5-7b-instruct
 ```
 Evaluation then happens in two phases: generating all answers with the evaluated model, then scoring with the judge (a single model switch, to avoid reloading the server for every pair).
 

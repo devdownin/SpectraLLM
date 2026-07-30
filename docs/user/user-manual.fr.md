@@ -18,7 +18,7 @@ Vous avez besoin de deux fichiers **GGUF** placés dans `data/models/` :
 
 | Variable | Fichier par défaut | Rôle |
 |----------|--------------------|------|
-| `LLM_CHAT_MODEL_FILE` | `Phi-4-mini-reasoning-UD-IQ1_S.gguf` | Répond aux questions, génère le dataset |
+| `LLM_CHAT_MODEL_FILE` | `Qwen2.5-7B-Instruct-Q4_K_M.gguf` | Répond aux questions, génère le dataset |
 | `LLM_EMBED_MODEL_FILE` | `embed.gguf` | Convertit le texte en vecteurs pour la recherche |
 
 Si un fichier est absent au démarrage, le service `model-init` affiche les commandes de téléchargement exactes et interrompt la stack avant que les serveurs LLM ne démarrent.
@@ -27,8 +27,8 @@ Si un fichier est absent au démarrage, le service `model-init` affiche les comm
 
 ```bash
 # Modèle de chat (~1.1 Go) — Phi-4-mini par défaut
-huggingface-cli download unsloth/Phi-4-mini-reasoning-GGUF \
-  Phi-4-mini-reasoning-UD-IQ1_S.gguf --local-dir data/models/
+huggingface-cli download bartowski/Qwen2.5-7B-Instruct-GGUF \
+  Qwen2.5-7B-Instruct-Q4_K_M.gguf --local-dir data/models/
 
 # Modèle d'embedding (~81 Mo) — nomic-embed-text par défaut
 huggingface-cli download nomic-ai/nomic-embed-text-v1.5-GGUF \
@@ -347,7 +347,7 @@ curl http://localhost:8080/api/ged/classification
 # Classifier un document (force=true pour ré-étiqueter un document déjà classifié)
 curl -X POST "http://localhost:8080/api/ged/documents/{sha256}/classify"
 # → {"categories":["procedures","securite"],"scores":{"procedures":0.92,"securite":0.68},
-#    "summary":"Procédure d'intervention sur les postes haute tension.","model":"phi-4-mini"}
+#    "summary":"Procédure d'intervention sur les postes haute tension.","model":"qwen2.5-7b-instruct"}
 
 # Classifier tout le corpus non classifié (corps vide), en tâche de fond
 curl -X POST http://localhost:8080/api/ged/documents/bulk/classify
@@ -1138,7 +1138,7 @@ Choisissez deux modèles : pour chaque paire, un juge voit les deux réponses **
 
 **Juge neutre (recommandé pour comparer).** Par défaut le modèle évalué se juge lui-même (biais de complaisance). Fixez un juge tiers, identique pour tous, dans `.env` :
 ```
-SPECTRA_EVALUATION_JUDGE_MODEL=phi-4-mini
+SPECTRA_EVALUATION_JUDGE_MODEL=qwen2.5-7b-instruct
 ```
 L'évaluation se fait alors en deux temps : génération de toutes les réponses avec le modèle évalué, puis notation avec le juge (un seul changement de modèle, pour ne pas recharger le serveur à chaque paire).
 

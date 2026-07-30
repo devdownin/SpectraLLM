@@ -32,15 +32,15 @@ public class StartupOrchestrator {
             if (properties.llm().chat() != null && properties.llm().chat().effectiveFile() != null) {
                 chatFile = properties.llm().chat().effectiveFile();
             }
-            if (chatFile == null) chatFile = "Phi-4-mini-reasoning-UD-IQ1_S.gguf";
+            if (chatFile == null) chatFile = "Qwen2.5-7B-Instruct-Q4_K_M.gguf";
 
             Path chatPath = modelsDir.resolve(chatFile);
             if (!Files.exists(chatPath) || Files.size(chatPath) < 1048576) {
                 log.info("Modèle de chat par défaut manquant ({}). Déclenchement de l'installation via le Model Hub...", chatFile);
-                // Le format est `unsloth/Phi-4-mini-reasoning-GGUF`
+                // Le format est `bartowski/Qwen2.5-7B-Instruct-GGUF`
                 // Mais llmfit attend un nom de modèle connu dans son catalogue.
                 // Assuming it can handle huggingface repos if we pass the right ID.
-                llmFitService.installModel("unsloth/Phi-4-mini-reasoning-GGUF", "Q4_K_M", true);
+                llmFitService.installModel("bartowski/Qwen2.5-7B-Instruct-GGUF", "Q4_K_M", true);
             }
 
             // Embedding model logic would go here if llmfit supports it.

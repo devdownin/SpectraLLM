@@ -1,5 +1,5 @@
 {
-  "model": "phi-4-mini",
+  "model": "qwen2.5-7b-instruct",
   "messages": [{"role": "user", "content": "Hello"}],
   "temperature": 0.7,
   "top_p": 0.9,

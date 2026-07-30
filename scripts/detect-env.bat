@@ -127,8 +127,8 @@ REM  ── 6. Ecriture du .env ──
     echo JAVA_OPTS="-Xms256m -Xmx%JVM_HEAP%m -XX:+UseZGC"
     echo.
     echo # ── Serveur LLM — Chat ──
-    echo LLM_CHAT_MODEL_FILE=Phi-4-mini-reasoning-UD-IQ1_S.gguf
-    echo LLM_CHAT_MODEL_NAME=phi-4-mini
+    echo LLM_CHAT_MODEL_FILE=Qwen2.5-7B-Instruct-Q4_K_M.gguf
+    echo LLM_CHAT_MODEL_NAME=qwen2.5-7b-instruct
     echo LLM_PARALLEL=%LLM_PARALLEL%
     echo LLM_CONTEXT=%LLM_CONTEXT%
     echo.

@@ -36,7 +36,7 @@ server:
 spectra:
   llm:
     base-url: ${SPECTRA_LLM_BASE_URL:http://llm-chat:8081}
-    model: ${SPECTRA_LLM_MODEL:phi-4-mini}
+    model: ${SPECTRA_LLM_MODEL:qwen2.5-7b-instruct}
     embedding-model: ${SPECTRA_LLM_EMBEDDING_MODEL:nomic-embed-text}
     provider: ${SPECTRA_LLM_PROVIDER:llama-cpp}
     chat:

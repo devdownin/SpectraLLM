@@ -8,6 +8,19 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Modèle de chat par défaut — Qwen2.5-7B-Instruct Q4_K_M
+
+> **Action requise à la mise à jour** : le fichier GGUF change. Récupérez-le avant de relancer la stack (`./setup.sh --download-chat`), sinon `model-init` bloque le démarrage. L'ancien fichier peut être supprimé de `data/models/`.
+
+Le défaut était `Phi-4-mini-reasoning-UD-IQ1_S.gguf` : un modèle **de raisonnement** en quantification **1 bit**. Deux mauvais choix pour ce produit.
+
+- **Le raisonnement est contre-productif ici.** Un tel modèle dépense son budget de sortie en chaîne de pensée avant de répondre — dans une fenêtre de 2048 tokens, cela laisse peu de place à la réponse elle-même, et c'est ce qui a causé l'échec de la classification automatique. Spectra a besoin de suivi d'instruction et de sortie structurée, pas de déduction : `instruct` est la famille adaptée.
+- **La quantification 1 bit dégrade fortement le suivi d'instruction.** Or toute la valeur du produit repose sur de la sortie structurée (classification, génération de paires d'entraînement) et du jugement (LLM-as-a-judge). `Q4_K_M` est le compromis standard.
+- **Un seul modèle partout.** `setup.sh --download-chat` téléchargeait un *troisième* modèle (Phi-3.5-mini) puis réécrivait l'alias pour ne pas mentir sur son étiquette. Le « chemin facile » installait donc un modèle que `docker-compose` ne chargeait pas par défaut. Les deux scripts servent désormais le modèle par défaut, et la réécriture d'alias disparaît avec sa raison d'être.
+- Le contrôle de cohérence couvre maintenant aussi `setup.sh` / `setup.bat` — c'est cette lacune qui avait laissé le troisième modèle s'installer.
+
+**Coût.** Le fichier passe d'environ 1 Go à ~4,7 Go : téléchargement initial plus long, et premier passage de CI plus lent (le cache est ensuite réutilisé, sa clé a été renouvelée). Côté mémoire, un 7B en Q4_K_M demande ~6 Go pour les poids — la documentation annonçait déjà 16 Go minimum et 32 Go recommandés pour les modèles 7B.
+
 ### CI — cohérence des modèles GGUF par défaut, et correction d'une dérive d'embedding
 
 Le nom des fichiers GGUF est répété dans **quatre langages de configuration** — shell, batch, YAML (Compose et Kubernetes) et Java — qu'aucune variable commune ne peut unifier : un manifest Kubernetes ne « source » pas un fichier shell. La duplication est irréductible ; ce qui ne l'est pas, c'est qu'elle dérive en silence.

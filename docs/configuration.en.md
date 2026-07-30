@@ -14,7 +14,7 @@ Every setting has a working default — see the essentials note at the top of [.
 | `SPECTRA_LLM_BASE_URL` | `http://llm-chat:8081` | Legacy base URL (chat/embedding URLs below take precedence) |
 | `SPECTRA_LLM_CHAT_BASE_URL` | `http://llm-chat:8081` | Chat server URL |
 | `SPECTRA_LLM_EMBEDDING_BASE_URL` | `http://llm-embed:8082` | Embedding server URL |
-| `SPECTRA_LLM_MODEL` | `phi-4-mini` | Model alias for chat |
+| `SPECTRA_LLM_MODEL` | `qwen2.5-7b-instruct` | Model alias for chat |
 | `SPECTRA_LLM_EMBEDDING_MODEL` | `nomic-embed-text` | Model alias for embeddings |
 | `SPECTRA_LLM_CHAT_FILE` | *(empty)* | GGUF file served by llm-chat (relative to the shared models dir); seeds the local registry |
 | `SPECTRA_LLM_EMBEDDING_FILE` | *(empty)* | GGUF file served by llm-embed (same shared volume) |
@@ -27,7 +27,7 @@ Every setting has a working default — see the essentials note at the top of [.
 
 | Environment variable | Default | Description |
 |---|---|---|
-| `LLM_CHAT_MODEL_FILE` | `Phi-4-mini-reasoning-UD-IQ1_S.gguf` | Chat GGUF filename in `data/models/` |
+| `LLM_CHAT_MODEL_FILE` | `Qwen2.5-7B-Instruct-Q4_K_M.gguf` | Chat GGUF filename in `data/models/` |
 | `LLM_EMBED_MODEL_FILE` | `embed.gguf` | Embedding GGUF filename in `data/models/` |
 | `LLM_PARALLEL` | `2` | Parallel inference slots per server |
 | `LLAMA_CPP_IMAGE_TAG` | `server-b9828` | Pinned `ghcr.io/ggml-org/llama.cpp` image tag for llm-chat/llm-embed (the floating `server` tag tracks llama.cpp master and can break without warning) |

@@ -43,7 +43,7 @@ public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, 
         /** Modèle de chat : {@code llm.chat.model} → {@code llm.model} (legacy) → défaut. */
         public String effectiveChatModel() {
             if (chat != null && chat.model() != null) return chat.model();
-            return model != null ? model : "phi-4-mini";
+            return model != null ? model : "qwen2.5-7b-instruct";
         }
 
         /** Modèle d'embedding : {@code llm.embedding.model} → {@code llm.embedding-model} (legacy) → défaut. */

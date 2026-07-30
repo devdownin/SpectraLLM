@@ -108,21 +108,21 @@ jobs:
     - uses: actions/checkout@v4
     # La stack exige les GGUF (model-init échoue sinon et llm-chat/llm-embed ne
     # démarrent jamais) : on télécharge les modèles PAR DÉFAUT du projet, mis en
-    # cache entre les runs (~1,2 Go au premier passage seulement).
+    # cache entre les runs (~4,8 Go au premier passage seulement).
     - name: Cache GGUF models
       uses: actions/cache@v4
       with:
         path: data/models
-        key: e2e-gguf-phi4mini-ud-iq1s-nomic-q4km
+        key: e2e-gguf-qwen25-7b-instruct-q4km-nomic-q4km
     - name: Download default GGUF models (cache miss only)
       run: |
         mkdir -p data/models
         [ -f data/models/embed.gguf ] || curl -sSL --fail --retry 3 \
           "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf" \
           -o data/models/embed.gguf
-        [ -f data/models/Phi-4-mini-reasoning-UD-IQ1_S.gguf ] || curl -sSL --fail --retry 3 \
-          "https://huggingface.co/unsloth/Phi-4-mini-reasoning-GGUF/resolve/main/Phi-4-mini-reasoning-UD-IQ1_S.gguf" \
-          -o data/models/Phi-4-mini-reasoning-UD-IQ1_S.gguf
+        [ -f data/models/Qwen2.5-7B-Instruct-Q4_K_M.gguf ] || curl -sSL --fail --retry 3 \
+          "https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf" \
+          -o data/models/Qwen2.5-7B-Instruct-Q4_K_M.gguf
         ls -lh data/models/
     # spectra-api tourne en utilisateur système « spectra » (uid ≠ runner) et monte
     # ./data:/app/data : sans droits d'écriture pour autrui, Logback ne peut pas
