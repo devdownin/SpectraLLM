@@ -8,6 +8,16 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### CI — cohérence des modèles GGUF par défaut, et correction d'une dérive d'embedding
+
+Le nom des fichiers GGUF est répété dans **quatre langages de configuration** — shell, batch, YAML (Compose et Kubernetes) et Java — qu'aucune variable commune ne peut unifier : un manifest Kubernetes ne « source » pas un fichier shell. La duplication est irréductible ; ce qui ne l'est pas, c'est qu'elle dérive en silence.
+
+- **Dérive réelle corrigée** : la CI téléchargeait le modèle d'embedding en `Q4_K_M`, Kubernetes en `Q4_0`. Deux quantifications différentes produisent des **vecteurs différents** — un index construit sous Docker se dégradait donc à l'interrogation depuis Kubernetes. C'est précisément le type d'incident que `EmbeddingConsistencyChecker` détecte a posteriori ; il n'aurait pas dû pouvoir se produire. Kubernetes est aligné sur `Q4_K_M`, valeur documentée et déjà utilisée partout ailleurs.
+- **`scripts/check-model-defaults.sh`** : vérifie que tout fichier `.gguf` nommé dans un fichier opérationnel correspond bien au défaut de chat ou d'embedding (ou à un artefact amont explicitement déclaré), et qu'un même modèle est téléchargé depuis une **URL unique** partout. Exécuté par la CI sur chaque push et chaque PR, sans dépendance ni téléchargement.
+- **`.env.example` est déclaré source de vérité** : la marche à suivre pour changer de modèle y est écrite, avec le rappel que la CI refusera un alignement partiel.
+
+Le script ne supprime pas la duplication — il rend son oubli impossible à manquer, au lieu de produire un bug qui n'apparaît que sur un seul environnement.
+
 ### LLM — décodage contraint : le JSON est garanti, plus seulement demandé
 
 Jusqu'ici, chaque endroit qui attendait du JSON le **demandait dans le prompt** puis rattrapait les écarts du modèle au parsing. Cette approche est structurellement fragile : elle suppose d'avoir anticipé toutes les façons dont un modèle peut dévier. Deux d'entre elles ont déjà causé des pannes en production — préambule en prose après troncature du contexte, bloc de réflexion d'un modèle « reasoning » contenant un JSON d'exemple.
