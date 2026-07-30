@@ -323,9 +323,9 @@ Les catégories proposées par le modèle sont ramenées à leur forme canonique
 | `SPECTRA_CLASSIFICATION_MAX_CATEGORIES` | Catégories retenues par document | `3` |
 | `SPECTRA_CLASSIFICATION_MIN_CONFIDENCE` | Confiance minimale pour retenir une catégorie | `0.5` |
 | `SPECTRA_CLASSIFICATION_MAX_CHUNKS` | Extraits échantillonnés dans le document | `8` |
-| `SPECTRA_CLASSIFICATION_MAX_EXCERPT_CHARS` | Budget de caractères soumis au modèle | `3000` |
+| `SPECTRA_CLASSIFICATION_MAX_EXCERPT_CHARS` | Budget de caractères soumis au modèle | `6000` |
 
-> **Le budget d'extrait doit tenir dans la fenêtre de contexte.** Avec le déploiement par défaut (`LLM_CONTEXT=2048`), comptez en français ~3,5 caractères par token : un extrait de 3000 caractères ≈ 860 tokens, auxquels s'ajoutent le prompt (~350), l'entête (~40) et la réponse (~120), soit ~1370 sur 2048. Si vous dépassez, llama.cpp tronque le **début** de la requête — donc les consignes « réponds uniquement en JSON » et la taxonomie — et le modèle répond en prose : la classification échoue alors systématiquement. Remontez ce budget seulement si vous augmentez `LLM_CONTEXT`.
+> **Le budget d'extrait doit tenir dans la fenêtre vue PAR REQUÊTE**, c'est-à-dire `LLM_CONTEXT / LLM_PARALLEL` — et non `LLM_CONTEXT` seul. Comptez en français ~3,5 caractères par token : un extrait de 6000 caractères ≈ 1715 tokens, auxquels s'ajoutent le prompt (~350), l'entête (~40) et la réponse (~120), soit ~2225. C'est confortable dès 4096 tokens par requête, le dimensionnement automatique d'une machine de 16 Go. Si vous dépassez, llama.cpp tronque le **début** de la requête — donc les consignes « réponds uniquement en JSON » et la taxonomie — et le modèle répond en prose : la classification échoue alors systématiquement, sur chaque document.
 
 > `auto-classify` est désactivé par défaut à dessein : un import de 500 fichiers enchaînerait 500 appels au LLM. Pour un corpus déjà en place, préférez la classification par lot ci-dessous ; activez `auto-classify` pour un flux d'arrivée continu.
 

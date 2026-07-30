@@ -105,10 +105,19 @@ if %LLM_PARALLEL% LSS 1 set LLM_PARALLEL=1
 if %LLM_PARALLEL% GTR 8 set LLM_PARALLEL=8
 
 REM  Taille de contexte LLM — memes seuils que detect-env.sh / ResourceAdvisorService
-set LLM_CONTEXT=512
-if %TOTAL_RAM_MB% GEQ 8192 set LLM_CONTEXT=1024
-if %TOTAL_RAM_MB% GEQ 16384 set LLM_CONTEXT=2048
-if %TOTAL_RAM_MB% GEQ 32768 set LLM_CONTEXT=4096
+REM LLM_CONTEXT est le contexte TOTAL, reparti entre les slots paralleles : une
+REM requete ne voit que LLM_CONTEXT / LLM_PARALLEL tokens. On dimensionne donc la
+REM fenetre PAR REQUETE, puis on en deduit le total, en plafonnant le parallelisme
+REM pour tenir l'enveloppe memoire. (Avant : plus de coeurs = fenetre plus petite.)
+set SLOT_CONTEXT=1024
+set MAX_TOTAL_CONTEXT=2048
+if %TOTAL_RAM_MB% GEQ 8192 ( set SLOT_CONTEXT=2048& set MAX_TOTAL_CONTEXT=4096 )
+if %TOTAL_RAM_MB% GEQ 16384 ( set SLOT_CONTEXT=4096& set MAX_TOTAL_CONTEXT=16384 )
+if %TOTAL_RAM_MB% GEQ 32768 ( set SLOT_CONTEXT=8192& set MAX_TOTAL_CONTEXT=32768 )
+set /a MAX_SLOTS=%MAX_TOTAL_CONTEXT% / %SLOT_CONTEXT%
+if %MAX_SLOTS% LSS 1 set MAX_SLOTS=1
+if %LLM_PARALLEL% GTR %MAX_SLOTS% set LLM_PARALLEL=%MAX_SLOTS%
+set /a LLM_CONTEXT=%SLOT_CONTEXT% * %LLM_PARALLEL%
 
 REM  ── 6. Ecriture du .env ──
 (
