@@ -8,6 +8,18 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Tests — le contexte Spring est enfin démarré au moins une fois
+
+Aucun test du dépôt ne démarrait l'application. Les suites existantes instancient leurs classes à la main ou passent par `@WebMvcTest` : le graphe de dépendances réel n'était jamais assemblé avant le déploiement. Trois familles de défauts passaient donc entre les mailles.
+
+- **La dérive de schéma n'était pas détectée.** `schema.sql` est la source de vérité et `ddl-auto: validate` est censé signaler les écarts — mais cette validation n'était jamais déclenchée en intégration continue. Une colonne ajoutée à une entité JPA sans l'être au DDL ne se manifestait qu'au démarrage en production. C'est vérifié : en ajoutant une colonne fantôme à une entité, le test échoue désormais avec `Schema validation: missing column [...]`.
+- **Le câblage impossible à satisfaire** — cycle de dépendances, `@Lazy` oublié, injection optionnelle mal déclarée, bean absent derrière un `@ConditionalOnProperty` — n'échoue qu'au moment où le conteneur assemble réellement les beans.
+- **Les sondes de démarrage** qui interrogent des services externes doivent dégrader proprement quand ceux-ci sont absents ; dans ce test ils le sont tous.
+
+`ApplicationContextSmokeTest` n'a besoin d'aucun service externe : le profil `smoke` pointe LLM, ChromaDB, reranker et browserless sur un port fermé de la boucle locale — connexion refusée immédiatement plutôt qu'attente d'un timeout — et la base est une H2 en mémoire alimentée par la vraie `schema.sql`. Coût : ~18 s.
+
+Une dépendance cachée est apparue en l'écrivant : `StartupOrchestrator` déclenchait le téléchargement du GGUF par défaut (~4,7 Go) sur le seul critère « le fichier n'est pas là », sans interrupteur. C'est le bon comportement pour une installation ordinaire, jamais pour un test ou une CI. `spectra.startup.auto-install-models` (défaut `true`, donc comportement inchangé) permet de s'en abstraire.
+
 ### Contexte LLM — la fenêtre par requête devient la grandeur dimensionnée, et elle est vérifiée
 
 `LLM_CONTEXT` (comme `--ctx-size`) est le contexte **total** du serveur, que llama.cpp répartit entre ses slots parallèles : une requête ne voit que `contexte / parallélisme` tokens. Trois endroits calculaient ce dimensionnement indépendamment, et **tous les trois** fixaient le total tout en faisant croître le parallélisme avec les cœurs. Conséquence contre-intuitive : plus la machine était puissante, plus la fenêtre par requête rétrécissait — 512 tokens sur une machine 32 Go / 16 cœurs, alors que le RAG agentique en budgète 3000 à lui seul.

@@ -5,6 +5,7 @@ import fr.spectra.dto.InstallationJob;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.nio.file.Files;
@@ -18,6 +19,18 @@ public class StartupOrchestrator {
     private final LlmFitService llmFitService;
     private final Path modelsDir = Path.of("./data/models");
 
+    /**
+     * Interrupteur du rattrapage automatique des modèles manquants.
+     *
+     * <p>Activé par défaut : c'est le comportement attendu d'une installation ordinaire,
+     * où l'absence du GGUF doit se résoudre seule. Mais ce rattrapage déclenche un
+     * téléchargement de plusieurs gigaoctets sur le seul critère « le fichier n'est pas
+     * là » — ce qui est faux dans un contexte de test ou de CI, où le fichier n'a aucune
+     * raison d'exister et où la bande passante n'est pas gratuite.</p>
+     */
+    @Value("${spectra.startup.auto-install-models:true}")
+    private boolean autoInstallModels;
+
     public StartupOrchestrator(SpectraProperties properties, LlmFitService llmFitService) {
         this.properties = properties;
         this.llmFitService = llmFitService;
@@ -25,6 +38,11 @@ public class StartupOrchestrator {
 
     @PostConstruct
     public void checkAndInstallMissingModels() {
+        if (!autoInstallModels) {
+            log.info("Installation automatique des modèles manquants désactivée "
+                    + "(spectra.startup.auto-install-models=false)");
+            return;
+        }
         try {
             Files.createDirectories(modelsDir);
 

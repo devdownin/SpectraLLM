@@ -68,6 +68,12 @@ spectra:
     # Nombre maximal de rapports d'évaluation COMPLETED conservés (les plus anciens
     # sont évincés). Les rapports sont nécessaires aux comparaisons.
     max-completed-reports: ${SPECTRA_EVALUATION_MAX_COMPLETED_REPORTS:200}
+  startup:
+    # Rattrapage automatique des modèles GGUF manquants au démarrage. Activé par défaut :
+    # c'est le comportement attendu d'une installation ordinaire. À désactiver là où
+    # l'absence du fichier est normale et le téléchargement (~4,7 Go) indésirable —
+    # tests d'intégration, CI, environnements aux modèles montés en lecture seule.
+    auto-install-models: ${SPECTRA_STARTUP_AUTO_INSTALL_MODELS:true}
   chromadb:
     base-url: ${CHROMADB_URL:http://chromadb:8000}
   ingestion:
