@@ -65,7 +65,7 @@ class PipelineConfigValidatorTest {
     void rerankerEnabledWithZeroCandidates_isRejected() {
         SpectraProperties props = propsWithPipeline(pipeline(512, 64, 32));
         when(props.reranker()).thenReturn(new SpectraProperties.RerankerProperties(
-                true, null, null, null, 0));
+                true, null, null, null, 0, null, null));
 
         assertThatThrownBy(() -> new PipelineConfigValidator(props, 0).validate())
                 .isInstanceOf(IllegalStateException.class)
@@ -108,7 +108,7 @@ class PipelineConfigValidatorTest {
     @Test
     void allOptionalModulesEnabledAndValid_passes() {
         SpectraProperties props = propsWithPipeline(pipeline(512, 64, 32));
-        when(props.reranker()).thenReturn(new SpectraProperties.RerankerProperties(true, null, null, null, 20));
+        when(props.reranker()).thenReturn(new SpectraProperties.RerankerProperties(true, null, null, null, 20, null, null));
         when(props.multiQuery()).thenReturn(new SpectraProperties.MultiQueryProperties(true, 2));
         when(props.longContextRag()).thenReturn(new SpectraProperties.LongContextRagProperties(true, 100, null));
         when(props.hybridSearch()).thenReturn(new SpectraProperties.HybridSearchProperties(true, 20, 1.0f));
