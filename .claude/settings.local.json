@@ -55,7 +55,8 @@
       "Bash(python3 -m json.tool)",
       "Bash(xargs cat *)",
       "Bash(grep *)",
-      "mcp__Claude_Code_Remote__send_later"
+      "mcp__Claude_Code_Remote__send_later",
+      "mcp__Claude_Code_Remote__delete_trigger"
     ]
   }
 }
