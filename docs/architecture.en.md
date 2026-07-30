@@ -244,9 +244,12 @@ SPECTRA_RERANKER_TOP_CANDIDATES=20     # Candidates fed to the re-ranker
 RERANKER_MODEL=cross-encoder/mmarco-mMiniLMv2-L12-H384-v1
 ```
 
-Start with the profile:
+Start with the profile — the compose file lives in `deploy/docker/` while the stack resolves
+from the repository root, hence `--project-directory .` (same invocation as `scripts/start.sh`
+and CI; see [getting-started](getting-started.en.md) for the `spectra-compose` alias):
 ```bash
-docker compose --profile reranker up -d
+docker compose --project-directory . -f deploy/docker/docker-compose.yml \
+  --profile reranker up -d
 ```
 
 ---

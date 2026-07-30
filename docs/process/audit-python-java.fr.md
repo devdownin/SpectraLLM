@@ -367,11 +367,24 @@ déclarée obsolète au lieu d'être comparée en silence à autre chose.
 **Capture** (à faire sur une machine ayant accès au Hub) :
 
 ```bash
-docker compose --profile reranker up -d reranker
+# Depuis la RACINE du dépôt. Le fichier compose vit dans deploy/docker/ mais la stack
+# (data/, scripts/, services/) se résout depuis la racine : d'où --project-directory .
+# — même invocation que scripts/start.sh, scripts/start.bat et la CI.
+docker compose --project-directory . -f deploy/docker/docker-compose.yml \
+  --profile reranker up -d reranker
+
+# Le premier lancement CONSTRUIT l'image : installation de torch (~2,5 Go) et
+# pré-téléchargement du modèle depuis HuggingFace. Compter plusieurs minutes.
+docker compose --project-directory . -f deploy/docker/docker-compose.yml logs -f reranker
+curl http://localhost:8002/health        # {"status":"ok","model":"…"} avant de capturer
+
 cd backend && mvn test -Dtest=RerankerParityTest \
   -Dreranker.parity.capture=http://localhost:8002 \
   -Dreranker.parity.scale=sigmoid       # ou logit — voir ci-dessous
 ```
+
+Sous Windows (`cmd`), même commande sur une seule ligne, sans les `\`. Le dépôt propose aussi
+l'alias `spectra-compose` documenté dans [getting-started](../getting-started.en.md).
 
 La référence est écrite dans `backend/src/test/resources/reranker-parity/reference.json` et se
 versionne avec le code. Le nom du modèle est lu sur `/health`, donc **celui réellement servi** et
@@ -413,10 +426,13 @@ d'une inversion d'ordre même avec `scores=ignore`, et refus d'une référence o
 - **Trois défauts de modèle incohérents.** `services/reranker/app.py:15`, le `Dockerfile` et
   `SpectraProperties.effectiveModel()` défautent sur `cross-encoder/ms-marco-MiniLM-L-6-v2`
   (**anglais**), tandis que `docker-compose.yml` et `application.yml` défautent sur
-  `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1` (**multilingue**). Lancer le service sans la
-  variable d'environnement sert donc un reranker anglais sur un corpus français, pendant que
-  `/api/status` affiche le nom du modèle multilingue. Le lot 2 supprime la double source par
-  construction ; d'ici là, la capture enregistre le modèle servi, pas le modèle annoncé.
+  `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1` (**multilingue**). Par la stack compose il n'y a
+  pas de piège : le compose passe le modèle multilingue en `ARG` de build *et* en variable
+  d'environnement. Le défaut anglais ne mord que hors compose — `docker build` du service seul,
+  `uvicorn app:app` en local, ou un manifeste Kubernetes écrit à la main (et il n'y en a pas,
+  cf. P3). Il sert alors un reranker anglais sur un corpus français pendant que `/api/status`
+  affiche le nom du modèle multilingue. Le lot 2 supprime la double source par construction ;
+  d'ici là, la capture enregistre le modèle servi, pas le modèle annoncé.
 
 ---
 

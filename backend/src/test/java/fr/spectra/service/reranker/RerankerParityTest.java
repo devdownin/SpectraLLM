@@ -29,9 +29,11 @@ import static org.mockito.Mockito.when;
  *
  * <ol>
  *   <li><b>Capture</b> (désactivée par défaut) — rejoue le corpus sur le service Python en
- *       fonctionnement et écrit la référence :
+ *       fonctionnement et écrit la référence. Le fichier compose vit dans {@code deploy/docker/}
+ *       mais la stack se résout depuis la racine du dépôt, d'où {@code --project-directory .} :
  *       <pre>
- *       docker compose --profile reranker up -d reranker
+ *       docker compose --project-directory . -f deploy/docker/docker-compose.yml \
+ *           --profile reranker up -d reranker
  *       mvn test -Dtest=RerankerParityTest -Dreranker.parity.capture=http://localhost:8002
  *       </pre>
  *       Options : {@code -Dreranker.parity.model=…} (nom du modèle réellement servi, lu sur
