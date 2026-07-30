@@ -30,6 +30,11 @@ public record ResourceProfile(
      */
     public record LlamaServerParams(
             int threads,
+            /**
+             * Fenêtre de contexte <b>par slot</b> (par requête), et non le total du serveur :
+             * llama-server répartit son {@code -c} entre les {@code -np} slots parallèles.
+             * L'appelant multiplie par le parallélisme qu'il applique.
+             */
             int contextSize,
             int batchSize,
             int nGpuLayers,

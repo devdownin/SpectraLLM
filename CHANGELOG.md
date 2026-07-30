@@ -8,6 +8,17 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Contexte LLM — la fenêtre par requête devient la grandeur dimensionnée, et elle est vérifiée
+
+`LLM_CONTEXT` (comme `--ctx-size`) est le contexte **total** du serveur, que llama.cpp répartit entre ses slots parallèles : une requête ne voit que `contexte / parallélisme` tokens. Trois endroits calculaient ce dimensionnement indépendamment, et **tous les trois** fixaient le total tout en faisant croître le parallélisme avec les cœurs. Conséquence contre-intuitive : plus la machine était puissante, plus la fenêtre par requête rétrécissait — 512 tokens sur une machine 32 Go / 16 cœurs, alors que le RAG agentique en budgète 3000 à lui seul.
+
+Le dépassement ne produit aucune erreur : llama.cpp tronque le **début** de la requête, c'est-à-dire le prompt système. Le modèle perd ses consignes de format et répond hors format ; l'appelant voit un échec de parsing, jamais sa cause. C'est ce qui faisait échouer la classification automatique.
+
+- **On dimensionne désormais la fenêtre par requête** — la seule qui compte fonctionnellement — puis on en déduit le total, en plafonnant le parallélisme pour tenir l'enveloppe mémoire. Sur du CPU, deux conversations à 4096 tokens valent mieux que huit à 512. Une machine 16 Go passe de 2048 à 4096 tokens par requête, une machine 32 Go de 4096 à 8192.
+- **Une seule formule, extraite et testée** : `scripts/lib/llm-sizing.sh`, couverte par `scripts/tests/test_llm_sizing.py`. Les invariants portent sur la propriété qui compte (la fenêtre par requête ne dépend que de la RAM, ne décroît jamais, le total reste dans l'enveloppe), pas sur des valeurs intermédiaires. `detect-env.sh` s'y branche ; `detect-env.bat` ne peut pas sourcer du bash, un test compare donc ses paliers à ceux de la bibliothèque.
+- **Le mode natif était le plus touché** : `ResourceAdvisorService` recommandait un total, et sa cascade de `if/else` GPU pouvait même *réduire* le contexte d'une machine 32 Go équipée d'une petite carte. Sa recommandation est désormais exprimée **par slot** ; l'orchestrateur et l'entrypoint la multiplient chacun par le parallélisme qu'ils appliquent. La clé du fichier de hints est renommée `RECO_CONTEXT` → `RECO_SLOT_CONTEXT`, précisément pour que la confusion ne puisse pas se reformer.
+- **`ContextBudgetValidator`** confronte au démarrage les budgets configurés (extrait de classification, RAG agentique, long-contexte) à la fenêtre **réellement servie**, lue sur `/props` du serveur d'inférence. En déploiement Docker le backend ne connaît ni `LLM_CONTEXT` ni `LLM_PARALLEL` — ce sont des variables du conteneur d'inférence — et ces budgets étaient donc choisis à l'aveugle. Le contrôle sonde jusqu'à obtenir la valeur (le chargement d'un GGUF prend du temps), avertit avec une valeur tenable à la place d'un simple « réduisez », puis se désarme.
+
 ### Modèle de chat par défaut — Qwen2.5-7B-Instruct Q4_K_M
 
 > **Action requise à la mise à jour** : le fichier GGUF change. Récupérez-le avant de relancer la stack (`./setup.sh --download-chat`), sinon `model-init` bloque le démarrage. L'ancien fichier peut être supprimé de `data/models/`.

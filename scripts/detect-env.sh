@@ -126,38 +126,15 @@ if (( JVM_HEAP > 4096 )); then
     JVM_HEAP=4096
 fi
 
-# Serveur LLM : nombre de requêtes parallèles (min 1, max 8)
-LLM_PARALLEL=$(( CPU_CORES / 2 ))
-if (( LLM_PARALLEL < 1 )); then LLM_PARALLEL=1; fi
-if (( LLM_PARALLEL > 8 )); then LLM_PARALLEL=8; fi
+# ── Contexte LLM et parallélisme ──
+# Arithmétique volontairement isolée dans une bibliothèque : elle avait été fausse sans que
+# rien ne puisse le révéler (voir l'entête de llm-sizing.sh), et elle est désormais couverte
+# par scripts/tests/test_llm_sizing.py. Renseigne LLM_PARALLEL, LLM_CONTEXT, LLM_SLOT_CONTEXT.
+# shellcheck source=lib/llm-sizing.sh
+source "$SCRIPT_DIR/lib/llm-sizing.sh"
+llm_sizing "$TOTAL_RAM_MB" "$CPU_CORES"
 
-# Taille de contexte LLM.
-#
-# LLM_CONTEXT est le contexte TOTAL du serveur, réparti entre les slots parallèles :
-# une requête ne voit que LLM_CONTEXT / LLM_PARALLEL tokens. L'ancien calcul fixait le
-# total selon la RAM tout en faisant croître le parallélisme avec les cœurs — donc plus
-# la machine avait de cœurs, plus la fenêtre par requête RÉTRÉCISSAIT : 512 tokens sur
-# une machine 32 Go / 16 cœurs, alors que le RAG agentique en budgète 3000 à lui seul.
-#
-# On dimensionne désormais la fenêtre PAR REQUÊTE (la seule qui compte fonctionnellement),
-# puis on en déduit le total. Le parallélisme est plafonné pour que le total reste dans
-# l'enveloppe mémoire : sur du CPU, deux conversations à 4096 tokens valent mieux que
-# huit à 512.
-if (( TOTAL_RAM_MB >= 32768 )); then
-    SLOT_CONTEXT=8192; MAX_TOTAL_CONTEXT=32768
-elif (( TOTAL_RAM_MB >= 16384 )); then
-    SLOT_CONTEXT=4096; MAX_TOTAL_CONTEXT=16384
-elif (( TOTAL_RAM_MB >= 8192 )); then
-    SLOT_CONTEXT=2048; MAX_TOTAL_CONTEXT=4096
-else
-    SLOT_CONTEXT=1024; MAX_TOTAL_CONTEXT=2048
-fi
-
-# Plafonne le parallélisme pour tenir l'enveloppe totale sans rogner la fenêtre par slot.
-MAX_SLOTS=$(( MAX_TOTAL_CONTEXT / SLOT_CONTEXT ))
-if (( MAX_SLOTS < 1 )); then MAX_SLOTS=1; fi
-if (( LLM_PARALLEL > MAX_SLOTS )); then LLM_PARALLEL=$MAX_SLOTS; fi
-LLM_CONTEXT=$(( SLOT_CONTEXT * LLM_PARALLEL ))
+echo "  Contexte   : ${LLM_SLOT_CONTEXT} tokens/requête × ${LLM_PARALLEL} slots = ${LLM_CONTEXT} au total"
 
 # ── 6. Écriture du .env ──
 cat > "$ENV_FILE" <<EOF

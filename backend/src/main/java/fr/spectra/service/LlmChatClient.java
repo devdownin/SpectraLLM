@@ -89,6 +89,23 @@ public interface LlmChatClient {
         return chatStream(systemPrompt, userMessage);
     }
 
+    /**
+     * Fenêtre de contexte réellement servie, <b>par requête</b>, telle que le serveur
+     * d'inférence la déclare.
+     *
+     * <p>C'est la seule valeur qui fasse autorité. En déploiement Docker, le backend ne
+     * connaît ni {@code LLM_CONTEXT} ni {@code LLM_PARALLEL} — ce sont des variables du
+     * conteneur d'inférence — et ne peut donc que la demander. Les budgets de contexte
+     * configurés côté backend (extrait de classification, RAG agentique, long-contexte)
+     * doivent tenir dedans ; sans cette information ils sont choisis à l'aveugle.</p>
+     *
+     * <p>Vide quand le provider ne l'expose pas ou que le serveur est injoignable :
+     * l'appelant doit alors s'abstenir de conclure plutôt que supposer une valeur.</p>
+     */
+    default java.util.OptionalInt servedContextTokens() {
+        return java.util.OptionalInt.empty();
+    }
+
     List<Map<String, Object>> listModels();
 
     void createModel(String name, String from, String system, Map<String, Object> params);

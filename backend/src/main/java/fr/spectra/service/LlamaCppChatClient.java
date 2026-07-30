@@ -171,6 +171,42 @@ public class LlamaCppChatClient implements LlmChatClient {
     }
 
     /**
+     * Interroge {@code /props} pour connaître la fenêtre servie par slot.
+     *
+     * <p>Lecture volontairement défensive : selon la version de llama.cpp, {@code n_ctx} est
+     * exposé à la racine ou sous {@code default_generation_settings}. La valeur rapportée est
+     * celle d'un slot — donc {@code LLM_CONTEXT / LLM_PARALLEL}, exactement la fenêtre que
+     * voit une requête.</p>
+     *
+     * <p>Toute erreur (serveur non démarré, endpoint absent) donne un résultat vide : c'est
+     * une information de diagnostic, jamais une cause d'échec.</p>
+     */
+    @Override
+    @SuppressWarnings("unchecked")
+    public java.util.OptionalInt servedContextTokens() {
+        try {
+            Map<String, Object> props = webClient.get()
+                    .uri("/props")
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block(java.time.Duration.ofSeconds(5));
+            if (props == null) return java.util.OptionalInt.empty();
+
+            Object nCtx = props.get("n_ctx");
+            if (nCtx == null && props.get("default_generation_settings") instanceof Map<?, ?> gen) {
+                nCtx = gen.get("n_ctx");
+            }
+            if (nCtx instanceof Number n && n.intValue() > 0) {
+                return java.util.OptionalInt.of(n.intValue());
+            }
+            return java.util.OptionalInt.empty();
+        } catch (Exception e) {
+            log.debug("Fenêtre de contexte servie indisponible : {}", e.getMessage());
+            return java.util.OptionalInt.empty();
+        }
+    }
+
+    /**
      * Génération contrainte à un objet JSON valide (`response_format`), plutôt que demandée
      * dans le prompt. llama.cpp compile ce format en grammaire et restreint l'échantillonnage :
      * un préambule en prose ou un bloc de réflexion devient structurellement impossible.
