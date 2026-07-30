@@ -48,7 +48,8 @@ class EvaluationServiceAbTest {
         modelSwitch = new ModelSwitchCoordinator(chatClient, 2, 1);
         // Génération : réponse quelconque. Jugement A/B (prompt contenant "Réponse 1") : gagnant 1.
         when(chatClient.chat(anyString(), anyString())).thenReturn("réponse du modèle");
-        when(chatClient.chat(argThat(s -> s != null && s.contains("Réponse 1")), anyString()))
+        // Le juge passe par chatJson (décodage contraint au JSON), la génération par chat.
+        when(chatClient.chatJson(argThat(s -> s != null && s.contains("Réponse 1")), anyString()))
                 .thenReturn("{\"winner\": 1, \"justification\": \"meilleure\"}");
         // chatWithStats (méthode default) déléguée à chat() : la génération l'utilise.
         when(chatClient.chatWithStats(anyString(), anyString()))

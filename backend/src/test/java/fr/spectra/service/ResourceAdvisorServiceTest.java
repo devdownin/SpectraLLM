@@ -47,41 +47,63 @@ class ResourceAdvisorServiceTest {
     }
 
     // ── Context size ──────────────────────────────────────────────────────────
+    //
+    // contextSize() est la fenêtre PAR SLOT (par requête). Les paliers doivent rester
+    // identiques à ceux de scripts/lib/llm-sizing.sh, qui fait le même calcul pour le
+    // déploiement Docker : deux dimensionnements divergents, c'est deux comportements selon
+    // le mode de lancement, pour une configuration identique.
 
     @Test
-    void recommend_nvidiaHighVram_contextIs8192() {
-        ResourceProfile.LlamaServerParams params = service.recommend(4, 16384, "nvidia", 8192, "chat");
+    void recommend_highRam_contextIs8192PerSlot() {
+        ResourceProfile.LlamaServerParams params = service.recommend(4, 32768, "none", 0, "chat");
         assertThat(params.contextSize()).isEqualTo(8192);
     }
 
     @Test
-    void recommend_nvidiaMediumVram_contextIs4096() {
-        ResourceProfile.LlamaServerParams params = service.recommend(4, 8192, "nvidia", 4096, "chat");
-        assertThat(params.contextSize()).isEqualTo(4096);
-    }
-
-    @Test
-    void recommend_highRam_contextIs4096() {
-        ResourceProfile.LlamaServerParams params = service.recommend(4, 32768, "none", 0, "chat");
-        assertThat(params.contextSize()).isEqualTo(4096);
-    }
-
-    @Test
-    void recommend_mediumRam_contextIs2048() {
+    void recommend_mediumRam_contextIs4096PerSlot() {
         ResourceProfile.LlamaServerParams params = service.recommend(4, 16384, "none", 0, "chat");
+        assertThat(params.contextSize()).isEqualTo(4096);
+    }
+
+    @Test
+    void recommend_lowRam_contextIs2048PerSlot() {
+        ResourceProfile.LlamaServerParams params = service.recommend(4, 8192, "none", 0, "chat");
         assertThat(params.contextSize()).isEqualTo(2048);
     }
 
     @Test
-    void recommend_lowRam_contextIs1024() {
-        ResourceProfile.LlamaServerParams params = service.recommend(4, 8192, "none", 0, "chat");
+    void recommend_veryLowRam_contextIs1024PerSlot() {
+        ResourceProfile.LlamaServerParams params = service.recommend(2, 4096, "none", 0, "chat");
         assertThat(params.contextSize()).isEqualTo(1024);
     }
 
     @Test
-    void recommend_veryLowRam_contextIs512() {
-        ResourceProfile.LlamaServerParams params = service.recommend(2, 4096, "none", 0, "chat");
-        assertThat(params.contextSize()).isEqualTo(512);
+    void recommend_gpuRaisesTheWindowOfASmallMachine() {
+        // 8 Go de RAM mais 8 Go de VRAM : le modèle tient sur la carte, la fenêtre peut être
+        // plus large que ne le laisserait la RAM seule.
+        ResourceProfile.LlamaServerParams params = service.recommend(4, 8192, "nvidia", 8192, "chat");
+        assertThat(params.contextSize()).isEqualTo(8192);
+    }
+
+    @Test
+    void recommend_gpuNeverShrinksTheWindow() {
+        // Le piège de l'ancienne cascade de if/else : une machine 32 Go avec une petite carte
+        // (4 Go de VRAM) tombait dans la branche GPU et se retrouvait AVEC MOINS de contexte
+        // qu'avec la même machine sans carte du tout.
+        ResourceProfile.LlamaServerParams withGpu = service.recommend(4, 32768, "nvidia", 4096, "chat");
+        ResourceProfile.LlamaServerParams withoutGpu = service.recommend(4, 32768, "none", 0, "chat");
+
+        assertThat(withGpu.contextSize()).isGreaterThanOrEqualTo(withoutGpu.contextSize());
+    }
+
+    @Test
+    void recommend_contextGrowsMonotonicallyWithRam() {
+        int previous = 0;
+        for (long ramMb : new long[]{2048, 4096, 8192, 16384, 32768, 65536}) {
+            int context = service.recommend(4, ramMb, "none", 0, "chat").contextSize();
+            assertThat(context).as("RAM %d Mo", ramMb).isGreaterThanOrEqualTo(previous);
+            previous = context;
+        }
     }
 
     // ── GPU layers ────────────────────────────────────────────────────────────

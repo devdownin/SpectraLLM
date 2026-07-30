@@ -18,7 +18,7 @@ You need two **GGUF** files placed in `data/models/`:
 
 | Variable | Default file | Role |
 |----------|--------------|------|
-| `LLM_CHAT_MODEL_FILE` | `Phi-4-mini-reasoning-UD-IQ1_S.gguf` | Answers questions, generates the dataset |
+| `LLM_CHAT_MODEL_FILE` | `Qwen2.5-7B-Instruct-Q4_K_M.gguf` | Answers questions, generates the dataset |
 | `LLM_EMBED_MODEL_FILE` | `embed.gguf` | Converts text into vectors for search |
 
 If a file is missing at startup, the `model-init` service prints the exact download commands and stops the stack before the LLM servers start.
@@ -27,8 +27,8 @@ If a file is missing at startup, the `model-init` service prints the exact downl
 
 ```bash
 # Chat model (~1.1 GB) — Phi-4-mini by default
-huggingface-cli download unsloth/Phi-4-mini-reasoning-GGUF \
-  Phi-4-mini-reasoning-UD-IQ1_S.gguf --local-dir data/models/
+huggingface-cli download bartowski/Qwen2.5-7B-Instruct-GGUF \
+  Qwen2.5-7B-Instruct-Q4_K_M.gguf --local-dir data/models/
 
 # Embedding model (~81 MB) — nomic-embed-text by default
 huggingface-cli download nomic-ai/nomic-embed-text-v1.5-GGUF \
@@ -323,9 +323,9 @@ Categories proposed by the model are reduced to a canonical form: case, accents 
 | `SPECTRA_CLASSIFICATION_MAX_CATEGORIES` | Categories kept per document | `3` |
 | `SPECTRA_CLASSIFICATION_MIN_CONFIDENCE` | Minimum confidence to keep a category | `0.5` |
 | `SPECTRA_CLASSIFICATION_MAX_CHUNKS` | Excerpts sampled from the document | `8` |
-| `SPECTRA_CLASSIFICATION_MAX_EXCERPT_CHARS` | Character budget submitted to the model | `3000` |
+| `SPECTRA_CLASSIFICATION_MAX_EXCERPT_CHARS` | Character budget submitted to the model | `6000` |
 
-> **The excerpt budget must fit the context window.** With the default deployment (`LLM_CONTEXT=2048`), count ~3.5 characters per token in French: a 3000-character excerpt ≈ 860 tokens, plus the prompt (~350), the header (~40) and the answer (~120) — about 1370 out of 2048. Go over and llama.cpp truncates the **start** of the request — that is, the "answer only in JSON" instructions and the taxonomy — and the model replies in prose: classification then fails systematically. Only raise this budget if you raise `LLM_CONTEXT` too.
+> **The excerpt budget must fit the PER-REQUEST window**, that is `LLM_CONTEXT / LLM_PARALLEL` — not `LLM_CONTEXT` alone. Count ~3.5 characters per token in French: a 6000-character excerpt ≈ 1715 tokens, plus the prompt (~350), the header (~40) and the answer (~120) — about 2225. That is comfortable from 4096 tokens per request upwards, the automatic sizing of a 16 GB machine. Go over and llama.cpp truncates the **start** of the request — the "answer only in JSON" instructions and the taxonomy — and the model replies in prose: classification then fails systematically, on every document.
 
 > `auto-classify` is off by default on purpose: importing 500 files would chain 500 LLM calls. For a corpus that is already in place, prefer the batch classification below; turn `auto-classify` on for a continuous arrival stream.
 
@@ -347,7 +347,7 @@ curl http://localhost:8080/api/ged/classification
 # Classify one document (force=true to re-label an already classified document)
 curl -X POST "http://localhost:8080/api/ged/documents/{sha256}/classify"
 # → {"categories":["procedures","securite"],"scores":{"procedures":0.92,"securite":0.68},
-#    "summary":"Intervention procedure for high-voltage substations.","model":"phi-4-mini"}
+#    "summary":"Intervention procedure for high-voltage substations.","model":"qwen2.5-7b-instruct"}
 
 # Classify the whole unclassified corpus (empty body), in the background
 curl -X POST http://localhost:8080/api/ged/documents/bulk/classify
@@ -1067,7 +1067,7 @@ Choose two models: for each pair, a judge sees both answers **side by side** (or
 
 **Neutral judge (recommended for comparing).** By default the evaluated model judges itself (self-serving bias). Set a third-party judge, identical for all, in `.env`:
 ```
-SPECTRA_EVALUATION_JUDGE_MODEL=phi-4-mini
+SPECTRA_EVALUATION_JUDGE_MODEL=qwen2.5-7b-instruct
 ```
 Evaluation then happens in two phases: generating all answers with the evaluated model, then scoring with the judge (a single model switch, to avoid reloading the server for every pair).
 

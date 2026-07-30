@@ -126,21 +126,15 @@ if (( JVM_HEAP > 4096 )); then
     JVM_HEAP=4096
 fi
 
-# Serveur LLM : nombre de requêtes parallèles (min 1, max 8)
-LLM_PARALLEL=$(( CPU_CORES / 2 ))
-if (( LLM_PARALLEL < 1 )); then LLM_PARALLEL=1; fi
-if (( LLM_PARALLEL > 8 )); then LLM_PARALLEL=8; fi
+# ── Contexte LLM et parallélisme ──
+# Arithmétique volontairement isolée dans une bibliothèque : elle avait été fausse sans que
+# rien ne puisse le révéler (voir l'entête de llm-sizing.sh), et elle est désormais couverte
+# par scripts/tests/test_llm_sizing.py. Renseigne LLM_PARALLEL, LLM_CONTEXT, LLM_SLOT_CONTEXT.
+# shellcheck source=lib/llm-sizing.sh
+source "$SCRIPT_DIR/lib/llm-sizing.sh"
+llm_sizing "$TOTAL_RAM_MB" "$CPU_CORES"
 
-# Taille de contexte LLM — alignée sur les seuils de ResourceAdvisorService
-if (( TOTAL_RAM_MB >= 32768 )); then
-    LLM_CONTEXT=4096
-elif (( TOTAL_RAM_MB >= 16384 )); then
-    LLM_CONTEXT=2048
-elif (( TOTAL_RAM_MB >= 8192 )); then
-    LLM_CONTEXT=1024
-else
-    LLM_CONTEXT=512
-fi
+echo "  Contexte   : ${LLM_SLOT_CONTEXT} tokens/requête × ${LLM_PARALLEL} slots = ${LLM_CONTEXT} au total"
 
 # ── 6. Écriture du .env ──
 cat > "$ENV_FILE" <<EOF
@@ -160,8 +154,8 @@ SPECTRA_CONCURRENT_INGESTIONS=${CONCURRENT_INGESTIONS}
 JAVA_OPTS="-Xms256m -Xmx${JVM_HEAP}m -XX:+UseZGC"
 
 # ── Serveur LLM — Chat ──
-LLM_CHAT_MODEL_FILE=Phi-4-mini-reasoning-UD-IQ1_S.gguf
-LLM_CHAT_MODEL_NAME=phi-4-mini
+LLM_CHAT_MODEL_FILE=Qwen2.5-7B-Instruct-Q4_K_M.gguf
+LLM_CHAT_MODEL_NAME=qwen2.5-7b-instruct
 LLM_PARALLEL=${LLM_PARALLEL}
 LLM_CONTEXT=${LLM_CONTEXT}
 

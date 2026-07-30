@@ -56,8 +56,8 @@ Two GGUF files are required — one for chat, one for embeddings:
 
 ```bash
 # Chat model (~1.1 GB) — Phi-4-mini by default
-huggingface-cli download unsloth/Phi-4-mini-reasoning-GGUF \
-  Phi-4-mini-reasoning-UD-IQ1_S.gguf --local-dir data/models/
+huggingface-cli download bartowski/Qwen2.5-7B-Instruct-GGUF \
+  Qwen2.5-7B-Instruct-Q4_K_M.gguf --local-dir data/models/
 
 # Embedding model (~81 MB) — nomic-embed-text by default
 huggingface-cli download nomic-ai/nomic-embed-text-v1.5-GGUF \

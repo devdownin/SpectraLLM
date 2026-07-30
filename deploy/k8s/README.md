@@ -85,7 +85,7 @@ kubectl run -n spectra copy-models --image=busybox --restart=Never \
 # llm-chat via le pointeur du modèle actif). Le nom de fichier doit correspondre à
 # SPECTRA_LLM_CHAT_FILE / llama-chat-config.LLM_CHAT_MODEL_FILE.
 kubectl cp data/models/embed.gguf spectra/copy-models:/data/embed.gguf
-kubectl cp data/models/Phi-4-mini-reasoning-UD-IQ1_S.gguf spectra/copy-models:/data/Phi-4-mini-reasoning-UD-IQ1_S.gguf
+kubectl cp data/models/Qwen2.5-7B-Instruct-Q4_K_M.gguf spectra/copy-models:/data/Qwen2.5-7B-Instruct-Q4_K_M.gguf
 kubectl delete pod -n spectra copy-models
 ```
 

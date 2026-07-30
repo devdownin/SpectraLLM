@@ -19,7 +19,7 @@ data:
   # active-chat-model (lu par le superviseur llm-chat) désigne un fichier servable dès
   # le 1er boot — sinon « modèle actif ≠ modèle servi ». DOIVENT correspondre aux noms
   # seedés dans le volume des modèles (k8s/seed) et au repli LLM_CHAT_MODEL_FILE ci-dessous.
-  SPECTRA_LLM_CHAT_FILE: "Phi-4-mini-reasoning-UD-IQ1_S.gguf"
+  SPECTRA_LLM_CHAT_FILE: "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
   SPECTRA_LLM_EMBEDDING_FILE: "embed.gguf"
   SPECTRA_CHROMADB_BASE_URL: "http://chromadb:8000"
   SPECTRA_INGESTION_BROWSERLESS_URL: "http://browserless:3000"
@@ -43,7 +43,7 @@ data:
   LLM_PORT: "8080"                                     # aligné sur le Service et les probes
   # Repli tant que le pointeur du registre n'existe pas (1er boot) : DOIVENT correspondre
   # au fichier seedé dans le volume des modèles et à SPECTRA_LLM_CHAT_FILE / SPECTRA_LLM_MODEL.
-  LLM_CHAT_MODEL_FILE: "Phi-4-mini-reasoning-UD-IQ1_S.gguf"
+  LLM_CHAT_MODEL_FILE: "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
   LLM_CHAT_MODEL_NAME: "spectra-domain"
   # Vide = le superviseur applique les hints calculés par spectra-api
   # (/models/active-chat-params), sinon ses défauts intégrés. Une valeur impose l'override.

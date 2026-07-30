@@ -8,6 +8,61 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Tests — le contexte Spring est enfin démarré au moins une fois
+
+Aucun test du dépôt ne démarrait l'application. Les suites existantes instancient leurs classes à la main ou passent par `@WebMvcTest` : le graphe de dépendances réel n'était jamais assemblé avant le déploiement. Trois familles de défauts passaient donc entre les mailles.
+
+- **La dérive de schéma n'était pas détectée.** `schema.sql` est la source de vérité et `ddl-auto: validate` est censé signaler les écarts — mais cette validation n'était jamais déclenchée en intégration continue. Une colonne ajoutée à une entité JPA sans l'être au DDL ne se manifestait qu'au démarrage en production. C'est vérifié : en ajoutant une colonne fantôme à une entité, le test échoue désormais avec `Schema validation: missing column [...]`.
+- **Le câblage impossible à satisfaire** — cycle de dépendances, `@Lazy` oublié, injection optionnelle mal déclarée, bean absent derrière un `@ConditionalOnProperty` — n'échoue qu'au moment où le conteneur assemble réellement les beans.
+- **Les sondes de démarrage** qui interrogent des services externes doivent dégrader proprement quand ceux-ci sont absents ; dans ce test ils le sont tous.
+
+`ApplicationContextSmokeTest` n'a besoin d'aucun service externe : le profil `smoke` pointe LLM, ChromaDB, reranker et browserless sur un port fermé de la boucle locale — connexion refusée immédiatement plutôt qu'attente d'un timeout — et la base est une H2 en mémoire alimentée par la vraie `schema.sql`. Coût : ~18 s.
+
+Une dépendance cachée est apparue en l'écrivant : `StartupOrchestrator` déclenchait le téléchargement du GGUF par défaut (~4,7 Go) sur le seul critère « le fichier n'est pas là », sans interrupteur. C'est le bon comportement pour une installation ordinaire, jamais pour un test ou une CI. `spectra.startup.auto-install-models` (défaut `true`, donc comportement inchangé) permet de s'en abstraire.
+
+### Contexte LLM — la fenêtre par requête devient la grandeur dimensionnée, et elle est vérifiée
+
+`LLM_CONTEXT` (comme `--ctx-size`) est le contexte **total** du serveur, que llama.cpp répartit entre ses slots parallèles : une requête ne voit que `contexte / parallélisme` tokens. Trois endroits calculaient ce dimensionnement indépendamment, et **tous les trois** fixaient le total tout en faisant croître le parallélisme avec les cœurs. Conséquence contre-intuitive : plus la machine était puissante, plus la fenêtre par requête rétrécissait — 512 tokens sur une machine 32 Go / 16 cœurs, alors que le RAG agentique en budgète 3000 à lui seul.
+
+Le dépassement ne produit aucune erreur : llama.cpp tronque le **début** de la requête, c'est-à-dire le prompt système. Le modèle perd ses consignes de format et répond hors format ; l'appelant voit un échec de parsing, jamais sa cause. C'est ce qui faisait échouer la classification automatique.
+
+- **On dimensionne désormais la fenêtre par requête** — la seule qui compte fonctionnellement — puis on en déduit le total, en plafonnant le parallélisme pour tenir l'enveloppe mémoire. Sur du CPU, deux conversations à 4096 tokens valent mieux que huit à 512. Une machine 16 Go passe de 2048 à 4096 tokens par requête, une machine 32 Go de 4096 à 8192.
+- **Une seule formule, extraite et testée** : `scripts/lib/llm-sizing.sh`, couverte par `scripts/tests/test_llm_sizing.py`. Les invariants portent sur la propriété qui compte (la fenêtre par requête ne dépend que de la RAM, ne décroît jamais, le total reste dans l'enveloppe), pas sur des valeurs intermédiaires. `detect-env.sh` s'y branche ; `detect-env.bat` ne peut pas sourcer du bash, un test compare donc ses paliers à ceux de la bibliothèque.
+- **Le mode natif était le plus touché** : `ResourceAdvisorService` recommandait un total, et sa cascade de `if/else` GPU pouvait même *réduire* le contexte d'une machine 32 Go équipée d'une petite carte. Sa recommandation est désormais exprimée **par slot** ; l'orchestrateur et l'entrypoint la multiplient chacun par le parallélisme qu'ils appliquent. La clé du fichier de hints est renommée `RECO_CONTEXT` → `RECO_SLOT_CONTEXT`, précisément pour que la confusion ne puisse pas se reformer.
+- **`ContextBudgetValidator`** confronte au démarrage les budgets configurés (extrait de classification, RAG agentique, long-contexte) à la fenêtre **réellement servie**, lue sur `/props` du serveur d'inférence. En déploiement Docker le backend ne connaît ni `LLM_CONTEXT` ni `LLM_PARALLEL` — ce sont des variables du conteneur d'inférence — et ces budgets étaient donc choisis à l'aveugle. Le contrôle sonde jusqu'à obtenir la valeur (le chargement d'un GGUF prend du temps), avertit avec une valeur tenable à la place d'un simple « réduisez », puis se désarme.
+
+### Modèle de chat par défaut — Qwen2.5-7B-Instruct Q4_K_M
+
+> **Action requise à la mise à jour** : le fichier GGUF change. Récupérez-le avant de relancer la stack (`./setup.sh --download-chat`), sinon `model-init` bloque le démarrage. L'ancien fichier peut être supprimé de `data/models/`.
+
+Le défaut était `Phi-4-mini-reasoning-UD-IQ1_S.gguf` : un modèle **de raisonnement** en quantification **1 bit**. Deux mauvais choix pour ce produit.
+
+- **Le raisonnement est contre-productif ici.** Un tel modèle dépense son budget de sortie en chaîne de pensée avant de répondre — dans une fenêtre de 2048 tokens, cela laisse peu de place à la réponse elle-même, et c'est ce qui a causé l'échec de la classification automatique. Spectra a besoin de suivi d'instruction et de sortie structurée, pas de déduction : `instruct` est la famille adaptée.
+- **La quantification 1 bit dégrade fortement le suivi d'instruction.** Or toute la valeur du produit repose sur de la sortie structurée (classification, génération de paires d'entraînement) et du jugement (LLM-as-a-judge). `Q4_K_M` est le compromis standard.
+- **Un seul modèle partout.** `setup.sh --download-chat` téléchargeait un *troisième* modèle (Phi-3.5-mini) puis réécrivait l'alias pour ne pas mentir sur son étiquette. Le « chemin facile » installait donc un modèle que `docker-compose` ne chargeait pas par défaut. Les deux scripts servent désormais le modèle par défaut, et la réécriture d'alias disparaît avec sa raison d'être.
+- Le contrôle de cohérence couvre maintenant aussi `setup.sh` / `setup.bat` — c'est cette lacune qui avait laissé le troisième modèle s'installer.
+
+**Coût.** Le fichier passe d'environ 1 Go à ~4,7 Go : téléchargement initial plus long, et premier passage de CI plus lent (le cache est ensuite réutilisé, sa clé a été renouvelée). Côté mémoire, un 7B en Q4_K_M demande ~6 Go pour les poids — la documentation annonçait déjà 16 Go minimum et 32 Go recommandés pour les modèles 7B.
+
+### CI — cohérence des modèles GGUF par défaut, et correction d'une dérive d'embedding
+
+Le nom des fichiers GGUF est répété dans **quatre langages de configuration** — shell, batch, YAML (Compose et Kubernetes) et Java — qu'aucune variable commune ne peut unifier : un manifest Kubernetes ne « source » pas un fichier shell. La duplication est irréductible ; ce qui ne l'est pas, c'est qu'elle dérive en silence.
+
+- **Dérive réelle corrigée** : la CI téléchargeait le modèle d'embedding en `Q4_K_M`, Kubernetes en `Q4_0`. Deux quantifications différentes produisent des **vecteurs différents** — un index construit sous Docker se dégradait donc à l'interrogation depuis Kubernetes. C'est précisément le type d'incident que `EmbeddingConsistencyChecker` détecte a posteriori ; il n'aurait pas dû pouvoir se produire. Kubernetes est aligné sur `Q4_K_M`, valeur documentée et déjà utilisée partout ailleurs.
+- **`scripts/check-model-defaults.sh`** : vérifie que tout fichier `.gguf` nommé dans un fichier opérationnel correspond bien au défaut de chat ou d'embedding (ou à un artefact amont explicitement déclaré), et qu'un même modèle est téléchargé depuis une **URL unique** partout. Exécuté par la CI sur chaque push et chaque PR, sans dépendance ni téléchargement.
+- **`.env.example` est déclaré source de vérité** : la marche à suivre pour changer de modèle y est écrite, avec le rappel que la CI refusera un alignement partiel.
+
+Le script ne supprime pas la duplication — il rend son oubli impossible à manquer, au lieu de produire un bug qui n'apparaît que sur un seul environnement.
+
+### LLM — décodage contraint : le JSON est garanti, plus seulement demandé
+
+Jusqu'ici, chaque endroit qui attendait du JSON le **demandait dans le prompt** puis rattrapait les écarts du modèle au parsing. Cette approche est structurellement fragile : elle suppose d'avoir anticipé toutes les façons dont un modèle peut dévier. Deux d'entre elles ont déjà causé des pannes en production — préambule en prose après troncature du contexte, bloc de réflexion d'un modèle « reasoning » contenant un JSON d'exemple.
+
+- **`LlmChatClient.chatJson(...)`** : nouvelle variante dont la validité JSON est imposée au **décodeur**. Sur llama.cpp, le champ `response_format: {"type":"json_object"}` est compilé en grammaire et restreint l'échantillonnage — le modèle ne peut littéralement pas émettre de préambule, de bloc de réflexion ou de bloc Markdown. L'implémentation par défaut de l'interface retombe sur une génération libre, donc un provider sans cette capacité reste fonctionnel.
+- **Sept sites de parsing basculés** : classification documentaire, les quatre prompts de génération de dataset (Q/R, résumé, classification, exemples de refus) et les deux juges LLM-as-a-judge (notation, A/B head-to-head). Ce sont exactement les endroits où une réponse hors format se traduisait par une paire perdue, un score manquant ou un document non classifié — le plus souvent en silence.
+- **Le parsing défensif reste en place.** Le décodage contraint garantit un JSON *valide*, pas un JSON *conforme au schéma attendu* : les clés peuvent manquer et les types varier. Il supprime une classe de défauts, il ne dispense pas de vérifier ce qu'on reçoit.
+- Le chat conversationnel n'est pas contraint : seuls les appels dont la sortie est parsée le sont.
+
 ### Migration « full Java » — audit de la surface Python, et premiers lots
 
 Nouvel audit [`docs/process/audit-python-java.fr.md`](docs/process/audit-python-java.fr.md) : les 13 fichiers Python du dépôt (1 745 lignes) et les dépendances Python indirectes de la pile (images, healthchecks compose, convertisseurs llama.cpp téléchargés à l'exécution, jobs de CI) sont inventoriés, puis un plan de migration en quatre lots est proposé. Constat structurant : les quatre blocs Python ne sont pas de même nature — reranking, extraction PDF et outillage sont substituables en Java, l'entraînement QLoRA ne l'est pas (l'outil `llama-finetune` de llama.cpp ne fait que du full finetune FP32, sans LoRA ni DPO/ORPO). La cible retenue est donc « Java pur sur le chemin de requête, entraînement sorti du produit dans un worker appelé par HTTP » — ce qui clôt au passage le constat F1 de l'audit fine-tuning, seul blocage de déploiement encore ouvert.

@@ -43,7 +43,7 @@ public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, 
         /** Modèle de chat : {@code llm.chat.model} → {@code llm.model} (legacy) → défaut. */
         public String effectiveChatModel() {
             if (chat != null && chat.model() != null) return chat.model();
-            return model != null ? model : "phi-4-mini";
+            return model != null ? model : "qwen2.5-7b-instruct";
         }
 
         /** Modèle d'embedding : {@code llm.embedding.model} → {@code llm.embedding-model} (legacy) → défaut. */
@@ -476,13 +476,15 @@ public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, 
         }
 
         /**
-         * Budget de caractères de l'extrait. Le défaut (3000 ≈ 860 tokens en français) est
-         * calibré pour tenir dans une fenêtre de 2048 tokens — celle du déploiement par
-         * défaut — une fois ajoutés le prompt, l'entête et la réponse. Au-delà, llama.cpp
-         * tronque le début de la requête, donc les consignes de format.
+         * Budget de caractères de l'extrait. Le défaut (6000 ≈ 1715 tokens en français)
+         * tient dans une fenêtre de 4096 tokens <b>par requête</b> une fois ajoutés le
+         * prompt, l'entête et la réponse — soit le dimensionnement automatique d'une
+         * machine de 16 Go, le minimum documenté. La contrainte porte sur
+         * {@code LLM_CONTEXT / LLM_PARALLEL}, pas sur {@code LLM_CONTEXT} seul : au-delà,
+         * llama.cpp tronque le début de la requête, donc les consignes de format.
          */
         public int effectiveMaxExcerptChars() {
-            return maxExcerptChars != null && maxExcerptChars > 0 ? maxExcerptChars : 3000;
+            return maxExcerptChars != null && maxExcerptChars > 0 ? maxExcerptChars : 6000;
         }
 
         public float effectiveTemperature() {

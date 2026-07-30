@@ -1,0 +1,53 @@
+# Profil du test de démarrage du contexte Spring (ApplicationContextSmokeTest).
+#
+# Objectif : exercer le CÂBLAGE réel — la même schema.sql, le même `ddl-auto: validate`,
+# les mêmes beans — sans dépendre d'un service externe.
+spring:
+  datasource:
+    # Base en mémoire, nommée : chaque exécution repart d'un schéma vierge, et rien n'est
+    # écrit dans ./data (le profil par défaut y pose un fichier).
+    url: jdbc:h2:mem:spectra-smoke;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      # Volontairement conservé : c'est la moitié de l'intérêt du test. Une entité dont
+      # une colonne manque dans schema.sql fait échouer le démarrage ici, et non en
+      # production. La CI ne déclenchait jamais cette validation auparavant.
+      ddl-auto: validate
+  sql:
+    init:
+      mode: always
+
+spectra:
+  # Tous les services externes pointent sur un port fermé de la boucle locale : la
+  # connexion est refusée immédiatement (ECONNREFUSED), là où une adresse routable
+  # ferait attendre le timeout. Les composants qui sondent au démarrage doivent
+  # dégrader proprement — c'est aussi ce que ce test vérifie.
+  llm:
+    base-url: http://127.0.0.1:1
+    chat:
+      base-url: http://127.0.0.1:1
+    embedding:
+      base-url: http://127.0.0.1:1
+      timeout-seconds: 1
+  chromadb:
+    base-url: http://127.0.0.1:1
+  ingestion:
+    browserless-url: http://127.0.0.1:1
+  reranker:
+    base-url: http://127.0.0.1:1
+  startup:
+    # Sans cela, le démarrage constate l'absence du GGUF par défaut et déclenche un
+    # téléchargement de ~4,7 Go. Le test ne doit dépendre ni du réseau ni de la
+    # présence d'un binaire d'installation.
+    auto-install-models: false
+  batch:
+    enabled: false
+  kafka:
+    enabled: false
+  runtime:
+    # Ne pas lancer de llama-server : le test valide le câblage, pas l'orchestration
+    # d'un processus externe.
+    enabled: false

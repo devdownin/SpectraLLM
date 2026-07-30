@@ -198,9 +198,14 @@ public class LlamaCppRuntimeOrchestrator {
                 ? runtime.effectiveThreads()
                 : recommended.threads();
 
+        // `-c` est le contexte TOTAL, réparti par llama-server entre ses `-np` slots : une
+        // requête ne voit que -c / -np tokens. La recommandation est exprimée PAR SLOT, on la
+        // multiplie donc ici, où le parallélisme est connu. `spectra.runtime.context-size`,
+        // lui, garde sa sémantique de total explicite.
+        int parallelism = runtime.effectiveParallelism();
         int contextSize = runtime.effectiveContextSize() > 0
                 ? runtime.effectiveContextSize()
-                : recommended.contextSize();
+                : recommended.contextSize() * parallelism;
 
         List<String> command = new ArrayList<>();
         command.add(runtime.effectiveExecutable());
@@ -213,7 +218,7 @@ public class LlamaCppRuntimeOrchestrator {
         command.add("-c");
         command.add(String.valueOf(contextSize));
         command.add("-np");
-        command.add(String.valueOf(runtime.effectiveParallelism()));
+        command.add(String.valueOf(parallelism));
         command.add("-a");
         command.add(alias);
         command.add("-t");
@@ -236,9 +241,10 @@ public class LlamaCppRuntimeOrchestrator {
 
         command.addAll(runtime.effectiveExtraArgs());
 
-        log.info("[orchestrator] Paramètres calculés : threads={} context={} batch={} ngl={} flash={}",
-                threads, contextSize, recommended.batchSize(),
-                recommended.nGpuLayers(), recommended.flashAttn());
+        log.info("[orchestrator] Paramètres calculés : threads={} context={} ({} slots → {} tokens/requête) "
+                        + "batch={} ngl={} flash={}",
+                threads, contextSize, parallelism, contextSize / parallelism,
+                recommended.batchSize(), recommended.nGpuLayers(), recommended.flashAttn());
 
         return command;
     }

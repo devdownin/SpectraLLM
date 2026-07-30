@@ -988,7 +988,7 @@ curl -X POST localhost:8080/api/dataset/generate
 **2) A neutral judge** (recommended — avoids each model judging itself). In `.env`, set a
 third-party model, then restart the API:
 ```bash
-SPECTRA_EVALUATION_JUDGE_MODEL=phi-4-mini
+SPECTRA_EVALUATION_JUDGE_MODEL=qwen2.5-7b-instruct
 ```
 
 **3) Evaluate both on the SAME test set** (batch → shared sample, fair comparison):

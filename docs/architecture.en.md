@@ -80,7 +80,7 @@ spectra:
       base-url: http://llm-chat:8081
     embedding:
       base-url: http://llm-embed:8082
-    model: phi-4-mini
+    model: qwen2.5-7b-instruct
     embedding-model: nomic-embed-text
   pipeline:
     chunk-max-tokens: 512        # Max tokens per chunk
@@ -95,7 +95,7 @@ spectra:
 SPECTRA_LLM_PROVIDER=llama-cpp
 SPECTRA_LLM_CHAT_BASE_URL=http://llm-chat:8081
 SPECTRA_LLM_EMBEDDING_BASE_URL=http://llm-embed:8082
-SPECTRA_LLM_MODEL=phi-4-mini
+SPECTRA_LLM_MODEL=qwen2.5-7b-instruct
 SPECTRA_LLM_EMBEDDING_MODEL=nomic-embed-text
 SPECTRA_CHUNK_MAX_TOKENS=512
 SPECTRA_EMBEDDING_BATCH_SIZE=10
@@ -117,8 +117,8 @@ Two separate **llama.cpp** containers (`ghcr.io/ggml-org/llama.cpp:server`), eac
 
 **Configuration:**
 ```bash
-LLM_CHAT_MODEL_FILE=Phi-4-mini-reasoning-UD-IQ1_S.gguf   # chat GGUF in data/models/
-LLM_CHAT_MODEL_NAME=phi-4-mini
+LLM_CHAT_MODEL_FILE=Qwen2.5-7B-Instruct-Q4_K_M.gguf   # chat GGUF in data/models/
+LLM_CHAT_MODEL_NAME=qwen2.5-7b-instruct
 LLM_EMBED_MODEL_FILE=embed.gguf                           # embedding GGUF in data/models/
 LLM_EMBED_MODEL_NAME=nomic-embed-text
 LLM_PARALLEL=2                                            # parallel slots per server

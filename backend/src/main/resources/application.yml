@@ -36,7 +36,7 @@ server:
 spectra:
   llm:
     base-url: ${SPECTRA_LLM_BASE_URL:http://llm-chat:8081}
-    model: ${SPECTRA_LLM_MODEL:phi-4-mini}
+    model: ${SPECTRA_LLM_MODEL:qwen2.5-7b-instruct}
     embedding-model: ${SPECTRA_LLM_EMBEDDING_MODEL:nomic-embed-text}
     provider: ${SPECTRA_LLM_PROVIDER:llama-cpp}
     chat:
@@ -68,6 +68,12 @@ spectra:
     # Nombre maximal de rapports d'évaluation COMPLETED conservés (les plus anciens
     # sont évincés). Les rapports sont nécessaires aux comparaisons.
     max-completed-reports: ${SPECTRA_EVALUATION_MAX_COMPLETED_REPORTS:200}
+  startup:
+    # Rattrapage automatique des modèles GGUF manquants au démarrage. Activé par défaut :
+    # c'est le comportement attendu d'une installation ordinaire. À désactiver là où
+    # l'absence du fichier est normale et le téléchargement (~4,7 Go) indésirable —
+    # tests d'intégration, CI, environnements aux modèles montés en lecture seule.
+    auto-install-models: ${SPECTRA_STARTUP_AUTO_INSTALL_MODELS:true}
   chromadb:
     base-url: ${CHROMADB_URL:http://chromadb:8000}
   ingestion:
@@ -245,15 +251,17 @@ spectra:
     min-confidence: ${SPECTRA_CLASSIFICATION_MIN_CONFIDENCE:0.5}
     # Extraits échantillonnés dans le document et budget de caractères soumis au modèle.
     #
-    # ATTENTION — ce budget doit tenir dans LLM_CONTEXT (2048 tokens par défaut, et le
-    # modèle fine-tuné plafonne à 2048 n_ctx_train). Compte, en français (~3,5 car./token) :
-    #   extrait 3000 car. ≈ 860 tokens + prompt ~350 + entête ~40 + réponse ~120 ≈ 1370.
-    # À 6000 caractères on dépassait 2048 : llama.cpp tronque alors le DÉBUT de la requête,
-    # c'est-à-dire les consignes « réponds uniquement en JSON » et la taxonomie — le modèle
-    # répondait en prose et la classification échouait systématiquement.
-    # Si vous augmentez LLM_CONTEXT, vous pouvez remonter ce budget d'autant.
+    # ATTENTION — ce budget doit tenir dans la fenêtre vue PAR REQUÊTE, c'est-à-dire
+    # LLM_CONTEXT / LLM_PARALLEL, et non dans LLM_CONTEXT seul. Compte, en français
+    # (~3,5 car./token) :
+    #   extrait 6000 car. ≈ 1715 tokens + prompt ~350 + entête ~40 + réponse ~120 ≈ 2225.
+    # Confortable dès 4096 tokens par requête — le dimensionnement automatique d'une
+    # machine 16 Go, soit le minimum documenté. En dessous (paliers < 8 Go), abaissez ce
+    # budget : au-delà de la fenêtre, llama.cpp tronque le DÉBUT de la requête, donc les
+    # consignes « réponds uniquement en JSON » et la taxonomie — le modèle répond alors en
+    # prose et la classification échoue systématiquement, sur chaque document.
     max-chunks: ${SPECTRA_CLASSIFICATION_MAX_CHUNKS:8}
-    max-excerpt-chars: ${SPECTRA_CLASSIFICATION_MAX_EXCERPT_CHARS:3000}
+    max-excerpt-chars: ${SPECTRA_CLASSIFICATION_MAX_EXCERPT_CHARS:6000}
     temperature: ${SPECTRA_CLASSIFICATION_TEMPERATURE:0.1}
 
 llmfit:

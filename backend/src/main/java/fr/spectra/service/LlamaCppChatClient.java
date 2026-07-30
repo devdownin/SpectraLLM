@@ -166,18 +166,77 @@ public class LlamaCppChatClient implements LlmChatClient {
 
     @Override
     @CircuitBreaker(name = "llm-chat", fallbackMethod = "chatFallbackParams")
-    @SuppressWarnings("unchecked")
     public String chat(String systemPrompt, String userMessage, float temperature, float topP) {
-        Map<String, Object> request = Map.of(
-                "model", activeModel.get(),
-                "stream", false,
-                "temperature", temperature,
-                "top_p", topP,
-                "messages", List.of(
-                        Map.of("role", "system", "content", systemPrompt),
-                        Map.of("role", "user", "content", userMessage)
-                )
-        );
+        return completion(systemPrompt, userMessage, temperature, topP, false);
+    }
+
+    /**
+     * Interroge {@code /props} pour connaître la fenêtre servie par slot.
+     *
+     * <p>Lecture volontairement défensive : selon la version de llama.cpp, {@code n_ctx} est
+     * exposé à la racine ou sous {@code default_generation_settings}. La valeur rapportée est
+     * celle d'un slot — donc {@code LLM_CONTEXT / LLM_PARALLEL}, exactement la fenêtre que
+     * voit une requête.</p>
+     *
+     * <p>Toute erreur (serveur non démarré, endpoint absent) donne un résultat vide : c'est
+     * une information de diagnostic, jamais une cause d'échec.</p>
+     */
+    @Override
+    @SuppressWarnings("unchecked")
+    public java.util.OptionalInt servedContextTokens() {
+        try {
+            Map<String, Object> props = webClient.get()
+                    .uri("/props")
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block(java.time.Duration.ofSeconds(5));
+            if (props == null) return java.util.OptionalInt.empty();
+
+            Object nCtx = props.get("n_ctx");
+            if (nCtx == null && props.get("default_generation_settings") instanceof Map<?, ?> gen) {
+                nCtx = gen.get("n_ctx");
+            }
+            if (nCtx instanceof Number n && n.intValue() > 0) {
+                return java.util.OptionalInt.of(n.intValue());
+            }
+            return java.util.OptionalInt.empty();
+        } catch (Exception e) {
+            log.debug("Fenêtre de contexte servie indisponible : {}", e.getMessage());
+            return java.util.OptionalInt.empty();
+        }
+    }
+
+    /**
+     * Génération contrainte à un objet JSON valide (`response_format`), plutôt que demandée
+     * dans le prompt. llama.cpp compile ce format en grammaire et restreint l'échantillonnage :
+     * un préambule en prose ou un bloc de réflexion devient structurellement impossible.
+     */
+    @Override
+    @CircuitBreaker(name = "llm-chat", fallbackMethod = "chatFallbackParams")
+    public String chatJson(String systemPrompt, String userMessage, float temperature, float topP) {
+        return completion(systemPrompt, userMessage, temperature, topP, true);
+    }
+
+    /**
+     * @param jsonOnly contraint la sortie à un objet JSON valide. Construit avec un
+     *   {@code LinkedHashMap} et non {@code Map.of} : le champ est conditionnel, et
+     *   {@code Map.of} n'accepte ni valeur nulle ni clé optionnelle.
+     */
+    @SuppressWarnings("unchecked")
+    private String completion(String systemPrompt, String userMessage,
+                              float temperature, float topP, boolean jsonOnly) {
+        Map<String, Object> request = new java.util.LinkedHashMap<>();
+        request.put("model", activeModel.get());
+        request.put("stream", false);
+        request.put("temperature", temperature);
+        request.put("top_p", topP);
+        request.put("messages", List.of(
+                Map.of("role", "system", "content", systemPrompt),
+                Map.of("role", "user", "content", userMessage)
+        ));
+        if (jsonOnly) {
+            request.put("response_format", Map.of("type", "json_object"));
+        }
 
         Map<String, Object> response = webClient.post()
                 .uri("/v1/chat/completions")

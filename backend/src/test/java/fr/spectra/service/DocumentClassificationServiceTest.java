@@ -340,7 +340,7 @@ class DocumentClassificationServiceTest {
         when(fileRepo.findById("abc")).thenReturn(Optional.of(doc("abc")));
         when(chroma.getDocumentTextsByMetadata(eq("col-id"), eq("sha256"), eq("abc"), anyInt()))
                 .thenReturn(List.of("Procédure d'intervention haute tension."));
-        when(chat.chat(anyString(), anyString(), anyFloat(), anyFloat())).thenReturn(
+        when(chat.chatJson(anyString(), anyString(), anyFloat(), anyFloat())).thenReturn(
                 "{\"categories\":[{\"label\":\"procedures\",\"confidence\":0.9}],"
                 + "\"summary\":\"Procédure haute tension.\"}");
 
@@ -382,7 +382,7 @@ class DocumentClassificationServiceTest {
         when(fileRepo.findById("abc")).thenReturn(Optional.of(classified));
         when(chroma.getDocumentTextsByMetadata(eq("col-id"), eq("sha256"), eq("abc"), anyInt()))
                 .thenReturn(List.of("texte"));
-        when(chat.chat(anyString(), anyString(), anyFloat(), anyFloat()))
+        when(chat.chatJson(anyString(), anyString(), anyFloat(), anyFloat()))
                 .thenReturn("{\"categories\":[{\"label\":\"maintenance\",\"confidence\":0.9}]}");
 
         var result = defaultService().classify("abc", "user", true);
@@ -416,7 +416,7 @@ class DocumentClassificationServiceTest {
         when(fileRepo.findById("abc")).thenReturn(Optional.of(doc("abc")));
         when(chroma.getDocumentTextsByMetadata(eq("col-id"), eq("sha256"), eq("abc"), anyInt()))
                 .thenReturn(List.of("texte"));
-        when(chat.chat(anyString(), anyString(), anyFloat(), anyFloat()))
+        when(chat.chatJson(anyString(), anyString(), anyFloat(), anyFloat()))
                 .thenReturn("{\"categories\":[{\"label\":\"astrologie\",\"confidence\":0.99}]}");
 
         assertThatThrownBy(() -> defaultService().classify("abc", "user", false))
@@ -432,6 +432,24 @@ class DocumentClassificationServiceTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("désactivée");
         verifyNoInteractions(fileRepo, chat);
+    }
+
+    @Test
+    void classify_usesConstrainedJsonDecoding_notFreeGeneration() {
+        // Le format n'est pas seulement demandé dans le prompt : il est imposé au décodeur.
+        // C'est ce qui rend structurellement impossibles les préambules en prose et les
+        // blocs de réflexion qui faisaient échouer la classification.
+        when(fileRepo.findById("abc")).thenReturn(Optional.of(doc("abc")));
+        when(chroma.getDocumentTextsByMetadata(eq("col-id"), eq("sha256"), eq("abc"), anyInt()))
+                .thenReturn(List.of("texte"));
+        when(chat.chatJson(anyString(), anyString(), anyFloat(), anyFloat()))
+                .thenReturn("{\"categories\":[{\"label\":\"procedures\",\"confidence\":0.9}]}");
+
+        defaultService().classify("abc", "user", false);
+
+        verify(chat).chatJson(anyString(), anyString(), anyFloat(), anyFloat());
+        verify(chat, never()).chat(anyString(), anyString(), anyFloat(), anyFloat());
+        verify(chat, never()).chat(anyString(), anyString());
     }
 
     // ── Déclenchement automatique ────────────────────────────────────────────

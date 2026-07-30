@@ -19,10 +19,10 @@ data:
   # Modèle de chat → PVC models, dans le volume partagé avec le registre. Le nom de fichier
   # DOIT correspondre à SPECTRA_LLM_CHAT_FILE / llama-chat-config.LLM_CHAT_MODEL_FILE : le
   # superviseur llm-chat sert ce GGUF via le pointeur du modèle actif. Par défaut : Phi-4-mini.
-  CHAT_URL: "https://huggingface.co/unsloth/Phi-4-mini-reasoning-GGUF/resolve/main/Phi-4-mini-reasoning-UD-IQ1_S.gguf"
-  CHAT_DEST: "/models/Phi-4-mini-reasoning-UD-IQ1_S.gguf"
+  CHAT_URL: "https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf"
+  CHAT_DEST: "/models/Qwen2.5-7B-Instruct-Q4_K_M.gguf"
   # Modèle d'embedding → PVC models (SPECTRA_LLM_EMBEDDING_FILE=embed.gguf). nomic-embed-text.
-  EMBED_URL: "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_0.gguf"
+  EMBED_URL: "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf"
   EMBED_DEST: "/models/embed.gguf"
   # Taille plancher (octets) sous laquelle un fichier est considéré incomplet → re-téléchargé.
   MIN_BYTES: "1048576"

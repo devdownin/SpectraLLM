@@ -663,7 +663,7 @@ public class EvaluationService {
                     + "\n\nRéponse 2 : " + second;
             String response;
             try {
-                response = chatClient.chat(AB_JUDGE_SYSTEM_PROMPT, prompt);
+                response = chatClient.chatJson(AB_JUDGE_SYSTEM_PROMPT, prompt);
             } catch (Exception e) {
                 log.warn("Échec appel juge A/B: {}", e.getMessage());
                 return null;
@@ -1132,7 +1132,7 @@ public class EvaluationService {
 
             String judgeResponse;
             try {
-                judgeResponse = chatClient.chat(JUDGE_SYSTEM_PROMPT, judgePrompt);
+                judgeResponse = chatClient.chatJson(JUDGE_SYSTEM_PROMPT, judgePrompt);
             } catch (Exception e) {
                 log.warn("Échec appel LLM-juge: {}", e.getMessage());
                 return null;

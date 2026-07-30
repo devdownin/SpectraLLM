@@ -60,7 +60,10 @@ public class RuntimeParamsMaterializer {
                     # un LLM_* explicite dans .env garde la priorité. Régénéré au démarrage
                     # de l'API et via POST /api/config/resources/refresh.
                     RECO_THREADS=%d
-                    RECO_CONTEXT=%d
+                    # Fenêtre PAR SLOT : l'entrypoint la multiplie par --parallel pour obtenir
+                    # le --ctx-size total. Nous ne connaissons pas ici le parallélisme du
+                    # conteneur d'inférence, lui si.
+                    RECO_SLOT_CONTEXT=%d
                     RECO_BATCH=%d
                     RECO_CACHE_TYPE_K=%s
                     RECO_CACHE_TYPE_V=%s
@@ -76,7 +79,7 @@ public class RuntimeParamsMaterializer {
             } catch (java.nio.file.AtomicMoveNotSupportedException e) {
                 Files.move(tmp, modelsDir.resolve(PARAMS_FILE), StandardCopyOption.REPLACE_EXISTING);
             }
-            log.info("Paramètres llama-server recommandés matérialisés → {} (threads={}, ctx={}, batch={})",
+            log.info("Paramètres llama-server recommandés matérialisés → {} (threads={}, ctx/slot={}, batch={})",
                     modelsDir.resolve(PARAMS_FILE), chat.threads(), chat.contextSize(), chat.batchSize());
         } catch (Exception e) {
             log.warn("Impossible de matérialiser les paramètres recommandés : {}", e.getMessage());

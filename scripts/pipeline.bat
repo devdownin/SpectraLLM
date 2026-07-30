@@ -86,7 +86,7 @@ if "!CHAT_MODEL_FILE!"=="" if exist ".env" (
         if /i "%%A"=="LLM_CHAT_MODEL_FILE" set "CHAT_MODEL_FILE=%%~B"
     )
 )
-if "!CHAT_MODEL_FILE!"=="" set "CHAT_MODEL_FILE=Phi-4-mini-reasoning-UD-IQ1_S.gguf"
+if "!CHAT_MODEL_FILE!"=="" set "CHAT_MODEL_FILE=Qwen2.5-7B-Instruct-Q4_K_M.gguf"
 set "GGUF_CHAT=data\models\!CHAT_MODEL_FILE!"
 set GGUF_EMBED=data\models\embed.gguf
 

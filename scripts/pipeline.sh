@@ -100,7 +100,7 @@ CHAT_MODEL_FILE="${LLM_CHAT_MODEL_FILE:-}"
 if [ -z "$CHAT_MODEL_FILE" ] && [ -f ".env" ]; then
   CHAT_MODEL_FILE="$(grep -E '^LLM_CHAT_MODEL_FILE=' .env | tail -n1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//')"
 fi
-CHAT_MODEL_FILE="${CHAT_MODEL_FILE:-Phi-4-mini-reasoning-UD-IQ1_S.gguf}"
+CHAT_MODEL_FILE="${CHAT_MODEL_FILE:-Qwen2.5-7B-Instruct-Q4_K_M.gguf}"
 GGUF_CHAT="data/models/$CHAT_MODEL_FILE"
 GGUF_EMBED="data/models/embed.gguf"
 
