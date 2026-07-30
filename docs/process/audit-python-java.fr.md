@@ -335,15 +335,88 @@ ou non d'une étape de conversion hors ligne au moment de la release.
 - **Test de parité** : sur un échantillon fixe de `(query, documents)`, comparer l'**ordre**
   produit par le service Python et par l'implémentation Java (tolérance sur les scores
   flottants, égalité stricte sur l'ordre). Sans ce test, une régression de reranking est
-  invisible — elle ne casse rien, elle dégrade juste les réponses.
+  invisible — elle ne casse rien, elle dégrade juste les réponses. **Livré** : voir §6.5.
 - Rejouer le benchmark qualité existant (`spectra.benchmark`) avant/après.
 - Mémoire : le modèle est chargé dans le heap/off-heap de la JVM. `-Xmx1024m` par défaut dans
   `docker-compose.yml` — un MiniLM-L12 quantifié tient largement, mais la valeur doit être
   revue et documentée (le conteneur `reranker` avait, lui, son propre budget mémoire).
+  Attention toutefois : `mMiniLMv2-L12-H384` étant distillé de XLM-R, sa matrice d'embeddings
+  (~250 k entrées × 384) domine la taille du modèle — de l'ordre de 0,5 Go en fp32, à mesurer
+  sur l'artefact réel. ONNX Runtime allouant en natif, la contrainte n'est pas `-Xmx` mais la
+  limite mémoire du conteneur.
 
 **Critère de sortie** : `services/reranker/` supprimé, service et profil Docker supprimés,
 job de CI `python-services` réduit à `docparser`, `ServiceMonitor` `reranker` supprimé,
 `/api/status` continue d'afficher l'état du reranker avec le nom du modèle.
+
+### 6.5 Étape 1 — le harnais de parité (livré)
+
+Le harnais existe **avant** l'implémentation Java, c'est tout son intérêt : la référence doit
+être prise sur le service Python pendant qu'il est encore la vérité.
+
+**Corpus.** Dérivé du benchmark qualité déjà embarqué (`benchmarks/highway_benchmark.jsonl`,
+consommé par `QualityBenchmarkService`) plutôt qu'inventé : les 20 questions deviennent les
+requêtes, les 14 réponses de référence forment le vivier de passages candidats — soumis
+en entier et dans le même ordre à chaque requête, `topN = 5`. Chaque requête affronte donc un
+passage pertinent et treize distracteurs du même domaine, dans le même registre : le cas où un
+reranker se distingue d'une recherche vectorielle. Les 6 questions « non répondables » restent
+des requêtes sans passage pertinent — le cas où l'ordre est arbitraire mais doit rester
+reproductible. Le corpus porte une empreinte SHA-256 : si le benchmark évolue, la référence est
+déclarée obsolète au lieu d'être comparée en silence à autre chose.
+
+**Capture** (à faire sur une machine ayant accès au Hub) :
+
+```bash
+docker compose --profile reranker up -d reranker
+cd backend && mvn test -Dtest=RerankerParityTest \
+  -Dreranker.parity.capture=http://localhost:8002 \
+  -Dreranker.parity.scale=sigmoid       # ou logit — voir ci-dessous
+```
+
+La référence est écrite dans `backend/src/test/resources/reranker-parity/reference.json` et se
+versionne avec le code. Le nom du modèle est lu sur `/health`, donc **celui réellement servi** et
+non celui que la configuration annonce — distinction qui n'est pas théorique : `app.py` défaute
+sur le modèle *anglais* `ms-marco-MiniLM-L-6-v2` là où le compose et `application.yml` défautent
+sur le multilingue (cf. §6.6).
+
+**Vérification** d'une implémentation contre la référence :
+
+```bash
+mvn test -Dtest=RerankerParityTest -Dreranker.parity.verify=<url>
+mvn test -Dtest=RerankerParityTest -Dreranker.parity.verify=<url> -Dreranker.parity.scores=ignore
+```
+
+Ordre et scores sont rapportés **séparément**. Seul l'ordre change ce que le RAG met dans son
+contexte ; l'échelle des scores dépend de l'activation. `scores=ignore` permet donc d'assumer un
+passage sigmoïde → logit sans renoncer au contrôle de l'ordre — l'inverse (accepter une
+permutation parce que « les scores sont proches ») serait une régression invisible. En cas
+d'écart d'ordre, le message joint les scores de référence voisins, ce qui rend un ex æquo
+immédiatement lisible.
+
+**Ce qui tourne en CI dès maintenant** : le comparateur est testé avec des rerankers factices
+(classement identique, classement inversé, dérive de score sous et au-delà de la tolérance,
+nombre de résultats différent, aller-retour de sérialisation) — sans quoi il pourrait rendre
+« aucun écart » par construction et donner une fausse assurance le jour du portage. Les modes
+capture et vérification sont neutralisés (`Assumptions`) tant qu'aucune référence n'est
+capturée. Les quatre garde-fous ont été validés de bout en bout contre un service émulant
+l'API du reranker : capture, vérification conforme, détection d'une dérive de score, détection
+d'une inversion d'ordre même avec `scores=ignore`, et refus d'une référence obsolète.
+
+### 6.6 Deux constats collatéraux, trouvés en construisant le harnais
+
+- **Le reranker n'avait aucun test.** `CrossEncoderRerankerClientContractTest` (12 tests,
+  `MockWebServer`) fige désormais le contrat que l'implémentation Java devra reproduire : forme
+  de la requête, ordre des documents transmis, préservation de l'ordre du service, scores
+  négatifs acceptés (un logit brut l'est presque toujours), score entier converti sans erreur,
+  et surtout — réponse vide alors que des documents ont été soumis → **exception**, jamais un
+  classement identité à scores nuls.
+- **Trois défauts de modèle incohérents.** `services/reranker/app.py:15`, le `Dockerfile` et
+  `SpectraProperties.effectiveModel()` défautent sur `cross-encoder/ms-marco-MiniLM-L-6-v2`
+  (**anglais**), tandis que `docker-compose.yml` et `application.yml` défautent sur
+  `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1` (**multilingue**). Lancer le service sans la
+  variable d'environnement sert donc un reranker anglais sur un corpus français, pendant que
+  `/api/status` affiche le nom du modèle multilingue. Le lot 2 supprime la double source par
+  construction ; d'ici là, la capture enregistre le modèle servi, pas le modèle annoncé.
 
 ---
 
@@ -521,7 +594,7 @@ Deux gains immédiats, quelle que soit l'option retenue :
 |---|---|---|---|---|---|
 | **0** | P5 (contrôleurs → interface `RerankerClient`), P7 (épinglage des scripts llama.cpp), P8 (déplacer `base_models.json`) | — | 3 correctifs isolés, aucun changement de comportement | trivial | ✅ livré |
 | **1** | `check-doc-links.py` → `DocumentationLinksTest` | — | `docs-links.yml` supprimé | trivial | ✅ livré |
-| **2** | Reranker Java (DJL/ONNX ou Jlama) + test de parité d'ordre | Lot 0, décision §6.3 | `services/reranker/` supprimé ; benchmark qualité stable | modéré | à faire |
+| **2** | Reranker Java (DJL/ONNX ou Jlama) + test de parité d'ordre | Lot 0, décision §6.3 | `services/reranker/` supprimé ; benchmark qualité stable | modéré | ⚠️ étape 1 livrée (§6.5) — reste la capture de la référence puis le moteur |
 | **3** | `MarkdownPdfExtractor` (PDFBox + tabula-java) + corpus de référence | Lot 2 (rodage du schéma de bascule) | `services/` supprimé ; écart de qualité mesuré et publié | élevé | à faire |
 | **4** | `TrainingRunner` + `spectra-trainer` (option A) | décision §8 | fine-tuning fonctionnel en Docker **et** en K8s ; F1 clos | modéré | à faire |
 

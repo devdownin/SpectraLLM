@@ -22,6 +22,19 @@ Nouvel audit [`docs/process/audit-python-java.fr.md`](docs/process/audit-python-
 
 - `scripts/check-doc-links.py` et le workflow `docs-links` sont remplacés par `DocumentationLinksTest` (suite de tests du backend) : même expression rationnelle, mêmes répertoires élagués, mêmes URL ignorées, mais l'élagage se fait à la descente de l'arborescence et le contrôle tourne dans le job de build existant — un lien cassé échoue donc **avant** le push, avec `fichier:ligne -> cible`. Une chaîne d'outils de moins imposée aux contributeurs.
 
+**Lot 2, étape 1 — le harnais de comparaison du reranking, avant le portage**
+
+Une régression de reranking ne casse rien : elle dégrade les réponses. Elle est donc invisible sans référence prise sur le service Python **avant** qu'une implémentation Java existe.
+
+- **Corpus dérivé, pas inventé.** Les 20 questions du benchmark qualité embarqué (`benchmarks/highway_benchmark.jsonl`) deviennent les requêtes et ses 14 réponses de référence forment le vivier de passages candidats : chaque requête affronte un passage pertinent et treize distracteurs du même domaine et du même registre — le cas où un reranker se distingue d'une recherche vectorielle. Le corpus porte une empreinte SHA-256, si bien qu'une évolution du benchmark déclare la référence obsolète au lieu de la comparer en silence à autre chose.
+- **Capture et vérification** (`RerankerParityTest`, désactivées par défaut) : `-Dreranker.parity.capture=<url>` écrit la référence, `-Dreranker.parity.verify=<url>` compare. Le nom du modèle est lu sur `/health`, donc celui **réellement servi** et non celui que la configuration annonce. Ordre et scores sont rapportés séparément : `-Dreranker.parity.scores=ignore` permet d'assumer un changement d'échelle (sigmoïde → logit brut) sans renoncer au contrôle de l'ordre, seul l'ordre déterminant ce que le RAG met dans son contexte.
+- **Le comparateur est lui-même testé** avec des rerankers factices (classement identique, inversé, dérive de score sous et au-delà de la tolérance, nombre de résultats différent) : sans cela il pourrait rendre « aucun écart » par construction et donner une fausse assurance le jour du portage.
+- **Le reranker n'avait aucun test.** `CrossEncoderRerankerClientContractTest` (12 tests, `MockWebServer`) fige le contrat à reproduire : forme de la requête, ordre des documents transmis, préservation de l'ordre du service, scores négatifs acceptés (un logit brut l'est presque toujours), et réponse vide alors que des documents ont été soumis → exception, jamais un classement identité à scores nuls.
+
+### Reranker — plus d'exception sur un vivier de passages vide
+
+`CrossEncoderRerankerClient.rerank` interrogeait le service même avec une liste de documents vide, puis transformait sa réponse légitime (`results: []`) en `IllegalStateException` au message absurde (« sans résultats pour 0 document »). Le seul appelant (`RagService`) gardant déjà l'appel derrière `!allChunks.isEmpty()`, ce n'était pas atteignable — le client est néanmoins aligné sur le service, car une implémentation exécutée dans la JVM renverrait naturellement une liste vide et ne doit pas avoir à reproduire ce défaut. Économise au passage un aller-retour HTTP inutile.
+
 Note technique : quatre nouvelles suites de tests verrouillent ces invariants — `RerankerHealthReportingTest`, `DocumentationLinksTest`, `test_llama_cpp_convert.py` (interdit le retour à une branche mobile et vérifie que la révision épinglée reste alignée sur le tag de l'image servie) et `test_base_models.py` (emplacement canonique du manifeste et mapping alias → repo, en miroir de `BaseModelCatalogTest`). Un job de CI Python sur trois est supprimé.
 
 ### RAG — la personnalisation enregistrée avec un modèle pilote enfin la génération
