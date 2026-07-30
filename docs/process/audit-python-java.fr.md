@@ -375,6 +375,9 @@ docker compose --project-directory . -f deploy/docker/docker-compose.yml \
 
 # Le premier lancement CONSTRUIT l'image : installation de torch (~2,5 Go) et
 # pré-téléchargement du modèle depuis HuggingFace. Compter plusieurs minutes.
+# (Pas de --profile ici : nommer explicitement un service profilé suffit à le résoudre,
+#  Compose ne filtre par profil que la sélection implicite. Vérifié : un nom inconnu
+#  échoue côté client sur « no such service », `reranker` non.)
 docker compose --project-directory . -f deploy/docker/docker-compose.yml logs -f reranker
 curl http://localhost:8002/health        # {"status":"ok","model":"…"} avant de capturer
 
