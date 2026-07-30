@@ -47,7 +47,7 @@
     "lucide-react": "1.24.0",
     "material-symbols": "^0.45.7",
     "react": "^19.2.8",
-    "react-dom": "^19.2.7",
+    "react-dom": "^19.2.8",
     "react-hook-form": "7.83.0",
     "react-i18next": "^17.0.9",
     "react-markdown": "^10.1.0",
