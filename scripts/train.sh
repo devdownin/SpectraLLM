@@ -2,7 +2,7 @@
 # ────────────────────────────────────────────────────────
 # Script d'entraînement QLoRA pour Spectra (appelé par FineTuningService).
 #
-# Arguments positionnels (fournis par FineTuningService.runTrainingProcess) :
+# Arguments positionnels (construits par ProcessTrainingRunner.train, depuis un TrainingSpec) :
 #   $1 = chemin du dataset JSONL
 #   $2 = chemin de sortie de l'adaptateur (répertoire ; un suffixe .gguf est toléré)
 #   $3 = modèle de base (phi3, tinyllama, mistral, llama3…)

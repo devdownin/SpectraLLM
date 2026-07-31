@@ -1,5 +1,6 @@
 package fr.spectra.service;
 
+import fr.spectra.service.training.TrainingRunner;
 import fr.spectra.persistence.DocumentModelLinkEntity;
 import fr.spectra.persistence.FineTuningJobRepository;
 import fr.spectra.persistence.IngestedFileEntity;
@@ -47,10 +48,8 @@ class FineTuningGedTraceTest {
                 gedService,
                 fileRepo,
                 "phi3",
+                mock(TrainingRunner.class),
                 tempWorkDir.toString(),
-                "./scripts/train.sh",
-                "./scripts/export_gguf.py",
-                "python3",
                 tempWorkDir.resolve("models").toString(),
                 "");
     }

@@ -366,7 +366,7 @@ défaut **sans amputer** les utilisateurs qui ont besoin d'OCR.
 
 ---
 
-## 7. Lot 4a — `TrainingRunner` : fermer F1
+## 7. Lot 4a — `TrainingRunner` : fermer F1 ✅ *livré*
 
 **Le meilleur rapport effort/valeur du plan** : 2 jours pour transformer une fonctionnalité qui
 échoue à mi-course en une fonctionnalité explicitement indisponible.
@@ -406,10 +406,16 @@ son répertoire de travail.
 
 ### Critère de sortie
 
-- [ ] `grep -rn "python3\|train.sh" FineTuningService.java` ne renvoie rien
-- [ ] test : soumission sans runner → 503 + message nommant la cause, **aucun job créé**
-- [ ] test : soumission avec `ProcessTrainingRunner` → comportement inchangé (non-régression)
-- [ ] F1 clos dans `audit-finetuning.fr.md`
+- [x] `FineTuningService` ne construit plus de ligne de commande ni ne connaît `python3`
+- [x] soumission sans runner → `TrainingUnavailableException` → 503 nommant la cause, **aucun job créé, verrou non pris**
+- [x] soumission avec runner disponible → comportement inchangé (non-régression)
+- [x] ordre des onze arguments positionnels figé par un test contre un script d'écho
+- [ ] F1 marqué clos dans `audit-finetuning.fr.md`
+
+**Une correction relevée en écrivant les tests** : le contrat de `train.sh` porte **onze**
+arguments positionnels (`$1`…`$11`), non douze — le douzième élément de la liste était le chemin
+du script lui-même. Le test les compare désormais un à un contre un script d'écho, ce qui rend
+la question insoluble à l'avenir.
 
 ---
 
@@ -624,7 +630,7 @@ valeur fonctionnelle**. À décider explicitement plutôt qu'à enchaîner par i
 | 2 bis · Métriques Micrometer | 0,5 j | A | — | ✅ **livré** — `MeteredRerankerClient`, P15 corrigé |
 | 2 · Reranker ONNX | 0,5 j | A | 2 bis, modèle en cache | ⬜ code livré — reste à **produire et publier l'artefact** ; ~~D1~~ ✅ tranchée, ~~parité~~ ✅ contrôle levé |
 | 3 · MarkdownPdfExtractor | 8-12 j | A | Lot 2, **D2** | ⬜ à faire |
-| 4a · `TrainingRunner` + 503 | 2 j | B | — | ⬜ à faire |
+| 4a · `TrainingRunner` + 503 | 2 j | B | — | ✅ **livré** — F1 clos |
 | 4b · `spectra-trainer` | 5 j | B | Lot 4a, **D3** | ⬜ à décider |
 
 **Total ≈ 18-22 jours**, dont **2,5 j** (lots 2 bis + 4a) pour fermer F1 et ouvrir la voie à la

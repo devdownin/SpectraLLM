@@ -32,7 +32,20 @@
 
 ## 1. Blocages de déploiement
 
-### F1 — Le script d'entraînement est absent de l'image `spectra-api` — **bloquant**
+### F1 — Le script d'entraînement est absent de l'image `spectra-api` — **bloquant** — ✅ corrigé
+
+> **Corrigé par le lot 4a** (cf. [`plan-migration-java.fr.md`](plan-migration-java.fr.md)).
+> L'absence de Python dans l'image reste vraie et **assumée** : ce qui est corrigé, c'est le
+> mensonge. `TrainingRunner.isAvailable()` est consulté **avant** d'accepter la soumission ;
+> quand aucun exécuteur n'est en état de travailler, l'API répond **503 avec la raison en
+> clair** (`TrainingUnavailableException`), sans créer de job, sans générer de jeu de données et
+> sans prendre le verrou d'entraînement. Une fonctionnalité explicitement absente au lieu d'une
+> fonctionnalité qui échoue à mi-course.
+>
+> Le mode hôte est inchangé (`ProcessTrainingRunner`). Fournir l'entraînement *en conteneur*
+> reste à faire — c'est le lot 4b, dont l'urgence a baissé depuis le retrait de Kubernetes.
+>
+> Énoncé d'origine conservé ci-dessous.
 
 `FineTuningService` résout `spectra.fine-tuning.script` (défaut `./scripts/train.sh`) en chemin
 absolu dans le constructeur, puis l'exécute via `ProcessBuilder` avec `workDir` comme répertoire
@@ -354,7 +367,16 @@ frontend (le même bug existait dans le parseur de logs SSE).
 Restent ouverts : `--lora-target`, `--neftune-alpha`, `--warmup-ratio` et surtout
 `--resume-adapter` (entraînement incrémental) ne sont toujours pas exposés par l'API.
 
-### F10 — Passage d'arguments positionnel et fragile — **faible**
+### F10 — Passage d'arguments positionnel et fragile — **faible** — ✅ corrigé
+
+> **Corrigé par le lot 4a.** `TrainingSpec` remplace les arguments positionnels par des champs
+> nommés : un paramètre ne peut plus être inséré au mauvais rang côté service. La traduction en
+> ligne de commande est confinée à `ProcessTrainingRunner`, seul endroit où l'ordre compte
+> encore, et `ProcessTrainingRunnerTest` le compare argument par argument contre un script
+> d'écho. Précision au passage : le contrat de `train.sh` porte **onze** arguments (`$1`…`$11`)
+> et non dix, l'en-tête du script faisant foi.
+>
+> Énoncé d'origine conservé ci-dessous.
 
 `runTrainingProcess` construit une liste de 10 arguments positionnels, que `train.sh` relit en
 `$1…${10}` avec des défauts (`PACKING="${8:-false}"`). Insérer un paramètre au milieu décale

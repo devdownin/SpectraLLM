@@ -1,6 +1,7 @@
 package fr.spectra.service;
 
 import fr.spectra.model.TrainingPair;
+import fr.spectra.service.training.TrainingRunner;
 import fr.spectra.persistence.FineTuningJobRepository;
 import fr.spectra.persistence.IngestedFileRepository;
 import fr.spectra.service.dataset.DatasetGeneratorService;
@@ -37,10 +38,8 @@ class FineTuningSftExclusionTest {
                 mock(GedService.class),
                 mock(IngestedFileRepository.class),
                 "phi3",
+                mock(TrainingRunner.class),
                 tempWorkDir.toString(),
-                "./scripts/train.sh",
-                "./scripts/export_gguf.py",
-                "python3",
                 tempWorkDir.resolve("models").toString(),
                 excludedCsv);
     }
