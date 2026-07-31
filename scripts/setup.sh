@@ -182,68 +182,68 @@ else
   fi
 fi
 
-# ── 7. Artefact ONNX du reranker (optionnel) ──────────────────────────────
-# Le reranking est DÉSACTIVÉ par défaut (spectra.reranker.enabled=false). Un artefact
-# absent n'est donc pas une erreur de configuration : il ne le devient que si le reranking
-# est activé en moteur « onnx » sans que le modèle soit là — cas traité plus bas.
+# ── 7. Artefact ONNX du reranker ──────────────────────────────────────────
+# Le reranking est ACTIF par défaut (spectra.reranker.enabled=true, moteur onnx) : son
+# artefact fait donc partie de la pile par défaut, et il est récupéré s'il manque — sans
+# qu'aucune option ne soit nécessaire. --download-reranker ne sert plus qu'à le forcer
+# quand le reranking a été désactivé.
 #
-# Pourquoi une URL et non un dépôt en dur : le modèle multilingue par défaut
-# (mmarco-mMiniLMv2) n'est pas publié au format ONNX en amont. L'artefact est produit une
-# fois, hors ligne, et publié comme asset de release (cf. docs/process/plan-migration-java.fr.md,
-# décision D1). Coder une URL en dur ici la ferait pourrir en silence.
+# Défaut d'URL : un asset de release DU PROJET, et non un dépôt tiers. Le modèle
+# multilingue par défaut (mmarco-mMiniLMv2) n'étant pas publié au format ONNX en amont,
+# l'artefact est produit une fois, hors ligne, et publié ici (cf.
+# docs/process/plan-migration-java.fr.md, décision D1). Un tag dédié — et non la version
+# applicative — parce que l'artefact ne change que si le MODÈLE change.
+RERANKER_ONNX_URL_DEFAULT="https://github.com/devdownin/SpectraLLM/releases/download/reranker-onnx-v1"
 RERANKER_DIR="data/models/reranker"
 RERANKER_ONNX_URL="${SPECTRA_RERANKER_ONNX_URL:-$(read_env_var SPECTRA_RERANKER_ONNX_URL)}"
+RERANKER_ONNX_URL="${RERANKER_ONNX_URL:-$RERANKER_ONNX_URL_DEFAULT}"
+
+# Le reranking est-il attendu ? Absent de .env = défaut applicatif, donc actif.
+RERANKER_ENABLED="$(read_env_var SPECTRA_RERANKER_ENABLED)"
+RERANKER_ENABLED="${RERANKER_ENABLED:-true}"
+
 echo
-echo "> [7/7] Artefact ONNX du reranker ($RERANKER_DIR) — optionnel..."
+echo "> [7/7] Artefact ONNX du reranker ($RERANKER_DIR)..."
 if [ -f "$RERANKER_DIR/model.onnx" ] && [ -f "$RERANKER_DIR/tokenizer.json" ]; then
   SIZE=$(du -sh "$RERANKER_DIR" | cut -f1)
   green "  [OK] artefact présent — $SIZE"
-elif [ "$DOWNLOAD_RERANKER" -eq 1 ]; then
-  if [ -z "$RERANKER_ONNX_URL" ]; then
-    red "  [ERREUR] SPECTRA_RERANKER_ONNX_URL n'est pas défini."
-    echo "  Cette variable donne l'URL de BASE du répertoire contenant model.onnx et"
-    echo "  tokenizer.json. Renseignez-la dans .env, ou exportez-la :"
-    echo "    SPECTRA_RERANKER_ONNX_URL=https://…/reranker ./scripts/setup.sh --download-reranker"
-    echo
-    echo "  Pour produire l'artefact vous-même depuis un modèle déjà en cache, voir"
-    echo "  docs/process/audit-python-java.fr.md (§6.3 bis, export hors ligne)."
-    ERRORS=$((ERRORS + 1))
-  else
+elif [ "$DOWNLOAD_RERANKER" -eq 1 ] || [ "$RERANKER_ENABLED" = "true" ]; then
     mkdir -p "$RERANKER_DIR"
-    echo "  Téléchargement depuis $RERANKER_ONNX_URL (~0,5 Go)..."
+    echo "  Récupération de l'artefact (~0,5 Go) depuis :"
+    echo "    $RERANKER_ONNX_URL"
     RERANKER_OK=1
     for f in model.onnx tokenizer.json; do
       # --fail : une 404 doit échouer, pas laisser une page HTML nommée model.onnx —
       # ONNX Runtime ne la rejetterait qu'au premier rerank, longtemps après le setup.
-      # L'échec est compté et non fatal : ce téléchargement est optionnel, et avorter
-      # ici priverait l'utilisateur du résumé final (comportement du .bat, aligné).
       if ! curl -L --fail --progress-bar "${RERANKER_ONNX_URL%/}/$f" -o "$RERANKER_DIR/$f"; then
-        red "  [ERREUR] Échec du téléchargement de $f"
         rm -f "$RERANKER_DIR/$f"
         RERANKER_OK=0
       fi
     done
     if [ "$RERANKER_OK" -eq 1 ]; then
       green "  [OK] artefact téléchargé"
-      echo "  Activez-le avec SPECTRA_RERANKER_ENABLED=true et SPECTRA_RERANKER_ENGINE=onnx"
-    else
-      echo "  Vérifiez SPECTRA_RERANKER_ONNX_URL — l'URL doit désigner le RÉPERTOIRE"
-      echo "  contenant model.onnx et tokenizer.json, pas l'un des deux fichiers."
+    elif [ "$DOWNLOAD_RERANKER" -eq 1 ]; then
+      # Demande EXPLICITE : l'échec doit être une erreur, l'utilisateur l'a réclamé.
+      red "  [ERREUR] Échec du téléchargement de l'artefact."
+      echo "  L'URL doit désigner le RÉPERTOIRE contenant model.onnx et tokenizer.json,"
+      echo "  pas l'un des deux fichiers. Vérifiez SPECTRA_RERANKER_ONNX_URL."
       ERRORS=$((ERRORS + 1))
+    else
+      # Récupération AUTOMATIQUE : son échec ne doit pas faire échouer l'installation.
+      # Le reranking est un raffinement du RAG, pas une dépendance : sans artefact, le
+      # backend le déclare indisponible et sert les requêtes à l'identique. Compter une
+      # erreur ici afficherait « Configuration incomplète » alors que rien ne l'est.
+      yellow "  [INFO] artefact indisponible — le RAG fonctionnera sans reranking."
+      echo "  Sans conséquence : /api/status en donnera la cause, et les réponses sont"
+      echo "  servies dans l'ordre vectoriel. Pour réessayer ou pointer une autre source :"
+      echo "    SPECTRA_RERANKER_ONNX_URL=<url> ./scripts/setup.sh --download-reranker"
+      echo "  Pour produire l'artefact hors ligne : docs/process/audit-python-java.fr.md (§6.3 bis)."
     fi
-  fi
 else
-  # Absent et non demandé : silencieux, SAUF si la configuration prétend l'utiliser.
-  if [ "$(read_env_var SPECTRA_RERANKER_ENABLED)" = "true" ] \
-     && [ "$(read_env_var SPECTRA_RERANKER_ENGINE)" = "onnx" ]; then
-    yellow "  [AVERT] reranking activé en moteur « onnx » mais l'artefact est absent."
-    echo "  Le reranking échouera et le RAG retombera sur l'ordre vectoriel"
-    echo "  (rerankApplied=false). Corrigez avec :"
-    echo "    ./scripts/setup.sh --download-reranker"
-  else
-    green "  [OK] non requis — reranking désactivé (défaut)"
-    echo "  Pour l'activer : ./scripts/setup.sh --download-reranker"
-  fi
+  # Seul cas restant : artefact absent, reranking explicitement désactivé, pas de demande
+  # explicite. Ne rien télécharger — l'utilisateur a coupé la fonctionnalité.
+  green "  [OK] non requis — SPECTRA_RERANKER_ENABLED=$RERANKER_ENABLED"
+  echo "  Pour récupérer l'artefact malgré tout : ./scripts/setup.sh --download-reranker"
 fi
 
 # ── Résumé ─────────────────────────────────────────────────────────────────

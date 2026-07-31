@@ -410,14 +410,26 @@ installations ayant explicitement activé le reranking, qui devront provisionner
   | Situation | Comportement |
   |---|---|
   | artefact présent | `[OK]` avec sa taille, idempotent |
-  | absent, reranking désactivé (défaut) | `[OK] non requis`, **ne compte pas comme erreur** |
-  | absent, `ENABLED=true` **et** `ENGINE=onnx` | `[AVERT]` nommant la conséquence (repli sur l'ordre vectoriel, `rerankApplied=false`) et le correctif |
-  | `--download-reranker` sans URL | `[ERREUR]` renvoyant à l'export hors ligne (audit §6.3 bis) |
+  | absent, reranking actif (défaut) | **téléchargement automatique** depuis l'URL par défaut |
+  | absent, reranking désactivé | `[OK] non requis` — aucun téléchargement |
+  | téléchargement **automatique** en échec | `[INFO]` : le RAG sert sans reranking, **aucune erreur comptée** |
+  | téléchargement **explicite** (`--download-reranker`) en échec | `[ERREUR]` + erreur comptée — l'utilisateur l'a réclamé, il doit le savoir |
 
-- **`SPECTRA_RERANKER_ONNX_URL`** — URL de *base* du répertoire distant. Aucune valeur par
-  défaut, **et c'est délibéré** : le modèle multilingue par défaut n'est pas publié au format
-  ONNX en amont, donc toute URL codée en dur pourrirait en silence. La variable accepte un asset
-  de release, un miroir interne, ou un artefact produit hors ligne.
+  Cette dernière distinction est ce qui rend l'URL par défaut sûre à livrer **avant** que
+  l'asset ne soit publié : tant qu'il manque, un premier lancement affiche une ligne
+  d'information et se termine sur « Configuration terminée ». Vérifié de bout en bout —
+  l'échec automatique n'ajoute aucune erreur au décompte, l'échec explicite en ajoute
+  exactement une.
+
+- **`SPECTRA_RERANKER_ONNX_URL`** — URL de *base* du répertoire distant, avec pour défaut un
+  **asset de release du projet** sur un tag dédié
+  (`…/releases/download/reranker-onnx-v1`). Tag dédié et non version applicative : l'artefact
+  ne change que si le **modèle** change. La variable accepte aussi un miroir interne ou un
+  artefact produit hors ligne.
+- **Récupération automatique si l'artefact manque** : plus aucune option n'est nécessaire.
+  `setup.sh` le télécharge dès lors que le reranking est activé — ce qui est désormais le cas
+  par défaut. `--download-reranker` ne sert plus qu'à forcer la récupération quand le reranking
+  a été explicitement coupé.
 - **`.env.example`** documente enfin le reranking — les quatre variables (`ENABLED`, `ENGINE`,
   `ONNX_PATH`, `ONNX_URL`) en étaient **totalement absentes**, ce qui rendait la fonctionnalité
   indécouvrable autrement qu'en lisant `application.yml`.
@@ -471,25 +483,30 @@ correctif : 4 des 7 échouent, dont celui qui mesure la sur-extraction.
 
 ##### Effet réel aujourd'hui : aucun — et c'est voulu
 
-`SPECTRA_RERANKER_ONNX_URL` n'ayant pas de valeur par défaut, une installation neuve n'obtient
-pas d'artefact et le reranking reste donc inactif *de fait*. **La bascule ne prend effet que le
-jour où l'artefact est publié** — ce qui la rend sûre à intégrer maintenant, et auto-activante
-ensuite.
+L'asset `reranker-onnx-v1` n'étant pas encore publié, une installation neuve tente le
+téléchargement, reçoit une 404, affiche une ligne d'information et poursuit. Le reranking reste
+donc inactif *de fait*, et le RAG se comporte exactement comme avant.
 
-`start.sh --first-run` / `start.bat` ne demandent l'artefact **que si une source est
-configurée** : sinon `--download-reranker` signalerait une erreur légitime pour une demande
-explicite, et ferait passer tout premier lancement pour incomplet alors que rien n'est cassé.
+**Toute la chaîne est en place et s'activera d'elle-même le jour de la publication de
+l'asset** — sans nouvelle version des scripts, sans intervention des utilisateurs déjà
+installés. C'est ce qui rend la bascule sûre à intégrer maintenant.
 
-#### Reste à faire — deux prérequis avant que la bascule ne morde
+`start.sh --first-run` ne passe volontairement **pas** `--download-reranker` : ce serait une
+demande explicite, donc un échec bloquant, et tout premier lancement passerait pour incomplet
+tant que l'asset manque. `setup.sh` récupère l'artefact de lui-même, en traitant l'échec comme
+une information.
+
+#### Reste à faire — deux prérequis, dans cet ordre
 
 1. **Valider la parité du moteur ONNX** (lot 2, étapes 1-3). Le défaut route désormais les
    utilisateurs vers ONNX : la validation de parité n'est plus une étape du lot 2, c'est un
-   **bloquant de release**. Publier un artefact avant qu'elle ait tourné exposerait tout le parc
-   à un classement non vérifié.
-2. **Publier l'artefact ONNX** comme asset de release et renseigner son URL dans la
-   documentation d'installation.
+   **bloquant de release**.
+2. **Publier l'artefact** sous le tag `reranker-onnx-v1` (fichiers `model.onnx` et
+   `tokenizer.json`). Rien d'autre à modifier : l'URL par défaut le désigne déjà.
 
-Dans cet ordre. L'inversion est le seul vrai risque de cette décision.
+**L'inversion de ces deux étapes est le seul vrai risque de cette décision.** Publier l'asset
+avant d'avoir validé la parité activerait, chez tous les utilisateurs et d'un coup, un
+classement que personne n'a comparé à la référence Python.
 
 ##### Empreinte mémoire — à mesurer à l'étape 1
 

@@ -169,62 +169,68 @@ if exist "data\models\!CHAT_MODEL_FILE!" (
     )
 )
 
-:: ── 6. Artefact ONNX du reranker (optionnel) ──────────────────────────────
-:: Miroir de la section 7 de setup.sh. Le reranking est DESACTIVE par defaut : un
-:: artefact absent n'est pas une erreur, sauf si la configuration pretend l'utiliser.
+:: ── 6. Artefact ONNX du reranker ──────────────────────────────────────────
+:: Miroir de la section 7 de setup.sh. Le reranking est ACTIF par defaut : son artefact
+:: fait partie de la pile par defaut et est recupere s'il manque, sans option.
+:: Defaut d'URL : un asset de release DU PROJET, sur un tag dedie — l'artefact ne change
+:: que si le MODELE change, pas a chaque version applicative.
+set "RERANKER_ONNX_URL_DEFAULT=https://github.com/devdownin/SpectraLLM/releases/download/reranker-onnx-v1"
 set "RERANKER_DIR=data\models\reranker"
-if "%SPECTRA_RERANKER_ONNX_URL%"=="" (
-    if exist ".env" (
-        for /f "usebackq eol=# tokens=1,* delims==" %%A in (".env") do (
-            if "%%A"=="SPECTRA_RERANKER_ONNX_URL" set "SPECTRA_RERANKER_ONNX_URL=%%B"
-            if "%%A"=="SPECTRA_RERANKER_ENABLED"  set "RERANKER_ENABLED=%%B"
-            if "%%A"=="SPECTRA_RERANKER_ENGINE"   set "RERANKER_ENGINE=%%B"
-        )
+set "RERANKER_ENABLED="
+if exist ".env" (
+    for /f "usebackq eol=# tokens=1,* delims==" %%A in (".env") do (
+        if "%%A"=="SPECTRA_RERANKER_ONNX_URL" if "!SPECTRA_RERANKER_ONNX_URL!"=="" set "SPECTRA_RERANKER_ONNX_URL=%%B"
+        if "%%A"=="SPECTRA_RERANKER_ENABLED"  set "RERANKER_ENABLED=%%B"
     )
 )
+if "!SPECTRA_RERANKER_ONNX_URL!"=="" set "SPECTRA_RERANKER_ONNX_URL=!RERANKER_ONNX_URL_DEFAULT!"
+rem  Absent de .env = defaut applicatif, donc actif.
+if "!RERANKER_ENABLED!"=="" set "RERANKER_ENABLED=true"
+
 echo.
-echo ^> [6/6] Artefact ONNX du reranker (!RERANKER_DIR!^) — optionnel...
+echo ^> [6/6] Artefact ONNX du reranker (!RERANKER_DIR!^)...
 if exist "!RERANKER_DIR!\model.onnx" if exist "!RERANKER_DIR!\tokenizer.json" (
     echo   [OK] artefact present
     goto :reranker_done
 )
+set "RERANKER_WANTED=0"
+if !DOWNLOAD_RERANKER!==1 set "RERANKER_WANTED=1"
+if "!RERANKER_ENABLED!"=="true" set "RERANKER_WANTED=1"
+if "!RERANKER_WANTED!"=="0" (
+    echo   [OK] non requis — SPECTRA_RERANKER_ENABLED=!RERANKER_ENABLED!
+    echo   Pour recuperer l'artefact malgre tout : scripts\setup.bat --download-reranker
+    goto :reranker_done
+)
+if not exist "!RERANKER_DIR!\" mkdir "!RERANKER_DIR!"
+echo   Recuperation de l'artefact (~0,5 Go^) depuis :
+echo     !SPECTRA_RERANKER_ONNX_URL!
+set "RERANKER_OK=1"
+rem  --fail : une 404 doit echouer, pas laisser une page HTML nommee model.onnx.
+curl -L --fail --progress-bar "!SPECTRA_RERANKER_ONNX_URL!/model.onnx" -o "!RERANKER_DIR!\model.onnx"
+if errorlevel 1 (
+    del /q "!RERANKER_DIR!\model.onnx" >nul 2>&1
+    set "RERANKER_OK=0"
+)
+curl -L --fail --progress-bar "!SPECTRA_RERANKER_ONNX_URL!/tokenizer.json" -o "!RERANKER_DIR!\tokenizer.json"
+if errorlevel 1 (
+    del /q "!RERANKER_DIR!\tokenizer.json" >nul 2>&1
+    set "RERANKER_OK=0"
+)
+if "!RERANKER_OK!"=="1" (
+    echo   [OK] artefact telecharge
+    goto :reranker_done
+)
 if !DOWNLOAD_RERANKER!==1 (
-    if "!SPECTRA_RERANKER_ONNX_URL!"=="" (
-        echo   [ERREUR] SPECTRA_RERANKER_ONNX_URL n'est pas defini.
-        echo   Cette variable donne l'URL de BASE du repertoire contenant model.onnx
-        echo   et tokenizer.json. Renseignez-la dans .env.
-        echo.
-        echo   Pour produire l'artefact vous-meme depuis un modele deja en cache, voir
-        echo   docs\process\audit-python-java.fr.md ^(section 6.3 bis^).
-        set /a ERRORS+=1
-    ) else (
-        if not exist "!RERANKER_DIR!\" mkdir "!RERANKER_DIR!"
-        echo   Telechargement depuis !SPECTRA_RERANKER_ONNX_URL! (~0,5 Go^)...
-        rem --fail : une 404 doit echouer, pas laisser une page HTML nommee model.onnx.
-        curl -L --fail --progress-bar "!SPECTRA_RERANKER_ONNX_URL!/model.onnx" -o "!RERANKER_DIR!\model.onnx"
-        if errorlevel 1 (
-            echo   [ERREUR] Echec du telechargement de model.onnx
-            set /a ERRORS+=1
-        ) else (
-            curl -L --fail --progress-bar "!SPECTRA_RERANKER_ONNX_URL!/tokenizer.json" -o "!RERANKER_DIR!\tokenizer.json"
-            if errorlevel 1 (
-                echo   [ERREUR] Echec du telechargement de tokenizer.json
-                set /a ERRORS+=1
-            ) else (
-                echo   [OK] artefact telecharge
-                echo   Activez-le avec SPECTRA_RERANKER_ENABLED=true et SPECTRA_RERANKER_ENGINE=onnx
-            )
-        )
-    )
+    rem  Demande EXPLICITE : l'echec doit etre une erreur, l'utilisateur l'a reclame.
+    echo   [ERREUR] Echec du telechargement de l'artefact.
+    echo   L'URL doit designer le REPERTOIRE contenant model.onnx et tokenizer.json,
+    echo   pas l'un des deux fichiers. Verifiez SPECTRA_RERANKER_ONNX_URL.
+    set /a ERRORS+=1
 ) else (
-    if "!RERANKER_ENABLED!"=="true" if "!RERANKER_ENGINE!"=="onnx" (
-        echo   [AVERT] reranking active en moteur « onnx » mais l'artefact est absent.
-        echo   Le reranking echouera et le RAG retombera sur l'ordre vectoriel.
-        echo   Corrigez avec : scripts\setup.bat --download-reranker
-        goto :reranker_done
-    )
-    echo   [OK] non requis — reranking desactive (defaut^)
-    echo   Pour l'activer : scripts\setup.bat --download-reranker
+    rem  Recuperation AUTOMATIQUE : son echec ne doit pas faire echouer l'installation.
+    echo   [INFO] artefact indisponible — le RAG fonctionnera sans reranking.
+    echo   Sans consequence : /api/status en donnera la cause, et les reponses sont
+    echo   servies dans l'ordre vectoriel.
 )
 :reranker_done
 
