@@ -2,6 +2,8 @@ package fr.spectra;
 
 import fr.spectra.service.DocumentClassificationService;
 import fr.spectra.service.IngestionService;
+import fr.spectra.service.RerankerClient;
+import fr.spectra.service.reranker.MeteredRerankerClient;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.metamodel.EntityType;
 import org.junit.jupiter.api.Test;
@@ -81,5 +83,29 @@ class ApplicationContextSmokeTest {
     void leClassifieurEstCableDansLIngestion() {
         assertThat(context.getBean(DocumentClassificationService.class)).isNotNull();
         assertThat(context.getBean(IngestionService.class)).isNotNull();
+    }
+
+    /**
+     * Le reranker exposé aux consommateurs est bien le décorateur de métriques.
+     *
+     * <p>Sans cette assertion, le test précédent ne prouverait que l'absence d'explosion au
+     * démarrage — pas que {@code RerankerMetricsConfig} a effectivement pris la main. Or c'est
+     * exactement ce qui pourrait rater en silence : deux beans de type {@code RerankerClient}
+     * coexistent (le moteur et son décorateur {@code @Primary}), et une résolution qui
+     * choisirait le moteur nu laisserait le reranking sans aucune métrique — l'angle mort P15
+     * que ce lot vient combler.</p>
+     *
+     * <p>Le profil {@code smoke} n'impose ni {@code enabled} ni {@code engine} : le moteur ONNX
+     * est donc sélectionné par les défauts réels du produit, artefact absent compris. C'est le
+     * cas nominal d'une installation neuve.</p>
+     */
+    @Test
+    void leRerankerExposeEstInstrumente() {
+        RerankerClient reranker = context.getBean(RerankerClient.class);
+
+        assertThat(reranker).isInstanceOf(MeteredRerankerClient.class);
+        // Artefact absent en test : le décorateur doit relayer l'indisponibilité, faute de quoi
+        // RagService sur-extrairait des candidats à chaque requête.
+        assertThat(reranker.isAvailable()).isFalse();
     }
 }

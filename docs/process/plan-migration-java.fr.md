@@ -73,11 +73,15 @@ lots 2 et 3, eux, améliorent une architecture qui fonctionne.
 
 ---
 
-## 4. Lot 2 bis — Métriques Micrometer sur le reranking
+## 4. Lot 2 bis — Métriques Micrometer sur le reranking ✅ *livré*
 
-**Pourquoi d'abord.** P15 : le moteur ONNX est livré sans aucune métrique, alors que le service
-Python expose `/metrics`. Basculer en l'état échangerait un composant observé contre un
-composant muet — et supprimerait au passage toute possibilité de comparer les deux.
+**Pourquoi d'abord.** P15 : le moteur ONNX était livré sans aucune métrique, alors que le service
+Python expose `/metrics`. Basculer en l'état échangeait un composant observé contre un composant
+muet — et supprimait au passage toute possibilité de comparer les deux.
+
+> **Portée élargie depuis la levée du contrôle de parité.** Ces compteurs ne sont plus une
+> commodité de comparaison : ils sont désormais le **seul** signal indiquant que le reranking
+> s'exécute et n'échoue pas en silence.
 
 **Prérequis** : aucun. **Effort** : 0,5 j. **Risque** : nul (ajout pur).
 
@@ -96,22 +100,40 @@ composant muet — et supprimerait au passage toute possibilité de comparer les
 
    | Métrique | Type | Tags | Ce qu'elle sert à voir |
    |---|---|---|---|
-   | `spectra.reranker.requests` | `Counter` | `engine`, `outcome` (`success`/`failure`) | le taux d'échec, donc la fréquence du repli `rerankApplied=false` |
-   | `spectra.reranker.latency` | `Timer` | `engine` | la comparaison de latence entre HTTP et in-process — l'argument chiffré de la migration |
+   | `spectra.reranker.requests.total` | `Counter` | `engine`, `outcome` | le taux d'échec, donc la fréquence du repli `rerankApplied=false` |
+   | `spectra.reranker.duration` | `Timer` | `engine`, `outcome` | la latence HTTP vs in-process — l'argument chiffré de la migration. Tag `outcome` inclus : un échec rapide et un succès lent ne doivent pas se moyenner |
    | `spectra.reranker.documents` | `DistributionSummary` | `engine` | la taille des lots réellement soumis, qui conditionne la latence |
 
 3. Test : `MeteredRerankerClientTest` — vérifie que le compteur `failure` s'incrémente **et que
    l'exception est propagée**. Une métrique qui avalerait l'exception transformerait le repli en
    panne silencieuse, exactement ce que §10.2 interdit.
 
+### Ce qui a été livré
+
+- `MeteredRerankerClient` — décorateur, et `RerankerMetricsConfig` qui l'installe en `@Primary`.
+  Les deux moteurs sont nommés explicitement dans la configuration plutôt qu'injectés par leur
+  interface : un `@Bean` de type `RerankerClient` recevant un `RerankerClient` dépendrait de
+  l'exclusion des auto-références par Spring — comportement réel mais implicite, qu'aucun test de
+  contexte de ce dépôt ne savait vérifier.
+- `MeteredRerankerClientTest` (8 tests). Les deux premiers portent sur autre chose que les
+  compteurs, et c'est délibéré : **l'exception doit traverser** (le repli de `RagService` en
+  dépend) et **`isAvailable()` doit être délégué** (le garde-fou de l'option (b) en dépend). Un
+  décorateur manquant l'un des deux produirait de belles métriques sur un système cassé.
+- `ApplicationContextSmokeTest` gagne une assertion de câblage : le bean `RerankerClient` exposé
+  **est** un `MeteredRerankerClient`. Sans elle, le démarrage du contexte prouvait seulement
+  l'absence d'explosion — pas que le décorateur avait pris la main.
+
 ### Critère de sortie
 
-`curl localhost:8080/actuator/prometheus | grep spectra_reranker` renvoie les trois métriques,
-avec le bon tag `engine`, sur chacun des deux moteurs.
+- [x] les trois métriques sont enregistrées avec le tag `engine` issu de la configuration
+- [x] l'échec est compté **et** relancé ; la taille du lot est enregistrée même en cas d'échec
+- [x] `isAvailable()` et `checkHealth()` délégués
+- [ ] `curl localhost:8080/actuator/prometheus | grep spectra_reranker` vérifié sur une pile réelle
 
 ### Retour arrière
 
-Retirer le bean décorateur. Aucun appelant ne le référence (il satisfait `RerankerClient`).
+Retirer `RerankerMetricsConfig`. Aucun appelant ne référence le décorateur (il satisfait
+`RerankerClient`), les moteurs redeviennent directement injectables.
 
 ---
 
@@ -599,7 +621,7 @@ valeur fonctionnelle**. À décider explicitement plutôt qu'à enchaîner par i
 
 | Lot | Effort | Piste | Bloqué par | Statut |
 |---|---|---|---|---|
-| 2 bis · Métriques Micrometer | 0,5 j | A | — | ⬜ à faire |
+| 2 bis · Métriques Micrometer | 0,5 j | A | — | ✅ **livré** — `MeteredRerankerClient`, P15 corrigé |
 | 2 · Reranker ONNX | 0,5 j | A | 2 bis, modèle en cache | ⬜ code livré — reste à **produire et publier l'artefact** ; ~~D1~~ ✅ tranchée, ~~parité~~ ✅ contrôle levé |
 | 3 · MarkdownPdfExtractor | 8-12 j | A | Lot 2, **D2** | ⬜ à faire |
 | 4a · `TrainingRunner` + 503 | 2 j | B | — | ⬜ à faire |

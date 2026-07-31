@@ -1123,7 +1123,7 @@ toucher au code :
 | P12 | Dépendances transitives non bornées dans `services/` (`transformers`, `huggingface-hub`, `docling`) | Moyen | §6.3 bis | ✅ corrigé |
 | P13 | Le pré-téléchargement du modèle au build rendait l'image inconstructible hors ligne | Élevé (bloquant en pratique) | §6.3 bis | ✅ corrigé |
 | **P14** | **363 lignes de tests Python ne testent que du shell et de la CI** | — | §0, §7 bis | ⚪ **accepté, hors périmètre** — reste la mise à jour de `JOB_TO_SECTION` aux lots 3 et 4 (P14.2) |
-| **P15** | **Le moteur ONNX livré n'a aucune métrique Micrometer — le trou d'observabilité de §10.6 est ouvert** | **Moyen** | **Lot 2 bis** | 🆕 ouvert |
+| P15 | Le moteur ONNX livré n'avait aucune métrique Micrometer — trou d'observabilité de §10.6 | Moyen | Lot 2 bis | ✅ **corrigé** — `MeteredRerankerClient` instrumente les deux moteurs à l'identique |
 
 **Réponse en une phrase.** Oui, Spectra peut devenir full Java sur tout ce qui sert une
 requête — reranking et extraction PDF compris — pour un effort modéré et sans perte
