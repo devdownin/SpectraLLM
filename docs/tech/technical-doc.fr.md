@@ -237,7 +237,7 @@ Le registre est persisté dans `data/models/registry.json` :
 
 ### `ResourceAdvisorService` — détection des ressources disponibles
 
-`ResourceAdvisorService` est le **propriétaire unique** du dimensionnement CPU/RAM (threads, contexte, batch, KV cache). Il s'initialise via `@PostConstruct` au démarrage de `spectra-api`, expose le profil détecté au reste de l'application, et `RuntimeParamsMaterializer` écrit ses recommandations dans `data/models/active-chat-params` — consommées par l'entrypoint superviseur de `llm-chat` comme valeurs par défaut (un `LLM_*` explicite dans `.env` garde la priorité). Le script `llama-autostart.sh` conserve sa propre détection uniquement pour les images llama.cpp autonomes (k8s/GKE), où l'API n'est pas joignable.
+`ResourceAdvisorService` est le **propriétaire unique** du dimensionnement CPU/RAM (threads, contexte, batch, KV cache). Il s'initialise via `@PostConstruct` au démarrage de `spectra-api`, expose le profil détecté au reste de l'application, et `RuntimeParamsMaterializer` écrit ses recommandations dans `data/models/active-chat-params` — consommées par l'entrypoint superviseur de `llm-chat` comme valeurs par défaut (un `LLM_*` explicite dans `.env` garde la priorité). Le script `llama-autostart.sh` conserve sa propre détection uniquement pour les images llama.cpp autonomes (`Dockerfile.llama`, `Dockerfile.llama.cuda`), où l'API n'est pas joignable.
 
 **Sources de détection (dans l'ordre de priorité) :**
 
@@ -1759,7 +1759,7 @@ volumes:
 
 ### `scripts/llama-autostart.sh` — point d'entrée intelligent des conteneurs llama-server
 
-> **Portée réelle aujourd'hui.** Cette section décrit le point d'entrée historique. Il ne sert plus qu'au **pod d'embedding Kubernetes** (`deploy/k8s/base/05-llama-embed.yaml`). Sous Docker Compose, `llm-chat` et `llm-embed` utilisent respectivement `scripts/llm-chat-entrypoint.sh` et `scripts/llm-embed-entrypoint.sh`, qui suivent le pointeur de modèle du registre et consomment les hints calculés par l'API — voir la section « Contexte, slots et hints » du manuel utilisateur. Les variables `LLAMA_*` décrites ci-dessous ne s'appliquent donc **qu'à ce chemin Kubernetes** ; le chemin Docker utilise les variables `LLM_*`.
+> **Portée réelle aujourd'hui.** Cette section décrit le point d'entrée historique. Il ne sert plus qu'aux **images llama.cpp autonomes** (`deploy/docker/Dockerfile.llama`, `Dockerfile.llama.cuda`), où l'API n'est pas joignable. Dans la stack Docker Compose, `llm-chat` et `llm-embed` utilisent respectivement `scripts/llm-chat-entrypoint.sh` et `scripts/llm-embed-entrypoint.sh`, qui suivent le pointeur de modèle du registre et consomment les hints calculés par l'API — voir la section « Contexte, slots et hints » du manuel utilisateur. Les variables `LLAMA_*` décrites ci-dessous ne s'appliquent donc **qu'à ces images autonomes** ; la stack Compose utilise les variables `LLM_*`.
 
 Ce script remplace le `command:` statique qui était précédemment codé en dur dans `docker-compose.yml` pour les services `llm-chat` et `llm-embed`. Il est défini comme `entrypoint` de chaque conteneur et s'exécute avant `llama-server`.
 

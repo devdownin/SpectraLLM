@@ -170,10 +170,11 @@ def test_windows_script_uses_the_same_tiers_as_the_library():
 def test_kubernetes_entrypoint_uses_the_same_tiers_as_the_library():
     """
     `llama-autostart.sh` est la QUATRIÈME implémentation de ce calcul — après la
-    bibliothèque, `detect-env.bat` et `ResourceAdvisorService`. Il sert le pod d'embedding
-    Kubernetes et ne peut pas sourcer la bibliothèque (il doit rester autonome dans une
-    image llama.cpp nue). Ses paliers du mode chat sont donc dupliqués ; ce test empêche
-    qu'ils dérivent, comme pour le script Windows.
+    bibliothèque, `detect-env.bat` et `ResourceAdvisorService`. Il est l'entrypoint des
+    images llama.cpp autonomes (`Dockerfile.llama`, `Dockerfile.llama.cuda`) et ne peut pas
+    sourcer la bibliothèque : il doit fonctionner dans une image nue, sans le dépôt. Ses
+    paliers du mode chat sont donc dupliqués ; ce test empêche qu'ils dérivent, comme pour
+    le script Windows.
     """
     body = AUTOSTART_SH.read_text(encoding="utf-8")
 

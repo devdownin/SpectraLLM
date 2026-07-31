@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
 # llama-autostart.sh — Entrypoint AUTONOME pour llama-server (images
-# Dockerfile.llama / Dockerfile.llama.cuda, déploiements k8s/GKE)
+# Dockerfile.llama / Dockerfile.llama.cuda — images llama.cpp autonomes)
 #
 # Détecte automatiquement les ressources disponibles (CPU, RAM, GPU)
 # et calcule les paramètres optimaux pour llama-server.
@@ -38,7 +38,7 @@ log() { echo "[autostart] $*"; }
 
 CPU_CORES=$(nproc 2>/dev/null || echo 2)
 
-# Plafonne au quota CPU du conteneur (Kubernetes limits.cpu / docker --cpus).
+# Plafonne au quota CPU du conteneur (docker --cpus, ou tout ordonnanceur posant un quota).
 CGROUP_CPUS=""
 if [ -r /sys/fs/cgroup/cpu.max ]; then
   # cgroup v2 : "<quota> <période>" (quota = "max" si illimité)
@@ -67,7 +67,7 @@ if [ -f /proc/meminfo ]; then
   RAM_MB=$((RAM_KB / 1024))
 fi
 
-# Plafonne à la limite mémoire du conteneur (Kubernetes limits.memory).
+# Plafonne à la limite mémoire du conteneur (docker --memory, ou équivalent cgroup).
 CGROUP_MEM_BYTES=""
 if [ -r /sys/fs/cgroup/memory.max ]; then
   M=$(cat /sys/fs/cgroup/memory.max 2>/dev/null || echo max)                  # v2

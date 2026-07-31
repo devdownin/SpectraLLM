@@ -8,6 +8,18 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Retiré — le support Kubernetes et GKE
+
+> **Rupture** : les déploiements Kubernetes ne sont plus fournis ni maintenus. Docker Compose reste le mode de déploiement supporté.
+
+Supprimés : `deploy/k8s/` (28 fichiers, manifestes de base, overlays GPU/GKE/monitoring, seeding des modèles), les workflows `k8s-validate.yml` et `deploy-gke.yml`, et les scripts `gke-create-cluster.sh` / `gke-seed-models.sh`. Environ 2 100 lignes.
+
+**Ce qui reste, et pourquoi.** `scripts/llama-autostart.sh` et les images `Dockerfile.llama` / `Dockerfile.llama.cuda` sont conservés : l'entrypoint est intégré à ces images Docker autonomes, il n'appartenait pas à Kubernetes. Sa documentation et ses commentaires ne le rattachent plus à un orchestrateur.
+
+`scripts/check-model-defaults.sh` perd les deux fichiers Kubernetes de sa liste ; la garantie de cohérence porte désormais sur douze fichiers opérationnels au lieu de quatorze. Les chapitres « Déployer » des deux documentations pédagogiques sont réécrits autour de Compose, en conservant l'enseignement qui restait valable — n'exposer que l'interface et l'API, garder base vectorielle et serveurs d'inférence sur le réseau interne.
+
+**Les archives ne sont pas réécrites.** Les entrées de CHANGELOG et les notes de version antérieures décrivent un état passé qui a bien existé. Seuls leurs liens vers les fichiers supprimés sont retirés, pour ne pas laisser croire que ces fichiers sont encore là.
+
 ### Outillage — une commande pour vérifier, un test pour la parité des manuels
 
 **`scripts/verify.sh`** rejoue localement les contrôles de la CI. Celle-ci exécute huit commandes réparties sur quatre écosystèmes (Maven, npm, pytest, shell) ; sans point d'entrée commun, savoir si un changement passe supposait d'ouvrir `.github/workflows/ci.yml` et de rejouer les commandes à la main.
@@ -232,7 +244,7 @@ Trois compléments qui ouvrent le « comment » du pipeline là où l'utilisateu
 
 ### Correctif — dashboard Grafana : panneaux dupliqués supprimés
 
-- **Dédoublonnage du dashboard** ([grafana-dashboard.yaml](deploy/k8s/monitoring/grafana-dashboard.yaml)) : un merge côté `main` (PR #264/#265) avait introduit une **seconde copie** de quatre panneaux (« Circuit Breakers (State) », « Erreurs (Logs ERROR/WARN) », « HikariCP - Connexions », « JVM Threads (incl. Virtual) »). Le JSON importé par le sidecar Grafana affichait donc ces graphes en double. La copie superflue est retirée ; le dashboard revient à 12 panneaux uniques (ids 1 à 12), sans changement fonctionnel.
+- **Dédoublonnage du dashboard** (`deploy/k8s/monitoring/grafana-dashboard.yaml`, depuis retiré) : un merge côté `main` (PR #264/#265) avait introduit une **seconde copie** de quatre panneaux (« Circuit Breakers (State) », « Erreurs (Logs ERROR/WARN) », « HikariCP - Connexions », « JVM Threads (incl. Virtual) »). Le JSON importé par le sidecar Grafana affichait donc ces graphes en double. La copie superflue est retirée ; le dashboard revient à 12 panneaux uniques (ids 1 à 12), sans changement fonctionnel.
 
 ### RAG — état serveur des modules exposé (toggles et Advisor fidèles au déploiement)
 

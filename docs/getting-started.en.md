@@ -97,29 +97,4 @@ spectra-compose --profile layout-parser --profile reranker up -d
 | **llama.cpp embed** | `http://localhost:8082` |
 | **Prometheus metrics** | `http://localhost:8080/actuator/prometheus` |
 
-### 5. Deploy to Kubernetes / GKE (optional)
-
-Spectra ships complete Kubernetes manifests (`deploy/k8s/`, kustomize) and a one-push CI/CD pipeline for **Google Kubernetes Engine**:
-
-```bash
-# 1. Seed the GGUF models onto the PVCs (idempotent)
-./scripts/gke-seed-models.sh
-
-# 2. Deploy the stack (minikube, kind, k3s, GKE…)
-kubectl apply -k deploy/k8s/base
-
-# Variants (kustomize overlays)
-kubectl apply -k deploy/k8s/overlays/gpu    # GPU acceleration (NVIDIA, opt-in)
-kubectl apply -k deploy/k8s/overlays/gke    # GKE native Ingress + Google-managed TLS
-kubectl apply -k deploy/k8s/monitoring      # Prometheus alerts + Grafana dashboard
-```
-
-A GitHub Actions workflow (`.github/workflows/deploy-gke.yml`) builds and pushes the images and rolls out to GKE on every push to `main`, authenticated via **Workload Identity Federation** (no JSON keys). Highlights:
-
-- **One-command model seeding** — a Job downloads the GGUF models directly onto the PVCs (no manual `kubectl cp`).
-- **Managed HTTPS** — `ManagedCertificate` + HTTP→HTTPS redirect, with SSE-friendly backend timeouts.
-- **Observability** — `/actuator/prometheus` metrics, ready-to-apply `ServiceMonitor`, alert rules and a Grafana dashboard.
-
-See **[deploy/k8s/README.md](../deploy/k8s/README.md)** for the manifests, the kustomize overlays (GPU / GKE / monitoring) and model seeding.
-
 ---

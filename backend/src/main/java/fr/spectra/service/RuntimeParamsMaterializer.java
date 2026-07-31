@@ -26,7 +26,7 @@ import java.nio.file.StandardCopyOption;
  * <p><b>Limite assumée.</b> La détection <b>GPU</b> n'est pas matérialisée : le conteneur
  * spectra-api ne voit pas les GPU attribués à llm-chat (pas de {@code nvidia-smi}). Elle
  * reste locale au conteneur qui sert le modèle — offload via {@code LLM_CHAT_EXTRA_ARGS}
- * (override compose GPU) ou {@code llama-autostart.sh} (images autonomes k8s/GKE). Les
+ * (override compose GPU) ou {@code llama-autostart.sh} (images llama.cpp autonomes). Les
  * hints CPU/RAM restent valides : les deux conteneurs partagent le même hôte.</p>
  */
 @Service

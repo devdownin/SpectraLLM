@@ -23,7 +23,7 @@ jobs:
         path: backend/target/site/jacoco/jacoco.xml
 
   # Le nom des GGUF par défaut est répété dans quatre langages de configuration
-  # (shell, batch, YAML Compose/Kubernetes, Java) qu'aucune variable commune ne peut
+  # (shell, batch, YAML Compose, Java) qu'aucune variable commune ne peut
   # unifier. Ce contrôle ne supprime pas la duplication — il rend sa dérive bruyante,
   # au lieu de produire un bug qui n'apparaît que sur un seul environnement.
   # Sans dépendance ni téléchargement : quelques secondes.

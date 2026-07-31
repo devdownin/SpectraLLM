@@ -735,10 +735,9 @@ ChromaDB and the llama.cpp inference servers **are** externalised and can be sca
 independently — the single-instance constraint is specific to `spectra-api`.
 
 **Scale vertically** (more CPU/RAM, `SPECTRA_CONCURRENT_INGESTIONS`, `LLM_PARALLEL`) rather than
-horizontally. The Kubernetes manifests deploy `spectra-api` with **1 replica** and a
-`ReadWriteOnce` PVC precisely for this reason — do not raise the replica count without first
-externalising the state above (a shared DB such as PostgreSQL, a distributed index, and a
-shared task/broadcast bus). The [reliability notes](process/reliability.fr.md) track this as a
-known constraint.
+horizontally: `spectra-api` is meant to run as a **single instance**, backed by a volume that
+only one writer holds. Do not run a second instance without first externalising the state above
+(a shared DB such as PostgreSQL, a distributed index, and a shared task/broadcast bus). The
+[reliability notes](process/reliability.fr.md) track this as a known constraint.
 
 ---
