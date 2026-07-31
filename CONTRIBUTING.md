@@ -12,6 +12,8 @@ For the full install (models, Docker profiles, GPU), see **[Getting Started](doc
 - **Node.js 22** (frontend)
 - **Python 3.11** (docparser / reranker services)
 
+> **Claude Code on the web.** Those remote containers ship a JDK 21, which cannot compile a project targeting 25 — and Adoptium is unreachable from behind their proxy, so `.sdkmanrc` does not help there. `.claude/hooks/session-start.sh` installs the JDK named in `backend/pom.xml` from the Ubuntu archive and points `JAVA_HOME` at it, so a session starts on the same Java version CI uses. It only runs remotely; your local toolchain is left alone.
+
 ### Backend (Java / Spring Boot)
 
 ```bash

@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -76,6 +77,9 @@ public class DocumentClassificationService {
     private final Map<String, BatchTask> batchTasks = new ConcurrentHashMap<>();
     private final Set<String> cancelledBatches = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean batchRunning = new AtomicBoolean(false);
+    /** Dernière valeur de bornage journalisée, pour ne pas répéter l'avertissement par document. */
+    private final java.util.concurrent.atomic.AtomicInteger lastClampLogged =
+            new java.util.concurrent.atomic.AtomicInteger(0);
 
     /** Auto-référence pour franchir le proxy Spring lors de l'appel {@code @Async}. */
     @Lazy @Autowired(required = false)
@@ -389,7 +393,44 @@ public class DocumentClassificationService {
         }
         if (chunks.isEmpty()) return "";
 
-        return joinSampled(chunks, config.effectiveMaxChunks(), config.effectiveMaxExcerptChars());
+        return joinSampled(chunks, config.effectiveMaxChunks(), effectiveExcerptChars());
+    }
+
+    /**
+     * Budget d'extrait réellement applicable : le minimum entre la valeur configurée et ce que
+     * la fenêtre servie peut porter.
+     *
+     * <p><b>Pourquoi borner plutôt qu'obéir.</b> Dépasser la fenêtre ne produit pas d'erreur :
+     * llama.cpp tronque le <b>début</b> de la requête — le prompt système, donc les consignes
+     * de format et la taxonomie — et le modèle répond en prose. La classification échoue alors
+     * sur chaque document, sans que rien n'en désigne la cause. Envoyer moins de texte dégrade
+     * la qualité ; en envoyer trop détruit la fonction.</p>
+     *
+     * <p>Le réglage {@code max-excerpt-chars} devient ainsi une <b>borne haute</b> et non une
+     * promesse : sur une machine de 8 à 16 Go, où une requête ne dispose que de 2048 tokens,
+     * le défaut de 6000 caractères ne tient pas. Plutôt que d'exiger de l'utilisateur qu'il
+     * accorde sa configuration à un dimensionnement qu'il ne voit pas, on s'y ajuste.</p>
+     *
+     * <p>Sans information du serveur, on applique la valeur configurée : mieux vaut le
+     * comportement demandé qu'une restriction fondée sur une fenêtre supposée.</p>
+     */
+    int effectiveExcerptChars() {
+        int configured = config.effectiveMaxExcerptChars();
+        OptionalInt window = chatClient.servedContextTokens();
+        if (window.isEmpty()) return configured;
+
+        int affordable = ContextBudgetValidator.affordableExcerptChars(window.getAsInt());
+        if (affordable >= configured) return configured;
+
+        // Journalisé une fois par valeur : un lot de mille documents ne doit pas produire
+        // mille lignes identiques, mais un changement de fenêtre doit rester visible.
+        if (lastClampLogged.getAndSet(affordable) != affordable) {
+            log.warn("Extrait de classification ramené de {} à {} caractères : la fenêtre servie "
+                            + "est de {} tokens par requête. Augmentez LLM_CONTEXT (divisé par "
+                            + "LLM_PARALLEL) pour exploiter la valeur configurée.",
+                    configured, affordable, window.getAsInt());
+        }
+        return affordable;
     }
 
     /** Échantillonne {@code maxChunks} extraits régulièrement espacés, sous un budget de caractères. */

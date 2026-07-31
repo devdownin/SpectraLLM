@@ -323,9 +323,13 @@ Les catégories proposées par le modèle sont ramenées à leur forme canonique
 | `SPECTRA_CLASSIFICATION_MAX_CATEGORIES` | Catégories retenues par document | `3` |
 | `SPECTRA_CLASSIFICATION_MIN_CONFIDENCE` | Confiance minimale pour retenir une catégorie | `0.5` |
 | `SPECTRA_CLASSIFICATION_MAX_CHUNKS` | Extraits échantillonnés dans le document | `8` |
-| `SPECTRA_CLASSIFICATION_MAX_EXCERPT_CHARS` | Budget de caractères soumis au modèle | `6000` |
+| `SPECTRA_CLASSIFICATION_MAX_EXCERPT_CHARS` | Budget de caractères soumis au modèle (borne haute) | `6000` |
 
-> **Le budget d'extrait doit tenir dans la fenêtre vue PAR REQUÊTE**, c'est-à-dire `LLM_CONTEXT / LLM_PARALLEL` — et non `LLM_CONTEXT` seul. Comptez en français ~3,5 caractères par token : un extrait de 6000 caractères ≈ 1715 tokens, auxquels s'ajoutent le prompt (~350), l'entête (~40) et la réponse (~120), soit ~2225. C'est confortable dès 4096 tokens par requête, le dimensionnement automatique d'une machine de 16 Go. Si vous dépassez, llama.cpp tronque le **début** de la requête — donc les consignes « réponds uniquement en JSON » et la taxonomie — et le modèle répond en prose : la classification échoue alors systématiquement, sur chaque document.
+> **Ce budget est une borne haute, pas une promesse.** Il doit tenir dans la fenêtre vue PAR REQUÊTE, c'est-à-dire `LLM_CONTEXT / LLM_PARALLEL` — et non `LLM_CONTEXT` seul. Comptez en français ~3,5 caractères par token : un extrait de 6000 caractères ≈ 1715 tokens, auxquels s'ajoutent le prompt (~350), l'entête (~40) et la réponse (~120), soit ~2225. C'est confortable dès 4096 tokens par requête, le dimensionnement automatique d'une machine de 16 Go.
+>
+> **Sur une machine plus petite, l'extrait est automatiquement ramené à ce qui tient**, et un avertissement le signale au démarrage puis à la première classification concernée. Vous n'avez donc rien à ajuster pour que la classification fonctionne : elle sera simplement fondée sur moins de texte. Pour exploiter la valeur configurée, augmentez `LLM_CONTEXT` (en gardant à l'esprit qu'il est divisé par `LLM_PARALLEL`).
+>
+> Sans ce bornage, le dépassement ne produirait aucune erreur : llama.cpp tronque le **début** de la requête — donc les consignes « réponds uniquement en JSON » et la taxonomie — et le modèle répond en prose, la classification échouant systématiquement, sur chaque document.
 
 > `auto-classify` est désactivé par défaut à dessein : un import de 500 fichiers enchaînerait 500 appels au LLM. Pour un corpus déjà en place, préférez la classification par lot ci-dessous ; activez `auto-classify` pour un flux d'arrivée continu.
 
