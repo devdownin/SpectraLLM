@@ -99,7 +99,7 @@ class ContextBudgetValidatorTest {
         LlmChatClient client = mock(LlmChatClient.class);
         when(client.servedContextTokens()).thenReturn(java.util.OptionalInt.of(2048));
 
-        int clamped = ContextBudgetValidator.clampContextTokens(3000, client);
+        int clamped = ContextBudgetValidator.clampContextTokens(3000, client, "spectra.agentic-rag.max-context-tokens");
 
         assertThat(clamped).isLessThan(3000);
         assertThat(clamped).isEqualTo(ContextBudgetValidator.affordableContextTokens(2048));
@@ -110,7 +110,7 @@ class ContextBudgetValidatorTest {
         LlmChatClient client = mock(LlmChatClient.class);
         when(client.servedContextTokens()).thenReturn(java.util.OptionalInt.of(8192));
 
-        assertThat(ContextBudgetValidator.clampContextTokens(3000, client)).isEqualTo(3000);
+        assertThat(ContextBudgetValidator.clampContextTokens(3000, client, "spectra.agentic-rag.max-context-tokens")).isEqualTo(3000);
     }
 
     @Test
@@ -119,7 +119,7 @@ class ContextBudgetValidatorTest {
         LlmChatClient client = mock(LlmChatClient.class);
         when(client.servedContextTokens()).thenReturn(java.util.OptionalInt.empty());
 
-        assertThat(ContextBudgetValidator.clampContextTokens(3000, client)).isEqualTo(3000);
+        assertThat(ContextBudgetValidator.clampContextTokens(3000, client, "spectra.agentic-rag.max-context-tokens")).isEqualTo(3000);
     }
 
     @Test

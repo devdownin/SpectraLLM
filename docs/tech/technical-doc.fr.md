@@ -237,7 +237,7 @@ Le registre est persisté dans `data/models/registry.json` :
 
 ### `ResourceAdvisorService` — détection des ressources disponibles
 
-`ResourceAdvisorService` est le **propriétaire unique** du dimensionnement CPU/RAM (threads, contexte, batch, KV cache). Il s'initialise via `@PostConstruct` au démarrage de `spectra-api`, expose le profil détecté au reste de l'application, et `RuntimeParamsMaterializer` écrit ses recommandations dans `data/models/active-chat-params` — consommées par l'entrypoint superviseur de `llm-chat` comme valeurs par défaut (un `LLM_*` explicite dans `.env` garde la priorité). Le script `llama-autostart.sh` conserve sa propre détection uniquement pour les images llama.cpp autonomes (k8s/GKE), où l'API n'est pas joignable.
+`ResourceAdvisorService` est le **propriétaire unique** du dimensionnement CPU/RAM (threads, contexte, batch, KV cache). Il s'initialise via `@PostConstruct` au démarrage de `spectra-api`, expose le profil détecté au reste de l'application, et `RuntimeParamsMaterializer` écrit ses recommandations dans `data/models/active-chat-params` — consommées par l'entrypoint superviseur de `llm-chat` comme valeurs par défaut (un `LLM_*` explicite dans `.env` garde la priorité).
 
 **Sources de détection (dans l'ordre de priorité) :**
 
@@ -253,7 +253,7 @@ Le registre est persisté dans `data/models/registry.json` :
 
 **Intégration avec `LlamaCppRuntimeOrchestrator`** : quand le mode runtime est activé (`runtime.enabled=true`), `LlamaCppRuntimeOrchestrator.buildChatCommand()` consulte `ResourceAdvisorService` pour construire les arguments CLI de `llama-server` de façon adaptée à l'environnement courant, plutôt que d'utiliser des valeurs codées en dur.
 
-**Répartition des responsabilités.** Le Java calcule (une seule implémentation, testable) ; le shell consomme. Seule la détection **GPU** reste locale à chaque conteneur llama.cpp (`spectra-api` ne voit pas les GPU attribués à `llm-chat`) : offload via `LLM_CHAT_EXTRA_ARGS=--n-gpu-layers …` en compose, ou `llama-autostart.sh` pour les images autonomes.
+**Répartition des responsabilités.** Le Java calcule (une seule implémentation, testable) ; le shell consomme. Seule la détection **GPU** reste locale à chaque conteneur llama.cpp (`spectra-api` ne voit pas les GPU attribués à `llm-chat`) : offload via `LLM_CHAT_EXTRA_ARGS=--n-gpu-layers …`, ou l'overlay compose GPU qui l'impose.
 
 ---
 
@@ -1757,69 +1757,6 @@ volumes:
   - ./data/models:/models:ro  ← LLM_CHAT_MODEL_FILE / LLM_EMBED_MODEL_FILE
 ```
 
-### `scripts/llama-autostart.sh` — point d'entrée intelligent des conteneurs llama-server
-
-> **Portée réelle aujourd'hui.** Cette section décrit le point d'entrée historique. Il ne sert plus qu'au **pod d'embedding Kubernetes** (`deploy/k8s/base/05-llama-embed.yaml`). Sous Docker Compose, `llm-chat` et `llm-embed` utilisent respectivement `scripts/llm-chat-entrypoint.sh` et `scripts/llm-embed-entrypoint.sh`, qui suivent le pointeur de modèle du registre et consomment les hints calculés par l'API — voir la section « Contexte, slots et hints » du manuel utilisateur. Les variables `LLAMA_*` décrites ci-dessous ne s'appliquent donc **qu'à ce chemin Kubernetes** ; le chemin Docker utilise les variables `LLM_*`.
-
-Ce script remplace le `command:` statique qui était précédemment codé en dur dans `docker-compose.yml` pour les services `llm-chat` et `llm-embed`. Il est défini comme `entrypoint` de chaque conteneur et s'exécute avant `llama-server`.
-
-**Rôle :** inspecter les ressources disponibles dans le conteneur au moment du démarrage, calculer les paramètres optimaux, puis lancer `llama-server` avec ces paramètres. Les variables d'environnement (définies dans `.env` ou `docker-compose.yml`) prennent toujours la priorité sur les valeurs calculées.
-
-**Séquence de détection :**
-
-```
-1. CPU
-   └── Lire /sys/fs/cgroup/cpu.max
-       ├── Format "quota period" (ex. "400000 100000" = 4 cœurs)
-       ├── "max period" → pas de quota → nproc
-       └── Fichier absent → nproc (cgroups v1 ou sans limite)
-   → threads = min(CPUs_disponibles, 8)  [plafonné pour éviter la contention]
-
-2. RAM
-   └── Lire /proc/meminfo → MemAvailable
-       └── Lire /sys/fs/cgroup/memory.max
-           ├── Valeur numérique → min(MemAvailable, memory.max)
-           └── "max" → pas de limite cgroup → utiliser MemAvailable
-   → context_size = f(RAM) : <2Go→768, <4Go→1536, <8Go→2048, <16Go→4096, ≥16Go→8192
-
-3. GPU
-   ├── nvidia-smi disponible ?
-   │   ├── Oui → VRAM totale (Mo)
-   │   │   ├── ≥8192 → ngl=-1, cacheTypeK=iq4_nl, context=8192
-   │   │   └── ≥4096 → ngl=-1, cacheTypeK=q8_0, context=4096
-   │   └── Non → étape suivante
-   ├── /dev/kfd existe ? → AMD ROCm → ngl=-1, cacheTypeK=q8_0
-   ├── /dev/dri/renderD128 existe ? → Vulkan → ngl=20, cacheTypeK=q8_0
-   └── Rien détecté → CPU-only → ngl=0
-
-4. Paramètres dérivés
-   batch = min(context_size / 4, 512)
-   flashAttn = 1 (chat) / 0 (embed)
-   cacheTypeK = cacheTypeV = q8_0 (sauf NVIDIA haute VRAM → iq4_nl)
-
-5. Surcharge par variables d'environnement
-   LLAMA_CONTEXT     → écrase context_size calculé
-   LLAMA_THREADS     → écrase threads calculé
-   LLAMA_NGL         → écrase ngl calculé
-   LLAMA_PARALLELISM → slots -np (défaut 1)
-   (et toutes les autres variables du tableau d'overrides)
-
-6. Résumé imprimé dans les logs Docker
-   [llama-autostart] Profile : CPU_ONLY
-   [llama-autostart] Threads : 4, Context : 2048, Batch : 512
-   [llama-autostart] GPU layers : 0, Flash-attn : 1
-   [llama-autostart] Cache KV : q8_0 / q8_0
-   [llama-autostart] Launching: llama-server -m /fine-tuning/merged/model.gguf -a spectra-domain ...
-
-7. exec llama-server <arguments calculés + overrides>
-```
-
-**Pourquoi un script shell plutôt qu'une configuration statique ?** Les environnements cibles varient fortement : machine de développement à 4 cœurs / 8 Go RAM, serveur de production à 32 cœurs / 128 Go RAM, ou instance cloud avec GPU. Un `command:` statique sur-configure les petites machines (OOM) et sous-configure les grandes (performance laissée sur la table). Le script adapte les paramètres au contexte réel sans nécessiter d'édition manuelle du `docker-compose.yml`.
-
----
-
-## 10. Points Techniques Notables
-
 ### Séparation chat / embedding en deux processus
 
 llama-server ne peut charger qu'un modèle à la fois. Chat et embedding utilisent des modèles différents (modèle instruction-tuned vs. modèle d'embedding). Deux instances séparées (`llm-chat` et `llm-embed`) sont donc nécessaires.
@@ -1860,7 +1797,7 @@ Les requêtes curl depuis un shell Git Bash/MINGW sur Windows peuvent envoyer le
 
 ## 11. Optimisations de Performance
 
-Cette section documente les optimisations appliquées à la configuration de `llama-server` et explique pourquoi elles ont été choisies. La plupart sont activées automatiquement par `llama-autostart.sh` ; elles peuvent être désactivées via les variables d'environnement correspondantes.
+Cette section documente les optimisations appliquées à la configuration de `llama-server` et explique pourquoi elles ont été choisies. La plupart sont appliquées automatiquement à partir des hints calculés par `ResourceAdvisorService` ; elles peuvent être surchargées via les variables d'environnement correspondantes.
 
 ### Flash Attention (`--flash-attn`)
 

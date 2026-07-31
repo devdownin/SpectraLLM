@@ -227,9 +227,10 @@ public class BenchmarkService {
                 .sum() / Math.max(1, valid.size());
         double throughput = p50 > 0 ? (avgUnitCount * 1000.0) / p50 : 0;
 
-        // Estimation tokens/s pour LLM et RAG : chars / 4 ≈ tokens
+        // Le débit est mesuré en caractères/s ; le convertir en tokens/s passe par la
+        // même estimation que partout ailleurs (TokenEstimator), et non par un diviseur local.
         double adjustedThroughput = throughputUnit.equals("tokens/s")
-                ? throughput / 4.0
+                ? throughput / TokenEstimator.CHARS_PER_TOKEN
                 : throughput;
 
         Map<String, Object> details = new LinkedHashMap<>(extraDetails);

@@ -81,7 +81,26 @@ if ! python3 -m pytest --version >/dev/null 2>&1; then
     log "AVERTISSEMENT : pytest non installé ; les tests de scripts/ seront indisponibles."
 fi
 
-# ── 3. Dépendances du frontend ───────────────────────────────────────────────
+# Dépendances de test des microservices Python (fastapi, httpx, ruff…). Volontairement
+# légères : les tests bouchonnent torch et pymupdf. Sans elles, `verify.sh services`
+# se contente de sauter, et deux suites de la CI ne sont jamais exercées en local.
+if ! python3 -c "import fastapi, httpx" >/dev/null 2>&1; then
+  log "Installation des dépendances de test des services Python."
+  python3 -m pip install --quiet --disable-pip-version-check \
+    -r "$PROJECT_DIR/services/requirements-test.txt" || \
+    log "AVERTISSEMENT : dépendances des services non installées ; leurs tests seront indisponibles."
+fi
+
+# ── 3. shellcheck, exécuté par la CI mais absent de l'image ──────────────────
+# Sans lui, `scripts/verify.sh` marque la section shell comme sautée : le lint des
+# scripts n'est alors jamais exercé avant le push, alors que la CI le fait échouer.
+if ! command -v shellcheck >/dev/null 2>&1; then
+  log "Installation de shellcheck."
+  DEBIAN_FRONTEND=noninteractive $SUDO apt-get install -y -qq shellcheck || \
+    log "AVERTISSEMENT : shellcheck non installé ; le lint des scripts sera indisponible."
+fi
+
+# ── 4. Dépendances du frontend ───────────────────────────────────────────────
 # `npm install` plutôt que `npm ci` : l'état du conteneur est mis en cache après
 # ce hook, et install réutilise ce qui est déjà là au lieu de tout réinstaller.
 if [ -d "$PROJECT_DIR/frontend" ] && [ ! -d "$PROJECT_DIR/frontend/node_modules" ]; then

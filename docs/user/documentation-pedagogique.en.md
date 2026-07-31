@@ -48,7 +48,7 @@
 11. 🟡 [Hardware auto-tuning](#11)
 12. 🟡 [Holding up in production: resilience and concurrency](#12)
 13. 🟢 [Sovereignty and security: 100% local in practice](#13)
-14. 🟡 [Deploying: from Docker to GKE](#14)
+14. 🟡 [Deploying: from your machine to a server](#14)
 15. 🟡 [Comparing the algorithms: strengths, weaknesses and reading the results](#15)
 16. 🟢 [Glossary and further reading](#16)
 
@@ -1308,37 +1308,40 @@ access to another perimeter's files anyway. No layer is infallible alone; it's t
 ---
 
 <a name="14"></a>
-## 14. Deploying: from Docker to GKE
+## 14. Deploying: from your machine to a server
 
 💡 **Intuition.** Spectra is a **set of services** (API, interface, vector database, chat
 and embedding inference servers, headless browser…). You want to launch them together,
-reproducibly, from the dev machine to the cloud.
+reproducibly, from the dev machine to the production server.
 
-- **Docker Compose**: for a single machine. One command brings up the whole stack; a
-  variant enables the **GPU**.
-- **Kubernetes**: for a cluster. Each service becomes a *Deployment*; only the interface
-  (and the API behind it) are exposed, the rest stays internal. *Persistent volumes* keep
-  data and models.
-- **Continuous GKE**: an integration workflow builds the images, pushes them to a registry,
-  then applies the manifests to the cluster — **on every delivery**. Authentication is
-  **keyless** (OIDC identity federation). A **GPU** variant (CUDA image + manifest add-on)
-  enables acceleration for chat inference.
+- **Docker Compose** describes the whole stack in a single file: one command brings up
+  every service with its dependencies, its volumes and its private network. A variant
+  enables the **GPU** for chat inference.
+- **Only the interface and the API are exposed.** The vector database and the inference
+  servers stay on the deployment's internal network — reachable between containers, not
+  from outside.
+- **Volumes** keep what must survive a restart: the database, the vector index and the
+  GGUF models — several gigabytes you never want to download again.
 
 ```mermaid
 flowchart LR
-    Push["git push (main)"] --> CI["CI: build the images"]
-    CI --> Reg["Image registry"]
-    Reg --> Dep["Cluster deployment"]
-    Dep -.->|"OIDC auth, no stored JSON key"| Reg
+    Ext["Outside"] --> FE["Interface + API<br/>(published ports)"]
+    FE -.-> Chroma["Vector database"]
+    FE -.-> Chat["Chat inference"]
+    FE -.-> Embed["Embedding inference"]
+    subgraph Internal["Internal network — not exposed"]
+        Chroma
+        Chat
+        Embed
+    end
 ```
 
-🎯 **Usage example.** You merge an improvement to the RAG prompt. CI rebuilds the API
-image, pushes it, updates the deployment and waits for the *rollout*: the new version is
-live without manual intervention. If you have a GPU node, the dedicated overlay switches
-chat inference to GPU.
+🎯 **Usage example.** You improve the RAG prompt. You rebuild the API image and restart
+that service alone: the others keep running, the vector index and the models stay in
+place, and the new version is live within seconds.
 
-🧪 **Your turn.** Why expose only the interface (and the API behind it) in Kubernetes, and
-keep the vector database and inference servers internal?
+🧪 **Your turn.** Why expose only the interface (and the API behind it), and keep the
+vector database and inference servers on the internal network?
 <details><summary>See the answer</summary>
 
 To **minimize the attack surface**: what isn't exposed isn't attackable from outside. The

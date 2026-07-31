@@ -156,7 +156,7 @@ public class ConfigController {
             description = "Détecte CPU, RAM et GPU disponibles, et retourne les paramètres "
                     + "llama-server recommandés pour chaque mode (chat, embed). "
                     + "Utile pour diagnostiquer une configuration sous-optimale ou valider "
-                    + "les paramètres appliqués par llama-autostart.sh. "
+                    + "les paramètres appliqués au serveur d'inférence. "
                     + "Appeler POST /api/config/resources/refresh pour forcer une nouvelle détection."
     )
     @GetMapping("/resources")

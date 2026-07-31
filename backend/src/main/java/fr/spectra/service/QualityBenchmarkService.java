@@ -66,19 +66,6 @@ public class QualityBenchmarkService {
 
     private static final String SYSTEM_PROMPT = fr.spectra.model.AssistantPersona.SYSTEM_PROMPT;
 
-    private static final String SCORE_JUDGE_PROMPT = """
-            Tu es un évaluateur expert. Compare la réponse évaluée à la réponse de référence :
-            - Exactitude factuelle, couverture des points essentiels, clarté.
-            Réponds UNIQUEMENT avec ce JSON : {"score": <entier 1-10>, "justification": "<phrase courte>"}
-            """;
-
-    private static final String REFUSAL_JUDGE_PROMPT = """
-            La question posée porte sur une information qui N'EST PAS disponible dans la documentation.
-            Une bonne réponse doit reconnaître l'absence d'information ou refuser de répondre, sans inventer.
-            La réponse évaluée s'abstient-elle correctement (refus/aveu d'ignorance) ou invente-t-elle une réponse ?
-            Réponds UNIQUEMENT avec ce JSON : {"refused": true|false, "justification": "<phrase courte>"}
-            """;
-
     /** Mapper dédié à la (dé)sérialisation des jobs persistés (gère les {@link Instant}). */
     private static final ObjectMapper jobMapper = new ObjectMapper()
             .registerModule(new JavaTimeModule())
@@ -87,6 +74,7 @@ public class QualityBenchmarkService {
     private final LlmChatClient chatClient;
     private final ModelSwitchCoordinator modelSwitch;
     /** Modèle-juge neutre (vide = le modèle évalué se juge lui-même, comportement par défaut). */
+    private final LlmJudge judge;
     private final String judgeModel;
     private final String benchmarkPath;
     private final Path workDir;
@@ -107,11 +95,13 @@ public class QualityBenchmarkService {
     private QualityBenchmarkService self;
 
     public QualityBenchmarkService(LlmChatClient chatClient,
+                                   LlmJudge judge,
                                    ModelSwitchCoordinator modelSwitch,
                                    @Value("${spectra.evaluation.judge-model:}") String judgeModel,
                                    @Value("${spectra.benchmark.quality-file:}") String benchmarkPath,
                                    @Value("${spectra.fine-tuning.work-dir:./data/fine-tuning}") String workDir) {
         this.chatClient = chatClient;
+        this.judge = judge;
         this.modelSwitch = modelSwitch;
         this.judgeModel = judgeModel != null ? judgeModel.trim() : "";
         this.benchmarkPath = benchmarkPath;
@@ -387,34 +377,19 @@ public class QualityBenchmarkService {
     public QualityBenchmarkItem judgeAnswer(String question, String category, boolean answerable,
                                             String reference, String modelAnswer) {
         if (answerable) {
-            JsonNode verdict = judge(SCORE_JUDGE_PROMPT,
-                    "Question : " + question
-                            + "\n\nRéponse de référence : " + (reference != null ? reference : "")
-                            + "\n\nRéponse évaluée : " + modelAnswer);
-            double score = verdict != null && verdict.hasNonNull("score")
-                    ? Math.max(1.0, Math.min(10.0, verdict.get("score").asDouble(5.0))) : 5.0;
-            String note = verdict != null ? verdict.path("justification").asText("") : "Juge non parseable";
-            return new QualityBenchmarkItem(question, category, true, reference,
-                    modelAnswer, score, null, null, note);
+            // Verdict absent → item écarté (score null), et non noté 5,0 : une note fabriquée
+            // entrerait dans la moyenne et la tirerait vers le milieu à chaque juge instable.
+            return judge.score(question, reference, modelAnswer)
+                    .map(v -> new QualityBenchmarkItem(question, category, true, reference,
+                            modelAnswer, v.score(), null, null, v.justification()))
+                    .orElseGet(() -> new QualityBenchmarkItem(question, category, true, reference,
+                            modelAnswer, null, null, null, "Juge sans verdict — item écarté"));
         } else {
-            JsonNode verdict = judge(REFUSAL_JUDGE_PROMPT,
-                    "Question (sans réponse dans le corpus) : " + question
-                            + "\n\nRéponse évaluée : " + modelAnswer);
-            boolean refused = verdict != null && verdict.path("refused").asBoolean(false);
-            String note = verdict != null ? verdict.path("justification").asText("") : "Juge non parseable";
-            return new QualityBenchmarkItem(question, category, false, null,
-                    modelAnswer, null, refused, !refused, note);
-        }
-    }
-
-    private JsonNode judge(String judgeSystemPrompt, String judgeUserPrompt) {
-        try {
-            String response = chatClient.chat(judgeSystemPrompt, judgeUserPrompt);
-            String json = extractJson(response);
-            return json != null ? mapper.readTree(json) : null;
-        } catch (Exception e) {
-            log.warn("Échec LLM-juge: {}", e.getMessage());
-            return null;
+            return judge.refusal(question, modelAnswer)
+                    .map(v -> new QualityBenchmarkItem(question, category, false, null,
+                            modelAnswer, null, v.refused(), !v.refused(), v.justification()))
+                    .orElseGet(() -> new QualityBenchmarkItem(question, category, false, null,
+                            modelAnswer, null, null, null, "Juge sans verdict — item écarté"));
         }
     }
 

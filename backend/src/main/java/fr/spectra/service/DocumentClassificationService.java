@@ -23,7 +23,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.NoSuchElementException;
-import java.util.OptionalInt;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -77,9 +76,6 @@ public class DocumentClassificationService {
     private final Map<String, BatchTask> batchTasks = new ConcurrentHashMap<>();
     private final Set<String> cancelledBatches = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean batchRunning = new AtomicBoolean(false);
-    /** Dernière valeur de bornage journalisée, pour ne pas répéter l'avertissement par document. */
-    private final java.util.concurrent.atomic.AtomicInteger lastClampLogged =
-            new java.util.concurrent.atomic.AtomicInteger(0);
 
     /** Auto-référence pour franchir le proxy Spring lors de l'appel {@code @Async}. */
     @Lazy @Autowired(required = false)
@@ -415,22 +411,9 @@ public class DocumentClassificationService {
      * comportement demandé qu'une restriction fondée sur une fenêtre supposée.</p>
      */
     int effectiveExcerptChars() {
-        int configured = config.effectiveMaxExcerptChars();
-        OptionalInt window = chatClient.servedContextTokens();
-        if (window.isEmpty()) return configured;
-
-        int affordable = ContextBudgetValidator.affordableExcerptChars(window.getAsInt());
-        if (affordable >= configured) return configured;
-
-        // Journalisé une fois par valeur : un lot de mille documents ne doit pas produire
-        // mille lignes identiques, mais un changement de fenêtre doit rester visible.
-        if (lastClampLogged.getAndSet(affordable) != affordable) {
-            log.warn("Extrait de classification ramené de {} à {} caractères : la fenêtre servie "
-                            + "est de {} tokens par requête. Augmentez LLM_CONTEXT (divisé par "
-                            + "LLM_PARALLEL) pour exploiter la valeur configurée.",
-                    configured, affordable, window.getAsInt());
-        }
-        return affordable;
+        return ContextBudgetValidator.clampExcerptChars(
+                config.effectiveMaxExcerptChars(), chatClient,
+                "spectra.classification.max-excerpt-chars");
     }
 
     /** Échantillonne {@code maxChunks} extraits régulièrement espacés, sous un budget de caractères. */

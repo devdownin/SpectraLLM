@@ -8,6 +8,75 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Simplifications — juge LLM unique, outillage complété, code mort retiré
+
+**Un seul juge, un seul barème.** Deux services notaient des réponses avec deux prompts distincts produisant tous deux un « score sur 10 » affiché comme tel : `EvaluationService` appliquait un barème explicite (Exactitude 0-4, Complétude 0-3, Clarté 0-3), `QualityBenchmarkService` demandait un score de 1 à 10 sans barème. Comparer les deux revenait à comparer deux instruments gradués pareil. `LlmJudge` porte désormais le barème explicite, seul retenu.
+
+Deux écarts sont apparus en unifiant, et sont corrigés :
+
+- Le benchmark qualité appelait `chat(...)` en génération libre — il n'avait **jamais reçu** le décodage contraint mis en place ailleurs. Son juge pouvait répondre en prose.
+- Sur échec de parsing, il **substituait 5,0** et conservait l'item : une note fabriquée entrait dans la moyenne et la tirait vers le milieu, d'autant plus que le juge était instable. Un jugement qui n'aboutit pas n'est pas un jugement moyen — l'item est désormais écarté, comme le faisait déjà l'évaluation.
+
+**`verify.sh` rejoue enfin tout ce qu'il annonce.** Livré la veille, il ignorait silencieusement deux suites de la CI (`services/docparser` et `services/reranker`) — le défaut même contre lequel il avait été écrit. La section manquante est ajoutée, et `test_verify_covers_ci.py` relie désormais `ci.yml` au script : ajouter un job sans contrepartie locale fait échouer la CI, et une exemption doit porter sa raison.
+
+**312 lignes de code mort retirées.** `scripts/llama-autostart.sh`, `Dockerfile.llama` et `Dockerfile.llama.cuda` n'avaient plus aucun consommateur depuis le retrait de Kubernetes : aucun workflow ni fichier Compose ne construisait ces images. Le test de parité de leurs paliers de dimensionnement disparaît avec elles.
+
+
+### Retiré — le support Kubernetes et GKE
+
+> **Rupture** : les déploiements Kubernetes ne sont plus fournis ni maintenus. Docker Compose reste le mode de déploiement supporté.
+
+Supprimés : `deploy/k8s/` (28 fichiers, manifestes de base, overlays GPU/GKE/monitoring, seeding des modèles), les workflows `k8s-validate.yml` et `deploy-gke.yml`, et les scripts `gke-create-cluster.sh` / `gke-seed-models.sh`. Environ 2 100 lignes.
+
+**Ce qui reste, et pourquoi.** `scripts/llama-autostart.sh` et les images `Dockerfile.llama` / `Dockerfile.llama.cuda` sont conservés : l'entrypoint est intégré à ces images Docker autonomes, il n'appartenait pas à Kubernetes. Sa documentation et ses commentaires ne le rattachent plus à un orchestrateur.
+
+`scripts/check-model-defaults.sh` perd les deux fichiers Kubernetes de sa liste ; la garantie de cohérence porte désormais sur douze fichiers opérationnels au lieu de quatorze. Les chapitres « Déployer » des deux documentations pédagogiques sont réécrits autour de Compose, en conservant l'enseignement qui restait valable — n'exposer que l'interface et l'API, garder base vectorielle et serveurs d'inférence sur le réseau interne.
+
+**Les archives ne sont pas réécrites.** Les entrées de CHANGELOG et les notes de version antérieures décrivent un état passé qui a bien existé. Seuls leurs liens vers les fichiers supprimés sont retirés, pour ne pas laisser croire que ces fichiers sont encore là.
+
+### Outillage — une commande pour vérifier, un test pour la parité des manuels
+
+**`scripts/verify.sh`** rejoue localement les contrôles de la CI. Celle-ci exécute huit commandes réparties sur quatre écosystèmes (Maven, npm, pytest, shell) ; sans point d'entrée commun, savoir si un changement passe supposait d'ouvrir `.github/workflows/ci.yml` et de rejouer les commandes à la main.
+
+Le point de conception : **un contrôle sauté est signalé comme tel, jamais compté comme réussi.** `shellcheck` n'était pas installé dans les environnements de développement, et son absence passait totalement inaperçue — le lint des scripts n'était donc jamais exercé avant le push, alors que la CI le fait échouer. Le hook `SessionStart` l'installe désormais, et le script le signale s'il manque quand même.
+
+**`BilingualManualParityTest`** compare la structure des documents publiés en deux langues. Il a immédiatement trouvé sa raison d'être : le manuel utilisateur français décrivait l'interface du Playground en quatre sous-sections — panneau latéral, étapes visibles en direct, actions sous chaque réponse, panneau Trace — **absentes de la version anglaise**. Un lecteur anglophone ne pouvait pas savoir qu'il lui manquait quelque chose. Les sections manquantes ont été écrites.
+
+Le test ne compare que la **séquence des niveaux de titres** — les intitulés sont traduits. C'est volontairement grossier : il n'atteste pas que le contenu est équivalent, seulement que le plan l'est. Une traduction périmée passera ; une section ajoutée d'un seul côté ne passera plus.
+
+**Septième copie du taux caractères/token, en TypeScript.** `frontend/src/lib/ragPipeline.ts` estimait à 4 caractères par token, avec un commentaire affirmant suivre « la convention du backend » — devenu faux dès que le backend est passé à 3,5. Le panneau Trace affichait donc une barre de budget décalée de 14 % par rapport au calcul réel. Aligné, avec un test qui le rappelle explicitement.
+
+### Simplifications — un seul taux caractères/token, un seul bornage, un rattrapage spéculatif retiré
+
+**La conversion caractères → tokens était définie six fois, avec deux valeurs différentes.** Ce n'était pas qu'une redondance : les budgets de contexte étaient *vérifiés* à 3,5 caractères par token (`ContextBudgetValidator`) et *dépensés* à 4 (`RagService`, `AgenticRagService`, `RagAblationService`, plus deux estimations de métriques). La marge de sécurité de 15 % était donc consommée par le seul écart de taux de change :
+
+```
+fenêtre 2048 → marge sûre 1740 tokens → budget chunks 1240 (500 réservés à la réponse)
+  caractères acceptés : 1240 × 4   = 4960
+  coût réel           : 4960 ÷ 3,5 = 1417 tokens
+  total réel          : 1417 + 500 = 1917, soit 94 % de la fenêtre au lieu des 85 % visés
+```
+
+`TokenEstimator` devient propriétaire unique de cette conversion, à 3,5 — la valeur calibrée pour le français, volontairement pessimiste. Un test vérifie l'invariant qui était violé : ce qu'un budget autorise, recompté, doit y tenir.
+
+> **Effet de bord assumé** : les estimations de tokens de `EvaluationService`, `BenchmarkService` et `RagAblationService` passent elles aussi de 4 à 3,5. Les chiffres rapportés (nombre de tokens, débit en tokens/s) augmentent donc d'environ 14 % à performance identique. Les valeurs de référence citées dans les manuels datent de l'ancien diviseur et ne sont pas directement comparables aux prochaines mesures.
+
+**Le bornage des budgets était incohérent avec lui-même**, moins de 24 h après son introduction : la classification signalait sa réduction, les deux services RAG rognaient en silence. Un opérateur voyait son extrait annoncé comme réduit, jamais son contexte agentique. `clampContextTokens` / `clampExcerptChars` portent désormais la journalisation, une fois par couple (réglage, valeur), et les trois appelants perdent leur logique propre.
+
+**`StartupOrchestrator` tentait d'installer le modèle d'embedding via llmfit**, qui ne gère que les modèles de génération. Le code était spéculatif — ses commentaires l'admettaient (« Assuming it can handle huggingface repos », « would go here if llmfit supports it ») — et échouait silencieusement, laissant croire à un rattrapage automatique inexistant. Il est remplacé par un avertissement qui désigne le vrai chemin d'acquisition (`setup.sh`, étape 5/6) et dit ce que coûte son absence. Les deux blocs chat/embedding, quasi identiques, se réduisent à deux méthodes de résolution et un prédicat partagé.
+
+### CI — la base NVD est mise en cache, et cesse d'être restaurée vide
+
+Le job `depcheck` échouait par intermittence sur `NvdApiException: 503` suivi de `NoDataException: No documents exist`. Le second est le décisif : la base de vulnérabilités était **vide**, donc l'analyse ne pouvait pas se poursuivre malgré l'avertissement « using local data instead » qui la précède.
+
+Le mécanisme n'était pas l'absence de cache, mais un cache mal partagé. La base NVD vit par défaut sous `~/.m2/repository/org/owasp/dependency-check-data`, donc **dans le cache Maven de `actions/setup-java`**, keyé sur le hash des `pom.xml` et partagé par quatre jobs. Or un cache GitHub est **immuable par clé** : il est écrit par le premier job qui termine — jamais `depcheck`, qui est le plus lent. La base était ainsi restaurée vide à chaque exécution, retéléchargée intégralement, et toute indisponibilité du service NVD devenait fatale.
+
+- `dataDirectory` sort de `~/.m2` (`${user.home}/.dependency-check-data`, surchargeable par `-Dnvd.data.directory=`), ce qui lui donne droit à un cache dédié.
+- Ce cache utilise une clé tournant chaque semaine, avec `restore-keys` pour rattraper les semaines antérieures : la base n'est jamais vide, et une indisponibilité du NVD redevient ce qu'elle devrait être — un avertissement sur la fraîcheur des données, pas un échec de build.
+- `nvdValidForHours` passe de 4 (défaut) à 24 : les rafales de CI d'une même journée n'interrogent plus le service du tout.
+
+**Ce n'est pas un substitut au secret `NVD_API_KEY`.** Le cache ne protège qu'une fois peuplé ; sa première constitution reste soumise à la limitation de débit imposée au trafic anonyme. Les deux mesures sont complémentaires.
+
 ### Contexte — les trois budgets s'ajustent, la quatrième copie du calcul est alignée, la documentation cesse de mentir
 
 Suite et fin du travail sur la fenêtre de contexte. Le précédent correctif n'en traitait qu'un tiers, et le reste s'est révélé pire que prévu.
@@ -189,7 +258,7 @@ Trois compléments qui ouvrent le « comment » du pipeline là où l'utilisateu
 
 ### Correctif — dashboard Grafana : panneaux dupliqués supprimés
 
-- **Dédoublonnage du dashboard** ([grafana-dashboard.yaml](deploy/k8s/monitoring/grafana-dashboard.yaml)) : un merge côté `main` (PR #264/#265) avait introduit une **seconde copie** de quatre panneaux (« Circuit Breakers (State) », « Erreurs (Logs ERROR/WARN) », « HikariCP - Connexions », « JVM Threads (incl. Virtual) »). Le JSON importé par le sidecar Grafana affichait donc ces graphes en double. La copie superflue est retirée ; le dashboard revient à 12 panneaux uniques (ids 1 à 12), sans changement fonctionnel.
+- **Dédoublonnage du dashboard** (`deploy/k8s/monitoring/grafana-dashboard.yaml`, depuis retiré) : un merge côté `main` (PR #264/#265) avait introduit une **seconde copie** de quatre panneaux (« Circuit Breakers (State) », « Erreurs (Logs ERROR/WARN) », « HikariCP - Connexions », « JVM Threads (incl. Virtual) »). Le JSON importé par le sidecar Grafana affichait donc ces graphes en double. La copie superflue est retirée ; le dashboard revient à 12 panneaux uniques (ids 1 à 12), sans changement fonctionnel.
 
 ### RAG — état serveur des modules exposé (toggles et Advisor fidèles au déploiement)
 

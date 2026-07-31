@@ -4,15 +4,15 @@
 # Pourquoi ce script existe
 # -------------------------
 # Le nom des fichiers GGUF est répété dans quatre langages de configuration —
-# shell, batch, YAML (Compose et Kubernetes) et Java — qu'aucun mécanisme ne peut
-# faire dériver d'une variable commune : un manifest Kubernetes ne « source » pas
+# shell, batch, YAML (Compose) et Java — qu'aucun mécanisme ne peut
+# faire dériver d'une variable commune : un fichier Compose ne « source » pas
 # un fichier shell. La duplication est donc irréductible.
 #
 # Ce qui est évitable, en revanche, c'est qu'elle dérive en silence. Changer de
-# modèle demande aujourd'hui une quinzaine d'éditions cohérentes ; en oublier une
-# produit un bug qui ne se manifeste que sur un seul environnement — Docker
-# fonctionne, Kubernetes non, ou l'inverse. Ce script transforme cette dérive en
-# échec bruyant de CI.
+# modèle demande aujourd'hui une douzaine d'éditions cohérentes ; en oublier une
+# produit un bug qui ne se manifeste que sur un seul chemin — la stack Compose
+# fonctionne, le script de mise en route non, ou l'inverse. Ce script transforme
+# cette dérive en échec bruyant de CI.
 #
 # Deux règles :
 #   1. Tout fichier .gguf nommé dans un fichier opérationnel est soit le modèle de
@@ -38,8 +38,6 @@ SOURCE_OF_TRUTH=".env.example"
 # passé et n'ont pas vocation à être réécrites à chaque changement de modèle.
 OPERATIONAL_FILES=(
   "deploy/docker/docker-compose.yml"
-  "deploy/k8s/base/01-configmap.yaml"
-  "deploy/k8s/seed/seed-models.yaml"
   ".github/workflows/ci.yml"
   "backend/src/main/java/fr/spectra/service/StartupOrchestrator.java"
   "scripts/benchmark.sh"

@@ -15,6 +15,13 @@ import java.nio.file.Path;
 public class StartupOrchestrator {
     private static final Logger log = LoggerFactory.getLogger(StartupOrchestrator.class);
 
+    /** Dépôt HuggingFace du modèle de chat par défaut, et quantification retenue. */
+    private static final String DEFAULT_CHAT_REPO = "bartowski/Qwen2.5-7B-Instruct-GGUF";
+    private static final String DEFAULT_QUANTIZATION = "Q4_K_M";
+    /** Noms de fichiers de repli — contrôlés par scripts/check-model-defaults.sh. */
+    private static final String DEFAULT_CHAT_FILE = "Qwen2.5-7B-Instruct-Q4_K_M.gguf";
+    private static final String DEFAULT_EMBED_FILE = "embed.gguf";
+
     private final SpectraProperties properties;
     private final LlmFitService llmFitService;
     private final Path modelsDir = Path.of("./data/models");
@@ -46,37 +53,47 @@ public class StartupOrchestrator {
         try {
             Files.createDirectories(modelsDir);
 
-            String chatFile = properties.llm().effectiveChatModel();
-            if (properties.llm().chat() != null && properties.llm().chat().effectiveFile() != null) {
-                chatFile = properties.llm().chat().effectiveFile();
-            }
-            if (chatFile == null) chatFile = "Qwen2.5-7B-Instruct-Q4_K_M.gguf";
-
+            String chatFile = resolveChatModelFile();
             Path chatPath = modelsDir.resolve(chatFile);
-            if (!Files.exists(chatPath) || Files.size(chatPath) < 1048576) {
-                log.info("Modèle de chat par défaut manquant ({}). Déclenchement de l'installation via le Model Hub...", chatFile);
-                // Le format est `bartowski/Qwen2.5-7B-Instruct-GGUF`
-                // Mais llmfit attend un nom de modèle connu dans son catalogue.
-                // Assuming it can handle huggingface repos if we pass the right ID.
-                llmFitService.installModel("bartowski/Qwen2.5-7B-Instruct-GGUF", "Q4_K_M", true);
+            if (isMissing(chatPath)) {
+                log.info("Modèle de chat par défaut manquant ({}). Installation via le Model Hub…", chatFile);
+                llmFitService.installModel(DEFAULT_CHAT_REPO, DEFAULT_QUANTIZATION, true);
             }
 
-            // Embedding model logic would go here if llmfit supports it.
-            // Actuellement llmfit est plutôt centré chat/generation. Si llmfit gère
-            // nomic-embed-text, on fait pareil.
-            String embedFile = properties.llm().effectiveEmbeddingModel();
-            if (properties.llm().embedding() != null && properties.llm().embedding().effectiveFile() != null) {
-                embedFile = properties.llm().embedding().effectiveFile();
-            }
-            if (embedFile == null) embedFile = "embed.gguf";
-            Path embedPath = modelsDir.resolve(embedFile);
-            if (!Files.exists(embedPath) || Files.size(embedPath) < 1048576) {
-                log.info("Modèle d'embedding par défaut manquant ({}). Déclenchement de l'installation via le Model Hub...", embedFile);
-                llmFitService.installModel("nomic-ai/nomic-embed-text-v1.5-GGUF", "Q4_K_M", false);
+            // Pas d'équivalent pour l'embedding : llmfit ne gère que les modèles de
+            // génération. Le GGUF d'embedding est téléchargé par scripts/setup.sh (étape 5/6),
+            // et son absence est signalée par le healthcheck de llm-embed. Le code qui tentait
+            // ici une installation était spéculatif — il échouait silencieusement et laissait
+            // croire à un rattrapage automatique qui n'existait pas.
+            Path embedPath = modelsDir.resolve(resolveEmbeddingModelFile());
+            if (isMissing(embedPath)) {
+                log.warn("Modèle d'embedding absent ({}). Exécutez ./setup.sh pour le télécharger : "
+                        + "sans lui, l'ingestion ne peut pas vectoriser les documents.", embedPath);
             }
 
         } catch (Exception e) {
             log.warn("Erreur lors de la vérification de l'initialisation des modèles au démarrage", e);
         }
+    }
+
+    /** Un GGUF sous 1 Mo est un téléchargement interrompu, pas un modèle. */
+    private static boolean isMissing(Path path) throws java.io.IOException {
+        return !Files.exists(path) || Files.size(path) < 1_048_576;
+    }
+
+    private String resolveChatModelFile() {
+        if (properties.llm().chat() != null && properties.llm().chat().effectiveFile() != null) {
+            return properties.llm().chat().effectiveFile();
+        }
+        String configured = properties.llm().effectiveChatModel();
+        return configured != null ? configured : DEFAULT_CHAT_FILE;
+    }
+
+    private String resolveEmbeddingModelFile() {
+        if (properties.llm().embedding() != null && properties.llm().embedding().effectiveFile() != null) {
+            return properties.llm().embedding().effectiveFile();
+        }
+        String configured = properties.llm().effectiveEmbeddingModel();
+        return configured != null ? configured : DEFAULT_EMBED_FILE;
     }
 }

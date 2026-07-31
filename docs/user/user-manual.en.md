@@ -803,7 +803,7 @@ Instead of merging+quantizing (`export_gguf.py`), export the adapter alone and l
 python scripts/export_lora_gguf.py --adapter data/fine-tuning/adapter \
   --output data/fine-tuning/adapter-lora.gguf --base-model phi3
 
-# When launching llama-server (see scripts/llama-autostart.sh)
+# When launching llama-server (see scripts/llm-chat-entrypoint.sh)
 LLAMA_LORA=data/fine-tuning/adapter-lora.gguf LLAMA_LORA_SCALE=1.0 ...
 ```
 
@@ -1035,13 +1035,54 @@ The pipeline indicator in the top right shows overall progress:
 
 ### Playground (Step 4)
 
-- **Model selector** (left column, "Active Model" section): lists all chat models registered in the registry. Click a model to set it as the active model in the registry.
+The Playground is the conversation workbench: you ask a question, the model answers **as a stream** from your documents, and the interface makes visible **how** the answer was built.
+
+![The Playground: a sourced answer with pipeline badges, source relevance percentages and metrics](../assets/playground.png)
+
+#### Side panel (left column)
+
+- **System**: live status of the services (Chat Model, Knowledge Base). An unavailable service is flagged in red and sending is blocked rather than failing on a timeout.
+- **Model selector** ("Active Model" section): lists all registered chat models. Click a model to activate it.
 
   > **Note:** activation updates the registry, then the `llm-chat` supervisor automatically reloads the new model within seconds (watch interval: `LLM_CHAT_WATCH_INTERVAL`, default 10 s). The healthcheck (`activeModelLoaded` in `/api/status`) confirms convergence. An alias unknown to the registry is rejected with the list of registered models.
 
-- **Temperature and Top P**: adjust the generation behavior (deterministic ↔ creative)
-- **Enable Knowledge Base**: enable/disable RAG — handy to compare answers with and without documentary context
-- The **sources** (excerpts used) appear in the API response
+- **Temperature and Top P**: adjust the generation behavior (deterministic ↔ creative).
+- **Enable Knowledge Base**: enable/disable RAG — handy to compare answers with and without documentary context.
+- **Conversational History**: sends the conversation history so your question can be rewritten before retrieval (useful for follow-ups such as "and for him?").
+- **Advanced → Top Candidates**: number of candidates sent to the re-ranker (higher = better coverage, slower).
+- **Advanced → Pipeline Modules**: one switch per optimization module (Hybrid Search, Cross-Encoder, Multi-Query, Corrective, Compression, Self-RAG, Adaptive routing). **Unchecking forces the module OFF for your queries**, with no redeployment — handy to isolate a module's effect. The interface queries the **actual server state** (`GET /api/config/rag`): a module that is not deployed appears **greyed out and marked "OFF"**, and its switch is locked (it cannot be enabled per request; only its environment variable can do that). The setting is remembered in the browser.
+- **Expert mode**: additionally shows raw vector distances, re-ranking/BM25 scores and latency metrics (TTFT, duration, tokens).
+- **RAG Advisor**: recommends which RAG strategies to enable based on the state of your corpus (volume, quality, formats) and a **feedback signal** — the overall 👎 rate and the per-module rate ("when this module acted"), aggregated from your votes. You can read directly whether a module (e.g. Corrective) correlates with more unsatisfactory answers on your corpus.
+
+  ![RAG Advisor: the feedback signal shows the 👎 rate per module, most problematic first](../assets/rag-advisor-feedback.png)
+- **Export Conversation**: downloads the discussion as Markdown or JSON.
+
+#### Pipeline steps, visible live
+
+During generation, below the answer cursor, the interface shows the **current pipeline step**: "Searching the knowledge base…", "Grading retrieved chunks…", "Self-evaluating the answer…", or for a complex question "Agentic search #2: '…'" (one line per follow-up search the model decides to run). You therefore watch the reasoning unfold, including on long questions.
+
+#### Under each answer
+
+- **Pipeline badges**: every answer shows the steps actually applied (CONV, CORR, SELF, RRNK, HYB, MQ, CMPR, DEDUP, FULL) and the strategy chosen (DIRECT / STANDARD / AGENTIC). A **Trace** button opens the details (see below).
+- **Inline citations**: when the answer cites its sources with `[1]`, `[2]`, … markers, these are rendered as **clickable chips** — a click expands and scrolls to the matching source. The source list is numbered and the sources **actually cited** are highlighted ("N cited").
+- **Sources**: expand each source to see the retrieved passage and its **relevance percentage**. An excerpt found by keyword only is labelled **BM25** (instead of a misleading "0 %"). In expert mode: distance, re-ranking score and BM25 score.
+- **👍/👎 feedback**: rates the answer (a preference signal reused for DPO fine-tuning).
+- **Copy**, **Regenerate** (with "more factual" / "more creative" variants), **Edit** (re-edit your question).
+- **Compare**: replays the **same question without a module that actually acted** (e.g. "without Cross-Encoder"). The reference answer and the variant are shown **side by side** with their badges and sources — the module's contribution becomes visible on your question, not just in theory. A **"Which is better?"** vote records your preference as a **DPO pair** (chosen/rejected): your exploration feeds the fine-tuning dataset directly.
+
+  ![A/B comparison: the "without Cross-Encoder" variant loses the RRNK badge; the vote feeds the DPO dataset](../assets/rag-ab-comparison.png)
+
+#### Trace panel ("Trace" button)
+
+Details the execution of the selected answer:
+
+- **Strategy Applied**: the strategy chosen, the number of context chunks, and — in agentic mode — the number of iterations and the loop's stop reason.
+- **Pipeline Timeline**: a timeline **measured server-side** (actual duration per step: routing, retrieval, grading, compression, agentic loop, generation, reflection) with the counters (retrieval: N chunks; grading: `before→after (−N discarded)`; etc.). Answers "where did the time go?".
+- **Retrieval Funnel**: the chunk funnel — `Retrieved → after Corrective → after Compression → final context` — with the number removed by each filtering step. Answers "where and by what were chunks discarded?".
+- **Token Budget**: a bar showing **retrieved context (input) vs generated answer (output)**, estimated at ~3.5 characters per token — the same rate the backend uses. Answers "how much of the budget went into context rather than into the answer?".
+- **Query Rewriting**: the standalone question actually used for retrieval, when the history was used to rewrite it.
+- **Optimizations Triggered**: which optimizations fired, with an explanation of each.
+- **Final Context**: previews of the sources actually sent to the model.
 
 ### Model Comparison
 

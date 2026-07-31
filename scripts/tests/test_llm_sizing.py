@@ -24,7 +24,6 @@ SCRIPTS_DIR = Path(__file__).resolve().parent.parent
 SIZING_LIB = SCRIPTS_DIR / "lib" / "llm-sizing.sh"
 DETECT_ENV_SH = SCRIPTS_DIR / "detect-env.sh"
 DETECT_ENV_BAT = SCRIPTS_DIR / "detect-env.bat"
-AUTOSTART_SH = SCRIPTS_DIR / "llama-autostart.sh"
 
 # Fenêtre par requête attendue à chaque palier de RAM (Mo → tokens). C'est le contrat
 # fonctionnel : au-dessous de 2048 tokens, la classification de documents ne tient plus.
@@ -165,36 +164,3 @@ def test_windows_script_uses_the_same_tiers_as_the_library():
     expected = {ram: (slot, envelopes[slot]) for ram, slot in TIERS}
 
     assert bat_tiers == expected
-
-
-def test_kubernetes_entrypoint_uses_the_same_tiers_as_the_library():
-    """
-    `llama-autostart.sh` est la QUATRIÈME implémentation de ce calcul — après la
-    bibliothèque, `detect-env.bat` et `ResourceAdvisorService`. Il sert le pod d'embedding
-    Kubernetes et ne peut pas sourcer la bibliothèque (il doit rester autonome dans une
-    image llama.cpp nue). Ses paliers du mode chat sont donc dupliqués ; ce test empêche
-    qu'ils dérivent, comme pour le script Windows.
-    """
-    body = AUTOSTART_SH.read_text(encoding="utf-8")
-
-    # Paliers du mode chat : la branche `embed` a son propre palier fixe, hors comparaison.
-    tiers = {
-        int(ram): int(slot)
-        for ram, slot in re.findall(
-            r"RAM_MB -ge (\d+) \];? then\s*\n\s*SLOT_CONTEXT=(\d+)", body
-        )
-    }
-    # Le `else` final est le palier des petites machines.
-    tiers[0] = int(re.search(r"else\s*\n\s*SLOT_CONTEXT=(\d+)\s*\nfi", body).group(1))
-
-    assert tiers == dict(TIERS)
-
-
-def test_kubernetes_entrypoint_derives_the_total_from_the_parallelism():
-    """
-    Le point qui rendait le calcul faux partout : `-c` est un TOTAL. Le script doit le
-    déduire du parallélisme, sinon ajouter un slot rétrécit toutes les fenêtres.
-    """
-    body = AUTOSTART_SH.read_text(encoding="utf-8")
-
-    assert "CONTEXT=$((SLOT_CONTEXT * PARALLELISM))" in body

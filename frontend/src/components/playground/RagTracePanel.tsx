@@ -90,7 +90,7 @@ const RetrievalFunnel: FC<{ steps: FunnelStep[] }> = ({ steps }) => {
 };
 
 /**
- * Budget de tokens (estimé à ~4 caractères/token) : part du contexte récupéré (entrée) vs
+ * Budget de tokens (estimé à ~3,5 caractères/token, comme le backend) : part du contexte récupéré (entrée) vs
  * réponse générée (sortie). Répond à « combien du budget est parti dans le contexte récupéré ? ».
  */
 const TokenBudgetBar: FC<{ contextChars: number; outputTokens: number }> = ({ contextChars, outputTokens }) => {

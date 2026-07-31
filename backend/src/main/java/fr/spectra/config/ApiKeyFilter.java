@@ -24,7 +24,7 @@ import java.security.MessageDigest;
  *
  * <p>Chemins exemptés (même si la clé est configurée) :</p>
  * <ul>
- *   <li>{@code /actuator/**} — healthchecks Docker / Kubernetes</li>
+ *   <li>{@code /actuator/**} — healthchecks Docker et sondes d'orchestrateur</li>
  *   <li>{@code /swagger-ui/**} et {@code /api-docs/**} — documentation OpenAPI</li>
  * </ul>
  *

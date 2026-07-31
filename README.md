@@ -80,7 +80,7 @@ Browse everything from the **[documentation index](docs/README.md)**, or jump st
 
 | Guide | What's inside |
 |---|---|
-| **[Getting Started](docs/getting-started.en.md)** | Step-by-step install, model downloads, Docker profiles, Kubernetes/GKE deploy |
+| **[Getting Started](docs/getting-started.en.md)** | Step-by-step install, model downloads, Docker profiles |
 | **[Architecture & Services](docs/architecture.en.md)** | Every service in depth: RAG internals, ingestion, evaluation, tech stack |
 | **[Configuration](docs/configuration.en.md)** | All environment variables, health endpoints, Prometheus metrics |
 | **[User Manual](docs/user/user-manual.en.md)** ([FR](docs/user/user-manual.fr.md)) | Complete walkthrough of the web interface |

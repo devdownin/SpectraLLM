@@ -67,7 +67,7 @@ class EvaluationServiceComparisonTest {
                 link("model-tuned", LinkType.EVALUATED_ON)
         ));
 
-        service = new EvaluationService(datasetGenerator, chatClient,
+        service = new EvaluationService(datasetGenerator, chatClient, new LlmJudge(chatClient),
                 new ModelSwitchCoordinator(chatClient, 2, 1), linkRepository, tempDir.toString(), 200, "");
         service.init();
     }
@@ -224,7 +224,7 @@ class EvaluationServiceComparisonTest {
         when(links.findByModelName(anyString())).thenReturn(List.of());
         LlmChatClient chat = mock(LlmChatClient.class);
         EvaluationService svc = new EvaluationService(
-                mock(DatasetGeneratorService.class), chat,
+                mock(DatasetGeneratorService.class), chat, new LlmJudge(chat),
                 new ModelSwitchCoordinator(chat, 2, 1), links, dir.toString(), 200, "");
         svc.init();
         return svc;
