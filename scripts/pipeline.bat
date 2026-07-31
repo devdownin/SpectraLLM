@@ -5,7 +5,7 @@ setlocal enabledelayedexpansion
 :: ────────────────────────────────────────────────────────────────
 :: Spectra — Pipeline complet : Ingest → Dataset → Fine-tuning
 ::
-:: Usage  : pipeline.bat [repertoire] [modele-base] [nom-modele] [--reset] [--packing] [--dpo]
+:: Usage  : pipeline.bat [repertoire] [modele-base] [nom-modele] [--reset] [--packing] [--dpo|--orpo]
 :: Exemples :
 ::   pipeline.bat data\documents phi3
 ::   pipeline.bat data\documents phi3 spectra-autoroute

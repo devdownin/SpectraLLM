@@ -8,6 +8,24 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Corrigé — les documents Word modernes étaient classés comme du XML
+
+Le type MIME officiel d'un DOCX est `application/vnd.openxmlformats-officedocument.wordprocessingml.document` : il **contient la sous-chaîne `xml`**. La condition XML étant évaluée avant celle du DOCX, tout document Word moderne recevait l'icône, le libellé et le groupe du XML dans la GED.
+
+Le défaut a survécu parce que `getDocumentType` vivait à l'intérieur de `Documents.tsx` — 1 569 lignes, fonction non exportée — donc hors d'atteinte du moindre test. Il est apparu à la **première exécution** du premier test écrit contre cette logique une fois extraite.
+
+- `frontend/src/lib/documentTaxonomy.ts` accueille la taxonomie et le regroupement des documents, avec 11 tests. Les formats les plus spécifiques sont désormais testés d'abord.
+- `Documents.tsx` passe de 1 569 à 1 495 lignes. Le gain en lignes est secondaire : l'essentiel est qu'une logique décidant de ce que voit l'utilisateur soit devenue vérifiable.
+
+### Windows — `stop.bat` n'arrêtait pas tout ce qu'il prétendait arrêter
+
+`stop.sh` active tous les profils Compose et passe `--remove-orphans`, ce qui stoppe aussi les services optionnels (layout-parser, reranker, Kafka). `stop.bat` ne faisait ni l'un ni l'autre : un utilisateur Windows croyait avoir arrêté Spectra alors que ces services continuaient de tourner, ports et mémoire pris.
+
+`pipeline.bat` acceptait par ailleurs `--orpo` sans le déclarer dans sa ligne « Usage » — l'option existait, personne ne pouvait le savoir en lisant l'entête.
+
+`scripts/tests/test_windows_scripts_parity.py` compare désormais les options déclarées par les six paires `.sh` / `.bat`. **Ce qu'il ne couvre pas est dit explicitement** : il compare les interfaces annoncées, pas les comportements. C'est précisément pour cela qu'il n'aurait pas attrapé le défaut de `stop.bat` — celui-là a demandé de lire les deux scripts.
+
+
 ### Simplifications — juge LLM unique, outillage complété, code mort retiré
 
 **Un seul juge, un seul barème.** Deux services notaient des réponses avec deux prompts distincts produisant tous deux un « score sur 10 » affiché comme tel : `EvaluationService` appliquait un barème explicite (Exactitude 0-4, Complétude 0-3, Clarté 0-3), `QualityBenchmarkService` demandait un score de 1 à 10 sans barème. Comparer les deux revenait à comparer deux instruments gradués pareil. `LlmJudge` porte désormais le barème explicite, seul retenu.
