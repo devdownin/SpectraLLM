@@ -1330,15 +1330,18 @@ curl -X POST http://localhost:8080/api/config/resources/refresh
 Si les valeurs auto-détectées ne correspondent pas à votre usage, vous pouvez les surcharger via des variables d'environnement dans `.env` (à la racine du projet) :
 
 ```env
-# Forcer un contexte de 4096 tokens pour le chat
-LLAMA_CHAT_CONTEXT_SIZE=4096
+# Forcer un contexte TOTAL de 8192 tokens, réparti sur 2 slots → 4096 par requête
+LLM_CONTEXT=8192
+LLM_PARALLEL=2
 
 # Forcer 8 threads CPU pour le chat
-LLAMA_CHAT_THREADS=8
+LLM_THREADS=8
 
-# Désactiver le GPU pour le chat (forcer CPU uniquement)
-LLAMA_CHAT_NGL=0
+# Arguments bruts passés à llama-server (ex. offload GPU)
+LLM_CHAT_EXTRA_ARGS=--n-gpu-layers 99
 ```
+
+> **`LLM_CONTEXT` est le contexte TOTAL du serveur**, que llama.cpp répartit entre ses `LLM_PARALLEL` slots : une requête ne voit que `LLM_CONTEXT / LLM_PARALLEL` tokens. C'est cette valeur-là qui compte pour tous les budgets du backend. Doubler `LLM_PARALLEL` sans doubler `LLM_CONTEXT` divise par deux la fenêtre de chaque conversation.
 
 Après modification du `.env`, relancez le service concerné :
 
@@ -1350,14 +1353,17 @@ docker compose --project-directory . -f deploy/docker/docker-compose.yml up -d l
 
 | Variable | Description |
 |----------|-------------|
-| `LLAMA_CHAT_CONTEXT_SIZE` | Fenêtre de contexte en tokens pour le chat |
-| `LLAMA_CHAT_THREADS` | Threads de calcul pour le chat |
-| `LLAMA_CHAT_NGL` | Couches GPU pour le chat (-1 = tout sur GPU, 0 = CPU) |
-| `LLAMA_CHAT_FLASH_ATTN` | Flash attention (1 = activé) — réduit la mémoire KV d'environ 2× |
-| `LLAMA_CHAT_PARALLELISM` | Conversations simultanées (slots parallèles) |
-| `LLAMA_CHAT_CPUSET` | Cœurs CPU réservés au chat (ex. `0-3`) |
-| `LLAMA_EMBED_CPUSET` | Cœurs CPU réservés à l'embedding (ex. `4-5`) |
-| `LLAMA_EMBED_THREADS` | Threads de calcul pour l'embedding |
+| `LLM_CONTEXT` | Contexte **total** du serveur de chat, divisé par `LLM_PARALLEL` |
+| `LLM_PARALLEL` | Conversations simultanées (slots parallèles) — défaut `2` |
+| `LLM_THREADS` | Threads de calcul pour le chat |
+| `LLM_BATCH` | Taille de batch (`-b` / `-ub`) |
+| `LLM_CHAT_EXTRA_ARGS` | Arguments bruts ajoutés à `llama-server` (ex. `--n-gpu-layers 99`) |
+| `LLM_CHAT_MODEL_FILE` | GGUF servi, si le pointeur du registre est absent |
+| `LLM_CHAT_WATCH_INTERVAL` | Période de surveillance du pointeur de modèle, en secondes |
+| `LLM_EMBED_PARALLEL` | Slots parallèles du serveur d'embedding |
+| `LLM_EMBED_EXTRA_ARGS` | Arguments bruts ajoutés au serveur d'embedding |
+
+Laissées vides, `LLM_CONTEXT`, `LLM_THREADS` et `LLM_BATCH` prennent les valeurs calculées par l'API à partir des ressources détectées (voir la section précédente). Les renseigner dans `.env` impose votre valeur.
 
 ### Performances de référence (CPU uniquement)
 
@@ -1416,7 +1422,8 @@ docker compose logs spectra-frontend --tail=20   # logs nginx
 
 **La requête RAG retourne "contexte dépassé"**
 - Réduisez `maxContextChunks` à 2 dans votre requête
-- Ou augmentez `LLAMA_CHAT_CONTEXT_SIZE` dans `.env` (en divisant par `LLAMA_CHAT_PARALLELISM` pour obtenir le contexte par slot)
+- Ou augmentez `LLM_CONTEXT` dans `.env` — c'est le contexte **total**, à diviser par `LLM_PARALLEL` pour obtenir la fenêtre réellement vue par une requête
+- Les logs de `spectra-api` au démarrage indiquent la fenêtre servie et les budgets qui n'y tiennent pas (`ContextBudgetValidator`). Ces budgets sont ramenés d'office à ce que la fenêtre peut porter : la requête aboutit, avec moins de contexte
 
 **La génération de dataset reste bloquée à 0 paires**
 ```bash

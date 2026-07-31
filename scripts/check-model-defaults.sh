@@ -47,6 +47,7 @@ OPERATIONAL_FILES=(
   "scripts/detect-env.sh"
   "scripts/detect-env.bat"
   "scripts/llm-chat-entrypoint.sh"
+  "scripts/llm-embed-entrypoint.sh"
   "scripts/pipeline.sh"
   "scripts/pipeline.bat"
   # setup.sh/.bat téléchargent le modèle par défaut (--download-chat) : ils doivent

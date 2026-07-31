@@ -31,6 +31,10 @@ services:
       - LLM_THREADS=${LLM_THREADS:-}
       - LLM_BATCH=${LLM_BATCH:-}
       - LLM_PARALLEL=${LLM_PARALLEL:-2}
+      # Arguments bruts pour llama-server (ex. --n-gpu-layers). L'overlay GPU les impose ;
+      # sans ce passe-plat, les renseigner dans .env restait sans effet sous Compose alors
+      # que la documentation les présentait comme le moyen de surcharger l'offload GPU.
+      - LLM_CHAT_EXTRA_ARGS=${LLM_CHAT_EXTRA_ARGS:-}
       - LLM_CHAT_WATCH_INTERVAL=${LLM_CHAT_WATCH_INTERVAL:-10}
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8081/health || exit 1"]
@@ -54,6 +58,7 @@ services:
     environment:
       - LLM_EMBED_MODEL_FILE=${LLM_EMBED_MODEL_FILE:-embed.gguf}
       - LLM_EMBED_PARALLEL=${LLM_EMBED_PARALLEL:-4}
+      - LLM_EMBED_EXTRA_ARGS=${LLM_EMBED_EXTRA_ARGS:-}
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8082/health || exit 1"]
       interval: 30s

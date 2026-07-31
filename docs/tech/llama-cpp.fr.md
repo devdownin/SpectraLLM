@@ -268,7 +268,7 @@ Remplacer le service `ollama` par une infra `llama.cpp`.
 
 ### Points d'attention
 
-- [x] Parametrage memoire / contexte / slots du serveur — `-c ${LLAMA_CHAT_CONTEXT_SIZE:-8192}` et `-np ${LLAMA_CHAT_PARALLELISM:-1}` via `.env`; contrainte: modele fine-tune entraine avec `n_ctx_train=2048`, slots supplementaires necessitent un `CONTEXT_SIZE` proportionnel
+- [x] Parametrage memoire / contexte / slots du serveur — `-c ${LLM_CONTEXT}` et `-np ${LLM_PARALLEL:-2}` via `.env`; `LLM_CONTEXT` est le contexte TOTAL, reparti entre les slots : une requete ne voit que `LLM_CONTEXT / LLM_PARALLEL` tokens, donc ajouter des slots sans augmenter le total retrecit chaque fenetre. Laisse vide, l'entrypoint applique `RECO_SLOT_CONTEXT x LLM_PARALLEL` a partir des hints calcules par l'API
 - [x] Concurrence necessaire pour le generateur de dataset — `-np 1` suffisant; dataset generation utilise les Virtual Threads mais les appels LLM sont sequentiels par lot
 - [x] Gestion differenciee des modeles chat et embedding — 2 services distincts avec volumes et flags differents
 

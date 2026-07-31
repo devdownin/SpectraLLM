@@ -1278,7 +1278,12 @@ public class RagService {
                     false, false, false, false, true);
         }
 
-        int maxContextTokens = props.longContextRag().effectiveMaxContextTokens();
+        // Borné par la fenêtre réellement servie. Le repli ci-dessous protège déjà contre un
+        // corpus plus gros que le budget, mais pas contre un budget plus gros que la fenêtre :
+        // un corpus de 2500 tokens passait le contrôle face à un budget de 3000, pour être
+        // ensuite tronqué par llama.cpp — par le DÉBUT, donc en perdant le prompt système.
+        int maxContextTokens = ContextBudgetValidator.clampContextTokens(
+                props.longContextRag().effectiveMaxContextTokens(), llmClient);
         long totalChars = 0;
         for (String doc : documents) {
             if (doc != null) totalChars += doc.length();

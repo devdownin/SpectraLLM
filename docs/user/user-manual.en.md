@@ -1259,15 +1259,18 @@ curl -X POST http://localhost:8080/api/config/resources/refresh
 If the auto-detected values don't match your usage, you can override them via environment variables in `.env` (at the project root):
 
 ```env
-# Force a 4096-token context for chat
-LLAMA_CHAT_CONTEXT_SIZE=4096
+# Force a TOTAL context of 8192 tokens across 2 slots → 4096 per request
+LLM_CONTEXT=8192
+LLM_PARALLEL=2
 
 # Force 8 CPU threads for chat
-LLAMA_CHAT_THREADS=8
+LLM_THREADS=8
 
-# Disable the GPU for chat (force CPU only)
-LLAMA_CHAT_NGL=0
+# Raw arguments passed to llama-server (e.g. GPU offload)
+LLM_CHAT_EXTRA_ARGS=--n-gpu-layers 99
 ```
+
+> **`LLM_CONTEXT` is the server's TOTAL context**, which llama.cpp splits across its `LLM_PARALLEL` slots: a single request only sees `LLM_CONTEXT / LLM_PARALLEL` tokens. That per-request figure is what every backend budget is measured against. Doubling `LLM_PARALLEL` without doubling `LLM_CONTEXT` halves the window of every conversation.
 
 After modifying `.env`, restart the relevant service:
 
@@ -1279,14 +1282,17 @@ docker compose --project-directory . -f deploy/docker/docker-compose.yml up -d l
 
 | Variable | Description |
 |----------|-------------|
-| `LLAMA_CHAT_CONTEXT_SIZE` | Context window in tokens for chat |
-| `LLAMA_CHAT_THREADS` | Compute threads for chat |
-| `LLAMA_CHAT_NGL` | GPU layers for chat (-1 = all on GPU, 0 = CPU) |
-| `LLAMA_CHAT_FLASH_ATTN` | Flash attention (1 = on) — reduces KV memory by about 2× |
-| `LLAMA_CHAT_PARALLELISM` | Simultaneous conversations (parallel slots) |
-| `LLAMA_CHAT_CPUSET` | CPU cores reserved for chat (e.g. `0-3`) |
-| `LLAMA_EMBED_CPUSET` | CPU cores reserved for embedding (e.g. `4-5`) |
-| `LLAMA_EMBED_THREADS` | Compute threads for embedding |
+| `LLM_CONTEXT` | **Total** context of the chat server, divided by `LLM_PARALLEL` |
+| `LLM_PARALLEL` | Simultaneous conversations (parallel slots) — defaults to `2` |
+| `LLM_THREADS` | Compute threads for chat |
+| `LLM_BATCH` | Batch size (`-b` / `-ub`) |
+| `LLM_CHAT_EXTRA_ARGS` | Raw arguments appended to `llama-server` (e.g. `--n-gpu-layers 99`) |
+| `LLM_CHAT_MODEL_FILE` | GGUF to serve when the registry pointer is missing |
+| `LLM_CHAT_WATCH_INTERVAL` | Model-pointer polling interval, in seconds |
+| `LLM_EMBED_PARALLEL` | Parallel slots of the embedding server |
+| `LLM_EMBED_EXTRA_ARGS` | Raw arguments appended to the embedding server |
+
+Left empty, `LLM_CONTEXT`, `LLM_THREADS` and `LLM_BATCH` take the values computed by the API from the detected resources (see the previous section). Setting them in `.env` forces your value instead.
 
 ### Reference performance (CPU only)
 
@@ -1345,7 +1351,8 @@ docker compose logs spectra-frontend --tail=20   # nginx logs
 
 **The RAG query returns "context exceeded"**
 - Reduce `maxContextChunks` to 2 in your request
-- Or increase `LLAMA_CHAT_CONTEXT_SIZE` in `.env` (dividing by `LLAMA_CHAT_PARALLELISM` to get the per-slot context)
+- Or increase `LLM_CONTEXT` in `.env` — it is the **total** context, to be divided by `LLM_PARALLEL` for the window a request actually sees
+- The `spectra-api` startup logs report the served window and any budget that does not fit (`ContextBudgetValidator`). Those budgets are clamped to what the window can carry, so the query still succeeds — with less context
 
 **Dataset generation stays stuck at 0 pairs**
 ```bash
