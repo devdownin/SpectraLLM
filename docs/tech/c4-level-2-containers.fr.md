@@ -47,7 +47,7 @@ C4Container
     Rel(frontend, api, "REST /api/*\nSSE /api/sse/*", "HTTP :8080")
     Rel(api, ollama, "POST /api/embeddings\nPOST /api/chat\nPOST /api/create", "HTTP :11434")
     Rel(api, chroma, "REST API v2\n/api/v2/collections/*", "HTTP :8000")
-    Rel(api, scripts, "ProcessBuilder\nstdin → stdout", "Sous-processus")
+    Rel(api, scripts, "TrainingRunner\nsi disponible, sinon 503", "Sous-processus")
     Rel(api, fs, "Lecture / Écriture\nPDF · JSONL · adapters · rapports", "I/O fichiers")
 ```
 
