@@ -8,6 +8,19 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Dépendances — résorption de la file Dependabot
+
+Sept PR Dependabot attendaient depuis le 13 juillet. Les fusionner une à une n'était pas possible : les quatre montées frontend touchent toutes `package-lock.json` et **se mettent mutuellement en conflit** par construction. Elles sont donc appliquées ensemble ; Dependabot ferme ses propres PR en constatant les versions déjà en place.
+
+**Frontend** — `vitest` 3.2.7 → 4.1.10, `@vitest/coverage-v8` 3.2.7 → 4.1.10, `@eslint/js` 9.39.4 → 10.0.1, `@types/node` 26.1.0 → 26.1.2.
+
+La montée de `@eslint/js` **corrige une incohérence** plutôt qu'elle n'en introduit : `eslint` était déjà en 10.7.0 face à un `@eslint/js` resté en 9. Les deux paquets sont désormais alignés.
+
+**GitHub Actions** — `download-artifact` 4 → 8, `codeql-action` 3 → 4 (les quatre points d'entrée, `upload-sarif` compris, qui était resté en v3), `scorecard-action` 2.3.1 → 2.4.3, `cache` 4 → 6 dans `dependency-scan.yml`, qui était le seul à ne pas suivre.
+
+> **Limite de vérification.** Les montées frontend sont validées localement : 194 tests, 0 erreur de lint, build. Les montées d'actions ne sont pas testables hors CI — leur validation vient de la première exécution. Elles ne touchent que l'outillage d'intégration, et un échec y est visible et trivialement réversible.
+
+
 ### Corrigé — 36 tests ne vérifiaient rien, et rien ne le disait
 
 ```
