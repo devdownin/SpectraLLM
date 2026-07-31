@@ -8,6 +8,18 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Outillage — une commande pour vérifier, un test pour la parité des manuels
+
+**`scripts/verify.sh`** rejoue localement les contrôles de la CI. Celle-ci exécute huit commandes réparties sur quatre écosystèmes (Maven, npm, pytest, shell) ; sans point d'entrée commun, savoir si un changement passe supposait d'ouvrir `.github/workflows/ci.yml` et de rejouer les commandes à la main.
+
+Le point de conception : **un contrôle sauté est signalé comme tel, jamais compté comme réussi.** `shellcheck` n'était pas installé dans les environnements de développement, et son absence passait totalement inaperçue — le lint des scripts n'était donc jamais exercé avant le push, alors que la CI le fait échouer. Le hook `SessionStart` l'installe désormais, et le script le signale s'il manque quand même.
+
+**`BilingualManualParityTest`** compare la structure des documents publiés en deux langues. Il a immédiatement trouvé sa raison d'être : le manuel utilisateur français décrivait l'interface du Playground en quatre sous-sections — panneau latéral, étapes visibles en direct, actions sous chaque réponse, panneau Trace — **absentes de la version anglaise**. Un lecteur anglophone ne pouvait pas savoir qu'il lui manquait quelque chose. Les sections manquantes ont été écrites.
+
+Le test ne compare que la **séquence des niveaux de titres** — les intitulés sont traduits. C'est volontairement grossier : il n'atteste pas que le contenu est équivalent, seulement que le plan l'est. Une traduction périmée passera ; une section ajoutée d'un seul côté ne passera plus.
+
+**Septième copie du taux caractères/token, en TypeScript.** `frontend/src/lib/ragPipeline.ts` estimait à 4 caractères par token, avec un commentaire affirmant suivre « la convention du backend » — devenu faux dès que le backend est passé à 3,5. Le panneau Trace affichait donc une barre de budget décalée de 14 % par rapport au calcul réel. Aligné, avec un test qui le rappelle explicitement.
+
 ### Simplifications — un seul taux caractères/token, un seul bornage, un rattrapage spéculatif retiré
 
 **La conversion caractères → tokens était définie six fois, avec deux valeurs différentes.** Ce n'était pas qu'une redondance : les budgets de contexte étaient *vérifiés* à 3,5 caractères par token (`ContextBudgetValidator`) et *dépensés* à 4 (`RagService`, `AgenticRagService`, `RagAblationService`, plus deux estimations de métriques). La marge de sécurité de 15 % était donc consommée par le seul écart de taux de change :

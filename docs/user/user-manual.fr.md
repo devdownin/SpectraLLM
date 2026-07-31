@@ -1105,7 +1105,7 @@ Détaille l'exécution de la réponse sélectionnée :
 - **Strategy Applied** : stratégie retenue, nombre de chunks de contexte, et — en mode agentic — nombre d'itérations et raison d'arrêt de la boucle.
 - **Pipeline Timeline** : chronologie **mesurée côté serveur** (durée réelle par étape : routing, retrieval, grading, compression, boucle agentique, génération, réflexion) avec les compteurs (retrieval : N chunks ; grading : `avant→après (−N écartés)` ; etc.). Répond à « où est parti le temps ? ».
 - **Retrieval Funnel** : l'entonnoir des chunks — `Récupérés → après Corrective → après Compression → contexte final` — avec le nombre retiré par chaque étape filtrante. Répond à « où et par quoi les chunks ont-ils été écartés ? ».
-- **Token Budget** : une barre **contexte récupéré (entrée) vs réponse générée (sortie)**, estimée à ~4 caractères/token. Répond à « quelle part du budget est partie dans le contexte plutôt que dans la réponse ? ».
+- **Token Budget** : une barre **contexte récupéré (entrée) vs réponse générée (sortie)**, estimée à ~3,5 caractères/token, comme le backend. Répond à « quelle part du budget est partie dans le contexte plutôt que dans la réponse ? ».
 - **Query Rewriting** : la question autonome effectivement utilisée pour la recherche, quand l'historique a servi à la reformuler.
 - **Optimizations Triggered** : quelles optimisations se sont déclenchées, avec une explication de chacune.
 - **Final Context** : les aperçus des sources réellement envoyées au modèle.
