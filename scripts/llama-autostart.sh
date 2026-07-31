@@ -17,7 +17,8 @@
 #   MODEL_PATH          : chemin vers le fichier GGUF (requis)
 #   MODEL_ALIAS         : alias du modèle (flag -a de llama-server)
 #   LLAMA_MODE          : "chat" ou "embed" (affecte les défauts)
-#   LLAMA_CONTEXT       : taille de la fenêtre de contexte (override)
+#   LLAMA_CONTEXT       : contexte TOTAL du serveur (override) — divisé par
+#                         LLAMA_PARALLELISM pour obtenir la fenêtre par requête
 #   LLAMA_THREADS       : nombre de threads CPU (override)
 #   LLAMA_BATCH         : taille du batch (override)
 #   LLAMA_NGL           : nombre de couches GPU (-1 = toutes) (override)
@@ -129,21 +130,40 @@ else
 fi
 THREADS="${LLAMA_THREADS:-$AUTO_THREADS}"
 
-# Contexte : basé sur la VRAM GPU ou la RAM disponible
-if [ -n "${LLAMA_CONTEXT:-}" ]; then
-  CONTEXT=$LLAMA_CONTEXT
-elif [ "$GPU_TYPE" = "nvidia" ] && [ "$GPU_VRAM_MB" -ge 8192 ]; then
-  CONTEXT=8192
-elif [ "$GPU_TYPE" = "nvidia" ] && [ "$GPU_VRAM_MB" -ge 4096 ]; then
-  CONTEXT=4096
+# ── Contexte ─────────────────────────────────────────────────────────────────
+# `-c` est le contexte TOTAL, que llama.cpp répartit entre les `-np` slots : une
+# requête ne voit que -c / -np tokens. On dimensionne donc la fenêtre PAR SLOT —
+# la seule qui compte fonctionnellement — puis on en déduit le total.
+#
+# LLAMA_CONTEXT, lui, garde sa sémantique de TOTAL explicite : c'est ce que
+# l'utilisateur passe à `-c`, comme LLM_CONTEXT côté Docker.
+#
+# Les paliers du mode chat sont ceux de scripts/lib/llm-sizing.sh (testés par
+# scripts/tests/test_llm_sizing.py) : deux dimensionnements divergents donneraient
+# deux comportements selon le mode de déploiement, pour une machine identique.
+if [ "$MODE" = "embed" ]; then
+  # L'embedding traite un chunk à la fois (512 tokens par défaut, 2048 au plus) :
+  # une fenêtre plus large ne servirait à rien et coûterait du KV cache par slot.
+  SLOT_CONTEXT=2048
 elif [ $RAM_MB -ge 32768 ]; then
-  CONTEXT=4096
+  SLOT_CONTEXT=8192
 elif [ $RAM_MB -ge 16384 ]; then
-  CONTEXT=2048
+  SLOT_CONTEXT=4096
 elif [ $RAM_MB -ge 8192 ]; then
-  CONTEXT=1024
+  SLOT_CONTEXT=2048
 else
-  CONTEXT=512
+  SLOT_CONTEXT=1024
+fi
+
+# Un GPU permet de tenir une fenêtre plus large que ne le laisserait la RAM seule,
+# mais ne doit jamais la réduire (piège de l'ancienne cascade de if/elif, où une
+# petite carte pouvait faire retomber une grosse machine sur un contexte plus court).
+if [ "$MODE" != "embed" ] && [ "$GPU_TYPE" = "nvidia" ]; then
+  if [ "$GPU_VRAM_MB" -ge 8192 ] && [ "$SLOT_CONTEXT" -lt 8192 ]; then
+    SLOT_CONTEXT=8192
+  elif [ "$GPU_VRAM_MB" -ge 4096 ] && [ "$SLOT_CONTEXT" -lt 4096 ]; then
+    SLOT_CONTEXT=4096
+  fi
 fi
 
 # Batch size : influencé par la mémoire disponible
@@ -162,6 +182,14 @@ FLASH_ATTN="${LLAMA_FLASH_ATTN:-1}"
 CACHE_TYPE_K="${LLAMA_CACHE_TYPE_K:-q8_0}"
 CACHE_TYPE_V="${LLAMA_CACHE_TYPE_V:-q8_0}"
 PARALLELISM="${LLAMA_PARALLELISM:-1}"
+
+# Total déduit du parallélisme retenu, pour que chaque slot dispose bien de
+# SLOT_CONTEXT tokens. Avant, ajouter un slot rétrécissait toutes les fenêtres.
+if [ -n "${LLAMA_CONTEXT:-}" ]; then
+  CONTEXT=$LLAMA_CONTEXT
+else
+  CONTEXT=$((SLOT_CONTEXT * PARALLELISM))
+fi
 
 # ── Construction de la commande ───────────────────────────────────────────────
 
@@ -208,7 +236,7 @@ log "  GPU         : $GPU_TYPE (VRAM=${GPU_VRAM_MB}MB) → ngl=$NGL"
 log "══════════════════════════════════════════════"
 log "  Paramètres llama-server"
 log "  mode        : $MODE"
-log "  context     : $CONTEXT tokens"
+log "  context     : $CONTEXT tokens au total ($PARALLELISM slot(s) → $((CONTEXT / PARALLELISM)) par requête)"
 log "  batch       : $BATCH"
 log "  parallelism : $PARALLELISM"
 log "  flash-attn  : $FLASH_ATTN"

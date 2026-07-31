@@ -89,6 +89,67 @@ class ContextBudgetValidatorTest {
         assertThat(ContextBudgetValidator.problems(0, props(99_000, true, 99_000))).isEmpty();
     }
 
+    // ── Bornage des budgets exprimés en tokens (RAG agentique, long-contexte) ─────────────
+
+    @Test
+    void contextBudget_isClampedToTheServedWindow() {
+        // Ces modules découpent déjà fidèlement leur contexte au budget qu'on leur donne.
+        // Le défaut n'était pas l'absence de découpe, mais de découper à une taille que la
+        // fenêtre ne peut pas porter : 3000 tokens respectés à la lettre débordent de 2048.
+        LlmChatClient client = mock(LlmChatClient.class);
+        when(client.servedContextTokens()).thenReturn(java.util.OptionalInt.of(2048));
+
+        int clamped = ContextBudgetValidator.clampContextTokens(3000, client);
+
+        assertThat(clamped).isLessThan(3000);
+        assertThat(clamped).isEqualTo(ContextBudgetValidator.affordableContextTokens(2048));
+    }
+
+    @Test
+    void contextBudget_isLeftAloneWhenItAlreadyFits() {
+        LlmChatClient client = mock(LlmChatClient.class);
+        when(client.servedContextTokens()).thenReturn(java.util.OptionalInt.of(8192));
+
+        assertThat(ContextBudgetValidator.clampContextTokens(3000, client)).isEqualTo(3000);
+    }
+
+    @Test
+    void contextBudget_unknownWindow_appliesTheConfiguredValue() {
+        // Sans information du serveur, on ne restreint pas sur la foi d'une fenêtre supposée.
+        LlmChatClient client = mock(LlmChatClient.class);
+        when(client.servedContextTokens()).thenReturn(java.util.OptionalInt.empty());
+
+        assertThat(ContextBudgetValidator.clampContextTokens(3000, client)).isEqualTo(3000);
+    }
+
+    @Test
+    void unknownWindow_yieldsAnUnboundedTokenBudget_soCallersCanClampUnconditionally() {
+        // Contrat de affordableContextTokens : MAX_VALUE quand la fenêtre est inconnue, ce qui
+        // permet un Math.min sans condition côté appelant.
+        assertThat(ContextBudgetValidator.affordableContextTokens(0)).isEqualTo(Integer.MAX_VALUE);
+    }
+
+    @Test
+    void excerptChars_doNotOverflowOnAnUnknownWindow() {
+        // affordableContextTokens rend MAX_VALUE ; converti en caractères sans garde, cela
+        // débordait. Les appelants garantissent window > 0, mais pas les futurs.
+        assertThat(ContextBudgetValidator.affordableExcerptChars(0)).isPositive();
+    }
+
+    @Test
+    void theTwoBudgetsAgreeOnWhatFits() {
+        // L'extrait de classification et les budgets en tokens dérivent de la même marge :
+        // deux notions de « ce qui tient » donneraient deux diagnostics contradictoires sur
+        // une même machine.
+        int window = 4096;
+        int tokensForExcerpt = (int) (ContextBudgetValidator.affordableExcerptChars(window)
+                / ContextBudgetValidator.CHARS_PER_TOKEN)
+                + ContextBudgetValidator.CLASSIFICATION_OVERHEAD_TOKENS;
+
+        assertThat(tokensForExcerpt)
+                .isLessThanOrEqualTo(ContextBudgetValidator.affordableContextTokens(window));
+    }
+
     @Test
     void marginIsKeptBelowTheHardLimit() {
         // Un budget qui remplit la fenêtre à 95 % est signalé : la réponse du modèle et les

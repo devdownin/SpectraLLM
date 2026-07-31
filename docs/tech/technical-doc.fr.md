@@ -1759,6 +1759,8 @@ volumes:
 
 ### `scripts/llama-autostart.sh` — point d'entrée intelligent des conteneurs llama-server
 
+> **Portée réelle aujourd'hui.** Cette section décrit le point d'entrée historique. Il ne sert plus qu'au **pod d'embedding Kubernetes** (`deploy/k8s/base/05-llama-embed.yaml`). Sous Docker Compose, `llm-chat` et `llm-embed` utilisent respectivement `scripts/llm-chat-entrypoint.sh` et `scripts/llm-embed-entrypoint.sh`, qui suivent le pointeur de modèle du registre et consomment les hints calculés par l'API — voir la section « Contexte, slots et hints » du manuel utilisateur. Les variables `LLAMA_*` décrites ci-dessous ne s'appliquent donc **qu'à ce chemin Kubernetes** ; le chemin Docker utilise les variables `LLM_*`.
+
 Ce script remplace le `command:` statique qui était précédemment codé en dur dans `docker-compose.yml` pour les services `llm-chat` et `llm-embed`. Il est défini comme `entrypoint` de chaque conteneur et s'exécute avant `llama-server`.
 
 **Rôle :** inspecter les ressources disponibles dans le conteneur au moment du démarrage, calculer les paramètres optimaux, puis lancer `llama-server` avec ces paramètres. Les variables d'environnement (définies dans `.env` ou `docker-compose.yml`) prennent toujours la priorité sur les valeurs calculées.
@@ -1796,9 +1798,10 @@ Ce script remplace le `command:` statique qui était précédemment codé en dur
    cacheTypeK = cacheTypeV = q8_0 (sauf NVIDIA haute VRAM → iq4_nl)
 
 5. Surcharge par variables d'environnement
-   LLAMA_CHAT_CONTEXT_SIZE → écrase context_size calculé
-   LLAMA_CHAT_THREADS      → écrase threads calculé
-   LLAMA_CHAT_NGL          → écrase ngl calculé
+   LLAMA_CONTEXT     → écrase context_size calculé
+   LLAMA_THREADS     → écrase threads calculé
+   LLAMA_NGL         → écrase ngl calculé
+   LLAMA_PARALLELISM → slots -np (défaut 1)
    (et toutes les autres variables du tableau d'overrides)
 
 6. Résumé imprimé dans les logs Docker
@@ -1871,7 +1874,7 @@ Flash Attention est un algorithme de calcul de l'attention (Vaswani et al.) qui 
 
 Pour l'embedding, Flash Attention est désactivé car le modèle `nomic-embed-text` ne génère pas de KV cache long (chaque chunk est indépendant), et certaines architectures d'embedding ne sont pas compatibles avec ce mode.
 
-**Variable de contrôle :** `LLAMA_CHAT_FLASH_ATTN=1` (ou `0` pour désactiver).
+**Variable de contrôle :** `LLAMA_FLASH_ATTN=1` (ou `0` pour désactiver).
 
 ### Quantization du cache KV (`--cache-type-k`, `--cache-type-v`)
 
@@ -1885,7 +1888,7 @@ Par défaut, llama-server stocke le cache KV en `f16` (flottants 16 bits). Les o
 
 Le choix `q8_0` offre le meilleur rapport entre réduction mémoire et fidélité des réponses. Avec `iq4_nl` (NVIDIA haute VRAM), on réduit encore la mémoire KV pour augmenter la taille de contexte servable, au prix d'une légère dégradation de précision acceptable en RAG.
 
-**Variables de contrôle :** `LLAMA_CHAT_CACHE_TYPE_K` et `LLAMA_CHAT_CACHE_TYPE_V`.
+**Variables de contrôle :** `LLAMA_CACHE_TYPE_K` et `LLAMA_CACHE_TYPE_V`.
 
 ### CPU Pinning via `cpuset`
 
@@ -1902,17 +1905,28 @@ llm-embed:
   cpuset: "4-5"    # cœurs 4, 5 pour l'embedding
 ```
 
-**Pourquoi cette répartition ?** Le chat est plus demandeur en calcul (génération autoregressive token par token) → 4 cœurs. L'embedding est plus simple (un seul passage en avant par chunk) → 2 cœurs suffisent. Sur une machine à moins de 6 cœurs, supprimez les variables `LLAMA_CHAT_CPUSET` et `LLAMA_EMBED_CPUSET` pour laisser le scheduler OS décider.
+**Pourquoi cette répartition ?** Le chat est plus demandeur en calcul (génération autoregressive token par token) → 4 cœurs. L'embedding est plus simple (un seul passage en avant par chunk) → 2 cœurs suffisent. Sur une machine à moins de 6 cœurs, supprimez les `cpuset` des manifestes pour laisser le scheduler OS décider (il n'existe pas de variable d'environnement pour cela : l'épinglage se déclare au niveau du conteneur).
 
-### Réduction du contexte par défaut (2048 tokens)
+### Dimensionnement du contexte : la fenêtre par requête
 
-La valeur `LLAMA_CHAT_CONTEXT_SIZE=2048` peut sembler conservatrice, mais elle est justifiée par plusieurs contraintes :
+**`LLM_CONTEXT` est le contexte TOTAL du serveur**, que llama.cpp répartit entre ses `LLM_PARALLEL` slots. Une requête ne voit que `LLM_CONTEXT / LLM_PARALLEL` tokens, et c'est cette valeur-là — jamais le total — qui doit contenir les budgets du backend.
 
-1. **Plafond d'entraînement** : le modèle fine-tuné standard est entraîné sur des séquences de 2048 tokens. Au-delà, la qualité de génération se dégrade (interpolation de position hors distribution).
-2. **Usage RAG** : avec `maxContextChunks=2`, le prompt complet (system + 2 chunks + question + réponse) consomme ~1500 tokens. Un contexte de 2048 est suffisant.
-3. **Mémoire** : le KV cache croît linéairement avec la taille de contexte. Réduire de 8192 à 2048 réduit la consommation mémoire d'un facteur 4, ce qui permet de faire tourner le service sur des machines avec 4–8 Go de RAM.
+Le dimensionnement automatique (`scripts/lib/llm-sizing.sh`, et son pendant Java `ResourceAdvisorService`) part donc de la fenêtre par requête visée, puis en déduit le total :
 
-Pour des contextes plus longs, utilisez un modèle de base avec une fenêtre plus large (ex. Phi-4-mini → 4096 tokens) et augmentez `LLAMA_CHAT_CONTEXT_SIZE=4096`.
+| RAM disponible | Fenêtre par requête | Enveloppe totale |
+|----------------|---------------------|------------------|
+| ≥ 32 Go | 8192 | 32768 |
+| ≥ 16 Go | 4096 | 16384 |
+| ≥ 8 Go | 2048 | 4096 |
+| < 8 Go | 1024 | 2048 |
+
+Le parallélisme suit le nombre de cœurs (moitié, plafonné à 8) mais **est ensuite borné par l'enveloppe**, pour que la fenêtre par requête ne soit jamais rognée. Sur du CPU, deux conversations à 4096 tokens valent mieux que huit à 512.
+
+**Contraintes qui fixent ces paliers :**
+
+1. **Mémoire** : le KV cache croît linéairement avec le contexte total. C'est lui qui borne l'enveloppe, et non la fenêtre par requête.
+2. **Modèle** : le contexte servi ne peut pas dépasser le `n_ctx_train` du GGUF. Le défaut actuel (Qwen2.5-7B-Instruct) accepte 32768 tokens, la contrainte vient donc de la machine, pas du modèle. Un fine-tune entraîné sur 2048 tokens, lui, se dégraderait au-delà (interpolation de position hors distribution).
+3. **Budgets du backend** : extrait de classification (~2200 tokens), RAG agentique (3000), RAG long-contexte (3000). Chacun est confronté à la fenêtre réellement servie au démarrage (`ContextBudgetValidator`, qui lit `/props`) puis **ramené d'office** à ce qu'elle peut porter. Un dépassement ne produirait aucune erreur : llama.cpp tronque le **début** de la requête, donc le prompt système, et le modèle répond hors format.
 
 ---
 

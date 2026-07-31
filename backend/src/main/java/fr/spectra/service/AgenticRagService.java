@@ -211,8 +211,13 @@ public class AgenticRagService {
 
         int maxIterations = props.agenticRag() != null
                 ? props.agenticRag().effectiveMaxIterations() : 3;
-        int maxContextTokens = props.agenticRag() != null
-                ? props.agenticRag().effectiveMaxContextTokens() : 3000;
+        // Borné par la fenêtre réellement servie : fitToContextBudget découpe fidèlement au
+        // budget qu'on lui donne, mais un budget de 3000 tokens respecté à la lettre déborde
+        // tout autant d'une fenêtre de 2048 — et llama.cpp tronque alors le DÉBUT de la
+        // requête, donc le prompt système, sans lever d'erreur.
+        int maxContextTokens = ContextBudgetValidator.clampContextTokens(
+                props.agenticRag() != null ? props.agenticRag().effectiveMaxContextTokens() : 3000,
+                llmClient);
 
         String collectionName = request.collection() != null ? request.collection()
                 : (props.chromadb() != null ? props.chromadb().effectiveCollection() : "spectra_documents");

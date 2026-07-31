@@ -103,8 +103,41 @@ public class ContextBudgetValidator {
      * classification médiocre et un avertissement lisible qu'un extrait vide.</p>
      */
     static int affordableExcerptChars(int window) {
-        int safe = (int) (window * SAFE_FRACTION);
-        return Math.max(500, (int) ((safe - CLASSIFICATION_OVERHEAD_TOKENS) * CHARS_PER_TOKEN));
+        // Fenêtre inconnue : affordableContextTokens rend MAX_VALUE, qui n'a pas de sens
+        // converti en caractères. Les appelants garantissent window > 0 ; on ne laisse pas
+        // pour autant un débordement possible derrière eux.
+        if (window <= 0) return 500;
+        return Math.max(500, (int) ((affordableContextTokens(window) - CLASSIFICATION_OVERHEAD_TOKENS)
+                * CHARS_PER_TOKEN));
+    }
+
+    /**
+     * Budget de contexte en tokens qui tient dans {@code window}, marge comprise.
+     *
+     * <p>Pendant du précédent pour les modules qui raisonnent directement en tokens — RAG
+     * agentique, RAG long-contexte. Ces deux-là <b>tronquent déjà</b> leur contexte à leur
+     * budget configuré ; le défaut n'était pas l'absence de découpe mais le fait de découper
+     * à une taille que la fenêtre ne peut pas porter. Un budget de 3000 tokens soigneusement
+     * respecté déborde tout autant d'une fenêtre de 2048.</p>
+     *
+     * <p>{@code window <= 0} (fenêtre inconnue) rend {@link Integer#MAX_VALUE} : l'appelant
+     * peut appliquer {@code Math.min} sans condition et conserve alors sa valeur configurée.</p>
+     */
+    static int affordableContextTokens(int window) {
+        if (window <= 0) return Integer.MAX_VALUE;
+        return Math.max(256, (int) (window * SAFE_FRACTION));
+    }
+
+    /**
+     * Budget de contexte effectivement applicable : le minimum entre ce qui est configuré et
+     * ce que le serveur peut servir. Sans information du serveur, la valeur configurée passe
+     * telle quelle — mieux vaut le comportement demandé qu'une restriction fondée sur une
+     * fenêtre supposée.
+     */
+    static int clampContextTokens(int configured, LlmChatClient chatClient) {
+        OptionalInt window = chatClient.servedContextTokens();
+        if (window.isEmpty()) return configured;
+        return Math.min(configured, affordableContextTokens(window.getAsInt()));
     }
 
     /**

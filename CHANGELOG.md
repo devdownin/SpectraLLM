@@ -8,6 +8,18 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Contexte — les trois budgets s'ajustent, la quatrième copie du calcul est alignée, la documentation cesse de mentir
+
+Suite et fin du travail sur la fenêtre de contexte. Le précédent correctif n'en traitait qu'un tiers, et le reste s'est révélé pire que prévu.
+
+**Les deux autres budgets étaient restés au stade de l'avertissement.** `AgenticRagService` et `RagService` (long-contexte) lisent un budget en tokens et s'y tiennent scrupuleusement — mais ce budget n'était confronté à rien. Un contexte agentique de 3000 tokens respecté à la lettre déborde tout autant d'une fenêtre de 2048. Les deux sont désormais bornés par la fenêtre servie, via le même helper que la classification (`ContextBudgetValidator.clampContextTokens`). Le cas du long-contexte est instructif : son repli protégeait déjà contre un corpus plus gros que le budget, mais pas contre un budget plus gros que la fenêtre — un corpus de 2500 tokens passait le contrôle face à un budget de 3000, pour être ensuite tronqué par llama.cpp.
+
+**Il y avait quatre implémentations du dimensionnement, pas trois.** `scripts/llama-autostart.sh`, entrypoint du pod d'embedding Kubernetes, portait ses propres paliers — la moitié des valeurs alignées (32 Go → 4096 au lieu de 8192) — et traitait `-c` comme une fenêtre par requête alors que c'est un total. Il dérive maintenant le total du parallélisme, et ses paliers du mode chat sont ceux de la bibliothèque, vérifiés par `test_llm_sizing.py` comme ceux de `detect-env.bat`. Le mode embed garde délibérément une fenêtre fixe de 2048 : un chunk fait 512 tokens, une fenêtre plus large ne servirait qu'à consommer du cache KV par slot.
+
+**La documentation prescrivait des variables qui n'existent nulle part.** `LLAMA_CHAT_CONTEXT_SIZE`, `LLAMA_CHAT_PARALLELISM`, `LLAMA_CHAT_NGL`, `LLAMA_CHAT_THREADS`, `LLAMA_CHAT_CPUSET`, `LLAMA_CHAT_FLASH_ATTN` apparaissaient dans les deux manuels utilisateur et deux documents techniques. Aucune n'existe dans le code — la stack utilise `LLM_*`, et le chemin Kubernetes `LLAMA_*` sans le segment `CHAT`. Le pire cas : *« La requête RAG retourne "contexte dépassé" → augmentez `LLAMA_CHAT_CONTEXT_SIZE` »*, soit exactement le symptôme traité dans cette série de correctifs, avec un remède sans effet. Tous les tableaux de variables sont refaits d'après le code, et la section de `technical-doc.fr.md` qui décrivait `llama-autostart.sh` comme l'entrypoint de Docker Compose porte désormais sa portée réelle.
+
+**Deux passe-plats manquants dans Compose.** `LLM_CHAT_EXTRA_ARGS` et `LLM_EMBED_EXTRA_ARGS` n'étaient transmis que par l'overlay GPU : les renseigner dans `.env` restait sans effet, alors que la documentation les présentait comme le moyen de surcharger l'offload GPU. `check-model-defaults.sh` couvre en outre `llm-embed-entrypoint.sh`, qui lui échappait bien qu'il nomme le GGUF d'embedding.
+
 ### Classification — l'extrait s'ajuste à la fenêtre servie au lieu de la dépasser
 
 Le contrôle de budget introduit précédemment a immédiatement produit son diagnostic en conditions réelles, sur le runner d'intégration continue :
