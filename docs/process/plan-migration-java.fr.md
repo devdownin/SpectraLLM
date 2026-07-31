@@ -187,7 +187,7 @@ la migration, et la seule trace qui survivra à la suppression du service Python
 
 | Fichier | Action |
 |---|---|
-| `backend/src/main/resources/application.yml:140` | `engine: ${SPECTRA_RERANKER_ENGINE:onnx}` |
+| ~~`application.yml` — défaut du moteur~~ | ✅ **fait** — `enabled: true` + `engine: onnx` (D1/option b). ⚠️ La validation de parité (étapes 1-3) devient donc un **bloquant de release**, pas une étape interne au lot |
 | `deploy/docker/docker-compose.yml` | supprimer le service `reranker`, le profil, le volume `reranker-model-cache`, `SPECTRA_RERANKER_URL` |
 | `services/reranker/` | supprimer (73 lignes prod + 145 test) |
 | `.github/workflows/ci.yml:172` | matrice `[docparser, reranker]` → `[docparser]` |
@@ -396,8 +396,8 @@ installations ayant explicitement activé le reranking, qui devront provisionner
 
 | Option | Effet | Retenue |
 |---|---|---|
-| **a.** `--download-reranker` dans `setup.sh`/`.bat`, `enabled` reste `false` | l'utilisateur choisit ; aucune régression | ✅ **oui** |
-| **b.** idem + `enabled: true` par défaut | atteindrait le critère « pile complète » | reportée (cf. ci-dessous) |
+| **a.** `--download-reranker` dans `setup.sh`/`.bat`, `enabled` reste `false` | l'utilisateur choisit | livrée, puis étendue par (b) |
+| **b.** idem + `enabled: true` par défaut | atteint le critère « pile complète » | ✅ **retenue** |
 | **c.** ne rien provisionner | critère non atteint | non |
 
 #### Ce qui est livré
@@ -433,20 +433,70 @@ figurait dans `.env.example` — il ne se manifestait que sur un `.env` édité 
 clés optionnelles le rendait systématique. Corrigé (`|| true`), vérifié sur les trois cas : clé
 absente, clé présente, `.env` absent.
 
-#### Reste à faire — une étape de *release*, pas de développement
+#### Option (b) — le reranking devient actif par défaut
 
-Publier l'artefact ONNX comme asset de release et renseigner son URL dans la documentation
-d'installation. Tant que ce n'est pas fait, `--download-reranker` exige que l'opérateur
-fournisse lui-même l'URL — comportement correct et explicite, mais pas encore « clé en main ».
+`spectra.reranker.enabled` passe à **`true`** et `spectra.reranker.engine` à **`onnx`**, dans
+`application.yml`, `docker-compose.yml` et `.env.example`. Le critère *« `docker compose up`
+sans profil = pile complète, reranking inclus »* est atteint.
 
-#### Option (b) — reportée, avec son critère de réévaluation
+**Les deux défauts sont indissociables.** Activer le reranking en laissant `engine: http`
+appellerait le conteneur `reranker`, qui vit derrière un profil Compose et n'est donc **pas
+démarré** — un appel voué à l'échec à chaque requête. `onnx` n'a aucune dépendance de service :
+sans artefact, il se déclare simplement indisponible.
 
-Passer `enabled: true` par défaut atteindrait le critère *« `docker compose up` = pile complète,
-reranking inclus »*, au prix de ~0,5 Go au premier lancement. **À réévaluer après mesure de
-l'empreinte mémoire réelle** : `mMiniLMv2-L12-H384` étant distillé de XLM-R, sa matrice
-d'embeddings (~250 k × 384) domine sa taille, et ONNX Runtime alloue **en natif** — la contrainte
-n'est donc pas `-Xmx` mais la limite mémoire du conteneur. Décider avant d'avoir mesuré serait
-un pari sur le poste le plus modeste du parc.
+##### Ce qui rend l'activation par défaut sûre — et sans quoi elle serait une régression
+
+Le moteur ONNX enregistre son bean même sans artefact, délibérément, pour que `/api/status`
+publie la cause au lieu de taire la panne. Mais `RagService` décidait d'utiliser le reranker sur
+la seule **présence** du bean. Combiné à `enabled: true`, cela produisait une régression
+permanente sur toute installation sans artefact — à **chaque** requête :
+
+1. sur-extraction de `topCandidates` candidats auprès de ChromaDB (20 au lieu de 5) ;
+2. échec du reranking ;
+3. troncature au nombre voulu ;
+4. un avertissement journalisé.
+
+Le résultat restait *correct* — c'est précisément ce qui rendait le défaut coûteux et invisible.
+
+**Correctif** : `RerankerClient.isAvailable()` (défaut `true`, surchargé par le moteur ONNX pour
+refléter le chargement effectif), et `RagService` qui distingue **présent** de **utilisable**.
+Une installation sans artefact se comporte désormais exactement comme une installation sans
+reranking — sans sur-coût, sans bruit — tout en restant diagnosticable sur `/api/status`.
+
+Le défaut `true` de `isAvailable()` est délibéré : une implémentation distante ne peut pas
+répondre sans appel réseau, et doit donc être tentée puis échouer. Le moteur `http` est inchangé.
+
+`RagServiceRerankerAvailabilityTest` (7 tests) fige la propriété. Vérifié en annulant le
+correctif : 4 des 7 échouent, dont celui qui mesure la sur-extraction.
+
+##### Effet réel aujourd'hui : aucun — et c'est voulu
+
+`SPECTRA_RERANKER_ONNX_URL` n'ayant pas de valeur par défaut, une installation neuve n'obtient
+pas d'artefact et le reranking reste donc inactif *de fait*. **La bascule ne prend effet que le
+jour où l'artefact est publié** — ce qui la rend sûre à intégrer maintenant, et auto-activante
+ensuite.
+
+`start.sh --first-run` / `start.bat` ne demandent l'artefact **que si une source est
+configurée** : sinon `--download-reranker` signalerait une erreur légitime pour une demande
+explicite, et ferait passer tout premier lancement pour incomplet alors que rien n'est cassé.
+
+#### Reste à faire — deux prérequis avant que la bascule ne morde
+
+1. **Valider la parité du moteur ONNX** (lot 2, étapes 1-3). Le défaut route désormais les
+   utilisateurs vers ONNX : la validation de parité n'est plus une étape du lot 2, c'est un
+   **bloquant de release**. Publier un artefact avant qu'elle ait tourné exposerait tout le parc
+   à un classement non vérifié.
+2. **Publier l'artefact ONNX** comme asset de release et renseigner son URL dans la
+   documentation d'installation.
+
+Dans cet ordre. L'inversion est le seul vrai risque de cette décision.
+
+##### Empreinte mémoire — à mesurer à l'étape 1
+
+`mMiniLMv2-L12-H384` étant distillé de XLM-R, sa matrice d'embeddings (~250 k × 384) domine sa
+taille (~0,5 Go en fp32, à confirmer sur l'artefact réel). ONNX Runtime alloue **en natif** : la
+contrainte n'est donc pas `-Xmx` mais la limite mémoire du conteneur `spectra-api`. À relever
+pendant la validation de parité, et à documenter avant publication.
 
 ### D2 — Quel écart de qualité PDF est acceptable ? *(bloque lot 3, fusion)*
 

@@ -1052,7 +1052,7 @@ périmètre par décision (§0), et la dernière ligne mesure ce qu'ils laissent
 - [ ] **0 ligne de Python de production** dans `backend/`, `services/`, `scripts/` — *1 284 lignes (222 chemin de requête + 1 062 fine-tuning)*
 - [ ] `spectra-api` sert une requête sans qu'aucun processus Python ne tourne — *déjà vrai si les deux profils sont éteints ; le sera inconditionnellement après les lots 2 et 3*
 - [ ] 0 image Docker Python construite par le dépôt — *2 restantes (`docparser`, `reranker`), ChromaDB restant une dépendance amont*
-- [ ] `docker compose up` sans profil = pile complète, reranking et layout-aware inclus — *les deux sont derrière les profils `reranker` et `layout-parser`*
+- [ ] `docker compose up` sans profil = pile complète, reranking et layout-aware inclus — *reranking : défauts basculés sur `enabled=true` / `engine=onnx` (décision D1, option b), effectif dès la publication de l'artefact ONNX ; layout-aware : encore derrière le profil `layout-parser` (lot 3)*
 - [ ] fine-tuning explicitement signalé indisponible quand aucun runner n'est configuré, au lieu d'échouer à mi-course — *F1, lot 4a*
 - [x] ~~fine-tuning déployable en Kubernetes (`Job`)~~ — *critère retiré : le support Kubernetes n'existe plus (P3)*
 - [x] **Coût résiduel accepté** : 1 job de CI (`pytest` sur `scripts/tests`), 1 section `python` dans `verify.sh`, 363 lignes de tests d'outillage — *décision §0, à ne pas compter comme un échec des critères ci-dessus*

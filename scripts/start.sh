@@ -44,7 +44,17 @@ echo "╚═══════════════════════�
 if [[ -n "$FIRST_RUN" ]]; then
     echo ""
     echo "► Premier lancement : configuration initiale + téléchargement des modèles..."
-    bash "$SCRIPT_DIR/setup.sh" --download-embed --download-chat
+    # Le reranking est actif par défaut, mais son artefact ONNX n'a pas de source
+    # universelle (cf. SPECTRA_RERANKER_ONNX_URL). On ne le demande donc que si une source
+    # est configurée : sans cela, --download-reranker signalerait une erreur légitime pour
+    # une demande explicite, et ferait passer tout premier lancement pour incomplet alors
+    # que l'absence d'artefact n'a aucune conséquence fonctionnelle.
+    SETUP_ARGS=(--download-embed --download-chat)
+    if [[ -n "${SPECTRA_RERANKER_ONNX_URL:-}" ]] \
+       || grep -qE '^SPECTRA_RERANKER_ONNX_URL=.+' .env 2>/dev/null; then
+        SETUP_ARGS+=(--download-reranker)
+    fi
+    bash "$SCRIPT_DIR/setup.sh" "${SETUP_ARGS[@]}"
 fi
 
 # 1. Créer les répertoires de données

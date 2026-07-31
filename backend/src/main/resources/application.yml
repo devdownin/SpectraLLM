@@ -127,17 +127,33 @@ spectra:
     top-bm25: ${SPECTRA_HYBRID_BM25_TOP:20}
     bm25-weight: ${SPECTRA_HYBRID_BM25_WEIGHT:1.0}
   reranker:
-    enabled: ${SPECTRA_RERANKER_ENABLED:false}
+    # Actif par défaut depuis la décision D1/option (b) (docs/process/plan-migration-java.fr.md) :
+    # « docker compose up » doit livrer la pile complète, reranking compris.
+    #
+    # Activer par défaut n'est sûr que parce que l'absence d'artefact est traitée comme une
+    # absence de reranker, et non comme un reranker en panne : RerankerClient.isAvailable()
+    # renvoie false, RagService cesse de sur-extraire des candidats, et le comportement est
+    # exactement celui d'une installation sans reranking. La cause reste lisible sur
+    # /api/status. Sans cette distinction, une installation sans artefact paierait une
+    # sur-extraction et un avertissement à CHAQUE requête.
+    enabled: ${SPECTRA_RERANKER_ENABLED:true}
     base-url: ${SPECTRA_RERANKER_URL:http://reranker:8000}
     model: ${SPECTRA_RERANKER_MODEL:cross-encoder/mmarco-mMiniLMv2-L12-H384-v1}
     timeout-seconds: ${SPECTRA_RERANKER_TIMEOUT:30}
     top-candidates: ${SPECTRA_RERANKER_TOP_CANDIDATES:20}
-    # Moteur : « http » (microservice Python services/reranker) ou « onnx » (Cross-Encoder
-    # exécuté DANS la JVM via ONNX Runtime, sans conteneur ni Python — cf.
-    # docs/process/audit-python-java.fr.md). Reste sur « http » par défaut : le moteur ONNX
-    # exige un artefact de modèle local, et la bascule doit être validée par le harnais de
-    # parité (RerankerParityTest) avant d'être imposée aux installations existantes.
-    engine: ${SPECTRA_RERANKER_ENGINE:http}
+    # Moteur : « onnx » (Cross-Encoder exécuté DANS la JVM via ONNX Runtime, sans conteneur ni
+    # Python) ou « http » (microservice Python services/reranker, profil compose « reranker »,
+    # en cours de retrait — cf. docs/process/audit-python-java.fr.md).
+    #
+    # Défaut « onnx » : il découle de « enabled: true » ci-dessus. Avec « http », un reranking
+    # actif par défaut appellerait un conteneur qui n'est PAS démarré sans son profil — un appel
+    # voué à l'échec à chaque requête. « onnx » n'a pas de dépendance de service : sans artefact
+    # il se déclare simplement indisponible.
+    #
+    # ⚠️ La parité d'ordre du moteur ONNX (RerankerParityTest sur modèle réel) reste à valider :
+    # tant qu'elle ne l'est pas, ne publiez pas d'artefact par défaut — voir le plan de migration,
+    # lot 2. Un artefact absent est sans danger ; un artefact non validé, non.
+    engine: ${SPECTRA_RERANKER_ENGINE:onnx}
     onnx:
       # Répertoire contenant model.onnx et tokenizer.json. Même convention que les GGUF :
       # un artefact déposé dans le volume des modèles, pas un fichier versionné.

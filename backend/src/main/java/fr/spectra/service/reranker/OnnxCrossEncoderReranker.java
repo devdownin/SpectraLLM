@@ -124,6 +124,15 @@ public class OnnxCrossEncoderReranker implements RerankerClient, AutoCloseable {
         return loadError == null && session != null;
     }
 
+    /**
+     * Un moteur dont l'artefact n'a pas pu être chargé n'est pas utilisable — et doit le dire
+     * avant que {@code RagService} ne sur-extraie des candidats pour lui.
+     */
+    @Override
+    public boolean isAvailable() {
+        return isLoaded();
+    }
+
     @Override
     public ServiceStatus checkHealth() {
         if (!isLoaded()) {

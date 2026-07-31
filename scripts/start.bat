@@ -43,7 +43,20 @@ REM  0. Premier lancement : setup complet (repertoires, .env, modeles)
 if defined FIRST_RUN (
     echo.
     echo ^> Premier lancement : configuration initiale + telechargement des modeles...
-    call "%SCRIPT_DIR%setup.bat" --download-embed --download-chat
+    REM  Le reranking est actif par defaut, mais son artefact ONNX n'a pas de source
+    REM  universelle : on ne le demande que si SPECTRA_RERANKER_ONNX_URL est configuree,
+    REM  sinon tout premier lancement passerait pour incomplet sans rien de casse.
+    REM  Miroir de la meme logique dans start.sh.
+    set "SETUP_ARGS=--download-embed --download-chat"
+    if not "%SPECTRA_RERANKER_ONNX_URL%"=="" (
+        set "SETUP_ARGS=!SETUP_ARGS! --download-reranker"
+    ) else (
+        if exist ".env" (
+            findstr /r /c:"^SPECTRA_RERANKER_ONNX_URL=..*" ".env" >nul 2>&1 ^
+                && set "SETUP_ARGS=!SETUP_ARGS! --download-reranker"
+        )
+    )
+    call "%SCRIPT_DIR%setup.bat" !SETUP_ARGS!
 )
 
 REM  1. Creer les repertoires de donnees
