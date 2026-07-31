@@ -119,13 +119,39 @@ Retirer le bean décorateur. Aucun appelant ne le référence (il satisfait `Rer
 
 **État réel : le code est écrit.** Sont livrés le moteur (`OnnxCrossEncoderReranker`), le
 harnais de parité, six classes de test et trois de support. **Ce lot n'est pas un lot de
-développement — c'est un lot de validation et de retrait.**
+développement — c'est un lot de production d'artefact et de retrait.**
 
-**Prérequis** : lot 2 bis + une machine avec accès à `huggingface.co`.
-**Effort** : 2 j, dont ~1 j d'attente machine. **Risque** : moyen, entièrement couvert par la
-mesure de parité.
+**Prérequis** : lot 2 bis + une machine ayant le modèle en cache (accès à `huggingface.co`, ou
+volume `reranker-model-cache` d'une installation ayant déjà servi).
+**Effort** : ~0,5 j. **Risque** : moyen, et **non couvert** depuis la levée du contrôle de
+parité — voir ci-dessous.
 
-### Étape 1 — Capturer la référence *(bloquant, non technique)*
+### Parité ONNX : contrôle levé
+
+**Décision.** La comparaison d'ordre entre le service Python et le moteur ONNX (étapes 1 et 3
+ci-dessous) **ne sera pas faite**. Arbitrage pris en connaissance de cause : il n'y a pas encore
+de base d'utilisateurs à protéger, et le coût du contrôle — lever la pile Python, construire une
+image de 2,5 Go, capturer une référence — n'est pas justifié par le risque encouru à ce stade.
+
+**Ce que ce contrôle protégeait, et qui n'est plus couvert.** Une divergence de classement entre
+les deux moteurs ne provoque **aucune erreur** : le reranking ne tombe pas en panne, il classe
+moins bien. C'est le mode de panne le plus discret du projet — pas d'exception, pas de log, pas
+d'alerte, juste des réponses un peu moins pertinentes. C'était précisément la raison d'être du
+harnais.
+
+**Ce qui reste comme filet, à coût nul.** Le benchmark qualité (`spectra.benchmark`,
+`QualityBenchmarkService`) mesure la pertinence de bout en bout et détecterait une régression
+grossière. Il est plus lâche que la comparaison d'ordre — il ne verra pas une permutation
+mineure — mais il ne demande aucune infrastructure Python. **Le lancer avant et après la
+publication de l'artefact est la vérification recommandée en remplacement.**
+
+**Ce qui est conservé.** `RerankerParityTest` et son corpus **restent dans le dépôt** : ils ne
+coûtent rien (leurs garde-fous tournent déjà en CI contre des rerankers factices) et redeviennent
+utilisables tels quels le jour où une base installée justifiera la mesure — avant une release
+large, ou à un changement de modèle. Les étapes 1 et 3 ci-dessous sont conservées pour ce
+scénario, marquées comme facultatives.
+
+### Étape 1 — Capturer la référence *(facultative — contrôle levé)*
 
 `backend/src/test/resources/reranker-parity/` n'existe pas. Tant qu'il est absent,
 `RerankerParityTest` **se neutralise par `Assumptions`** : la suite est verte sans avoir rien
@@ -160,34 +186,54 @@ docker run --rm -v spectra_reranker-model-cache:/cache -v "$PWD/data/models:/out
       --task text-classification /out/reranker"
 ```
 
-Exporter depuis le modèle **déjà servi** garantit que la comparaison de parité porte sur le même
-modèle — condition de sa validité.
+Exporter depuis le modèle **déjà servi** garantit que l'artefact publié est bien celui que la
+stack utilisait — et, si la parité est mesurée un jour, que la comparaison porte sur le même
+modèle.
 
-### Étape 3 — Vérifier
+**C'est la seule étape réellement obligatoire du lot** : sans artefact, il n'y a rien à publier,
+et l'URL par défaut continuera de renvoyer une 404.
+
+Une fois l'artefact produit, un contrôle de fumée à coût nul vaut la peine — il ne prouve pas la
+parité, mais il prouve qu'`OrtSession.run` s'exécute sur ce modèle plutôt que d'échouer au
+premier rerank :
+
+```bash
+# Reranking actif par défaut : démarrer la pile suffit.
+curl -s localhost:8080/api/status | grep -A3 reranker   # available=true attendu
+```
+
+### Étape 3 — Vérifier la parité *(facultative — contrôle levé)*
 
 ```bash
 mvn test -Dtest=RerankerParityTest -Dreranker.parity.verify=onnx:./data/models/reranker
 ```
 
-C'est **ce lancement** qui transforme « code livré » en « code prouvé » : tant qu'il n'a pas
-tourné, `OrtSession.run` n'a jamais vu un modèle réel.
+C'est ce lancement qui transformerait « code livré » en « code prouvé ». **Il ne sera pas fait**
+(voir « Parité ONNX : contrôle levé ») ; la commande est conservée pour le jour où la mesure
+redeviendra justifiée. Critères de lecture, inchangés :
 
 - Écart d'**ordre** → bloquant. Diagnostiquer avant d'aller plus loin.
 - Écart de **score** seul → acceptable si l'activation diffère ; relancer avec
   `-Dreranker.parity.scores=ignore` pour l'assumer explicitement. L'inverse — accepter une
   permutation parce que « les scores sont proches » — est une régression invisible.
 
-### Étape 4 — Mesurer
+### Étape 4 — Mesurer *(devenue la vérification principale)*
 
-Rejouer le benchmark qualité (`spectra.benchmark`) et relever `spectra.reranker.latency` (lot
-2 bis) sur les deux moteurs. **Publier l'écart dans la PR** : c'est la justification chiffrée de
-la migration, et la seule trace qui survivra à la suppression du service Python.
+Rejouer le benchmark qualité (`spectra.benchmark`) **avant et après** la publication de
+l'artefact, et relever `spectra.reranker.latency` (lot 2 bis). **Publier l'écart dans la PR** :
+c'est la justification chiffrée de la migration, et la seule trace qui survivra à la suppression
+du service Python.
+
+Le contrôle de parité étant levé, cette étape n'est plus une confirmation parmi d'autres —
+**c'est le seul garde-fou restant** contre une régression de pertinence. Il est plus lâche
+qu'une comparaison d'ordre (il ne verra pas une permutation mineure), mais il ne demande aucune
+infrastructure Python, et il porte sur ce qui compte réellement : la qualité des réponses.
 
 ### Étape 5 — Basculer et retirer
 
 | Fichier | Action |
 |---|---|
-| ~~`application.yml` — défaut du moteur~~ | ✅ **fait** — `enabled: true` + `engine: onnx` (D1/option b). ⚠️ La validation de parité (étapes 1-3) devient donc un **bloquant de release**, pas une étape interne au lot |
+| ~~`application.yml` — défaut du moteur~~ | ✅ **fait** — `enabled: true` + `engine: onnx` (D1/option b) |
 | `deploy/docker/docker-compose.yml` | supprimer le service `reranker`, le profil, le volume `reranker-model-cache`, `SPECTRA_RERANKER_URL` |
 | `services/reranker/` | supprimer (73 lignes prod + 145 test) |
 | `.github/workflows/ci.yml:172` | matrice `[docparser, reranker]` → `[docparser]` |
@@ -203,11 +249,12 @@ retour arrière.
 
 ### Critère de sortie
 
-- [ ] `reranker-parity/reference.json` versionné
-- [ ] parité d'ordre vérifiée sur modèle réel, écart publié
+- [ ] artefact ONNX produit et **publié** sous le tag `reranker-onnx-v1`
+- [ ] `/api/status` rapporte le reranker `available=true` sur une installation neuve
+- [ ] **benchmark qualité stable avant/après**, latence documentée — seul garde-fou restant
 - [ ] `services/reranker/` supprimé, aucune image reranker construite
-- [ ] `/api/status` affiche toujours l'état du reranker avec le nom du modèle
-- [ ] benchmark qualité stable, latence documentée
+- [ ] ~~`reranker-parity/reference.json` versionné~~ — *sans objet, contrôle levé*
+- [ ] ~~parité d'ordre vérifiée sur modèle réel~~ — *sans objet, contrôle levé*
 
 ### Retour arrière
 
@@ -496,17 +543,15 @@ demande explicite, donc un échec bloquant, et tout premier lancement passerait 
 tant que l'asset manque. `setup.sh` récupère l'artefact de lui-même, en traitant l'échec comme
 une information.
 
-#### Reste à faire — deux prérequis, dans cet ordre
+#### Reste à faire — une seule étape
 
-1. **Valider la parité du moteur ONNX** (lot 2, étapes 1-3). Le défaut route désormais les
-   utilisateurs vers ONNX : la validation de parité n'est plus une étape du lot 2, c'est un
-   **bloquant de release**.
-2. **Publier l'artefact** sous le tag `reranker-onnx-v1` (fichiers `model.onnx` et
-   `tokenizer.json`). Rien d'autre à modifier : l'URL par défaut le désigne déjà.
+1. **Produire et publier l'artefact** sous le tag `reranker-onnx-v1` (fichiers `model.onnx` et
+   `tokenizer.json`), par l'export hors ligne d'[audit §6.3 bis](audit-python-java.fr.md).
+   Rien d'autre à modifier : l'URL par défaut le désigne déjà.
 
-**L'inversion de ces deux étapes est le seul vrai risque de cette décision.** Publier l'asset
-avant d'avoir validé la parité activerait, chez tous les utilisateurs et d'un coup, un
-classement que personne n'a comparé à la référence Python.
+> **Décision — la validation de parité n'est pas un prérequis.** Ce document en faisait un
+> bloquant de release ; l'arbitrage retenu est de s'en passer, faute de base d'utilisateurs à
+> protéger au moment de la bascule. Voir « [Parité ONNX : contrôle levé](#parité-onnx--contrôle-levé) ».
 
 ##### Empreinte mémoire — à mesurer à l'étape 1
 
@@ -555,7 +600,7 @@ valeur fonctionnelle**. À décider explicitement plutôt qu'à enchaîner par i
 | Lot | Effort | Piste | Bloqué par | Statut |
 |---|---|---|---|---|
 | 2 bis · Métriques Micrometer | 0,5 j | A | — | ⬜ à faire |
-| 2 · Reranker ONNX | 2 j | A | 2 bis, accès Hub | ⬜ code livré, validation à faire — ~~D1~~ ✅ tranchée |
+| 2 · Reranker ONNX | 0,5 j | A | 2 bis, modèle en cache | ⬜ code livré — reste à **produire et publier l'artefact** ; ~~D1~~ ✅ tranchée, ~~parité~~ ✅ contrôle levé |
 | 3 · MarkdownPdfExtractor | 8-12 j | A | Lot 2, **D2** | ⬜ à faire |
 | 4a · `TrainingRunner` + 503 | 2 j | B | — | ⬜ à faire |
 | 4b · `spectra-trainer` | 5 j | B | Lot 4a, **D3** | ⬜ à décider |

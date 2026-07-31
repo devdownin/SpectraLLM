@@ -30,7 +30,7 @@ précédente sache exactement quoi relire.
 | R1 | **L'audit comptait le code de test avec le code de production.** 1 051 des 2 335 lignes Python (45 %) sont des tests | §2.1 réécrit sur le bon axe ; **décision de périmètre** ci-dessous |
 | R2 | **Le support Kubernetes a été entièrement retiré** (commit `3e8355e`) : `deploy/k8s/` n'existe plus | **P3 devient sans objet** ; l'argument de déploiement de l'option A (§8.1) tombe |
 | R3 | Le moteur ONNX est livré **sans aucune métrique Micrometer** | §10.6 n'est plus un risque théorique : nouveau constat **P15** |
-| R4 | La référence de parité **n'a jamais été capturée** (`backend/src/test/resources/reranker-parity/` absent) ; `engine` défaute toujours sur `http` | le lot 2 est bloqué sur une action opérationnelle, pas sur du code |
+| R4 | La référence de parité **n'a jamais été capturée** (`backend/src/test/resources/reranker-parity/` absent) ; `engine` défautait sur `http` | le lot 2 était bloqué sur une action opérationnelle, pas sur du code. **Depuis résolu autrement** : défauts basculés (D1/b) et contrôle de parité levé — reste à produire et publier l'artefact |
 
 ### Décision de périmètre — les tests Python sortent du champ de la migration
 
@@ -996,17 +996,22 @@ le harnais de parité (§6.5), le moteur ONNX (§6.6), six classes de test côt�
 et leurs trois classes de support (`RerankerParityCorpus`, `RerankerParityReference`,
 `RerankerParityCheck`). Il **manque trois choses, dont aucune n'est du développement** :
 
-1. **Capturer la référence de parité** — `backend/src/test/resources/reranker-parity/` n'existe
-   pas. Tant qu'il est absent, `RerankerParityTest` se neutralise par `Assumptions` : la suite
-   est verte sans rien avoir comparé. Exige une machine avec accès au Hub HuggingFace (§6.5).
-2. **Exporter l'artefact ONNX** et lancer
-   `mvn test -Dtest=RerankerParityTest -Dreranker.parity.verify=onnx:./data/models/reranker`.
-   C'est ce lancement qui transforme « code livré » en « code prouvé » (§6.6).
-3. **Basculer le défaut** — `application.yml:140` porte toujours
-   `engine: ${SPECTRA_RERANKER_ENGINE:http}`.
+1. ~~**Capturer la référence de parité**~~ — **contrôle levé** (décision du 31/07/2026 :
+   pas de base d'utilisateurs à protéger au moment de la bascule ; cf. plan de migration,
+   « Parité ONNX : contrôle levé »). `backend/src/test/resources/reranker-parity/` restera
+   absent, et `RerankerParityTest` continuera de se neutraliser par `Assumptions`. Le harnais
+   est conservé pour le jour où la mesure redeviendra justifiée.
+2. **Produire et publier l'artefact ONNX** — seule étape encore obligatoire. Sans lui, l'URL
+   par défaut renvoie une 404 et le reranking reste inactif de fait. Export hors ligne : §6.3 bis.
+3. ~~**Basculer le défaut**~~ — ✅ **fait** : `enabled: true` et `engine: onnx` (décision D1,
+   option b).
 
-Tant que (1) et (2) n'ont pas eu lieu, l'affichage « lot 2 livré » serait faux : le moteur
-n'a jamais exécuté `OrtSession.run` sur un modèle réel.
+**Ce que cela coûte, énoncé une fois.** `OrtSession.run` n'aura jamais été comparé à la référence
+Python. Une divergence de classement ne lèverait aucune erreur — le reranking ne tombe pas en
+panne, il classe moins bien. Le filet retenu à la place est le **benchmark qualité**
+(`QualityBenchmarkService`), à rejouer avant/après publication de l'artefact : plus lâche qu'une
+comparaison d'ordre, mais sans aucune dépendance Python, et portant sur ce qui compte
+réellement — la pertinence des réponses.
 
 ### Lots 0 et 1 — ce qui a été livré
 

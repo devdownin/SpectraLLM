@@ -150,9 +150,11 @@ spectra:
     # voué à l'échec à chaque requête. « onnx » n'a pas de dépendance de service : sans artefact
     # il se déclare simplement indisponible.
     #
-    # ⚠️ La parité d'ordre du moteur ONNX (RerankerParityTest sur modèle réel) reste à valider :
-    # tant qu'elle ne l'est pas, ne publiez pas d'artefact par défaut — voir le plan de migration,
-    # lot 2. Un artefact absent est sans danger ; un artefact non validé, non.
+    # La parité d'ordre avec l'ancien service Python (RerankerParityTest sur modèle réel) n'a
+    # pas été mesurée : arbitrage assumé, pris avant qu'il n'y ait une base d'utilisateurs à
+    # protéger. Conséquence à connaître — si le classement ONNX diverge de la référence Python,
+    # rien ne le signalera : le reranking ne tombe pas en panne, il classe moins bien. Le
+    # harnais reste disponible (voir le plan de migration, lot 2) si le besoin réapparaît.
     engine: ${SPECTRA_RERANKER_ENGINE:onnx}
     onnx:
       # Répertoire contenant model.onnx et tokenizer.json. Même convention que les GGUF :
