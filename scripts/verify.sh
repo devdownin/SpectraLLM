@@ -65,8 +65,16 @@ need() {
 }
 
 # ── backend : `mvn package`, comme le job « Backend (Maven) » ─────────────────
+# Suivi du contrôle des rapports : une classe qui n'exécute AUCUN test ne fait échouer
+# ni le build ni la couverture — elle disparaît simplement du décompte. Voir
+# scripts/check-test-reports.sh.
 if wanted backend && need mvn "backend (tests Maven)"; then
-  run "backend (tests Maven)" mvn -B package -f backend/pom.xml
+  bold "backend (tests Maven)"
+  if mvn -B package -f backend/pom.xml && ./scripts/check-test-reports.sh; then
+    pass "backend (tests Maven)"
+  else
+    fail "backend (tests Maven)"
+  fi
 fi
 
 # ── spotbugs : profil dédié, hors du build par défaut ─────────────────────────

@@ -16,6 +16,11 @@ jobs:
       uses: ./.github/actions/setup-java-maven
     - name: Build and Test with Maven
       run: mvn -B package -f backend/pom.xml
+    # Une classe dont l'hypothèse échoue dans un @BeforeAll est abandonnée avant tout test :
+    # le rapport affiche « Tests run: 0 », ni échec ni « Skipped ». Le build reste vert alors
+    # que la classe ne vérifie plus rien — c'est arrivé à 32 tests, dont un contrôle XXE.
+    - name: Aucune classe de test vide
+      run: ./scripts/check-test-reports.sh
     - name: Upload Jacoco Report
       uses: actions/upload-artifact@v4
       with:

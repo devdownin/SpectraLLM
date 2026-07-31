@@ -8,6 +8,25 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Corrigé — 36 tests ne vérifiaient rien, et rien ne le disait
+
+```
+Tests run: 0, … -- in fr.spectra.service.extraction.JsonExtractorTest
+Tests run: 0, … -- in fr.spectra.service.extraction.XmlExtractorTest
+Tests run: 0, … -- in fr.spectra.integration.ChromaDbConsistencyIntegrationTest
+```
+
+Ces trois classes plaçaient un `Assumptions.assumeTrue` dans un `@BeforeAll`. L'hypothèse échouant avant tout test, JUnit abandonnait le conteneur entier : le rapport n'affichait ni échec, **ni même « Skipped »** — la classe disparaissait du décompte. Le build restait vert, la couverture ne bougeait pas.
+
+Parmi les tests concernés : un **contrôle de sécurité XXE** sur `XmlExtractor`, qui n'avait donc jamais tourné.
+
+- **Corpus d'essai de repli.** Les archives `data/documents/*.zip` sont des documents réels, jamais versionnés. Ce que ces tests vérifient — mise à plat des chemins, métadonnées, robustesse — ne dépend pas de leur contenu exact mais de leur *forme* : `KafkaCorpusFixture` la reproduit quand elles sont absentes. Les extracteurs passent de 0 à **30 tests exécutés**, 2 sautés.
+- **L'unique assertion portant sur les données** (le corpus de production compte 36 entrées) reste conditionnée, mais par un `assumeTrue` **dans le corps du test** : le saut est alors compté et affiché.
+- **Le test d'intégration ChromaDB** évalue sa dépendance à Docker par test plutôt qu'au chargement de la classe : 4 sautés au lieu de 4 invisibles.
+
+**`scripts/check-test-reports.sh`** échoue désormais si une classe rapporte zéro test exécuté, avec exemptions motivées. Câblé dans `verify.sh` et dans la CI. Il a immédiatement trouvé la troisième classe, que je n'avais pas repérée à la lecture.
+
+
 ### CI — retour à une fenêtre de fraîcheur de 4 h pour la base NVD
 
 `nvdValidForHours` avait été porté de 4 (défaut) à 24 pour une raison précise : sans clé d'API, chaque interrogation du NVD était lente et exposée aux 503, il fallait donc les espacer. Le secret `NVD_API_KEY` étant désormais configuré, cette justification tombe et **le compromis s'inverse** — espacer les mises à jour ne protège plus de rien, mais retarde d'autant la détection d'une CVE publiée entre deux exécutions.
