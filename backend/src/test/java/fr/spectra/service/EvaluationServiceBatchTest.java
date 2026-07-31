@@ -75,7 +75,7 @@ class EvaluationServiceBatchTest {
         when(datasetGenerator.getAllPairs()).thenReturn(pairs);
 
         EvaluationService service = new EvaluationService(
-                datasetGenerator, chatClient, modelSwitch, mock(DocumentModelLinkRepository.class),
+                datasetGenerator, chatClient, new LlmJudge(chatClient), modelSwitch, mock(DocumentModelLinkRepository.class),
                 tempDir.toString(), 200, "");
         service.init();
 
@@ -112,7 +112,7 @@ class EvaluationServiceBatchTest {
         when(datasetGenerator.getAllPairs()).thenReturn(pairs);
 
         EvaluationService service = new EvaluationService(
-                datasetGenerator, chatClient, modelSwitch, mock(DocumentModelLinkRepository.class),
+                datasetGenerator, chatClient, new LlmJudge(chatClient), modelSwitch, mock(DocumentModelLinkRepository.class),
                 tempDir.toString(), 200, "judge-x");   // juge neutre configuré
         service.init();
 
@@ -149,7 +149,7 @@ class EvaluationServiceBatchTest {
 
         when(datasetGenerator.getAllPairs()).thenReturn(List.of());
         EvaluationService service = new EvaluationService(
-                datasetGenerator, chatClient, modelSwitch, mock(DocumentModelLinkRepository.class),
+                datasetGenerator, chatClient, new LlmJudge(chatClient), modelSwitch, mock(DocumentModelLinkRepository.class),
                 tempDir.toString(), 2, "");   // cap COMPLETED à 2
         service.init();
 

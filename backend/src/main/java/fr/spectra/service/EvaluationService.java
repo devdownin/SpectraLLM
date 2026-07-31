@@ -52,17 +52,6 @@ public class EvaluationService {
             .registerModule(new JavaTimeModule())
             .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
-    private static final String JUDGE_SYSTEM_PROMPT = """
-            Tu es un évaluateur expert en qualité de réponses LLM.
-            Compare la réponse fournie à la réponse de référence selon ces critères :
-            - Exactitude (0-4) : La réponse est-elle correcte et sans erreur factuelle ?
-            - Complétude (0-3) : Les points essentiels de la référence sont-ils couverts ?
-            - Clarté (0-3) : La réponse est-elle bien formulée et concise ?
-
-            Réponds UNIQUEMENT avec ce JSON (rien d'autre) :
-            {"score": <entier 1-10>, "justification": "<une phrase courte en français>"}
-            """;
-
     private static final String AB_JUDGE_SYSTEM_PROMPT = """
             Tu es un évaluateur expert. On te donne une question, une réponse de référence,
             puis deux réponses candidates (Réponse 1 et Réponse 2). Détermine laquelle est
@@ -75,6 +64,7 @@ public class EvaluationService {
 
     private final DatasetGeneratorService datasetGenerator;
     private final LlmChatClient chatClient;
+    private final LlmJudge judge;
     private final ModelSwitchCoordinator modelSwitch;
     private final DocumentModelLinkRepository linkRepository;
     private final Path workDir;
@@ -111,6 +101,7 @@ public class EvaluationService {
 
     public EvaluationService(DatasetGeneratorService datasetGenerator,
                               LlmChatClient chatClient,
+                              LlmJudge judge,
                               ModelSwitchCoordinator modelSwitch,
                               DocumentModelLinkRepository linkRepository,
                               @Value("${spectra.fine-tuning.work-dir:./data/fine-tuning}") String workDir,
@@ -118,6 +109,7 @@ public class EvaluationService {
                               @Value("${spectra.evaluation.judge-model:}") String judgeModel) {
         this.datasetGenerator = datasetGenerator;
         this.chatClient = chatClient;
+        this.judge = judge;
         this.modelSwitch = modelSwitch;
         this.linkRepository = linkRepository;
         this.workDir = Path.of(workDir);
@@ -1124,40 +1116,13 @@ public class EvaluationService {
 
     /** Note une réponse générée via le modèle-juge actif (LLM-as-a-judge). */
     private EvaluationScore judge(Generated g) {
-        try {
-            String judgePrompt = "Question : " + g.question()
-                    + "\n\nRéponse de référence : " + g.reference()
-                    + "\n\nRéponse évaluée : " + g.modelAnswer();
-
-            String judgeResponse;
-            try {
-                judgeResponse = chatClient.chatJson(JUDGE_SYSTEM_PROMPT, judgePrompt);
-            } catch (Exception e) {
-                log.warn("Échec appel LLM-juge: {}", e.getMessage());
-                return null;
-            }
-
-            String json = extractJson(judgeResponse);
-            if (json == null) {
-                log.debug("Réponse juge non parseable: {}", judgeResponse);
-                return null;
-            }
-
-            @SuppressWarnings("unchecked")
-            Map<String, Object> parsed = mapper.readValue(json, Map.class);
-            Object scoreObj = parsed.get("score");
-            String justification = (String) parsed.getOrDefault("justification", "");
-            double score = scoreObj instanceof Number n ? n.doubleValue() : 5.0;
-            score = Math.max(1.0, Math.min(10.0, score));
-
-            return new EvaluationScore(
-                    g.question(), g.reference(), g.modelAnswer(),
-                    score, justification, g.category(), g.documentCategory(), g.source()
-            );
-        } catch (Exception e) {
-            log.warn("Erreur inattendue notation paire: {}", e.getMessage());
-            return null;
-        }
+        // null = paire non notée, donc exclue du rapport. Même sémantique que le benchmark
+        // qualité depuis l'unification : un jugement qui n'aboutit pas n'est pas une note.
+        return judge.score(g.question(), g.reference(), g.modelAnswer())
+                .map(v -> new EvaluationScore(
+                        g.question(), g.reference(), g.modelAnswer(),
+                        v.score(), v.justification(), g.category(), g.documentCategory(), g.source()))
+                .orElse(null);
     }
 
     private String extractRole(TrainingPair pair, String role) {

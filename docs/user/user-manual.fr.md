@@ -829,7 +829,7 @@ Au lieu de fusionner+quantifier (`export_gguf.py`), exportez l'adaptateur seul e
 python scripts/export_lora_gguf.py --adapter data/fine-tuning/adapter \
   --output data/fine-tuning/adapter-lora.gguf --base-model phi3
 
-# Au lancement de llama-server (cf. scripts/llama-autostart.sh)
+# Au lancement de llama-server (cf. scripts/llm-chat-entrypoint.sh)
 LLAMA_LORA=data/fine-tuning/adapter-lora.gguf LLAMA_LORA_SCALE=1.0 ...
 ```
 

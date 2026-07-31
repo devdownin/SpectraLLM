@@ -8,6 +8,20 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Simplifications — juge LLM unique, outillage complété, code mort retiré
+
+**Un seul juge, un seul barème.** Deux services notaient des réponses avec deux prompts distincts produisant tous deux un « score sur 10 » affiché comme tel : `EvaluationService` appliquait un barème explicite (Exactitude 0-4, Complétude 0-3, Clarté 0-3), `QualityBenchmarkService` demandait un score de 1 à 10 sans barème. Comparer les deux revenait à comparer deux instruments gradués pareil. `LlmJudge` porte désormais le barème explicite, seul retenu.
+
+Deux écarts sont apparus en unifiant, et sont corrigés :
+
+- Le benchmark qualité appelait `chat(...)` en génération libre — il n'avait **jamais reçu** le décodage contraint mis en place ailleurs. Son juge pouvait répondre en prose.
+- Sur échec de parsing, il **substituait 5,0** et conservait l'item : une note fabriquée entrait dans la moyenne et la tirait vers le milieu, d'autant plus que le juge était instable. Un jugement qui n'aboutit pas n'est pas un jugement moyen — l'item est désormais écarté, comme le faisait déjà l'évaluation.
+
+**`verify.sh` rejoue enfin tout ce qu'il annonce.** Livré la veille, il ignorait silencieusement deux suites de la CI (`services/docparser` et `services/reranker`) — le défaut même contre lequel il avait été écrit. La section manquante est ajoutée, et `test_verify_covers_ci.py` relie désormais `ci.yml` au script : ajouter un job sans contrepartie locale fait échouer la CI, et une exemption doit porter sa raison.
+
+**312 lignes de code mort retirées.** `scripts/llama-autostart.sh`, `Dockerfile.llama` et `Dockerfile.llama.cuda` n'avaient plus aucun consommateur depuis le retrait de Kubernetes : aucun workflow ni fichier Compose ne construisait ces images. Le test de parité de leurs paliers de dimensionnement disparaît avec elles.
+
+
 ### Retiré — le support Kubernetes et GKE
 
 > **Rupture** : les déploiements Kubernetes ne sont plus fournis ni maintenus. Docker Compose reste le mode de déploiement supporté.

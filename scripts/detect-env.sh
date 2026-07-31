@@ -43,7 +43,7 @@ else
     CPU_CORES=$(nproc)
 fi
 
-# ── 3. Détection GPU (même ordre de priorité que llama-autostart.sh) ──
+# ── 3. Détection GPU (même ordre de priorité que ResourceAdvisorService) ──
 if [[ "$GPU_TYPE" == "none" ]]; then
     # NVIDIA : nvidia-smi doit répondre ET lister au moins un GPU
     if command -v nvidia-smi &>/dev/null && nvidia-smi --query-gpu=name --format=csv,noheader &>/dev/null 2>&1; then

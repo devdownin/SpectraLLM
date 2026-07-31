@@ -803,7 +803,7 @@ Instead of merging+quantizing (`export_gguf.py`), export the adapter alone and l
 python scripts/export_lora_gguf.py --adapter data/fine-tuning/adapter \
   --output data/fine-tuning/adapter-lora.gguf --base-model phi3
 
-# When launching llama-server (see scripts/llama-autostart.sh)
+# When launching llama-server (see scripts/llm-chat-entrypoint.sh)
 LLAMA_LORA=data/fine-tuning/adapter-lora.gguf LLAMA_LORA_SCALE=1.0 ...
 ```
 

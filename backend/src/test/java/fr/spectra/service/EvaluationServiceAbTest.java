@@ -59,7 +59,7 @@ class EvaluationServiceAbTest {
 
     private EvaluationService newService() {
         EvaluationService service = new EvaluationService(
-                datasetGenerator, chatClient, modelSwitch, mock(DocumentModelLinkRepository.class),
+                datasetGenerator, chatClient, new LlmJudge(chatClient), modelSwitch, mock(DocumentModelLinkRepository.class),
                 tempDir.toString(), 200, "judge-x");
         service.init();
         return service;

@@ -17,8 +17,8 @@ import java.nio.file.StandardCopyOption;
  *
  * <p><b>Pourquoi.</b> Le dimensionnement (threads, contexte, batch, KV cache) était
  * implémenté deux fois : en Java ({@link ResourceAdvisorService}, mode embarqué) et en
- * bash ({@code llama-autostart.sh}, ~100 lignes dupliquées). Ce composant fait du Java
- * l'unique propriétaire du calcul en mode compose : les recommandations sont écrites dans
+ * bash (l'ancien entrypoint autonome, ~100 lignes dupliquées, depuis retiré). Ce composant
+ * fait du Java l'unique propriétaire du calcul : les recommandations sont écrites dans
  * {@code data/models/active-chat-params}, que l'entrypoint superviseur de llm-chat
  * ({@code scripts/llm-chat-entrypoint.sh}) consomme comme <b>valeurs par défaut</b> —
  * un {@code LLM_*} explicite dans {@code .env} garde toujours la priorité.</p>
@@ -26,8 +26,8 @@ import java.nio.file.StandardCopyOption;
  * <p><b>Limite assumée.</b> La détection <b>GPU</b> n'est pas matérialisée : le conteneur
  * spectra-api ne voit pas les GPU attribués à llm-chat (pas de {@code nvidia-smi}). Elle
  * reste locale au conteneur qui sert le modèle — offload via {@code LLM_CHAT_EXTRA_ARGS}
- * (override compose GPU) ou {@code llama-autostart.sh} (images llama.cpp autonomes). Les
- * hints CPU/RAM restent valides : les deux conteneurs partagent le même hôte.</p>
+ * (ou l'overlay compose GPU, qui l'impose). Les hints CPU/RAM restent valides : les deux
+ * conteneurs partagent le même hôte.</p>
  */
 @Service
 public class RuntimeParamsMaterializer {

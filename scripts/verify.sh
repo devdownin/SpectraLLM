@@ -16,13 +16,13 @@
 #   ./scripts/verify.sh backend shell    seulement ces sections
 #   ./scripts/verify.sh --list           liste les sections
 #
-# Sections : backend, spotbugs, models, python, shell, frontend, compose
+# Sections : backend, spotbugs, models, python, services, shell, frontend, compose
 # =============================================================================
 set -uo pipefail   # pas -e : on veut exécuter TOUS les contrôles, puis conclure
 
 cd "$(dirname "$0")/.." || exit 1
 
-SECTIONS=(backend spotbugs models python shell frontend compose)
+SECTIONS=(backend spotbugs models python services shell frontend compose)
 
 if [ "${1:-}" = "--list" ]; then
   printf '%s\n' "${SECTIONS[@]}"
@@ -86,6 +86,37 @@ if wanted python; then
   else
     skip "tests pytest (scripts/)" "pytest non installé (pip install pytest)"
   fi
+fi
+
+# ── services : ruff + pytest sur docparser et reranker ───────────────────────
+# Ces deux suites tournaient en CI sans contrepartie locale : le script prétendait
+# rejouer les contrôles de la CI tout en en ignorant deux. scripts/tests/test_verify_covers_ci.py
+# empêche désormais ce type d'oubli de se reproduire.
+if wanted services; then
+  # Les dépendances de test (fastapi, httpx…) sont volontairement légères : les tests
+  # bouchonnent torch et pymupdf. Absentes, la suite ne peut pas seulement échouer —
+  # elle ne peut pas s'exécuter du tout. C'est un contrôle SAUTÉ, pas en échec :
+  # confondre les deux ferait passer une dépendance manquante pour un bug du code.
+  services_deps_missing=""
+  python3 -c "import fastapi, httpx" >/dev/null 2>&1 || services_deps_missing=1
+  python3 -m pytest --version >/dev/null 2>&1 || services_deps_missing=1
+
+  for service in docparser reranker; do
+    label="services/$service (ruff + pytest)"
+    if [ -n "$services_deps_missing" ]; then
+      skip "$label" "dépendances absentes (pip install -r services/requirements-test.txt)"
+      continue
+    fi
+    bold "$label"
+    ok=1
+    if command -v ruff >/dev/null 2>&1; then
+      ruff check "services/$service" || ok=0
+    else
+      echo "  (ruff absent — lint ignoré, les tests suivent)"
+    fi
+    (cd "services/$service" && python3 -m pytest tests/ -q) || ok=0
+    [ "$ok" -eq 1 ] && pass "$label" || fail "$label"
+  done
 fi
 
 # ── shell : shellcheck au seuil de la CI ──────────────────────────────────────
