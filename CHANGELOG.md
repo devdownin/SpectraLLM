@@ -8,6 +8,13 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### CI — retour à une fenêtre de fraîcheur de 4 h pour la base NVD
+
+`nvdValidForHours` avait été porté de 4 (défaut) à 24 pour une raison précise : sans clé d'API, chaque interrogation du NVD était lente et exposée aux 503, il fallait donc les espacer. Le secret `NVD_API_KEY` étant désormais configuré, cette justification tombe et **le compromis s'inverse** — espacer les mises à jour ne protège plus de rien, mais retarde d'autant la détection d'une CVE publiée entre deux exécutions.
+
+Le cache hebdomadaire, lui, reste en place : il évite de reconstruire la base entière à chaque nouvelle branche — ce qui avait coûté 53 minutes sur une exécution récente — et la clé accélère cette reconstruction sans la supprimer.
+
+
 ### Corrigé — les documents Word modernes étaient classés comme du XML
 
 Le type MIME officiel d'un DOCX est `application/vnd.openxmlformats-officedocument.wordprocessingml.document` : il **contient la sous-chaîne `xml`**. La condition XML étant évaluée avant celle du DOCX, tout document Word moderne recevait l'icône, le libellé et le groupe du XML dans la GED.
