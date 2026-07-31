@@ -1,6 +1,6 @@
 # Audit de la surface Python & plan de migration « full Java »
 
-> **Périmètre.** Tout le code Python du dépôt (13 fichiers, 1 745 lignes) : les deux
+> **Périmètre.** Tout le code Python du dépôt (18 fichiers, 2 335 lignes) : les deux
 > microservices `services/docparser` et `services/reranker`, la chaîne de fine-tuning
 > `scripts/*.py`, l'outillage de CI, plus les dépendances Python **indirectes** que la stack
 > traîne sans qu'aucune ligne de Python ne soit écrite par le projet (images, healthchecks,
@@ -14,22 +14,56 @@
 
 ---
 
+## 0. Révision du 31 juillet 2026 — ce qui a bougé depuis la rédaction
+
+Cet audit a été écrit avant les lots 0 à 2. Une relecture contradictoire contre l'état réel du
+dépôt corrige **quatre écarts**, dont deux inversent une conclusion. Ils sont repris à leur
+place dans le corps du document ; ce résumé existe pour qu'un lecteur qui connaît la version
+précédente sache exactement quoi relire.
+
+| # | Écart constaté | Conséquence |
+|---|---|---|
+| R1 | **La surface Python a crû de 34 %** — 1 745 → 2 335 lignes — alors que deux lots de migration ont été livrés | §2.1 réécrit, nouveau constat **P14** |
+| R2 | **Le support Kubernetes a été entièrement retiré** (commit `3e8355e`) : `deploy/k8s/` n'existe plus | **P3 devient sans objet** ; l'argument de déploiement de l'option A (§8.1) tombe |
+| R3 | Le moteur ONNX est livré **sans aucune métrique Micrometer** | §10.6 n'est plus un risque théorique : nouveau constat **P15** |
+| R4 | La référence de parité **n'a jamais été capturée** (`backend/src/test/resources/reranker-parity/` absent) ; `engine` défaute toujours sur `http` | le lot 2 est bloqué sur une action opérationnelle, pas sur du code |
+
+**Ce que la révision ne change pas.** Le verdict de fond tient : le chemin de requête est
+migrable en Java, l'entraînement QLoRA ne l'est pas. Les quatre écarts portent sur le *coût* et
+sur l'*ordre*, pas sur la faisabilité.
+
+**Ce qu'elle change vraiment.** L'audit supposait une surface Python figée que la migration
+allait éroder lot par lot. Elle ne l'est pas : elle grossit par un canal que l'audit n'avait pas
+identifié (P14), plus vite que les lots ne la réduisent. Entre la rédaction et aujourd'hui,
+la migration a retiré 41 lignes (`check-doc-links.py`) et le dépôt en a ajouté 363.
+
+---
+
 ## 1. Résumé exécutif
 
-La surface Python se répartit en quatre blocs de nature **très différente**, et c'est le point
-central : « passer en full Java » n'est pas une seule décision, mais quatre.
+La surface Python se répartit en blocs de nature **très différente**, et c'est le point
+central : « passer en full Java » n'est pas une seule décision, mais quatre — cinq depuis
+qu'un bloc nouveau est apparu.
 
 | Bloc | Lignes | Substituable en Java ? | Verdict |
 |---|---:|---|---|
-| **Outillage** (`check-doc-links.py`) | 41 | Oui, à iso-fonctionnalité | 🟢 remplaçable immédiatement |
-| **Reranker** (`services/reranker`) | 218 | Oui, à iso-fonctionnalité, via ONNX Runtime/DJL | 🟢 remplaçable, effort modéré |
+| ~~**Outillage doc** (`check-doc-links.py`)~~ | ~~41~~ | Oui, à iso-fonctionnalité | ✅ **supprimé** (lot 1) |
+| **Reranker** (`services/reranker`) | 218 | Oui, à iso-fonctionnalité, via ONNX Runtime | 🟢 moteur Java livré, bascule bloquée sur la référence de parité |
 | **DocParser** (`services/docparser`) | 311 | Oui pour `pymupdf4llm`, **non** pour Docling | 🟡 remplaçable avec un compromis de qualité à mesurer |
-| **Fine-tuning QLoRA** (`scripts/*.py`) | 1 216 | **Non** — aucun équivalent Java mature en 2026 | 🔴 pas de Java pur sans régression fonctionnelle |
+| **Tests d'outillage shell/CI** (`scripts/tests/test_{llm_sizing,verify_covers_ci,windows_scripts_parity}.py`) | 363 | Oui, mais **ce n'est pas la bonne question** (P14) | 🟠 bloc nouveau, en croissance, qui ne teste aucun Python |
+| **Fine-tuning QLoRA** (`scripts/*.py`) | 1 443 | **Non** — aucun équivalent Java mature en 2026 | 🔴 pas de Java pur sans régression fonctionnelle |
 
 **Conclusion.** Un produit **100 % Java sur le chemin de requête** (ingestion + RAG + API) est
 atteignable, et c'est là que se trouve l'essentiel de la valeur : suppression de deux images
-Docker (dont une de ~2,5 Go à cause de `torch`), de deux runtimes ML à maintenir, de trois jobs
-de CI, et de la classe entière de pannes « service Python indisponible → repli dégradé ».
+Docker (dont une de ~2,5 Go à cause de `torch`), de deux runtimes ML à maintenir, de deux jobs
+de CI restants, et de la classe entière de pannes « service Python indisponible → repli
+dégradé ».
+
+**Nuance apportée par la révision (§0).** Cette conclusion portait implicitement une promesse
+de décroissance : migrer le chemin de requête ferait fondre la surface Python. Les faits la
+démentent — elle a crû de 34 % pendant que deux lots étaient livrés (P14). Les lots 2 et 3
+restent justifiés par ce qu'ils suppriment (images, runtimes ML, modes de panne), **pas** par un
+décompte de lignes Python qui, lui, dépend d'un canal indépendant de la migration.
 
 En revanche, **l'entraînement QLoRA ne peut pas devenir du Java** aujourd'hui sans renoncer à
 LoRA (§8). La cible réaliste et honnête n'est donc pas « zéro Python dans le dépôt » mais :
@@ -48,20 +82,52 @@ ou explicitement déployé.
 
 ### 2.1 Code Python du dépôt
 
-| Fichier | Lignes | Rôle | Appelé par | Chemin de requête ? | Optionnel ? |
-|---|---:|---|---|:--:|:--:|
-| `services/reranker/app.py` | 73 | API FastAPI `/rerank` + `/health`, Cross-Encoder `sentence-transformers` | `CrossEncoderRerankerClient` (HTTP) | **oui** | oui (`spectra.reranker.enabled`) |
-| `services/reranker/tests/*` | 145 | Tests unitaires (modules ML stubés) | CI | non | — |
-| `services/docparser/app.py` | 149 | API FastAPI `/parse` + `/health`, PDF → Markdown (`pymupdf4llm`, option Docling) | `LayoutParserClient` (HTTP) | **oui** (ingestion) | oui (`spectra.layout-parser.enabled`) |
-| `services/docparser/tests/*` | 162 | Tests unitaires (modules ML stubés) | CI | non | — |
-| `scripts/train_host.py` | 547 | Moteur d'entraînement SFT/DPO/ORPO, LoRA, packing, masquage du prompt | `scripts/train.sh` ← `FineTuningService` (`ProcessBuilder`) | non | oui |
-| `scripts/chat_format.py` | 169 | **Source de vérité** de la mise en forme des conversations d'entraînement | `train_host.py` | non | non (si l'entraînement existe) |
-| `scripts/tests/test_chat_format.py` | 205 | 19 tests d'invariants de gabarit, sans torch | CI (`training-scripts`) | non | — |
-| `scripts/export_gguf.py` | 126 | Fusion LoRA → modèle plein → GGUF q8_0 | `FineTuningService` (`pythonBin` + `exportScript`) | non | oui (`exportGguf`) |
-| `scripts/export_lora_gguf.py` | 94 | Adaptateur LoRA → petit GGUF chargé à chaud par llama-server | manuel (CLI) | non | oui |
-| `scripts/base_models.py` | 34 | Chargeur de `base_models.json` (manifeste partagé avec `BaseModelCatalog`) | les 3 scripts ci-dessus | non | — |
-| `scripts/check-doc-links.py` | 41 | Vérifie les liens Markdown internes | `.github/workflows/docs-links.yml` | non | — |
-| **Total** | **1 745** | | | | |
+Relevé au 31 juillet 2026 (`find . -name '*.py' | xargs wc -l`). Les écarts avec la version
+précédente du tableau sont signalés en dernière colonne.
+
+**Bloc 1 — chemin de requête** (les deux microservices) :
+
+| Fichier | Lignes | Rôle | Appelé par | Optionnel ? |
+|---|---:|---|---|:--:|
+| `services/reranker/app.py` | 73 | API FastAPI `/rerank` + `/health`, Cross-Encoder `sentence-transformers` | `CrossEncoderRerankerClient` (HTTP) | oui (`spectra.reranker.enabled`, profil `reranker`) |
+| `services/reranker/tests/*` | 145 | Tests unitaires (modules ML stubés) | CI | — |
+| `services/docparser/app.py` | 149 | API FastAPI `/parse` + `/health`, PDF → Markdown (`pymupdf4llm`, option Docling) | `LayoutParserClient` (HTTP) | oui (`spectra.layout-parser.enabled`, profil `layout-parser`) |
+| `services/docparser/tests/*` | 162 | Tests unitaires (modules ML stubés) | CI | — |
+| **Sous-total** | **529** | | | |
+
+**Bloc 2 — fine-tuning** (hors chemin de requête, entièrement optionnel) :
+
+| Fichier | Lignes | Rôle | Appelé par | Δ |
+|---|---:|---|---|:--:|
+| `scripts/train_host.py` | 547 | Moteur d'entraînement SFT/DPO/ORPO, LoRA, packing, masquage du prompt | `scripts/train.sh` ← `FineTuningService` (`ProcessBuilder`) | = |
+| `scripts/chat_format.py` | 169 | **Source de vérité** de la mise en forme des conversations d'entraînement | `train_host.py` | = |
+| `scripts/export_gguf.py` | 113 | Fusion LoRA → modèle plein → GGUF q8_0 | `FineTuningService` (`pythonBin` + `exportScript`) | −13 |
+| `scripts/export_lora_gguf.py` | 83 | Adaptateur LoRA → petit GGUF chargé à chaud par llama-server | manuel (CLI) | −11 |
+| `scripts/llama_cpp_convert.py` | 79 | Localisation du convertisseur llama.cpp à révision épinglée | les 2 scripts d'export | **+79** (lot 0) |
+| `scripts/base_models.py` | 71 | Chargeur de `base_models.json` (manifeste partagé avec `BaseModelCatalog`) | les 3 scripts ci-dessus | +37 (lot 0) |
+| `scripts/tests/test_chat_format.py` | 205 | 19 tests d'invariants de gabarit, sans torch | CI (`training-scripts`) | = |
+| `scripts/tests/test_llama_cpp_convert.py` | 98 | Interdit le retour à une branche mobile, vérifie l'alignement sur le tag de l'image | CI | **+98** (lot 0) |
+| `scripts/tests/test_base_models.py` | 78 | Fige l'emplacement canonique du manifeste et le mapping alias → repo | CI | **+78** (lot 0) |
+| **Sous-total** | **1 443** | | | |
+
+**Bloc 3 — tests d'outillage shell/CI** (aucun ne teste du code Python — cf. P14) :
+
+| Fichier | Lignes | Ce qu'il teste | Ajouté par | Δ |
+|---|---:|---|---|:--:|
+| `scripts/tests/test_llm_sizing.py` | 166 | `scripts/lib/llm-sizing.sh` — fenêtre de contexte par requête à chaque palier de RAM | `1138c8d` | **+166** |
+| `scripts/tests/test_verify_covers_ci.py` | 110 | Cohérence `.github/workflows/ci.yml` ↔ `scripts/verify.sh` (aucun job sans contrepartie locale) | `7f0e7e2` | **+110** |
+| `scripts/tests/test_windows_scripts_parity.py` | 87 | Parité des options déclarées entre les 6 paires `*.sh` / `*.bat` | `6eade9b` | **+87** |
+| **Sous-total** | **363** | | | |
+
+| | Fichiers | Lignes |
+|---|---:|---:|
+| **Total au 31/07/2026** | **18** | **2 335** |
+| *Rappel version précédente* | *15* | *1 745* |
+| *Dont supprimé par la migration* | *−1* | *−41* (`check-doc-links.py`) |
+| *Dont ajouté hors migration* | *+3* | *+363* (bloc 3) |
+
+Le solde restant (+268 lignes) est réparti entre les modules et tests du lot 0 (+292) et
+l'allègement des deux scripts d'export (−24).
 
 ### 2.2 Dépendances Python indirectes
 
@@ -81,10 +147,16 @@ Souvent oubliées dans ce genre d'inventaire, elles font partie du coût réel :
 4. **ChromaDB** — image `chromadb/chroma:latest`, serveur écrit en Python. Aucune ligne de
    Python côté Spectra (accès purement HTTP via `ChromaDbClient`), mais la stack n'est pas
    « full Java » au sens strict tant qu'elle en dépend. Hors périmètre de ce plan (§11).
-5. **CI** — trois jobs Python : `training-scripts` (pytest sur `scripts/tests`),
-   `python-services` (matrice docparser × reranker : ruff + pytest + couverture), et
-   `docs-links` (`python3 scripts/check-doc-links.py`). Plus deux `requirements*.txt` de test
-   et un `ruff.toml` à maintenir.
+5. **CI** — ~~trois~~ **deux** jobs Python depuis le lot 1 : `training-scripts`
+   (`python -m pytest scripts/tests -q`, `ci.yml:68`) et `python-services` (matrice
+   docparser × reranker : ruff + pytest + couverture, `ci.yml:167`). `docs-links` est
+   supprimé. Restent quatre `requirements*.txt` (80 lignes) et un `ruff.toml` à maintenir,
+   plus les deux sections `python` et `services` de `scripts/verify.sh`.
+6. **`scripts/verify.sh`** — le script de vérification locale exige `python3`, `pytest`,
+   `ruff`, `fastapi` et `httpx` pour ses sections `python` et `services` (`verify.sh:90-125`).
+   Il dégrade proprement quand ils manquent (`skip`), mais un contributeur sans Python ne
+   rejoue alors que six contrôles sur huit. Ce couplage est **testé depuis Python**
+   (`test_verify_covers_ci.py`), ce qui le rend circulaire — cf. P14.
 
 ---
 
@@ -107,15 +179,36 @@ dépendances épinglées (`torch`, `sentence-transformers`, `pymupdf`, `fastapi`
 un job de CI matriciel, deux `ServiceMonitor`, deux profils Docker. Le rapport
 coût/valeur-de-code est le plus mauvais du dépôt.
 
-### P3 — Aucun manifeste Kubernetes pour `docparser` ni `reranker` — *élevé*
+### P3 — ~~Aucun manifeste Kubernetes pour `docparser` ni `reranker`~~ — *sans objet depuis le 31/07/2026*
+
+> **Constat clos par disparition de son objet.** Le commit `3e8355e` (« Retirer le support
+> Kubernetes et GKE ») a supprimé l'intégralité de `deploy/k8s/`. Il n'y a plus ni
+> `ServiceMonitor` orphelin, ni manifeste de base, ni cible Kubernetes. Le seul mode de
+> déploiement est Docker Compose. Énoncé d'origine conservé ci-dessous pour la traçabilité.
+
+<details>
+<summary>Énoncé d'origine</summary>
 
 `deploy/k8s/monitoring/servicemonitor-python.yaml` déclare deux `ServiceMonitor` (`app:
 docparser`, `app: reranker`), mais `deploy/k8s/base/` ne contient **ni Deployment ni Service**
-pour eux (`03-chromadb`, `04-browserless`, `05-llama-embed`, `06-llama-chat`, `07-spectra-api`,
-`08-spectra-frontend`, `09-ingress`). Les deux `ServiceMonitor` sont orphelins : ils ne
-sélectionneront jamais rien. Autrement dit, **reranking et layout-aware parsing ne sont pas
-déployables en Kubernetes** — seulement en Docker Compose via profils. Migrer ces deux briques
-dans la JVM ne « perd » donc aucune capacité en K8s : elle en **ajoute** une.
+pour eux. Les deux `ServiceMonitor` sont orphelins : ils ne sélectionneront jamais rien.
+Autrement dit, **reranking et layout-aware parsing ne sont pas déployables en Kubernetes** —
+seulement en Docker Compose via profils. Migrer ces deux briques dans la JVM ne « perd » donc
+aucune capacité en K8s : elle en **ajoute** une.
+
+</details>
+
+**Ce que sa disparition emporte ailleurs dans ce document**, et qui compte davantage que le
+constat lui-même :
+
+- L'argument de déploiement de l'**option A** (§8.1) — « parfait pour un `Job` Kubernetes, ce
+  qu'un `ProcessBuilder` dans un pod d'API ne sera jamais » — n'a plus de support. L'option A
+  reste recommandée, mais pour ses autres motifs (§8.1 révisé).
+- Le critère « fine-tuning déployable en Kubernetes » de la définition de « full Java » (§9)
+  est retiré.
+- Le point 6 de §10 (métriques Prometheus, `ServiceMonitor`) perd sa moitié « scraping » ;
+  la moitié « les métriques doivent réapparaître sur `/actuator/prometheus` » reste entière,
+  et elle est désormais en défaut (P15).
 
 ### P4 — Contrats HTTP non typés côté Java — *moyen*
 
@@ -171,9 +264,63 @@ une donnée légitime). Ce genre de règle se re-perd facilement lors d'un porta
 ### P10 — Coût de la triple toolchain en CI et en développement — *moyen*
 
 Aujourd'hui un contributeur doit disposer de Java 25 + Maven, Node 22, **et** Python 3.11/3.12
-avec deux jeux de `requirements` pour faire tourner l'intégralité des tests. La CI porte trois
-jobs Python. Après migration des blocs 🟢/🟡 : zéro job Python, et l'entraînement testé dans
-son propre dépôt/image (§8).
+avec deux jeux de `requirements` pour faire tourner l'intégralité des tests. La CI porte ~~trois~~
+**deux** jobs Python (le lot 1 a supprimé `docs-links`). Après migration des blocs 🟢/🟡 :
+~~zéro job Python~~ **un job Python restant** (`training-scripts`), qui ne disparaîtra qu'avec
+le lot 4 **et** le traitement de P14 — l'entraînement testé dans son propre dépôt/image (§8).
+
+### P14 — La surface Python croît par un canal que la migration ne touche pas — *élevé, nouveau*
+
+C'est le constat le plus important de la révision, parce qu'il invalide une hypothèse implicite
+du plan plutôt qu'un de ses chiffres.
+
+**Le fait.** Depuis la rédaction de cet audit, trois fichiers Python ont été ajoutés
+(`test_llm_sizing.py`, `test_verify_covers_ci.py`, `test_windows_scripts_parity.py`, 363 lignes).
+Aucun n'a été ajouté par erreur : chacun fige un défaut réel et documenté — une fenêtre de
+contexte qui rétrécissait quand la machine grossissait, un `verify.sh` qui annonçait rejouer la
+CI sans le faire, un `pipeline.bat` acceptant une option non déclarée. Ce sont de bons tests.
+
+**Le problème n'est pas leur qualité, c'est leur langage.** Aucun des trois ne teste une ligne
+de Python. Ils testent du **shell** (`llm-sizing.sh`, `verify.sh`, six paires `.sh`/`.bat`) et
+du **YAML de CI**. Python n'y est présent qu'en tant que *langage de script hôte* : lecture de
+fichiers, expressions rationnelles, `subprocess`.
+
+Trois conséquences, par ordre de gravité :
+
+1. **La comptabilité de la migration est trompeuse.** Le plan (§9) promet qu'« après les lots 1
+   à 3, `find . -name '*.py'` ne renvoie plus que `scripts/` ». C'est vrai, mais sans valeur :
+   `scripts/` contient désormais 363 lignes de Python qu'aucun des quatre lots ne prévoit de
+   retirer, puisqu'elles ne relèvent d'aucun des quatre blocs. Le lot 4 lui-même — sortir
+   l'entraînement du dépôt — laisserait ces trois fichiers derrière lui, orphelins d'un dossier
+   `scripts/tests` dont le reste serait parti.
+2. **Le couplage est circulaire.** `test_verify_covers_ci.py` impose que tout job de `ci.yml`
+   ait une contrepartie dans `verify.sh`, et son dictionnaire `JOB_TO_SECTION` **nomme
+   explicitement** `training-scripts` et `python-services`. Supprimer un job Python de la CI
+   exige donc de modifier un test Python qui garde les jobs Python. Ce n'est pas bloquant —
+   c'est une ligne à retirer — mais c'est le signe que le harnais s'est arrimé à l'état actuel.
+3. **Le vrai gisement n'est pas Python.** Ces tests existent parce que le dépôt porte ~2 000
+   lignes de shell dupliquées en batch (`pipeline.sh`/`pipeline.bat`, `setup`, `start`, `build`,
+   `stop`, `detect-env`), dont la dérive doit être surveillée. La duplication shell/batch est,
+   en volume, un problème plus gros que les deux microservices Python réunis — et c'est elle
+   qui *engendre* du Python, pas l'inverse.
+
+**Ce qu'il faut en faire.** Trois options, à trancher explicitement (§7 bis).
+
+### P15 — Le moteur ONNX est livré sans métriques : le trou d'observabilité annoncé en §10.6 est ouvert — *moyen, nouveau*
+
+Le point 6 de §10 exigeait qu'après migration, les métriques des services Python
+« réapparaissent sur `/actuator/prometheus` (compteurs et timers Micrometer dédiés : nombre de
+rerank, latence, échecs) ». Vérification faite : **ni `OnnxCrossEncoderReranker` ni
+`CrossEncoderRerankerClient` ne référencent `MeterRegistry`**, `Timer` ou `Counter`. Le service
+Python, lui, expose bien `/metrics` via `prometheus-fastapi-instrumentator`
+(`services/reranker/app.py:24-25`, `services/docparser/app.py:66-67`).
+
+L'endpoint `prometheus` de l'actuator est activé (`application.yml:335`), donc la cible existe :
+il ne manque que l'instrumentation. Basculer `spectra.reranker.engine` sur `onnx` en l'état
+échangerait un composant observé contre un composant muet — exactement la régression
+silencieuse que §10.6 cherchait à prévenir, et elle n'a rien de théorique puisque le moteur est
+déjà écrit. À corriger **avant** la bascule du défaut, pas après : une fois le service Python
+supprimé, plus personne n'aura de raison de comparer.
 
 ---
 
@@ -617,9 +764,53 @@ Ce lot ne doit pas être fusionné sur la seule foi de tests unitaires :
    fidélité du Markdown n'étant qu'un proxy.
 
 **Critère de sortie** : `services/docparser/` supprimé du dépôt, `services/` entièrement
-supprimé (donc `requirements-test.txt`, `ruff.toml`, job `python-services`,
-`servicemonitor-python.yaml`), extraction PDF par défaut layout-aware **dans la JVM**, écart
-de qualité mesuré et publié.
+supprimé (donc `requirements-test.txt`, `ruff.toml`, job `python-services` ; le
+`servicemonitor-python.yaml` a déjà disparu avec le support Kubernetes, cf. P3), extraction PDF
+par défaut layout-aware **dans la JVM**, écart de qualité mesuré et publié.
+
+---
+
+## 7 bis. Lot 5 — Les tests d'outillage shell/CI *(nouveau, issu de P14)*
+
+Sans ce lot, la migration s'arrête à 363 lignes de Python résiduelles qu'aucun autre lot ne
+prend en charge. Trois options, par ordre croissant d'ambition.
+
+| Option | Ce qu'on fait | Python restant | Effort | Risque |
+|---|---|---:|---|---|
+| **a. Porter les tests en JUnit** | Les trois tests lisent des fichiers et appliquent des regex ; `test_llm_sizing.py` exécute en plus `bash` via `subprocess` | 0 | modéré | faible pour deux d'entre eux, réel pour `test_llm_sizing` (voir ci-dessous) |
+| **b. Supprimer la cause** | Remplacer les 6 paires `*.sh`/`*.bat` par un lanceur unique, ce qui rend `test_windows_scripts_parity` sans objet | −87 lignes | élevé | change l'expérience utilisateur Windows |
+| **c. Assumer** | Déclarer `scripts/tests/` comme outillage de dépôt, hors périmètre « full Java » | 363 | nul | la promesse « full Java » devient conditionnelle, et doit le dire |
+
+**Recommandation : (a), avec une réserve explicite sur `test_llm_sizing.py`.**
+
+Deux des trois tests sont du portage mécanique, du même ordre que
+`DocumentationLinksTest` au lot 1 — lecture de fichiers, expressions rationnelles, comparaison
+d'ensembles. Ils ont même leur place naturelle à côté de lui, dans `backend/src/test/java/fr/spectra/docs/`
+ou un `.../repo/` voisin :
+
+- `test_verify_covers_ci.py` → parcourt `ci.yml` et `verify.sh` avec deux regex et compare deux
+  ensembles de chaînes. Aucune difficulté.
+- `test_windows_scripts_parity.py` → extrait les options des lignes « Usage » de 12 fichiers et
+  compare paire à paire. Aucune difficulté.
+
+`test_llm_sizing.py` est un cas différent, et il faut le dire avant de s'engager : il **exécute
+`llm-sizing.sh` sous `bash`** pour vérifier l'arithmétique réelle plutôt que sa transcription.
+C'est précisément ce qui fait sa valeur — un test qui ré-implémenterait la formule en Java
+validerait la ré-implémentation, pas le script servi en production. Le porter en JUnit est
+faisable (`ProcessBuilder` sur `bash`, mêmes assertions), mais introduit une dépendance à `bash`
+dans la suite Maven, donc un test qui ne passe pas sur un poste Windows sans WSL. Trois issues,
+à trancher lors du lot : `@EnabledOnOs`/`@DisabledIfSystemProperty` avec saut propre (le
+contrôle disparaît alors sur ces postes), délégation au job `shellcheck` existant, ou maintien
+de ce seul fichier en Python — auquel cas la promesse « zéro `.py` » devient « un fichier,
+documenté, avec sa raison », ce qui est défendable mais doit être écrit.
+
+**Prérequis** : le lot 5 doit passer **après** les lots 2 et 3, sinon `JOB_TO_SECTION` et les
+sections de `verify.sh` seraient portées deux fois — une fois avec les jobs Python, une fois
+sans.
+
+**Critère de sortie** : `scripts/tests/` ne contient plus que les tests du bloc fine-tuning
+(qui partiront avec le lot 4) ; le job `training-scripts` ne subsiste que pour eux ; aucun test
+Python ne référence `ci.yml`, `verify.sh` ni les scripts `.bat`.
 
 ---
 
@@ -653,8 +844,27 @@ public interface TrainingRunner {
   entraîne.
 
 C'est le meilleur compromis : **le produit devient full Java ; l'entraînement redevient ce
-qu'il est réellement, un travail ML batch, optionnel, à l'ordonnancement séparé** (parfait pour
-un `Job` Kubernetes, ce qu'un `ProcessBuilder` dans un pod d'API ne sera jamais).
+qu'il est réellement, un travail ML batch, optionnel, à l'ordonnancement séparé.**
+
+> **Révision (P3).** Cette section s'appuyait aussi sur un argument de déploiement — « parfait
+> pour un `Job` Kubernetes, ce qu'un `ProcessBuilder` dans un pod d'API ne sera jamais ». Le
+> support Kubernetes ayant été retiré du dépôt (`3e8355e`), cet argument tombe : il n'y a plus
+> de `Job` à viser. L'option A **reste recommandée**, mais il faut être clair sur ce qui la
+> porte encore, une fois cet argument retiré :
+>
+> - `FineTuningService` cesse de connaître `python3`, `train.sh` et des arguments positionnels
+>   (F10) — vrai indépendamment du mode de déploiement ;
+> - F1 se ferme par un 503 actionnable au lieu d'un échec à mi-course — idem ;
+> - QLoRA, DPO, ORPO, packing et NEFTune restent disponibles sans régression — idem ;
+> - `spectra-api` et sa CI n'ont plus de Python — idem.
+>
+> Ce qui change, c'est le **gain marginal** : sans cible Kubernetes, `HttpTrainingRunner` sert
+> un seul scénario réel (conteneur `spectra-trainer` en Compose, profil dédié) au lieu de deux.
+> `ProcessTrainingRunner` reste le mode hôte. L'abstraction `TrainingRunner` conserve tout son
+> intérêt — c'est elle qui ferme F1, pas le transport HTTP — mais l'urgence de livrer le second
+> runner baisse. **Conséquence pratique** : le lot 4 peut être scindé, l'abstraction et le 503
+> actionnable d'abord (effort faible, ferme F1), le worker HTTP ensuite si le besoin se
+> manifeste.
 
 ### 8.2 Option B — `llama-finetune` de llama.cpp *(zéro Python, mais régression)*
 
@@ -720,13 +930,39 @@ Deux gains immédiats, quelle que soit l'option retenue :
 |---|---|---|---|---|---|
 | **0** | P5 (contrôleurs → interface `RerankerClient`), P7 (épinglage des scripts llama.cpp), P8 (déplacer `base_models.json`) | — | 3 correctifs isolés, aucun changement de comportement | trivial | ✅ livré |
 | **1** | `check-doc-links.py` → `DocumentationLinksTest` | — | `docs-links.yml` supprimé | trivial | ✅ livré |
-| **2** | Reranker Java (ONNX Runtime) + test de parité d'ordre | Lot 0, décision §6.3 | `services/reranker/` supprimé ; benchmark qualité stable | modéré | ⚠️ harnais (§6.5) et moteur (§6.6) livrés — reste la capture de la référence, la validation sur modèle réel, puis la bascule du défaut |
+| **2** | Reranker Java (ONNX Runtime) + test de parité d'ordre | Lot 0, décision §6.3 | `services/reranker/` supprimé ; benchmark qualité stable | modéré | ⚠️ **bloqué sur une action opérationnelle** — voir ci-dessous |
+| **2 bis** | Métriques Micrometer sur `RerankerClient` (P15) | — | `/actuator/prometheus` publie nombre de rerank, latence, échecs | trivial | 🔴 à faire **avant** la bascule du lot 2 |
 | **3** | `MarkdownPdfExtractor` (PDFBox + tabula-java) + corpus de référence | Lot 2 (rodage du schéma de bascule) | `services/` supprimé ; écart de qualité mesuré et publié | élevé | à faire |
-| **4** | `TrainingRunner` + `spectra-trainer` (option A) | décision §8 | fine-tuning fonctionnel en Docker **et** en K8s ; F1 clos | modéré | à faire |
+| **4a** | `TrainingRunner` + `ProcessTrainingRunner` + 503 actionnable | décision §8 | F1 clos ; `FineTuningService` ne connaît plus `python3` | faible | à faire |
+| **4b** | `HttpTrainingRunner` + image `spectra-trainer` (option A) | Lot 4a | Python absent du dépôt applicatif | modéré | à faire (moins urgent depuis P3) |
+| **5** | Tests d'outillage shell/CI → JUnit (§7 bis) | Lots 2 et 3 | `scripts/tests/` sans test de shell ni de CI | modéré | 🆕 à faire (issu de P14) |
 
 Ordre volontairement croissant en risque : chaque lot livre une valeur autonome et est
-réversible par configuration. Après les lots 1 à 3, `find . -name '*.py'` ne renvoie plus que
-`scripts/` ; après le lot 4, plus rien dans le dépôt applicatif.
+réversible par configuration. ~~Après les lots 1 à 3, `find . -name '*.py'` ne renvoie plus que
+`scripts/` ; après le lot 4, plus rien dans le dépôt applicatif.~~ **Corrigé par P14** : après
+les lots 1 à 4, `find . -name '*.py'` renvoie encore les 363 lignes du bloc 3 ; c'est le lot 5
+qui les traite.
+
+### Le lot 2 n'est pas bloqué par du code
+
+Distinction qui mérite d'être explicite, parce qu'elle change qui doit agir. Sont **livrés** :
+le harnais de parité (§6.5), le moteur ONNX (§6.6), six classes de test côté Java
+(`CrossEncoderScoringTest`, `PairBatchEncoderTest`, `OnnxCrossEncoderRerankerTest`,
+`CrossEncoderRerankerClientContractTest`, `RerankerHealthReportingTest`, `RerankerParityTest`)
+et leurs trois classes de support (`RerankerParityCorpus`, `RerankerParityReference`,
+`RerankerParityCheck`). Il **manque trois choses, dont aucune n'est du développement** :
+
+1. **Capturer la référence de parité** — `backend/src/test/resources/reranker-parity/` n'existe
+   pas. Tant qu'il est absent, `RerankerParityTest` se neutralise par `Assumptions` : la suite
+   est verte sans rien avoir comparé. Exige une machine avec accès au Hub HuggingFace (§6.5).
+2. **Exporter l'artefact ONNX** et lancer
+   `mvn test -Dtest=RerankerParityTest -Dreranker.parity.verify=onnx:./data/models/reranker`.
+   C'est ce lancement qui transforme « code livré » en « code prouvé » (§6.6).
+3. **Basculer le défaut** — `application.yml:140` porte toujours
+   `engine: ${SPECTRA_RERANKER_ENGINE:http}`.
+
+Tant que (1) et (2) n'ont pas eu lieu, l'affichage « lot 2 livré » serait faux : le moteur
+n'a jamais exécuté `OrtSession.run` sur un modèle réel.
 
 ### Lots 0 et 1 — ce qui a été livré
 
@@ -766,11 +1002,19 @@ fonctionnel.
 
 ### Définition de « full Java », mesurable
 
-- [ ] 0 fichier `.py` dans `backend/`, `services/`, `scripts/` du dépôt applicatif
-- [ ] 0 job Python dans `.github/workflows/` — *2 restants (`training-scripts`, `python-services`), le job `docs-links` est supprimé*
-- [ ] 0 image Docker Python construite par le dépôt (ChromaDB restant une dépendance amont)
-- [ ] `docker compose up` sans profil = pile complète, reranking et layout-aware inclus
-- [ ] fine-tuning déployable en Kubernetes (`Job`), ou explicitement signalé indisponible
+Mesuré au 31 juillet 2026 :
+
+- [ ] 0 fichier `.py` dans `backend/`, `services/`, `scripts/` du dépôt applicatif — *18 fichiers, 2 335 lignes (529 chemin de requête + 1 443 fine-tuning + 363 outillage)*
+- [ ] 0 job Python dans `.github/workflows/` — *2 restants (`training-scripts`, `python-services`) ; `docs-links` supprimé au lot 1*
+- [ ] 0 image Docker Python construite par le dépôt — *2 restantes (`docparser`, `reranker`), ChromaDB restant une dépendance amont*
+- [ ] `docker compose up` sans profil = pile complète, reranking et layout-aware inclus — *les deux sont derrière les profils `reranker` et `layout-parser`*
+- [ ] 0 section Python dans `scripts/verify.sh` — *2 restantes (`python`, `services`)*
+- [ ] `spectra-api` sert une requête sans qu'aucun processus Python ne tourne — *déjà vrai si les deux profils sont éteints ; le sera inconditionnellement après les lots 2 et 3*
+- [x] ~~fine-tuning déployable en Kubernetes (`Job`), ou explicitement signalé indisponible~~ — *critère retiré : le support Kubernetes n'existe plus (P3). Remplacé par la ligne suivante*
+- [ ] fine-tuning explicitement signalé indisponible quand aucun runner n'est configuré, au lieu d'échouer à mi-course — *F1, lot 4a*
+
+Le sixième critère est celui qui compte pour l'utilisateur, et il est **plus proche que le
+premier ne le laisse croire** : 1 806 des 2 335 lignes (77 %) sont hors du chemin de requête.
 
 ---
 
@@ -788,11 +1032,12 @@ toucher au code :
 5. `/api/status` et `/api/health` continuent de rapporter reranker et docparser — sous une
    forme adaptée (composant in-process au lieu de service distant), pas en disparaissant.
 6. **Métriques Prometheus** : les deux services exposent `/metrics` via
-   `prometheus-fastapi-instrumentator` et sont scrapés par `servicemonitor-python.yaml`.
-   Après migration, ces métriques doivent réapparaître sur `/actuator/prometheus` (compteurs
-   et timers Micrometer dédiés : nombre de rerank, latence, échecs), et les deux
-   `ServiceMonitor` être supprimés. Sans ce point, la migration crée un trou d'observabilité
-   silencieux.
+   `prometheus-fastapi-instrumentator`. ~~et sont scrapés par `servicemonitor-python.yaml`~~
+   (les `ServiceMonitor` ont disparu avec le support Kubernetes, cf. P3 — il n'y a donc plus
+   rien à supprimer de ce côté). Après migration, ces métriques doivent réapparaître sur
+   `/actuator/prometheus` (compteurs et timers Micrometer dédiés : nombre de rerank, latence,
+   échecs). Sans ce point, la migration crée un trou d'observabilité silencieux — **et il est
+   aujourd'hui ouvert : le moteur ONNX livré n'a aucune métrique** (P15, lot 2 bis).
 7. Le repli `LayoutAwarePdfExtractor` → `PdfExtractor` (texte brut) doit rester, ou être
    remplacé par un repli équivalent au sein de `MarkdownPdfExtractor`.
 
@@ -816,23 +1061,40 @@ toucher au code :
 |---|---|---|---|---|
 | P1 | L'entraînement QLoRA est la seule dépendance Python non substituable | Structurant | §8 (option A) | décision à prendre |
 | P2 | Deux runtimes ML pour 222 lignes de logique métier | Élevé | Lots 2 et 3 | ouvert |
-| P3 | `docparser`/`reranker` non déployables en Kubernetes (`ServiceMonitor` orphelins) | Élevé | Lots 2 et 3 | ouvert |
+| P3 | ~~`docparser`/`reranker` non déployables en Kubernetes (`ServiceMonitor` orphelins)~~ | ~~Élevé~~ | — | ⚫ **sans objet** (support K8s retiré, `3e8355e`) |
 | P4 | Contrats HTTP non typés (`Map` + casts) | Moyen | Lots 2 et 3 (disparaît) | ouvert |
 | P5 | Contrôleurs couplés à la classe concrète du reranker | Faible → **bloquant** | Lot 0 | ✅ corrigé |
 | P6 | Deux implémentations du format de conversation | Moyen | §8 (reste en A ; traité en C) | ouvert |
 | P7 | Chaîne GGUF non reproductible (`master` téléchargé à l'exécution) | Moyen | Lot 0 (épinglage), §8.4 (suppression) | ✅ épinglé |
 | P8 | `backend/pom.xml` lit `../scripts` | Faible | Lot 0 | ✅ corrigé |
 | P9 | Heuristiques de nettoyage docparser à porter à l'identique | Moyen (régression) | Lot 3 | ouvert |
-| P10 | Trois toolchains en CI et en développement | Moyen | Lots 1 à 4 | ⚠️ partiel (1 job Python sur 3 supprimé) |
+| P10 | Trois toolchains en CI et en développement | Moyen | Lots 1 à 5 | ⚠️ partiel (1 job Python sur 3 supprimé ; les 2 autres subsistent) |
 | P11 | La CI ne construit jamais les images des services profilés — une image inconstructible ne se découvre que chez l'utilisateur | Moyen | §6.3 bis | ouvert (arbitrage assumé) |
 | P12 | Dépendances transitives non bornées dans `services/` (`transformers`, `huggingface-hub`, `docling`) | Moyen | §6.3 bis | ✅ corrigé |
 | P13 | Le pré-téléchargement du modèle au build rendait l'image inconstructible hors ligne | Élevé (bloquant en pratique) | §6.3 bis | ✅ corrigé |
+| **P14** | **La surface Python croît (+34 %) par un canal hors périmètre des lots : des tests Python qui ne testent que du shell et de la CI** | **Élevé** | **Lot 5 (§7 bis)** | 🆕 ouvert |
+| **P15** | **Le moteur ONNX livré n'a aucune métrique Micrometer — le trou d'observabilité de §10.6 est ouvert** | **Moyen** | **Lot 2 bis** | 🆕 ouvert |
 
 **Réponse en une phrase.** Oui, Spectra peut devenir full Java sur tout ce qui sert une
 requête — reranking et extraction PDF compris — pour un effort modéré et sans perte
 fonctionnelle notable ; non, l'entraînement QLoRA ne peut pas l'être aujourd'hui, et la bonne
-réponse n'est pas de le réécrire en Java mais de le sortir du produit, ce qui règle du même
-coup le seul blocage de déploiement encore ouvert du fine-tuning.
+réponse n'est pas de le réécrire en Java mais de le sortir du produit.
+
+**Ce que la révision de juillet 2026 ajoute à cette réponse.** Le chemin de requête ne
+représente que 23 % du Python du dépôt, et il est le seul que les lots 2 et 3 traitent. « Full
+Java » se décline donc en deux objectifs qu'il faut cesser de confondre :
+
+- **« Aucun Python ne sert une requête »** — atteignable avec les lots 2 (+2 bis) et 3, et
+  c'est là que se trouve la valeur produit : deux images de moins, deux runtimes ML de moins,
+  une classe de pannes en moins. Le lot 2 n'attend d'ailleurs plus de code, mais une capture
+  de référence et une validation sur modèle réel.
+- **« Aucun `.py` dans le dépôt »** — objectif distinct, dont le coût est dominé non par les
+  microservices mais par l'entraînement (1 443 lignes, lot 4) et par un bloc d'outillage qui
+  grossit tout seul (363 lignes, lot 5). C'est un objectif d'hygiène de dépôt, légitime, mais
+  il ne faut pas lui prêter la valeur produit du premier.
+
+Les tenir pour un seul objectif conduit à mesurer l'avancement en fichiers `.py` restants —
+un indicateur qui, sur la période écoulée, a **empiré** pendant que la migration progressait.
 
 ---
 
