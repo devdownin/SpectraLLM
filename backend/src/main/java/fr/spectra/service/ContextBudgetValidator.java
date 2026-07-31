@@ -35,12 +35,8 @@ public class ContextBudgetValidator {
 
     private static final Logger log = LoggerFactory.getLogger(ContextBudgetValidator.class);
 
-    /**
-     * Caractères par token, en français. Approximation volontairement pessimiste : le français
-     * se tokenize moins bien que l'anglais, et sous-estimer le coût d'un extrait est
-     * exactement l'erreur que ce contrôle existe pour attraper.
-     */
-    static final double CHARS_PER_TOKEN = 3.5;
+    /** Repris de {@link TokenEstimator}, propriétaire unique de cette conversion. */
+    static final double CHARS_PER_TOKEN = TokenEstimator.CHARS_PER_TOKEN;
 
     /** Coût du prompt d'étiquetage, de son entête et de la réponse attendue (tokens). */
     static final int CLASSIFICATION_OVERHEAD_TOKENS = 510;
@@ -130,15 +126,58 @@ public class ContextBudgetValidator {
 
     /**
      * Budget de contexte effectivement applicable : le minimum entre ce qui est configuré et
-     * ce que le serveur peut servir. Sans information du serveur, la valeur configurée passe
-     * telle quelle — mieux vaut le comportement demandé qu'une restriction fondée sur une
-     * fenêtre supposée.
+     * ce que le serveur peut servir, <b>en le signalant</b> quand la valeur est rognée.
+     *
+     * <p>Sans information du serveur, la valeur configurée passe telle quelle — mieux vaut le
+     * comportement demandé qu'une restriction fondée sur une fenêtre supposée.</p>
+     *
+     * @param setting nom du réglage, tel qu'il apparaît dans la configuration : l'avertissement
+     *                doit désigner ce que l'opérateur peut effectivement changer
      */
-    static int clampContextTokens(int configured, LlmChatClient chatClient) {
+    static int clampContextTokens(int configured, LlmChatClient chatClient, String setting) {
+        return clamp(configured, chatClient, setting, ContextBudgetValidator::affordableContextTokens, "tokens");
+    }
+
+    /**
+     * Pendant de {@link #clampContextTokens} pour les budgets exprimés en caractères
+     * (l'extrait de classification).
+     */
+    static int clampExcerptChars(int configured, LlmChatClient chatClient, String setting) {
+        return clamp(configured, chatClient, setting, ContextBudgetValidator::affordableExcerptChars, "caractères");
+    }
+
+    /**
+     * Bornage et journalisation communs.
+     *
+     * <p>Les trois appelants faisaient auparavant cette danse chacun à leur façon : la
+     * classification interrogeait la fenêtre, comparait et journalisait ; les deux services RAG
+     * rognaient en silence. Un opérateur voyait donc son extrait signalé comme réduit, mais
+     * jamais son contexte agentique — alors que les deux subissaient la même contrainte.</p>
+     *
+     * <p>L'avertissement est émis <b>une fois par couple (réglage, valeur)</b> : un lot de mille
+     * documents ne doit pas produire mille lignes identiques, mais un changement de fenêtre —
+     * après bascule de modèle, par exemple — doit rester visible.</p>
+     */
+    private static int clamp(int configured, LlmChatClient chatClient, String setting,
+                             java.util.function.IntUnaryOperator affordable, String unit) {
         OptionalInt window = chatClient.servedContextTokens();
         if (window.isEmpty()) return configured;
-        return Math.min(configured, affordableContextTokens(window.getAsInt()));
+
+        int allowed = affordable.applyAsInt(window.getAsInt());
+        if (allowed >= configured) return configured;
+
+        if (!Integer.valueOf(allowed).equals(lastClampLogged.put(setting, allowed))) {
+            log.warn("{} ramené de {} à {} {} : la fenêtre servie est de {} tokens par requête. "
+                            + "Augmentez LLM_CONTEXT (divisé par LLM_PARALLEL) pour exploiter la "
+                            + "valeur configurée.",
+                    setting, configured, allowed, unit, window.getAsInt());
+        }
+        return allowed;
     }
+
+    /** Dernière valeur signalée par réglage, pour ne pas répéter l'avertissement à chaque appel. */
+    private static final java.util.Map<String, Integer> lastClampLogged =
+            new java.util.concurrent.ConcurrentHashMap<>();
 
     /**
      * Cœur pur du contrôle : liste les budgets qui ne tiennent pas dans {@code window}.

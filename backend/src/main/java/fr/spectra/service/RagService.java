@@ -1255,7 +1255,6 @@ public class RagService {
     }
 
     /** Heuristique d'estimation de tokens (identique à AgenticRagService) : 1 token ≈ 4 caractères. */
-    private static final int CHARS_PER_TOKEN = 4;
 
     /**
      * Charge tous les documents d'une collection pour le Long-Context RAG bypass.
@@ -1283,12 +1282,13 @@ public class RagService {
         // un corpus de 2500 tokens passait le contrôle face à un budget de 3000, pour être
         // ensuite tronqué par llama.cpp — par le DÉBUT, donc en perdant le prompt système.
         int maxContextTokens = ContextBudgetValidator.clampContextTokens(
-                props.longContextRag().effectiveMaxContextTokens(), llmClient);
+                props.longContextRag().effectiveMaxContextTokens(), llmClient,
+                "spectra.long-context-rag.max-context-tokens");
         long totalChars = 0;
         for (String doc : documents) {
             if (doc != null) totalChars += doc.length();
         }
-        long estimatedTokens = totalChars / CHARS_PER_TOKEN;
+        long estimatedTokens = TokenEstimator.estimateTokens((int) totalChars);
         if (estimatedTokens > maxContextTokens) {
             log.info("Long-context RAG : corpus estimé à ~{} tokens > budget {} → fallback retrieval standard",
                     estimatedTokens, maxContextTokens);

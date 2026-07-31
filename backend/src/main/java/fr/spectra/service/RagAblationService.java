@@ -505,7 +505,7 @@ public class RagAblationService {
         for (QueryResponse.Source s : sources) {
             if (s.text() != null) chars += s.text().length();
         }
-        return Math.round(chars / 4.0);
+        return Math.round(chars / TokenEstimator.CHARS_PER_TOKEN);
     }
 
     // ── Stats ─────────────────────────────────────────────────────────────────

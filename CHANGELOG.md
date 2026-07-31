@@ -8,6 +8,25 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Simplifications — un seul taux caractères/token, un seul bornage, un rattrapage spéculatif retiré
+
+**La conversion caractères → tokens était définie six fois, avec deux valeurs différentes.** Ce n'était pas qu'une redondance : les budgets de contexte étaient *vérifiés* à 3,5 caractères par token (`ContextBudgetValidator`) et *dépensés* à 4 (`RagService`, `AgenticRagService`, `RagAblationService`, plus deux estimations de métriques). La marge de sécurité de 15 % était donc consommée par le seul écart de taux de change :
+
+```
+fenêtre 2048 → marge sûre 1740 tokens → budget chunks 1240 (500 réservés à la réponse)
+  caractères acceptés : 1240 × 4   = 4960
+  coût réel           : 4960 ÷ 3,5 = 1417 tokens
+  total réel          : 1417 + 500 = 1917, soit 94 % de la fenêtre au lieu des 85 % visés
+```
+
+`TokenEstimator` devient propriétaire unique de cette conversion, à 3,5 — la valeur calibrée pour le français, volontairement pessimiste. Un test vérifie l'invariant qui était violé : ce qu'un budget autorise, recompté, doit y tenir.
+
+> **Effet de bord assumé** : les estimations de tokens de `EvaluationService`, `BenchmarkService` et `RagAblationService` passent elles aussi de 4 à 3,5. Les chiffres rapportés (nombre de tokens, débit en tokens/s) augmentent donc d'environ 14 % à performance identique. Les valeurs de référence citées dans les manuels datent de l'ancien diviseur et ne sont pas directement comparables aux prochaines mesures.
+
+**Le bornage des budgets était incohérent avec lui-même**, moins de 24 h après son introduction : la classification signalait sa réduction, les deux services RAG rognaient en silence. Un opérateur voyait son extrait annoncé comme réduit, jamais son contexte agentique. `clampContextTokens` / `clampExcerptChars` portent désormais la journalisation, une fois par couple (réglage, valeur), et les trois appelants perdent leur logique propre.
+
+**`StartupOrchestrator` tentait d'installer le modèle d'embedding via llmfit**, qui ne gère que les modèles de génération. Le code était spéculatif — ses commentaires l'admettaient (« Assuming it can handle huggingface repos », « would go here if llmfit supports it ») — et échouait silencieusement, laissant croire à un rattrapage automatique inexistant. Il est remplacé par un avertissement qui désigne le vrai chemin d'acquisition (`setup.sh`, étape 5/6) et dit ce que coûte son absence. Les deux blocs chat/embedding, quasi identiques, se réduisent à deux méthodes de résolution et un prédicat partagé.
+
 ### CI — la base NVD est mise en cache, et cesse d'être restaurée vide
 
 Le job `depcheck` échouait par intermittence sur `NvdApiException: 503` suivi de `NoDataException: No documents exist`. Le second est le décisif : la base de vulnérabilités était **vide**, donc l'analyse ne pouvait pas se poursuivre malgré l'avertissement « using local data instead » qui la précède.

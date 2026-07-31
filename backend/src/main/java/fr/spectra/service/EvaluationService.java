@@ -1117,10 +1117,9 @@ public class EvaluationService {
         }
     }
 
-    /** Estimation grossière du nombre de tokens (~ 4 caractères par token). */
+    /** Estimation du nombre de tokens — voir {@link TokenEstimator} pour le taux retenu. */
     private static int estimateTokens(String text) {
-        if (text == null || text.isBlank()) return 0;
-        return Math.max(1, text.length() / 4);
+        return TokenEstimator.estimateTokens(text);
     }
 
     /** Note une réponse générée via le modèle-juge actif (LLM-as-a-judge). */
