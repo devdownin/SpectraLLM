@@ -5,10 +5,12 @@ setlocal enabledelayedexpansion
 :: ────────────────────────────────────────────────────────────────────────────
 :: Spectra — Script de configuration initiale (Windows)
 ::
-:: Usage : setup.bat [--download-embed] [--download-chat]
+:: Usage : setup.bat [--download-embed] [--download-chat] [--download-reranker]
 ::
-::   --download-embed   Télécharge nomic-embed-text (~81 Mo) si absent
-::   --download-chat    Télécharge Qwen2.5-7B-Instruct Q4_K_M (~4.7 Go) si absent
+::   --download-embed     Télécharge nomic-embed-text (~81 Mo) si absent
+::   --download-chat      Télécharge Qwen2.5-7B-Instruct Q4_K_M (~4.7 Go) si absent
+::   --download-reranker  Télécharge l'artefact ONNX du reranker (~0,5 Go) si absent.
+::                        Optionnel : le reranking est désactivé par défaut.
 ::
 :: Ce script vérifie les prérequis et prépare l'environnement avant le
 :: premier lancement. À exécuter une seule fois.
@@ -20,11 +22,13 @@ cd /d "%~dp0.."
 
 set DOWNLOAD_EMBED=0
 set DOWNLOAD_CHAT=0
+set DOWNLOAD_RERANKER=0
 set ERRORS=0
 
 for %%A in (%*) do (
-    if "%%A"=="--download-embed" set DOWNLOAD_EMBED=1
-    if "%%A"=="--download-chat"  set DOWNLOAD_CHAT=1
+    if "%%A"=="--download-embed"    set DOWNLOAD_EMBED=1
+    if "%%A"=="--download-chat"     set DOWNLOAD_CHAT=1
+    if "%%A"=="--download-reranker" set DOWNLOAD_RERANKER=1
 )
 
 echo ======================================
@@ -33,7 +37,7 @@ echo ======================================
 echo.
 
 :: ── 1. Docker ─────────────────────────────────────────────────────────────
-echo ^> [1/5] Verification de Docker...
+echo ^> [1/6] Verification de Docker...
 docker info >nul 2>&1
 if errorlevel 1 (
     echo   [ERREUR] Docker n'est pas demarre ou n'est pas installe.
@@ -45,7 +49,7 @@ if errorlevel 1 (
 
 :: ── 2. Répertoires de données ──────────────────────────────────────────────
 echo.
-echo ^> [2/5] Creation des repertoires de donnees...
+echo ^> [2/6] Creation des repertoires de donnees...
 for %%D in (
     "data\documents"
     "data\dataset"
@@ -64,7 +68,7 @@ for %%D in (
 
 :: ── 3. Fichier .env ────────────────────────────────────────────────────────
 echo.
-echo ^> [3/5] Fichier de configuration .env...
+echo ^> [3/6] Fichier de configuration .env...
 if not exist ".env" (
     if exist ".env.example" (
         copy ".env.example" ".env" >nul
@@ -79,7 +83,7 @@ if not exist ".env" (
 
 :: ── 4. Modèle d'embedding ─────────────────────────────────────────────────
 echo.
-echo ^> [4/5] Modele d'embedding (data\models\embed.gguf)...
+echo ^> [4/6] Modele d'embedding (data\models\embed.gguf)...
 if exist "data\models\embed.gguf" (
     for %%S in ("data\models\embed.gguf") do (
         set /a SIZE_MB=%%~zS / 1048576
@@ -123,7 +127,7 @@ if exist ".env" (
 )
 if "!CHAT_MODEL_FILE!"=="" set "CHAT_MODEL_FILE=%CHAT_DOWNLOAD_NAME%"
 echo.
-echo ^> [5/5] Modele de chat (data\models\!CHAT_MODEL_FILE!^)...
+echo ^> [5/6] Modele de chat (data\models\!CHAT_MODEL_FILE!^)...
 if exist "data\models\!CHAT_MODEL_FILE!" (
     for %%S in ("data\models\!CHAT_MODEL_FILE!") do (
         set /a SIZE_MB=%%~zS / 1048576
@@ -164,6 +168,65 @@ if exist "data\models\!CHAT_MODEL_FILE!" (
         set /a ERRORS+=1
     )
 )
+
+:: ── 6. Artefact ONNX du reranker (optionnel) ──────────────────────────────
+:: Miroir de la section 7 de setup.sh. Le reranking est DESACTIVE par defaut : un
+:: artefact absent n'est pas une erreur, sauf si la configuration pretend l'utiliser.
+set "RERANKER_DIR=data\models\reranker"
+if "%SPECTRA_RERANKER_ONNX_URL%"=="" (
+    if exist ".env" (
+        for /f "usebackq eol=# tokens=1,* delims==" %%A in (".env") do (
+            if "%%A"=="SPECTRA_RERANKER_ONNX_URL" set "SPECTRA_RERANKER_ONNX_URL=%%B"
+            if "%%A"=="SPECTRA_RERANKER_ENABLED"  set "RERANKER_ENABLED=%%B"
+            if "%%A"=="SPECTRA_RERANKER_ENGINE"   set "RERANKER_ENGINE=%%B"
+        )
+    )
+)
+echo.
+echo ^> [6/6] Artefact ONNX du reranker (!RERANKER_DIR!^) — optionnel...
+if exist "!RERANKER_DIR!\model.onnx" if exist "!RERANKER_DIR!\tokenizer.json" (
+    echo   [OK] artefact present
+    goto :reranker_done
+)
+if !DOWNLOAD_RERANKER!==1 (
+    if "!SPECTRA_RERANKER_ONNX_URL!"=="" (
+        echo   [ERREUR] SPECTRA_RERANKER_ONNX_URL n'est pas defini.
+        echo   Cette variable donne l'URL de BASE du repertoire contenant model.onnx
+        echo   et tokenizer.json. Renseignez-la dans .env.
+        echo.
+        echo   Pour produire l'artefact vous-meme depuis un modele deja en cache, voir
+        echo   docs\process\audit-python-java.fr.md ^(section 6.3 bis^).
+        set /a ERRORS+=1
+    ) else (
+        if not exist "!RERANKER_DIR!\" mkdir "!RERANKER_DIR!"
+        echo   Telechargement depuis !SPECTRA_RERANKER_ONNX_URL! (~0,5 Go^)...
+        rem --fail : une 404 doit echouer, pas laisser une page HTML nommee model.onnx.
+        curl -L --fail --progress-bar "!SPECTRA_RERANKER_ONNX_URL!/model.onnx" -o "!RERANKER_DIR!\model.onnx"
+        if errorlevel 1 (
+            echo   [ERREUR] Echec du telechargement de model.onnx
+            set /a ERRORS+=1
+        ) else (
+            curl -L --fail --progress-bar "!SPECTRA_RERANKER_ONNX_URL!/tokenizer.json" -o "!RERANKER_DIR!\tokenizer.json"
+            if errorlevel 1 (
+                echo   [ERREUR] Echec du telechargement de tokenizer.json
+                set /a ERRORS+=1
+            ) else (
+                echo   [OK] artefact telecharge
+                echo   Activez-le avec SPECTRA_RERANKER_ENABLED=true et SPECTRA_RERANKER_ENGINE=onnx
+            )
+        )
+    )
+) else (
+    if "!RERANKER_ENABLED!"=="true" if "!RERANKER_ENGINE!"=="onnx" (
+        echo   [AVERT] reranking active en moteur « onnx » mais l'artefact est absent.
+        echo   Le reranking echouera et le RAG retombera sur l'ordre vectoriel.
+        echo   Corrigez avec : scripts\setup.bat --download-reranker
+        goto :reranker_done
+    )
+    echo   [OK] non requis — reranking desactive (defaut^)
+    echo   Pour l'activer : scripts\setup.bat --download-reranker
+)
+:reranker_done
 
 :: ── Résumé ─────────────────────────────────────────────────────────────────
 echo.

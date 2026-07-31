@@ -191,8 +191,9 @@ la migration, et la seule trace qui survivra à la suppression du service Python
 | `deploy/docker/docker-compose.yml` | supprimer le service `reranker`, le profil, le volume `reranker-model-cache`, `SPECTRA_RERANKER_URL` |
 | `services/reranker/` | supprimer (73 lignes prod + 145 test) |
 | `.github/workflows/ci.yml:172` | matrice `[docparser, reranker]` → `[docparser]` |
-| `scripts/setup.sh` / `.bat` | ajouter `--download-reranker` (cf. décision D1) |
-| `docs/configuration.en.md` | documenter `SPECTRA_RERANKER_ONNX_PATH` et le provisionnement |
+| ~~`scripts/setup.sh` / `.bat`~~ | ✅ **fait** — `--download-reranker` livré (D1) |
+| `docs/configuration.en.md` | documenter `SPECTRA_RERANKER_ONNX_PATH` / `_URL` et le provisionnement |
+| Release | publier l'artefact ONNX en asset et renseigner son URL (D1, reste à faire) |
 
 `CrossEncoderRerankerClient` **reste** derrière `engine=http` pendant une version : c'est le
 retour arrière.
@@ -386,27 +387,66 @@ QLoRA, DPO, ORPO, packing, NEFTune restent disponibles).
 Trois questions qui ne relèvent pas de l'exécution et bloqueront un lot si elles ne sont pas
 tranchées avant.
 
-### D1 — Comment une installation neuve obtient-elle l'artefact ONNX ? *(bloque lot 2, étape 5)*
+### D1 — Comment une installation neuve obtient-elle l'artefact ONNX ? — ✅ **tranchée : option (a)**
 
 `spectra.reranker.enabled` défaute à **`false`** : le reranking est éteint sur une installation
 neuve. La bascule `engine=onnx` **ne casse donc rien par défaut** — elle ne concerne que les
-installations qui ont explicitement activé le reranking, et qui devront provisionner
+installations ayant explicitement activé le reranking, qui devront provisionner
 `./data/models/reranker`.
 
-Mais l'un des critères de « full Java » est *« `docker compose up` sans profil = pile complète,
-reranking inclus »*. L'atteindre demande `enabled: true` par défaut **et** un artefact présent,
-soit une tâche que personne n'a chiffrée. Trois options :
-
-| Option | Effet | Coût |
+| Option | Effet | Retenue |
 |---|---|---|
-| **a.** `--download-reranker` dans `setup.sh`/`.bat`, `enabled` reste `false` | l'utilisateur choisit ; pas de régression | faible — **recommandée** |
-| **b.** idem + `enabled: true` par défaut | atteint le critère « pile complète » | ajoute ~0,5 Go au premier lancement, à mesurer |
-| **c.** ne rien provisionner | le critère reste non atteint | nul, mais à écrire noir sur blanc |
+| **a.** `--download-reranker` dans `setup.sh`/`.bat`, `enabled` reste `false` | l'utilisateur choisit ; aucune régression | ✅ **oui** |
+| **b.** idem + `enabled: true` par défaut | atteindrait le critère « pile complète » | reportée (cf. ci-dessous) |
+| **c.** ne rien provisionner | critère non atteint | non |
 
-**Recommandation : (a) au lot 2, (b) réévaluée après mesure de l'empreinte mémoire réelle** —
-`mMiniLMv2-L12-H384` étant distillé de XLM-R, sa matrice d'embeddings (~250 k × 384) domine sa
-taille, et ONNX Runtime alloue **en natif** : la contrainte n'est pas `-Xmx` mais la limite
-mémoire du conteneur.
+#### Ce qui est livré
+
+- **`setup.sh --download-reranker` / `setup.bat --download-reranker`** — nouvelle étape 7 (sh)
+  et 6 (bat), récupérant `model.onnx` et `tokenizer.json` dans `data/models/reranker/`.
+- **Quatre comportements distincts**, parce qu'un artefact optionnel absent n'est pas une
+  erreur — mais l'est s'il est réclamé par la configuration :
+
+  | Situation | Comportement |
+  |---|---|
+  | artefact présent | `[OK]` avec sa taille, idempotent |
+  | absent, reranking désactivé (défaut) | `[OK] non requis`, **ne compte pas comme erreur** |
+  | absent, `ENABLED=true` **et** `ENGINE=onnx` | `[AVERT]` nommant la conséquence (repli sur l'ordre vectoriel, `rerankApplied=false`) et le correctif |
+  | `--download-reranker` sans URL | `[ERREUR]` renvoyant à l'export hors ligne (audit §6.3 bis) |
+
+- **`SPECTRA_RERANKER_ONNX_URL`** — URL de *base* du répertoire distant. Aucune valeur par
+  défaut, **et c'est délibéré** : le modèle multilingue par défaut n'est pas publié au format
+  ONNX en amont, donc toute URL codée en dur pourrirait en silence. La variable accepte un asset
+  de release, un miroir interne, ou un artefact produit hors ligne.
+- **`.env.example`** documente enfin le reranking — les quatre variables (`ENABLED`, `ENGINE`,
+  `ONNX_PATH`, `ONNX_URL`) en étaient **totalement absentes**, ce qui rendait la fonctionnalité
+  indécouvrable autrement qu'en lisant `application.yml`.
+- `curl --fail` + suppression du fichier partiel : une 404 ne laisse jamais une page HTML nommée
+  `model.onnx`, qu'ONNX Runtime ne rejetterait qu'au premier rerank, longtemps après le setup.
+
+#### Corrigé au passage — `read_env_var` interrompait `setup.sh` sans message
+
+Sous `set -euo pipefail`, `grep` sans correspondance fait échouer le pipeline de `read_env_var` ;
+l'affectation `VAR="$(read_env_var CLE_ABSENTE)"` **terminait alors le script silencieusement**,
+résumé final compris. Le défaut était latent tant que la seule clé lue (`LLM_CHAT_MODEL_FILE`)
+figurait dans `.env.example` — il ne se manifestait que sur un `.env` édité à la main. Lire des
+clés optionnelles le rendait systématique. Corrigé (`|| true`), vérifié sur les trois cas : clé
+absente, clé présente, `.env` absent.
+
+#### Reste à faire — une étape de *release*, pas de développement
+
+Publier l'artefact ONNX comme asset de release et renseigner son URL dans la documentation
+d'installation. Tant que ce n'est pas fait, `--download-reranker` exige que l'opérateur
+fournisse lui-même l'URL — comportement correct et explicite, mais pas encore « clé en main ».
+
+#### Option (b) — reportée, avec son critère de réévaluation
+
+Passer `enabled: true` par défaut atteindrait le critère *« `docker compose up` = pile complète,
+reranking inclus »*, au prix de ~0,5 Go au premier lancement. **À réévaluer après mesure de
+l'empreinte mémoire réelle** : `mMiniLMv2-L12-H384` étant distillé de XLM-R, sa matrice
+d'embeddings (~250 k × 384) domine sa taille, et ONNX Runtime alloue **en natif** — la contrainte
+n'est donc pas `-Xmx` mais la limite mémoire du conteneur. Décider avant d'avoir mesuré serait
+un pari sur le poste le plus modeste du parc.
 
 ### D2 — Quel écart de qualité PDF est acceptable ? *(bloque lot 3, fusion)*
 
@@ -448,7 +488,7 @@ valeur fonctionnelle**. À décider explicitement plutôt qu'à enchaîner par i
 | Lot | Effort | Piste | Bloqué par | Statut |
 |---|---|---|---|---|
 | 2 bis · Métriques Micrometer | 0,5 j | A | — | ⬜ à faire |
-| 2 · Reranker ONNX | 2 j | A | 2 bis, accès Hub, **D1** | ⬜ code livré, validation à faire |
+| 2 · Reranker ONNX | 2 j | A | 2 bis, accès Hub | ⬜ code livré, validation à faire — ~~D1~~ ✅ tranchée |
 | 3 · MarkdownPdfExtractor | 8-12 j | A | Lot 2, **D2** | ⬜ à faire |
 | 4a · `TrainingRunner` + 503 | 2 j | B | — | ⬜ à faire |
 | 4b · `spectra-trainer` | 5 j | B | Lot 4a, **D3** | ⬜ à décider |

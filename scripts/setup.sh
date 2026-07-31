@@ -2,10 +2,12 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Spectra — Script de configuration initiale (Linux / macOS)
 #
-# Usage : ./setup.sh [--download-embed] [--download-chat]
+# Usage : ./setup.sh [--download-embed] [--download-chat] [--download-reranker]
 #
-#   --download-embed   Télécharge nomic-embed-text (~81 Mo) si absent
-#   --download-chat    Télécharge Qwen2.5-7B-Instruct Q4_K_M (~4.7 Go) si absent
+#   --download-embed     Télécharge nomic-embed-text (~81 Mo) si absent
+#   --download-chat      Télécharge Qwen2.5-7B-Instruct Q4_K_M (~4.7 Go) si absent
+#   --download-reranker  Télécharge l'artefact ONNX du reranker (~0,5 Go) si absent.
+#                        Optionnel : le reranking est désactivé par défaut.
 # ─────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail
@@ -16,12 +18,14 @@ cd "$SCRIPT_DIR/.."
 
 DOWNLOAD_EMBED=0
 DOWNLOAD_CHAT=0
+DOWNLOAD_RERANKER=0
 ERRORS=0
 
 for arg in "$@"; do
   case "$arg" in
-    --download-embed) DOWNLOAD_EMBED=1 ;;
-    --download-chat)  DOWNLOAD_CHAT=1  ;;
+    --download-embed)    DOWNLOAD_EMBED=1    ;;
+    --download-chat)     DOWNLOAD_CHAT=1     ;;
+    --download-reranker) DOWNLOAD_RERANKER=1 ;;
   esac
 done
 
@@ -30,10 +34,18 @@ yellow() { echo -e "\033[33m$*\033[0m"; }
 red()    { echo -e "\033[31m$*\033[0m"; }
 
 # Lit une variable depuis .env (sans sourcer le fichier), guillemets retirés.
+# Renvoie une chaîne vide — et un succès — si la clé est absente.
+#
+# Le « || true » n'est pas cosmétique : sous « set -euo pipefail », un grep sans
+# correspondance fait échouer tout le pipeline, et une affectation
+# « VAR="$(read_env_var ABSENTE)" » interrompait alors setup.sh sans le moindre message,
+# résumé final compris. Le défaut était latent tant que la seule clé lue
+# (LLM_CHAT_MODEL_FILE) figurait dans .env.example ; il devient systématique dès qu'on lit
+# une clé optionnelle.
 read_env_var() {
   local key="$1"
   [ -f ".env" ] || return 0
-  grep -E "^${key}=" .env | tail -n1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//'
+  grep -E "^${key}=" .env | tail -n1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' || true
 }
 
 # Insère ou met à jour une variable dans .env.
@@ -56,7 +68,7 @@ echo "======================================"
 echo
 
 # ── 1. Java ───────────────────────────────────────────────────────────────
-echo "> [1/6] Vérification de Java 25..."
+echo "> [1/7] Vérification de Java 25..."
 if [ -f "$SCRIPT_DIR/setup-java.sh" ]; then
   if ! "$SCRIPT_DIR/setup-java.sh"; then
     ERRORS=$((ERRORS + 1))
@@ -65,7 +77,7 @@ fi
 
 # ── 2. Docker ─────────────────────────────────────────────────────────────
 echo
-echo "> [2/6] Vérification de Docker..."
+echo "> [2/7] Vérification de Docker..."
 if ! docker info > /dev/null 2>&1; then
   red "  [ERREUR] Docker n'est pas démarré ou n'est pas installé."
   echo "  Installez Docker Desktop : https://www.docker.com/products/docker-desktop"
@@ -76,7 +88,7 @@ fi
 
 # ── 3. Répertoires de données ──────────────────────────────────────────────
 echo
-echo "> [3/6] Création des répertoires de données..."
+echo "> [3/7] Création des répertoires de données..."
 for dir in data/documents data/dataset data/fine-tuning data/fine-tuning/merged data/models data/source; do
   if [ ! -d "$dir" ]; then
     mkdir -p "$dir"
@@ -88,7 +100,7 @@ done
 
 # ── 4. Fichier .env ────────────────────────────────────────────────────────
 echo
-echo "> [4/6] Fichier de configuration .env..."
+echo "> [4/7] Fichier de configuration .env..."
 if [ ! -f ".env" ]; then
   if [ -f ".env.example" ]; then
     cp .env.example .env
@@ -103,7 +115,7 @@ fi
 
 # ── 5. Modèle d'embedding ─────────────────────────────────────────────────
 echo
-echo "> [5/6] Modèle d'embedding (data/models/embed.gguf)..."
+echo "> [5/7] Modèle d'embedding (data/models/embed.gguf)..."
 if [ -f "data/models/embed.gguf" ]; then
   SIZE=$(du -sh data/models/embed.gguf | cut -f1)
   green "  [OK] embed.gguf présent — $SIZE"
@@ -135,7 +147,7 @@ CHAT_MODEL_FILE="$(read_env_var LLM_CHAT_MODEL_FILE)"
 CHAT_MODEL_FILE="${CHAT_MODEL_FILE:-$CHAT_DOWNLOAD_NAME}"
 CHAT_MODEL_PATH="data/models/$CHAT_MODEL_FILE"
 echo
-echo "> [6/6] Modèle de chat ($CHAT_MODEL_PATH)..."
+echo "> [6/7] Modèle de chat ($CHAT_MODEL_PATH)..."
 if [ -f "$CHAT_MODEL_PATH" ]; then
   SIZE=$(du -sh "$CHAT_MODEL_PATH" | cut -f1)
   green "  [OK] $CHAT_MODEL_FILE présent — $SIZE"
@@ -167,6 +179,70 @@ else
     echo "    placez votre fichier dans data/models/ et renseignez"
     echo "    LLM_CHAT_MODEL_FILE=<nom-du-fichier.gguf> dans .env"
     ERRORS=$((ERRORS + 1))
+  fi
+fi
+
+# ── 7. Artefact ONNX du reranker (optionnel) ──────────────────────────────
+# Le reranking est DÉSACTIVÉ par défaut (spectra.reranker.enabled=false). Un artefact
+# absent n'est donc pas une erreur de configuration : il ne le devient que si le reranking
+# est activé en moteur « onnx » sans que le modèle soit là — cas traité plus bas.
+#
+# Pourquoi une URL et non un dépôt en dur : le modèle multilingue par défaut
+# (mmarco-mMiniLMv2) n'est pas publié au format ONNX en amont. L'artefact est produit une
+# fois, hors ligne, et publié comme asset de release (cf. docs/process/plan-migration-java.fr.md,
+# décision D1). Coder une URL en dur ici la ferait pourrir en silence.
+RERANKER_DIR="data/models/reranker"
+RERANKER_ONNX_URL="${SPECTRA_RERANKER_ONNX_URL:-$(read_env_var SPECTRA_RERANKER_ONNX_URL)}"
+echo
+echo "> [7/7] Artefact ONNX du reranker ($RERANKER_DIR) — optionnel..."
+if [ -f "$RERANKER_DIR/model.onnx" ] && [ -f "$RERANKER_DIR/tokenizer.json" ]; then
+  SIZE=$(du -sh "$RERANKER_DIR" | cut -f1)
+  green "  [OK] artefact présent — $SIZE"
+elif [ "$DOWNLOAD_RERANKER" -eq 1 ]; then
+  if [ -z "$RERANKER_ONNX_URL" ]; then
+    red "  [ERREUR] SPECTRA_RERANKER_ONNX_URL n'est pas défini."
+    echo "  Cette variable donne l'URL de BASE du répertoire contenant model.onnx et"
+    echo "  tokenizer.json. Renseignez-la dans .env, ou exportez-la :"
+    echo "    SPECTRA_RERANKER_ONNX_URL=https://…/reranker ./scripts/setup.sh --download-reranker"
+    echo
+    echo "  Pour produire l'artefact vous-même depuis un modèle déjà en cache, voir"
+    echo "  docs/process/audit-python-java.fr.md (§6.3 bis, export hors ligne)."
+    ERRORS=$((ERRORS + 1))
+  else
+    mkdir -p "$RERANKER_DIR"
+    echo "  Téléchargement depuis $RERANKER_ONNX_URL (~0,5 Go)..."
+    RERANKER_OK=1
+    for f in model.onnx tokenizer.json; do
+      # --fail : une 404 doit échouer, pas laisser une page HTML nommée model.onnx —
+      # ONNX Runtime ne la rejetterait qu'au premier rerank, longtemps après le setup.
+      # L'échec est compté et non fatal : ce téléchargement est optionnel, et avorter
+      # ici priverait l'utilisateur du résumé final (comportement du .bat, aligné).
+      if ! curl -L --fail --progress-bar "${RERANKER_ONNX_URL%/}/$f" -o "$RERANKER_DIR/$f"; then
+        red "  [ERREUR] Échec du téléchargement de $f"
+        rm -f "$RERANKER_DIR/$f"
+        RERANKER_OK=0
+      fi
+    done
+    if [ "$RERANKER_OK" -eq 1 ]; then
+      green "  [OK] artefact téléchargé"
+      echo "  Activez-le avec SPECTRA_RERANKER_ENABLED=true et SPECTRA_RERANKER_ENGINE=onnx"
+    else
+      echo "  Vérifiez SPECTRA_RERANKER_ONNX_URL — l'URL doit désigner le RÉPERTOIRE"
+      echo "  contenant model.onnx et tokenizer.json, pas l'un des deux fichiers."
+      ERRORS=$((ERRORS + 1))
+    fi
+  fi
+else
+  # Absent et non demandé : silencieux, SAUF si la configuration prétend l'utiliser.
+  if [ "$(read_env_var SPECTRA_RERANKER_ENABLED)" = "true" ] \
+     && [ "$(read_env_var SPECTRA_RERANKER_ENGINE)" = "onnx" ]; then
+    yellow "  [AVERT] reranking activé en moteur « onnx » mais l'artefact est absent."
+    echo "  Le reranking échouera et le RAG retombera sur l'ordre vectoriel"
+    echo "  (rerankApplied=false). Corrigez avec :"
+    echo "    ./scripts/setup.sh --download-reranker"
+  else
+    green "  [OK] non requis — reranking désactivé (défaut)"
+    echo "  Pour l'activer : ./scripts/setup.sh --download-reranker"
   fi
 fi
 
