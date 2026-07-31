@@ -273,10 +273,15 @@
                             <dataDirectory>${nvd.data.directory}</dataDirectory>
 
                             <!-- Durée de validité des données en cache avant de retenter une
-                                 mise à jour. Le défaut (4 h) fait interroger le NVD à presque
-                                 chaque exécution ; avec un cache hebdomadaire, 24 h suffisent
-                                 à couvrir les rafales de CI d'une même journée sans appel. -->
-                            <nvdValidForHours>24</nvdValidForHours>
+                                 mise à jour.
+                                 Cette valeur avait été portée à 24 h pour une raison précise :
+                                 sans clé d'API, chaque interrogation du NVD était lente et
+                                 exposée aux 503, il fallait donc les espacer. Le secret
+                                 NVD_API_KEY étant désormais configuré, cette justification
+                                 tombe et le compromis s'inverse — espacer les mises à jour ne
+                                 protège plus de rien, mais retarde d'autant la détection d'une
+                                 CVE publiée entre deux exécutions. Retour au défaut. -->
+                            <nvdValidForHours>4</nvdValidForHours>
                         </configuration>
                         <executions>
                             <execution>

@@ -33,7 +33,7 @@ jobs:
         run: echo "week=$(date -u +%Y-w%V)" >> "$GITHUB_OUTPUT"
 
       - name: Cache de la base NVD
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.dependency-check-data
           key: nvd-db-${{ steps.cache-key.outputs.week }}

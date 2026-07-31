@@ -8,6 +8,45 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Dépendances — résorption de la file Dependabot
+
+Sept PR Dependabot attendaient depuis le 13 juillet. Les fusionner une à une n'était pas possible : les quatre montées frontend touchent toutes `package-lock.json` et **se mettent mutuellement en conflit** par construction. Elles sont donc appliquées ensemble ; Dependabot ferme ses propres PR en constatant les versions déjà en place.
+
+**Frontend** — `vitest` 3.2.7 → 4.1.10, `@vitest/coverage-v8` 3.2.7 → 4.1.10, `@eslint/js` 9.39.4 → 10.0.1, `@types/node` 26.1.0 → 26.1.2.
+
+La montée de `@eslint/js` **corrige une incohérence** plutôt qu'elle n'en introduit : `eslint` était déjà en 10.7.0 face à un `@eslint/js` resté en 9. Les deux paquets sont désormais alignés.
+
+**GitHub Actions** — `download-artifact` 4 → 8, `codeql-action` 3 → 4 (les quatre points d'entrée, `upload-sarif` compris, qui était resté en v3), `scorecard-action` 2.3.1 → 2.4.3, `cache` 4 → 6 dans `dependency-scan.yml`, qui était le seul à ne pas suivre.
+
+> **Limite de vérification.** Les montées frontend sont validées localement : 194 tests, 0 erreur de lint, build. Les montées d'actions ne sont pas testables hors CI — leur validation vient de la première exécution. Elles ne touchent que l'outillage d'intégration, et un échec y est visible et trivialement réversible.
+
+
+### Corrigé — 36 tests ne vérifiaient rien, et rien ne le disait
+
+```
+Tests run: 0, … -- in fr.spectra.service.extraction.JsonExtractorTest
+Tests run: 0, … -- in fr.spectra.service.extraction.XmlExtractorTest
+Tests run: 0, … -- in fr.spectra.integration.ChromaDbConsistencyIntegrationTest
+```
+
+Ces trois classes plaçaient un `Assumptions.assumeTrue` dans un `@BeforeAll`. L'hypothèse échouant avant tout test, JUnit abandonnait le conteneur entier : le rapport n'affichait ni échec, **ni même « Skipped »** — la classe disparaissait du décompte. Le build restait vert, la couverture ne bougeait pas.
+
+Parmi les tests concernés : un **contrôle de sécurité XXE** sur `XmlExtractor`, qui n'avait donc jamais tourné.
+
+- **Corpus d'essai de repli.** Les archives `data/documents/*.zip` sont des documents réels, jamais versionnés. Ce que ces tests vérifient — mise à plat des chemins, métadonnées, robustesse — ne dépend pas de leur contenu exact mais de leur *forme* : `KafkaCorpusFixture` la reproduit quand elles sont absentes. Les extracteurs passent de 0 à **30 tests exécutés**, 2 sautés.
+- **L'unique assertion portant sur les données** (le corpus de production compte 36 entrées) reste conditionnée, mais par un `assumeTrue` **dans le corps du test** : le saut est alors compté et affiché.
+- **Le test d'intégration ChromaDB** évalue sa dépendance à Docker par test plutôt qu'au chargement de la classe : 4 sautés au lieu de 4 invisibles.
+
+**`scripts/check-test-reports.sh`** échoue désormais si une classe rapporte zéro test exécuté, avec exemptions motivées. Câblé dans `verify.sh` et dans la CI. Il a immédiatement trouvé la troisième classe, que je n'avais pas repérée à la lecture.
+
+
+### CI — retour à une fenêtre de fraîcheur de 4 h pour la base NVD
+
+`nvdValidForHours` avait été porté de 4 (défaut) à 24 pour une raison précise : sans clé d'API, chaque interrogation du NVD était lente et exposée aux 503, il fallait donc les espacer. Le secret `NVD_API_KEY` étant désormais configuré, cette justification tombe et **le compromis s'inverse** — espacer les mises à jour ne protège plus de rien, mais retarde d'autant la détection d'une CVE publiée entre deux exécutions.
+
+Le cache hebdomadaire, lui, reste en place : il évite de reconstruire la base entière à chaque nouvelle branche — ce qui avait coûté 53 minutes sur une exécution récente — et la clé accélère cette reconstruction sans la supprimer.
+
+
 ### Corrigé — les documents Word modernes étaient classés comme du XML
 
 Le type MIME officiel d'un DOCX est `application/vnd.openxmlformats-officedocument.wordprocessingml.document` : il **contient la sous-chaîne `xml`**. La condition XML étant évaluée avant celle du DOCX, tout document Word moderne recevait l'icône, le libellé et le groupe du XML dans la GED.
