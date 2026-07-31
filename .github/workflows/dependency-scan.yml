@@ -15,6 +15,31 @@ jobs:
       - uses: actions/checkout@v4
       - name: Set up Java and Maven
         uses: ./.github/actions/setup-java-maven
+
+      # La base NVD a son propre cache, séparé de celui de Maven.
+      #
+      # Elle vivait sous ~/.m2/repository/org/owasp/…, donc dans le cache Maven partagé par
+      # tous les jobs et keyé sur le hash des pom. Un cache GitHub étant IMMUABLE par clé,
+      # c'est le job le plus rapide qui l'écrit — jamais depcheck. La base était ainsi
+      # restaurée vide à chaque exécution, et une indisponibilité du service NVD devenait
+      # fatale (« NoDataException: No documents exist ») au lieu de dégrader sur les données
+      # locales. Le pom pointe désormais dataDirectory hors de ~/.m2 (profil dep-check).
+      #
+      # Clé tournant chaque semaine : la base est reconstruite au premier passage de la
+      # semaine, puis restaurée telle quelle (un cache n'est écrit qu'au premier miss).
+      # `restore-keys` rattrape les semaines antérieures, de sorte qu'elle n'est jamais vide.
+      - name: Semaine courante (clé de cache)
+        id: cache-key
+        run: echo "week=$(date -u +%Y-w%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache de la base NVD
+        uses: actions/cache@v4
+        with:
+          path: ~/.dependency-check-data
+          key: nvd-db-${{ steps.cache-key.outputs.week }}
+          restore-keys: |
+            nvd-db-
+
       - name: OWASP Dependency Check
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY || '' }}

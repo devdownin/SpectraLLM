@@ -237,6 +237,12 @@
              Activée par le workflow dependency-scan via `-Psecurity`. -->
         <profile>
             <id>dep-check</id>
+            <properties>
+                <!-- Emplacement de la base NVD. Surchargeable en ligne de commande
+                     (-Dnvd.data.directory=…) ; le workflow s'en sert pour poser un cache
+                     dédié dessus. Hors de ${user.home}/.m2 à dessein — voir plus bas. -->
+                <nvd.data.directory>${user.home}/.dependency-check-data</nvd.data.directory>
+            </properties>
             <build>
                 <plugins>
                     <plugin>
@@ -254,6 +260,23 @@
                             </suppressionFiles>
 
                             <ossIndexAnalyzerEnabled>false</ossIndexAnalyzerEnabled>
+
+                            <!-- Base NVD SORTIE de ~/.m2, pour qu'elle ait son propre cache.
+                                 Par défaut elle vit sous ~/.m2/repository/org/owasp/… et se
+                                 retrouve donc dans le cache Maven partagé par tous les jobs,
+                                 keyé sur le hash des pom. Or un cache GitHub est IMMUABLE par
+                                 clé : c'est le job le plus rapide qui l'écrit, et ce n'est
+                                 jamais depcheck. La base était ainsi restaurée VIDE à chaque
+                                 exécution, obligeant à la retélécharger — et un 503 du service
+                                 NVD devenait fatal (« NoDataException: No documents exist »)
+                                 au lieu d'une dégradation sur les données locales. -->
+                            <dataDirectory>${nvd.data.directory}</dataDirectory>
+
+                            <!-- Durée de validité des données en cache avant de retenter une
+                                 mise à jour. Le défaut (4 h) fait interroger le NVD à presque
+                                 chaque exécution ; avec un cache hebdomadaire, 24 h suffisent
+                                 à couvrir les rafales de CI d'une même journée sans appel. -->
+                            <nvdValidForHours>24</nvdValidForHours>
                         </configuration>
                         <executions>
                             <execution>

@@ -8,6 +8,18 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### CI — la base NVD est mise en cache, et cesse d'être restaurée vide
+
+Le job `depcheck` échouait par intermittence sur `NvdApiException: 503` suivi de `NoDataException: No documents exist`. Le second est le décisif : la base de vulnérabilités était **vide**, donc l'analyse ne pouvait pas se poursuivre malgré l'avertissement « using local data instead » qui la précède.
+
+Le mécanisme n'était pas l'absence de cache, mais un cache mal partagé. La base NVD vit par défaut sous `~/.m2/repository/org/owasp/dependency-check-data`, donc **dans le cache Maven de `actions/setup-java`**, keyé sur le hash des `pom.xml` et partagé par quatre jobs. Or un cache GitHub est **immuable par clé** : il est écrit par le premier job qui termine — jamais `depcheck`, qui est le plus lent. La base était ainsi restaurée vide à chaque exécution, retéléchargée intégralement, et toute indisponibilité du service NVD devenait fatale.
+
+- `dataDirectory` sort de `~/.m2` (`${user.home}/.dependency-check-data`, surchargeable par `-Dnvd.data.directory=`), ce qui lui donne droit à un cache dédié.
+- Ce cache utilise une clé tournant chaque semaine, avec `restore-keys` pour rattraper les semaines antérieures : la base n'est jamais vide, et une indisponibilité du NVD redevient ce qu'elle devrait être — un avertissement sur la fraîcheur des données, pas un échec de build.
+- `nvdValidForHours` passe de 4 (défaut) à 24 : les rafales de CI d'une même journée n'interrogent plus le service du tout.
+
+**Ce n'est pas un substitut au secret `NVD_API_KEY`.** Le cache ne protège qu'une fois peuplé ; sa première constitution reste soumise à la limitation de débit imposée au trafic anonyme. Les deux mesures sont complémentaires.
+
 ### Contexte — les trois budgets s'ajustent, la quatrième copie du calcul est alignée, la documentation cesse de mentir
 
 Suite et fin du travail sur la fenêtre de contexte. Le précédent correctif n'en traitait qu'un tiers, et le reste s'est révélé pire que prévu.
