@@ -102,7 +102,8 @@
       "Bash(curl -s \"http://localhost:8099/api/ged/documents?size=50\")",
       "Bash(curl -s \"http://localhost:8099/api/ingest/891b70cf-06a1-49fb-ba32-093c2e5c8c33\")",
       "Bash(gh auth *)",
-      "Bash(git checkout *)"
+      "Bash(git checkout *)",
+      "Bash(git push *)"
     ]
   }
 }

@@ -82,12 +82,17 @@ spectra:
     model: qwen2.5-7b-instruct
     embedding-model: nomic-embed-text
   pipeline:
-    chunk-max-tokens: 512        # Max tokens per chunk
+    chunk-max-tokens: 512        # Max tokens per chunk            (Compose: 256)
     chunk-overlap-tokens: 64     # Overlap between consecutive chunks
-    embedding-batch-size: 10     # Embeddings computed in parallel
-    embedding-timeout-seconds: 30
-    concurrent-ingestions: 4     # Max parallel ingestion tasks
+    chunk-locale: fr             # Sentence-boundary locale (BCP 47)
+    embedding-batch-size: 32     # Chunks per embedding HTTP call
+    embedding-timeout-seconds: 60                                 # (Compose: 30)
+    concurrent-ingestions: 1     # Max parallel ingestion tasks     (Compose: 4)
 ```
+
+These are the `application.yml` defaults — what you get running the jar directly.
+`docker-compose.yml` overrides three of them, noted above; the Compose value is what
+a standard install actually runs with.
 
 **Environment variables:**
 ```bash
@@ -299,7 +304,7 @@ Documents enter Spectra through several channels:
 2. **Extraction** — format-specific extractor (PDF via PDFBox or docparser, DOCX via Apache POI, HTML via Jsoup, etc.)
 3. **Cleaning** — multi-pass normalization: Unicode NFC, OCR ligature replacement, page markers, headers/footers, table borders, bullet point normalization, whitespace compression
 4. **Chunking** — sliding window by token count (default: 512 tokens, 64-token overlap; sentence boundaries follow `SPECTRA_CHUNK_LOCALE`). The overlap ensures that sentences crossing chunk boundaries aren't split in half for the embedder
-5. **Embedding** — batched calls to the embedding model (default batch: 10 chunks)
+5. **Embedding** — batched calls to the embedding model (default batch: 32 chunks). The batch size is bounded by the LLM clients' 16 MB response buffer (`AppConfig.LLM_MAX_IN_MEMORY_BYTES`): a batch large enough to exceed it fails as a whole, so raise `SPECTRA_EMBEDDING_BATCH_SIZE` and that ceiling together
 6. **Vector indexing** — chunks + embeddings stored in ChromaDB; each chunk carries its document's `sha256` as metadata, so deletion/replacement targets content identity (two same-named documents no longer share their fate)
 7. **BM25 indexing** — chunks are **always** added to the in-memory BM25 index (hybrid search only decides whether it is *queried* at retrieval time)
 8. **GED record** — the document sheet is created (hash, quality score, lifecycle), with per-file errors surfaced in the task status (`fileErrors`; a task where every file failed ends `FAILED`)
