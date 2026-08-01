@@ -104,8 +104,13 @@ public class StartupOrchestrator {
      * téléchargement de plusieurs gigaoctets sans raison. Compose et k8s renseignent tous
      * deux {@code SPECTRA_LLM_CHAT_FILE} et prenaient donc la première branche — le défaut
      * ne se voyait qu'en exécution hors conteneur.
+     *
+     * <p>Visible au paquet — et non {@code private} — pour que {@code StartupOrchestratorTest}
+     * puisse vérifier directement qu'un NOM DE FICHIER en sort. Passer par
+     * {@link #checkAndInstallMissingModels()} ne discriminerait pas : dans un environnement de
+     * test où aucun GGUF n'existe, l'alias comme le nom de fichier sont « manquants ».
      */
-    private String resolveChatModelFile() {
+    String resolveChatModelFile() {
         if (properties.llm().chat() != null && properties.llm().chat().effectiveFile() != null) {
             return properties.llm().chat().effectiveFile();
         }
@@ -113,7 +118,7 @@ public class StartupOrchestrator {
     }
 
     /** Même correction que {@link #resolveChatModelFile()} : un fichier, jamais un alias. */
-    private String resolveEmbeddingModelFile() {
+    String resolveEmbeddingModelFile() {
         if (properties.llm().embedding() != null && properties.llm().embedding().effectiveFile() != null) {
             return properties.llm().embedding().effectiveFile();
         }
