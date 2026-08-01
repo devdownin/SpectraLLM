@@ -28,3 +28,21 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+
+  # L'entraînement est le principal bénéficiaire du GPU : en QLoRA, l'écart avec le CPU se
+  # compte en ordres de grandeur, au point de décider si le mode conteneur est utilisable.
+  #
+  # Aucune image CUDA à substituer ici, contrairement à llm-chat : la roue `torch` installée
+  # par pip embarque déjà ses bibliothèques CUDA sous Linux. Il ne manque que l'accès aux
+  # périphériques — et le runtime NVIDIA côté hôte (nvidia-container-toolkit).
+  #
+  # Sans GPU visible, train_host.py retombe de lui-même sur le chemin CPU : cet override est
+  # sans danger sur une machine qui n'en a pas.
+  trainer:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

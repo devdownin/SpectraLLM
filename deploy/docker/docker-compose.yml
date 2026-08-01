@@ -337,6 +337,17 @@ services:
       context: .
       dockerfile: services/trainer/Dockerfile
     container_name: spectra-trainer
+    deploy:
+      resources:
+        limits:
+          # Le service le plus vorace de la pile, et le seul dont un dépassement emporterait
+          # l'hôte — donc l'API et le frontend avec. Une limite explicite transforme un
+          # incident système en échec de job, lisible et sans dommage collatéral.
+          #
+          # 12 Go convient à du QLoRA 4-bit sur un modèle de 3 à 7 milliards de paramètres.
+          # À relever pour un modèle plus grand ou un lot plus large : trop bas, le job est
+          # tué par l'OOM killer sans cause claire ; trop haut, la limite ne protège de rien.
+          memory: ${TRAINER_MEMORY_LIMIT:-12g}
     ports:
       - "8004:8000"
     volumes:

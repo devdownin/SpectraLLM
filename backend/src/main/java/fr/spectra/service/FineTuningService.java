@@ -131,8 +131,19 @@ public class FineTuningService {
 
     /**
      * Au démarrage, tout job resté non-terminal (PENDING/EXPORTING/TRAINING/IMPORTING) est
-     * orphelin : son process OS a disparu avec l'ancienne JVM. On le marque FAILED pour ne pas
-     * laisser le suivi tourner indéfiniment côté UI.
+     * orphelin : l'exécution qui le portait a disparu avec l'ancienne JVM. On le marque FAILED
+     * pour ne pas laisser le suivi tourner indéfiniment côté UI.
+     *
+     * <p><b>L'annulation auprès du runner n'est pas redondante</b>, et c'est le mode conteneur
+     * qui l'impose. En mode hôte, le sous-processus meurt avec la JVM : marquer FAILED suffit.
+     * En mode HTTP, l'entraînement vit dans un <i>autre</i> conteneur, qui n'apprend le départ
+     * de son client qu'en tentant d'écrire sur la connexion fermée — c'est-à-dire à la prochaine
+     * ligne de journal. Un entraînement silencieux pendant une heure resterait donc à consommer
+     * CPU, RAM et GPU pour un job que l'API a déjà déclaré perdu.
+     *
+     * <p>L'appel est sans effet en mode hôte (aucun processus enregistré dans une JVM neuve) et
+     * tolérant à l'échec (le trainer peut être injoignable) : il ne coûte rien là où il ne sert
+     * pas.
      */
     @jakarta.annotation.PostConstruct
     void reconcileInterruptedJobs() {
@@ -143,6 +154,19 @@ public class FineTuningService {
                     repository.save(FineTuningJobEntity.fromDto(
                             j.failed("Interrompu par un redémarrage du serveur")));
                     log.warn("Job {} ({}) marqué FAILED : interrompu par un redémarrage", j.jobId(), j.status());
+                    // try/catch RESSERRÉ sur l'annulation, et non délégué à celui de la boucle :
+                    // un trainer injoignable y ferait sinon avorter le traitement des jobs
+                    // suivants, qui resteraient TRAINING à jamais — le fantôme même que cette
+                    // méthode élimine. L'annulation est accessoire ; le marquage ne l'est pas.
+                    try {
+                        if (trainingRunner.cancel(j.jobId())) {
+                            log.warn("Job {} : une exécution survivait au redémarrage — interrompue.",
+                                    j.jobId());
+                        }
+                    } catch (Exception cancelFailure) {
+                        log.warn("Job {} : annulation non transmise au runner — {}",
+                                j.jobId(), cancelFailure.getMessage());
+                    }
                 }
             }
         } catch (Exception ex) {

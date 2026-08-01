@@ -464,6 +464,24 @@ configuration existante, qui ignore cette clé, garde son comportement.
    dure des heures, un `responseTimeout` hérité couperait le flux et déclarerait échoué un job
    qui tourne encore.
 
+#### Exploitation en conteneur
+
+Quatre points traités après la première livraison, tous nés de la même question — que se
+passe-t-il quand ça tourne mal ?
+
+| Point | Traitement |
+|---|---|
+| **Plafond mémoire** | `TRAINER_MEMORY_LIMIT` (12 Go par défaut). Le service le plus vorace de la pile était le seul sans limite : un dépassement emportait l'hôte, donc l'API et le frontend avec. |
+| **Accès GPU** | `trainer` ajouté à `docker-compose.gpu.yml`. Aucune image CUDA à substituer — la roue `torch` de pip embarque ses bibliothèques ; seul l'accès aux périphériques manquait. En QLoRA, l'écart CPU/GPU décide si ce mode est utilisable. |
+| **Redémarrage de l'API** | La réconciliation au démarrage (qui existait, mais n'était pas testée) **annule désormais aussi auprès du runner**. En mode hôte c'était inutile — le sous-processus meurt avec la JVM. En mode HTTP, l'entraînement vit ailleurs et n'apprend le départ de son client qu'en tentant d'écrire : un entraînement silencieux consommerait CPU, RAM et GPU pendant des heures pour un job déjà déclaré perdu. |
+| **Arrêt de la pile** | `stop.sh`/`stop.bat` énumèrent les profils à stopper ; `trainer` y manquait, si bien que « Services arrêtés » laissait un conteneur de plusieurs Go en vie. |
+
+**Un défaut introduit puis corrigé, à la faveur d'un test.** Le `try/catch` de réconciliation
+englobe la boucle : y ajouter l'annulation sans la protéger faisait avorter le traitement des
+jobs suivants dès qu'un trainer était injoignable — ils restaient `TRAINING` à jamais,
+c'est-à-dire exactement le fantôme que cette méthode élimine. Le `try/catch` est désormais
+resserré sur l'annulation, qui est accessoire, et non sur le marquage, qui ne l'est pas.
+
 #### Ce que ce lot ne fait pas
 
 **Les scripts Python restent dans le dépôt applicatif.** Le plan prévoyait de les en sortir ;

@@ -1119,7 +1119,7 @@ toucher au code :
 | P8 | `backend/pom.xml` lit `../scripts` | Faible | Lot 0 | ✅ corrigé |
 | P9 | Heuristiques de nettoyage docparser à porter à l'identique | Moyen (régression) | Lot 3 | ouvert |
 | P10 | Trois toolchains en CI et en développement | Moyen | Lots 1 à 4 | ⚠️ partiel, et **partiel par décision** : 1 job Python sur 3 supprimé ; le job `python-services` part au lot 3 ; `training-scripts` subsiste pour les tests d'outillage (§0) |
-| P11 | La CI ne construit jamais les images des services profilés — une image inconstructible ne se découvre que chez l'utilisateur | Moyen | §6.3 bis | ouvert (arbitrage assumé) |
+| P11 | La CI ne construisait jamais les images des services profilés — une image inconstructible ne se découvrait que chez l'utilisateur | Moyen | §6.3 bis | ✅ **corrigé** — workflow `profiled-images.yml` (hebdomadaire + manuel + PR touchant `services/`) |
 | P12 | Dépendances transitives non bornées dans `services/` (`transformers`, `huggingface-hub`, `docling`) | Moyen | §6.3 bis | ✅ corrigé |
 | P13 | Le pré-téléchargement du modèle au build rendait l'image inconstructible hors ligne | Élevé (bloquant en pratique) | §6.3 bis | ✅ corrigé |
 | **P14** | **363 lignes de tests Python ne testent que du shell et de la CI** | — | §0, §7 bis | ⚪ **accepté, hors périmètre** — reste la mise à jour de `JOB_TO_SECTION` aux lots 3 et 4 (P14.2) |
