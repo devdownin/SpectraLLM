@@ -61,7 +61,8 @@ class HttpTrainingRunnerTest {
     @DisplayName("/health confirme les scripts → disponible")
     void availableWhenHealthReportsScripts() {
         // Deux réponses : isAvailable() et unavailabilityReason() interrogent /health chacun.
-        String healthy = "{\"status\":\"ok\",\"trainScript\":true,\"exportScript\":true}";
+        String healthy = "{\"status\":\"ok\",\"protocolVersion\":1,"
+                + "\"trainScript\":true,\"exportScript\":true}";
         server.enqueue(new MockResponse().setResponseCode(200).setBody(healthy));
         server.enqueue(new MockResponse().setResponseCode(200).setBody(healthy));
 
@@ -74,7 +75,7 @@ class HttpTrainingRunnerTest {
     void unavailableWhenTrainerLacksScripts() {
         // Cas réel : image du trainer construite sans scripts/. Le détecter ici, c'est refuser
         // la soumission au lieu d'échouer à la première commande.
-        String noScript = "{\"status\":\"ok\",\"trainScript\":false}";
+        String noScript = "{\"status\":\"ok\",\"protocolVersion\":1,\"trainScript\":false}";
         server.enqueue(new MockResponse().setResponseCode(200).setBody(noScript));
         server.enqueue(new MockResponse().setResponseCode(200).setBody(noScript));
 
@@ -92,6 +93,49 @@ class HttpTrainingRunnerTest {
                 .contains("injoignable")
                 .contains("profil compose")          // comment le démarrer
                 .contains("runner=process");         // ou comment revenir en arrière
+    }
+
+    @Test
+    @DisplayName("version de protocole différente → refus, avec la commande de remise à niveau")
+    void incompatibleProtocolVersionIsRefused() {
+        // Une image de trainer ancienne servie à une API récente : la requête partirait,
+        // l'entraînement démarrerait, et l'incompatibilité se manifesterait au premier champ
+        // mal interprété — après des heures de calcul. Refuser ici déplace l'échec là où il
+        // coûte le moins.
+        String outdated = "{\"status\":\"ok\",\"protocolVersion\":0,\"trainScript\":true}";
+        server.enqueue(new MockResponse().setResponseCode(200).setBody(outdated));
+
+        assertThat(runner.unavailabilityReason())
+                .contains("incompatible")
+                .contains("version 0")
+                .contains("docker compose");   // ce qu'il faut faire
+    }
+
+    @Test
+    @DisplayName("version de protocole absente → refus : service antérieur au versionnement")
+    void missingProtocolVersionIsRefused() {
+        // Ne rien déclarer n'est pas la même chose que déclarer une version compatible. On ne
+        // peut rien affirmer d'un tel service : le traiter comme compatible serait un pari.
+        server.enqueue(new MockResponse().setResponseCode(200)
+                .setBody("{\"status\":\"ok\",\"trainScript\":true}"));
+
+        assertThat(runner.unavailabilityReason())
+                .contains("incompatible")
+                .contains("non déclarée");
+    }
+
+    @Test
+    @DisplayName("la version est vérifiée AVANT l'absence de script")
+    void versionIsCheckedBeforeScripts() {
+        // Un service d'une autre version peut très bien nommer ses champs autrement : conclure
+        // « scripts absents » à partir d'un JSON qu'on ne sait pas lire enverrait l'exploitant
+        // sur une fausse piste.
+        server.enqueue(new MockResponse().setResponseCode(200)
+                .setBody("{\"status\":\"ok\",\"protocolVersion\":99,\"trainScript\":false}"));
+
+        assertThat(runner.unavailabilityReason())
+                .contains("incompatible")
+                .doesNotContain("script d'entraînement est absent");
     }
 
     // ── Entraînement ─────────────────────────────────────────────────────────

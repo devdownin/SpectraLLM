@@ -32,11 +32,13 @@ un échec tardif, exactement ce que ce service est censé supprimer.
 import logging
 import os
 import subprocess
+import time
 from pathlib import Path
 from typing import Dict, Iterator, List
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
+from prometheus_client import Counter, Gauge, Histogram
 from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel, Field
 
@@ -51,6 +53,38 @@ PYTHON_BIN = os.getenv("TRAINER_PYTHON", "python3")
 #: Préfixe de la ligne finale portant le code de sortie. Doit rester identique côté Java
 #: (HttpTrainingRunner.EXIT_PREFIX) — c'est le seul canal du code de retour.
 EXIT_PREFIX = "__EXIT__:"
+
+#: Version du CONTRAT DE TRANSPORT entre ce service et son client Java : forme des requêtes,
+#: nom des champs, et surtout convention de la sentinelle de sortie.
+#:
+#: À incrémenter uniquement sur un changement INCOMPATIBLE. Le client refuse de soumettre à un
+#: service dont la version diffère de la sienne — sans ce garde-fou, une image de trainer
+#: ancienne dialoguant avec une API récente échouerait en cours d'entraînement, c'est-à-dire
+#: après avoir consommé du temps de calcul, plutôt qu'au moment de la soumission.
+PROTOCOL_VERSION = 1
+
+# ── Métriques métier ─────────────────────────────────────────────────────────
+# L'instrumentator ne fournit que les compteurs HTTP génériques : nombre de requêtes, latence
+# par route. Or une requête /train dure des heures et n'a qu'une seule issue — ce qu'on veut
+# suivre, c'est le travail, pas le transport. Pendant de P15 côté reranker.
+RUNS = Counter(
+    "spectra_trainer_runs_total",
+    "Exécutions terminées, par nature et par issue.",
+    ["kind", "outcome"],
+)
+DURATION = Histogram(
+    "spectra_trainer_duration_seconds",
+    "Durée d'une exécution, de son lancement à son code de sortie.",
+    ["kind"],
+    # Un entraînement se compte en minutes ou en heures : les seuils par défaut de
+    # prometheus_client (jusqu'à 10 s) placeraient toutes les mesures dans le dernier
+    # intervalle, rendant l'histogramme illisible.
+    buckets=(30, 60, 300, 900, 1800, 3600, 7200, 14400, 28800, float("inf")),
+)
+ACTIVE = Gauge(
+    "spectra_trainer_active_jobs",
+    "Exécutions en cours. Durablement > 1 signale des travaux orphelins.",
+)
 
 #: Processus vivants, par job. C'est ce qui rend l'annulation effective.
 _processes: Dict[str, subprocess.Popen] = {}
@@ -83,7 +117,7 @@ app = FastAPI(title="Spectra Trainer", version="1.0.0")
 Instrumentator().instrument(app).expose(app)
 
 
-def _stream(job_id: str, command: List[str]) -> Iterator[str]:
+def _stream(job_id: str, command: List[str], kind: str = "train") -> Iterator[str]:
     """
     Lance le sous-processus et diffuse sa sortie, sentinelle de sortie comprise.
 
@@ -93,6 +127,8 @@ def _stream(job_id: str, command: List[str]) -> Iterator[str]:
     inarrêtable — le conteneur devrait être redémarré pour s'en débarrasser.
     """
     log.info("Job %s : %s", job_id, " ".join(command))
+    started_at = time.monotonic()
+    outcome = "interrupted"
     process = subprocess.Popen(  # noqa: S603 - commande construite ici, pas reçue du client
         command,
         cwd=str(WORK_DIR),
@@ -102,12 +138,21 @@ def _stream(job_id: str, command: List[str]) -> Iterator[str]:
         bufsize=1,
     )
     _processes[job_id] = process
+    ACTIVE.inc()
     try:
         for line in process.stdout:  # type: ignore[union-attr]
             yield line if line.endswith("\n") else line + "\n"
-        yield f"{EXIT_PREFIX}{process.wait()}\n"
+        exit_code = process.wait()
+        # « interrupted » reste l'issue par défaut : un flux abandonné n'atteint jamais cette
+        # ligne, et doit se distinguer d'un échec du script — les causes et les remèdes
+        # diffèrent.
+        outcome = "success" if exit_code == 0 else "failure"
+        yield f"{EXIT_PREFIX}{exit_code}\n"
     finally:
         _processes.pop(job_id, None)
+        ACTIVE.dec()
+        RUNS.labels(kind=kind, outcome=outcome).inc()
+        DURATION.labels(kind=kind).observe(time.monotonic() - started_at)
         if process.poll() is None:
             log.warning("Job %s : flux interrompu — arrêt du processus.", job_id)
             process.kill()
@@ -142,7 +187,7 @@ def train(req: TrainRequest) -> StreamingResponse:
         str(req.orpo).lower(),
         str(req.valSplit),
     ]
-    return StreamingResponse(_stream(req.jobId, command), media_type="text/plain")
+    return StreamingResponse(_stream(req.jobId, command, "train"), media_type="text/plain")
 
 
 @app.post("/export")
@@ -156,7 +201,7 @@ def export(req: ExportRequest) -> StreamingResponse:
         "--model-name", req.modelName,
         "--base-model", req.baseHfRepo,
     ]
-    return StreamingResponse(_stream(req.jobId, command), media_type="text/plain")
+    return StreamingResponse(_stream(req.jobId, command, "export"), media_type="text/plain")
 
 
 @app.post("/cancel/{job_id}")
@@ -179,6 +224,7 @@ def health() -> dict:
     """
     return {
         "status": "ok",
+        "protocolVersion": PROTOCOL_VERSION,
         "trainScript": TRAIN_SCRIPT.is_file(),
         "exportScript": EXPORT_SCRIPT.is_file(),
         "activeJobs": len(_processes),

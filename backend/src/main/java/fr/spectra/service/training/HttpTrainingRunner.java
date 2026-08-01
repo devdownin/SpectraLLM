@@ -57,6 +57,24 @@ public class HttpTrainingRunner implements TrainingRunner {
     /** Doit rester identique à {@code EXIT_PREFIX} de {@code services/trainer/app.py}. */
     static final String EXIT_PREFIX = "__EXIT__:";
 
+    /**
+     * Version du contrat de transport attendue du service — forme des requêtes, nom des champs,
+     * et convention de la sentinelle de sortie.
+     *
+     * <p><b>Pourquoi une vérification stricte.</b> Les deux moitiés du contrat vivent dans deux
+     * langages et deux images, versionnées séparément. Rien n'empêche une image de trainer
+     * ancienne d'être servie à une API récente : la requête partirait, l'entraînement
+     * démarrerait, et l'incompatibilité se manifesterait au premier champ mal interprété —
+     * après avoir consommé des heures de calcul. Refuser au moment de la soumission déplace
+     * l'échec là où il coûte le moins.
+     *
+     * <p>Une réponse sans {@code protocolVersion} est traitée comme incompatible : c'est la
+     * signature d'un service antérieur au versionnement, dont on ne peut rien affirmer.
+     *
+     * <p>À incrémenter <b>de part et d'autre</b>, et uniquement sur un changement incompatible.
+     */
+    static final int PROTOCOL_VERSION = 1;
+
     /** Le contrôle de santé, lui, doit être bref : il est sur le chemin d'une soumission. */
     private static final Duration HEALTH_TIMEOUT = Duration.ofSeconds(3);
 
@@ -98,6 +116,17 @@ public class HttpTrainingRunner implements TrainingRunner {
                         + response.statusCode() + ") sur " + baseUrl;
             }
             Map<?, ?> body = mapper.readValue(response.body(), Map.class);
+
+            Object reported = body.get("protocolVersion");
+            int version = reported instanceof Number n ? n.intValue() : -1;
+            if (version != PROTOCOL_VERSION) {
+                return "service d'entraînement incompatible sur " + baseUrl + " : il parle la "
+                        + "version " + (version < 0 ? "(non déclarée)" : String.valueOf(version))
+                        + " du protocole, cette API attend la version " + PROTOCOL_VERSION
+                        + ". Reconstruisez l'image du trainer depuis la même version du dépôt "
+                        + "(docker compose --profile trainer build trainer).";
+            }
+
             // Un trainer joignable mais sans ses scripts est indisponible. Le dire ici évite
             // d'accepter un job qui échouerait dès la première commande.
             if (!Boolean.TRUE.equals(body.get("trainScript"))) {

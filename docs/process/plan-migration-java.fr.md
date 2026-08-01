@@ -479,6 +479,8 @@ passe-t-il quand ça tourne mal ?
 | **Contexte de build** | `.dockerignore` à la racine : 360 Mo → 4 Mo. Au-delà du temps gagné, Docker invalidait le cache de couches sur l'empreinte du contexte — un fichier modifié dans `data/` reconstruisait la couche d'installation de torch. |
 | **Image servie** | Build multi-étapes : `build-essential` et `git` restent dans l'étape de compilation (~300 Mo hors de l'image finale). |
 | **Plafonds mémoire** | Étendus à toute la pile, configurables. Ce sont des plafonds et non des réservations : ils garantissent qu'un service emballé meurt seul, pas que la somme tienne en RAM. |
+| **Version de protocole** | `/health` déclare `protocolVersion` ; le client refuse de soumettre à un service d'une autre version, **ou qui n'en déclare aucune**. Les deux moitiés du contrat vivent dans deux langages et deux images versionnées séparément : sans ce contrôle, une image ancienne servie à une API récente échouerait au premier champ mal interprété, après des heures de calcul. |
+| **Métriques métier du trainer** | `spectra_trainer_runs_total{kind,outcome}`, `spectra_trainer_duration_seconds{kind}`, `spectra_trainer_active_jobs`. L'instrumentator ne fournissait que les compteurs HTTP — or une requête `/train` dure des heures et n'a qu'une issue : ce qu'on veut suivre est le travail, pas le transport. Pendant de P15 côté reranker. |
 
 **Ce qui a été écarté : `depends_on` du trainer sur `spectra-api`.** Vérifié empiriquement —
 une dépendance vers un service profilé rend le projet compose **invalide** quand le profil

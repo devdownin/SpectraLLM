@@ -48,6 +48,24 @@ def test_health_reports_script_presence(client, echo_script):
     assert body["activeJobs"] == 0
 
 
+def test_health_declares_the_protocol_version(client, echo_script):
+    """
+    Le client Java refuse toute soumission à un service dont la version diffère de la sienne.
+    Ce champ est donc la moitié Python d'un contrat croisé : le retirer ou le renommer rendrait
+    le trainer inutilisable, sans qu'aucun test de ce fichier ne rougisse s'il n'était pas figé
+    ici. Son pendant est `HttpTrainingRunner.PROTOCOL_VERSION`.
+    """
+    import app as app_module
+
+    body = client(train_script=echo_script).get("/health").json()
+
+    assert body["protocolVersion"] == app_module.PROTOCOL_VERSION
+    assert body["protocolVersion"] == 1, (
+        "la version du protocole a changé : incrémentez AUSSI "
+        "HttpTrainingRunner.PROTOCOL_VERSION, sinon les deux moitiés cessent de se parler"
+    )
+
+
 def test_health_reports_missing_script(client, tmp_path):
     body = client(train_script=tmp_path / "absent.sh").get("/health").json()
 
@@ -162,3 +180,68 @@ def test_closing_the_stream_kills_the_process(slow_script, tmp_path, monkeypatch
 
     assert app_module._processes == {}, "le job reste enregistré après la fermeture du flux"
     assert process.poll() is not None, "le processus continue de tourner, orphelin"
+
+
+# ── Métriques métier ─────────────────────────────────────────────────────────
+
+def _metric(name, **labels):
+    """Valeur courante d'une métrique, lue dans le registre par défaut."""
+    from prometheus_client import REGISTRY
+    return REGISTRY.get_sample_value(name, labels or None)
+
+
+def test_successful_run_is_counted_and_timed(client, echo_script):
+    # L'instrumentator ne compte que des requêtes HTTP : une requête /train dure des heures et
+    # n'a qu'une issue. Ce qu'on veut suivre, c'est le travail.
+    before = _metric("spectra_trainer_runs_total", kind="train", outcome="success") or 0
+
+    client(train_script=echo_script).post("/train", json=_train_body())
+
+    assert _metric("spectra_trainer_runs_total", kind="train", outcome="success") == before + 1
+    assert _metric("spectra_trainer_duration_seconds_count", kind="train") >= 1
+
+
+def test_failed_run_is_counted_apart(client, failing_script):
+    # Un script qui sort en 42 n'est pas un flux interrompu : les causes et les remèdes
+    # diffèrent, les compteurs aussi.
+    before = _metric("spectra_trainer_runs_total", kind="train", outcome="failure") or 0
+
+    client(train_script=failing_script).post("/train", json=_train_body())
+
+    assert _metric("spectra_trainer_runs_total", kind="train", outcome="failure") == before + 1
+
+
+def test_interrupted_run_is_counted_as_such(slow_script, tmp_path, monkeypatch):
+    """Une exécution abandonnée compte comme « interrupted », jamais comme un échec du script."""
+    import app as app_module
+
+    monkeypatch.setattr(app_module, "WORK_DIR", tmp_path)
+    before = _metric("spectra_trainer_runs_total", kind="train", outcome="interrupted") or 0
+
+    stream = app_module._stream("job-m", [str(slow_script)])
+    next(stream)
+    stream.close()
+
+    assert _metric("spectra_trainer_runs_total",
+                   kind="train", outcome="interrupted") == before + 1
+
+
+def test_active_jobs_returns_to_zero(client, echo_script):
+    # Une jauge qui ne redescend pas ferait croire à des travaux orphelins — exactement le
+    # signal qu'elle est censée porter.
+    client(train_script=echo_script).post("/train", json=_train_body())
+
+    assert _metric("spectra_trainer_active_jobs") == 0
+
+
+def test_export_runs_are_counted_separately(client, echo_py_script):
+    # Fusionner les deux natures rendrait l'histogramme de durée illisible : un export se
+    # compte en minutes, un entraînement en heures.
+    before = _metric("spectra_trainer_runs_total", kind="export", outcome="success") or 0
+
+    client(export_script=echo_py_script).post("/export", json={
+        "jobId": "job-3", "adapterPath": "/a", "outputDir": "/o",
+        "modelName": "m", "baseHfRepo": "base",
+    })
+
+    assert _metric("spectra_trainer_runs_total", kind="export", outcome="success") == before + 1
