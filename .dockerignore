@@ -1,0 +1,60 @@
+# Contexte de build envoyé au démon Docker, pour les images dont le contexte est la RACINE
+# du dépôt : spectra-api (deploy/docker/Dockerfile) et trainer (services/trainer/Dockerfile).
+#
+# Pourquoi ce fichier compte
+# --------------------------
+# Sans lui, chaque `docker compose build` transfère l'intégralité du dépôt. Sur une copie de
+# travail ordinaire cela représente déjà ~400 Mo, dont 334 Mo de `frontend/node_modules` dont
+# aucune de ces deux images n'a besoin. Sur une installation qui a servi, `data/` contient les
+# modèles GGUF — plusieurs gigaoctets transférés à chaque build, pour être aussitôt ignorés.
+#
+# Un contexte réduit accélère le build, mais surtout il rend le cache de couches fiable :
+# Docker invalide `COPY` sur l'empreinte du contexte, si bien qu'un fichier modifié dans
+# `data/` ou `target/` reconstruisait des couches sans aucun rapport.
+#
+# NB : ce fichier ne s'applique PAS au frontend ni aux services docparser/reranker, dont le
+# contexte de build est leur propre répertoire (Docker cherche alors un .dockerignore local).
+
+# ── Historique et outillage ──────────────────────────────────────────────────
+.git
+.github
+.gitignore
+.gitattributes
+.editorconfig
+.devcontainer
+.claude
+
+# ── Sorties de build ─────────────────────────────────────────────────────────
+backend/target
+frontend/dist
+frontend/node_modules
+tests/node_modules
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.ruff_cache
+.venv
+venv
+
+# ── Données d'exécution ──────────────────────────────────────────────────────
+# Modèles, documents ingérés, base H2, sorties de fine-tuning : montés en volume à
+# l'exécution, jamais nécessaires à la construction. C'est de loin le plus gros poste.
+data
+**/*.gguf
+**/*.onnx
+
+# ── Frontend ─────────────────────────────────────────────────────────────────
+# Construit par sa propre image, avec son propre contexte : inutile ici.
+frontend
+
+# ── Documentation et exemples ────────────────────────────────────────────────
+docs
+examples
+github
+*.md
+!README.md
+
+# ── Fichiers locaux ──────────────────────────────────────────────────────────
+.env
+*.log
+payload.json
