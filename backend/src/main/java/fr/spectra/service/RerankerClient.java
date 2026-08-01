@@ -26,6 +26,31 @@ public interface RerankerClient {
     ServiceStatus checkHealth();
 
     /**
+     * Le moteur est-il en état de classer ? Contrôle <b>local et bon marché</b>, appelé sur le
+     * chemin de requête — contrairement à {@link #checkHealth()}, qui peut faire un aller-retour
+     * réseau et n'a donc sa place que sur {@code /api/status}.
+     *
+     * <p><b>Pourquoi cette méthode existe.</b> Le reranking est désormais actif par défaut, et
+     * le moteur ONNX crée son bean même quand l'artefact est absent — délibérément, pour que
+     * {@code /api/status} publie la cause au lieu de taire la panne. Mais {@code RagService}
+     * décidait d'utiliser le reranker sur la seule <i>présence</i> du bean : un moteur non
+     * chargé faisait alors, à <b>chaque</b> requête, sur-extraire {@code topCandidates} chunks
+     * (20 au lieu de 5) auprès de ChromaDB, échouer, tronquer, et journaliser un avertissement.
+     * Fonctionnellement correct, mais coûteux et bruyant — et permanent, puisque rien ne le
+     * corrigeait au fil de l'eau.
+     *
+     * <p>Distinguer « présent » de « utilisable » supprime ce coût : une installation sans
+     * artefact se comporte exactement comme si le reranking était éteint, tout en restant
+     * diagnosticable sur {@code /api/status}.
+     *
+     * <p>Défaut {@code true} : une implémentation distante ne peut pas répondre à cette question
+     * sans appel réseau, et doit donc être tentée puis échouer — comportement inchangé.
+     */
+    default boolean isAvailable() {
+        return true;
+    }
+
+    /**
      * Re-ranks {@code documents} against {@code query} and returns the top-N results
      * sorted by descending score.
      *

@@ -10,6 +10,10 @@ import fr.spectra.model.DpoPair;
 import fr.spectra.persistence.FineTuningJobEntity;
 import fr.spectra.persistence.FineTuningJobRepository;
 import fr.spectra.service.dataset.DatasetGeneratorService;
+import fr.spectra.service.training.ExportSpec;
+import fr.spectra.service.training.TrainingRunner;
+import fr.spectra.service.training.TrainingSpec;
+import fr.spectra.service.training.TrainingUnavailableException;
 import fr.spectra.service.dataset.DpoGenerationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -56,11 +60,12 @@ public class FineTuningService {
     /** Alias (ou repo HF) utilisé quand la requête ne précise pas de modèle de base. */
     private final String defaultBaseModel;
     private final Path workDir;
-    private final String trainingScript;
-    /** Script de fusion LoRA + conversion GGUF (voir scripts/export_gguf.py). */
-    private final String exportScript;
-    /** Interpréteur Python utilisé pour l'export GGUF. */
-    private final String pythonBin;
+    /**
+     * Exécuteur de l'entraînement. Ce service ne connaît plus ni {@code python3}, ni
+     * {@code train.sh}, ni l'ordre des arguments positionnels : il décrit le travail
+     * ({@link TrainingSpec}) et demande s'il est exécutable (F1, F10).
+     */
+    private final TrainingRunner trainingRunner;
     /** Volume partagé des modèles GGUF servis par llm-chat (cf. LlmFitService). */
     private final String modelsDir;
     /**
@@ -71,7 +76,10 @@ public class FineTuningService {
      */
     private final Set<String> sftExcludedCategories;
 
-    private final Map<String, Process> activeProcesses = new ConcurrentHashMap<>();
+    /**
+     * Jobs annulés. Reste ici — et non dans le runner — parce que l'annulation a plusieurs
+     * lecteurs (statuts, export, post-traitement) mais un seul propriétaire : le cycle de vie.
+     */
     private final Set<String> cancelledJobs = ConcurrentHashMap.newKeySet();
     /** Un seul entraînement à la fois : lancer plusieurs train_host.py en parallèle sature CPU/RAM. */
     private final AtomicBoolean trainingRunning = new AtomicBoolean(false);
@@ -92,10 +100,8 @@ public class FineTuningService {
                              GedService gedService,
                              fr.spectra.persistence.IngestedFileRepository ingestedFileRepository,
                              @Value("${spectra.fine-tuning.default-base-model:phi3}") String defaultBaseModel,
+                             TrainingRunner trainingRunner,
                              @Value("${spectra.fine-tuning.work-dir:./data/fine-tuning}") String workDir,
-                             @Value("${spectra.fine-tuning.script:./scripts/train.sh}") String trainingScript,
-                             @Value("${spectra.fine-tuning.export-script:./scripts/export_gguf.py}") String exportScript,
-                             @Value("${spectra.fine-tuning.python:python3}") String pythonBin,
                              @Value("${llmfit.models-dir:./data/models}") String modelsDir,
                              @Value("${spectra.fine-tuning.sft-excluded-categories:}") String sftExcludedCsv) {
          this.datasetGenerator = datasetGenerator;
@@ -108,11 +114,7 @@ public class FineTuningService {
          this.ingestedFileRepository = ingestedFileRepository;
          this.defaultBaseModel = defaultBaseModel;
          this.workDir = Path.of(workDir);
-         // Chemin absolu : le process d'entraînement s'exécute avec workDir comme répertoire
-         // courant, donc un chemin relatif ne serait pas résolu correctement.
-         this.trainingScript = Path.of(trainingScript).toAbsolutePath().toString();
-         this.exportScript = Path.of(exportScript).toAbsolutePath().toString();
-         this.pythonBin = pythonBin;
+         this.trainingRunner = trainingRunner;
          this.modelsDir = modelsDir;
          this.sftExcludedCategories = parseCsvLower(sftExcludedCsv);
     }
@@ -129,8 +131,19 @@ public class FineTuningService {
 
     /**
      * Au démarrage, tout job resté non-terminal (PENDING/EXPORTING/TRAINING/IMPORTING) est
-     * orphelin : son process OS a disparu avec l'ancienne JVM. On le marque FAILED pour ne pas
-     * laisser le suivi tourner indéfiniment côté UI.
+     * orphelin : l'exécution qui le portait a disparu avec l'ancienne JVM. On le marque FAILED
+     * pour ne pas laisser le suivi tourner indéfiniment côté UI.
+     *
+     * <p><b>L'annulation auprès du runner n'est pas redondante</b>, et c'est le mode conteneur
+     * qui l'impose. En mode hôte, le sous-processus meurt avec la JVM : marquer FAILED suffit.
+     * En mode HTTP, l'entraînement vit dans un <i>autre</i> conteneur, qui n'apprend le départ
+     * de son client qu'en tentant d'écrire sur la connexion fermée — c'est-à-dire à la prochaine
+     * ligne de journal. Un entraînement silencieux pendant une heure resterait donc à consommer
+     * CPU, RAM et GPU pour un job que l'API a déjà déclaré perdu.
+     *
+     * <p>L'appel est sans effet en mode hôte (aucun processus enregistré dans une JVM neuve) et
+     * tolérant à l'échec (le trainer peut être injoignable) : il ne coûte rien là où il ne sert
+     * pas.
      */
     @jakarta.annotation.PostConstruct
     void reconcileInterruptedJobs() {
@@ -141,6 +154,19 @@ public class FineTuningService {
                     repository.save(FineTuningJobEntity.fromDto(
                             j.failed("Interrompu par un redémarrage du serveur")));
                     log.warn("Job {} ({}) marqué FAILED : interrompu par un redémarrage", j.jobId(), j.status());
+                    // try/catch RESSERRÉ sur l'annulation, et non délégué à celui de la boucle :
+                    // un trainer injoignable y ferait sinon avorter le traitement des jobs
+                    // suivants, qui resteraient TRAINING à jamais — le fantôme même que cette
+                    // méthode élimine. L'annulation est accessoire ; le marquage ne l'est pas.
+                    try {
+                        if (trainingRunner.cancel(j.jobId())) {
+                            log.warn("Job {} : une exécution survivait au redémarrage — interrompue.",
+                                    j.jobId());
+                        }
+                    } catch (Exception cancelFailure) {
+                        log.warn("Job {} : annulation non transmise au runner — {}",
+                                j.jobId(), cancelFailure.getMessage());
+                    }
                 }
             }
         } catch (Exception ex) {
@@ -153,6 +179,13 @@ public class FineTuningService {
      * @return l'identifiant du job, ou {@code null} si un entraînement est déjà en cours (409).
      */
     public String submit(FineTuningRequest request) {
+        // F1 — la disponibilité de l'exécuteur se vérifie AVANT d'accepter le travail, et avant
+        // de prendre le verrou. Auparavant le job était accepté, son jeu de données généré, son
+        // répertoire créé, puis tout mourait sur une IOException parce que l'image ne contient
+        // ni Python ni scripts/. Un refus immédiat et motivé vaut mieux qu'un échec à mi-course.
+        if (!trainingRunner.isAvailable()) {
+            throw new TrainingUnavailableException(trainingRunner.unavailabilityReason());
+        }
         // Un seul entraînement simultané : refuser tant qu'un job tourne.
         if (!trainingRunning.compareAndSet(false, true)) {
             return null;
@@ -215,10 +248,8 @@ public class FineTuningService {
         
         cancelledJobs.add(jobId);
         
-        Process process = activeProcesses.remove(jobId);
-        if (process != null) {
-            log.info("Job {}: interruption forcée du processus OS d'entraînement.", jobId);
-            process.destroyForcibly();
+        if (trainingRunner.cancel(jobId)) {
+            log.info("Job {}: interruption forcée de l'exécution en cours.", jobId);
         }
         
         repository.save(FineTuningJobEntity.fromDto(job.failed("Annulé par l'utilisateur")));
@@ -526,67 +557,32 @@ public class FineTuningService {
     }
 
     /**
-     * Lance le script d'entraînement externe avec les paramètres LoRA.
-     * Le script reçoit les arguments (positionnels, cf. en-tête de {@code train.sh}) :
-     * dataset_path output_path base_model lora_rank lora_alpha epochs lr packing dpo orpo val_split
+     * Décrit l'entraînement à mener et le confie au {@link TrainingRunner}.
+     *
+     * <p>Ce service ne construit plus de ligne de commande : la traduction du
+     * {@link TrainingSpec} en arguments — et l'ordre de ceux-ci, seul endroit où il compte
+     * encore — appartient au runner, qui seul connaît ce qu'il invoque.
      */
     private int runTrainingProcess(String jobId, FineTuningRequest request,
                                    Path datasetFile, Path adapterPath) throws Exception {
-        // Repo HF résolu depuis le manifeste unique (base_models.json) : le script reçoit
+        // Repo HF résolu depuis le manifeste unique (base_models.json) : le runner reçoit
         // toujours un identifiant directement téléchargeable, jamais un alias ambigu.
-        String baseHfRepo = baseModelCatalog.resolveHfRepo(request.baseModel());
-        List<String> command = List.of(
-                trainingScript,
-                datasetFile.toAbsolutePath().toString(),
-                adapterPath.toAbsolutePath().toString(),
-                baseHfRepo,
-                String.valueOf(request.loraRank()),
-                String.valueOf(request.loraAlpha()),
-                String.valueOf(request.epochs()),
-                String.valueOf(request.learningRate()),
-                String.valueOf(request.packingEnabled()),
-                String.valueOf(request.dpoEnabled()),
-                String.valueOf(request.orpoEnabled()),
-                String.valueOf(request.valSplit())
-        );
-        return runProcess(jobId, "train", command, line -> parseTrainingOutput(jobId, line));
+        TrainingSpec spec = new TrainingSpec(
+                jobId, datasetFile, adapterPath,
+                baseModelCatalog.resolveHfRepo(request.baseModel()),
+                request.loraRank(), request.loraAlpha(), request.epochs(),
+                request.learningRate(), request.packingEnabled(),
+                request.dpoEnabled(), request.orpoEnabled(), request.valSplit());
+
+        return trainingRunner.train(spec, line -> onProcessLine(jobId, "train", line),
+                () -> cancelledJobs.contains(jobId));
     }
 
-    /**
-     * Lance un sous-processus, diffuse sa sortie ligne à ligne (logs + SSE) et respecte
-     * l'annulation ({@link #cancelledJobs}). L'enregistrement dans {@link #activeProcesses}
-     * permet à {@code cancelJob} de tuer le process en cours.
-     *
-     * @param onLine traitement optionnel par ligne (ex. extraction de la progression)
-     * @return le code de sortie du process
-     */
-    private int runProcess(String jobId, String label, List<String> command, Consumer<String> onLine)
-            throws Exception {
-        log.info("Job {}: commande = {}", jobId, String.join(" ", command));
-
-        ProcessBuilder pb = new ProcessBuilder(command)
-                .directory(workDir.toFile())
-                .redirectErrorStream(true);
-
-        Process process = pb.start();
-        activeProcesses.put(jobId, process);
-
-        try {
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    if (cancelledJobs.contains(jobId)) {
-                        process.destroyForcibly();
-                        break;
-                    }
-                    log.info("Job {} [{}]: {}", jobId, label, line);
-                    broadcaster.info(line); // diffusion temps réel vers /api/sse/training-logs
-                    if (onLine != null) onLine.accept(line);
-                }
-            }
-            return process.waitFor();
-        } finally {
-            activeProcesses.remove(jobId);
+    /** Journalisation, diffusion SSE et extraction de progression, communes aux deux exécutions. */
+    private void onProcessLine(String jobId, String label, String line) {
+        broadcaster.info(line);   // diffusion temps réel vers /api/sse/training-logs
+        if ("train".equals(label)) {
+            parseTrainingOutput(jobId, line);
         }
     }
 
@@ -604,15 +600,11 @@ public class FineTuningService {
         Path mergedDir = jobDir.resolve("merged");
         // Même résolution que l'entraînement (manifeste unique) : l'adaptateur LoRA n'est
         // fusionnable QUE sur le modèle de base exact qui l'a entraîné.
-        String baseHfRepo = baseModelCatalog.resolveHfRepo(request.baseModel());
-        List<String> command = new java.util.ArrayList<>(List.of(
-                pythonBin, exportScript,
-                "--adapter", adapterPath.toAbsolutePath().toString(),
-                "--output", mergedDir.toAbsolutePath().toString(),
-                "--model-name", request.modelName(),
-                "--base-model", baseHfRepo));
+        ExportSpec spec = new ExportSpec(jobId, adapterPath, mergedDir, request.modelName(),
+                baseModelCatalog.resolveHfRepo(request.baseModel()));
 
-        int exitCode = runProcess(jobId, "export", command, null);
+        int exitCode = trainingRunner.exportGguf(spec, line -> onProcessLine(jobId, "export", line),
+                () -> cancelledJobs.contains(jobId));
 
         if (cancelledJobs.contains(jobId)) {
             log.info("Job {} annulé pendant l'export GGUF.", jobId);
@@ -644,7 +636,7 @@ public class FineTuningService {
                 Map.of("jobId", jobId, "baseModel", String.valueOf(request.baseModel())),
                 "fine-tuning",
                 new ModelRegistryService.ModelOrigin(
-                        baseHfRepo,
+                        spec.baseHfRepo(),
                         "q8_0", // quantisation appliquée par export_gguf.py (convert --outtype q8_0)
                         baseModelCatalog.find(request.baseModel())
                                 .map(BaseModelCatalog.BaseModel::contextLength)

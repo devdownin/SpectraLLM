@@ -102,7 +102,7 @@ Aucun service interne n'est exposé sur le réseau hôte. Seul `spectra-api` com
 [DatasetGeneratorService] → POST http://llm-chat:8081/v1/chat/completions
             │  3–4 appels LLM / chunk (Q&A + résumé + classif + négatifs)
             ▼
-[FineTuningService] → scripts/train.sh (GPU/CPU/simulation)
+[FineTuningService] → TrainingRunner → scripts/train.sh (GPU/CPU/simulation)
             │  Résultat : data/fine-tuning/merged/model.gguf
             ▼
 [ModelRegistryService] → data/models/registry.json
@@ -533,7 +533,7 @@ public Executor taskExecutor() {
 
 ---
 
-## 5. Fine-Tuning (`FineTuningService` + `scripts/train.sh`)
+## 5. Fine-Tuning (`FineTuningService` + `TrainingRunner`)
 
 ### Modes de fonctionnement
 
@@ -554,10 +554,40 @@ PENDING → EXPORTING_DATASET → TRAINING → IMPORTING_MODEL → COMPLETED
                                     → data/models/registry.json
 ```
 
+0. **Contrôle de disponibilité** : `TrainingRunner.isAvailable()` est consulté **avant**
+   d'accepter la soumission. Sans exécuteur en état de travailler, l'API répond **503** avec la
+   cause en clair, sans créer de job ni générer de jeu de données (constat F1 de l'audit
+   fine-tuning).
 1. **Export dataset** : filtre les paires par `minConfidence`, écrit `dataset.jsonl`
-2. **Entraînement** : `ProcessBuilder` → `./scripts/train.sh`
+2. **Entraînement** : `TrainingRunner.train(TrainingSpec, …)`
 3. **Enregistrement** : `ModelRegistryService.registerChatModel()` avec source GGUF et métadonnées
 4. **Rapport** : génère `REPORT.md` dans le dossier du job
+
+### Exécuteurs (`TrainingRunner`)
+
+`FineTuningService` ne connaît ni `python3`, ni `train.sh`, ni l'ordre des arguments : il décrit
+le travail par un `TrainingSpec` **nommé** et le confie à un exécuteur.
+
+| Implémentation | Exécution | Disponible quand |
+|---|---|---|
+| `ProcessTrainingRunner` | `ProcessBuilder` sur l'hôte | `scripts/train.sh` est présent |
+| `HttpTrainingRunner` | service `spectra-trainer`, par HTTP | `/health` du trainer répond et déclare ses scripts |
+
+Le choix se fait par `spectra.fine-tuning.runner` (`process` par défaut, `http` pour le
+conteneur). L'image `spectra-api` (`eclipse-temurin:25-jre`) ne contenant ni `scripts/` ni
+Python, le mode `process` y est indisponible — l'API répond alors par un 503 motivé au lieu
+d'accepter le job puis d'échouer à mi-course.
+
+**Entraîner sous Docker :**
+
+```bash
+docker compose --profile trainer up -d trainer
+SPECTRA_FINE_TUNING_RUNNER=http docker compose up -d spectra-api
+```
+
+Le trainer monte `./data:/app/data` avec `WORKDIR /app`, **exactement comme `spectra-api`** :
+les chemins transmis sont absolus et calculés côté applicatif, un montage divergent ferait
+échouer l'entraînement sur un fichier introuvable.
 
 ### Telemetry Stream (SSE en temps réel)
 

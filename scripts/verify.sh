@@ -96,7 +96,7 @@ if wanted python; then
   fi
 fi
 
-# ── services : ruff + pytest sur docparser et reranker ───────────────────────
+# ── services : ruff + pytest sur docparser, reranker et trainer ──────────────
 # Ces deux suites tournaient en CI sans contrepartie locale : le script prétendait
 # rejouer les contrôles de la CI tout en en ignorant deux. scripts/tests/test_verify_covers_ci.py
 # empêche désormais ce type d'oubli de se reproduire.
@@ -109,7 +109,7 @@ if wanted services; then
   python3 -c "import fastapi, httpx" >/dev/null 2>&1 || services_deps_missing=1
   python3 -m pytest --version >/dev/null 2>&1 || services_deps_missing=1
 
-  for service in docparser reranker; do
+  for service in docparser reranker trainer; do
     label="services/$service (ruff + pytest)"
     if [ -n "$services_deps_missing" ]; then
       skip "$label" "dépendances absentes (pip install -r services/requirements-test.txt)"

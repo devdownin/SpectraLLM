@@ -5,10 +5,12 @@ setlocal enabledelayedexpansion
 :: ────────────────────────────────────────────────────────────────────────────
 :: Spectra — Script de configuration initiale (Windows)
 ::
-:: Usage : setup.bat [--download-embed] [--download-chat]
+:: Usage : setup.bat [--download-embed] [--download-chat] [--download-reranker]
 ::
-::   --download-embed   Télécharge nomic-embed-text (~81 Mo) si absent
-::   --download-chat    Télécharge Qwen2.5-7B-Instruct Q4_K_M (~4.7 Go) si absent
+::   --download-embed     Télécharge nomic-embed-text (~81 Mo) si absent
+::   --download-chat      Télécharge Qwen2.5-7B-Instruct Q4_K_M (~4.7 Go) si absent
+::   --download-reranker  Télécharge l'artefact ONNX du reranker (~0,5 Go) si absent.
+::                        Optionnel : le reranking est désactivé par défaut.
 ::
 :: Ce script vérifie les prérequis et prépare l'environnement avant le
 :: premier lancement. À exécuter une seule fois.
@@ -20,11 +22,13 @@ cd /d "%~dp0.."
 
 set DOWNLOAD_EMBED=0
 set DOWNLOAD_CHAT=0
+set DOWNLOAD_RERANKER=0
 set ERRORS=0
 
 for %%A in (%*) do (
-    if "%%A"=="--download-embed" set DOWNLOAD_EMBED=1
-    if "%%A"=="--download-chat"  set DOWNLOAD_CHAT=1
+    if "%%A"=="--download-embed"    set DOWNLOAD_EMBED=1
+    if "%%A"=="--download-chat"     set DOWNLOAD_CHAT=1
+    if "%%A"=="--download-reranker" set DOWNLOAD_RERANKER=1
 )
 
 echo ======================================
@@ -33,7 +37,7 @@ echo ======================================
 echo.
 
 :: ── 1. Docker ─────────────────────────────────────────────────────────────
-echo ^> [1/5] Verification de Docker...
+echo ^> [1/6] Verification de Docker...
 docker info >nul 2>&1
 if errorlevel 1 (
     echo   [ERREUR] Docker n'est pas demarre ou n'est pas installe.
@@ -45,7 +49,7 @@ if errorlevel 1 (
 
 :: ── 2. Répertoires de données ──────────────────────────────────────────────
 echo.
-echo ^> [2/5] Creation des repertoires de donnees...
+echo ^> [2/6] Creation des repertoires de donnees...
 for %%D in (
     "data\documents"
     "data\dataset"
@@ -64,7 +68,7 @@ for %%D in (
 
 :: ── 3. Fichier .env ────────────────────────────────────────────────────────
 echo.
-echo ^> [3/5] Fichier de configuration .env...
+echo ^> [3/6] Fichier de configuration .env...
 if not exist ".env" (
     if exist ".env.example" (
         copy ".env.example" ".env" >nul
@@ -79,7 +83,7 @@ if not exist ".env" (
 
 :: ── 4. Modèle d'embedding ─────────────────────────────────────────────────
 echo.
-echo ^> [4/5] Modele d'embedding (data\models\embed.gguf)...
+echo ^> [4/6] Modele d'embedding (data\models\embed.gguf)...
 if exist "data\models\embed.gguf" (
     for %%S in ("data\models\embed.gguf") do (
         set /a SIZE_MB=%%~zS / 1048576
@@ -123,7 +127,7 @@ if exist ".env" (
 )
 if "!CHAT_MODEL_FILE!"=="" set "CHAT_MODEL_FILE=%CHAT_DOWNLOAD_NAME%"
 echo.
-echo ^> [5/5] Modele de chat (data\models\!CHAT_MODEL_FILE!^)...
+echo ^> [5/6] Modele de chat (data\models\!CHAT_MODEL_FILE!^)...
 if exist "data\models\!CHAT_MODEL_FILE!" (
     for %%S in ("data\models\!CHAT_MODEL_FILE!") do (
         set /a SIZE_MB=%%~zS / 1048576
@@ -164,6 +168,71 @@ if exist "data\models\!CHAT_MODEL_FILE!" (
         set /a ERRORS+=1
     )
 )
+
+:: ── 6. Artefact ONNX du reranker ──────────────────────────────────────────
+:: Miroir de la section 7 de setup.sh. Le reranking est ACTIF par defaut : son artefact
+:: fait partie de la pile par defaut et est recupere s'il manque, sans option.
+:: Defaut d'URL : un asset de release DU PROJET, sur un tag dedie — l'artefact ne change
+:: que si le MODELE change, pas a chaque version applicative.
+set "RERANKER_ONNX_URL_DEFAULT=https://github.com/devdownin/SpectraLLM/releases/download/reranker-onnx-v1"
+set "RERANKER_DIR=data\models\reranker"
+set "RERANKER_ENABLED="
+if exist ".env" (
+    for /f "usebackq eol=# tokens=1,* delims==" %%A in (".env") do (
+        if "%%A"=="SPECTRA_RERANKER_ONNX_URL" if "!SPECTRA_RERANKER_ONNX_URL!"=="" set "SPECTRA_RERANKER_ONNX_URL=%%B"
+        if "%%A"=="SPECTRA_RERANKER_ENABLED"  set "RERANKER_ENABLED=%%B"
+    )
+)
+if "!SPECTRA_RERANKER_ONNX_URL!"=="" set "SPECTRA_RERANKER_ONNX_URL=!RERANKER_ONNX_URL_DEFAULT!"
+rem  Absent de .env = defaut applicatif, donc actif.
+if "!RERANKER_ENABLED!"=="" set "RERANKER_ENABLED=true"
+
+echo.
+echo ^> [6/6] Artefact ONNX du reranker (!RERANKER_DIR!^)...
+if exist "!RERANKER_DIR!\model.onnx" if exist "!RERANKER_DIR!\tokenizer.json" (
+    echo   [OK] artefact present
+    goto :reranker_done
+)
+set "RERANKER_WANTED=0"
+if !DOWNLOAD_RERANKER!==1 set "RERANKER_WANTED=1"
+if "!RERANKER_ENABLED!"=="true" set "RERANKER_WANTED=1"
+if "!RERANKER_WANTED!"=="0" (
+    echo   [OK] non requis — SPECTRA_RERANKER_ENABLED=!RERANKER_ENABLED!
+    echo   Pour recuperer l'artefact malgre tout : scripts\setup.bat --download-reranker
+    goto :reranker_done
+)
+if not exist "!RERANKER_DIR!\" mkdir "!RERANKER_DIR!"
+echo   Recuperation de l'artefact (~0,5 Go^) depuis :
+echo     !SPECTRA_RERANKER_ONNX_URL!
+set "RERANKER_OK=1"
+rem  --fail : une 404 doit echouer, pas laisser une page HTML nommee model.onnx.
+curl -L --fail --progress-bar "!SPECTRA_RERANKER_ONNX_URL!/model.onnx" -o "!RERANKER_DIR!\model.onnx"
+if errorlevel 1 (
+    del /q "!RERANKER_DIR!\model.onnx" >nul 2>&1
+    set "RERANKER_OK=0"
+)
+curl -L --fail --progress-bar "!SPECTRA_RERANKER_ONNX_URL!/tokenizer.json" -o "!RERANKER_DIR!\tokenizer.json"
+if errorlevel 1 (
+    del /q "!RERANKER_DIR!\tokenizer.json" >nul 2>&1
+    set "RERANKER_OK=0"
+)
+if "!RERANKER_OK!"=="1" (
+    echo   [OK] artefact telecharge
+    goto :reranker_done
+)
+if !DOWNLOAD_RERANKER!==1 (
+    rem  Demande EXPLICITE : l'echec doit etre une erreur, l'utilisateur l'a reclame.
+    echo   [ERREUR] Echec du telechargement de l'artefact.
+    echo   L'URL doit designer le REPERTOIRE contenant model.onnx et tokenizer.json,
+    echo   pas l'un des deux fichiers. Verifiez SPECTRA_RERANKER_ONNX_URL.
+    set /a ERRORS+=1
+) else (
+    rem  Recuperation AUTOMATIQUE : son echec ne doit pas faire echouer l'installation.
+    echo   [INFO] artefact indisponible — le RAG fonctionnera sans reranking.
+    echo   Sans consequence : /api/status en donnera la cause, et les reponses sont
+    echo   servies dans l'ordre vectoriel.
+)
+:reranker_done
 
 :: ── Résumé ─────────────────────────────────────────────────────────────────
 echo.

@@ -43,6 +43,9 @@ REM  0. Premier lancement : setup complet (repertoires, .env, modeles)
 if defined FIRST_RUN (
     echo.
     echo ^> Premier lancement : configuration initiale + telechargement des modeles...
+    REM  Pas de --download-reranker : le reranking etant actif par defaut, setup.bat
+    REM  recupere son artefact de lui-meme s'il manque, et traite l'echec comme une
+    REM  information et non comme une erreur. Miroir de start.sh.
     call "%SCRIPT_DIR%setup.bat" --download-embed --download-chat
 )
 

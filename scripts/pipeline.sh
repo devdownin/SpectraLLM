@@ -98,7 +98,10 @@ echo "> [0/5] Verification des prerequis..."
 # Fichiers GGUF — la stack Docker charge data/models/${LLM_CHAT_MODEL_FILE}.
 CHAT_MODEL_FILE="${LLM_CHAT_MODEL_FILE:-}"
 if [ -z "$CHAT_MODEL_FILE" ] && [ -f ".env" ]; then
-  CHAT_MODEL_FILE="$(grep -E '^LLM_CHAT_MODEL_FILE=' .env | tail -n1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//')"
+  # « || true » indispensable : sous « set -euo pipefail », un grep sans correspondance fait
+  # échouer le pipeline, et l'affectation interrompt alors le script SANS AUCUN MESSAGE.
+  # La garde « [ -f .env ] » ci-dessus ne teste que l'existence du fichier, pas celle de la clé.
+  CHAT_MODEL_FILE="$(grep -E '^LLM_CHAT_MODEL_FILE=' .env | tail -n1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' || true)"
 fi
 CHAT_MODEL_FILE="${CHAT_MODEL_FILE:-Qwen2.5-7B-Instruct-Q4_K_M.gguf}"
 GGUF_CHAT="data/models/$CHAT_MODEL_FILE"
@@ -148,7 +151,10 @@ green "API prete"
 # ApiKeyFilter ; seul /actuator l'est, d'où le health check ci-dessus sans clé).
 API_KEY="${SPECTRA_API_KEY:-}"
 if [ -z "$API_KEY" ] && [ -f ".env" ]; then
-  API_KEY="$(grep -E '^SPECTRA_API_KEY=' .env | tail -n1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//')"
+  # « || true » : voir CHAT_MODEL_FILE ci-dessus. Le cas mordait ici pour de bon —
+  # SPECTRA_API_KEY ne figure pas dans .env.example, donc un .env issu de setup.sh ne la
+  # contient pas, et pipeline.sh mourait en silence sur toute installation par défaut.
+  API_KEY="$(grep -E '^SPECTRA_API_KEY=' .env | tail -n1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' || true)"
 fi
 AUTH=()
 if [ -n "$API_KEY" ]; then
@@ -202,7 +208,9 @@ while true; do
     429)
       [ "$attempt" -lt "$INGEST_MAX_RETRIES" ] \
         || die "Ingestion refusee (429) apres $attempt tentatives — trop d'ingestions actives cote serveur. Reessayez plus tard."
-      RETRY_AFTER=$(grep -i '^retry-after:' "$_HDR" | tail -n1 | tr -d '\r' | awk '{print $2}')
+      # « || true » : sans lui, un 429 SANS en-tête Retry-After tuait le script ici même —
+      # rendant inatteignable le repli à 5 s de la ligne suivante, écrit précisément pour ce cas.
+      RETRY_AFTER=$(grep -i '^retry-after:' "$_HDR" | tail -n1 | tr -d '\r' | awk '{print $2}' || true)
       case "$RETRY_AFTER" in ''|*[!0-9]*) RETRY_AFTER=5 ;; esac
       yellow "Serveur occupe (429) — nouvelle tentative dans ${RETRY_AFTER}s (tentative $attempt/$INGEST_MAX_RETRIES)"
       sleep "$RETRY_AFTER" ;;

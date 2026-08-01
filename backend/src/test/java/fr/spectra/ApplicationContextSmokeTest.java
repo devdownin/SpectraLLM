@@ -2,6 +2,10 @@ package fr.spectra;
 
 import fr.spectra.service.DocumentClassificationService;
 import fr.spectra.service.IngestionService;
+import fr.spectra.service.RerankerClient;
+import fr.spectra.service.reranker.MeteredRerankerClient;
+import fr.spectra.service.training.ProcessTrainingRunner;
+import fr.spectra.service.training.TrainingRunner;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.metamodel.EntityType;
 import org.junit.jupiter.api.Test;
@@ -81,5 +85,47 @@ class ApplicationContextSmokeTest {
     void leClassifieurEstCableDansLIngestion() {
         assertThat(context.getBean(DocumentClassificationService.class)).isNotNull();
         assertThat(context.getBean(IngestionService.class)).isNotNull();
+    }
+
+    /**
+     * Le reranker exposé aux consommateurs est bien le décorateur de métriques.
+     *
+     * <p>Sans cette assertion, le test précédent ne prouverait que l'absence d'explosion au
+     * démarrage — pas que {@code RerankerMetricsConfig} a effectivement pris la main. Or c'est
+     * exactement ce qui pourrait rater en silence : deux beans de type {@code RerankerClient}
+     * coexistent (le moteur et son décorateur {@code @Primary}), et une résolution qui
+     * choisirait le moteur nu laisserait le reranking sans aucune métrique — l'angle mort P15
+     * que ce lot vient combler.</p>
+     *
+     * <p>Le profil {@code smoke} n'impose ni {@code enabled} ni {@code engine} : le moteur ONNX
+     * est donc sélectionné par les défauts réels du produit, artefact absent compris. C'est le
+     * cas nominal d'une installation neuve.</p>
+     */
+    @Test
+    void leRerankerExposeEstInstrumente() {
+        RerankerClient reranker = context.getBean(RerankerClient.class);
+
+        assertThat(reranker).isInstanceOf(MeteredRerankerClient.class);
+        // Artefact absent en test : le décorateur doit relayer l'indisponibilité, faute de quoi
+        // RagService sur-extrairait des candidats à chaque requête.
+        assertThat(reranker.isAvailable()).isFalse();
+    }
+
+    /**
+     * Un seul exécuteur d'entraînement est câblé, et c'est celui du mode hôte.
+     *
+     * <p>Deux implémentations de {@code TrainingRunner} coexistent, sélectionnées par
+     * {@code spectra.fine-tuning.runner}. {@code FineTuningService} en injecte <b>une</b> :
+     * zéro bean ferait échouer le démarrage, deux le feraient échouer aussi — mais seul un
+     * démarrage réel du conteneur le révèle.</p>
+     *
+     * <p>L'assertion sur le type fige le {@code matchIfMissing} : le profil {@code smoke} ne
+     * définit pas la clé, exactement comme une installation existante. Basculer ce défaut
+     * ferait pointer ces installations vers un service qu'elles n'ont jamais démarré.</p>
+     */
+    @Test
+    void leRunnerParDefautEstCeluiDeLHote() {
+        assertThat(context.getBeansOfType(TrainingRunner.class)).hasSize(1);
+        assertThat(context.getBean(TrainingRunner.class)).isInstanceOf(ProcessTrainingRunner.class);
     }
 }

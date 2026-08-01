@@ -1,4 +1,4 @@
-# Test-only dependencies for the Python microservices (docparser, reranker).
+# Test-only dependencies for the Python microservices (docparser, reranker, trainer).
 #
 # Deliberately excludes the heavy runtime deps (torch, sentence-transformers,
 # pymupdf, ...): the unit tests stub those modules so they run offline and fast.
@@ -12,3 +12,4 @@ pydantic==2.13.4
 python-multipart==0.0.20
 ruff==0.15.8
 prometheus-fastapi-instrumentator==7.0.0
+prometheus-client==0.26.0

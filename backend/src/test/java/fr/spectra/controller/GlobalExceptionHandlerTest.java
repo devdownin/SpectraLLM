@@ -48,6 +48,34 @@ class GlobalExceptionHandlerTest {
         assertThat(problem.getDetail()).contains("Fichier corrompu");
     }
 
+    // ── Indisponibilités → 503 ────────────────────────────────────────────────
+    // 503 et non 500 : rien n'est cassé, une dépendance n'est pas là. La distinction est
+    // celle entre « réessayez / corrigez votre déploiement » et « signalez un bug ».
+
+    @Test
+    void handleTrainingUnavailable_returns503() {
+        ProblemDetail problem = handler.handleTrainingUnavailable(
+                new fr.spectra.service.training.TrainingUnavailableException("script absent"));
+        assertThat(problem.getStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE.value());
+    }
+
+    @Test
+    void handleTrainingUnavailable_detailCarriesTheReason() {
+        ProblemDetail problem = handler.handleTrainingUnavailable(
+                new fr.spectra.service.training.TrainingUnavailableException(
+                        "script d'entraînement introuvable : /app/scripts/train.sh"));
+        assertThat(problem.getTitle()).isEqualTo("Entraînement indisponible");
+        assertThat(problem.getDetail()).contains("/app/scripts/train.sh");
+    }
+
+    @Test
+    void handleLlmUnavailable_returns503WithMessage() {
+        ProblemDetail problem = handler.handleLlmUnavailable(
+                new fr.spectra.service.LlmUnavailableException("circuit ouvert"));
+        assertThat(problem.getStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE.value());
+        assertThat(problem.getDetail()).contains("circuit ouvert");
+    }
+
     // ── Exception générique → 500 ─────────────────────────────────────────────
 
     @Test

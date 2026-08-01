@@ -44,6 +44,11 @@ echo "╚═══════════════════════�
 if [[ -n "$FIRST_RUN" ]]; then
     echo ""
     echo "► Premier lancement : configuration initiale + téléchargement des modèles..."
+    # Pas de --download-reranker : le reranking étant actif par défaut, setup.sh récupère
+    # son artefact de lui-même s'il manque, et traite l'échec comme une information et non
+    # comme une erreur. Le passer ici en ferait une demande explicite, donc un échec
+    # bloquant — et tout premier lancement passerait pour incomplet tant que l'artefact
+    # n'est pas publié, alors que son absence n'a aucune conséquence fonctionnelle.
     bash "$SCRIPT_DIR/setup.sh" --download-embed --download-chat
 fi
 

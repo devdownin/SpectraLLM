@@ -22,17 +22,33 @@
 > seuls tests (`FineTuningGedTraceTest`, `FineTuningSftExclusionTest`) portaient sur des méthodes
 > périphériques de `FineTuningService`, et il n'existait aucun test Python pour `train_host.py`.
 >
-> **Statut.** Les constats **F2, F3, F4, F5, F6, F7, F8, F9 et F11** sont **corrigés** dans la
-> même série de commits que ce rapport ; ils restent décrits ci-dessous pour la traçabilité, avec
-> la correction apportée. Restent **ouverts** : **F1** (décision d'architecture — c'est désormais
-> le seul blocage restant), F10, F12, F14, la part non couverte de F13 et la documentation
-> désynchronisée (§6).
+> **Statut.** Les constats **F2 à F11** sont **corrigés** ; ils restent décrits ci-dessous pour la
+> traçabilité, avec la correction apportée. **F1 et F10 ont été fermés par le lot 4a** du
+> [plan de migration](plan-migration-java.fr.md) : la soumission refuse désormais par un 503
+> motivé quand aucun exécuteur n'est disponible, et les arguments positionnels sont devenus un
+> `TrainingSpec` nommé.
+>
+> Restent **ouverts** : F12, F14, la part non couverte de F13 et la documentation désynchronisée
+> (§6). Aucun n'est bloquant.
 
 ---
 
 ## 1. Blocages de déploiement
 
-### F1 — Le script d'entraînement est absent de l'image `spectra-api` — **bloquant**
+### F1 — Le script d'entraînement est absent de l'image `spectra-api` — **bloquant** — ✅ corrigé
+
+> **Corrigé par le lot 4a** (cf. [`plan-migration-java.fr.md`](plan-migration-java.fr.md)).
+> L'absence de Python dans l'image reste vraie et **assumée** : ce qui est corrigé, c'est le
+> mensonge. `TrainingRunner.isAvailable()` est consulté **avant** d'accepter la soumission ;
+> quand aucun exécuteur n'est en état de travailler, l'API répond **503 avec la raison en
+> clair** (`TrainingUnavailableException`), sans créer de job, sans générer de jeu de données et
+> sans prendre le verrou d'entraînement. Une fonctionnalité explicitement absente au lieu d'une
+> fonctionnalité qui échoue à mi-course.
+>
+> Le mode hôte est inchangé (`ProcessTrainingRunner`). Fournir l'entraînement *en conteneur*
+> reste à faire — c'est le lot 4b, dont l'urgence a baissé depuis le retrait de Kubernetes.
+>
+> Énoncé d'origine conservé ci-dessous.
 
 `FineTuningService` résout `spectra.fine-tuning.script` (défaut `./scripts/train.sh`) en chemin
 absolu dans le constructeur, puis l'exécute via `ProcessBuilder` avec `workDir` comme répertoire
@@ -354,7 +370,16 @@ frontend (le même bug existait dans le parseur de logs SSE).
 Restent ouverts : `--lora-target`, `--neftune-alpha`, `--warmup-ratio` et surtout
 `--resume-adapter` (entraînement incrémental) ne sont toujours pas exposés par l'API.
 
-### F10 — Passage d'arguments positionnel et fragile — **faible**
+### F10 — Passage d'arguments positionnel et fragile — **faible** — ✅ corrigé
+
+> **Corrigé par le lot 4a.** `TrainingSpec` remplace les arguments positionnels par des champs
+> nommés : un paramètre ne peut plus être inséré au mauvais rang côté service. La traduction en
+> ligne de commande est confinée à `ProcessTrainingRunner`, seul endroit où l'ordre compte
+> encore, et `ProcessTrainingRunnerTest` le compare argument par argument contre un script
+> d'écho. Précision au passage : le contrat de `train.sh` porte **onze** arguments (`$1`…`$11`)
+> et non dix, l'en-tête du script faisant foi.
+>
+> Énoncé d'origine conservé ci-dessous.
 
 `runTrainingProcess` construit une liste de 10 arguments positionnels, que `train.sh` relit en
 `$1…${10}` avec des défauts (`PACKING="${8:-false}"`). Insérer un paramètre au milieu décale
@@ -522,15 +547,18 @@ attendu du couplage RAG + fine-tuning revendiqué par le produit.
 | F12 | Téléchargement non épinglé de `convert_hf_to_gguf.py` | Moyen | Faible | Ouvert |
 | F13 | Aucun test du moteur d'entraînement | Moyen | Moyen | ⚠️ partiel (`chat_format` couvert, orchestration non) |
 | F14 | Distribution d'entraînement ≠ distribution de service | Moyen | Moyen (conception) | Ouvert |
-| F10 | Arguments positionnels fragiles | Faible | Faible | Ouvert |
+| F10 | Arguments positionnels fragiles | Faible | Faible | ✅ `TrainingSpec` (lot 4a) |
 | §6 | Documentation décrivant un système différent du code | Faible | Faible | Ouvert |
 
 **Ordre suggéré.** Tous les constats de correction de l'entraînement sont traités (F3, F4, F5,
-F8, F9), ainsi que F2, F6, F7 et F11. **F1 est désormais le seul blocage restant** — et c'est une
-décision d'architecture, pas un correctif : tant qu'elle n'est pas prise, le fine-tuning reste
-inexécutable via `docker compose up`, quelle que soit la qualité du moteur. Ajouter un contrôle de
-disponibilité du script au démarrage éviterait au moins que chaque job échoue silencieusement à
-mi-course sur une `IOException`.
+F8, F9), ainsi que F2, F6, F7, F10 et F11. **F1 est fermé** : le contrôle de disponibilité
+suggéré ici a été livré au lot 4a, sous une forme plus stricte que « au démarrage » — il est
+consulté à *chaque* soumission, avant toute création de job.
+
+Ce qui n'est **pas** résolu, et doit rester lisible : le fine-tuning demeure inexécutable via
+`docker compose up`, faute de Python dans l'image. La différence est que l'API le dit maintenant
+(503 motivé) au lieu de l'accepter puis d'échouer à mi-course. Le rendre *exécutable* en
+conteneur est le lot 4b, dont l'urgence a baissé depuis le retrait de Kubernetes.
 
 Ensuite, par ordre de valeur : compléter F13 (l'orchestration `FineTuningService` — machine à
 états, verrou d'unicité, annulation — reste non testée), puis F12 (téléchargement non épinglé de

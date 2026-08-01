@@ -1,0 +1,88 @@
+# Construction des images Docker des services PROFILÉS (docparser, reranker, trainer).
+#
+# Pourquoi un workflow séparé de ci.yml
+# --------------------------------------
+# `ci.yml` lance `docker compose … build` SANS `--profile` : les images des services
+# optionnels ne sont donc jamais construites (constat P11 de
+# docs/process/audit-python-java.fr.md). Une image devenue inconstructible — dépendance
+# retirée en amont, base d'image modifiée, borne de version cassée — ne se découvrait que
+# chez l'utilisateur, au pire moment : celui où il essaie enfin d'activer la fonctionnalité.
+#
+# Ces images pèsent plusieurs Go (torch) et prennent de longues minutes à construire. Les
+# bâtir à chaque commit coûterait bien plus qu'elles ne rapportent : d'où un rythme
+# hebdomadaire, plus un déclenchement manuel, plus les modifications qui les touchent
+# vraiment. C'est l'arbitrage inverse de celui de `ci.yml`, et il est délibéré.
+#
+# Aucune image n'est publiée : seule la CONSTRUCTIBILITÉ est vérifiée.
+name: Profiled service images
+
+on:
+  schedule:
+    # Lundi 4 h UTC — hors des heures où la file d'attente des runners est chargée.
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+  pull_request:
+    # Sur PR, uniquement quand le contenu réellement construit change.
+    paths:
+      - "services/**"
+      - "scripts/requirements.txt"
+      - ".github/workflows/profiled-images.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: profiled-images-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build ${{ matrix.service }} image
+    runs-on: ubuntu-latest
+    # Le trainer installe torch et compile des extensions natives ; le défaut de 6 h est
+    # excessif, mais 30 min ne suffiraient pas toujours.
+    timeout-minutes: 90
+    strategy:
+      # fail-fast désactivé : savoir QUELLES images cassent vaut mieux que savoir qu'une casse.
+      fail-fast: false
+      matrix:
+        include:
+          - service: docparser
+            context: services/docparser
+            dockerfile: services/docparser/Dockerfile
+          - service: reranker
+            context: services/reranker
+            dockerfile: services/reranker/Dockerfile
+          # Le trainer embarque scripts/, hors de son répertoire : son contexte est la racine.
+          - service: trainer
+            context: .
+            dockerfile: services/trainer/Dockerfile
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        # Les runners hébergés offrent ~14 Go utiles ; l'image du trainer les dépasse sans
+        # ce ménage. Échec par manque de place, sinon — et le message n'oriente pas vers
+        # la vraie cause.
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          df -h /
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build ${{ matrix.service }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: false
+          load: false
+          # Cache partagé entre exécutions : la couche de dépendances (torch) domine la durée
+          # et ne change qu'avec requirements.txt.
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,scope=${{ matrix.service }},mode=max
+          build-args: |
+            RERANKER_MODEL=cross-encoder/mmarco-mMiniLMv2-L12-H384-v1
+            USE_DOCLING=false

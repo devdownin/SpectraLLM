@@ -127,17 +127,35 @@ spectra:
     top-bm25: ${SPECTRA_HYBRID_BM25_TOP:20}
     bm25-weight: ${SPECTRA_HYBRID_BM25_WEIGHT:1.0}
   reranker:
-    enabled: ${SPECTRA_RERANKER_ENABLED:false}
+    # Actif par défaut depuis la décision D1/option (b) (docs/process/plan-migration-java.fr.md) :
+    # « docker compose up » doit livrer la pile complète, reranking compris.
+    #
+    # Activer par défaut n'est sûr que parce que l'absence d'artefact est traitée comme une
+    # absence de reranker, et non comme un reranker en panne : RerankerClient.isAvailable()
+    # renvoie false, RagService cesse de sur-extraire des candidats, et le comportement est
+    # exactement celui d'une installation sans reranking. La cause reste lisible sur
+    # /api/status. Sans cette distinction, une installation sans artefact paierait une
+    # sur-extraction et un avertissement à CHAQUE requête.
+    enabled: ${SPECTRA_RERANKER_ENABLED:true}
     base-url: ${SPECTRA_RERANKER_URL:http://reranker:8000}
     model: ${SPECTRA_RERANKER_MODEL:cross-encoder/mmarco-mMiniLMv2-L12-H384-v1}
     timeout-seconds: ${SPECTRA_RERANKER_TIMEOUT:30}
     top-candidates: ${SPECTRA_RERANKER_TOP_CANDIDATES:20}
-    # Moteur : « http » (microservice Python services/reranker) ou « onnx » (Cross-Encoder
-    # exécuté DANS la JVM via ONNX Runtime, sans conteneur ni Python — cf.
-    # docs/process/audit-python-java.fr.md). Reste sur « http » par défaut : le moteur ONNX
-    # exige un artefact de modèle local, et la bascule doit être validée par le harnais de
-    # parité (RerankerParityTest) avant d'être imposée aux installations existantes.
-    engine: ${SPECTRA_RERANKER_ENGINE:http}
+    # Moteur : « onnx » (Cross-Encoder exécuté DANS la JVM via ONNX Runtime, sans conteneur ni
+    # Python) ou « http » (microservice Python services/reranker, profil compose « reranker »,
+    # en cours de retrait — cf. docs/process/audit-python-java.fr.md).
+    #
+    # Défaut « onnx » : il découle de « enabled: true » ci-dessus. Avec « http », un reranking
+    # actif par défaut appellerait un conteneur qui n'est PAS démarré sans son profil — un appel
+    # voué à l'échec à chaque requête. « onnx » n'a pas de dépendance de service : sans artefact
+    # il se déclare simplement indisponible.
+    #
+    # La parité d'ordre avec l'ancien service Python (RerankerParityTest sur modèle réel) n'a
+    # pas été mesurée : arbitrage assumé, pris avant qu'il n'y ait une base d'utilisateurs à
+    # protéger. Conséquence à connaître — si le classement ONNX diverge de la référence Python,
+    # rien ne le signalera : le reranking ne tombe pas en panne, il classe moins bien. Le
+    # harnais reste disponible (voir le plan de migration, lot 2) si le besoin réapparaît.
+    engine: ${SPECTRA_RERANKER_ENGINE:onnx}
     onnx:
       # Répertoire contenant model.onnx et tokenizer.json. Même convention que les GGUF :
       # un artefact déposé dans le volume des modèles, pas un fichier versionné.
@@ -186,6 +204,16 @@ spectra:
     # ~1 négatif pour 3 chunks ≈ 10 % du dataset, pour apprendre l'abstention (anti-hallucination).
     refusal-every-n: 3
   fine-tuning:
+    # Exécuteur : « process » lance les scripts sur l'hôte (défaut historique, adapté au
+    # développement local) ; « http » délègue au service spectra-trainer, seule façon d'exécuter
+    # un fine-tuning depuis un conteneur — l'image spectra-api étant une JRE sans Python.
+    #
+    # Le défaut reste « process » : une installation existante qui entraîne depuis l'hôte ne doit
+    # pas se retrouver à pointer un service qu'elle n'a pas démarré. En compose, la variable
+    # d'environnement bascule sur « http » avec le profil « trainer ».
+    runner: ${SPECTRA_FINE_TUNING_RUNNER:process}
+    # URL du service d'entraînement, utilisée quand runner=http.
+    trainer-url: ${SPECTRA_TRAINER_URL:http://trainer:8000}
     work-dir: ./data/fine-tuning
     script: ./scripts/train.sh
     # Modèle de base par défaut quand la requête n'en précise pas : un alias du

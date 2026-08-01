@@ -209,13 +209,22 @@ public class RagService {
      * un toggle pour un module non déployé est désactivé (on ne peut pas l'activer par requête),
      * et le RAG Advisor peut afficher « déjà actif » plutôt que « pose telle variable d'env ».
      */
+    /**
+     * Le reranking est-il réellement exploitable ? Un bean présent mais non chargé (artefact
+     * ONNX absent) ne doit ni être annoncé comme capacité, ni déclencher la sur-extraction de
+     * candidats qu'il est censé reclasser.
+     */
+    private boolean isRerankerUsable() {
+        return rerankerClient.filter(RerankerClient::isAvailable).isPresent();
+    }
+
     public Map<String, Boolean> moduleAvailability() {
         Map<String, Boolean> m = new LinkedHashMap<>();
         m.put("adaptive",       adaptiveRagService.isPresent());
         m.put("conversational", conversationalRagService.isPresent());
         m.put("multiQuery",     multiQueryService.isPresent());
         m.put("hybrid",         hybridSearchService.isPresent());
-        m.put("rerank",         rerankerClient.isPresent());
+        m.put("rerank",         isRerankerUsable());
         m.put("corrective",     correctiveRagService.isPresent());
         m.put("compression",    contextCompressionService.isPresent());
         m.put("selfRag",        selfRagService.isPresent());
@@ -821,7 +830,10 @@ public class RagService {
     /** Retrieval avec surcharges par requête (cf. {@link #query(QueryRequest, RagOverrides)}). */
     public RagContext retrieveContext(QueryRequest request, String retrievalQuestion, RagOverrides overrides) {
         RagOverrides ov = overrides != null ? overrides : RagOverrides.NONE;
-        boolean useReranker   = RagOverrides.resolve(ov.rerank(), rerankerClient.isPresent());
+        // « utilisable », pas « présent » : le moteur ONNX enregistre son bean même sans artefact
+        // (pour que /api/status en publie la cause). Se fier à la présence faisait sur-extraire
+        // topCandidates chunks à chaque requête pour un reranking qui allait échouer.
+        boolean useReranker   = RagOverrides.resolve(ov.rerank(), isRerankerUsable());
         boolean useHybrid     = RagOverrides.resolve(ov.hybrid(), hybridSearchService.isPresent());
         boolean useMultiQuery = RagOverrides.resolve(ov.multiQuery(), multiQueryService.isPresent());
 

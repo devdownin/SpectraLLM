@@ -10,18 +10,38 @@
 # bibliothèques (processing_class, eval_strategy, neftune_noise_alpha). Sans borne majeure,
 # deux installations faites à quelques mois d'intervalle n'exécutent pas le même code — et
 # rien ne le signalerait, faute de test automatisé sur scripts/.
+#
+# ATTENTION — unsloth est l'ancre de ce fichier. Il contraint étroitement transformers, trl,
+# datasets et peft ; toute borne posée ici DOIT tenir dans la fenêtre qu'il déclare. Trois
+# d'entre elles n'y tenaient pas et rendaient le fichier entièrement insatisfiable :
+# `pip install -r scripts/requirements.txt` échouait sur ResolutionImpossible, en mode hôte
+# comme en conteneur, depuis des mois. Rien ne l'installait en intégration continue (P11).
+#
+# Avant de modifier une borne ci-dessous, vérifiez que l'ensemble résout encore :
+#   pip install --dry-run -r scripts/requirements.txt
 
 # Fine-tuning QLoRA (Unsloth = version optimisée de HuggingFace PEFT). Versionné par date.
 unsloth>=2026.5.2,<2027
 
 # Trainer supervisé + DPO/ORPO
-trl>=1.4.0,<2
+# La borne « >=1.4.0,<2 » était INSATISFIABLE : unsloth s'appuie sur la série 0.x de trl.
+trl>=0.24.0,<1
 
 # Modèles et tokenizers HuggingFace
-transformers>=5.8.1,<6
+# La borne « >=5.8.1,<6 » était INSATISFIABLE : unsloth plafonne transformers à <=5.5.0.
+transformers>=5.2.0,<=5.5.0
 
-# Gestion des datasets (chemin DPO/ORPO ; le SFT utilise un Dataset PyTorch natif)
-datasets>=4.8.5,<5
+# Gestion des datasets (chemin DPO/ORPO ; le SFT utilise un Dataset PyTorch natif).
+#
+# La fenêtre suit celle qu'unsloth déclare (« datasets>=3.4.1,<4.4.0 », 4.0.* et 4.1.0
+# exclus). L'ancienne borne « >=4.8.5,<5 » était INSATISFIABLE avec unsloth : aucune
+# résolution n'existait, donc `pip install -r scripts/requirements.txt` échouait — en mode
+# hôte comme en conteneur. Personne ne l'avait vu parce que rien n'installait ce fichier en
+# intégration continue (constat P11, corrigé depuis par profiled-images.yml).
+#
+# Seul `datasets.Dataset` est utilisé (train_host.py:420), une API stable depuis la 1.x :
+# la borne basse n'a jamais eu besoin d'être si haute.
+datasets>=4.2.0,<4.4.0
 
 # Quantification 4-bit (requis par unsloth)
 bitsandbytes>=0.49.2,<1
@@ -33,4 +53,4 @@ accelerate>=1.13.0,<2
 # export_gguf.py. Ils n'arrivaient jusqu'ici que par transitivité d'unsloth : une
 # installation CPU sans unsloth échouait à l'import.
 torch
-peft
+peft>=0.20.0,<1

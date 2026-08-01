@@ -18,7 +18,7 @@
 
 ## 3. Machine Learning Interface
 *   **Local Inference:** Ollama API for embeddings (`nomic-embed-text`) and PHI-3 for Q&A generation.
-*   **Training Interface:** JNI or ProcessBuilder to interface with HuggingFace PEFT (LoRA) or Unsloth GPU scripts.
+*   **Training Interface:** a `TrainingRunner` abstraction. `ProcessTrainingRunner` shells out to the HuggingFace PEFT (LoRA) / Unsloth scripts on the host; availability is checked **before** a job is accepted, so an environment without Python returns HTTP 503 instead of failing mid-run.
 *   **Model Export:** Automated triggers for `convert_hf_to_gguf.py` upon training completion.
 
 ## 4. API Endpoints (Core)
