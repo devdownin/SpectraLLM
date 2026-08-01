@@ -12,11 +12,11 @@ cd /d "%~dp0.."
 set COMPOSE=docker compose --project-directory . -f deploy/docker/docker-compose.yml
 
 :: Activer TOUS les profils pour que « down » stoppe aussi les services optionnels
-:: (layout-parser, reranker, kafka) demarres via --profile ; --remove-orphans nettoie
+:: (layout-parser, reranker, kafka, trainer) demarres via --profile ; --remove-orphans nettoie
 :: les conteneurs restants du projet. Sans cela, « stop » laissait tourner ces
 :: services : l'utilisateur croyait avoir tout arrete, mais leurs ports et leur
 :: memoire restaient pris. stop.sh le faisait deja.
-set COMPOSE_PROFILES=layout-parser,reranker,kafka
+set COMPOSE_PROFILES=layout-parser,reranker,kafka,trainer
 
 echo ^> Arret des services Spectra...
 
