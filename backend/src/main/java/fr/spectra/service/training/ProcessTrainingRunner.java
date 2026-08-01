@@ -3,6 +3,7 @@ package fr.spectra.service.training;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.io.BufferedReader;
@@ -28,8 +29,15 @@ import java.util.function.Consumer;
  * service tentait l'exécution et découvrait l'absence en cours de route, après avoir accepté le
  * job et produit un jeu de données. Ici, l'absence est constatée avant l'acceptation et
  * remontée telle quelle à l'exploitant.
+ *
+ * <p>Mode <b>par défaut</b> ({@code spectra.fine-tuning.runner=process}). Pour exécuter
+ * l'entraînement en conteneur, voir {@link HttpTrainingRunner} et le profil compose
+ * {@code trainer}. Les deux s'excluent : {@code matchIfMissing} garantit qu'une configuration
+ * existante, qui ne connaît pas cette clé, garde le comportement qu'elle avait.
  */
 @Component
+@ConditionalOnProperty(prefix = "spectra.fine-tuning", name = "runner",
+        havingValue = "process", matchIfMissing = true)
 public class ProcessTrainingRunner implements TrainingRunner {
 
     private static final Logger log = LoggerFactory.getLogger(ProcessTrainingRunner.class);

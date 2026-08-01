@@ -1,0 +1,12 @@
+# Spectra Trainer — couche web uniquement.
+#
+# Les dépendances d'entraînement (torch, transformers, peft, trl, unsloth) vivent dans
+# scripts/requirements.txt et sont installées séparément par le Dockerfile : elles sont
+# partagées avec le mode hôte, et les dupliquer ici les ferait diverger en silence.
+#
+# Versions épinglées, bornes comprises — même exigence que pour les autres services
+# (cf. P12 de docs/process/audit-python-java.fr.md).
+fastapi==0.136.1
+uvicorn[standard]==0.42.0
+pydantic==2.13.4
+prometheus-fastapi-instrumentator==7.0.0

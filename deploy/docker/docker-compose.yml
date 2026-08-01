@@ -235,6 +235,10 @@ services:
       - SPECTRA_PIPELINE_EMBEDDING_TIMEOUT_SECONDS=${SPECTRA_EMBEDDING_TIMEOUT:-30}
       - SPECTRA_PIPELINE_GENERATION_TIMEOUT_SECONDS=${SPECTRA_GENERATION_TIMEOUT:-120}
       - SPECTRA_PIPELINE_CONCURRENT_INGESTIONS=${SPECTRA_CONCURRENT_INGESTIONS:-4}
+      # Exécuteur d'entraînement : « process » (scripts sur l'hôte — indisponible dans ce
+      # conteneur, d'où un 503 motivé) ou « http » (service trainer, profil « trainer »).
+      - SPECTRA_FINE_TUNING_RUNNER=${SPECTRA_FINE_TUNING_RUNNER:-process}
+      - SPECTRA_TRAINER_URL=${SPECTRA_TRAINER_URL:-http://trainer:8000}
       - SPECTRA_RERANKER_ENABLED=${SPECTRA_RERANKER_ENABLED:-true}
       - SPECTRA_RERANKER_URL=http://reranker:8000
       - SPECTRA_RERANKER_MODEL=${RERANKER_MODEL:-cross-encoder/mmarco-mMiniLMv2-L12-H384-v1}
@@ -318,8 +322,47 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # ── Entraînement (optionnel, profil trainer) ──────────────────────────────
+  # Rend le fine-tuning exécutable EN CONTENEUR. L'image spectra-api est une JRE sans
+  # Python : sans ce service, une soumission est refusée par un 503 motivé (constat F1).
+  #
+  # Absent par défaut, et c'est voulu — l'image pèse plusieurs Go (torch) et n'a d'intérêt
+  # que pour qui entraîne réellement :
+  #   docker compose --profile trainer up -d trainer
+  #   SPECTRA_FINE_TUNING_RUNNER=http docker compose up -d spectra-api
+  trainer:
+    profiles: [trainer]
+    build:
+      # Contexte = racine du dépôt : le service embarque scripts/, hors de son répertoire.
+      context: .
+      dockerfile: services/trainer/Dockerfile
+    container_name: spectra-trainer
+    ports:
+      - "8004:8000"
+    volumes:
+      # MÊME point de montage que spectra-api. Le client transmet des chemins absolus
+      # (/app/data/fine-tuning/<job>/dataset.jsonl) calculés dans le conteneur applicatif :
+      # un montage différent ici ferait démarrer l'entraînement puis échouer sur un fichier
+      # introuvable, soit précisément la panne tardive que ce service supprime.
+      - ./data:/app/data
+      # Cache HuggingFace : les poids du modèle de base (plusieurs Go) survivent aux
+      # reconstructions d'image et aux redémarrages.
+      - trainer-hf-cache:/root/.cache/huggingface
+    environment:
+      - HF_ENDPOINT
+      - HF_HUB_OFFLINE
+      - HF_TOKEN
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
 volumes:
   chromadb-data:
   reranker-model-cache:
+  trainer-hf-cache:
   # Nom aligné sur le volume du broker Kafka Explorer pour un broker identique.
   kafka_data:

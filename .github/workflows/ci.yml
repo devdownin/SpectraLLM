@@ -169,7 +169,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        service: [docparser, reranker]
+        service: [docparser, reranker, trainer]
     steps:
     - uses: actions/checkout@v4
     - name: Set up Python
@@ -216,6 +216,12 @@ jobs:
           name: docparser-coverage
           path: docparser
 
+      - name: Download trainer coverage report
+        uses: actions/download-artifact@v4
+        with:
+          name: trainer-coverage
+          path: trainer
+
       - name: Download reranker coverage report
         uses: actions/download-artifact@v8
         with:
@@ -225,6 +231,6 @@ jobs:
       - name: Upload to Codecov
         uses: codecov/codecov-action@v5
         with:
-          files: jacoco/jacoco.xml,vitest/lcov.info,docparser/coverage.xml,reranker/coverage.xml
+          files: jacoco/jacoco.xml,vitest/lcov.info,docparser/coverage.xml,reranker/coverage.xml,trainer/coverage.xml
           fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}

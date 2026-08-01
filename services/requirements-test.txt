@@ -1,4 +1,4 @@
-# Test-only dependencies for the Python microservices (docparser, reranker).
+# Test-only dependencies for the Python microservices (docparser, reranker, trainer).
 #
 # Deliberately excludes the heavy runtime deps (torch, sentence-transformers,
 # pymupdf, ...): the unit tests stub those modules so they run offline and fast.

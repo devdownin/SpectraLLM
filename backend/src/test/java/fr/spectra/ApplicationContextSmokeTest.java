@@ -4,6 +4,8 @@ import fr.spectra.service.DocumentClassificationService;
 import fr.spectra.service.IngestionService;
 import fr.spectra.service.RerankerClient;
 import fr.spectra.service.reranker.MeteredRerankerClient;
+import fr.spectra.service.training.ProcessTrainingRunner;
+import fr.spectra.service.training.TrainingRunner;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.metamodel.EntityType;
 import org.junit.jupiter.api.Test;
@@ -107,5 +109,23 @@ class ApplicationContextSmokeTest {
         // Artefact absent en test : le décorateur doit relayer l'indisponibilité, faute de quoi
         // RagService sur-extrairait des candidats à chaque requête.
         assertThat(reranker.isAvailable()).isFalse();
+    }
+
+    /**
+     * Un seul exécuteur d'entraînement est câblé, et c'est celui du mode hôte.
+     *
+     * <p>Deux implémentations de {@code TrainingRunner} coexistent, sélectionnées par
+     * {@code spectra.fine-tuning.runner}. {@code FineTuningService} en injecte <b>une</b> :
+     * zéro bean ferait échouer le démarrage, deux le feraient échouer aussi — mais seul un
+     * démarrage réel du conteneur le révèle.</p>
+     *
+     * <p>L'assertion sur le type fige le {@code matchIfMissing} : le profil {@code smoke} ne
+     * définit pas la clé, exactement comme une installation existante. Basculer ce défaut
+     * ferait pointer ces installations vers un service qu'elles n'ont jamais démarré.</p>
+     */
+    @Test
+    void leRunnerParDefautEstCeluiDeLHote() {
+        assertThat(context.getBeansOfType(TrainingRunner.class)).hasSize(1);
+        assertThat(context.getBean(TrainingRunner.class)).isInstanceOf(ProcessTrainingRunner.class);
     }
 }

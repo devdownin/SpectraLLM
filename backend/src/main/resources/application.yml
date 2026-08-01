@@ -204,6 +204,16 @@ spectra:
     # ~1 négatif pour 3 chunks ≈ 10 % du dataset, pour apprendre l'abstention (anti-hallucination).
     refusal-every-n: 3
   fine-tuning:
+    # Exécuteur : « process » lance les scripts sur l'hôte (défaut historique, adapté au
+    # développement local) ; « http » délègue au service spectra-trainer, seule façon d'exécuter
+    # un fine-tuning depuis un conteneur — l'image spectra-api étant une JRE sans Python.
+    #
+    # Le défaut reste « process » : une installation existante qui entraîne depuis l'hôte ne doit
+    # pas se retrouver à pointer un service qu'elle n'a pas démarré. En compose, la variable
+    # d'environnement bascule sur « http » avec le profil « trainer ».
+    runner: ${SPECTRA_FINE_TUNING_RUNNER:process}
+    # URL du service d'entraînement, utilisée quand runner=http.
+    trainer-url: ${SPECTRA_TRAINER_URL:http://trainer:8000}
     work-dir: ./data/fine-tuning
     script: ./scripts/train.sh
     # Modèle de base par défaut quand la requête n'en précise pas : un alias du

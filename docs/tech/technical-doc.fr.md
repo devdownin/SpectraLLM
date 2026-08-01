@@ -571,12 +571,23 @@ le travail par un `TrainingSpec` **nommé** et le confie à un exécuteur.
 | Implémentation | Exécution | Disponible quand |
 |---|---|---|
 | `ProcessTrainingRunner` | `ProcessBuilder` sur l'hôte | `scripts/train.sh` est présent |
-| *(à venir, lot 4b)* | service `spectra-trainer` par HTTP | le service est configuré |
+| `HttpTrainingRunner` | service `spectra-trainer`, par HTTP | `/health` du trainer répond et déclare ses scripts |
 
-**Conséquence pratique** : l'image `spectra-api` (`eclipse-temurin:25-jre`) ne contient ni
-`scripts/` ni Python. Le fine-tuning n'y est donc **pas** exécutable — mais l'API le dit
-désormais par un 503 motivé, au lieu d'accepter le job puis d'échouer à mi-course sur une
-`IOException`.
+Le choix se fait par `spectra.fine-tuning.runner` (`process` par défaut, `http` pour le
+conteneur). L'image `spectra-api` (`eclipse-temurin:25-jre`) ne contenant ni `scripts/` ni
+Python, le mode `process` y est indisponible — l'API répond alors par un 503 motivé au lieu
+d'accepter le job puis d'échouer à mi-course.
+
+**Entraîner sous Docker :**
+
+```bash
+docker compose --profile trainer up -d trainer
+SPECTRA_FINE_TUNING_RUNNER=http docker compose up -d spectra-api
+```
+
+Le trainer monte `./data:/app/data` avec `WORKDIR /app`, **exactement comme `spectra-api`** :
+les chemins transmis sont absolus et calculés côté applicatif, un montage divergent ferait
+échouer l'entraînement sur un fichier introuvable.
 
 ### Telemetry Stream (SSE en temps réel)
 

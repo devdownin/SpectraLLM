@@ -419,41 +419,68 @@ la question insoluble à l'avenir.
 
 ---
 
-## 8. Lot 4b — `spectra-trainer` : sortir Python du dépôt applicatif
+## 8. Lot 4b — `spectra-trainer` : rendre le fine-tuning exécutable en conteneur ✅ *livré*
 
 **Prérequis** : lot 4a. **Effort** : 5 j. **Risque** : faible (aucune régression fonctionnelle —
 QLoRA, DPO, ORPO, packing, NEFTune restent disponibles).
 
-> **Moins urgent qu'annoncé initialement.** L'argument de déploiement de ce lot était le `Job`
-> Kubernetes ; le support K8s a été retiré du dépôt (audit P3). `HttpTrainingRunner` ne sert donc
-> plus qu'un scénario réel — un conteneur `spectra-trainer` en Compose. À programmer quand le
-> besoin se manifeste, **pas** comme suite obligée du lot 4a, qui apporte l'essentiel de la
-> valeur à lui seul.
+### Ce qui est livré
 
-### Tâches
+Le fine-tuning devient exécutable sous `docker compose`, sans réintroduire Python dans
+l'application :
 
-1. `HttpTrainingRunner` implémentant `TrainingRunner`, alimentant `TrainingLogBroadcaster` par
-   flux de logs.
-2. Image `spectra-trainer` : `scripts/*.py` + `requirements.txt` + une API HTTP minimale.
-   Profil Compose dédié, **absent par défaut**.
-3. Retrait du dépôt applicatif : `scripts/train_host.py`, `chat_format.py`, `export_gguf.py`,
-   `export_lora_gguf.py`, `base_models.py`, `llama_cpp_convert.py`, `scripts/requirements.txt`,
-   et leurs trois fichiers de test (`test_chat_format`, `test_base_models`,
-   `test_llama_cpp_convert`).
-4. **`base_models.json` reste dans `backend/src/main/resources/`** (lot 0, P8). Le trainer le lit
-   par HTTP ou reçoit les valeurs résolues dans `TrainingSpec` — ne pas réintroduire le couplage
-   inverse.
-5. **⚠️ P14.2, deuxième occurrence.** `scripts/tests/` conserve les trois tests d'outillage. Le
-   job `training-scripts` **subsiste donc**, mais son nom devient trompeur. Le renommer
-   (`tooling-tests`) impose de mettre à jour `JOB_TO_SECTION` **dans le même commit**, sinon
-   `test_the_currently_known_jobs_are_all_accounted_for` échoue.
+```bash
+docker compose --profile trainer up -d trainer
+SPECTRA_FINE_TUNING_RUNNER=http docker compose up -d spectra-api
+```
+
+| Élément | Rôle |
+|---|---|
+| `services/trainer/` | image dédiée : `train.sh`, `export_gguf.py` et leurs dépendances, derrière une API HTTP minimale |
+| `HttpTrainingRunner` | implémentation HTTP de `TrainingRunner` (`spectra.fine-tuning.runner=http`) |
+| profil compose `trainer` | **absent par défaut** — l'image pèse plusieurs Go et n'intéresse que qui entraîne |
+
+**Le défaut reste `process`.** Une installation qui entraîne depuis l'hôte ne doit pas se
+retrouver à pointer un service qu'elle n'a pas démarré ; `matchIfMissing` garantit qu'une
+configuration existante, qui ignore cette clé, garde son comportement.
+
+#### Trois décisions qui méritent d'être signalées
+
+1. **Le code de sortie voyage dans le corps de la réponse**, en dernière ligne
+   (`__EXIT__:<code>`), parce qu'un statut HTTP est émis avant que le script n'ait commencé.
+   **Une absence de sentinelle vaut échec** : elle signale une interruption (conteneur tué,
+   connexion rompue), et la traiter comme un succès enregistrerait au registre un modèle jamais
+   entraîné — le genre de défaut qu'on ne découvre qu'en interrogeant le modèle.
+
+2. **Symétrie des points de montage.** Le client transmet des chemins *absolus* calculés dans
+   le conteneur applicatif (`/app/data/fine-tuning/<job>/dataset.jsonl`). Le trainer monte donc
+   `./data:/app/data` avec `WORKDIR /app`, exactement comme `spectra-api`. Un montage différent
+   ferait démarrer l'entraînement puis échouer sur un fichier introuvable — précisément la panne
+   tardive que le lot 4a supprimait.
+
+3. **`java.net.http.HttpClient` plutôt que `WebClient`**, à rebours du reste du dépôt. Deux
+   exigences propres à ce cas : un découpage en lignes fidèle (`ofLines`/`BufferedReader`, dont
+   dépendent la progression et la diffusion SSE) et **aucun délai de lecture** — un entraînement
+   dure des heures, un `responseTimeout` hérité couperait le flux et déclarerait échoué un job
+   qui tourne encore.
+
+#### Ce que ce lot ne fait pas
+
+**Les scripts Python restent dans le dépôt applicatif.** Le plan prévoyait de les en sortir ;
+ce serait une régression pour deux usages bien réels — `scripts/pipeline.sh` (chaîne CLI
+complète) et le mode hôte, qui est le mode de développement. Le trainer les *embarque* depuis
+le dépôt plutôt que d'en détenir une copie, ce qui évite la divergence sans amputer personne.
+Leur retrait est une décision distincte, à prendre quand le mode conteneur aura fait ses
+preuves.
 
 ### Critère de sortie
 
-- [ ] `find . -name '*.py' -not -path './scripts/tests/*'` ne renvoie rien
-- [ ] fine-tuning fonctionnel via `spectra-trainer` (profil dédié) **et** en mode hôte
-- [ ] les 19 tests d'invariants de `chat_format` tournent dans le dépôt du trainer
-- [ ] `pytest scripts/tests` vert (P14.2 traité)
+- [x] fine-tuning exécutable via `spectra-trainer` (profil dédié) **et** en mode hôte
+- [x] bascule et retour arrière par configuration (`spectra.fine-tuning.runner`)
+- [x] un flux interrompu n'est jamais pris pour un succès
+- [x] service intégré à la CI (`python-services`) et à `scripts/verify.sh`
+- [ ] validation de bout en bout sur un entraînement réel (exige de construire l'image, ~plusieurs Go)
+- [ ] ~~`find . -name '*.py'` ne renvoie rien~~ — *hors périmètre, voir « Ce que ce lot ne fait pas »*
 
 ---
 
