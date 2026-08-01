@@ -14,6 +14,12 @@ services:
   llm-chat:
     image: ghcr.io/ggml-org/llama.cpp:${LLAMA_CPP_IMAGE_TAG:-server-b9828}
     container_name: spectra-llm-chat
+    deploy:
+      resources:
+        limits:
+          # Poids du GGUF (~4,7 Go pour le modèle par défaut) plus le cache KV, qui croît
+          # avec LLM_CONTEXT. À relever pour un modèle plus grand ou un contexte plus large.
+          memory: ${LLM_CHAT_MEMORY_LIMIT:-8g}
     ports:
       - "8081:8081"
     volumes:
@@ -49,6 +55,12 @@ services:
     # Même épinglage que llm-chat (tag mobile « server » = risque de casse silencieuse).
     image: ghcr.io/ggml-org/llama.cpp:${LLAMA_CPP_IMAGE_TAG:-server-b9828}
     container_name: spectra-llm-embed
+    deploy:
+      resources:
+        limits:
+          # Le modèle d'embedding par défaut pèse ~81 Mo ; la marge couvre les lots
+          # d'ingestion (SPECTRA_EMBEDDING_BATCH_SIZE).
+          memory: ${LLM_EMBED_MEMORY_LIMIT:-2g}
     ports:
       - "8082:8082"
     volumes:
@@ -71,6 +83,12 @@ services:
   chromadb:
     image: chromadb/chroma:latest
     container_name: spectra-chromadb
+    deploy:
+      resources:
+        limits:
+          # Croît avec le corpus indexé : à surveiller sur une base volumineuse, c'est le
+          # service dont la consommation dépend le plus des données.
+          memory: ${CHROMADB_MEMORY_LIMIT:-4g}
     ports:
       - "8000:8000"
     volumes:
@@ -119,6 +137,11 @@ services:
       args:
         RERANKER_MODEL: ${RERANKER_MODEL:-cross-encoder/mmarco-mMiniLMv2-L12-H384-v1}
     container_name: spectra-reranker
+    deploy:
+      resources:
+        limits:
+          # torch plus le Cross-Encoder chargé en mémoire.
+          memory: ${RERANKER_MEMORY_LIMIT:-4g}
     ports:
       - "8002:8000"
     volumes:
@@ -155,6 +178,11 @@ services:
     profiles: [kafka]
     image: apache/kafka:4.2.0
     container_name: spectra-kafka
+    deploy:
+      resources:
+        limits:
+          # Broker de développement.
+          memory: ${KAFKA_MEMORY_LIMIT:-2g}
     ports:
       - "9092:9092"
     healthcheck:
@@ -214,6 +242,13 @@ services:
       context: .
       dockerfile: deploy/docker/Dockerfile
     container_name: spectra-api
+    deploy:
+      resources:
+        limits:
+          # Doit dépasser -Xmx (1024m par défaut) : le heap n'est qu'une part de
+          # l'empreinte JVM — métaespace, piles, tampons directs et, si le reranking ONNX est
+          # actif, les allocations NATIVES d'ONNX Runtime, qui échappent au heap.
+          memory: ${SPECTRA_API_MEMORY_LIMIT:-4g}
     ports:
       - "8080:8080"
     environment:
@@ -309,6 +344,11 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: spectra-frontend
+    deploy:
+      resources:
+        limits:
+          # Nginx servant des fichiers statiques.
+          memory: ${FRONTEND_MEMORY_LIMIT:-256m}
     ports:
       - "80:80"
     depends_on:
@@ -357,8 +397,10 @@ services:
       # introuvable, soit précisément la panne tardive que ce service supprime.
       - ./data:/app/data
       # Cache HuggingFace : les poids du modèle de base (plusieurs Go) survivent aux
-      # reconstructions d'image et aux redémarrages.
-      - trainer-hf-cache:/root/.cache/huggingface
+      # reconstructions d'image et aux redémarrages. Hors de /root — le service abandonne ses
+      # privilèges au démarrage, un chemin sous /root cesserait d'être celui que consulte
+      # huggingface_hub (cf. HF_HOME dans services/trainer/Dockerfile).
+      - trainer-hf-cache:/hf-cache
     environment:
       - HF_ENDPOINT
       - HF_HUB_OFFLINE

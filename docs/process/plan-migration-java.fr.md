@@ -475,6 +475,16 @@ passe-t-il quand ça tourne mal ?
 | **Accès GPU** | `trainer` ajouté à `docker-compose.gpu.yml`. Aucune image CUDA à substituer — la roue `torch` de pip embarque ses bibliothèques ; seul l'accès aux périphériques manquait. En QLoRA, l'écart CPU/GPU décide si ce mode est utilisable. |
 | **Redémarrage de l'API** | La réconciliation au démarrage (qui existait, mais n'était pas testée) **annule désormais aussi auprès du runner**. En mode hôte c'était inutile — le sous-processus meurt avec la JVM. En mode HTTP, l'entraînement vit ailleurs et n'apprend le départ de son client qu'en tentant d'écrire : un entraînement silencieux consommerait CPU, RAM et GPU pendant des heures pour un job déjà déclaré perdu. |
 | **Arrêt de la pile** | `stop.sh`/`stop.bat` énumèrent les profils à stopper ; `trainer` y manquait, si bien que « Services arrêtés » laissait un conteneur de plusieurs Go en vie. |
+| **Propriété des fichiers partagés** | Le trainer s'aligne au démarrage sur le propriétaire du volume `data/`. `spectra-api` tourne sous un compte non privilégié ; sans cet alignement, tout ce que le trainer écrivait appartenait à root et la purge des répertoires de job échouait en silence, le disque se remplissant sans alerte. **Aucun UID codé en dur** : `useradd -r` en attribue un non déterministe côté API, le figer ferait perdre à une installation existante la propriété de son `data/`. |
+| **Contexte de build** | `.dockerignore` à la racine : 360 Mo → 4 Mo. Au-delà du temps gagné, Docker invalidait le cache de couches sur l'empreinte du contexte — un fichier modifié dans `data/` reconstruisait la couche d'installation de torch. |
+| **Image servie** | Build multi-étapes : `build-essential` et `git` restent dans l'étape de compilation (~300 Mo hors de l'image finale). |
+| **Plafonds mémoire** | Étendus à toute la pile, configurables. Ce sont des plafonds et non des réservations : ils garantissent qu'un service emballé meurt seul, pas que la somme tienne en RAM. |
+
+**Ce qui a été écarté : `depends_on` du trainer sur `spectra-api`.** Vérifié empiriquement —
+une dépendance vers un service profilé rend le projet compose **invalide** quand le profil
+n'est pas actif (`service "api" depends on undefined service "worker": invalid compose
+project`). L'ajouter ferait échouer `docker compose up` pour tout le monde. La fenêtre de
+démarrage est déjà couverte par le 503, dont le message nomme la commande à lancer.
 
 **Un défaut introduit puis corrigé, à la faveur d'un test.** Le `try/catch` de réconciliation
 englobe la boucle : y ajouter l'annulation sans la protéger faisait avorter le traitement des
