@@ -15,9 +15,9 @@ COMPOSE=(docker compose --project-directory . -f deploy/docker/docker-compose.ym
 echo "► Arrêt des services Spectra..."
 
 # Activer TOUS les profils pour que « down » stoppe aussi les services optionnels
-# (layout-parser, reranker, kafka) démarrés via --profile ; --remove-orphans nettoie
+# (layout-parser, reranker, kafka, trainer) démarrés via --profile ; --remove-orphans nettoie
 # les conteneurs restants du projet.
-export COMPOSE_PROFILES="layout-parser,reranker,kafka"
+export COMPOSE_PROFILES="layout-parser,reranker,kafka,trainer"
 
 if [[ "${1:-}" == "--clean" ]]; then
     "${COMPOSE[@]}" down -v --remove-orphans

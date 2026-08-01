@@ -87,15 +87,26 @@ class ChromaDbConsistencyIntegrationTest {
     private GedService gedService;
     private Map<String, IngestedFileEntity> gedDb;
 
+    /**
+     * Démarre ChromaDB si l'environnement le permet, sans jamais abandonner la classe.
+     *
+     * <p>L'hypothèse vivait ici, dans le {@code @BeforeAll} : elle faisait abandonner le
+     * conteneur JUnit entier, et le rapport Surefire n'affichait plus ni échec ni « Skipped »,
+     * seulement {@code Tests run: 0}. La classe disparaissait du décompte. Elle est désormais
+     * évaluée par test (voir {@code requireChroma}), ce qui rend les sauts visibles.</p>
+     */
     @BeforeAll
     static void startChroma() {
         if (EXTERNAL_URL != null && !EXTERNAL_URL.isBlank()) {
             chromaBaseUrl = EXTERNAL_URL;
             return;
         }
-        Assumptions.assumeTrue(isDockerAvailable(),
-                "Docker indisponible et SPECTRA_TEST_CHROMA_URL non défini — test d'intégration ignoré");
-        chromaContainer = new GenericContainer<>("chromadb/chroma:latest")
+        if (!isDockerAvailable()) return;   // chromaBaseUrl reste null → tests sautés, un par un
+        // Même version épinglée que deploy/docker/docker-compose.yml : le test ne vaut que
+        // s'il interroge l'image RÉELLEMENT servie. Avec « latest » des deux côtés, les deux
+        // pouvaient déjà diverger — le test restait vert sur une image que la stack n'utilisait
+        // plus. À faire évoluer avec le compose, jamais séparément.
+        chromaContainer = new GenericContainer<>("chromadb/chroma:1.5.9")
                 .withExposedPorts(8000)
                 .withEnv("ANONYMIZED_TELEMETRY", "FALSE")
                 .waitingFor(Wait.forHttp("/api/v2/heartbeat").forPort(8000)
@@ -121,6 +132,12 @@ class ChromaDbConsistencyIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        // L'hypothèse est évaluée ICI, et non dans le @BeforeAll : elle y faisait abandonner
+        // le conteneur JUnit entier, si bien que le rapport n'affichait ni échec ni « Skipped ».
+        // Évaluée par test, elle produit un saut compté et visible.
+        Assumptions.assumeTrue(chromaBaseUrl != null && !chromaBaseUrl.isBlank(),
+                "Docker indisponible et SPECTRA_TEST_CHROMA_URL non défini — test d'intégration sauté");
+
         // Collection unique par test : pas d'interférence entre méthodes ni entre exécutions.
         collectionName = "it-consistency-" + java.util.UUID.randomUUID().toString().substring(0, 8);
 

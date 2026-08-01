@@ -18,17 +18,17 @@ You need two **GGUF** files placed in `data/models/`:
 
 | Variable | Default file | Role |
 |----------|--------------|------|
-| `LLM_CHAT_MODEL_FILE` | `Phi-4-mini-reasoning-UD-IQ1_S.gguf` | Answers questions, generates the dataset |
+| `LLM_CHAT_MODEL_FILE` | `Qwen2.5-7B-Instruct-Q4_K_M.gguf` | Answers questions, generates the dataset |
 | `LLM_EMBED_MODEL_FILE` | `embed.gguf` | Converts text into vectors for search |
 
-If a file is missing at startup, the `model-init` service prints the exact download commands and stops the stack before the LLM servers start.
+If a file is missing at startup, the stack does not stop: the LLM servers wait for it, logging `EN ATTENTE: modèle introuvable`, and start serving as soon as the file appears. You can add it while the stack is running.
 
 ### Download the models
 
 ```bash
 # Chat model (~1.1 GB) — Phi-4-mini by default
-huggingface-cli download unsloth/Phi-4-mini-reasoning-GGUF \
-  Phi-4-mini-reasoning-UD-IQ1_S.gguf --local-dir data/models/
+huggingface-cli download bartowski/Qwen2.5-7B-Instruct-GGUF \
+  Qwen2.5-7B-Instruct-Q4_K_M.gguf --local-dir data/models/
 
 # Embedding model (~81 MB) — nomic-embed-text by default
 huggingface-cli download nomic-ai/nomic-embed-text-v1.5-GGUF \
@@ -288,6 +288,105 @@ Then ask your usual question in the Playground: the answer reflects the **curren
 
 ---
 
+### Step 1d — Automatic document classification (optional)
+
+**Goal**: assign each document the categories that characterize its content, so you know what your corpus actually holds — and can filter it by theme.
+
+As long as a document is identifiable only by its file name, a collection of several hundred pieces stays opaque: you cannot see that half of it is about maintenance while regulation is represented by three documents. That is precisely what you need to know before generating a dataset: **an unbalanced corpus produces an unbalanced model**.
+
+The model does the classifying itself. Spectra shows it representative excerpts of the document — sampled across its whole length, since the opening pages are often a cover sheet or a table of contents that characterize the substance poorly — along with a labelling prompt, and asks for strict JSON back. The model used is the active chat model: after a first fine-tuning cycle it is **your** specialized model labelling your documents, and it does so better than a generic classifier. The model name is kept on each record, so a reclassification after a new training run stays comparable to the previous one.
+
+#### Defining your taxonomy
+
+This is the one setting that really matters: replace the default list with your domain's own nomenclature.
+
+```yaml
+# backend/src/main/resources/application.yml
+spectra:
+  classification:
+    taxonomy:
+      - procedures
+      - evenements
+      - nomenclatures
+      - reglementation
+      - securite
+      # … your own categories
+```
+
+Categories proposed by the model are reduced to a canonical form: case, accents and punctuation are ignored ("Procédures" does resolve to `procedures`). In closed mode — the default — any label outside the taxonomy is dropped. To explore a collection whose nomenclature you do not know yet, set `SPECTRA_CLASSIFICATION_OPEN_TAXONOMY=true`: the model will propose its own categories, which you can then freeze into the taxonomy.
+
+| Variable | Purpose | Default |
+|---|---|---|
+| `SPECTRA_CLASSIFICATION_ENABLED` | Enables the service | `true` |
+| `SPECTRA_CLASSIFICATION_AUTO` | Classifies each document as soon as its ingestion completes | `false` |
+| `SPECTRA_CLASSIFICATION_OPEN_TAXONOMY` | Allows categories outside the taxonomy | `false` |
+| `SPECTRA_CLASSIFICATION_MAX_CATEGORIES` | Categories kept per document | `3` |
+| `SPECTRA_CLASSIFICATION_MIN_CONFIDENCE` | Minimum confidence to keep a category | `0.5` |
+| `SPECTRA_CLASSIFICATION_MAX_CHUNKS` | Excerpts sampled from the document | `8` |
+| `SPECTRA_CLASSIFICATION_MAX_EXCERPT_CHARS` | Character budget submitted to the model (upper bound) | `6000` |
+
+> **This budget is an upper bound, not a promise.** It must fit the PER-REQUEST window, that is `LLM_CONTEXT / LLM_PARALLEL` — not `LLM_CONTEXT` alone. Count ~3.5 characters per token in French: a 6000-character excerpt ≈ 1715 tokens, plus the prompt (~350), the header (~40) and the answer (~120) — about 2225. That is comfortable from 4096 tokens per request upwards, the automatic sizing of a 16 GB machine.
+>
+> **On a smaller machine the excerpt is automatically reduced to what fits**, and a warning reports it at startup and again on the first affected classification. You therefore have nothing to adjust for classification to work: it will simply be based on less text. To make use of the configured value, raise `LLM_CONTEXT` (bearing in mind that it is divided by `LLM_PARALLEL`).
+>
+> Without that clamp, going over would produce no error at all: llama.cpp truncates the **start** of the request — the "answer only in JSON" instructions and the taxonomy — and the model replies in prose, so classification fails systematically, on every document.
+
+> `auto-classify` is off by default on purpose: importing 500 files would chain 500 LLM calls. For a corpus that is already in place, prefer the batch classification below; turn `auto-classify` on for a continuous arrival stream.
+
+#### Through the interface
+
+1. **Documents** page, **Category** section of the filter bar.
+2. **Classify unclassified** starts a background batch over every document still without a category; a progress bar tracks it and the batch can be cancelled.
+3. The category chips filter the list by theme; **Unclassified** isolates the queue.
+4. In a document's record, the **Automatic classification** section shows the categories with their confidence, the generated summary, the model and the date. **Reclassify** runs the model again on an already-labelled document.
+
+On each list row, model-assigned categories are displayed distinctly from manual tags (prefixed with `#`): a reclassification never touches your human annotation, and the gap between the two tells you what the classifier is worth.
+
+#### Through the API
+
+```bash
+# Effective taxonomy and the model that will classify
+curl http://localhost:8080/api/ged/classification
+
+# Classify one document (force=true to re-label an already classified document)
+curl -X POST "http://localhost:8080/api/ged/documents/{sha256}/classify"
+# → {"categories":["procedures","securite"],"scores":{"procedures":0.92,"securite":0.68},
+#    "summary":"Intervention procedure for high-voltage substations.","model":"qwen2.5-7b-instruct"}
+
+# Classify the whole unclassified corpus (empty body), in the background
+curl -X POST http://localhost:8080/api/ged/documents/bulk/classify
+# → {"taskId":"c1a2…","status":"PENDING"}
+
+# Follow — or cancel — the batch
+curl http://localhost:8080/api/ged/classification/tasks/c1a2…
+# → {"status":"PROCESSING","processed":37,"total":210,"succeeded":35,"failed":2}
+curl -X DELETE http://localhost:8080/api/ged/classification/tasks/c1a2…
+```
+
+#### Steering the composition of your corpus
+
+This is where classification pays off. `GET /api/ged/stats` returns coverage and the per-category breakdown:
+
+```bash
+curl http://localhost:8080/api/ged/stats
+# → "classification": {"classified": 187, "unclassified": 23, "coverage": 0.89,
+#                      "topCategories": [{"category":"maintenance","count":94}, …]}
+```
+
+One theme at 94 documents against another at 3: the imbalance is visible before training, not after. The `category` filter then lets you work theme by theme:
+
+```bash
+# Documents of an under-represented category
+curl "http://localhost:8080/api/ged/documents?category=reglementation&size=100"
+
+# Those still waiting to be classified
+curl "http://localhost:8080/api/ged/documents?classified=false"
+```
+
+> Re-ingesting a document (`?force=true`) reclassifies it automatically: its content changed, so the old classification no longer describes it.
+
+---
+
 ### Step 2 — Generating the training dataset
 
 **Goal**: generate question/answer pairs from your documents, to train the model.
@@ -300,6 +399,31 @@ Then ask your usual question in the Playground: the answer reflects the **curren
    - Value `5–20` = quick test to verify the pipeline works (~10–30 min on CPU)
 3. Click **Initialize Pipeline**.
 4. Progress is displayed in real time: number of chunks processed, pairs generated.
+
+> **What `Max Chunks` samples.** If your documents are classified (step 1d), chunks are drawn **round-robin across categories** rather than from the head of the collection. A 20-chunk trial therefore covers the thematic range of your corpus instead of seeing only the first documents ingested. A category that runs out yields its quota to the others, so the requested budget is always met. Without classification, the behaviour stays a plain truncation.
+
+> **One taxonomy.** When a document is classified, the classification pair produced reuses its verdict instead of querying the LLM again: generation is about a third faster (one call in three saved) and a pair can no longer contradict its own document's record.
+
+#### Composing a balanced corpus
+
+`GET /api/dataset/stats` returns `byDocumentCategory` — the breakdown of pairs **by source theme**, not to be confused with `byCategory` which describes the nature of the pairs (q/a, summary, refusal):
+
+```bash
+curl http://localhost:8080/api/dataset/stats
+# → "byCategory":         {"qa": 210, "summary": 210, "negative": 70}
+#   "byDocumentCategory": {"maintenance": 380, "reglementation": 12, "(non classé)": 98}
+```
+
+Here regulation accounts for 12 pairs out of 490: the model will be weak on it. Two levers before launching the fine-tuning — ingest more documents on that theme, or set the dominant one aside:
+
+```bash
+# Excludes from SFT every pair coming from "contractuel" documents.
+# The filter looks at three fields of each pair: the source document's category,
+# the nature of the pair (qa, summary, negative) and its type (refusal, summarization…).
+SPECTRA_SFT_EXCLUDED_CATEGORIES=contractuel
+```
+
+A document that is not classified is never excluded by this filter: nothing would justify asserting it belongs to the excluded theme.
 
 #### Via the API
 
@@ -594,6 +718,11 @@ LORA_TARGET=all NEFTUNE_ALPHA=5 WARMUP_RATIO=0.05 VAL_SPLIT=0.1 \
 | `NEFTUNE_ALPHA` | NEFTune noise on the embeddings (0 = off, 5 common) | `0` |
 | `WARMUP_RATIO` | fraction of steps in warm-up | `0.03` |
 | `VAL_SPLIT` | fraction held out for `eval_loss` | `0` |
+| `MAX_CHUNKS` | cap the chunks used for dataset generation (`0` = whole corpus) — handy for a quick trial run | `0` |
+
+> **API authentication:** if `SPECTRA_API_KEY` is set (environment or `.env`), the pipeline picks it up automatically and sends it as `X-API-Key` on every `/api/**` call — no extra flag needed. A partially-failed ingestion (some files erroring) is reported but does not abort the run.
+>
+> **Backpressure:** if the server rejects the ingestion submission with `429` (too many active ingestions, `spectra.pipeline.max-active-ingestions`), `pipeline.sh` honors the `Retry-After` header and retries — up to `INGEST_MAX_RETRIES` times (default `5`) — instead of failing.
 
 **Server config** (`application.yml`):
 - `spectra.dataset.refusal-every-n` — frequency of "I don't know" refusal examples (anti-hallucination).
@@ -674,7 +803,7 @@ Instead of merging+quantizing (`export_gguf.py`), export the adapter alone and l
 python scripts/export_lora_gguf.py --adapter data/fine-tuning/adapter \
   --output data/fine-tuning/adapter-lora.gguf --base-model phi3
 
-# When launching llama-server (see scripts/llama-autostart.sh)
+# When launching llama-server (see scripts/llm-chat-entrypoint.sh)
 LLAMA_LORA=data/fine-tuning/adapter-lora.gguf LLAMA_LORA_SCALE=1.0 ...
 ```
 
@@ -906,13 +1035,54 @@ The pipeline indicator in the top right shows overall progress:
 
 ### Playground (Step 4)
 
-- **Model selector** (left column, "Active Model" section): lists all chat models registered in the registry. Click a model to set it as the active model in the registry.
+The Playground is the conversation workbench: you ask a question, the model answers **as a stream** from your documents, and the interface makes visible **how** the answer was built.
+
+![The Playground: a sourced answer with pipeline badges, source relevance percentages and metrics](../assets/playground.png)
+
+#### Side panel (left column)
+
+- **System**: live status of the services (Chat Model, Knowledge Base). An unavailable service is flagged in red and sending is blocked rather than failing on a timeout.
+- **Model selector** ("Active Model" section): lists all registered chat models. Click a model to activate it.
 
   > **Note:** activation updates the registry, then the `llm-chat` supervisor automatically reloads the new model within seconds (watch interval: `LLM_CHAT_WATCH_INTERVAL`, default 10 s). The healthcheck (`activeModelLoaded` in `/api/status`) confirms convergence. An alias unknown to the registry is rejected with the list of registered models.
 
-- **Temperature and Top P**: adjust the generation behavior (deterministic ↔ creative)
-- **Enable Knowledge Base**: enable/disable RAG — handy to compare answers with and without documentary context
-- The **sources** (excerpts used) appear in the API response
+- **Temperature and Top P**: adjust the generation behavior (deterministic ↔ creative).
+- **Enable Knowledge Base**: enable/disable RAG — handy to compare answers with and without documentary context.
+- **Conversational History**: sends the conversation history so your question can be rewritten before retrieval (useful for follow-ups such as "and for him?").
+- **Advanced → Top Candidates**: number of candidates sent to the re-ranker (higher = better coverage, slower).
+- **Advanced → Pipeline Modules**: one switch per optimization module (Hybrid Search, Cross-Encoder, Multi-Query, Corrective, Compression, Self-RAG, Adaptive routing). **Unchecking forces the module OFF for your queries**, with no redeployment — handy to isolate a module's effect. The interface queries the **actual server state** (`GET /api/config/rag`): a module that is not deployed appears **greyed out and marked "OFF"**, and its switch is locked (it cannot be enabled per request; only its environment variable can do that). The setting is remembered in the browser.
+- **Expert mode**: additionally shows raw vector distances, re-ranking/BM25 scores and latency metrics (TTFT, duration, tokens).
+- **RAG Advisor**: recommends which RAG strategies to enable based on the state of your corpus (volume, quality, formats) and a **feedback signal** — the overall 👎 rate and the per-module rate ("when this module acted"), aggregated from your votes. You can read directly whether a module (e.g. Corrective) correlates with more unsatisfactory answers on your corpus.
+
+  ![RAG Advisor: the feedback signal shows the 👎 rate per module, most problematic first](../assets/rag-advisor-feedback.png)
+- **Export Conversation**: downloads the discussion as Markdown or JSON.
+
+#### Pipeline steps, visible live
+
+During generation, below the answer cursor, the interface shows the **current pipeline step**: "Searching the knowledge base…", "Grading retrieved chunks…", "Self-evaluating the answer…", or for a complex question "Agentic search #2: '…'" (one line per follow-up search the model decides to run). You therefore watch the reasoning unfold, including on long questions.
+
+#### Under each answer
+
+- **Pipeline badges**: every answer shows the steps actually applied (CONV, CORR, SELF, RRNK, HYB, MQ, CMPR, DEDUP, FULL) and the strategy chosen (DIRECT / STANDARD / AGENTIC). A **Trace** button opens the details (see below).
+- **Inline citations**: when the answer cites its sources with `[1]`, `[2]`, … markers, these are rendered as **clickable chips** — a click expands and scrolls to the matching source. The source list is numbered and the sources **actually cited** are highlighted ("N cited").
+- **Sources**: expand each source to see the retrieved passage and its **relevance percentage**. An excerpt found by keyword only is labelled **BM25** (instead of a misleading "0 %"). In expert mode: distance, re-ranking score and BM25 score.
+- **👍/👎 feedback**: rates the answer (a preference signal reused for DPO fine-tuning).
+- **Copy**, **Regenerate** (with "more factual" / "more creative" variants), **Edit** (re-edit your question).
+- **Compare**: replays the **same question without a module that actually acted** (e.g. "without Cross-Encoder"). The reference answer and the variant are shown **side by side** with their badges and sources — the module's contribution becomes visible on your question, not just in theory. A **"Which is better?"** vote records your preference as a **DPO pair** (chosen/rejected): your exploration feeds the fine-tuning dataset directly.
+
+  ![A/B comparison: the "without Cross-Encoder" variant loses the RRNK badge; the vote feeds the DPO dataset](../assets/rag-ab-comparison.png)
+
+#### Trace panel ("Trace" button)
+
+Details the execution of the selected answer:
+
+- **Strategy Applied**: the strategy chosen, the number of context chunks, and — in agentic mode — the number of iterations and the loop's stop reason.
+- **Pipeline Timeline**: a timeline **measured server-side** (actual duration per step: routing, retrieval, grading, compression, agentic loop, generation, reflection) with the counters (retrieval: N chunks; grading: `before→after (−N discarded)`; etc.). Answers "where did the time go?".
+- **Retrieval Funnel**: the chunk funnel — `Retrieved → after Corrective → after Compression → final context` — with the number removed by each filtering step. Answers "where and by what were chunks discarded?".
+- **Token Budget**: a bar showing **retrieved context (input) vs generated answer (output)**, estimated at ~3.5 characters per token — the same rate the backend uses. Answers "how much of the budget went into context rather than into the answer?".
+- **Query Rewriting**: the standalone question actually used for retrieval, when the history was used to rewrite it.
+- **Optimizations Triggered**: which optimizations fired, with an explanation of each.
+- **Final Context**: previews of the sources actually sent to the model.
 
 ### Model Comparison
 
@@ -942,11 +1112,42 @@ Choose two models: for each pair, a judge sees both answers **side by side** (or
 
 **Neutral judge (recommended for comparing).** By default the evaluated model judges itself (self-serving bias). Set a third-party judge, identical for all, in `.env`:
 ```
-SPECTRA_EVALUATION_JUDGE_MODEL=phi-4-mini
+SPECTRA_EVALUATION_JUDGE_MODEL=qwen2.5-7b-instruct
 ```
 Evaluation then happens in two phases: generating all answers with the evaluated model, then scoring with the judge (a single model switch, to avoid reloading the server for every pair).
 
 > **Interpreting the scores:** a score ≥ 7 means the model answers correctly and precisely. A score between 4 and 6 suggests partial or too-vague answers. Below 4, the model hallucinates or is off-topic. **Do not promote a gap marked `ns`**: widen the test set (`testSetSize`) or decide with an A/B head-to-head.
+
+#### Diagnosis by theme — where is the model weak?
+
+An overall score of 8.1 does not tell you whether it covers 9.2 on procedures and 5.4 on regulation. If your documents are classified (step 1d), the report carries two **orthogonal** breakdowns:
+
+| Field | Breaks down by | Answers |
+|---|---|---|
+| `scoresByCategory` | nature of the exercise (q/a, summary, refusal) | "on which *kind* of task?" |
+| `scoresByDocumentCategory` | theme of the source document | "on which *subject*?" |
+
+```bash
+curl http://localhost:8080/api/evaluation/eval-123
+# → "averageScore": 8.1,
+#   "scoresByCategory":         {"qa": 8.4, "summary": 8.0, "negative": 7.6}
+#   "scoresByDocumentCategory": {"procedures": 9.2, "maintenance": 8.5, "reglementation": 5.4}
+```
+
+Regulation at 5.4 is not primarily a weakness of the model: it reflects the 12 regulatory pairs out of 490 seen at step 2. The diagnosis therefore points to an action on the **corpus** — ingest more documents on that theme — before any hyperparameter tweak. In the interface, the **Score by document theme** panel sorts weakest first and flags in red any theme below 6/10.
+
+**When comparing models**, `deltaByDocumentCategory` tells you whether a retrain gained *where you expected it to*:
+
+```bash
+curl "http://localhost:8080/api/evaluation/compare?evalIds=base,tuned&baseline=base"
+# → "deltaByDocumentCategory": {"procedures": +3.0, "reglementation": -2.0}
+```
+
+Here the model gains on average but **regresses on the very theme it targeted** — invisible from the overall score alone. Themes present on only one side are dropped from the calculation: that would be a false gain, reflecting a difference in test set rather than real progress.
+
+> Pairs from unclassified documents are **excluded** from this breakdown (not grouped under "unclassified": a catch-all aggregate is not a valid comparison point between themes). On an unclassified corpus the breakdown is simply empty and the rest of the report is unchanged.
+
+> The **quality benchmark** (`/api/quality-benchmark`) keeps its own categories, drawn from a curated test set held apart from the corpus. That is deliberate: its value comes precisely from being independent of the ingested documents.
 
 ---
 
@@ -1099,15 +1300,18 @@ curl -X POST http://localhost:8080/api/config/resources/refresh
 If the auto-detected values don't match your usage, you can override them via environment variables in `.env` (at the project root):
 
 ```env
-# Force a 4096-token context for chat
-LLAMA_CHAT_CONTEXT_SIZE=4096
+# Force a TOTAL context of 8192 tokens across 2 slots → 4096 per request
+LLM_CONTEXT=8192
+LLM_PARALLEL=2
 
 # Force 8 CPU threads for chat
-LLAMA_CHAT_THREADS=8
+LLM_THREADS=8
 
-# Disable the GPU for chat (force CPU only)
-LLAMA_CHAT_NGL=0
+# Raw arguments passed to llama-server (e.g. GPU offload)
+LLM_CHAT_EXTRA_ARGS=--n-gpu-layers 99
 ```
+
+> **`LLM_CONTEXT` is the server's TOTAL context**, which llama.cpp splits across its `LLM_PARALLEL` slots: a single request only sees `LLM_CONTEXT / LLM_PARALLEL` tokens. That per-request figure is what every backend budget is measured against. Doubling `LLM_PARALLEL` without doubling `LLM_CONTEXT` halves the window of every conversation.
 
 After modifying `.env`, restart the relevant service:
 
@@ -1119,14 +1323,17 @@ docker compose --project-directory . -f deploy/docker/docker-compose.yml up -d l
 
 | Variable | Description |
 |----------|-------------|
-| `LLAMA_CHAT_CONTEXT_SIZE` | Context window in tokens for chat |
-| `LLAMA_CHAT_THREADS` | Compute threads for chat |
-| `LLAMA_CHAT_NGL` | GPU layers for chat (-1 = all on GPU, 0 = CPU) |
-| `LLAMA_CHAT_FLASH_ATTN` | Flash attention (1 = on) — reduces KV memory by about 2× |
-| `LLAMA_CHAT_PARALLELISM` | Simultaneous conversations (parallel slots) |
-| `LLAMA_CHAT_CPUSET` | CPU cores reserved for chat (e.g. `0-3`) |
-| `LLAMA_EMBED_CPUSET` | CPU cores reserved for embedding (e.g. `4-5`) |
-| `LLAMA_EMBED_THREADS` | Compute threads for embedding |
+| `LLM_CONTEXT` | **Total** context of the chat server, divided by `LLM_PARALLEL` |
+| `LLM_PARALLEL` | Simultaneous conversations (parallel slots) — defaults to `2` |
+| `LLM_THREADS` | Compute threads for chat |
+| `LLM_BATCH` | Batch size (`-b` / `-ub`) |
+| `LLM_CHAT_EXTRA_ARGS` | Raw arguments appended to `llama-server` (e.g. `--n-gpu-layers 99`) |
+| `LLM_CHAT_MODEL_FILE` | GGUF to serve when the registry pointer is missing |
+| `LLM_CHAT_WATCH_INTERVAL` | Model-pointer polling interval, in seconds |
+| `LLM_EMBED_PARALLEL` | Parallel slots of the embedding server |
+| `LLM_EMBED_EXTRA_ARGS` | Raw arguments appended to the embedding server |
+
+Left empty, `LLM_CONTEXT`, `LLM_THREADS` and `LLM_BATCH` take the values computed by the API from the detected resources (see the previous section). Setting them in `.env` forces your value instead.
 
 ### Reference performance (CPU only)
 
@@ -1185,7 +1392,8 @@ docker compose logs spectra-frontend --tail=20   # nginx logs
 
 **The RAG query returns "context exceeded"**
 - Reduce `maxContextChunks` to 2 in your request
-- Or increase `LLAMA_CHAT_CONTEXT_SIZE` in `.env` (dividing by `LLAMA_CHAT_PARALLELISM` to get the per-slot context)
+- Or increase `LLM_CONTEXT` in `.env` — it is the **total** context, to be divided by `LLM_PARALLEL` for the window a request actually sees
+- The `spectra-api` startup logs report the served window and any budget that does not fit (`ContextBudgetValidator`). Those budgets are clamped to what the window can carry, so the query still succeeds — with less context
 
 **Dataset generation stays stuck at 0 pairs**
 ```bash

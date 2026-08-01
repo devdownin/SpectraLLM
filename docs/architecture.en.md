@@ -45,7 +45,6 @@ Deep dive into every container and service of the Spectra stack. For the big pic
 
 | Service | Role | Always on |
 |---|---|:---:|
-| `model-init` | Checks GGUF model files exist before startup | ✅ |
 | `spectra-api` | Spring Boot backend, all business logic | ✅ |
 | `llm-chat` | llama.cpp — chat inference (port 8081) | ✅ |
 | `llm-embed` | llama.cpp — embedding only (port 8082) | ✅ |
@@ -80,7 +79,7 @@ spectra:
       base-url: http://llm-chat:8081
     embedding:
       base-url: http://llm-embed:8082
-    model: phi-4-mini
+    model: qwen2.5-7b-instruct
     embedding-model: nomic-embed-text
   pipeline:
     chunk-max-tokens: 512        # Max tokens per chunk
@@ -95,7 +94,7 @@ spectra:
 SPECTRA_LLM_PROVIDER=llama-cpp
 SPECTRA_LLM_CHAT_BASE_URL=http://llm-chat:8081
 SPECTRA_LLM_EMBEDDING_BASE_URL=http://llm-embed:8082
-SPECTRA_LLM_MODEL=phi-4-mini
+SPECTRA_LLM_MODEL=qwen2.5-7b-instruct
 SPECTRA_LLM_EMBEDDING_MODEL=nomic-embed-text
 SPECTRA_CHUNK_MAX_TOKENS=512
 SPECTRA_EMBEDDING_BATCH_SIZE=10
@@ -117,8 +116,8 @@ Two separate **llama.cpp** containers (`ghcr.io/ggml-org/llama.cpp:server`), eac
 
 **Configuration:**
 ```bash
-LLM_CHAT_MODEL_FILE=Phi-4-mini-reasoning-UD-IQ1_S.gguf   # chat GGUF in data/models/
-LLM_CHAT_MODEL_NAME=phi-4-mini
+LLM_CHAT_MODEL_FILE=Qwen2.5-7B-Instruct-Q4_K_M.gguf   # chat GGUF in data/models/
+LLM_CHAT_MODEL_NAME=qwen2.5-7b-instruct
 LLM_EMBED_MODEL_FILE=embed.gguf                           # embedding GGUF in data/models/
 LLM_EMBED_MODEL_NAME=nomic-embed-text
 LLM_PARALLEL=2                                            # parallel slots per server
@@ -155,7 +154,7 @@ When you ask a question, Spectra:
 CHROMADB_URL=http://chromadb:8000
 ```
 
-Data is persisted in a named Docker volume (`chromadb-data`) and survives container restarts.
+Data is persisted under `./data/chroma`, the same bind-mounted directory that holds the H2 database, and survives container restarts. The two stores deliberately share one lifecycle: a vector index and a document catalogue that can be reset independently drift apart silently, which `ConsistencyReconciliationService` would then report at boot. Back up `./data` and you have both.
 
 ---
 
@@ -244,9 +243,12 @@ SPECTRA_RERANKER_TOP_CANDIDATES=20     # Candidates fed to the re-ranker
 RERANKER_MODEL=cross-encoder/mmarco-mMiniLMv2-L12-H384-v1
 ```
 
-Start with the profile:
+Start with the profile — the compose file lives in `deploy/docker/` while the stack resolves
+from the repository root, hence `--project-directory .` (same invocation as `scripts/start.sh`
+and CI; see [getting-started](getting-started.en.md) for the `spectra-compose` alias):
 ```bash
-docker compose --profile reranker up -d
+docker compose --project-directory . -f deploy/docker/docker-compose.yml \
+  --profile reranker up -d
 ```
 
 ---
@@ -437,7 +439,8 @@ Allowed transitions: `INGESTED → QUALIFIED | ARCHIVED` · `QUALIFIED → TRAIN
 | **Auto-qualification** | If `autoQualifyThreshold > 0`, documents scoring above it are auto-promoted to `QUALIFIED` at ingestion |
 | **Retention policies** | Nightly cron: auto-archive INGESTED after N days, auto-purge ARCHIVED M days after their **archival date** (`archivedAt`) — the purge removes the DB record *and* the indexed chunks |
 | **Synchronized deletion** | Deleting a document removes it from the GED (H2), ChromaDB and the BM25 index in one call, targeting the chunk `sha256` identity; `DELETE /api/documents/{sourceFile}` follows the same path |
-| **Statistics** | Lifecycle distribution, quality histogram, top tags, total indexed chunks |
+| **Statistics** | Lifecycle distribution, quality histogram, top tags, classification coverage and top categories, total indexed chunks |
+| **Automatic classification** | The active LLM labels each document against a configurable taxonomy, from excerpts sampled across its whole length; categories drive thematic filtering and corpus balancing before dataset generation |
 | **Article commenting** | Human and AI-generated comments per document; rated comments export as DPO training pairs |
 
 **API endpoints:**
@@ -455,6 +458,13 @@ GET    /api/ged/documents/{sha256}/audit               # Audit trail
 GET    /api/ged/stats                                  # Aggregate statistics
 POST   /api/ged/documents/bulk/lifecycle               # Bulk lifecycle transition
 POST   /api/ged/documents/bulk/tags                    # Bulk tag assignment
+
+# Automatic classification (R8)
+GET    /api/ged/classification                         # Effective taxonomy, limits, active model
+POST   /api/ged/documents/{sha256}/classify            # Classify one document (?force to re-label)
+POST   /api/ged/documents/bulk/classify                # Background batch (empty body = all unclassified)
+GET    /api/ged/classification/tasks/{taskId}          # Batch progress
+DELETE /api/ged/classification/tasks/{taskId}          # Request batch cancellation
 
 # Article commenting
 GET    /api/ged/documents/{sha256}/comments            # List comments for a document
@@ -558,12 +568,12 @@ The exported JSONL file uses the same `{"prompt","chosen","rejected","source","e
 
 ### `EvaluationService` — LLM-as-a-Judge & multi-model comparison
 
-After dataset generation, you can evaluate model quality automatically. Spectra samples 5% of the dataset (min 5, max 50 pairs), loads the target model (switching the active model for the run, then restoring it), and scores each response from 1 to 10 — also recording generation **latency** and **estimated throughput** (tokens/s). Scores are aggregated by category (`qa`, `summary`, `classification`, `negative`), giving a quantitative baseline before and after fine-tuning.
+After dataset generation, you can evaluate model quality automatically. Spectra samples 5% of the dataset (min 5, max 50 pairs), loads the target model (switching the active model for the run, then restoring it), and scores each response from 1 to 10 — also recording generation **latency** and **estimated throughput** (tokens/s). Scores are aggregated along two orthogonal axes: by **exercise category** (`qa`, `summary`, `classification`, `negative`) and — when documents are classified (R8) — by **document theme** (`scoresByDocumentCategory`). The second axis turns a single number into a diagnosis: a model weak on `reglementation` usually reflects a corpus where that theme is under-represented, which points back to dataset composition rather than hyperparameters.
 
 **Compare your custom models against each other:**
 
 - **Batch-evaluate** several models on the *same* shared test set (`POST /api/evaluation/batch`) — apples-to-apples.
-- **Compare** completed runs (`GET /api/evaluation/compare`): per-category deltas vs a movable baseline, an overlaid radar, latency/throughput, document attribution (GED `TRAINED_ON` / `EVALUATED_ON`), and each delta flagged `sig`/`ns` via a 95% confidence interval.
+- **Compare** completed runs (`GET /api/evaluation/compare`): per-category and per-document-theme deltas vs a movable baseline (themes present on only one side are skipped — that would be a test-set artefact, not a gain), an overlaid radar, latency/throughput, document attribution (GED `TRAINED_ON` / `EVALUATED_ON`), and each delta flagged `sig`/`ns` via a 95% confidence interval.
 - **A/B head-to-head** (`POST /api/evaluation/ab`): a judge picks the better of two answers per pair, with randomized order to cancel position bias → win rates, more robust than comparing absolute means.
 - **Neutral judge** (`SPECTRA_EVALUATION_JUDGE_MODEL`): a fixed third model scores everyone impartially (two-phase evaluation — generate, then judge).
 
@@ -724,10 +734,9 @@ ChromaDB and the llama.cpp inference servers **are** externalised and can be sca
 independently — the single-instance constraint is specific to `spectra-api`.
 
 **Scale vertically** (more CPU/RAM, `SPECTRA_CONCURRENT_INGESTIONS`, `LLM_PARALLEL`) rather than
-horizontally. The Kubernetes manifests deploy `spectra-api` with **1 replica** and a
-`ReadWriteOnce` PVC precisely for this reason — do not raise the replica count without first
-externalising the state above (a shared DB such as PostgreSQL, a distributed index, and a
-shared task/broadcast bus). The [reliability notes](process/reliability.fr.md) track this as a
-known constraint.
+horizontally: `spectra-api` is meant to run as a **single instance**, backed by a volume that
+only one writer holds. Do not run a second instance without first externalising the state above
+(a shared DB such as PostgreSQL, a distributed index, and a shared task/broadcast bus). The
+[reliability notes](process/reliability.fr.md) track this as a known constraint.
 
 ---

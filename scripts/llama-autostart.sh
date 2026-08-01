@@ -62,7 +62,10 @@ fi
 
 RAM_MB=0
 if [ -f /proc/meminfo ]; then
-  RAM_KB=$(grep MemAvailable /proc/meminfo | awk '{print $2}')
+  # « || true » : sans MemAvailable (noyau ancien, /proc restreint), le grep échoue et
+  # pipefail tuerait le script ici, avant le résumé et avant tout message. RAM_KB vide
+  # vaut 0 en arithmétique : on retombe sur le profil le plus prudent, comme sans /proc.
+  RAM_KB=$(grep MemAvailable /proc/meminfo | awk '{print $2}' || true)
   RAM_MB=$((RAM_KB / 1024))
 fi
 

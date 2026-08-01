@@ -14,6 +14,12 @@ services:
   llm-chat:
     image: ghcr.io/ggml-org/llama.cpp:${LLAMA_CPP_IMAGE_TAG:-server-b9828}
     container_name: spectra-llm-chat
+    deploy:
+      resources:
+        limits:
+          # Poids du GGUF (~4,7 Go pour le modèle par défaut) plus le cache KV, qui croît
+          # avec LLM_CONTEXT. À relever pour un modèle plus grand ou un contexte plus large.
+          memory: ${LLM_CHAT_MEMORY_LIMIT:-8g}
     ports:
       - "8081:8081"
     volumes:
@@ -21,8 +27,8 @@ services:
       - ./scripts/llm-chat-entrypoint.sh:/llm-chat-entrypoint.sh:ro
     entrypoint: ["/bin/sh", "/llm-chat-entrypoint.sh"]
     environment:
-      - LLM_CHAT_MODEL_FILE=${LLM_CHAT_MODEL_FILE:-Phi-4-mini-reasoning-UD-IQ1_S.gguf}
-      - LLM_CHAT_MODEL_NAME=${LLM_CHAT_MODEL_NAME:-phi-4-mini}
+      - LLM_CHAT_MODEL_FILE=${LLM_CHAT_MODEL_FILE:-Qwen2.5-7B-Instruct-Q4_K_M.gguf}
+      - LLM_CHAT_MODEL_NAME=${LLM_CHAT_MODEL_NAME:-qwen2.5-7b-instruct}
       - LLM_PORT=8081
       # Pass-through SANS défaut : vide = l'entrypoint applique les hints calculés
       # par spectra-api (/models/active-chat-params), sinon ses défauts intégrés.
@@ -31,6 +37,10 @@ services:
       - LLM_THREADS=${LLM_THREADS:-}
       - LLM_BATCH=${LLM_BATCH:-}
       - LLM_PARALLEL=${LLM_PARALLEL:-2}
+      # Arguments bruts pour llama-server (ex. --n-gpu-layers). L'overlay GPU les impose ;
+      # sans ce passe-plat, les renseigner dans .env restait sans effet sous Compose alors
+      # que la documentation les présentait comme le moyen de surcharger l'offload GPU.
+      - LLM_CHAT_EXTRA_ARGS=${LLM_CHAT_EXTRA_ARGS:-}
       - LLM_CHAT_WATCH_INTERVAL=${LLM_CHAT_WATCH_INTERVAL:-10}
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8081/health || exit 1"]
@@ -45,6 +55,12 @@ services:
     # Même épinglage que llm-chat (tag mobile « server » = risque de casse silencieuse).
     image: ghcr.io/ggml-org/llama.cpp:${LLAMA_CPP_IMAGE_TAG:-server-b9828}
     container_name: spectra-llm-embed
+    deploy:
+      resources:
+        limits:
+          # Le modèle d'embedding par défaut pèse ~81 Mo ; la marge couvre les lots
+          # d'ingestion (SPECTRA_EMBEDDING_BATCH_SIZE).
+          memory: ${LLM_EMBED_MEMORY_LIMIT:-2g}
     ports:
       - "8082:8082"
     volumes:
@@ -54,6 +70,7 @@ services:
     environment:
       - LLM_EMBED_MODEL_FILE=${LLM_EMBED_MODEL_FILE:-embed.gguf}
       - LLM_EMBED_PARALLEL=${LLM_EMBED_PARALLEL:-4}
+      - LLM_EMBED_EXTRA_ARGS=${LLM_EMBED_EXTRA_ARGS:-}
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8082/health || exit 1"]
       interval: 30s
@@ -64,12 +81,34 @@ services:
 
   # ── ChromaDB ──────────────────────────────────────────────────────────────
   chromadb:
-    image: chromadb/chroma:latest
+    # Image ÉPINGLÉE, même raisonnement que llama.cpp ci-dessus : « latest » a déjà
+    # dérivé en silence une fois. Le chemin de persistance est passé de /chroma/chroma
+    # (≤ 0.5.x) à /data, et le volume monté sur l'ancien chemin est resté vide pendant
+    # des mois — l'index vectoriel repartait de zéro à chaque « down », sans un message.
+    # Surcharge possible via CHROMADB_IMAGE_TAG ; vérifiez le chemin de persistance et
+    # /api/v2/heartbeat avant de monter de version.
+    image: chromadb/chroma:${CHROMADB_IMAGE_TAG:-1.5.9}
     container_name: spectra-chromadb
+    deploy:
+      resources:
+        limits:
+          # Croît avec le corpus indexé : à surveiller sur une base volumineuse, c'est le
+          # service dont la consommation dépend le plus des données.
+          memory: ${CHROMADB_MEMORY_LIMIT:-4g}
     ports:
       - "8000:8000"
     volumes:
-      - chromadb-data:/chroma/chroma
+      # /data et NON /chroma/chroma : ce dernier est le chemin de persistance de Chroma
+      # ≤ 0.5.x. L'image actuelle écrit dans /data — le volume monté sur l'ancien chemin
+      # restait donc VIDE et l'index vectoriel vivait dans la couche inscriptible du
+      # conteneur, détruite à chaque « docker compose down », sans même « -v ». C'est la
+      # cause réelle du « ChromaDB vide alors que la GED déclare N chunks » signalé au
+      # démarrage par ConsistencyReconciliationService.
+      #
+      # Bind-mount et NON volume nommé : la base H2 (état de la GED) vit dans ./data.
+      # Deux stockages aux cycles de vie distincts se désynchronisent tôt ou tard ;
+      # un seul répertoire = une seule sauvegarde, une seule remise à zéro.
+      - ./data/chroma:/data
     environment:
       - ANONYMIZED_TELEMETRY=FALSE
       - CHROMA_OTEL_EXPORTER_OTLP_ENDPOINT=
@@ -114,12 +153,28 @@ services:
       args:
         RERANKER_MODEL: ${RERANKER_MODEL:-cross-encoder/mmarco-mMiniLMv2-L12-H384-v1}
     container_name: spectra-reranker
+    deploy:
+      resources:
+        limits:
+          # torch plus le Cross-Encoder chargé en mémoire.
+          memory: ${RERANKER_MEMORY_LIMIT:-4g}
     ports:
       - "8002:8000"
     volumes:
+      # Cache HuggingFace persistant : le modèle (~500 Mo) y survit aux reconstructions
+      # d'image. C'est lui qui permet de servir — et d'exporter en ONNX — sans accès au Hub.
       - reranker-model-cache:/root/.cache/huggingface
     environment:
       - RERANKER_MODEL=${RERANKER_MODEL:-cross-encoder/mmarco-mMiniLMv2-L12-H384-v1}
+      # Environnements contraints (proxy d'entreprise, hors ligne) : HF_ENDPOINT pointe un
+      # miroir, HF_HUB_OFFLINE=1 interdit tout accès réseau et force l'usage exclusif du cache
+      # ci-dessus, HF_TOKEN authentifie sur un dépôt privé.
+      # Forme SANS « = » volontaire : la variable n'est transmise que si l'hôte la définit.
+      # Avec « ${HF_ENDPOINT:-} » elle vaudrait la chaîne VIDE, que huggingface_hub prendrait
+      # pour une URL d'endpoint — plus destructeur que de ne rien passer du tout.
+      - HF_ENDPOINT
+      - HF_HUB_OFFLINE
+      - HF_TOKEN
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
@@ -139,6 +194,11 @@ services:
     profiles: [kafka]
     image: apache/kafka:4.2.0
     container_name: spectra-kafka
+    deploy:
+      resources:
+        limits:
+          # Broker de développement.
+          memory: ${KAFKA_MEMORY_LIMIT:-2g}
     ports:
       - "9092:9092"
     healthcheck:
@@ -198,6 +258,13 @@ services:
       context: .
       dockerfile: deploy/docker/Dockerfile
     container_name: spectra-api
+    deploy:
+      resources:
+        limits:
+          # Doit dépasser -Xmx (1024m par défaut) : le heap n'est qu'une part de
+          # l'empreinte JVM — métaespace, piles, tampons directs et, si le reranking ONNX est
+          # actif, les allocations NATIVES d'ONNX Runtime, qui échappent au heap.
+          memory: ${SPECTRA_API_MEMORY_LIMIT:-4g}
     ports:
       - "8080:8080"
     environment:
@@ -206,23 +273,40 @@ services:
       - SPECTRA_LLM_PROVIDER=llama-cpp
       - SPECTRA_LLM_CHAT_BASE_URL=http://llm-chat:8081
       - SPECTRA_LLM_EMBEDDING_BASE_URL=http://llm-embed:8082
-      - SPECTRA_LLM_MODEL=${LLM_CHAT_MODEL_NAME:-phi-4-mini}
+      - SPECTRA_LLM_MODEL=${LLM_CHAT_MODEL_NAME:-qwen2.5-7b-instruct}
       - SPECTRA_LLM_EMBEDDING_MODEL=${LLM_EMBED_MODEL_NAME:-nomic-embed-text}
       # Fichiers GGUF réellement servis (mêmes variables que llm-chat/llm-embed) :
       # le registre local associe ainsi les modèles par défaut à leur source servable.
-      - SPECTRA_LLM_CHAT_FILE=${LLM_CHAT_MODEL_FILE:-Phi-4-mini-reasoning-UD-IQ1_S.gguf}
+      - SPECTRA_LLM_CHAT_FILE=${LLM_CHAT_MODEL_FILE:-Qwen2.5-7B-Instruct-Q4_K_M.gguf}
       - SPECTRA_LLM_EMBEDDING_FILE=${LLM_EMBED_MODEL_FILE:-embed.gguf}
       - SPECTRA_CHROMADB_BASE_URL=http://chromadb:8000
       - SPECTRA_PIPELINE_CHUNK_MAX_TOKENS=${SPECTRA_CHUNK_MAX_TOKENS:-256}
       - SPECTRA_PIPELINE_CHUNK_OVERLAP_TOKENS=${SPECTRA_CHUNK_OVERLAP_TOKENS:-64}
-      - SPECTRA_PIPELINE_EMBEDDING_BATCH_SIZE=${SPECTRA_EMBEDDING_BATCH_SIZE:-10}
+      # Aligné sur le défaut applicatif (application.yml) : trois valeurs différentes
+      # cohabitaient (32 ici, 10 en Compose, 5 en .env), si bien que le comportement
+      # dépendait du chemin de lancement — et que le défaut applicatif, seul à dépasser
+      # l'ancien plafond de buffer de 256 Ko, n'était jamais exercé.
+      - SPECTRA_PIPELINE_EMBEDDING_BATCH_SIZE=${SPECTRA_EMBEDDING_BATCH_SIZE:-32}
       - SPECTRA_PIPELINE_EMBEDDING_TIMEOUT_SECONDS=${SPECTRA_EMBEDDING_TIMEOUT:-30}
       - SPECTRA_PIPELINE_GENERATION_TIMEOUT_SECONDS=${SPECTRA_GENERATION_TIMEOUT:-120}
       - SPECTRA_PIPELINE_CONCURRENT_INGESTIONS=${SPECTRA_CONCURRENT_INGESTIONS:-4}
-      - SPECTRA_RERANKER_ENABLED=${SPECTRA_RERANKER_ENABLED:-false}
+      # Exécuteur d'entraînement : « process » (scripts sur l'hôte — indisponible dans ce
+      # conteneur, d'où un 503 motivé) ou « http » (service trainer, profil « trainer »).
+      - SPECTRA_FINE_TUNING_RUNNER=${SPECTRA_FINE_TUNING_RUNNER:-process}
+      - SPECTRA_TRAINER_URL=${SPECTRA_TRAINER_URL:-http://trainer:8000}
+      - SPECTRA_RERANKER_ENABLED=${SPECTRA_RERANKER_ENABLED:-true}
       - SPECTRA_RERANKER_URL=http://reranker:8000
       - SPECTRA_RERANKER_MODEL=${RERANKER_MODEL:-cross-encoder/mmarco-mMiniLMv2-L12-H384-v1}
       - SPECTRA_RERANKER_TOP_CANDIDATES=${SPECTRA_RERANKER_TOP_CANDIDATES:-20}
+      # Moteur de reranking : « http » (profil compose « reranker », conteneur Python) ou
+      # « onnx » (Cross-Encoder exécuté dans la JVM — ni conteneur, ni Python). En mode onnx,
+      # déposez model.onnx + tokenizer.json dans ./data/models/reranker : le volume ./data est
+      # déjà monté, même convention que les GGUF.
+      - SPECTRA_RERANKER_ENGINE=${SPECTRA_RERANKER_ENGINE:-onnx}
+      - SPECTRA_RERANKER_ONNX_PATH=${SPECTRA_RERANKER_ONNX_PATH:-/app/data/models/reranker}
+      - SPECTRA_RERANKER_ONNX_ACTIVATION=${SPECTRA_RERANKER_ONNX_ACTIVATION:-sigmoid}
+      - SPECTRA_RERANKER_ONNX_MAX_LENGTH=${SPECTRA_RERANKER_ONNX_MAX_LENGTH:-512}
+      - SPECTRA_RERANKER_ONNX_BATCH_SIZE=${SPECTRA_RERANKER_ONNX_BATCH_SIZE:-16}
       - SPECTRA_LAYOUT_PARSER_ENABLED=${SPECTRA_LAYOUT_PARSER_ENABLED:-false}
       - SPECTRA_LAYOUT_PARSER_URL=http://docparser:8001
       - SPECTRA_LAYOUT_PARSER_TIMEOUT=${SPECTRA_LAYOUT_PARSER_TIMEOUT:-120}
@@ -280,6 +364,11 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: spectra-frontend
+    deploy:
+      resources:
+        limits:
+          # Nginx servant des fichiers statiques.
+          memory: ${FRONTEND_MEMORY_LIMIT:-256m}
     ports:
       - "80:80"
     depends_on:
@@ -293,8 +382,59 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # ── Entraînement (optionnel, profil trainer) ──────────────────────────────
+  # Rend le fine-tuning exécutable EN CONTENEUR. L'image spectra-api est une JRE sans
+  # Python : sans ce service, une soumission est refusée par un 503 motivé (constat F1).
+  #
+  # Absent par défaut, et c'est voulu — l'image pèse plusieurs Go (torch) et n'a d'intérêt
+  # que pour qui entraîne réellement :
+  #   docker compose --profile trainer up -d trainer
+  #   SPECTRA_FINE_TUNING_RUNNER=http docker compose up -d spectra-api
+  trainer:
+    profiles: [trainer]
+    build:
+      # Contexte = racine du dépôt : le service embarque scripts/, hors de son répertoire.
+      context: .
+      dockerfile: services/trainer/Dockerfile
+    container_name: spectra-trainer
+    deploy:
+      resources:
+        limits:
+          # Le service le plus vorace de la pile, et le seul dont un dépassement emporterait
+          # l'hôte — donc l'API et le frontend avec. Une limite explicite transforme un
+          # incident système en échec de job, lisible et sans dommage collatéral.
+          #
+          # 12 Go convient à du QLoRA 4-bit sur un modèle de 3 à 7 milliards de paramètres.
+          # À relever pour un modèle plus grand ou un lot plus large : trop bas, le job est
+          # tué par l'OOM killer sans cause claire ; trop haut, la limite ne protège de rien.
+          memory: ${TRAINER_MEMORY_LIMIT:-12g}
+    ports:
+      - "8004:8000"
+    volumes:
+      # MÊME point de montage que spectra-api. Le client transmet des chemins absolus
+      # (/app/data/fine-tuning/<job>/dataset.jsonl) calculés dans le conteneur applicatif :
+      # un montage différent ici ferait démarrer l'entraînement puis échouer sur un fichier
+      # introuvable, soit précisément la panne tardive que ce service supprime.
+      - ./data:/app/data
+      # Cache HuggingFace : les poids du modèle de base (plusieurs Go) survivent aux
+      # reconstructions d'image et aux redémarrages. Hors de /root — le service abandonne ses
+      # privilèges au démarrage, un chemin sous /root cesserait d'être celui que consulte
+      # huggingface_hub (cf. HF_HOME dans services/trainer/Dockerfile).
+      - trainer-hf-cache:/hf-cache
+    environment:
+      - HF_ENDPOINT
+      - HF_HUB_OFFLINE
+      - HF_TOKEN
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
 volumes:
-  chromadb-data:
   reranker-model-cache:
+  trainer-hf-cache:
   # Nom aligné sur le volume du broker Kafka Explorer pour un broker identique.
   kafka_data:

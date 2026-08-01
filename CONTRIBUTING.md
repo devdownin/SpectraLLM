@@ -12,6 +12,18 @@ For the full install (models, Docker profiles, GPU), see **[Getting Started](doc
 - **Node.js 22** (frontend)
 - **Python 3.11** (docparser / reranker services)
 
+> **Claude Code on the web.** Those remote containers ship a JDK 21, which cannot compile a project targeting 25 — and Adoptium is unreachable from behind their proxy, so `.sdkmanrc` does not help there. `.claude/hooks/session-start.sh` installs the JDK named in `backend/pom.xml` from the Ubuntu archive and points `JAVA_HOME` at it, so a session starts on the same Java version CI uses. It only runs remotely; your local toolchain is left alone.
+
+### Everything at once
+
+```bash
+./scripts/verify.sh                  # rejoue les contrôles de la CI
+./scripts/verify.sh backend shell    # ou seulement certaines sections
+./scripts/verify.sh --list           # sections disponibles
+```
+
+A check whose tool is missing locally is reported as **SKIPPED**, never counted as passing — a green obtained by running nothing is worse than no green at all. The per-ecosystem commands below remain available when you want to run just one.
+
 ### Backend (Java / Spring Boot)
 
 ```bash
@@ -82,8 +94,9 @@ Enhancements are also tracked as GitHub issues. Please use the [Feature Request 
   (defaults, limits, formats — single source of truth), and
   [rag-pipeline.fr.md](docs/tech/rag-pipeline.fr.md) explains the design rationale. Don't
   duplicate a fact in several documents — link to the reference instead.
-- **Links**: internal Markdown links are checked in CI (`scripts/check-doc-links.py`,
-  `docs-links` workflow) — renaming or deleting a doc requires updating every reference.
+- **Links**: internal Markdown links are checked by `DocumentationLinksTest` (backend test
+  suite, so `mvn test` catches them locally before the push) — renaming or deleting a doc
+  requires updating every reference.
 - **Changelog**: user-visible changes get an entry in `CHANGELOG.md` (section
   `[Non publié]`) in the same PR. GitHub release notes are derived from the changelog,
   not the other way around.

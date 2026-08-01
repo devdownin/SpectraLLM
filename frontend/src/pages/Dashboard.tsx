@@ -17,6 +17,8 @@ interface DatasetStats {
   chunksInStore: number;
   avgConfidence: number;
   byCategory: Record<string, number>;
+  /** R8 — répartition par catégorie du document source (absente des datasets antérieurs). */
+  byDocumentCategory?: Record<string, number>;
 }
 
 interface GedStats {
@@ -550,6 +552,19 @@ const Dashboard: FC = () => {
                 </p>
                 <div className="h-36">
                   <CategoryBar byCategory={stats.byCategory} />
+                </div>
+              </div>
+            )}
+
+            {/* R8 — composition thématique du corpus d'entraînement : c'est ici qu'un thème
+                sur- ou sous-représenté se voit, avant le fine-tuning plutôt qu'après. */}
+            {stats?.byDocumentCategory && Object.keys(stats.byDocumentCategory).length > 0 && (
+              <div className="bg-surface-container p-5">
+                <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-3">
+                  Training pairs by document category
+                </p>
+                <div className="h-36">
+                  <CategoryBar byCategory={stats.byDocumentCategory} color="#9a6ee0" />
                 </div>
               </div>
             )}

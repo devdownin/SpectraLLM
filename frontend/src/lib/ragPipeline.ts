@@ -141,8 +141,16 @@ export const buildFunnel = (stages: StreamStageTrace[]): FunnelStep[] => {
 
 // ── Budget de tokens (estimation) ─────────────────────────────────────────────
 
-/** Estimation de tokens à ~4 caractères/token — convention utilisée côté backend (n_ctx). */
-export const estimateTokens = (chars: number): number => Math.max(0, Math.round(chars / 4));
+/**
+ * Caractères par token, en français. DOIT rester aligné sur `TokenEstimator.CHARS_PER_TOKEN`
+ * côté backend : le panneau Trace affiche un budget que le backend calcule réellement, et
+ * deux taux différents feraient afficher une barre qui ne correspond à rien.
+ */
+export const CHARS_PER_TOKEN = 3.5;
+
+/** Estimation de tokens — voir CHARS_PER_TOKEN pour le taux et sa justification. */
+export const estimateTokens = (chars: number): number =>
+  Math.max(0, Math.round(chars / CHARS_PER_TOKEN));
 
 export interface TokenBudget {
   /** Tokens d'entrée estimés (contexte récupéré injecté dans le prompt). */

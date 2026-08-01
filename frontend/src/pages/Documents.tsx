@@ -8,92 +8,21 @@ import Skeleton from '../components/Skeleton';
 import Tooltip from '../components/Tooltip';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { Badge, EmptyState, PageHeader, Button } from '../components/ui';
-import type { BadgeTone } from '../components/ui';
 import { gedApi, commentApi } from '../services/api';
 import { useFocusTrap } from '../hooks/useFocusTrap';
-import type { IngestedFile, IngestedFileSheet, DocumentLifecycle, ArticleComment } from '../types/api';
-
-type DocumentTypeKey = 'pdf' | 'json' | 'xml' | 'docx' | 'doc' | 'txt' | 'avro' | 'other';
-type SortMode = 'recent' | 'name' | 'chunks' | 'quality';
-type GroupBy = 'none' | 'type' | 'lifecycle' | 'collection';
-
-interface DocumentTypeMeta {
-  key: DocumentTypeKey;
-  label: string;
-  icon: string;
-  accentClass: string;
-}
-
-const DOCUMENT_TYPES: Record<DocumentTypeKey, DocumentTypeMeta> = {
-  pdf:   { key: 'pdf',   label: 'PDF',   icon: 'picture_as_pdf', accentClass: 'text-error border-error/20 bg-error/5' },
-  json:  { key: 'json',  label: 'JSON',  icon: 'data_object',    accentClass: 'text-primary border-primary/20 bg-primary/5' },
-  xml:   { key: 'xml',   label: 'XML',   icon: 'code_blocks',    accentClass: 'text-secondary border-secondary/20 bg-secondary/5' },
-  docx:  { key: 'docx',  label: 'DOCX',  icon: 'description',    accentClass: 'text-primary border-primary/20 bg-primary/5' },
-  doc:   { key: 'doc',   label: 'DOC',   icon: 'article',        accentClass: 'text-primary border-primary/20 bg-primary/5' },
-  txt:   { key: 'txt',   label: 'TXT',   icon: 'notes',          accentClass: 'text-on-surface-variant border-outline-variant/20 bg-surface-container-high' },
-  avro:  { key: 'avro',  label: 'AVRO',  icon: 'schema',         accentClass: 'text-secondary border-secondary/20 bg-secondary/5' },
-  other: { key: 'other', label: 'OTHER', icon: 'draft',          accentClass: 'text-on-surface-variant border-outline-variant/20 bg-surface-container-high' },
-};
-
-const LIFECYCLE_COLORS: Record<DocumentLifecycle, string> = {
-  INGESTED: 'border-outline-variant/30 text-outline',
-  QUALIFIED: 'border-secondary/40 text-secondary bg-secondary/5',
-  TRAINED: 'border-primary/40 text-primary bg-primary/5',
-  ARCHIVED: 'border-on-surface-variant/20 text-on-surface-variant bg-surface-container-low',
-};
-
-/** Tonalité Badge par état du cycle de vie (chips d'affichage). */
-const LIFECYCLE_TONES: Record<DocumentLifecycle, BadgeTone> = {
-  INGESTED: 'neutral',
-  QUALIFIED: 'secondary',
-  TRAINED: 'primary',
-  ARCHIVED: 'neutral',
-};
-
-const LIFECYCLE_BAR_COLORS: Record<string, string> = {
-  INGESTED: 'bg-outline-variant',
-  QUALIFIED: 'bg-secondary',
-  TRAINED: 'bg-primary',
-  ARCHIVED: 'bg-on-surface-variant/30',
-};
-
-const QUALITY_THRESHOLDS = [
-  { label: null,    value: 0 },
-  { label: '≥ 25%', value: 0.25 },
-  { label: '≥ 50%', value: 0.50 },
-  { label: '≥ 75%', value: 0.75 },
-];
+import {
+  DOCUMENT_TYPES, LIFECYCLE_BAR_COLORS, LIFECYCLE_COLORS, LIFECYCLE_TONES,
+  QUALITY_THRESHOLDS, getDocumentType, getGroupKey, getGroupLabel,
+} from '../lib/documentTaxonomy';
+import type { DocumentTypeKey, GroupBy, SortMode } from '../lib/documentTaxonomy';
+import type {
+  IngestedFile, IngestedFileSheet, DocumentLifecycle, ArticleComment,
+  ClassificationConfig, ClassificationTask,
+} from '../types/api';
 
 const PAGE_SIZE = 50;
 /** Taille d'un lot chargé depuis le serveur (pagination incrémentale « Load more »). */
 const FETCH_SIZE = 200;
-
-function getDocumentType(file: IngestedFile): DocumentTypeMeta {
-  const format = file.format.toLowerCase();
-  const name = file.fileName.toLowerCase();
-  if (format.includes('json') || name.endsWith('.json')) return DOCUMENT_TYPES.json;
-  if (format.includes('xml') || name.endsWith('.xml')) return DOCUMENT_TYPES.xml;
-  if (format.includes('pdf') || name.endsWith('.pdf')) return DOCUMENT_TYPES.pdf;
-  if (format.includes('avro') || name.endsWith('.avro')) return DOCUMENT_TYPES.avro;
-  if (name.endsWith('.docx') || format.includes('officedocument.wordprocessingml')) return DOCUMENT_TYPES.docx;
-  if (name.endsWith('.doc') || format.includes('msword')) return DOCUMENT_TYPES.doc;
-  if (format.includes('text/plain') || name.endsWith('.txt')) return DOCUMENT_TYPES.txt;
-  return DOCUMENT_TYPES.other;
-}
-
-function getGroupKey(doc: IngestedFile, groupBy: GroupBy): string {
-  if (groupBy === 'type') return getDocumentType(doc).key;
-  if (groupBy === 'lifecycle') return doc.lifecycle;
-  if (groupBy === 'collection') return doc.collectionName ?? '—';
-  return '';
-}
-
-function getGroupLabel(key: string, groupBy: GroupBy): string {
-  if (groupBy === 'type') return DOCUMENT_TYPES[key as DocumentTypeKey]?.label ?? key.toUpperCase();
-  return key;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 
 /** Suppression en attente de confirmation (ligne, fiche ou sélection multiple). */
 type PendingDelete =
@@ -120,12 +49,15 @@ const Documents: FC = () => {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(0);
   const [newTagInput, setNewTagInput] = useState('');
+  // R8 — classification : filtre par catégorie et suivi du lot en cours.
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [classifyTaskId, setClassifyTaskId] = useState<string | null>(null);
   const [commentInput, setCommentInput] = useState('');
   const [focusInput, setFocusInput] = useState('');
   const [commentTab, setCommentTab] = useState<'list' | 'add' | 'generate'>('list');
   const deferredSearch = useDeferredValue(search);
 
-  useEffect(() => { setPage(0); }, [deferredSearch, selectedLifecycle, selectedFormats, qualityMin, groupBy, sortMode]);
+  useEffect(() => { setPage(0); }, [deferredSearch, selectedLifecycle, selectedFormats, qualityMin, groupBy, sortMode, selectedCategory]);
 
   // Deep-link : ?doc=<sha256> (ex. depuis une source du Playground) ouvre la fiche.
   const [searchParams, setSearchParams] = useSearchParams();
@@ -325,6 +257,72 @@ const Documents: FC = () => {
     onSettled: reconcileDocCaches,
   });
 
+  // ── Classification automatique (R8) ────────────────────────────────────────
+
+  const { data: classificationConfig } = useQuery<ClassificationConfig>({
+    queryKey: ['ged-classification-config'],
+    queryFn: () => gedApi.getClassificationConfig().then(r => r.data),
+    staleTime: 5 * 60 * 1000, // configuration serveur : inutile de la resonder en continu
+  });
+
+  const classifyMutation = useMutation({
+    mutationFn: ({ sha, force }: { sha: string; force: boolean }) => gedApi.classify(sha, force),
+    onSuccess: (res) => {
+      const { categories, reused } = res.data as { categories: string[]; reused: boolean };
+      // `reused` : le serveur a renvoyé la classification existante sans rappeler le LLM.
+      toast.success(
+        reused ? t('documents.alreadyClassified') : t('documents.classified'),
+        { description: categories.join(' · ') },
+      );
+      reconcileDocCaches();
+    },
+    onError: (err: any) => toast.error(t('documents.classifyFailed'),
+      { description: err.response?.data?.error ?? t('documents.llmUnavailable') }),
+  });
+
+  const bulkClassifyMutation = useMutation({
+    mutationFn: ({ sha256List, force }: { sha256List: string[] | null; force: boolean }) =>
+      gedApi.bulkClassify(sha256List, force),
+    onSuccess: (res) => {
+      setClassifyTaskId(res.data.taskId);
+      toast.success(t('documents.bulkClassifyStarted'));
+    },
+    onError: (err: any) => toast.error(t('documents.bulkClassifyFailed'),
+      { description: err.response?.data?.error }),
+  });
+
+  // Suivi du lot : on interroge la progression tant que la tâche tourne, puis on s'arrête.
+  const { data: classifyTask } = useQuery<ClassificationTask>({
+    queryKey: ['ged-classification-task', classifyTaskId],
+    queryFn: () => gedApi.getClassificationTask(classifyTaskId!).then(r => r.data),
+    enabled: !!classifyTaskId,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status === 'PENDING' || status === 'PROCESSING' ? 2000 : false;
+    },
+  });
+
+  // Le lot terminé rafraîchit la liste (les catégories viennent d'arriver) puis se retire
+  // de l'écran ; sans cela la barre de progression resterait figée à 100 %.
+  useEffect(() => {
+    if (!classifyTask) return;
+    if (classifyTask.status === 'PENDING' || classifyTask.status === 'PROCESSING') return;
+    reconcileDocCaches();
+    if (classifyTask.status === 'COMPLETED') {
+      toast.success(t('documents.bulkClassifyDone', {
+        succeeded: classifyTask.succeeded, failed: classifyTask.failed,
+      }));
+    }
+    const timer = setTimeout(() => setClassifyTaskId(null), 4000);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [classifyTask?.status]);
+
+  const cancelClassifyMutation = useMutation({
+    mutationFn: (taskId: string) => gedApi.cancelClassificationTask(taskId),
+    onSuccess: () => toast.success(t('documents.bulkClassifyCancelled')),
+  });
+
   // ── Comments ───────────────────────────────────────────────────────────────
 
   const { data: comments, isLoading: isLoadingComments } = useQuery<ArticleComment[]>({
@@ -387,6 +385,17 @@ const Documents: FC = () => {
     return Array.from(seen).sort();
   }, [documents]);
 
+  /**
+   * Catégories proposées au filtre : la taxonomie configurée, complétée par celles
+   * réellement rencontrées dans le corpus (taxonomie ouverte, ou taxonomie modifiée
+   * après une première classification).
+   */
+  const availableCategories = useMemo(() => {
+    const seen = new Set<string>(classificationConfig?.taxonomy ?? []);
+    (documents ?? []).forEach(doc => (doc.categories ?? []).forEach(c => seen.add(c)));
+    return Array.from(seen).sort();
+  }, [documents, classificationConfig]);
+
   const filtered = useMemo(() => {
     return (documents ?? [])
       .filter(doc => {
@@ -395,10 +404,16 @@ const Documents: FC = () => {
           if (!doc.fileName.toLowerCase().includes(q) &&
               !doc.sha256.toLowerCase().includes(q) &&
               !doc.tags.some(t => t.toLowerCase().includes(q)) &&
+              !(doc.categories ?? []).some(c => c.toLowerCase().includes(q)) &&
               !(doc.collectionName ?? '').toLowerCase().includes(q)) return false;
         }
         if (selectedFormats.size > 0 && !selectedFormats.has(getDocumentType(doc).key)) return false;
         if (qualityMin > 0 && (doc.qualityScore ?? 0) < qualityMin) return false;
+        if (selectedCategory === 'unclassified') {
+          if ((doc.categories ?? []).length > 0) return false;
+        } else if (selectedCategory !== 'all' && !(doc.categories ?? []).includes(selectedCategory)) {
+          return false;
+        }
         return true;
       })
       .sort((a, b) => {
@@ -407,7 +422,7 @@ const Documents: FC = () => {
         if (sortMode === 'quality') return (b.qualityScore ?? 0) - (a.qualityScore ?? 0);
         return Date.parse(b.ingestedAt) - Date.parse(a.ingestedAt);
       });
-  }, [documents, deferredSearch, selectedFormats, qualityMin, sortMode]);
+  }, [documents, deferredSearch, selectedFormats, qualityMin, sortMode, selectedCategory]);
 
   const groups = useMemo((): Record<string, IngestedFile[]> => {
     if (groupBy === 'none') return {};
@@ -498,6 +513,14 @@ const Documents: FC = () => {
               {doc.collectionName && (
                 <span className="text-[10px] border border-primary/20 px-1 text-primary/60 uppercase truncate max-w-[100px]">{doc.collectionName}</span>
               )}
+              {/* Catégories LLM (R8) — visuellement distinctes des tags manuels (#) pour
+                  qu'on voie d'un coup d'œil ce qui a été étiqueté par la machine. */}
+              {(doc.categories ?? []).slice(0, 2).map(c => (
+                <span key={c} className="text-[10px] border border-secondary/40 bg-secondary/5 px-1 text-secondary uppercase">{c}</span>
+              ))}
+              {(doc.categories ?? []).length > 2 && (
+                <span className="text-[10px] text-secondary/70">+{(doc.categories ?? []).length - 2}</span>
+              )}
               {doc.tags.slice(0, 2).map(t => (
                 <span key={t} className="text-[10px] border border-outline-variant/30 px-1 text-outline uppercase">#{t}</span>
               ))}
@@ -556,6 +579,9 @@ const Documents: FC = () => {
   if (isLoading) return <div className="p-8 space-y-4"><Skeleton className="h-10 w-1/4" /><Skeleton className="h-64 w-full" /></div>;
 
   const total = stats?.total ?? 0;
+  // R8 — documents restant à classifier, tirés des stats serveur (et non de la page
+  // chargée) : le bouton d'en-tête doit refléter tout le fonds, pas l'échantillon visible.
+  const pendingClassification = stats?.classification?.unclassified ?? 0;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-700 pb-32">
@@ -571,6 +597,26 @@ const Documents: FC = () => {
               {t('documents.shownCount', { shown: filtered.length, loaded: documents.length })}
               {totalDocuments > documents.length ? t('documents.ofTotal', { total: totalDocuments }) : ''}
             </span>
+            {/* R8 — action principale de l'écran : lancer la classification du fonds. Elle vit
+                dans l'en-tête et non dans le panneau de filtres, où elle était invisible.
+                Le libellé porte le reste à faire : « Classifier (23) » dit à la fois quoi
+                et combien, et disparaît quand tout est déjà classifié. */}
+            {classificationConfig?.enabled && (
+              <Button
+                variant={pendingClassification > 0 ? 'primary' : 'outline'}
+                size="sm"
+                disabled={bulkClassifyMutation.isPending || !!classifyTaskId || pendingClassification === 0}
+                title={t('documents.classifyHint', { model: classificationConfig.model })}
+                onClick={() => bulkClassifyMutation.mutate({ sha256List: null, force: false })}
+              >
+                <span aria-hidden="true" className={`material-symbols-outlined text-[16px] ${classifyTaskId ? 'animate-spin' : ''}`}>
+                  {classifyTaskId ? 'progress_activity' : 'auto_awesome'}
+                </span>
+                {pendingClassification > 0
+                  ? t('documents.classifyPending', { count: pendingClassification })
+                  : t('documents.allClassified')}
+              </Button>
+            )}
             <Button variant="outline" size="sm" onClick={() => refetch()}>
               <span aria-hidden="true" className={`material-symbols-outlined text-[16px] ${isFetching ? 'animate-spin' : ''}`}>refresh</span>
               {t('documents.sync')}
@@ -730,6 +776,88 @@ const Documents: FC = () => {
             </div>
           </div>
         </div>
+
+        {/* Row 3 — Classification automatique (R8) */}
+        {classificationConfig?.enabled && (
+          <div className="space-y-3 pt-4 border-t border-outline-variant/10">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-baseline gap-3">
+                <label className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">
+                  {t('documents.category')}
+                </label>
+                {stats?.classification && (
+                  <span className="text-[10px] text-outline">
+                    {t('documents.classificationCoverage', {
+                      classified: stats.classification.classified,
+                      total: (stats.classification.classified ?? 0) + (stats.classification.unclassified ?? 0),
+                    })}
+                  </span>
+                )}
+              </div>
+              {/* Le déclencheur global vit désormais dans l'en-tête ; il ne reste ici que
+                  le contexte (modèle utilisé), pour ne pas offrir deux boutons identiques. */}
+              <span className="text-[10px] text-outline uppercase tracking-widest">
+                {t('documents.classifierModel', { model: classificationConfig.model })}
+              </span>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => setSelectedCategory('all')}
+                className={`px-2.5 py-1.5 border text-[10px] font-label uppercase tracking-widest transition-all ${selectedCategory === 'all' ? 'border-secondary bg-secondary/10 text-secondary' : 'border-outline-variant/20 text-on-surface-variant hover:border-secondary/30'}`}
+              >
+                {t('documents.qualityAll')}
+              </button>
+              <button
+                onClick={() => setSelectedCategory('unclassified')}
+                className={`px-2.5 py-1.5 border text-[10px] font-label uppercase tracking-widest transition-all ${selectedCategory === 'unclassified' ? 'border-error bg-error/10 text-error' : 'border-outline-variant/20 text-on-surface-variant hover:border-error/30'}`}
+              >
+                {t('documents.unclassified')}
+              </button>
+              {availableCategories.map(cat => (
+                <button
+                  key={cat}
+                  onClick={() => setSelectedCategory(cat)}
+                  className={`px-2.5 py-1.5 border text-[10px] font-label uppercase tracking-widest transition-all ${selectedCategory === cat ? 'border-secondary bg-secondary/10 text-secondary' : 'border-outline-variant/20 text-on-surface-variant hover:border-secondary/30'}`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+
+            {/* Progression du lot en cours */}
+            {classifyTask && (
+              <div className="flex items-center gap-3 bg-surface-container-lowest border border-outline-variant/20 px-4 py-2.5">
+                <span className={`material-symbols-outlined text-[16px] text-secondary ${classifyTask.status === 'PROCESSING' ? 'animate-spin' : ''}`}>
+                  {classifyTask.status === 'COMPLETED' ? 'check_circle' : classifyTask.status === 'FAILED' ? 'error' : 'progress_activity'}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[11px] font-label uppercase tracking-widest text-on-surface-variant">
+                    {t('documents.classifyProgress', {
+                      processed: classifyTask.processed,
+                      total: classifyTask.total,
+                      failed: classifyTask.failed,
+                    })}
+                  </p>
+                  <div className="h-1 bg-outline-variant/20 rounded-full overflow-hidden mt-1.5">
+                    <div
+                      className="h-full bg-secondary transition-all"
+                      style={{ width: `${classifyTask.total > 0 ? (classifyTask.processed / classifyTask.total) * 100 : 0}%` }}
+                    />
+                  </div>
+                </div>
+                {(classifyTask.status === 'PENDING' || classifyTask.status === 'PROCESSING') && (
+                  <button
+                    onClick={() => cancelClassifyMutation.mutate(classifyTask.taskId)}
+                    className="text-[10px] text-outline hover:text-error uppercase tracking-widest"
+                  >
+                    {t('documents.cancel')}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </section>
 
       {/* Document List — aligné sur le style ui/Table (carte + en-tête + lignes divisées) */}
@@ -886,6 +1014,24 @@ const Documents: FC = () => {
                 {lc}
               </button>
             ))}
+            {classificationConfig?.enabled && (
+              <>
+                <div className="w-px h-6 bg-outline-variant/20" />
+                <button
+                  onClick={() => bulkClassifyMutation.mutate({
+                    sha256List: Array.from(bulkSelected),
+                    // Sélection explicite : l'utilisateur veut un verdict frais sur ces
+                    // documents-là, y compris ceux déjà étiquetés.
+                    force: true,
+                  })}
+                  disabled={bulkClassifyMutation.isPending || !!classifyTaskId}
+                  className="flex items-center gap-1.5 px-3 py-2 border border-secondary/40 text-secondary text-[10px] font-bold tracking-widest uppercase hover:bg-secondary/10 transition-all disabled:opacity-50"
+                >
+                  <span aria-hidden="true" className="material-symbols-outlined text-[13px]">auto_awesome</span>
+                  {t('documents.classify')}
+                </button>
+              </>
+            )}
             <div className="w-px h-6 bg-outline-variant/20" />
             <Button
               variant="danger"
@@ -991,6 +1137,63 @@ const Documents: FC = () => {
                   ))}
                 </div>
               </div>
+
+              {/* Classification automatique (R8) */}
+              {classificationConfig?.enabled && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <h4 className="text-[11px] font-bold uppercase tracking-widest text-outline">
+                      {t('documents.classification')}
+                    </h4>
+                    <button
+                      onClick={() => classifyMutation.mutate({
+                        sha: sheet.sha256,
+                        // Un document déjà classifié : le bouton relance explicitement le
+                        // modèle, sinon l'API renverrait simplement l'ancien verdict.
+                        force: (sheet.categories ?? []).length > 0,
+                      })}
+                      disabled={classifyMutation.isPending}
+                      className="flex items-center gap-1.5 px-3 py-1.5 border border-secondary/30 text-secondary text-[10px] font-bold tracking-widest uppercase hover:bg-secondary/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <span aria-hidden="true" className={`material-symbols-outlined text-[13px] ${classifyMutation.isPending ? 'animate-spin' : ''}`}>
+                        {classifyMutation.isPending ? 'progress_activity' : 'auto_awesome'}
+                      </span>
+                      {(sheet.categories ?? []).length > 0 ? t('documents.reclassify') : t('documents.classify')}
+                    </button>
+                  </div>
+
+                  {(sheet.categories ?? []).length === 0 ? (
+                    <p className="text-xs italic text-outline">{t('documents.notClassified')}</p>
+                  ) : (
+                    <>
+                      <div className="flex flex-wrap gap-2">
+                        {(sheet.categories ?? []).map(cat => {
+                          const score = sheet.categoryScores?.[cat];
+                          return (
+                            <Badge key={cat} tone="secondary">
+                              {cat}
+                              {score != null && (
+                                <span className="font-mono opacity-70">{(score * 100).toFixed(0)}%</span>
+                              )}
+                            </Badge>
+                          );
+                        })}
+                      </div>
+                      {sheet.classificationSummary && (
+                        <p className="text-xs text-on-surface-variant italic border-l-2 border-secondary/40 pl-3">
+                          {sheet.classificationSummary}
+                        </p>
+                      )}
+                      <p className="text-[10px] text-outline uppercase tracking-widest">
+                        {t('documents.classifiedBy', {
+                          model: sheet.classifierModel ?? '—',
+                          date: sheet.classifiedAt ? formatDate(sheet.classifiedAt) : '—',
+                        })}
+                      </p>
+                    </>
+                  )}
+                </div>
+              )}
 
               {/* Tag management */}
               <div className="space-y-3">

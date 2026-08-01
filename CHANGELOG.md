@@ -8,6 +8,277 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Dépendances — résorption de la file Dependabot
+
+Sept PR Dependabot attendaient depuis le 13 juillet. Les fusionner une à une n'était pas possible : les quatre montées frontend touchent toutes `package-lock.json` et **se mettent mutuellement en conflit** par construction. Elles sont donc appliquées ensemble ; Dependabot ferme ses propres PR en constatant les versions déjà en place.
+
+**Frontend** — `vitest` 3.2.7 → 4.1.10, `@vitest/coverage-v8` 3.2.7 → 4.1.10, `@eslint/js` 9.39.4 → 10.0.1, `@types/node` 26.1.0 → 26.1.2.
+
+La montée de `@eslint/js` **corrige une incohérence** plutôt qu'elle n'en introduit : `eslint` était déjà en 10.7.0 face à un `@eslint/js` resté en 9. Les deux paquets sont désormais alignés.
+
+**GitHub Actions** — `download-artifact` 4 → 8, `codeql-action` 3 → 4 (les quatre points d'entrée, `upload-sarif` compris, qui était resté en v3), `scorecard-action` 2.3.1 → 2.4.3, `cache` 4 → 6 dans `dependency-scan.yml`, qui était le seul à ne pas suivre.
+
+> **Limite de vérification.** Les montées frontend sont validées localement : 194 tests, 0 erreur de lint, build. Les montées d'actions ne sont pas testables hors CI — leur validation vient de la première exécution. Elles ne touchent que l'outillage d'intégration, et un échec y est visible et trivialement réversible.
+
+
+### Corrigé — 36 tests ne vérifiaient rien, et rien ne le disait
+
+```
+Tests run: 0, … -- in fr.spectra.service.extraction.JsonExtractorTest
+Tests run: 0, … -- in fr.spectra.service.extraction.XmlExtractorTest
+Tests run: 0, … -- in fr.spectra.integration.ChromaDbConsistencyIntegrationTest
+```
+
+Ces trois classes plaçaient un `Assumptions.assumeTrue` dans un `@BeforeAll`. L'hypothèse échouant avant tout test, JUnit abandonnait le conteneur entier : le rapport n'affichait ni échec, **ni même « Skipped »** — la classe disparaissait du décompte. Le build restait vert, la couverture ne bougeait pas.
+
+Parmi les tests concernés : un **contrôle de sécurité XXE** sur `XmlExtractor`, qui n'avait donc jamais tourné.
+
+- **Corpus d'essai de repli.** Les archives `data/documents/*.zip` sont des documents réels, jamais versionnés. Ce que ces tests vérifient — mise à plat des chemins, métadonnées, robustesse — ne dépend pas de leur contenu exact mais de leur *forme* : `KafkaCorpusFixture` la reproduit quand elles sont absentes. Les extracteurs passent de 0 à **30 tests exécutés**, 2 sautés.
+- **L'unique assertion portant sur les données** (le corpus de production compte 36 entrées) reste conditionnée, mais par un `assumeTrue` **dans le corps du test** : le saut est alors compté et affiché.
+- **Le test d'intégration ChromaDB** évalue sa dépendance à Docker par test plutôt qu'au chargement de la classe : 4 sautés au lieu de 4 invisibles.
+
+**`scripts/check-test-reports.sh`** échoue désormais si une classe rapporte zéro test exécuté, avec exemptions motivées. Câblé dans `verify.sh` et dans la CI. Il a immédiatement trouvé la troisième classe, que je n'avais pas repérée à la lecture.
+
+
+### CI — retour à une fenêtre de fraîcheur de 4 h pour la base NVD
+
+`nvdValidForHours` avait été porté de 4 (défaut) à 24 pour une raison précise : sans clé d'API, chaque interrogation du NVD était lente et exposée aux 503, il fallait donc les espacer. Le secret `NVD_API_KEY` étant désormais configuré, cette justification tombe et **le compromis s'inverse** — espacer les mises à jour ne protège plus de rien, mais retarde d'autant la détection d'une CVE publiée entre deux exécutions.
+
+Le cache hebdomadaire, lui, reste en place : il évite de reconstruire la base entière à chaque nouvelle branche — ce qui avait coûté 53 minutes sur une exécution récente — et la clé accélère cette reconstruction sans la supprimer.
+
+
+### Corrigé — les documents Word modernes étaient classés comme du XML
+
+Le type MIME officiel d'un DOCX est `application/vnd.openxmlformats-officedocument.wordprocessingml.document` : il **contient la sous-chaîne `xml`**. La condition XML étant évaluée avant celle du DOCX, tout document Word moderne recevait l'icône, le libellé et le groupe du XML dans la GED.
+
+Le défaut a survécu parce que `getDocumentType` vivait à l'intérieur de `Documents.tsx` — 1 569 lignes, fonction non exportée — donc hors d'atteinte du moindre test. Il est apparu à la **première exécution** du premier test écrit contre cette logique une fois extraite.
+
+- `frontend/src/lib/documentTaxonomy.ts` accueille la taxonomie et le regroupement des documents, avec 11 tests. Les formats les plus spécifiques sont désormais testés d'abord.
+- `Documents.tsx` passe de 1 569 à 1 495 lignes. Le gain en lignes est secondaire : l'essentiel est qu'une logique décidant de ce que voit l'utilisateur soit devenue vérifiable.
+
+### Windows — `stop.bat` n'arrêtait pas tout ce qu'il prétendait arrêter
+
+`stop.sh` active tous les profils Compose et passe `--remove-orphans`, ce qui stoppe aussi les services optionnels (layout-parser, reranker, Kafka). `stop.bat` ne faisait ni l'un ni l'autre : un utilisateur Windows croyait avoir arrêté Spectra alors que ces services continuaient de tourner, ports et mémoire pris.
+
+`pipeline.bat` acceptait par ailleurs `--orpo` sans le déclarer dans sa ligne « Usage » — l'option existait, personne ne pouvait le savoir en lisant l'entête.
+
+`scripts/tests/test_windows_scripts_parity.py` compare désormais les options déclarées par les six paires `.sh` / `.bat`. **Ce qu'il ne couvre pas est dit explicitement** : il compare les interfaces annoncées, pas les comportements. C'est précisément pour cela qu'il n'aurait pas attrapé le défaut de `stop.bat` — celui-là a demandé de lire les deux scripts.
+
+
+### Simplifications — juge LLM unique, outillage complété, code mort retiré
+
+**Un seul juge, un seul barème.** Deux services notaient des réponses avec deux prompts distincts produisant tous deux un « score sur 10 » affiché comme tel : `EvaluationService` appliquait un barème explicite (Exactitude 0-4, Complétude 0-3, Clarté 0-3), `QualityBenchmarkService` demandait un score de 1 à 10 sans barème. Comparer les deux revenait à comparer deux instruments gradués pareil. `LlmJudge` porte désormais le barème explicite, seul retenu.
+
+Deux écarts sont apparus en unifiant, et sont corrigés :
+
+- Le benchmark qualité appelait `chat(...)` en génération libre — il n'avait **jamais reçu** le décodage contraint mis en place ailleurs. Son juge pouvait répondre en prose.
+- Sur échec de parsing, il **substituait 5,0** et conservait l'item : une note fabriquée entrait dans la moyenne et la tirait vers le milieu, d'autant plus que le juge était instable. Un jugement qui n'aboutit pas n'est pas un jugement moyen — l'item est désormais écarté, comme le faisait déjà l'évaluation.
+
+**`verify.sh` rejoue enfin tout ce qu'il annonce.** Livré la veille, il ignorait silencieusement deux suites de la CI (`services/docparser` et `services/reranker`) — le défaut même contre lequel il avait été écrit. La section manquante est ajoutée, et `test_verify_covers_ci.py` relie désormais `ci.yml` au script : ajouter un job sans contrepartie locale fait échouer la CI, et une exemption doit porter sa raison.
+
+**312 lignes de code mort retirées.** `scripts/llama-autostart.sh`, `Dockerfile.llama` et `Dockerfile.llama.cuda` n'avaient plus aucun consommateur depuis le retrait de Kubernetes : aucun workflow ni fichier Compose ne construisait ces images. Le test de parité de leurs paliers de dimensionnement disparaît avec elles.
+
+
+### Retiré — le support Kubernetes et GKE
+
+> **Rupture** : les déploiements Kubernetes ne sont plus fournis ni maintenus. Docker Compose reste le mode de déploiement supporté.
+
+Supprimés : `deploy/k8s/` (28 fichiers, manifestes de base, overlays GPU/GKE/monitoring, seeding des modèles), les workflows `k8s-validate.yml` et `deploy-gke.yml`, et les scripts `gke-create-cluster.sh` / `gke-seed-models.sh`. Environ 2 100 lignes.
+
+**Ce qui reste, et pourquoi.** `scripts/llama-autostart.sh` et les images `Dockerfile.llama` / `Dockerfile.llama.cuda` sont conservés : l'entrypoint est intégré à ces images Docker autonomes, il n'appartenait pas à Kubernetes. Sa documentation et ses commentaires ne le rattachent plus à un orchestrateur.
+
+`scripts/check-model-defaults.sh` perd les deux fichiers Kubernetes de sa liste ; la garantie de cohérence porte désormais sur douze fichiers opérationnels au lieu de quatorze. Les chapitres « Déployer » des deux documentations pédagogiques sont réécrits autour de Compose, en conservant l'enseignement qui restait valable — n'exposer que l'interface et l'API, garder base vectorielle et serveurs d'inférence sur le réseau interne.
+
+**Les archives ne sont pas réécrites.** Les entrées de CHANGELOG et les notes de version antérieures décrivent un état passé qui a bien existé. Seuls leurs liens vers les fichiers supprimés sont retirés, pour ne pas laisser croire que ces fichiers sont encore là.
+
+### Outillage — une commande pour vérifier, un test pour la parité des manuels
+
+**`scripts/verify.sh`** rejoue localement les contrôles de la CI. Celle-ci exécute huit commandes réparties sur quatre écosystèmes (Maven, npm, pytest, shell) ; sans point d'entrée commun, savoir si un changement passe supposait d'ouvrir `.github/workflows/ci.yml` et de rejouer les commandes à la main.
+
+Le point de conception : **un contrôle sauté est signalé comme tel, jamais compté comme réussi.** `shellcheck` n'était pas installé dans les environnements de développement, et son absence passait totalement inaperçue — le lint des scripts n'était donc jamais exercé avant le push, alors que la CI le fait échouer. Le hook `SessionStart` l'installe désormais, et le script le signale s'il manque quand même.
+
+**`BilingualManualParityTest`** compare la structure des documents publiés en deux langues. Il a immédiatement trouvé sa raison d'être : le manuel utilisateur français décrivait l'interface du Playground en quatre sous-sections — panneau latéral, étapes visibles en direct, actions sous chaque réponse, panneau Trace — **absentes de la version anglaise**. Un lecteur anglophone ne pouvait pas savoir qu'il lui manquait quelque chose. Les sections manquantes ont été écrites.
+
+Le test ne compare que la **séquence des niveaux de titres** — les intitulés sont traduits. C'est volontairement grossier : il n'atteste pas que le contenu est équivalent, seulement que le plan l'est. Une traduction périmée passera ; une section ajoutée d'un seul côté ne passera plus.
+
+**Septième copie du taux caractères/token, en TypeScript.** `frontend/src/lib/ragPipeline.ts` estimait à 4 caractères par token, avec un commentaire affirmant suivre « la convention du backend » — devenu faux dès que le backend est passé à 3,5. Le panneau Trace affichait donc une barre de budget décalée de 14 % par rapport au calcul réel. Aligné, avec un test qui le rappelle explicitement.
+
+### Simplifications — un seul taux caractères/token, un seul bornage, un rattrapage spéculatif retiré
+
+**La conversion caractères → tokens était définie six fois, avec deux valeurs différentes.** Ce n'était pas qu'une redondance : les budgets de contexte étaient *vérifiés* à 3,5 caractères par token (`ContextBudgetValidator`) et *dépensés* à 4 (`RagService`, `AgenticRagService`, `RagAblationService`, plus deux estimations de métriques). La marge de sécurité de 15 % était donc consommée par le seul écart de taux de change :
+
+```
+fenêtre 2048 → marge sûre 1740 tokens → budget chunks 1240 (500 réservés à la réponse)
+  caractères acceptés : 1240 × 4   = 4960
+  coût réel           : 4960 ÷ 3,5 = 1417 tokens
+  total réel          : 1417 + 500 = 1917, soit 94 % de la fenêtre au lieu des 85 % visés
+```
+
+`TokenEstimator` devient propriétaire unique de cette conversion, à 3,5 — la valeur calibrée pour le français, volontairement pessimiste. Un test vérifie l'invariant qui était violé : ce qu'un budget autorise, recompté, doit y tenir.
+
+> **Effet de bord assumé** : les estimations de tokens de `EvaluationService`, `BenchmarkService` et `RagAblationService` passent elles aussi de 4 à 3,5. Les chiffres rapportés (nombre de tokens, débit en tokens/s) augmentent donc d'environ 14 % à performance identique. Les valeurs de référence citées dans les manuels datent de l'ancien diviseur et ne sont pas directement comparables aux prochaines mesures.
+
+**Le bornage des budgets était incohérent avec lui-même**, moins de 24 h après son introduction : la classification signalait sa réduction, les deux services RAG rognaient en silence. Un opérateur voyait son extrait annoncé comme réduit, jamais son contexte agentique. `clampContextTokens` / `clampExcerptChars` portent désormais la journalisation, une fois par couple (réglage, valeur), et les trois appelants perdent leur logique propre.
+
+**`StartupOrchestrator` tentait d'installer le modèle d'embedding via llmfit**, qui ne gère que les modèles de génération. Le code était spéculatif — ses commentaires l'admettaient (« Assuming it can handle huggingface repos », « would go here if llmfit supports it ») — et échouait silencieusement, laissant croire à un rattrapage automatique inexistant. Il est remplacé par un avertissement qui désigne le vrai chemin d'acquisition (`setup.sh`, étape 5/6) et dit ce que coûte son absence. Les deux blocs chat/embedding, quasi identiques, se réduisent à deux méthodes de résolution et un prédicat partagé.
+
+### CI — la base NVD est mise en cache, et cesse d'être restaurée vide
+
+Le job `depcheck` échouait par intermittence sur `NvdApiException: 503` suivi de `NoDataException: No documents exist`. Le second est le décisif : la base de vulnérabilités était **vide**, donc l'analyse ne pouvait pas se poursuivre malgré l'avertissement « using local data instead » qui la précède.
+
+Le mécanisme n'était pas l'absence de cache, mais un cache mal partagé. La base NVD vit par défaut sous `~/.m2/repository/org/owasp/dependency-check-data`, donc **dans le cache Maven de `actions/setup-java`**, keyé sur le hash des `pom.xml` et partagé par quatre jobs. Or un cache GitHub est **immuable par clé** : il est écrit par le premier job qui termine — jamais `depcheck`, qui est le plus lent. La base était ainsi restaurée vide à chaque exécution, retéléchargée intégralement, et toute indisponibilité du service NVD devenait fatale.
+
+- `dataDirectory` sort de `~/.m2` (`${user.home}/.dependency-check-data`, surchargeable par `-Dnvd.data.directory=`), ce qui lui donne droit à un cache dédié.
+- Ce cache utilise une clé tournant chaque semaine, avec `restore-keys` pour rattraper les semaines antérieures : la base n'est jamais vide, et une indisponibilité du NVD redevient ce qu'elle devrait être — un avertissement sur la fraîcheur des données, pas un échec de build.
+- `nvdValidForHours` passe de 4 (défaut) à 24 : les rafales de CI d'une même journée n'interrogent plus le service du tout.
+
+**Ce n'est pas un substitut au secret `NVD_API_KEY`.** Le cache ne protège qu'une fois peuplé ; sa première constitution reste soumise à la limitation de débit imposée au trafic anonyme. Les deux mesures sont complémentaires.
+
+### Contexte — les trois budgets s'ajustent, la quatrième copie du calcul est alignée, la documentation cesse de mentir
+
+Suite et fin du travail sur la fenêtre de contexte. Le précédent correctif n'en traitait qu'un tiers, et le reste s'est révélé pire que prévu.
+
+**Les deux autres budgets étaient restés au stade de l'avertissement.** `AgenticRagService` et `RagService` (long-contexte) lisent un budget en tokens et s'y tiennent scrupuleusement — mais ce budget n'était confronté à rien. Un contexte agentique de 3000 tokens respecté à la lettre déborde tout autant d'une fenêtre de 2048. Les deux sont désormais bornés par la fenêtre servie, via le même helper que la classification (`ContextBudgetValidator.clampContextTokens`). Le cas du long-contexte est instructif : son repli protégeait déjà contre un corpus plus gros que le budget, mais pas contre un budget plus gros que la fenêtre — un corpus de 2500 tokens passait le contrôle face à un budget de 3000, pour être ensuite tronqué par llama.cpp.
+
+**Il y avait quatre implémentations du dimensionnement, pas trois.** `scripts/llama-autostart.sh`, entrypoint du pod d'embedding Kubernetes, portait ses propres paliers — la moitié des valeurs alignées (32 Go → 4096 au lieu de 8192) — et traitait `-c` comme une fenêtre par requête alors que c'est un total. Il dérive maintenant le total du parallélisme, et ses paliers du mode chat sont ceux de la bibliothèque, vérifiés par `test_llm_sizing.py` comme ceux de `detect-env.bat`. Le mode embed garde délibérément une fenêtre fixe de 2048 : un chunk fait 512 tokens, une fenêtre plus large ne servirait qu'à consommer du cache KV par slot.
+
+**La documentation prescrivait des variables qui n'existent nulle part.** `LLAMA_CHAT_CONTEXT_SIZE`, `LLAMA_CHAT_PARALLELISM`, `LLAMA_CHAT_NGL`, `LLAMA_CHAT_THREADS`, `LLAMA_CHAT_CPUSET`, `LLAMA_CHAT_FLASH_ATTN` apparaissaient dans les deux manuels utilisateur et deux documents techniques. Aucune n'existe dans le code — la stack utilise `LLM_*`, et le chemin Kubernetes `LLAMA_*` sans le segment `CHAT`. Le pire cas : *« La requête RAG retourne "contexte dépassé" → augmentez `LLAMA_CHAT_CONTEXT_SIZE` »*, soit exactement le symptôme traité dans cette série de correctifs, avec un remède sans effet. Tous les tableaux de variables sont refaits d'après le code, et la section de `technical-doc.fr.md` qui décrivait `llama-autostart.sh` comme l'entrypoint de Docker Compose porte désormais sa portée réelle.
+
+**Deux passe-plats manquants dans Compose.** `LLM_CHAT_EXTRA_ARGS` et `LLM_EMBED_EXTRA_ARGS` n'étaient transmis que par l'overlay GPU : les renseigner dans `.env` restait sans effet, alors que la documentation les présentait comme le moyen de surcharger l'offload GPU. `check-model-defaults.sh` couvre en outre `llm-embed-entrypoint.sh`, qui lui échappait bien qu'il nomme le GGUF d'embedding.
+
+### Classification — l'extrait s'ajuste à la fenêtre servie au lieu de la dépasser
+
+Le contrôle de budget introduit précédemment a immédiatement produit son diagnostic en conditions réelles, sur le runner d'intégration continue :
+
+```
+Fenêtre servie : 2048 tokens par requête. 1 budget(s) trop large(s) :
+  • spectra.classification.max-excerpt-chars = 6000 → ~2224 tokens avec le prompt,
+    pour une marge sûre de 1740. Valeur tenable : ~4305 caractères.
+```
+
+Ce qu'il révèle n'est pas un incident mais **un défaut de conception du réglage lui-même** : le défaut livré de 6000 caractères n'entre que dans une fenêtre de 4096 tokens, donc à partir de 16 Go de RAM. Sur une machine de 8 à 16 Go, la classification échouerait sur chaque document — llama.cpp tronquant le début de la requête, c'est-à-dire les consignes de format et la taxonomie.
+
+`max-excerpt-chars` devient donc une **borne haute** et non une promesse. Avant chaque classification, le budget est ramené à ce que la fenêtre servie peut porter. Envoyer moins de texte dégrade la qualité ; en envoyer trop détruit la fonction — l'arbitrage n'a qu'un sens. Plutôt que d'exiger de l'utilisateur qu'il accorde sa configuration à un dimensionnement qu'il ne voit pas (en déploiement Docker, le backend ne connaît ni `LLM_CONTEXT` ni `LLM_PARALLEL`), on s'y ajuste.
+
+- **Une seule formule** : `ContextBudgetValidator.affordableExcerptChars(...)` sert à la fois à suggérer une valeur dans l'avertissement de démarrage et à borner l'extrait à l'exécution. Un test vérifie que les deux coïncident — deux calculs distincts finiraient par diverger, et l'avertissement annoncerait alors une valeur que le code n'applique pas.
+- **Sans information du serveur, la valeur configurée s'applique** : mieux vaut le comportement demandé qu'une restriction fondée sur une fenêtre supposée.
+- **La fenêtre servie est mémorisée** côté client llama.cpp, et invalidée au changement de modèle — seule opération qui puisse relancer le serveur avec un autre `--ctx-size`. Sans cela, un lot de mille documents produirait mille appels à `/props` pour une valeur qui ne bouge pas. L'avertissement de bornage suit la même logique : journalisé une fois par valeur, pas une fois par document.
+
+### Tests — le contexte Spring est enfin démarré au moins une fois
+
+Aucun test du dépôt ne démarrait l'application. Les suites existantes instancient leurs classes à la main ou passent par `@WebMvcTest` : le graphe de dépendances réel n'était jamais assemblé avant le déploiement. Trois familles de défauts passaient donc entre les mailles.
+
+- **La dérive de schéma n'était pas détectée.** `schema.sql` est la source de vérité et `ddl-auto: validate` est censé signaler les écarts — mais cette validation n'était jamais déclenchée en intégration continue. Une colonne ajoutée à une entité JPA sans l'être au DDL ne se manifestait qu'au démarrage en production. C'est vérifié : en ajoutant une colonne fantôme à une entité, le test échoue désormais avec `Schema validation: missing column [...]`.
+- **Le câblage impossible à satisfaire** — cycle de dépendances, `@Lazy` oublié, injection optionnelle mal déclarée, bean absent derrière un `@ConditionalOnProperty` — n'échoue qu'au moment où le conteneur assemble réellement les beans.
+- **Les sondes de démarrage** qui interrogent des services externes doivent dégrader proprement quand ceux-ci sont absents ; dans ce test ils le sont tous.
+
+`ApplicationContextSmokeTest` n'a besoin d'aucun service externe : le profil `smoke` pointe LLM, ChromaDB, reranker et browserless sur un port fermé de la boucle locale — connexion refusée immédiatement plutôt qu'attente d'un timeout — et la base est une H2 en mémoire alimentée par la vraie `schema.sql`. Coût : ~18 s.
+
+Une dépendance cachée est apparue en l'écrivant : `StartupOrchestrator` déclenchait le téléchargement du GGUF par défaut (~4,7 Go) sur le seul critère « le fichier n'est pas là », sans interrupteur. C'est le bon comportement pour une installation ordinaire, jamais pour un test ou une CI. `spectra.startup.auto-install-models` (défaut `true`, donc comportement inchangé) permet de s'en abstraire.
+
+### Contexte LLM — la fenêtre par requête devient la grandeur dimensionnée, et elle est vérifiée
+
+`LLM_CONTEXT` (comme `--ctx-size`) est le contexte **total** du serveur, que llama.cpp répartit entre ses slots parallèles : une requête ne voit que `contexte / parallélisme` tokens. Trois endroits calculaient ce dimensionnement indépendamment, et **tous les trois** fixaient le total tout en faisant croître le parallélisme avec les cœurs. Conséquence contre-intuitive : plus la machine était puissante, plus la fenêtre par requête rétrécissait — 512 tokens sur une machine 32 Go / 16 cœurs, alors que le RAG agentique en budgète 3000 à lui seul.
+
+Le dépassement ne produit aucune erreur : llama.cpp tronque le **début** de la requête, c'est-à-dire le prompt système. Le modèle perd ses consignes de format et répond hors format ; l'appelant voit un échec de parsing, jamais sa cause. C'est ce qui faisait échouer la classification automatique.
+
+- **On dimensionne désormais la fenêtre par requête** — la seule qui compte fonctionnellement — puis on en déduit le total, en plafonnant le parallélisme pour tenir l'enveloppe mémoire. Sur du CPU, deux conversations à 4096 tokens valent mieux que huit à 512. Une machine 16 Go passe de 2048 à 4096 tokens par requête, une machine 32 Go de 4096 à 8192.
+- **Une seule formule, extraite et testée** : `scripts/lib/llm-sizing.sh`, couverte par `scripts/tests/test_llm_sizing.py`. Les invariants portent sur la propriété qui compte (la fenêtre par requête ne dépend que de la RAM, ne décroît jamais, le total reste dans l'enveloppe), pas sur des valeurs intermédiaires. `detect-env.sh` s'y branche ; `detect-env.bat` ne peut pas sourcer du bash, un test compare donc ses paliers à ceux de la bibliothèque.
+- **Le mode natif était le plus touché** : `ResourceAdvisorService` recommandait un total, et sa cascade de `if/else` GPU pouvait même *réduire* le contexte d'une machine 32 Go équipée d'une petite carte. Sa recommandation est désormais exprimée **par slot** ; l'orchestrateur et l'entrypoint la multiplient chacun par le parallélisme qu'ils appliquent. La clé du fichier de hints est renommée `RECO_CONTEXT` → `RECO_SLOT_CONTEXT`, précisément pour que la confusion ne puisse pas se reformer.
+- **`ContextBudgetValidator`** confronte au démarrage les budgets configurés (extrait de classification, RAG agentique, long-contexte) à la fenêtre **réellement servie**, lue sur `/props` du serveur d'inférence. En déploiement Docker le backend ne connaît ni `LLM_CONTEXT` ni `LLM_PARALLEL` — ce sont des variables du conteneur d'inférence — et ces budgets étaient donc choisis à l'aveugle. Le contrôle sonde jusqu'à obtenir la valeur (le chargement d'un GGUF prend du temps), avertit avec une valeur tenable à la place d'un simple « réduisez », puis se désarme.
+
+### Modèle de chat par défaut — Qwen2.5-7B-Instruct Q4_K_M
+
+> **Action requise à la mise à jour** : le fichier GGUF change. Récupérez-le avant de relancer la stack (`./setup.sh --download-chat`), sinon `model-init` bloque le démarrage. L'ancien fichier peut être supprimé de `data/models/`.
+
+Le défaut était `Phi-4-mini-reasoning-UD-IQ1_S.gguf` : un modèle **de raisonnement** en quantification **1 bit**. Deux mauvais choix pour ce produit.
+
+- **Le raisonnement est contre-productif ici.** Un tel modèle dépense son budget de sortie en chaîne de pensée avant de répondre — dans une fenêtre de 2048 tokens, cela laisse peu de place à la réponse elle-même, et c'est ce qui a causé l'échec de la classification automatique. Spectra a besoin de suivi d'instruction et de sortie structurée, pas de déduction : `instruct` est la famille adaptée.
+- **La quantification 1 bit dégrade fortement le suivi d'instruction.** Or toute la valeur du produit repose sur de la sortie structurée (classification, génération de paires d'entraînement) et du jugement (LLM-as-a-judge). `Q4_K_M` est le compromis standard.
+- **Un seul modèle partout.** `setup.sh --download-chat` téléchargeait un *troisième* modèle (Phi-3.5-mini) puis réécrivait l'alias pour ne pas mentir sur son étiquette. Le « chemin facile » installait donc un modèle que `docker-compose` ne chargeait pas par défaut. Les deux scripts servent désormais le modèle par défaut, et la réécriture d'alias disparaît avec sa raison d'être.
+- Le contrôle de cohérence couvre maintenant aussi `setup.sh` / `setup.bat` — c'est cette lacune qui avait laissé le troisième modèle s'installer.
+
+**Coût.** Le fichier passe d'environ 1 Go à ~4,7 Go : téléchargement initial plus long, et premier passage de CI plus lent (le cache est ensuite réutilisé, sa clé a été renouvelée). Côté mémoire, un 7B en Q4_K_M demande ~6 Go pour les poids — la documentation annonçait déjà 16 Go minimum et 32 Go recommandés pour les modèles 7B.
+
+### CI — cohérence des modèles GGUF par défaut, et correction d'une dérive d'embedding
+
+Le nom des fichiers GGUF est répété dans **quatre langages de configuration** — shell, batch, YAML (Compose et Kubernetes) et Java — qu'aucune variable commune ne peut unifier : un manifest Kubernetes ne « source » pas un fichier shell. La duplication est irréductible ; ce qui ne l'est pas, c'est qu'elle dérive en silence.
+
+- **Dérive réelle corrigée** : la CI téléchargeait le modèle d'embedding en `Q4_K_M`, Kubernetes en `Q4_0`. Deux quantifications différentes produisent des **vecteurs différents** — un index construit sous Docker se dégradait donc à l'interrogation depuis Kubernetes. C'est précisément le type d'incident que `EmbeddingConsistencyChecker` détecte a posteriori ; il n'aurait pas dû pouvoir se produire. Kubernetes est aligné sur `Q4_K_M`, valeur documentée et déjà utilisée partout ailleurs.
+- **`scripts/check-model-defaults.sh`** : vérifie que tout fichier `.gguf` nommé dans un fichier opérationnel correspond bien au défaut de chat ou d'embedding (ou à un artefact amont explicitement déclaré), et qu'un même modèle est téléchargé depuis une **URL unique** partout. Exécuté par la CI sur chaque push et chaque PR, sans dépendance ni téléchargement.
+- **`.env.example` est déclaré source de vérité** : la marche à suivre pour changer de modèle y est écrite, avec le rappel que la CI refusera un alignement partiel.
+
+Le script ne supprime pas la duplication — il rend son oubli impossible à manquer, au lieu de produire un bug qui n'apparaît que sur un seul environnement.
+
+### LLM — décodage contraint : le JSON est garanti, plus seulement demandé
+
+Jusqu'ici, chaque endroit qui attendait du JSON le **demandait dans le prompt** puis rattrapait les écarts du modèle au parsing. Cette approche est structurellement fragile : elle suppose d'avoir anticipé toutes les façons dont un modèle peut dévier. Deux d'entre elles ont déjà causé des pannes en production — préambule en prose après troncature du contexte, bloc de réflexion d'un modèle « reasoning » contenant un JSON d'exemple.
+
+- **`LlmChatClient.chatJson(...)`** : nouvelle variante dont la validité JSON est imposée au **décodeur**. Sur llama.cpp, le champ `response_format: {"type":"json_object"}` est compilé en grammaire et restreint l'échantillonnage — le modèle ne peut littéralement pas émettre de préambule, de bloc de réflexion ou de bloc Markdown. L'implémentation par défaut de l'interface retombe sur une génération libre, donc un provider sans cette capacité reste fonctionnel.
+- **Sept sites de parsing basculés** : classification documentaire, les quatre prompts de génération de dataset (Q/R, résumé, classification, exemples de refus) et les deux juges LLM-as-a-judge (notation, A/B head-to-head). Ce sont exactement les endroits où une réponse hors format se traduisait par une paire perdue, un score manquant ou un document non classifié — le plus souvent en silence.
+- **Le parsing défensif reste en place.** Le décodage contraint garantit un JSON *valide*, pas un JSON *conforme au schéma attendu* : les clés peuvent manquer et les types varier. Il supprime une classe de défauts, il ne dispense pas de vérifier ce qu'on reçoit.
+- Le chat conversationnel n'est pas contraint : seuls les appels dont la sortie est parsée le sont.
+
+### Migration « full Java » — audit de la surface Python, et premiers lots
+
+Nouvel audit [`docs/process/audit-python-java.fr.md`](docs/process/audit-python-java.fr.md) : les 13 fichiers Python du dépôt (1 745 lignes) et les dépendances Python indirectes de la pile (images, healthchecks compose, convertisseurs llama.cpp téléchargés à l'exécution, jobs de CI) sont inventoriés, puis un plan de migration en quatre lots est proposé. Constat structurant : les quatre blocs Python ne sont pas de même nature — reranking, extraction PDF et outillage sont substituables en Java, l'entraînement QLoRA ne l'est pas (l'outil `llama-finetune` de llama.cpp ne fait que du full finetune FP32, sans LoRA ni DPO/ORPO). La cible retenue est donc « Java pur sur le chemin de requête, entraînement sorti du produit dans un worker appelé par HTTP » — ce qui clôt au passage le constat F1 de l'audit fine-tuning, seul blocage de déploiement encore ouvert.
+
+**Lot 0 — trois correctifs de découplage, sans changement de comportement**
+
+- **L'état du reranker ne dépend plus de son implémentation.** `checkHealth()` remonte dans l'interface `RerankerClient`, et `/api/status` comme `/api/health/services` injectent l'interface au lieu de la classe concrète `CrossEncoderRerankerClient`. Un moteur de reranking exécuté dans la JVM aurait sinon disparu des deux endpoints sans qu'aucun test n'échoue.
+- **Convertisseurs GGUF épinglés.** `export_gguf.py` et `export_lora_gguf.py` tiraient `convert_hf_to_gguf.py` / `convert_lora_to_gguf.py` depuis la branche `master` de llama.cpp **au moment de l'exécution** : deux exports faits à quelques semaines d'intervalle n'utilisaient pas le même convertisseur — donc pas la même quantification ni les mêmes métadonnées GGUF — et rien ne le signalait. Les deux scripts délèguent désormais à un module partagé, à révision épinglée (`b9828`, alignée sur le tag de l'image llama.cpp servie par le compose) et surchargeable via `LLAMA_CPP_REVISION`. Le fichier mis en cache porte la révision dans son nom, si bien qu'une copie de `master` laissée par l'ancienne version ne gèle plus la conversion.
+- **`base_models.json` là où il appartient.** Le manifeste unique des modèles de base passe dans `backend/src/main/resources/`, et la `<resource>` par laquelle `backend/pom.xml` lisait `../scripts` disparaît. Le couplage est inversé : ce sont les scripts d'entraînement, périphériques et optionnels, qui viennent chercher le manifeste dans le backend — avec repli sur un fichier voisin et surcharge `SPECTRA_BASE_MODELS_MANIFEST`, pour rester utilisables copiés seuls sur une machine d'entraînement.
+
+**Lot 1 — le contrôle des liens de la documentation quitte Python**
+
+- `scripts/check-doc-links.py` et le workflow `docs-links` sont remplacés par `DocumentationLinksTest` (suite de tests du backend) : même expression rationnelle, mêmes répertoires élagués, mêmes URL ignorées, mais l'élagage se fait à la descente de l'arborescence et le contrôle tourne dans le job de build existant — un lien cassé échoue donc **avant** le push, avec `fichier:ligne -> cible`. Une chaîne d'outils de moins imposée aux contributeurs.
+
+**Lot 2, étape 1 — le harnais de comparaison du reranking, avant le portage**
+
+Une régression de reranking ne casse rien : elle dégrade les réponses. Elle est donc invisible sans référence prise sur le service Python **avant** qu'une implémentation Java existe.
+
+- **Corpus dérivé, pas inventé.** Les 20 questions du benchmark qualité embarqué (`benchmarks/highway_benchmark.jsonl`) deviennent les requêtes et ses 14 réponses de référence forment le vivier de passages candidats : chaque requête affronte un passage pertinent et treize distracteurs du même domaine et du même registre — le cas où un reranker se distingue d'une recherche vectorielle. Le corpus porte une empreinte SHA-256, si bien qu'une évolution du benchmark déclare la référence obsolète au lieu de la comparer en silence à autre chose.
+- **Capture et vérification** (`RerankerParityTest`, désactivées par défaut) : `-Dreranker.parity.capture=<url>` écrit la référence, `-Dreranker.parity.verify=<url>` compare. Le nom du modèle est lu sur `/health`, donc celui **réellement servi** et non celui que la configuration annonce. Ordre et scores sont rapportés séparément : `-Dreranker.parity.scores=ignore` permet d'assumer un changement d'échelle (sigmoïde → logit brut) sans renoncer au contrôle de l'ordre, seul l'ordre déterminant ce que le RAG met dans son contexte.
+- **Le comparateur est lui-même testé** avec des rerankers factices (classement identique, inversé, dérive de score sous et au-delà de la tolérance, nombre de résultats différent) : sans cela il pourrait rendre « aucun écart » par construction et donner une fausse assurance le jour du portage.
+- **Le reranker n'avait aucun test.** `CrossEncoderRerankerClientContractTest` (12 tests, `MockWebServer`) fige le contrat à reproduire : forme de la requête, ordre des documents transmis, préservation de l'ordre du service, scores négatifs acceptés (un logit brut l'est presque toujours), et réponse vide alors que des documents ont été soumis → exception, jamais un classement identité à scores nuls.
+
+### Reranker Python — image de nouveau constructible hors ligne, dépendances bornées
+
+Sur une machine sans accès à `huggingface.co`, l'image du service reranker ne se construisait plus : `did not complete successfully: exit code: 1` à l'étape de pré-téléchargement du modèle. L'échec survenait après un `pip install` réussi et avec un code de sortie 1 (exception Python, non un manque de mémoire) — c'est bien le téléchargement de ~500 Mo depuis le Hub qui bloquait.
+
+- **Pré-téléchargement rendu non fatal.** Le commentaire du `Dockerfile` le décrivait lui-même comme une optimisation (« so startup is instant »), alors que c'était la seule chose rendant l'image inconstructible hors ligne — et ce pour re-télécharger un modèle **déjà présent** dans le volume persistant `reranker-model-cache`. Le build aboutit désormais même sans Hub, et le modèle est chargé au démarrage depuis ce cache. Contrepartie assumée : sans cache *et* sans réseau, le service échoue au démarrage — avec une traceback Python lisible plutôt qu'une erreur BuildKit opaque à mi-build.
+- **Dépendances transitives épinglées.** `services/reranker/requirements.txt` figeait `sentence-transformers` et `torch` mais laissait `transformers` et `huggingface-hub` libres, ces bibliothèques étant déclarées sans borne supérieure utile par `sentence-transformers`. Deux constructions de l'image à quelques mois d'écart n'installaient donc pas le même code, sans que rien ne le signale — exactement le défaut corrigé par F11 pour `scripts/requirements.txt`, que `services/` n'avait jamais reçu. Épinglés aux versions en vigueur à la publication de `sentence-transformers 5.5.0`. Même traitement pour `docling`, seule dépendance non bornée du service docparser.
+- **Environnements contraints pris en charge** : `HF_ENDPOINT` (miroir d'entreprise), `HF_HUB_OFFLINE=1` (aucun accès réseau, cache exclusif) et `HF_TOKEN` sont transmis au conteneur. Forme sans valeur volontaire — une variable absente reste absente, là où `${VAR:-}` aurait injecté une chaîne vide que `huggingface_hub` prendrait pour une URL d'endpoint.
+
+Ce blocage a par ailleurs tranché une question restée ouverte du lot 2 : l'artefact ONNX du reranker **s'exporte hors ligne** depuis ce même cache local (`optimum-cli export onnx` sur le chemin du snapshot, `HF_HUB_OFFLINE=1`), sans dépendre d'une publication ONNX en amont — et cela garantit que le modèle exporté est bien celui qui était servi, condition de validité de la comparaison de parité. Procédure dans [l'audit](docs/process/audit-python-java.fr.md).
+
+**Lot 2, étape 2 — le moteur de reranking exécuté dans la JVM**
+
+Un Cross-Encoder n'est qu'un encodeur à tête de classification : on tokenise la paire (requête, passage), un passage avant, un logit. Rien là-dedans n'exige Python ni un conteneur dédié.
+
+- **`spectra.reranker.engine=onnx`** active `OnnxCrossEncoderReranker`, qui charge `model.onnx` + `tokenizer.json` depuis `./data/models/reranker` — même convention que les GGUF, un artefact déposé dans le volume des modèles. `engine=http` (le **défaut**, inchangé) conserve le microservice Python : le moteur ONNX exige un artefact local, l'imposer casserait les installations existantes. Les deux implémentations satisfont `RerankerClient`, donc bascule et retour arrière sont une propriété de configuration.
+- **ONNX Runtime est appelé directement**, sans l'abstraction DJL. Le barème des scores, la troncature de la paire et les entrées fournies au graphe sont précisément ce qui déplace un classement sans lever d'erreur : les confier à une couche de conventions rendrait la comparaison à la référence de parité ininterprétable. DJL n'est gardé que pour `tokenizers`, binding JNI de la bibliothèque Rust utilisée par `transformers` — donc les mêmes `input_ids`, condition des mêmes scores. La bibliothèque native est extraite du jar, sans téléchargement à l'exécution.
+- **`activation=sigmoid` par défaut**, ce qui reproduit l'échelle de `sentence-transformers` et laisse les `rerankScores` publiés par l'API comparables aux campagnes de benchmark antérieures ; `logit` publie le logit brut. Le barème ne change jamais l'ordre (la sigmoïde est monotone) — propriété vérifiée par un test.
+- **Trois détails silencieux traités** : seules les entrées déclarées par le graphe sont fournies (les modèles XLM-R, dont le multilingue par défaut, n'exposent pas toujours `token_type_ids`) ; le rembourrage se fait au plus long du lot avec masque d'attention à 0, sans quoi le score d'un passage dépendrait des autres passages du lot ; une sortie qui n'est pas `[lot, 1]` ou `[lot]` est rejetée explicitement plutôt que réduite à une valeur plausible mais fausse.
+- **Modèle absent = dégradation visible, pas d'échec au démarrage** : l'application démarre, `/api/status` rapporte l'indisponibilité *et sa cause*, `rerank` lève et le RAG retombe sur l'ordre vectoriel avec `rerankApplied=false`. En revanche une **configuration invalide** (activation inconnue) échoue immédiatement, comme `PipelineConfigValidator` : retomber en silence sur un barème par défaut changerait l'échelle des scores sans que rien ne l'indique.
+- Le harnais de parité sait viser le moteur local : `-Dreranker.parity.verify=onnx:./data/models/reranker`. C'est ce lancement qui validera le portage — l'inférence sur modèle réel n'est pas exercée en CI (artefact de ~0,5 Go), tout le reste l'est : 33 tests sur le barème, le classement, l'encodage, le rembourrage, la configuration et la dégradation.
+
+### Reranker — plus d'exception sur un vivier de passages vide
+
+`CrossEncoderRerankerClient.rerank` interrogeait le service même avec une liste de documents vide, puis transformait sa réponse légitime (`results: []`) en `IllegalStateException` au message absurde (« sans résultats pour 0 document »). Le seul appelant (`RagService`) gardant déjà l'appel derrière `!allChunks.isEmpty()`, ce n'était pas atteignable — le client est néanmoins aligné sur le service, car une implémentation exécutée dans la JVM renverrait naturellement une liste vide et ne doit pas avoir à reproduire ce défaut. Économise au passage un aller-retour HTTP inutile.
+
+Note technique : quatre nouvelles suites de tests verrouillent ces invariants — `RerankerHealthReportingTest`, `DocumentationLinksTest`, `test_llama_cpp_convert.py` (interdit le retour à une branche mobile et vérifie que la révision épinglée reste alignée sur le tag de l'image servie) et `test_base_models.py` (emplacement canonique du manifeste et mapping alias → repo, en miroir de `BaseModelCatalogTest`). Un job de CI Python sur trois est supprimé.
+
+### RAG — la personnalisation enregistrée avec un modèle pilote enfin la génération
+
+Le registre persiste depuis toujours une persona (`systemPrompt`) et des paramètres (`parameters`) par modèle — enregistrés par le fine-tuning, llmfit ou `POST /api/fine-tuning/models/register`. Ces champs n'étaient toutefois que de la **traçabilité** : le RAG servait une persona figée dans le code et une température issue d'un défaut du DTO. Un modèle personnalisé était donc interrogé sous une identité et des réglages qui n'étaient pas les siens.
+
+- **Persona du modèle actif appliquée.** Le prompt système RAG est désormais composé à la génération : persona du modèle actif, puis consignes de citation, puis contexte. Un modèle sans `systemPrompt` enregistré conserve la persona canonique Spectra (`AssistantPersona`) — et les modèles issus du fine-tuning enregistrent précisément cette persona, donc la cohérence entraînement ↔ service est préservée. Les consignes de citation et le bloc de contexte ne sont **jamais** remplacés : le RAG continue de citer ses sources quelle que soit la persona. S'applique aux chemins standard, direct, Self-RAG et streaming.
+- **Paramètres du modèle actif appliqués.** `temperature` et `top_p` (ou `topP`) lus dans les `parameters` du registre servent de défauts de génération. Précédence : **valeur explicite de la requête > paramètres du modèle > défauts Spectra (0.7 / 0.9)** — les curseurs du Playground et les harnais d'ablation restent donc souverains. Les clés non numériques de la carte (`jobId`, `baseModel`…) sont ignorées.
+- **`GET /api/config/model` expose le profil effectif.** En plus de l'alias actif, la réponse porte `systemPrompt` (la persona réellement servie), `personaSource` (`model` ou `spectra-default`) et `parameters` (température et top-P effectifs) — la personnalisation devient vérifiable via l'API. Ajout rétro-compatible : le champ `model` est inchangé.
+
+Note technique : `QueryRequest.temperature`/`topP` ne sont plus défaultés dans le DTO (un `null` doit rester distinguable d'une valeur explicite, sans quoi les paramètres du modèle seraient toujours masqués) ; ils sont arbitrés à l'entrée du pipeline puis figés sur la requête propagée, de sorte que le reste de la chaîne les lit toujours non nuls. Nouveau bean `ActiveModelProfileService`.
+
 ### Perf — Playground découpé en chunks chargés à la demande
 
 - **Lazy-loading des panneaux lourds** : le dialogue de comparaison A/B (`RagComparisonDialog`) et le panneau Trace (`RagTracePanel`) sont extraits dans `components/playground/` et chargés via `React.lazy` — ils n'entrent dans le bundle que lorsque l'utilisateur les ouvre. Le chunk d'entrée du Playground passe de **~240 kB à ~59 kB** ; les deux panneaux (~8 kB et ~14 kB) sont différés. Types et constantes partagés isolés dans `playground/ragTypes.ts` pour éviter toute dépendance circulaire. Aucun changement fonctionnel.
@@ -44,7 +315,7 @@ Trois compléments qui ouvrent le « comment » du pipeline là où l'utilisateu
 
 ### Correctif — dashboard Grafana : panneaux dupliqués supprimés
 
-- **Dédoublonnage du dashboard** ([grafana-dashboard.yaml](deploy/k8s/monitoring/grafana-dashboard.yaml)) : un merge côté `main` (PR #264/#265) avait introduit une **seconde copie** de quatre panneaux (« Circuit Breakers (State) », « Erreurs (Logs ERROR/WARN) », « HikariCP - Connexions », « JVM Threads (incl. Virtual) »). Le JSON importé par le sidecar Grafana affichait donc ces graphes en double. La copie superflue est retirée ; le dashboard revient à 12 panneaux uniques (ids 1 à 12), sans changement fonctionnel.
+- **Dédoublonnage du dashboard** (`deploy/k8s/monitoring/grafana-dashboard.yaml`, depuis retiré) : un merge côté `main` (PR #264/#265) avait introduit une **seconde copie** de quatre panneaux (« Circuit Breakers (State) », « Erreurs (Logs ERROR/WARN) », « HikariCP - Connexions », « JVM Threads (incl. Virtual) »). Le JSON importé par le sidecar Grafana affichait donc ces graphes en double. La copie superflue est retirée ; le dashboard revient à 12 panneaux uniques (ids 1 à 12), sans changement fonctionnel.
 
 ### RAG — état serveur des modules exposé (toggles et Advisor fidèles au déploiement)
 

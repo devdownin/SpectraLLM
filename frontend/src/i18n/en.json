@@ -545,7 +545,9 @@
     "judgeJustification": "Judge justification",
     "source": "Source: {{source}}",
     "scoreDetailAria": "Toggle details for score {{score}} out of 10 in category {{category}}",
-    "reportAria": "Select report for model {{name}} completed at {{date}}"
+    "reportAria": "Select report for model {{name}} completed at {{date}}",
+    "byDocumentCategory": "Score by document theme",
+    "byDocumentCategoryHint": "A low theme points to a gap in the training corpus, not just a weakness of the model."
   },
   "fineTuning": {
     "kicker": "Architecture Evolution",
@@ -573,6 +575,8 @@
     "epochs": "Epochs",
     "loraRank": "LoRA Rank",
     "minConfidence": "Min Confidence",
+    "valSplit": "Validation split",
+    "valSplitHint": "0 = off — without a validation split only the training loss is measured and overfitting goes unnoticed",
     "options": "Options",
     "multipacking": "Multipacking",
     "multipackingHint": "(-30% padding)",
@@ -627,7 +631,9 @@
     "pairsCount": "{{count}} pairs",
     "nameMin": "Name must be at least 3 characters",
     "namePattern": "Lowercase letters, digits, - and _ only",
-    "baseRequired": "Base model required"
+    "baseRequired": "Base model required",
+    "evalLoss": "Eval loss",
+    "trainLoss": "Training loss"
   },
   "documents": {
     "kicker": "Knowledge & Records",
@@ -743,7 +749,28 @@
     "ratingFailed": "Rating failed",
     "commentDeleted": "Comment deleted",
     "dpoExported": "DPO export: {{count}} pair(s) exported",
-    "dpoExportFailed": "DPO export failed"
+    "dpoExportFailed": "DPO export failed",
+    "classification": "Automatic classification",
+    "classify": "Classify",
+    "reclassify": "Reclassify",
+    "notClassified": "Document not classified — run classification to assign it categories.",
+    "classified": "Document classified",
+    "alreadyClassified": "Reused the existing classification",
+    "classifyFailed": "Classification failed",
+    "classifiedBy": "Classified by {{model}} on {{date}}",
+    "classifierModel": "Model: {{model}}",
+    "category": "Category",
+    "unclassified": "Unclassified",
+    "classificationCoverage": "{{classified}} / {{total}} documents classified",
+    "classifyProgress": "Classifying: {{processed}} / {{total}} ({{failed}} failed)",
+    "bulkClassifyStarted": "Batch classification started",
+    "bulkClassifyDone": "Classification finished: {{succeeded}} succeeded, {{failed}} failed",
+    "bulkClassifyFailed": "Could not start batch classification",
+    "bulkClassifyCancelled": "Cancellation requested",
+    "cancel": "Cancel",
+    "classifyPending": "Classify ({{count}})",
+    "allClassified": "All classified",
+    "classifyHint": "Classify the pending documents with {{model}}"
   },
   "batchEval": {
     "kicker": "Compare models",

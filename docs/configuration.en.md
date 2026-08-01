@@ -14,7 +14,7 @@ Every setting has a working default — see the essentials note at the top of [.
 | `SPECTRA_LLM_BASE_URL` | `http://llm-chat:8081` | Legacy base URL (chat/embedding URLs below take precedence) |
 | `SPECTRA_LLM_CHAT_BASE_URL` | `http://llm-chat:8081` | Chat server URL |
 | `SPECTRA_LLM_EMBEDDING_BASE_URL` | `http://llm-embed:8082` | Embedding server URL |
-| `SPECTRA_LLM_MODEL` | `phi-4-mini` | Model alias for chat |
+| `SPECTRA_LLM_MODEL` | `qwen2.5-7b-instruct` | Model alias for chat |
 | `SPECTRA_LLM_EMBEDDING_MODEL` | `nomic-embed-text` | Model alias for embeddings |
 | `SPECTRA_LLM_CHAT_FILE` | *(empty)* | GGUF file served by llm-chat (relative to the shared models dir); seeds the local registry |
 | `SPECTRA_LLM_EMBEDDING_FILE` | *(empty)* | GGUF file served by llm-embed (same shared volume) |
@@ -27,10 +27,11 @@ Every setting has a working default — see the essentials note at the top of [.
 
 | Environment variable | Default | Description |
 |---|---|---|
-| `LLM_CHAT_MODEL_FILE` | `Phi-4-mini-reasoning-UD-IQ1_S.gguf` | Chat GGUF filename in `data/models/` |
+| `LLM_CHAT_MODEL_FILE` | `Qwen2.5-7B-Instruct-Q4_K_M.gguf` | Chat GGUF filename in `data/models/` |
 | `LLM_EMBED_MODEL_FILE` | `embed.gguf` | Embedding GGUF filename in `data/models/` |
 | `LLM_PARALLEL` | `2` | Parallel inference slots per server |
 | `LLAMA_CPP_IMAGE_TAG` | `server-b9828` | Pinned `ghcr.io/ggml-org/llama.cpp` image tag for llm-chat/llm-embed (the floating `server` tag tracks llama.cpp master and can break without warning) |
+| `CHROMADB_IMAGE_TAG` | `1.5.9` | Pinned `chromadb/chroma` image tag. `latest` once moved its persistence path from `/chroma/chroma` to `/data`, leaving the mounted volume empty and silently discarding the vector index on every `down`. Check the persistence path and `/api/v2/heartbeat` before bumping |
 
 ### Ingestion pipeline
 
@@ -82,6 +83,31 @@ Disabled by default — no Kafka bean is created unless `SPECTRA_KAFKA_ENABLED=t
 | `SPECTRA_RERANKER_TIMEOUT` | `30` | Reranker timeout (seconds) |
 | `SPECTRA_RERANKER_TOP_CANDIDATES` | `20` | Candidates fed to reranker |
 | `RERANKER_MODEL` | `cross-encoder/mmarco-...` | HuggingFace model ID (compose-level; feeds `SPECTRA_RERANKER_MODEL`) |
+| `SPECTRA_RERANKER_ENGINE` | `http` | `http` = Python microservice (compose profile `reranker`); `onnx` = Cross-Encoder run **inside the JVM** via ONNX Runtime — no container, no Python |
+| `SPECTRA_RERANKER_ONNX_PATH` | `./data/models/reranker` | Directory holding `model.onnx` and `tokenizer.json` (`engine=onnx` only). Same convention as GGUF files: an artifact dropped into the models volume, not a versioned file |
+| `SPECTRA_RERANKER_ONNX_ACTIVATION` | `sigmoid` | Score scale. `sigmoid` matches `sentence-transformers` (and therefore the Python service); `logit` publishes the raw logit. **Never changes the ranking** — sigmoid is monotonic — only the scale of the `rerankScores` the API exposes, hence their comparability across benchmark runs |
+| `SPECTRA_RERANKER_ONNX_MAX_LENGTH` | `512` | Max pair length in tokens (`longest_first` truncation, as in `CrossEncoder.predict`) |
+| `SPECTRA_RERANKER_ONNX_BATCH_SIZE` | `16` | Pairs scored per forward pass |
+| `HF_ENDPOINT` | *(unset)* | HuggingFace mirror for the `reranker` container (corporate proxy). Only passed through when set on the host — an empty value would be read as an endpoint URL |
+| `HF_HUB_OFFLINE` | *(unset)* | Set to `1` to forbid any Hub access: the model is served exclusively from the persistent `reranker-model-cache` volume |
+| `HF_TOKEN` | *(unset)* | Authentication for a private/gated model repository |
+
+> **Air-gapped or proxied installs.** The `reranker` container mounts
+> `reranker-model-cache:/root/.cache/huggingface`, so the model (~500 MB) survives image rebuilds.
+> The build-time pre-download is best-effort: if the Hub is unreachable the image still builds, and
+> the model is loaded at startup from that volume. With a populated cache, `HF_HUB_OFFLINE=1` runs
+> the service with no network at all. The same cache is what lets you export the ONNX artifact
+> offline for `SPECTRA_RERANKER_ENGINE=onnx` — see
+> [the Python-to-Java migration audit](process/audit-python-java.fr.md).
+
+> **`engine=onnx` — two things to know.** The model is loaded into the API process, so its
+> footprint moves from the reranker container into `spectra-api`: `mmarco-mMiniLMv2` is distilled
+> from XLM-R, and its ~250 k × 384 embedding matrix dominates (order of 0.5 GB in fp32 — measure
+> your artifact). ONNX Runtime allocates natively, so the constraint is the container memory
+> limit, not `-Xmx`. Second, the native access warning on Java 25 (`Restricted methods will be
+> blocked in a future release`) is silenced with `--enable-native-access=ALL-UNNAMED` in
+> `JAVA_OPTS`. If the artifact is missing, the application still starts: `/api/status` reports the
+> reranker unavailable with the cause, and RAG runs without reranking.
 | `SPECTRA_AGENTIC_RAG_ENABLED` | `false` | Enable ReAct loop |
 | `SPECTRA_AGENTIC_MAX_ITERATIONS` | `3` | Max search iterations |
 | `SPECTRA_AGENTIC_INITIAL_TOP_K` | `5` | Chunks retrieved per iteration |

@@ -20,6 +20,7 @@ public class AuditLogEntity {
         LIFECYCLE_CHANGED,
         TAGGED,
         UNTAGGED,
+        CLASSIFIED,
         LINKED_TO_MODEL,
         ARCHIVED,
         DELETED

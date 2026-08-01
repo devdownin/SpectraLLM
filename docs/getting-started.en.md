@@ -56,8 +56,8 @@ Two GGUF files are required — one for chat, one for embeddings:
 
 ```bash
 # Chat model (~1.1 GB) — Phi-4-mini by default
-huggingface-cli download unsloth/Phi-4-mini-reasoning-GGUF \
-  Phi-4-mini-reasoning-UD-IQ1_S.gguf --local-dir data/models/
+huggingface-cli download bartowski/Qwen2.5-7B-Instruct-GGUF \
+  Qwen2.5-7B-Instruct-Q4_K_M.gguf --local-dir data/models/
 
 # Embedding model (~81 MB) — nomic-embed-text by default
 huggingface-cli download nomic-ai/nomic-embed-text-v1.5-GGUF \
@@ -65,7 +65,7 @@ huggingface-cli download nomic-ai/nomic-embed-text-v1.5-GGUF \
   --local-dir data/models/ --filename embed.gguf
 ```
 
-If the models are missing at startup, `model-init` will print exact download instructions and abort before the LLM servers start.
+If the models are missing at startup, the stack still comes up: `llm-chat` and `llm-embed` log `EN ATTENTE: modèle introuvable` and poll until the GGUF appears, then start serving on their own. Nothing aborts, so you can drop the files in — or download them from the Model Hub in the UI — while the stack is already running.
 
 ### 3. Start the stack
 
@@ -96,30 +96,5 @@ spectra-compose --profile layout-parser --profile reranker up -d
 | **llama.cpp chat** | `http://localhost:8081` |
 | **llama.cpp embed** | `http://localhost:8082` |
 | **Prometheus metrics** | `http://localhost:8080/actuator/prometheus` |
-
-### 5. Deploy to Kubernetes / GKE (optional)
-
-Spectra ships complete Kubernetes manifests (`deploy/k8s/`, kustomize) and a one-push CI/CD pipeline for **Google Kubernetes Engine**:
-
-```bash
-# 1. Seed the GGUF models onto the PVCs (idempotent)
-./scripts/gke-seed-models.sh
-
-# 2. Deploy the stack (minikube, kind, k3s, GKE…)
-kubectl apply -k deploy/k8s/base
-
-# Variants (kustomize overlays)
-kubectl apply -k deploy/k8s/overlays/gpu    # GPU acceleration (NVIDIA, opt-in)
-kubectl apply -k deploy/k8s/overlays/gke    # GKE native Ingress + Google-managed TLS
-kubectl apply -k deploy/k8s/monitoring      # Prometheus alerts + Grafana dashboard
-```
-
-A GitHub Actions workflow (`.github/workflows/deploy-gke.yml`) builds and pushes the images and rolls out to GKE on every push to `main`, authenticated via **Workload Identity Federation** (no JSON keys). Highlights:
-
-- **One-command model seeding** — a Job downloads the GGUF models directly onto the PVCs (no manual `kubectl cp`).
-- **Managed HTTPS** — `ManagedCertificate` + HTTP→HTTPS redirect, with SSE-friendly backend timeouts.
-- **Observability** — `/actuator/prometheus` metrics, ready-to-apply `ServiceMonitor`, alert rules and a Grafana dashboard.
-
-See **[deploy/k8s/README.md](../deploy/k8s/README.md)** for the manifests, the kustomize overlays (GPU / GKE / monitoring) and model seeding.
 
 ---

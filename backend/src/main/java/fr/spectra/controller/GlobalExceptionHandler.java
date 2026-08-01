@@ -88,6 +88,17 @@ public class GlobalExceptionHandler {
         return problem;
     }
 
+    @ExceptionHandler(fr.spectra.service.training.TrainingUnavailableException.class)
+    public ProblemDetail handleTrainingUnavailable(
+            fr.spectra.service.training.TrainingUnavailableException e) {
+        // WARN et non ERROR : rien n'est cassé, l'environnement d'exécution n'est pas là.
+        log.warn("Fine-tuning indisponible : {}", e.getMessage());
+        ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.SERVICE_UNAVAILABLE);
+        problem.setTitle("Entraînement indisponible");
+        problem.setDetail(e.getMessage());
+        return problem;
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ProblemDetail handleValidation(MethodArgumentNotValidException e) {
         log.debug("Validation échouée: {}", e.getMessage());

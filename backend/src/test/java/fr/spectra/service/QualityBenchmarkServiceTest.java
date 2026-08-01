@@ -29,7 +29,7 @@ class QualityBenchmarkServiceTest {
 
     private QualityBenchmarkService newService(LlmChatClient chat, String judgeModel) {
         // benchmarkPath vide → ressource embarquée benchmarks/highway_benchmark.jsonl.
-        return new QualityBenchmarkService(chat, new ModelSwitchCoordinator(chat, 2, 1),
+        return new QualityBenchmarkService(chat, new LlmJudge(chat), new ModelSwitchCoordinator(chat, 2, 1),
                 judgeModel, "", workDir.toString());
     }
 
@@ -44,16 +44,17 @@ class QualityBenchmarkServiceTest {
         // Serveur "convergé" immédiatement : l'attente de convergence du coordinateur passe.
         when(chat.checkHealth()).thenReturn(new fr.spectra.dto.ServiceStatus(
                 "llama-cpp", "http://test", true, "ok", 1, java.util.Map.of()));
-        when(chat.chat(anyString(), anyString())).thenAnswer(inv -> {
+        // Le juge passe par chatJson (décodage contraint) ; la génération évaluée par chat.
+        // Distinguer les deux stubs documente ce contrat : un juge en génération libre
+        // pouvait répondre en prose, et le benchmark qualité le faisait encore.
+        when(chat.chatJson(anyString(), anyString())).thenAnswer(inv -> {
             String system = inv.getArgument(0);
-            if (system.contains("évaluateur expert")) {
-                return "{\"score\": 8, \"justification\": \"ok\"}";
-            }
             if (system.contains("N'EST PAS disponible")) {
                 return "{\"refused\": true, \"justification\": \"s'abstient\"}";
             }
-            return "Réponse du modèle évalué.";
+            return "{\"score\": 8, \"justification\": \"ok\"}";
         });
+        when(chat.chat(anyString(), anyString())).thenReturn("Réponse du modèle évalué.");
         return chat;
     }
 

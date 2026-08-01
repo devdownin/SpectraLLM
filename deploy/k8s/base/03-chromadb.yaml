@@ -19,7 +19,9 @@ spec:
     spec:
       containers:
         - name: chromadb
-          image: chromadb/chroma:latest
+          # Épinglée sur la même version que docker-compose.yml : « latest » a déjà changé
+          # de chemin de persistance (/chroma/chroma → /data) sans avertissement.
+          image: chromadb/chroma:1.5.9
           ports:
             - containerPort: 8000
           env:

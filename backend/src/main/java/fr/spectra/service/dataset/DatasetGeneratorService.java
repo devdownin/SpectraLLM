@@ -2,7 +2,10 @@ package fr.spectra.service.dataset;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import fr.spectra.config.SpectraProperties;
 import fr.spectra.model.TrainingPair;
+import fr.spectra.persistence.IngestedFileEntity;
+import fr.spectra.persistence.IngestedFileRepository;
 import fr.spectra.service.ChromaDbClient;
 import fr.spectra.service.LlmChatClient;
 import jakarta.annotation.PostConstruct;
@@ -20,9 +23,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
+import java.util.stream.Collectors;
 import java.time.Instant;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -58,8 +66,8 @@ public class DatasetGeneratorService {
     private static final String COLLECTION_NAME = "spectra_documents";
     private static final ObjectMapper mapper = new ObjectMapper();
 
-    private static final Set<String> VALID_CATEGORIES =
-            Set.of("procedures", "evenements", "nomenclatures", "reglementation");
+    /** Bucket des chunks issus d'un document sans classification (R8). */
+    static final String UNCLASSIFIED_BUCKET = "(non classé)";
 
     /**
      * Réponses de refus pour les exemples « négatifs » : on apprend au modèle à
@@ -74,9 +82,12 @@ public class DatasetGeneratorService {
 
     private final LlmChatClient llmChatClient;
     private final ChromaDbClient chromaDbClient;
+    private final IngestedFileRepository fileRepo;
     private final Path pairsFile;
     /** Fréquence des exemples de refus : un toutes les N portions (0 = désactivé). */
     private final int refusalEveryN;
+    /** Taxonomie de classification (R8) — partagée avec le classifieur documentaire. */
+    private final List<String> taxonomy;
 
     /** Self-reference for @Async proxy — injected lazily to avoid circular dependency. */
     @Lazy @Autowired(required = false)
@@ -89,12 +100,18 @@ public class DatasetGeneratorService {
 
     public DatasetGeneratorService(LlmChatClient llmChatClient,
                                    ChromaDbClient chromaDbClient,
+                                   IngestedFileRepository fileRepo,
+                                   SpectraProperties properties,
                                    @Value("${spectra.dataset.dir:./data/dataset}") String datasetDir,
                                    @Value("${spectra.dataset.refusal-every-n:3}") int refusalEveryN) {
         this.llmChatClient = llmChatClient;
         this.chromaDbClient = chromaDbClient;
+        this.fileRepo = fileRepo;
         this.pairsFile = Path.of(datasetDir).resolve("sft_pairs.jsonl");
         this.refusalEveryN = refusalEveryN;
+        this.taxonomy = properties != null && properties.classification() != null
+                ? properties.classification().effectiveTaxonomy()
+                : SpectraProperties.ClassificationProperties.DEFAULT_TAXONOMY;
     }
 
     @PostConstruct
@@ -214,13 +231,6 @@ public class DatasetGeneratorService {
             List<Map<String, String>> metadatas = allDocs != null ? (List<Map<String, String>>) allDocs.get("metadatas") : null;
             List<String> ids = allDocs != null ? (List<String>) allDocs.get("ids") : null;
 
-            if (documents != null && maxChunks > 0 && documents.size() > maxChunks) {
-                documents = documents.subList(0, maxChunks);
-                metadatas = metadatas != null ? metadatas.subList(0, maxChunks) : null;
-                ids       = ids       != null ? ids.subList(0, maxChunks)       : null;
-                log.info("Limitation à {} chunks (sur {} disponibles)", maxChunks, allDocs != null && allDocs.get("documents") instanceof List<?> l ? l.size() : "?");
-            }
-
             if (documents == null || documents.isEmpty()) {
                 log.info("Aucun chunk disponible dans ChromaDB pour la génération (taskId={})", taskId);
                 tasks.put(taskId, new GenerationTask(taskId, GenerationTask.Status.COMPLETED, 0, 0, 0, null, Instant.now()));
@@ -237,6 +247,33 @@ public class DatasetGeneratorService {
                 log.error("{} (taskId={})", msg, taskId);
                 tasks.put(taskId, new GenerationTask(taskId, GenerationTask.Status.FAILED, 0, 0, 0, msg, Instant.now()));
                 return;
+            }
+
+            // R8 — catégorie du document d'origine de chaque chunk, résolue via la métadonnée
+            // sha256. Sert deux fins : l'échantillonnage stratifié ci-dessous, et l'étiquetage
+            // des paires produites (plus besoin de redemander sa catégorie au LLM).
+            Map<String, String> categoryBySha = loadDocumentCategories();
+            List<String> chunkCategories = metadatas.stream()
+                    .map(meta -> categoryOfChunk(meta, categoryBySha))
+                    .toList();
+
+            if (maxChunks > 0 && documents.size() > maxChunks) {
+                // Échantillonnage stratifié : on prélève des chunks répartis entre les
+                // catégories ET entre les documents de chaque catégorie. Le troncage
+                // historique (les N premiers chunks) ne voyait que le début de la collection,
+                // c'est-à-dire les tout premiers documents ingérés — un « essai rapide » à
+                // 20 chunks entraînait donc le modèle sur un ou deux documents.
+                List<String> chunkDocuments = metadatas.stream()
+                        .map(DatasetGeneratorService::documentKey)
+                        .toList();
+                List<Integer> keep = selectStratified(chunkCategories, chunkDocuments, maxChunks);
+                int available = documents.size();
+                documents       = pick(documents, keep);
+                metadatas       = pick(metadatas, keep);
+                ids             = pick(ids, keep);
+                chunkCategories = pick(chunkCategories, keep);
+                log.info("Échantillonnage stratifié : {} chunks retenus sur {} disponibles, répartition {}",
+                        documents.size(), available, countByCategory(chunkCategories));
             }
 
             int total = documents.size();
@@ -257,15 +294,19 @@ public class DatasetGeneratorService {
                 String chunkText = documents.get(i);
                 Map<String, String> meta = metadatas.get(i);
                 String sourceFile = meta.getOrDefault("sourceFile", "inconnu");
+                // null pour un document non classifié : les paires restent produites, elles
+                // ne portent simplement aucun rattachement thématique.
+                String docCategory = chunkCategories.get(i).equals(UNCLASSIFIED_BUCKET)
+                        ? null : chunkCategories.get(i);
 
                 try {
-                    List<TrainingPair> pairs = generatePairsFromChunk(chunkText, sourceFile);
+                    List<TrainingPair> pairs = generatePairsFromChunk(chunkText, sourceFile, docCategory);
                     newPairs.addAll(pairs);
                     pairsCount += pairs.size();
 
                     // Exemple de refus périodique : apprend l'abstention (anti-hallucination).
                     if (refusalEveryN > 0 && i % refusalEveryN == 0) {
-                        TrainingPair refusal = generateRefusalPair(chunkText, sourceFile, i / refusalEveryN);
+                        TrainingPair refusal = generateRefusalPair(chunkText, sourceFile, i / refusalEveryN, docCategory);
                         if (refusal != null) {
                             newPairs.add(refusal);
                             pairsCount++;
@@ -306,10 +347,137 @@ public class DatasetGeneratorService {
         }
     }
 
+    // ── R8 — Stratification par catégorie documentaire ───────────────────────
+
+    /**
+     * Catégorie principale de chaque document classifié, indexée par SHA-256.
+     *
+     * <p>Seule la première catégorie est retenue : elle est la mieux notée (le classifieur
+     * trie par confiance décroissante), et l'échantillonnage a besoin d'une affectation
+     * unique par document pour que les strates ne se recouvrent pas.</p>
+     */
+    private Map<String, String> loadDocumentCategories() {
+        try {
+            Map<String, String> byS = new HashMap<>();
+            // Charge les lignes GED (une par document, pas une par chunk) : négligeable
+            // devant les chunks déjà tous en mémoire à ce stade.
+            for (IngestedFileEntity doc : fileRepo.findAll()) {
+                List<String> cats = doc.getCategories();
+                if (cats != null && !cats.isEmpty()) {
+                    byS.put(doc.getSha256(), cats.get(0));
+                }
+            }
+            return byS;
+        } catch (Exception e) {
+            // Sans classification, on retombe simplement sur une strate unique.
+            log.warn("Catégories GED illisibles, échantillonnage non stratifié : {}", e.getMessage());
+            return Map.of();
+        }
+    }
+
+    /**
+     * Identité du document d'où provient un chunk, pour l'entrelacement intra-catégorie.
+     * Le SHA-256 est préféré au nom de fichier (deux documents homonymes sont distincts) ;
+     * repli sur {@code sourceFile} pour les chunks indexés avant l'ajout de cette métadonnée.
+     */
+    private static String documentKey(Map<String, String> meta) {
+        if (meta == null) return "";
+        String sha = meta.get("sha256");
+        if (sha != null && !sha.isBlank()) return sha;
+        return meta.getOrDefault("sourceFile", "");
+    }
+
+    /** Catégorie du document d'où provient un chunk, ou {@link #UNCLASSIFIED_BUCKET}. */
+    private static String categoryOfChunk(Map<String, String> meta, Map<String, String> categoryBySha) {
+        if (meta == null) return UNCLASSIFIED_BUCKET;
+        String sha = meta.get("sha256");
+        if (sha == null) return UNCLASSIFIED_BUCKET;
+        return categoryBySha.getOrDefault(sha, UNCLASSIFIED_BUCKET);
+    }
+
+    /**
+     * Sélectionne {@code maxChunks} indices de chunks répartis équitablement entre les
+     * catégories, puis entre les documents de chaque catégorie.
+     *
+     * <p>La stratification est à <b>deux niveaux</b>, parce qu'un seul ne suffit pas : si la
+     * catégorie « maintenance » compte cinquante documents dont le premier pèse deux cents
+     * chunks, un tourniquet limité aux catégories puiserait tout son quota dans ce seul
+     * document. Les chunks d'une catégorie sont donc d'abord entrelacés entre ses documents.</p>
+     *
+     * <p>Une catégorie (ou un document) qui s'épuise laisse sa place aux autres : le quota
+     * n'est jamais perdu, on rend toujours exactement {@code maxChunks} chunks tant qu'il y
+     * en a assez. Les indices sont rendus triés, ce qui préserve l'ordre d'origine de la
+     * collection et garde la génération déterministe.</p>
+     *
+     * @param chunkCategories catégorie du document source de chaque chunk
+     * @param chunkDocuments  identité du document source de chaque chunk (même longueur)
+     */
+    static List<Integer> selectStratified(List<String> chunkCategories,
+                                          List<String> chunkDocuments, int maxChunks) {
+        // Catégorie → document → indices de ses chunks, dans l'ordre de la collection.
+        Map<String, Map<String, List<Integer>>> byCategoryThenDoc = new LinkedHashMap<>();
+        for (int i = 0; i < chunkCategories.size(); i++) {
+            byCategoryThenDoc
+                    .computeIfAbsent(chunkCategories.get(i), k -> new LinkedHashMap<>())
+                    .computeIfAbsent(chunkDocuments.get(i), k -> new ArrayList<>())
+                    .add(i);
+        }
+
+        // Niveau 2 : chaque catégorie devient une file entrelacée entre ses documents.
+        List<java.util.Iterator<Integer>> cursors = byCategoryThenDoc.values().stream()
+                .map(DatasetGeneratorService::interleave)
+                .map(List::iterator)
+                .collect(Collectors.toCollection(ArrayList::new));
+
+        // Niveau 1 : tourniquet entre les catégories.
+        List<Integer> selected = new ArrayList<>(Math.min(maxChunks, chunkCategories.size()));
+        while (selected.size() < maxChunks && !cursors.isEmpty()) {
+            cursors.removeIf(cursor -> !cursor.hasNext());
+            for (java.util.Iterator<Integer> cursor : cursors) {
+                if (selected.size() >= maxChunks) break;
+                if (cursor.hasNext()) selected.add(cursor.next());
+            }
+        }
+        Collections.sort(selected);
+        return selected;
+    }
+
+    /**
+     * Entrelace plusieurs suites d'indices en tourniquet : on prend le 1<sup>er</sup> chunk de
+     * chaque document, puis le 2<sup>e</sup> de chacun, etc. Les documents plus courts
+     * s'épuisent sans bloquer les autres.
+     */
+    private static List<Integer> interleave(Map<String, List<Integer>> byDocument) {
+        List<Integer> flat = new ArrayList<>();
+        int longest = byDocument.values().stream().mapToInt(List::size).max().orElse(0);
+        for (int position = 0; position < longest; position++) {
+            for (List<Integer> indices : byDocument.values()) {
+                if (position < indices.size()) flat.add(indices.get(position));
+            }
+        }
+        return flat;
+    }
+
+    /** Sous-liste aux indices donnés (les indices sont supposés valides et triés). */
+    private static <T> List<T> pick(List<T> source, List<Integer> indices) {
+        List<T> out = new ArrayList<>(indices.size());
+        indices.forEach(i -> out.add(source.get(i)));
+        return out;
+    }
+
+    private static Map<String, Long> countByCategory(List<String> categories) {
+        return categories.stream().collect(Collectors.groupingBy(c -> c, TreeMap::new, Collectors.counting()));
+    }
+
     /**
      * Génère 3 types de paires pour un chunk : question/réponse, résumé, classification.
+     *
+     * @param documentCategory catégorie du document source (R8), {@code null} s'il n'est pas
+     *                         classifié. Quand elle est connue, la paire de classification est
+     *                         construite à partir d'elle au lieu d'être redemandée au LLM.
      */
-    private List<TrainingPair> generatePairsFromChunk(String chunkText, String sourceFile) {
+    private List<TrainingPair> generatePairsFromChunk(String chunkText, String sourceFile,
+                                                      String documentCategory) {
         List<TrainingPair> pairs = new ArrayList<>();
 
         // 1. Paire Question / Réponse
@@ -322,8 +490,8 @@ public class DatasetGeneratorService {
                 Texte:
                 %s""".formatted(chunkText);
 
-        String qaJson = llmChatClient.chat("Tu génères des paires d'entraînement pour un LLM.", qaPrompt);
-        TrainingPair qaPair = parseQaPair(qaJson, chunkText, sourceFile);
+        String qaJson = llmChatClient.chatJson("Tu génères des paires d'entraînement pour un LLM.", qaPrompt);
+        TrainingPair qaPair = parseQaPair(qaJson, chunkText, sourceFile, documentCategory);
         if (qaPair != null) pairs.add(qaPair);
 
         // 2. Paire Résumé
@@ -336,52 +504,68 @@ public class DatasetGeneratorService {
                 Texte:
                 %s""".formatted(chunkText);
 
-        String summaryJson = llmChatClient.chat("Tu génères des paires d'entraînement pour un LLM.", summaryPrompt);
-        TrainingPair summaryPair = parseSummaryPair(summaryJson, chunkText, sourceFile);
+        String summaryJson = llmChatClient.chatJson("Tu génères des paires d'entraînement pour un LLM.", summaryPrompt);
+        TrainingPair summaryPair = parseSummaryPair(summaryJson, chunkText, sourceFile, documentCategory);
         if (summaryPair != null) pairs.add(summaryPair);
 
-        // 3. Paire Classification
-        String classifPrompt = """
-                Classe le texte suivant dans exactement UNE de ces catégories :
-                - procedures (procédures d'exploitation, interventions, sécurité, maintenance)
-                - evenements (messages d'événements, incidents, trafic, météo)
-                - nomenclatures (codes, équipements, tronçons, référentiels)
-                - reglementation (réglementation, conformité, règles internes)
-
-                Réponds UNIQUEMENT en JSON valide avec les clés "category" et "reason".
-
-                Texte:
-                %s""".formatted(chunkText);
-
-        String classifJson = llmChatClient.chat("Tu es un classificateur de documents autoroutiers.", classifPrompt);
-        TrainingPair classifPair = parseClassificationPair(classifJson, chunkText, sourceFile);
+        // 3. Paire Classification — réutilise le verdict du classifieur GED (R8) quand il
+        // existe. Le document a déjà été classé une fois, sur un extrait représentatif de
+        // l'ensemble ; le reclasser chunk par chunk coûtait un appel LLM sur trois et pouvait
+        // contredire la fiche du document.
+        TrainingPair classifPair = documentCategory != null
+                ? classificationPairFromGed(chunkText, sourceFile, documentCategory)
+                : classificationPairFromLlm(chunkText, sourceFile);
         if (classifPair != null) pairs.add(classifPair);
 
         return pairs;
     }
 
-    private TrainingPair parseQaPair(String json, String chunkText, String source) {
+    /** Paire de classification adossée au verdict du classifieur documentaire. */
+    private TrainingPair classificationPairFromGed(String chunkText, String sourceFile, String category) {
+        return TrainingPair.of(
+                "Classe le texte suivant dans la bonne catégorie : " + chunkText,
+                "Catégorie : " + category,
+                sourceFile, category, "classification", 0.9, category);
+    }
+
+    /** Repli pour un document non classifié : on demande la catégorie au LLM, comme avant. */
+    private TrainingPair classificationPairFromLlm(String chunkText, String sourceFile) {
+        String taxonomyBlock = taxonomy.stream().map(c -> "- " + c).collect(Collectors.joining("\n"));
+        String classifPrompt = """
+                Classe le texte suivant dans exactement UNE de ces catégories :
+                %s
+
+                Réponds UNIQUEMENT en JSON valide avec les clés "category" et "reason".
+
+                Texte:
+                %s""".formatted(taxonomyBlock, chunkText);
+
+        String classifJson = llmChatClient.chatJson("Tu es un classificateur de documents.", classifPrompt);
+        return parseClassificationPair(classifJson, chunkText, sourceFile);
+    }
+
+    private TrainingPair parseQaPair(String json, String chunkText, String source, String documentCategory) {
         try {
             JsonNode node = mapper.readTree(extractJson(json));
             String question = node.get("question").asText();
             String answer = node.get("answer").asText();
             boolean wellFormed = question.length() >= 10 && answer.length() >= 20;
             double confidence = wellFormed ? groundedConfidence(answer, chunkText) : 0.4;
-            return TrainingPair.of(question, answer, source, "qa", "question_answer", confidence);
+            return TrainingPair.of(question, answer, source, "qa", "question_answer", confidence, documentCategory);
         } catch (Exception e) {
             log.debug("Parsing QA échoué: {}", e.getMessage());
             return null;
         }
     }
 
-    private TrainingPair parseSummaryPair(String json, String chunkText, String source) {
+    private TrainingPair parseSummaryPair(String json, String chunkText, String source, String documentCategory) {
         try {
             JsonNode node = mapper.readTree(extractJson(json));
             String instruction = node.get("instruction").asText();
             String summary = node.get("summary").asText();
             boolean wellFormed = instruction.length() >= 10 && summary.length() >= 30;
             double confidence = wellFormed ? groundedConfidence(summary, chunkText) : 0.4;
-            return TrainingPair.of(instruction, summary, source, "summary", "summarization", confidence);
+            return TrainingPair.of(instruction, summary, source, "summary", "summarization", confidence, documentCategory);
         } catch (Exception e) {
             log.debug("Parsing résumé échoué: {}", e.getMessage());
             return null;
@@ -425,7 +609,8 @@ public class DatasetGeneratorService {
      * n'est PAS dans le chunk, associée à un refus. Entraîne le modèle à dire « je ne sais pas »
      * au lieu d'inventer — le levier le plus efficace contre l'hallucination dans un assistant RAG.
      */
-    private TrainingPair generateRefusalPair(String chunkText, String source, int rotation) {
+    private TrainingPair generateRefusalPair(String chunkText, String source, int rotation,
+                                             String documentCategory) {
         String prompt = """
                 À partir du texte suivant (document d'exploitation autoroutière), génère UNE question
                 plausible du même domaine dont la réponse N'EST PAS contenue dans ce texte.
@@ -435,12 +620,12 @@ public class DatasetGeneratorService {
                 Texte:
                 %s""".formatted(chunkText);
         try {
-            String json = llmChatClient.chat("Tu génères des questions de test pour un assistant.", prompt);
+            String json = llmChatClient.chatJson("Tu génères des questions de test pour un assistant.", prompt);
             JsonNode node = mapper.readTree(extractJson(json));
             String question = node.get("question").asText();
             if (question == null || question.strip().length() < 10) return null;
             String refusal = REFUSAL_ANSWERS.get(Math.floorMod(rotation, REFUSAL_ANSWERS.size()));
-            return TrainingPair.of(question.strip(), refusal, source, "negative", "refusal", 0.9);
+            return TrainingPair.of(question.strip(), refusal, source, "negative", "refusal", 0.9, documentCategory);
         } catch (Exception e) {
             log.debug("Génération refus échouée: {}", e.getMessage());
             return null;
@@ -451,9 +636,13 @@ public class DatasetGeneratorService {
         try {
             JsonNode node = mapper.readTree(extractJson(json));
             String category = node.get("category").asText().toLowerCase().trim();
-            double confidence = VALID_CATEGORIES.contains(category) ? 0.8 : 0.4;
+            // Hors taxonomie = étiquette peu fiable : la confiance basse la fait tomber sous
+            // les seuils stricts des recettes de fine-tuning.
+            double confidence = taxonomy.contains(category) ? 0.8 : 0.4;
             String instruction = "Classe le texte suivant dans la bonne catégorie : " + chunkText;
             String response = "Catégorie : " + category;
+            // documentCategory reste null : cette catégorie est devinée chunk par chunk, elle
+            // ne vaut pas le verdict du classifieur sur le document entier.
             return TrainingPair.of(instruction, response, source, category, "classification", confidence);
         } catch (Exception e) {
             log.debug("Parsing classification échoué: {}", e.getMessage());
@@ -476,7 +665,7 @@ public class DatasetGeneratorService {
             String assistant = pair.conversations().stream()
                     .filter(m -> "assistant".equals(m.role())).map(TrainingPair.Message::content)
                     .findFirst().orElse("");
-            String key = (user + " " + assistant).toLowerCase().strip();
+            String key = (user + "\0" + assistant).toLowerCase().strip();
             if (seen.add(key)) {
                 unique.add(pair);
             }

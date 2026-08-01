@@ -16,11 +16,29 @@ jobs:
       uses: ./.github/actions/setup-java-maven
     - name: Build and Test with Maven
       run: mvn -B package -f backend/pom.xml
+    # Une classe dont l'hypothèse échoue dans un @BeforeAll est abandonnée avant tout test :
+    # le rapport affiche « Tests run: 0 », ni échec ni « Skipped ». Le build reste vert alors
+    # que la classe ne vérifie plus rien — c'est arrivé à 32 tests, dont un contrôle XXE.
+    - name: Aucune classe de test vide
+      run: ./scripts/check-test-reports.sh
     - name: Upload Jacoco Report
       uses: actions/upload-artifact@v4
       with:
         name: jacoco-report
         path: backend/target/site/jacoco/jacoco.xml
+
+  # Le nom des GGUF par défaut est répété dans quatre langages de configuration
+  # (shell, batch, YAML Compose, Java) qu'aucune variable commune ne peut
+  # unifier. Ce contrôle ne supprime pas la duplication — il rend sa dérive bruyante,
+  # au lieu de produire un bug qui n'apparaît que sur un seul environnement.
+  # Sans dépendance ni téléchargement : quelques secondes.
+  model-defaults:
+    name: Model defaults consistency
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Check default GGUF models are consistent across environments
+      run: ./scripts/check-model-defaults.sh
 
   static-analysis:
     name: Static analysis (SpotBugs)
@@ -41,6 +59,24 @@ jobs:
         name: spotbugs-report
         path: backend/target/spotbugs*
         if-no-files-found: ignore
+
+  # Invariants de la mise en forme des conversations d'entraînement (scripts/chat_format.py).
+  # Volontairement sans torch ni transformers : des tokenizers factices suffisent à vérifier
+  # que le gabarit provient bien du modèle et que seuls les tours assistant sont supervisés —
+  # deux propriétés dont la violation ne se voit pas avant d'inspecter le modèle entraîné.
+  training-scripts:
+    name: Training scripts (pytest)
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Install pytest
+      run: pip install pytest
+    - name: Unit tests (pytest)
+      run: python -m pytest scripts/tests -q
 
   frontend:
     name: Frontend (Vite)
@@ -75,30 +111,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    # La stack exige les GGUF (model-init échoue sinon et llm-chat/llm-embed ne
-    # démarrent jamais) : on télécharge les modèles PAR DÉFAUT du projet, mis en
-    # cache entre les runs (~1,2 Go au premier passage seulement).
+    # Sans les GGUF, llm-chat et llm-embed attendent le modèle en boucle au lieu
+    # d'échouer : la stack monte, mais le chat ne répond jamais et l'E2E teste une
+    # UI vide. On télécharge donc les modèles PAR DÉFAUT du projet, mis en cache
+    # entre les runs (~4,8 Go au premier passage seulement).
     - name: Cache GGUF models
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: data/models
-        key: e2e-gguf-phi4mini-ud-iq1s-nomic-q4km
+        key: e2e-gguf-qwen25-7b-instruct-q4km-nomic-q4km
     - name: Download default GGUF models (cache miss only)
       run: |
         mkdir -p data/models
         [ -f data/models/embed.gguf ] || curl -sSL --fail --retry 3 \
           "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf" \
           -o data/models/embed.gguf
-        [ -f data/models/Phi-4-mini-reasoning-UD-IQ1_S.gguf ] || curl -sSL --fail --retry 3 \
-          "https://huggingface.co/unsloth/Phi-4-mini-reasoning-GGUF/resolve/main/Phi-4-mini-reasoning-UD-IQ1_S.gguf" \
-          -o data/models/Phi-4-mini-reasoning-UD-IQ1_S.gguf
+        [ -f data/models/Qwen2.5-7B-Instruct-Q4_K_M.gguf ] || curl -sSL --fail --retry 3 \
+          "https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf" \
+          -o data/models/Qwen2.5-7B-Instruct-Q4_K_M.gguf
         ls -lh data/models/
     # spectra-api tourne en utilisateur système « spectra » (uid ≠ runner) et monte
     # ./data:/app/data : sans droits d'écriture pour autrui, Logback ne peut pas
     # créer data/logs/ et l'API meurt au boot. Miroir des répertoires de setup.sh.
     - name: Prepare writable data directories
       run: |
-        mkdir -p data/documents data/dataset data/fine-tuning/merged data/source data/logs
+        mkdir -p data/documents data/dataset data/fine-tuning/merged data/source data/logs data/chroma
         chmod -R a+rwX data
     - name: Set up Docker Compose
       run: |
@@ -133,7 +170,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        service: [docparser, reranker]
+        service: [docparser, reranker, trainer]
     steps:
     - uses: actions/checkout@v4
     - name: Set up Python
@@ -163,25 +200,31 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Download Jacoco report
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: jacoco-report
           path: jacoco
 
       - name: Download Vitest coverage report
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: vitest-coverage-report
           path: vitest
 
       - name: Download docparser coverage report
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: docparser-coverage
           path: docparser
 
-      - name: Download reranker coverage report
+      - name: Download trainer coverage report
         uses: actions/download-artifact@v4
+        with:
+          name: trainer-coverage
+          path: trainer
+
+      - name: Download reranker coverage report
+        uses: actions/download-artifact@v8
         with:
           name: reranker-coverage
           path: reranker
@@ -189,6 +232,6 @@ jobs:
       - name: Upload to Codecov
         uses: codecov/codecov-action@v5
         with:
-          files: jacoco/jacoco.xml,vitest/lcov.info,docparser/coverage.xml,reranker/coverage.xml
+          files: jacoco/jacoco.xml,vitest/lcov.info,docparser/coverage.xml,reranker/coverage.xml,trainer/coverage.xml
           fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}

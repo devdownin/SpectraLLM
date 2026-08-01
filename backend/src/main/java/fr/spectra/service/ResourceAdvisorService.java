@@ -205,20 +205,32 @@ public class ResourceAdvisorService {
             threads = cpuCores > 4 ? cpuCores - 2 : Math.max(1, cpuCores);
         }
 
-        // Contexte
+        // Contexte — fenêtre PAR REQUÊTE (par slot), pas le total du serveur.
+        //
+        // llama-server répartit le `-c` entre ses slots parallèles : c'est l'appelant
+        // (LlamaCppRuntimeOrchestrator) qui multiplie cette valeur par le parallélisme pour
+        // obtenir le total. Dimensionner ici le total conduisait à des fenêtres inutilisables
+        // dès que le parallélisme montait, et les budgets du backend (extrait de
+        // classification ~2200 tokens, RAG agentique 3000) ne tenaient plus dedans — le
+        // modèle recevait un prompt tronqué par le début, donc sans ses consignes de format.
+        //
+        // Mêmes paliers que scripts/lib/llm-sizing.sh, qui fait ce calcul côté Docker.
         int contextSize;
-        if ("nvidia".equals(gpuType) && gpuVramMb >= 8192) {
+        if (ramMb >= 32768) {
             contextSize = 8192;
-        } else if ("nvidia".equals(gpuType) && gpuVramMb >= 4096) {
-            contextSize = 4096;
-        } else if (ramMb >= 32768) {
-            contextSize = 4096;
         } else if (ramMb >= 16384) {
-            contextSize = 2048;
+            contextSize = 4096;
         } else if (ramMb >= 8192) {
-            contextSize = 1024;
+            contextSize = 2048;
         } else {
-            contextSize = 512;
+            contextSize = 1024;
+        }
+        // Un GPU permet de tenir une fenêtre plus large que ne le laisserait la RAM seule,
+        // mais ne doit jamais la réduire.
+        if ("nvidia".equals(gpuType) && gpuVramMb >= 8192) {
+            contextSize = Math.max(contextSize, 8192);
+        } else if ("nvidia".equals(gpuType) && gpuVramMb >= 4096) {
+            contextSize = Math.max(contextSize, 4096);
         }
 
         // Batch

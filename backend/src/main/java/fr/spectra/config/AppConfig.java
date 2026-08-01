@@ -22,6 +22,24 @@ public class AppConfig {
     private static final int CONNECT_TIMEOUT_MS = 10_000;
 
     /**
+     * Plafond de mise en tampon des réponses (octets), appliqué à tous les WebClient LLM.
+     *
+     * <p>Le défaut Spring est de 256 Ko, et il ne suffit pas : un lot d'embeddings de 32
+     * vecteurs de 768 dimensions sérialisés en JSON le dépasse. Le client d'embedding n'ayant
+     * aucun plafond explicite, l'ingestion échouait par
+     * {@code DataBufferLimitException: Exceeded limit on max bytes to buffer : 262144},
+     * ouvrait le circuit breaker et n'indexait aucun chunk — alors même que
+     * {@code spectra.pipeline.embedding-batch-size} vaut 32 par défaut. Autrement dit, le
+     * défaut applicatif ne pouvait pas fonctionner ; seules les valeurs plus basses imposées
+     * par Compose et {@code .env} masquaient le problème.
+     *
+     * <p>16 Mo et non {@code -1} (illimité) : une réponse aberrante doit échouer plutôt que
+     * consommer le heap. ChromaDB conserve {@code -1}, ses réponses de requête étant
+     * légitimement volumineuses et déjà bornées par la taille des lots demandés.
+     */
+    private static final int LLM_MAX_IN_MEMORY_BYTES = 16 * 1024 * 1024;
+
+    /**
      * Connecteur partagé appliquant un timeout de connexion à tous les WebClient.
      * On n'impose volontairement PAS de {@code responseTimeout} global : les appels de
      * génération LLM (et le streaming) peuvent légitimement durer plusieurs minutes ;
@@ -49,7 +67,11 @@ public class AppConfig {
         String baseUrl = props.llm() != null && props.llm().baseUrl() != null
                 ? props.llm().baseUrl()
                 : "http://llm-server:8081";
-        return WebClient.builder().baseUrl(baseUrl).clientConnector(connector()).build();
+        return WebClient.builder()
+                .baseUrl(baseUrl)
+                .clientConnector(connector())
+                .codecs(c -> c.defaultCodecs().maxInMemorySize(LLM_MAX_IN_MEMORY_BYTES))
+                .build();
     }
 
     @Bean
@@ -73,7 +95,11 @@ public class AppConfig {
                 : chat != null && chat.baseUrl() != null
                     ? chat.baseUrl()
                     : "http://llama-cpp-chat:8080";
-        return WebClient.builder().baseUrl(baseUrl).clientConnector(connector()).build();
+        return WebClient.builder()
+                .baseUrl(baseUrl)
+                .clientConnector(connector())
+                .codecs(c -> c.defaultCodecs().maxInMemorySize(LLM_MAX_IN_MEMORY_BYTES))
+                .build();
     }
 
     @Bean
@@ -82,7 +108,11 @@ public class AppConfig {
         String baseUrl = embedding != null && embedding.baseUrl() != null
                 ? embedding.baseUrl()
                 : "http://llama-cpp-embed:8080";
-        return WebClient.builder().baseUrl(baseUrl).clientConnector(connector()).build();
+        return WebClient.builder()
+                .baseUrl(baseUrl)
+                .clientConnector(connector())
+                .codecs(c -> c.defaultCodecs().maxInMemorySize(LLM_MAX_IN_MEMORY_BYTES))
+                .build();
     }
 
     @Bean
@@ -90,7 +120,11 @@ public class AppConfig {
         String baseUrl = props.reranker() != null
                 ? props.reranker().effectiveBaseUrl()
                 : "http://reranker:8000";
-        return WebClient.builder().baseUrl(baseUrl).clientConnector(connector(Duration.ofSeconds(60))).build();
+        return WebClient.builder()
+                .baseUrl(baseUrl)
+                .clientConnector(connector(Duration.ofSeconds(60)))
+                .codecs(c -> c.defaultCodecs().maxInMemorySize(LLM_MAX_IN_MEMORY_BYTES))
+                .build();
     }
 
     @Bean

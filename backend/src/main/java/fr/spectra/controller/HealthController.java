@@ -2,9 +2,9 @@ package fr.spectra.controller;
 
 import fr.spectra.dto.ServiceStatus;
 import fr.spectra.service.ChromaDbClient;
-import fr.spectra.service.CrossEncoderRerankerClient;
 import fr.spectra.service.EmbeddingClient;
 import fr.spectra.service.LlmChatClient;
+import fr.spectra.service.RerankerClient;
 import fr.spectra.service.extraction.LayoutParserClient;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -25,13 +25,13 @@ public class HealthController {
     private final EmbeddingClient embeddingClient;
     private final ChromaDbClient chromaDbClient;
     private final Optional<LayoutParserClient> layoutParserClient;
-    private final Optional<CrossEncoderRerankerClient> rerankerClient;
+    private final Optional<RerankerClient> rerankerClient;
 
     public HealthController(LlmChatClient llmChatClient,
                             EmbeddingClient embeddingClient,
                             ChromaDbClient chromaDbClient,
                             Optional<LayoutParserClient> layoutParserClient,
-                            Optional<CrossEncoderRerankerClient> rerankerClient) {
+                            Optional<RerankerClient> rerankerClient) {
         this.llmChatClient = llmChatClient;
         this.embeddingClient = embeddingClient;
         this.chromaDbClient = chromaDbClient;

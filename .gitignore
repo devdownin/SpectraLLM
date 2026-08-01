@@ -42,3 +42,9 @@ venv/
 # Coverage files
 .coverage
 coverage.xml
+
+# Corpus de transactions ASF (données clients réelles : PAN télépéage, clés de
+# transaction, trajets horodatés). N'a rien à faire dans un dépôt public — le
+# répertoire data/ est déjà exclu plus haut, celui-ci l'avait échappé.
+json/
+json.7z

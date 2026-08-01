@@ -10,7 +10,8 @@ import java.util.List;
 @Table(name = "ingested_files", indexes = {
         @Index(name = "idx_ingested_files_lifecycle", columnList = "lifecycle"),
         @Index(name = "idx_ingested_files_ingested_at", columnList = "ingested_at"),
-        @Index(name = "idx_ingested_files_collection", columnList = "collection_name")
+        @Index(name = "idx_ingested_files_collection", columnList = "collection_name"),
+        @Index(name = "idx_ingested_files_classified", columnList = "classified_at")
 })
 public class IngestedFileEntity {
 
@@ -62,6 +63,30 @@ public class IngestedFileEntity {
     // R7 — score de qualité d'ingestion (0.0 – 1.0)
     private Double qualityScore;
 
+    // R8 — classification automatique par le LLM
+    /**
+     * Catégories retenues, triées par confiance décroissante. Volontairement distinctes des
+     * {@code tags} (saisis à la main) : on peut reclassifier tout le corpus sans écraser
+     * l'annotation humaine, et l'écart entre les deux mesure la qualité du classifieur.
+     */
+    @Convert(converter = StringListConverter.class)
+    @Column(columnDefinition = "TEXT")
+    private List<String> categories = new ArrayList<>();
+
+    /** Confiances par catégorie, JSON {@code {"procedures":0.87,…}} ; null tant que non classifié. */
+    @Column(columnDefinition = "TEXT")
+    private String categoryScores;
+
+    /** Résumé d'une phrase produit par le classifieur, affiché dans la fiche document. */
+    @Column(columnDefinition = "TEXT")
+    private String classificationSummary;
+
+    /** Date de la dernière classification réussie ; null = jamais classifié. */
+    private Instant classifiedAt;
+
+    /** Modèle ayant produit la classification — une reclassification après fine-tuning se trace. */
+    private String classifierModel;
+
     // collection ChromaDB cible
     private String collectionName;
 
@@ -105,6 +130,17 @@ public class IngestedFileEntity {
     public String getCollectionName(){ return collectionName; }
     public Instant getArchivedAt()   { return archivedAt; }
 
+    public List<String> getCategories()       { return categories; }
+    public String getCategoryScores()         { return categoryScores; }
+    public String getClassificationSummary()  { return classificationSummary; }
+    public Instant getClassifiedAt()          { return classifiedAt; }
+    public String getClassifierModel()        { return classifierModel; }
+
+    /** Le document porte-t-il une classification exploitable ? */
+    public boolean isClassified() {
+        return classifiedAt != null && categories != null && !categories.isEmpty();
+    }
+
     // ── Mutators ──────────────────────────────────────────────────────────────
 
     public void setLifecycle(Lifecycle lifecycle) { this.lifecycle = lifecycle; }
@@ -114,4 +150,12 @@ public class IngestedFileEntity {
     public void setTags(List<String> tags)        { this.tags = tags != null ? tags : new ArrayList<>(); }
     public void setQualityScore(Double score)     { this.qualityScore = score; }
     public void setCollectionName(String col)     { this.collectionName = col; }
+
+    public void setCategories(List<String> categories) {
+        this.categories = categories != null ? categories : new ArrayList<>();
+    }
+    public void setCategoryScores(String categoryScores)     { this.categoryScores = categoryScores; }
+    public void setClassificationSummary(String summary)     { this.classificationSummary = summary; }
+    public void setClassifiedAt(Instant classifiedAt)        { this.classifiedAt = classifiedAt; }
+    public void setClassifierModel(String classifierModel)   { this.classifierModel = classifierModel; }
 }

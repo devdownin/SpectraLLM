@@ -9,6 +9,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import fr.spectra.dto.QueryRequest;
 import fr.spectra.dto.QueryResponse;
 import fr.spectra.dto.RagOverrides;
+import fr.spectra.service.ActiveModelProfileService.ModelProfile;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.codec.ServerSentEvent;
@@ -74,11 +75,12 @@ public class RagService {
     private static final Logger log = LoggerFactory.getLogger(RagService.class);
     private static final String COLLECTION_NAME = "spectra_documents";
 
-    // Persona canonique (cf. AssistantPersona) — identique à celle du fine-tuning — suivie des
-    // consignes RAG. Servir le modèle fine-tuné sous une autre persona dégraderait son apport.
-    private static final String SYSTEM_PROMPT_TEMPLATE =
-            fr.spectra.model.AssistantPersona.SYSTEM_PROMPT + "\n"
-            + """
+    // Consignes RAG et bloc de contexte. La persona n'est plus figée ici : elle provient du
+    // modèle de chat actif (systemPrompt du registre) et est préfixée à la génération, de sorte
+    // qu'un modèle personnalisé soit servi sous SA propre identité. Un modèle issu du
+    // fine-tuning enregistre précisément AssistantPersona.SYSTEM_PROMPT : la cohérence
+    // entraînement ↔ service est donc préservée sans être imposée aux autres modèles.
+    private static final String RAG_INSTRUCTIONS_TEMPLATE = """
             Réponds de manière précise et concise en te basant UNIQUEMENT sur le contexte fourni ci-dessous.
             Chaque passage du contexte est numéroté [1], [2], … : cite tes sources en insérant le numéro
             correspondant entre crochets juste après l'information qu'il justifie (ex. « la valeur par défaut
@@ -90,10 +92,16 @@ public class RagService {
             %s
             === FIN DU CONTEXTE ===""";
 
-    // Mode direct (sans contexte récupéré) : on conserve la même persona que l'entraînement.
-    private static final String DIRECT_SYSTEM_PROMPT =
-            fr.spectra.model.AssistantPersona.SYSTEM_PROMPT
-            + " Réponds de manière concise et précise.";
+    /** Prompt système RAG : persona du modèle actif, consignes de citation, puis contexte. */
+    private static String ragSystemPrompt(ModelProfile profile, String contextBlock) {
+        return profile.personaOrDefault() + "\n"
+                + String.format(RAG_INSTRUCTIONS_TEMPLATE, contextBlock);
+    }
+
+    /** Prompt système du mode direct (sans contexte récupéré) : persona du modèle actif. */
+    private static String directSystemPrompt(ModelProfile profile) {
+        return profile.personaOrDefault() + " Réponds de manière concise et précise.";
+    }
 
     /** Résultat de la phase retrieval (avant génération LLM). */
     public record RagContext(
@@ -103,7 +111,10 @@ public class RagService {
             List<Float> rerankScores,
             List<Float> bm25Scores,
             List<QueryResponse.Source> sources,
-            String systemPrompt,
+            /** Passages numérotés [1], [2], … prêts à être injectés dans le prompt système
+             *  ({@code null} si aucun chunk). La persona et les consignes sont ajoutées à la
+             *  génération, où le modèle actif est connu — cf. {@link #ragSystemPrompt}. */
+            String contextBlock,
             boolean rerankApplied,
             boolean hybridApplied,
             boolean multiQueryApplied,
@@ -143,6 +154,7 @@ public class RagService {
     private final Optional<SelfRagService> selfRagService;
     private final Optional<ContextCompressionService> contextCompressionService;
     private final Optional<MultiQueryService> multiQueryService;
+    private final ActiveModelProfileService activeModelProfile;
     private final SpectraProperties props;
     private final ObjectMapper objectMapper;
     private final MeterRegistry meterRegistry;
@@ -160,6 +172,7 @@ public class RagService {
                       Optional<SelfRagService> selfRagService,
                       Optional<ContextCompressionService> contextCompressionService,
                       Optional<MultiQueryService> multiQueryService,
+                      ActiveModelProfileService activeModelProfile,
                       SpectraProperties props,
                       ObjectMapper objectMapper,
                       MeterRegistry meterRegistry) {
@@ -175,6 +188,7 @@ public class RagService {
         this.selfRagService = selfRagService;
         this.contextCompressionService = contextCompressionService;
         this.multiQueryService = multiQueryService;
+        this.activeModelProfile = activeModelProfile;
         this.props = props;
         this.objectMapper = objectMapper;
         this.meterRegistry = meterRegistry;
@@ -195,13 +209,22 @@ public class RagService {
      * un toggle pour un module non déployé est désactivé (on ne peut pas l'activer par requête),
      * et le RAG Advisor peut afficher « déjà actif » plutôt que « pose telle variable d'env ».
      */
+    /**
+     * Le reranking est-il réellement exploitable ? Un bean présent mais non chargé (artefact
+     * ONNX absent) ne doit ni être annoncé comme capacité, ni déclencher la sur-extraction de
+     * candidats qu'il est censé reclasser.
+     */
+    private boolean isRerankerUsable() {
+        return rerankerClient.filter(RerankerClient::isAvailable).isPresent();
+    }
+
     public Map<String, Boolean> moduleAvailability() {
         Map<String, Boolean> m = new LinkedHashMap<>();
         m.put("adaptive",       adaptiveRagService.isPresent());
         m.put("conversational", conversationalRagService.isPresent());
         m.put("multiQuery",     multiQueryService.isPresent());
         m.put("hybrid",         hybridSearchService.isPresent());
-        m.put("rerank",         rerankerClient.isPresent());
+        m.put("rerank",         isRerankerUsable());
         m.put("corrective",     correctiveRagService.isPresent());
         m.put("compression",    contextCompressionService.isPresent());
         m.put("selfRag",        selfRagService.isPresent());
@@ -216,13 +239,19 @@ public class RagService {
      * actif/inactif (utilisée par l'ablation pour mesurer l'apport de chaque option). Un override
      * à {@code true} n'a d'effet que si le module est disponible ; {@code null} = défaut de config.
      */
-    public QueryResponse query(QueryRequest request, RagOverrides overrides) {
+    public QueryResponse query(QueryRequest rawRequest, RagOverrides overrides) {
         RagOverrides ov = overrides != null ? overrides : RagOverrides.NONE;
         long start = System.currentTimeMillis();
 
+        // Profil du modèle actif (persona + paramètres enregistrés), résolu UNE fois pour tout
+        // le passage : la requête propagée porte des paramètres déjà arbitrés, et la persona
+        // servie reste celle du modèle qui répond même si une bascule survient entre-temps.
+        ModelProfile profile = activeModelProfile.current();
+        QueryRequest request = profile.applyTo(rawRequest);
+
         // ── 0. Direct LLM mode (RAG désactivé) ────────────────────────────
         if (Boolean.FALSE.equals(request.useRag())) {
-            String answer = llmClient.chat(DIRECT_SYSTEM_PROMPT, request.question(),
+            String answer = llmClient.chat(directSystemPrompt(profile), request.question(),
                     request.temperature(), request.topP());
             long duration = System.currentTimeMillis() - start;
             return new QueryResponse(answer, List.of(), duration,
@@ -240,7 +269,7 @@ public class RagService {
             ragStrategy = strategy.name();
 
             if (strategy == AdaptiveRagService.RagStrategy.DIRECT) {
-                String answer = llmClient.chat(DIRECT_SYSTEM_PROMPT, request.question(),
+                String answer = llmClient.chat(directSystemPrompt(profile), request.question(),
                         request.temperature(), request.topP());
                 long duration = System.currentTimeMillis() - start;
                 log.info("Adaptive RAG DIRECT en {}ms", duration);
@@ -330,7 +359,7 @@ public class RagService {
             answer = "Aucun document pertinent trouvé dans la base de connaissances. "
                     + "Veuillez d'abord ingérer des documents via POST /api/ingest.";
         } else {
-            String systemPrompt = ctx.systemPrompt();
+            String systemPrompt = ragSystemPrompt(profile, ctx.contextBlock());
             String userMessage  = buildUserMessage(request, conversationalApplied);
 
             if (RagOverrides.resolve(ov.selfRag(), selfRagService.isPresent())) {
@@ -428,11 +457,15 @@ public class RagService {
      *
      * <p>L'événement {@code done} contient un JSON {@link PipelineMeta}.</p>
      */
-    public Flux<ServerSentEvent<String>> queryStream(QueryRequest request) {
+    public Flux<ServerSentEvent<String>> queryStream(QueryRequest rawRequest) {
+        // Profil du modèle actif résolu à l'entrée, comme sur le chemin non-streaming.
+        ModelProfile profile = activeModelProfile.current();
+        QueryRequest request = profile.applyTo(rawRequest);
+
         // Direct LLM mode (RAG disabled by caller)
         if (Boolean.FALSE.equals(request.useRag())) {
             return Mono.fromCallable(() -> llmClient.chatStream(
-                            DIRECT_SYSTEM_PROMPT, request.question(),
+                            directSystemPrompt(profile), request.question(),
                             request.temperature(), request.topP()))
                     .subscribeOn(Schedulers.boundedElastic())
                     .flatMapMany(tokenFlux -> {
@@ -458,7 +491,7 @@ public class RagService {
         // du setup — le client restait silencieux pendant tout le retrieval.
         return Flux.<ServerSentEvent<String>>create(sink -> {
                     try {
-                        runStreamPipeline(request, sink);
+                        runStreamPipeline(request, profile, sink);
                     } catch (Exception e) {
                         log.error("Erreur streaming RAG: {}", e.getMessage());
                         if (!sink.isCancelled()) sink.next(errorEvent(e));
@@ -469,8 +502,14 @@ public class RagService {
                 .subscribeOn(Schedulers.boundedElastic());
     }
 
-    /** Corps du pipeline RAG streaming — exécuté de façon bloquante sur boundedElastic. */
-    private void runStreamPipeline(QueryRequest request, FluxSink<ServerSentEvent<String>> sink) {
+    /**
+     * Corps du pipeline RAG streaming — exécuté de façon bloquante sur boundedElastic.
+     *
+     * @param profile profil du modèle actif résolu par {@link #queryStream} ; la requête reçue
+     *                porte déjà ses paramètres de génération arbitrés
+     */
+    private void runStreamPipeline(QueryRequest request, ModelProfile profile,
+                                   FluxSink<ServerSentEvent<String>> sink) {
         // Surcharges par requête (toggles Playground / comparaison A/B) : chaque module
         // optionnel est résolu via RagOverrides.resolve, exactement comme le chemin non-streaming.
         RagOverrides ov = request.overrides() != null ? request.overrides() : RagOverrides.NONE;
@@ -490,7 +529,7 @@ public class RagService {
             if (strategy == AdaptiveRagService.RagStrategy.DIRECT) {
                 sink.next(ServerSentEvent.<String>builder().event("sources").data("[]").build());
                 long tg = System.currentTimeMillis();
-                forwardTokens(sink, llmClient.chatStream(DIRECT_SYSTEM_PROMPT, request.question(),
+                forwardTokens(sink, llmClient.chatStream(directSystemPrompt(profile), request.question(),
                         request.temperature(), request.topP()));
                 trace.add(new StageTrace("generation", System.currentTimeMillis() - tg, null, null, null));
                 sink.next(doneEvent(new PipelineMeta(false, false, false, "DIRECT",
@@ -609,6 +648,7 @@ public class RagService {
         }
 
         String userMessage = buildUserMessage(request, conversationalApplied);
+        String systemPrompt = ragSystemPrompt(profile, ctx.contextBlock());
         boolean selfRagApplied = false;
         String selfRagScores = null;
         long tGen = System.currentTimeMillis();
@@ -618,7 +658,7 @@ public class RagService {
             // puis auto-évalué. Si un raffinement s'impose, l'événement replace demande
             // au client d'effacer le brouillon avant de streamer la version raffinée.
             SelfRagService selfRag = selfRagService.get();
-            String draft = forwardTokens(sink, llmClient.chatStream(ctx.systemPrompt(), userMessage,
+            String draft = forwardTokens(sink, llmClient.chatStream(systemPrompt, userMessage,
                     request.temperature(), request.topP()));
             if (sink.isCancelled()) return;
             trace.add(new StageTrace("generation", System.currentTimeMillis() - tGen, null, null, null));
@@ -632,7 +672,7 @@ public class RagService {
                 sink.next(ServerSentEvent.<String>builder().event("replace").data("{}").build());
                 emitStage(sink, "refining", null, null);
                 String refined = forwardTokens(sink, llmClient.chatStream(
-                        selfRag.refineSystemPrompt(ctx.systemPrompt()), userMessage,
+                        selfRag.refineSystemPrompt(systemPrompt), userMessage,
                         request.temperature(), request.topP()));
                 if (!sink.isCancelled()) {
                     selfRagScores = formatScores(selfRag.evaluate(request.question(), ctx.contextChunks(), refined));
@@ -641,7 +681,7 @@ public class RagService {
             }
             trace.add(new StageTrace("reflection", System.currentTimeMillis() - tReflect, null, null, selfRagScores));
         } else {
-            forwardTokens(sink, llmClient.chatStream(ctx.systemPrompt(), userMessage,
+            forwardTokens(sink, llmClient.chatStream(systemPrompt, userMessage,
                     request.temperature(), request.topP()));
             trace.add(new StageTrace("generation", System.currentTimeMillis() - tGen, null, null, null));
         }
@@ -790,7 +830,10 @@ public class RagService {
     /** Retrieval avec surcharges par requête (cf. {@link #query(QueryRequest, RagOverrides)}). */
     public RagContext retrieveContext(QueryRequest request, String retrievalQuestion, RagOverrides overrides) {
         RagOverrides ov = overrides != null ? overrides : RagOverrides.NONE;
-        boolean useReranker   = RagOverrides.resolve(ov.rerank(), rerankerClient.isPresent());
+        // « utilisable », pas « présent » : le moteur ONNX enregistre son bean même sans artefact
+        // (pour que /api/status en publie la cause). Se fier à la présence faisait sur-extraire
+        // topCandidates chunks à chaque requête pour un reranking qui allait échouer.
+        boolean useReranker   = RagOverrides.resolve(ov.rerank(), isRerankerUsable());
         boolean useHybrid     = RagOverrides.resolve(ov.hybrid(), hybridSearchService.isPresent());
         boolean useMultiQuery = RagOverrides.resolve(ov.multiQuery(), multiQueryService.isPresent());
 
@@ -1081,10 +1124,10 @@ public class RagService {
                     sourceFile, distance, rerankScore, bm25Score));
         }
 
-        String systemPrompt = chunks.isEmpty() ? null : String.format(SYSTEM_PROMPT_TEMPLATE, context);
+        String contextBlock = chunks.isEmpty() ? null : context.toString();
 
         return new RagContext(chunks, metadatas, distances, rerankScores, bm25Scores,
-                sources, systemPrompt, rerankApplied, hybridApplied, multiQueryApplied, semanticDedupApplied, longContextApplied);
+                sources, contextBlock, rerankApplied, hybridApplied, multiQueryApplied, semanticDedupApplied, longContextApplied);
     }
 
     /**
@@ -1224,7 +1267,6 @@ public class RagService {
     }
 
     /** Heuristique d'estimation de tokens (identique à AgenticRagService) : 1 token ≈ 4 caractères. */
-    private static final int CHARS_PER_TOKEN = 4;
 
     /**
      * Charge tous les documents d'une collection pour le Long-Context RAG bypass.
@@ -1247,12 +1289,18 @@ public class RagService {
                     false, false, false, false, true);
         }
 
-        int maxContextTokens = props.longContextRag().effectiveMaxContextTokens();
+        // Borné par la fenêtre réellement servie. Le repli ci-dessous protège déjà contre un
+        // corpus plus gros que le budget, mais pas contre un budget plus gros que la fenêtre :
+        // un corpus de 2500 tokens passait le contrôle face à un budget de 3000, pour être
+        // ensuite tronqué par llama.cpp — par le DÉBUT, donc en perdant le prompt système.
+        int maxContextTokens = ContextBudgetValidator.clampContextTokens(
+                props.longContextRag().effectiveMaxContextTokens(), llmClient,
+                "spectra.long-context-rag.max-context-tokens");
         long totalChars = 0;
         for (String doc : documents) {
             if (doc != null) totalChars += doc.length();
         }
-        long estimatedTokens = totalChars / CHARS_PER_TOKEN;
+        long estimatedTokens = TokenEstimator.estimateTokens((int) totalChars);
         if (estimatedTokens > maxContextTokens) {
             log.info("Long-context RAG : corpus estimé à ~{} tokens > budget {} → fallback retrieval standard",
                     estimatedTokens, maxContextTokens);

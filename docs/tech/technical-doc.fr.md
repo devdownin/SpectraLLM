@@ -63,7 +63,7 @@ Aucun service interne n'est exposé sur le réseau hôte. Seul `spectra-api` com
 - `http://reranker:8000` — Cross-Encoder re-ranking (optionnel, port hôte 8002)
 - `http://docparser:8001` — parsing PDF layout-aware (optionnel, port hôte 8003)
 
-**Health checks** : `llm-chat` et `llm-embed` utilisent `curl -sf http://localhost:{port}/health` (curl disponible dans l'image llama.cpp). `spectra-api` utilise `wget -qO-` sur `/actuator/health` (wget disponible dans l'image eclipse-temurin). `chromadb` utilise `/dev/tcp` bash natif sur `/api/v2/heartbeat` (ni curl ni wget disponibles dans l'image ChromaDB). La dépendance de démarrage suit la chaîne : `model-init` → `llm-chat` + `llm-embed` → `spectra-api` → `frontend`.
+**Health checks** : `llm-chat` et `llm-embed` utilisent `curl -sf http://localhost:{port}/health` (curl disponible dans l'image llama.cpp). `spectra-api` utilise `wget -qO-` sur `/actuator/health` (wget disponible dans l'image eclipse-temurin). `chromadb` utilise `/dev/tcp` bash natif sur `/api/v2/heartbeat` (ni curl ni wget disponibles dans l'image ChromaDB). La dépendance de démarrage suit la chaîne : `chromadb` → `spectra-api` → `frontend`. `llm-chat` et `llm-embed` en sont INDÉPENDANTS : leurs entrypoints attendent le GGUF en boucle au lieu d'échouer, si bien qu'aucun autre service n'a besoin de les attendre. Corollaire à connaître en exploitation : la stack peut être « healthy » de bout en bout alors que le modèle de chat finit encore de charger.
 
 ### Diagramme de flux de données
 
@@ -102,7 +102,7 @@ Aucun service interne n'est exposé sur le réseau hôte. Seul `spectra-api` com
 [DatasetGeneratorService] → POST http://llm-chat:8081/v1/chat/completions
             │  3–4 appels LLM / chunk (Q&A + résumé + classif + négatifs)
             ▼
-[FineTuningService] → scripts/train.sh (GPU/CPU/simulation)
+[FineTuningService] → TrainingRunner → scripts/train.sh (GPU/CPU/simulation)
             │  Résultat : data/fine-tuning/merged/model.gguf
             ▼
 [ModelRegistryService] → data/models/registry.json
@@ -237,7 +237,7 @@ Le registre est persisté dans `data/models/registry.json` :
 
 ### `ResourceAdvisorService` — détection des ressources disponibles
 
-`ResourceAdvisorService` est le **propriétaire unique** du dimensionnement CPU/RAM (threads, contexte, batch, KV cache). Il s'initialise via `@PostConstruct` au démarrage de `spectra-api`, expose le profil détecté au reste de l'application, et `RuntimeParamsMaterializer` écrit ses recommandations dans `data/models/active-chat-params` — consommées par l'entrypoint superviseur de `llm-chat` comme valeurs par défaut (un `LLM_*` explicite dans `.env` garde la priorité). Le script `llama-autostart.sh` conserve sa propre détection uniquement pour les images llama.cpp autonomes (k8s/GKE), où l'API n'est pas joignable.
+`ResourceAdvisorService` est le **propriétaire unique** du dimensionnement CPU/RAM (threads, contexte, batch, KV cache). Il s'initialise via `@PostConstruct` au démarrage de `spectra-api`, expose le profil détecté au reste de l'application, et `RuntimeParamsMaterializer` écrit ses recommandations dans `data/models/active-chat-params` — consommées par l'entrypoint superviseur de `llm-chat` comme valeurs par défaut (un `LLM_*` explicite dans `.env` garde la priorité).
 
 **Sources de détection (dans l'ordre de priorité) :**
 
@@ -253,7 +253,7 @@ Le registre est persisté dans `data/models/registry.json` :
 
 **Intégration avec `LlamaCppRuntimeOrchestrator`** : quand le mode runtime est activé (`runtime.enabled=true`), `LlamaCppRuntimeOrchestrator.buildChatCommand()` consulte `ResourceAdvisorService` pour construire les arguments CLI de `llama-server` de façon adaptée à l'environnement courant, plutôt que d'utiliser des valeurs codées en dur.
 
-**Répartition des responsabilités.** Le Java calcule (une seule implémentation, testable) ; le shell consomme. Seule la détection **GPU** reste locale à chaque conteneur llama.cpp (`spectra-api` ne voit pas les GPU attribués à `llm-chat`) : offload via `LLM_CHAT_EXTRA_ARGS=--n-gpu-layers …` en compose, ou `llama-autostart.sh` pour les images autonomes.
+**Répartition des responsabilités.** Le Java calcule (une seule implémentation, testable) ; le shell consomme. Seule la détection **GPU** reste locale à chaque conteneur llama.cpp (`spectra-api` ne voit pas les GPU attribués à `llm-chat`) : offload via `LLM_CHAT_EXTRA_ARGS=--n-gpu-layers …`, ou l'overlay compose GPU qui l'impose.
 
 ---
 
@@ -533,7 +533,7 @@ public Executor taskExecutor() {
 
 ---
 
-## 5. Fine-Tuning (`FineTuningService` + `scripts/train.sh`)
+## 5. Fine-Tuning (`FineTuningService` + `TrainingRunner`)
 
 ### Modes de fonctionnement
 
@@ -554,10 +554,40 @@ PENDING → EXPORTING_DATASET → TRAINING → IMPORTING_MODEL → COMPLETED
                                     → data/models/registry.json
 ```
 
+0. **Contrôle de disponibilité** : `TrainingRunner.isAvailable()` est consulté **avant**
+   d'accepter la soumission. Sans exécuteur en état de travailler, l'API répond **503** avec la
+   cause en clair, sans créer de job ni générer de jeu de données (constat F1 de l'audit
+   fine-tuning).
 1. **Export dataset** : filtre les paires par `minConfidence`, écrit `dataset.jsonl`
-2. **Entraînement** : `ProcessBuilder` → `./scripts/train.sh`
+2. **Entraînement** : `TrainingRunner.train(TrainingSpec, …)`
 3. **Enregistrement** : `ModelRegistryService.registerChatModel()` avec source GGUF et métadonnées
 4. **Rapport** : génère `REPORT.md` dans le dossier du job
+
+### Exécuteurs (`TrainingRunner`)
+
+`FineTuningService` ne connaît ni `python3`, ni `train.sh`, ni l'ordre des arguments : il décrit
+le travail par un `TrainingSpec` **nommé** et le confie à un exécuteur.
+
+| Implémentation | Exécution | Disponible quand |
+|---|---|---|
+| `ProcessTrainingRunner` | `ProcessBuilder` sur l'hôte | `scripts/train.sh` est présent |
+| `HttpTrainingRunner` | service `spectra-trainer`, par HTTP | `/health` du trainer répond et déclare ses scripts |
+
+Le choix se fait par `spectra.fine-tuning.runner` (`process` par défaut, `http` pour le
+conteneur). L'image `spectra-api` (`eclipse-temurin:25-jre`) ne contenant ni `scripts/` ni
+Python, le mode `process` y est indisponible — l'API répond alors par un 503 motivé au lieu
+d'accepter le job puis d'échouer à mi-course.
+
+**Entraîner sous Docker :**
+
+```bash
+docker compose --profile trainer up -d trainer
+SPECTRA_FINE_TUNING_RUNNER=http docker compose up -d spectra-api
+```
+
+Le trainer monte `./data:/app/data` avec `WORKDIR /app`, **exactement comme `spectra-api`** :
+les chemins transmis sont absolus et calculés côté applicatif, un montage divergent ferait
+échouer l'entraînement sur un fichier introuvable.
 
 ### Telemetry Stream (SSE en temps réel)
 
@@ -1757,66 +1787,6 @@ volumes:
   - ./data/models:/models:ro  ← LLM_CHAT_MODEL_FILE / LLM_EMBED_MODEL_FILE
 ```
 
-### `scripts/llama-autostart.sh` — point d'entrée intelligent des conteneurs llama-server
-
-Ce script remplace le `command:` statique qui était précédemment codé en dur dans `docker-compose.yml` pour les services `llm-chat` et `llm-embed`. Il est défini comme `entrypoint` de chaque conteneur et s'exécute avant `llama-server`.
-
-**Rôle :** inspecter les ressources disponibles dans le conteneur au moment du démarrage, calculer les paramètres optimaux, puis lancer `llama-server` avec ces paramètres. Les variables d'environnement (définies dans `.env` ou `docker-compose.yml`) prennent toujours la priorité sur les valeurs calculées.
-
-**Séquence de détection :**
-
-```
-1. CPU
-   └── Lire /sys/fs/cgroup/cpu.max
-       ├── Format "quota period" (ex. "400000 100000" = 4 cœurs)
-       ├── "max period" → pas de quota → nproc
-       └── Fichier absent → nproc (cgroups v1 ou sans limite)
-   → threads = min(CPUs_disponibles, 8)  [plafonné pour éviter la contention]
-
-2. RAM
-   └── Lire /proc/meminfo → MemAvailable
-       └── Lire /sys/fs/cgroup/memory.max
-           ├── Valeur numérique → min(MemAvailable, memory.max)
-           └── "max" → pas de limite cgroup → utiliser MemAvailable
-   → context_size = f(RAM) : <2Go→768, <4Go→1536, <8Go→2048, <16Go→4096, ≥16Go→8192
-
-3. GPU
-   ├── nvidia-smi disponible ?
-   │   ├── Oui → VRAM totale (Mo)
-   │   │   ├── ≥8192 → ngl=-1, cacheTypeK=iq4_nl, context=8192
-   │   │   └── ≥4096 → ngl=-1, cacheTypeK=q8_0, context=4096
-   │   └── Non → étape suivante
-   ├── /dev/kfd existe ? → AMD ROCm → ngl=-1, cacheTypeK=q8_0
-   ├── /dev/dri/renderD128 existe ? → Vulkan → ngl=20, cacheTypeK=q8_0
-   └── Rien détecté → CPU-only → ngl=0
-
-4. Paramètres dérivés
-   batch = min(context_size / 4, 512)
-   flashAttn = 1 (chat) / 0 (embed)
-   cacheTypeK = cacheTypeV = q8_0 (sauf NVIDIA haute VRAM → iq4_nl)
-
-5. Surcharge par variables d'environnement
-   LLAMA_CHAT_CONTEXT_SIZE → écrase context_size calculé
-   LLAMA_CHAT_THREADS      → écrase threads calculé
-   LLAMA_CHAT_NGL          → écrase ngl calculé
-   (et toutes les autres variables du tableau d'overrides)
-
-6. Résumé imprimé dans les logs Docker
-   [llama-autostart] Profile : CPU_ONLY
-   [llama-autostart] Threads : 4, Context : 2048, Batch : 512
-   [llama-autostart] GPU layers : 0, Flash-attn : 1
-   [llama-autostart] Cache KV : q8_0 / q8_0
-   [llama-autostart] Launching: llama-server -m /fine-tuning/merged/model.gguf -a spectra-domain ...
-
-7. exec llama-server <arguments calculés + overrides>
-```
-
-**Pourquoi un script shell plutôt qu'une configuration statique ?** Les environnements cibles varient fortement : machine de développement à 4 cœurs / 8 Go RAM, serveur de production à 32 cœurs / 128 Go RAM, ou instance cloud avec GPU. Un `command:` statique sur-configure les petites machines (OOM) et sous-configure les grandes (performance laissée sur la table). Le script adapte les paramètres au contexte réel sans nécessiter d'édition manuelle du `docker-compose.yml`.
-
----
-
-## 10. Points Techniques Notables
-
 ### Séparation chat / embedding en deux processus
 
 llama-server ne peut charger qu'un modèle à la fois. Chat et embedding utilisent des modèles différents (modèle instruction-tuned vs. modèle d'embedding). Deux instances séparées (`llm-chat` et `llm-embed`) sont donc nécessaires.
@@ -1857,7 +1827,7 @@ Les requêtes curl depuis un shell Git Bash/MINGW sur Windows peuvent envoyer le
 
 ## 11. Optimisations de Performance
 
-Cette section documente les optimisations appliquées à la configuration de `llama-server` et explique pourquoi elles ont été choisies. La plupart sont activées automatiquement par `llama-autostart.sh` ; elles peuvent être désactivées via les variables d'environnement correspondantes.
+Cette section documente les optimisations appliquées à la configuration de `llama-server` et explique pourquoi elles ont été choisies. La plupart sont appliquées automatiquement à partir des hints calculés par `ResourceAdvisorService` ; elles peuvent être surchargées via les variables d'environnement correspondantes.
 
 ### Flash Attention (`--flash-attn`)
 
@@ -1871,7 +1841,7 @@ Flash Attention est un algorithme de calcul de l'attention (Vaswani et al.) qui 
 
 Pour l'embedding, Flash Attention est désactivé car le modèle `nomic-embed-text` ne génère pas de KV cache long (chaque chunk est indépendant), et certaines architectures d'embedding ne sont pas compatibles avec ce mode.
 
-**Variable de contrôle :** `LLAMA_CHAT_FLASH_ATTN=1` (ou `0` pour désactiver).
+**Variable de contrôle :** `LLAMA_FLASH_ATTN=1` (ou `0` pour désactiver).
 
 ### Quantization du cache KV (`--cache-type-k`, `--cache-type-v`)
 
@@ -1885,7 +1855,7 @@ Par défaut, llama-server stocke le cache KV en `f16` (flottants 16 bits). Les o
 
 Le choix `q8_0` offre le meilleur rapport entre réduction mémoire et fidélité des réponses. Avec `iq4_nl` (NVIDIA haute VRAM), on réduit encore la mémoire KV pour augmenter la taille de contexte servable, au prix d'une légère dégradation de précision acceptable en RAG.
 
-**Variables de contrôle :** `LLAMA_CHAT_CACHE_TYPE_K` et `LLAMA_CHAT_CACHE_TYPE_V`.
+**Variables de contrôle :** `LLAMA_CACHE_TYPE_K` et `LLAMA_CACHE_TYPE_V`.
 
 ### CPU Pinning via `cpuset`
 
@@ -1902,17 +1872,28 @@ llm-embed:
   cpuset: "4-5"    # cœurs 4, 5 pour l'embedding
 ```
 
-**Pourquoi cette répartition ?** Le chat est plus demandeur en calcul (génération autoregressive token par token) → 4 cœurs. L'embedding est plus simple (un seul passage en avant par chunk) → 2 cœurs suffisent. Sur une machine à moins de 6 cœurs, supprimez les variables `LLAMA_CHAT_CPUSET` et `LLAMA_EMBED_CPUSET` pour laisser le scheduler OS décider.
+**Pourquoi cette répartition ?** Le chat est plus demandeur en calcul (génération autoregressive token par token) → 4 cœurs. L'embedding est plus simple (un seul passage en avant par chunk) → 2 cœurs suffisent. Sur une machine à moins de 6 cœurs, supprimez les `cpuset` des manifestes pour laisser le scheduler OS décider (il n'existe pas de variable d'environnement pour cela : l'épinglage se déclare au niveau du conteneur).
 
-### Réduction du contexte par défaut (2048 tokens)
+### Dimensionnement du contexte : la fenêtre par requête
 
-La valeur `LLAMA_CHAT_CONTEXT_SIZE=2048` peut sembler conservatrice, mais elle est justifiée par plusieurs contraintes :
+**`LLM_CONTEXT` est le contexte TOTAL du serveur**, que llama.cpp répartit entre ses `LLM_PARALLEL` slots. Une requête ne voit que `LLM_CONTEXT / LLM_PARALLEL` tokens, et c'est cette valeur-là — jamais le total — qui doit contenir les budgets du backend.
 
-1. **Plafond d'entraînement** : le modèle fine-tuné standard est entraîné sur des séquences de 2048 tokens. Au-delà, la qualité de génération se dégrade (interpolation de position hors distribution).
-2. **Usage RAG** : avec `maxContextChunks=2`, le prompt complet (system + 2 chunks + question + réponse) consomme ~1500 tokens. Un contexte de 2048 est suffisant.
-3. **Mémoire** : le KV cache croît linéairement avec la taille de contexte. Réduire de 8192 à 2048 réduit la consommation mémoire d'un facteur 4, ce qui permet de faire tourner le service sur des machines avec 4–8 Go de RAM.
+Le dimensionnement automatique (`scripts/lib/llm-sizing.sh`, et son pendant Java `ResourceAdvisorService`) part donc de la fenêtre par requête visée, puis en déduit le total :
 
-Pour des contextes plus longs, utilisez un modèle de base avec une fenêtre plus large (ex. Phi-4-mini → 4096 tokens) et augmentez `LLAMA_CHAT_CONTEXT_SIZE=4096`.
+| RAM disponible | Fenêtre par requête | Enveloppe totale |
+|----------------|---------------------|------------------|
+| ≥ 32 Go | 8192 | 32768 |
+| ≥ 16 Go | 4096 | 16384 |
+| ≥ 8 Go | 2048 | 4096 |
+| < 8 Go | 1024 | 2048 |
+
+Le parallélisme suit le nombre de cœurs (moitié, plafonné à 8) mais **est ensuite borné par l'enveloppe**, pour que la fenêtre par requête ne soit jamais rognée. Sur du CPU, deux conversations à 4096 tokens valent mieux que huit à 512.
+
+**Contraintes qui fixent ces paliers :**
+
+1. **Mémoire** : le KV cache croît linéairement avec le contexte total. C'est lui qui borne l'enveloppe, et non la fenêtre par requête.
+2. **Modèle** : le contexte servi ne peut pas dépasser le `n_ctx_train` du GGUF. Le défaut actuel (Qwen2.5-7B-Instruct) accepte 32768 tokens, la contrainte vient donc de la machine, pas du modèle. Un fine-tune entraîné sur 2048 tokens, lui, se dégraderait au-delà (interpolation de position hors distribution).
+3. **Budgets du backend** : extrait de classification (~2200 tokens), RAG agentique (3000), RAG long-contexte (3000). Chacun est confronté à la fenêtre réellement servie au démarrage (`ContextBudgetValidator`, qui lit `/props`) puis **ramené d'office** à ce qu'elle peut porter. Un dépassement ne produirait aucune erreur : llama.cpp tronque le **début** de la requête, donc le prompt système, et le modèle répond hors format.
 
 ---
 

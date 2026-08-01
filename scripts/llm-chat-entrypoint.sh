@@ -27,7 +27,8 @@
 #   LLM_CHAT_MODEL_FILE     : GGUF de repli si le pointeur est absent/invalide
 #   LLM_CHAT_MODEL_NAME     : alias de repli
 #   LLM_PORT                : port d'écoute (défaut 8081)
-#   LLM_CONTEXT             : taille de contexte (sinon hints API, sinon 4096)
+#   LLM_CONTEXT             : contexte TOTAL du serveur, divisé par LLM_PARALLEL pour obtenir
+#                             la fenêtre par requête (sinon hints API × LLM_PARALLEL)
 #   LLM_THREADS             : threads CPU (sinon hints API, sinon auto llama-server)
 #   LLM_BATCH               : taille de batch (sinon hints API, sinon auto)
 #   LLM_PARALLEL            : slots parallèles (défaut 2)
@@ -42,23 +43,23 @@ MODELS_DIR="${MODELS_DIR:-/models}"
 POINTER="${MODELS_DIR}/active-chat-model"
 PARAMS_FILE="${MODELS_DIR}/active-chat-params"
 POLL_SECONDS="${LLM_CHAT_WATCH_INTERVAL:-10}"
-DEFAULT_FILE="${LLM_CHAT_MODEL_FILE:-Phi-4-mini-reasoning-UD-IQ1_S.gguf}"
-DEFAULT_ALIAS="${LLM_CHAT_MODEL_NAME:-phi-4-mini}"
+DEFAULT_FILE="${LLM_CHAT_MODEL_FILE:-Qwen2.5-7B-Instruct-Q4_K_M.gguf}"
+DEFAULT_ALIAS="${LLM_CHAT_MODEL_NAME:-qwen2.5-7b-instruct}"
 
 log() { echo "[llm-chat] $*"; }
 
 # ── Hints de dimensionnement écrits par spectra-api (défauts surchargeables) ──
 # Lecture ligne à ligne sans `source` : seules les clés RECO_* attendues sont
 # prises en compte (un fichier corrompu ne peut pas injecter de commande).
-RECO_THREADS="" RECO_CONTEXT="" RECO_BATCH="" RECO_CACHE_TYPE_K="" RECO_CACHE_TYPE_V=""
+RECO_THREADS="" RECO_SLOT_CONTEXT="" RECO_BATCH="" RECO_CACHE_TYPE_K="" RECO_CACHE_TYPE_V=""
 load_params() {
-  RECO_THREADS="" RECO_CONTEXT="" RECO_BATCH="" RECO_CACHE_TYPE_K="" RECO_CACHE_TYPE_V=""
+  RECO_THREADS="" RECO_SLOT_CONTEXT="" RECO_BATCH="" RECO_CACHE_TYPE_K="" RECO_CACHE_TYPE_V=""
   [ -f "${PARAMS_FILE}" ] || return 0
   while IFS='=' read -r key value; do
     value=$(echo "${value}" | tr -d '\r')
     case "${key}" in
       RECO_THREADS)      RECO_THREADS="${value}" ;;
-      RECO_CONTEXT)      RECO_CONTEXT="${value}" ;;
+      RECO_SLOT_CONTEXT) RECO_SLOT_CONTEXT="${value}" ;;
       RECO_BATCH)        RECO_BATCH="${value}" ;;
       RECO_CACHE_TYPE_K) RECO_CACHE_TYPE_K="${value}" ;;
       RECO_CACHE_TYPE_V) RECO_CACHE_TYPE_V="${value}" ;;
@@ -112,23 +113,35 @@ start_server() {
   # Recharge les hints à chaque (re)démarrage : un refresh des ressources côté API
   # sera pris en compte au prochain changement de modèle.
   load_params
-  CONTEXT="${LLM_CONTEXT:-${RECO_CONTEXT:-4096}}"
+  PARALLEL="${LLM_PARALLEL:-2}"
+  # Un parallélisme nul ou non numérique ferait une division par zéro plus bas, et le
+  # diagnostic serait perdu avant d'être affiché.
+  case "${PARALLEL}" in ''|*[!0-9]*|0) PARALLEL=2 ;; esac
+  # --ctx-size est le contexte TOTAL, que llama-server répartit entre ses slots : une requête
+  # ne voit que ctx-size / parallel tokens. Les hints de l'API donnent la fenêtre PAR SLOT
+  # (RECO_SLOT_CONTEXT) — c'est ici qu'on la multiplie, puisque c'est ici qu'on connaît le
+  # parallélisme réel. LLM_CONTEXT, lui, reste un total explicite fourni par l'utilisateur.
+  CONTEXT="${LLM_CONTEXT:-}"
+  if [ -z "${CONTEXT}" ]; then
+    CONTEXT=$(( ${RECO_SLOT_CONTEXT:-2048} * $PARALLEL ))
+  fi
   THREADS="${LLM_THREADS:-${RECO_THREADS:-}}"
   BATCH="${LLM_BATCH:-${RECO_BATCH:-}}"
 
-  log "démarrage llama-server : modèle=${RESOLVED_FILE} alias=${RESOLVED_ALIAS} ctx=${CONTEXT}${THREADS:+ threads=${THREADS}}${BATCH:+ batch=${BATCH}}"
+  log "démarrage llama-server : modèle=${RESOLVED_FILE} alias=${RESOLVED_ALIAS} ctx=${CONTEXT} (${PARALLEL} slots → $(( CONTEXT / PARALLEL )) tokens/requête)${THREADS:+ threads=${THREADS}}${BATCH:+ batch=${BATCH}}"
   set -- \
     --host 0.0.0.0 \
     --port "${LLM_PORT:-8081}" \
     --model "${MODEL_PATH}" \
     -a "${RESOLVED_ALIAS}" \
     --ctx-size "${CONTEXT}" \
-    --parallel "${LLM_PARALLEL:-2}"
+    --parallel "${PARALLEL}"
   [ -n "${THREADS}" ] && set -- "$@" -t "${THREADS}"
   [ -n "${BATCH}" ] && set -- "$@" -b "${BATCH}" -ub "${BATCH}"
   [ -n "${RECO_CACHE_TYPE_K}" ] && set -- "$@" --cache-type-k "${RECO_CACHE_TYPE_K}"
   [ -n "${RECO_CACHE_TYPE_V}" ] && set -- "$@" --cache-type-v "${RECO_CACHE_TYPE_V}"
-  # shellcheck disable=SC2086 — LLM_CHAT_EXTRA_ARGS est volontairement éclaté en mots
+  # LLM_CHAT_EXTRA_ARGS est volontairement éclaté en mots (word-splitting voulu).
+  # shellcheck disable=SC2086
   "${SERVER_BIN}" "$@" ${LLM_CHAT_EXTRA_ARGS:-} &
   CHILD=$!
 }
@@ -159,7 +172,11 @@ while :; do
   sleep "${POLL_SECONDS}" &
   wait $! 2>/dev/null || true
 
-  if [ -z "${CHILD}" ] || ! kill -0 "${CHILD}" 2>/dev/null; then
+  # « ${CHILD:-} » et non « ${CHILD} » : quand le modèle est absent, start_server()
+  # sort AVANT d'affecter CHILD. Sous « set -u », la forme nue tuait ici le conteneur
+  # un intervalle après le boot — donc un crashloop via « restart: unless-stopped »,
+  # exactement le comportement bloquant que la suppression de model-init a retiré.
+  if [ -z "${CHILD:-}" ] || ! kill -0 "${CHILD}" 2>/dev/null; then
     log "llama-server est arrêté ou en attente de modèle — nouvelle tentative dans 5s"
     sleep 5
     resolve

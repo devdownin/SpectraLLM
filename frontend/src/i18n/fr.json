@@ -545,7 +545,9 @@
     "judgeJustification": "Justification du juge",
     "source": "Source : {{source}}",
     "scoreDetailAria": "Afficher le détail du score {{score}}/10 en catégorie {{category}}",
-    "reportAria": "Sélectionner le rapport du modèle {{name}} du {{date}}"
+    "reportAria": "Sélectionner le rapport du modèle {{name}} du {{date}}",
+    "byDocumentCategory": "Score par thème de document",
+    "byDocumentCategoryHint": "Un thème bas signale un manque dans le corpus d'entraînement, pas seulement une faiblesse du modèle."
   },
   "fineTuning": {
     "kicker": "Évolution de l'architecture",
@@ -573,6 +575,8 @@
     "epochs": "Époques",
     "loraRank": "Rang LoRA",
     "minConfidence": "Confiance min.",
+    "valSplit": "Split validation",
+    "valSplitHint": "0 = désactivé — sans validation, seule la loss d'entraînement est mesurée et le sur-apprentissage passe inaperçu",
     "options": "Options",
     "multipacking": "Multipacking",
     "multipackingHint": "(-30 % de padding)",
@@ -627,7 +631,9 @@
     "pairsCount": "{{count}} paires",
     "nameMin": "Le nom doit faire au moins 3 caractères",
     "namePattern": "Minuscules, chiffres, - et _ uniquement",
-    "baseRequired": "Modèle de base requis"
+    "baseRequired": "Modèle de base requis",
+    "evalLoss": "Loss validation",
+    "trainLoss": "Loss entraînement"
   },
   "documents": {
     "kicker": "Connaissances & archives",
@@ -743,7 +749,28 @@
     "ratingFailed": "Échec de la notation",
     "commentDeleted": "Commentaire supprimé",
     "dpoExported": "Export DPO : {{count}} paire(s) exportée(s)",
-    "dpoExportFailed": "Échec de l'export DPO"
+    "dpoExportFailed": "Échec de l'export DPO",
+    "classification": "Classification automatique",
+    "classify": "Classifier",
+    "reclassify": "Reclassifier",
+    "notClassified": "Document non classifié — lancez la classification pour lui attribuer des catégories.",
+    "classified": "Document classifié",
+    "alreadyClassified": "Classification existante réutilisée",
+    "classifyFailed": "Classification impossible",
+    "classifiedBy": "Classifié par {{model}} le {{date}}",
+    "classifierModel": "Modèle : {{model}}",
+    "category": "Catégorie",
+    "unclassified": "Non classifiés",
+    "classificationCoverage": "{{classified}} / {{total}} documents classifiés",
+    "classifyProgress": "Classification : {{processed}} / {{total}} ({{failed}} en échec)",
+    "bulkClassifyStarted": "Classification par lot lancée",
+    "bulkClassifyDone": "Classification terminée : {{succeeded}} réussis, {{failed}} en échec",
+    "bulkClassifyFailed": "Impossible de lancer la classification par lot",
+    "bulkClassifyCancelled": "Annulation demandée",
+    "cancel": "Annuler",
+    "classifyPending": "Classifier ({{count}})",
+    "allClassified": "Tout est classifié",
+    "classifyHint": "Classer les documents en attente avec {{model}}"
   },
   "batchEval": {
     "kicker": "Comparer des modèles",

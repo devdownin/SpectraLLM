@@ -4,19 +4,25 @@ import {
   ResponsiveContainer, ReferenceLine,
 } from 'recharts';
 
-interface LossPoint { epoch: number; loss: number }
+interface LossPoint { epoch: number; loss?: number; evalLoss?: number }
 
 interface Props {
   data: LossPoint[];
   totalEpochs: number;
 }
 
+const EVAL_COLOR = '#f0a066';
+
 const CustomTooltip = ({ active, payload }: any) => {
   if (!active || !payload?.length) return null;
   return (
     <div className="bg-surface-container border border-primary/20 px-3 py-2 text-[11px] font-label">
       <p className="text-on-surface-variant uppercase tracking-widest">Epoch {payload[0].payload.epoch}</p>
-      <p className="text-primary font-bold">Loss {payload[0].value.toFixed(4)}</p>
+      {payload.map((entry: any) => (
+        <p key={entry.dataKey} className="font-bold" style={{ color: entry.color }}>
+          {entry.dataKey === 'evalLoss' ? 'Eval loss' : 'Loss'} {entry.value.toFixed(4)}
+        </p>
+      ))}
     </div>
   );
 };
@@ -30,7 +36,10 @@ const LossChart: FC<Props> = ({ data, totalEpochs }) => {
     );
   }
 
-  const minLoss = Math.min(...data.map(d => d.loss));
+  const trainLosses = data.map(d => d.loss).filter((v): v is number => v != null);
+  const minLoss = trainLosses.length ? Math.min(...trainLosses) : 0;
+  // La courbe de validation n'existe que si valSplit > 0 : ne pas dessiner une série vide.
+  const hasEvalLoss = data.some(d => d.evalLoss != null);
 
   return (
     <ResponsiveContainer width="100%" height="100%">
@@ -68,7 +77,23 @@ const LossChart: FC<Props> = ({ data, totalEpochs }) => {
           dot={false}
           activeDot={{ r: 4, fill: '#6673f0', strokeWidth: 0 }}
           isAnimationActive={false}
+          connectNulls
         />
+        {/* Loss de validation : c'est l'écart entre les deux courbes qui signale le
+            sur-apprentissage — la loss d'entraînement seule décroît par construction. */}
+        {hasEvalLoss && (
+          <Line
+            type="monotone"
+            dataKey="evalLoss"
+            stroke={EVAL_COLOR}
+            strokeWidth={2}
+            strokeDasharray="5 3"
+            dot={false}
+            activeDot={{ r: 4, fill: EVAL_COLOR, strokeWidth: 0 }}
+            isAnimationActive={false}
+            connectNulls
+          />
+        )}
       </LineChart>
     </ResponsiveContainer>
   );

@@ -39,18 +39,20 @@ class RagAblationServiceTest {
                 .when(chat).setActiveModel(org.mockito.ArgumentMatchers.anyString());
         when(chat.checkHealth()).thenReturn(new fr.spectra.dto.ServiceStatus(
                 "llama-cpp", "http://test", true, "ok", 1, java.util.Map.of()));
-        when(chat.chat(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString()))
+        // Le juge passe par chatJson (décodage contraint), la génération évaluée par chat.
+        when(chat.chatJson(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString()))
                 .thenAnswer(inv -> {
                     String system = inv.<String>getArgument(0);
-                    if (system.contains("évaluateur expert")) return "{\"score\": 8, \"justification\": \"ok\"}";
                     if (system.contains("N'EST PAS disponible")) return "{\"refused\": true, \"justification\": \"ok\"}";
-                    return "réponse";
+                    return "{\"score\": 8, \"justification\": \"ok\"}";
                 });
+        when(chat.chat(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString()))
+                .thenReturn("réponse");
 
         ModelSwitchCoordinator coordinator = new ModelSwitchCoordinator(chat, 2, 1);
         // Benchmark réel (ressource classpath) + juge neutre configuré.
         QualityBenchmarkService quality = new QualityBenchmarkService(
-                chat, coordinator, "judge-x", "", workDir.toString());
+                chat, new LlmJudge(chat), coordinator, "judge-x", "", workDir.toString());
 
         RagService rag = mock(RagService.class);
         when(rag.query(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))

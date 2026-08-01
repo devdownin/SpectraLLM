@@ -199,13 +199,16 @@ describe('buildFunnel', () => {
 });
 
 describe('estimateTokens / tokenBudget', () => {
-  it('estimates ~4 chars per token', () => {
-    expect(estimateTokens(400)).toBe(100);
+  // Le taux doit rester celui du backend (TokenEstimator.CHARS_PER_TOKEN = 3,5) : le panneau
+  // Trace affiche un budget que le backend calcule réellement, et deux taux différents
+  // afficheraient une barre ne correspondant à rien.
+  it('estimates ~3.5 chars per token, like the backend', () => {
+    expect(estimateTokens(3500)).toBe(1000);
     expect(estimateTokens(0)).toBe(0);
     expect(estimateTokens(-5)).toBe(0);
   });
   it('splits input (context) vs output (answer) tokens', () => {
-    const b = tokenBudget(4000, 200); // 1000 input + 200 output
+    const b = tokenBudget(3500, 200); // 1000 input + 200 output
     expect(b.inputTokens).toBe(1000);
     expect(b.outputTokens).toBe(200);
     expect(b.total).toBe(1200);

@@ -1,5 +1,7 @@
 # 📚 Spectra — Guide des Idées et des Algorithmes
 
+> 🌍 English version : **[documentation-pedagogique.en.md](documentation-pedagogique.en.md)**.
+
 > *Du document brut à l'expertise métier souveraine.*
 >
 > Ce document cherche à éclairer **trois choses** : l'**intuition** (le problème résolu),
@@ -46,7 +48,7 @@
 11. 🟡 [L'auto‑réglage matériel](#11)
 12. 🟡 [Tenir en production : résilience et concurrence](#12)
 13. 🟢 [Souveraineté et sécurité : le 100 % local en pratique](#13)
-14. 🟡 [Déployer : de Docker à GKE](#14)
+14. 🟡 [Déployer : du poste au serveur](#14)
 15. 🟡 [Comparer les algorithmes : forces, faiblesses et lecture des résultats](#15)
 16. 🟢 [Glossaire et pour aller plus loin](#16)
 
@@ -1031,7 +1033,7 @@ curl -X POST localhost:8080/api/dataset/generate
 **2) Un juge neutre** (recommandé — évite que chaque modèle se juge lui‑même).
 Dans `.env`, fixez un modèle tiers, puis redémarrez l'API :
 ```bash
-SPECTRA_EVALUATION_JUDGE_MODEL=phi-4-mini
+SPECTRA_EVALUATION_JUDGE_MODEL=qwen2.5-7b-instruct
 ```
 
 **3) Évaluer les deux sur le MÊME jeu de test** (batch → échantillon partagé,
@@ -1372,38 +1374,43 @@ fichiers d'un autre périmètre. Aucune couche n'est infaillible seule ; c'est l
 ---
 
 <a name="14"></a>
-## 14. Déployer : de Docker à GKE
+## 14. Déployer : du poste au serveur
 
 💡 **Intuition.** Spectra est un **ensemble de services** (API, interface, base
 vectorielle, serveurs d'inférence chat et embedding, navigateur sans tête…). On
-veut les lancer ensemble, de façon reproductible, du poste de dev au cloud.
+veut les lancer ensemble, de façon reproductible, du poste de développement au
+serveur de production.
 
-- **Docker Compose** : pour un poste unique. Une commande lève toute la pile ;
-  une variante active le **GPU**.
-- **Kubernetes** : pour un cluster. Chaque service devient un *Deployment* ; seuls
-  l'interface (et l'API derrière) sont exposés, le reste reste interne. Des
-  *volumes persistants* conservent données et modèles.
-- **GKE en continu** : un workflow d'intégration construit les images, les pousse
-  dans un registre, puis applique les manifestes au cluster — **à chaque
-  livraison**. L'authentification se fait **sans clé** (fédération d'identité
-  OIDC). Une variante **GPU** (image CUDA + supplément de manifeste) active
-  l'accélération pour l'inférence de chat.
+- **Docker Compose** décrit la pile entière dans un seul fichier : une commande
+  lève tous les services, avec leurs dépendances, leurs volumes et leur réseau
+  privé. Une variante active le **GPU** pour l'inférence de chat.
+- **Seuls l'interface et l'API sont exposés.** La base vectorielle et les serveurs
+  d'inférence restent sur le réseau interne du déploiement, joignables entre
+  conteneurs mais pas depuis l'extérieur.
+- **Les volumes** conservent ce qui doit survivre à un redémarrage : la base de
+  données, l'index vectoriel et les modèles GGUF — plusieurs gigaoctets qu'on ne
+  veut retélécharger sous aucun prétexte.
 
 ```mermaid
 flowchart LR
-    Push["git push (main)"] --> CI["CI : build des images"]
-    CI --> Reg["Registre d'images"]
-    Reg --> Dep["Déploiement cluster"]
-    Dep -.->|"auth OIDC, sans clé JSON stockée"| Reg
+    Ext["Extérieur"] --> FE["Interface + API<br/>(ports publiés)"]
+    FE -.-> Chroma["Base vectorielle"]
+    FE -.-> Chat["Inférence chat"]
+    FE -.-> Embed["Inférence embedding"]
+    subgraph Interne["Réseau interne — non exposé"]
+        Chroma
+        Chat
+        Embed
+    end
 ```
 
-🎯 **Exemple d'usage.** Vous fusionnez une amélioration du prompt RAG. La CI
-reconstruit l'image de l'API, la pousse, met à jour le déploiement et attend le
-*rollout* : la nouvelle version est en ligne sans intervention manuelle. Si vous
-avez un nœud GPU, l'overlay dédié bascule l'inférence chat sur GPU.
+🎯 **Exemple d'usage.** Vous améliorez le prompt RAG. Vous reconstruisez l'image de
+l'API et relancez ce seul service : les autres continuent de tourner, l'index
+vectoriel et les modèles restent en place, et la nouvelle version est en ligne en
+quelques secondes.
 
-🧪 **À vous de jouer.** Pourquoi n'exposer que l'interface (et l'API derrière) en
-Kubernetes, et garder base vectorielle et serveurs d'inférence en interne ?
+🧪 **À vous de jouer.** Pourquoi n'exposer que l'interface (et l'API derrière), et
+garder base vectorielle et serveurs d'inférence sur le réseau interne ?
 <details><summary>Voir la réponse</summary>
 
 Pour **minimiser la surface d'attaque** : ce qui n'est pas exposé n'est pas

@@ -72,8 +72,6 @@ public class AgenticRagService {
             %%s
             === FIN DU CONTEXTE ===""";
 
-    /** Tokens de contexte estimés via heuristique (1 token ≈ 4 caractères). */
-    private static final int CHARS_PER_TOKEN = 4;
     /** Tokens réservés pour la réponse du LLM (prompt + tokens d'amorçage). */
     private static final int RESPONSE_RESERVE_TOKENS = 500;
 
@@ -156,7 +154,7 @@ public class AgenticRagService {
         List<String> result = new ArrayList<>();
         int used = 0;
         for (String chunk : chunks) {
-            int cost = chunk.length() / CHARS_PER_TOKEN;
+            int cost = TokenEstimator.estimateTokens(chunk);
             if (used + cost > budget) break;
             result.add(chunk);
             used += cost;
@@ -211,8 +209,13 @@ public class AgenticRagService {
 
         int maxIterations = props.agenticRag() != null
                 ? props.agenticRag().effectiveMaxIterations() : 3;
-        int maxContextTokens = props.agenticRag() != null
-                ? props.agenticRag().effectiveMaxContextTokens() : 3000;
+        // Borné par la fenêtre réellement servie : fitToContextBudget découpe fidèlement au
+        // budget qu'on lui donne, mais un budget de 3000 tokens respecté à la lettre déborde
+        // tout autant d'une fenêtre de 2048 — et llama.cpp tronque alors le DÉBUT de la
+        // requête, donc le prompt système, sans lever d'erreur.
+        int maxContextTokens = ContextBudgetValidator.clampContextTokens(
+                props.agenticRag() != null ? props.agenticRag().effectiveMaxContextTokens() : 3000,
+                llmClient, "spectra.agentic-rag.max-context-tokens");
 
         String collectionName = request.collection() != null ? request.collection()
                 : (props.chromadb() != null ? props.chromadb().effectiveCollection() : "spectra_documents");

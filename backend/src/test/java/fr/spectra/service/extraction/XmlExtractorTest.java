@@ -7,12 +7,8 @@ import org.junit.jupiter.api.Test;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipInputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -23,25 +19,19 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  */
 class XmlExtractorTest {
 
-    private static final Path ZIP_PATH = Path.of("data/documents/xmls.zip");
-
     /** Contenu des entrées du zip indexées par nom de fichier. */
-    private static final Map<String, byte[]> ZIP_ENTRIES = new HashMap<>();
+    private static final Map<String, byte[]> ZIP_ENTRIES = new LinkedHashMap<>();
 
     private final XmlExtractor extractor = new XmlExtractor();
 
+    /** true quand le corpus de production est présent (voir {@link KafkaCorpusFixture}). */
+    private static boolean usingProductionCorpus;
+
     @BeforeAll
-    static void loadZipEntries() throws IOException {
-        assumeTrue(Files.exists(ZIP_PATH), "xmls.zip absent — test ignoré");
-        try (ZipInputStream zis = new ZipInputStream(Files.newInputStream(ZIP_PATH))) {
-            ZipEntry entry;
-            while ((entry = zis.getNextEntry()) != null) {
-                if (!entry.isDirectory()) {
-                    ZIP_ENTRIES.put(entry.getName(), zis.readAllBytes());
-                }
-            }
-        }
-        assumeTrue(!ZIP_ENTRIES.isEmpty(), "xmls.zip vide — test ignoré");
+    static void loadCorpus() throws IOException {
+        KafkaCorpusFixture.Corpus corpus = KafkaCorpusFixture.loadXml();
+        ZIP_ENTRIES.putAll(corpus.entries());
+        usingProductionCorpus = corpus.isProduction();
     }
 
     // ── Tests structurels sur le premier fichier ──────────────────────────────
@@ -104,7 +94,7 @@ class XmlExtractorTest {
     void extract_firstEntry_textContainsTopicValue() throws Exception {
         Map.Entry<String, byte[]> first = firstEntry();
         ExtractedDocument doc = extractor.extract(first.getKey(), stream(first.getValue()));
-        assertThat(doc.text()).contains("asf.peage.backoffice.conformite.sortie.conforme");
+        assertThat(doc.text()).contains(KafkaCorpusFixture.TOPIC);
     }
 
     @Test
@@ -156,7 +146,13 @@ class XmlExtractorTest {
 
     @Test
     void extract_allEntries_count() {
-        assertThat(ZIP_ENTRIES).hasSize(36);
+        // Seule assertion portant sur les DONNÉES et non sur le code : elle n'a de sens
+        // que face au corpus de production. Le saut est ici dans le corps du test, donc
+        // compté et affiché — contrairement à un assumeTrue en @BeforeAll, qui faisait
+        // disparaître la classe entière du rapport.
+        assumeTrue(usingProductionCorpus,
+                "corpus de production absent — cardinalité non vérifiable");
+        assertThat(ZIP_ENTRIES).hasSize(KafkaCorpusFixture.PRODUCTION_ENTRY_COUNT);
     }
 
     // ── Tests d'erreur ────────────────────────────────────────────────────────

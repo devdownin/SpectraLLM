@@ -48,7 +48,8 @@ class EvaluationServiceAbTest {
         modelSwitch = new ModelSwitchCoordinator(chatClient, 2, 1);
         // Génération : réponse quelconque. Jugement A/B (prompt contenant "Réponse 1") : gagnant 1.
         when(chatClient.chat(anyString(), anyString())).thenReturn("réponse du modèle");
-        when(chatClient.chat(argThat(s -> s != null && s.contains("Réponse 1")), anyString()))
+        // Le juge passe par chatJson (décodage contraint au JSON), la génération par chat.
+        when(chatClient.chatJson(argThat(s -> s != null && s.contains("Réponse 1")), anyString()))
                 .thenReturn("{\"winner\": 1, \"justification\": \"meilleure\"}");
         // chatWithStats (méthode default) déléguée à chat() : la génération l'utilise.
         when(chatClient.chatWithStats(anyString(), anyString()))
@@ -58,7 +59,7 @@ class EvaluationServiceAbTest {
 
     private EvaluationService newService() {
         EvaluationService service = new EvaluationService(
-                datasetGenerator, chatClient, modelSwitch, mock(DocumentModelLinkRepository.class),
+                datasetGenerator, chatClient, new LlmJudge(chatClient), modelSwitch, mock(DocumentModelLinkRepository.class),
                 tempDir.toString(), 200, "judge-x");
         service.init();
         return service;

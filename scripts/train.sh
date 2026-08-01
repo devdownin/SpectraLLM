@@ -2,7 +2,7 @@
 # ────────────────────────────────────────────────────────
 # Script d'entraînement QLoRA pour Spectra (appelé par FineTuningService).
 #
-# Arguments positionnels (fournis par FineTuningService.runTrainingProcess) :
+# Arguments positionnels (construits par ProcessTrainingRunner.train, depuis un TrainingSpec) :
 #   $1 = chemin du dataset JSONL
 #   $2 = chemin de sortie de l'adaptateur (répertoire ; un suffixe .gguf est toléré)
 #   $3 = modèle de base (phi3, tinyllama, mistral, llama3…)
@@ -10,9 +10,10 @@
 #   $5 = LoRA alpha
 #   $6 = nombre d'epochs
 #   $7 = learning rate
-#   $8  = packing ("true"/"false")  — optionnel, défaut false
-#   $9  = dpo     ("true"/"false")  — optionnel, défaut false
-#   $10 = orpo    ("true"/"false")  — optionnel, défaut false
+#   $8  = packing   ("true"/"false")  — optionnel, défaut false
+#   $9  = dpo       ("true"/"false")  — optionnel, défaut false
+#   $10 = orpo      ("true"/"false")  — optionnel, défaut false
+#   $11 = val split (0..1)            — optionnel, défaut 0 (désactivé)
 #
 # Ce script est un simple adaptateur : il délègue à train_host.py, qui gère à la fois
 # le backend GPU (Unsloth) et CPU (HuggingFace PEFT), le masquage du prompt, le packing
@@ -31,6 +32,7 @@ LEARNING_RATE="$7"
 PACKING="${8:-false}"
 DPO="${9:-false}"
 ORPO="${10:-false}"
+VAL_SPLIT="${11:-0}"
 
 # train_host.py écrit un répertoire d'adaptateur ; on tolère un chemin ".gguf" hérité.
 OUTPUT_DIR="${OUTPUT_PATH%.gguf}"
@@ -50,11 +52,16 @@ echo "Learning rate: $LEARNING_RATE"
 echo "Packing:       $PACKING"
 echo "DPO:           $DPO"
 echo "ORPO:          $ORPO"
+echo "Val split:     $VAL_SPLIT"
 
 EXTRA_ARGS=()
 [ "$PACKING" = "true" ] && EXTRA_ARGS+=(--packing)
 [ "$DPO" = "true" ]     && EXTRA_ARGS+=(--dpo)
 [ "$ORPO" = "true" ]    && EXTRA_ARGS+=(--orpo)
+# Split de validation : sans lui, seule la training loss est mesurée — elle décroît par
+# construction et ne dit rien du sur-apprentissage, le mode de défaillance le plus probable
+# sur les petits datasets synthétiques. Ignoré en DPO/ORPO (SFT uniquement).
+EXTRA_ARGS+=(--val-split "$VAL_SPLIT")
 # Longueur de séquence surchargeable (sinon défaut 512 côté train_host.py).
 [ -n "${SPECTRA_TRAIN_MAX_LENGTH:-}" ] && EXTRA_ARGS+=(--max-length "$SPECTRA_TRAIN_MAX_LENGTH")
 

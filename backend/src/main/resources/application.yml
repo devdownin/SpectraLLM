@@ -36,7 +36,7 @@ server:
 spectra:
   llm:
     base-url: ${SPECTRA_LLM_BASE_URL:http://llm-chat:8081}
-    model: ${SPECTRA_LLM_MODEL:phi-4-mini}
+    model: ${SPECTRA_LLM_MODEL:qwen2.5-7b-instruct}
     embedding-model: ${SPECTRA_LLM_EMBEDDING_MODEL:nomic-embed-text}
     provider: ${SPECTRA_LLM_PROVIDER:llama-cpp}
     chat:
@@ -68,6 +68,12 @@ spectra:
     # Nombre maximal de rapports d'évaluation COMPLETED conservés (les plus anciens
     # sont évincés). Les rapports sont nécessaires aux comparaisons.
     max-completed-reports: ${SPECTRA_EVALUATION_MAX_COMPLETED_REPORTS:200}
+  startup:
+    # Rattrapage automatique des modèles GGUF manquants au démarrage. Activé par défaut :
+    # c'est le comportement attendu d'une installation ordinaire. À désactiver là où
+    # l'absence du fichier est normale et le téléchargement (~4,7 Go) indésirable —
+    # tests d'intégration, CI, environnements aux modèles montés en lecture seule.
+    auto-install-models: ${SPECTRA_STARTUP_AUTO_INSTALL_MODELS:true}
   chromadb:
     base-url: ${CHROMADB_URL:http://chromadb:8000}
   ingestion:
@@ -100,6 +106,11 @@ spectra:
     chunk-locale: ${SPECTRA_CHUNK_LOCALE:fr}
     # 32 : divise par 3 les allers-retours HTTP vs l'ancien défaut 10 (500 chunks =
     # 16 requêtes au lieu de 50). Le timeout d'embedding (60 s) couvre un lot complet.
+    # Ce défaut était INATTEIGNABLE jusqu'ici : la réponse d'un lot de 32 dépasse les
+    # 256 Ko du plafond Spring par défaut, et le client d'embedding n'en fixait aucun
+    # (AppConfig.LLM_MAX_IN_MEMORY_BYTES le porte désormais à 16 Mo). Compose et .env
+    # imposaient des valeurs plus basses, ce qui masquait le défaut au lieu de le révéler.
+    # Toute augmentation doit rester cohérente avec ce plafond.
     embedding-batch-size: ${SPECTRA_EMBEDDING_BATCH_SIZE:32}
     # Taille décompressée max par fichier / entrée ZIP (Mo). Borne la mémoire
     # d'ingestion. 0 = auto : calculé selon le heap JVM et la concurrence.
@@ -121,11 +132,46 @@ spectra:
     top-bm25: ${SPECTRA_HYBRID_BM25_TOP:20}
     bm25-weight: ${SPECTRA_HYBRID_BM25_WEIGHT:1.0}
   reranker:
-    enabled: ${SPECTRA_RERANKER_ENABLED:false}
+    # Actif par défaut depuis la décision D1/option (b) (docs/process/plan-migration-java.fr.md) :
+    # « docker compose up » doit livrer la pile complète, reranking compris.
+    #
+    # Activer par défaut n'est sûr que parce que l'absence d'artefact est traitée comme une
+    # absence de reranker, et non comme un reranker en panne : RerankerClient.isAvailable()
+    # renvoie false, RagService cesse de sur-extraire des candidats, et le comportement est
+    # exactement celui d'une installation sans reranking. La cause reste lisible sur
+    # /api/status. Sans cette distinction, une installation sans artefact paierait une
+    # sur-extraction et un avertissement à CHAQUE requête.
+    enabled: ${SPECTRA_RERANKER_ENABLED:true}
     base-url: ${SPECTRA_RERANKER_URL:http://reranker:8000}
     model: ${SPECTRA_RERANKER_MODEL:cross-encoder/mmarco-mMiniLMv2-L12-H384-v1}
     timeout-seconds: ${SPECTRA_RERANKER_TIMEOUT:30}
     top-candidates: ${SPECTRA_RERANKER_TOP_CANDIDATES:20}
+    # Moteur : « onnx » (Cross-Encoder exécuté DANS la JVM via ONNX Runtime, sans conteneur ni
+    # Python) ou « http » (microservice Python services/reranker, profil compose « reranker »,
+    # en cours de retrait — cf. docs/process/audit-python-java.fr.md).
+    #
+    # Défaut « onnx » : il découle de « enabled: true » ci-dessus. Avec « http », un reranking
+    # actif par défaut appellerait un conteneur qui n'est PAS démarré sans son profil — un appel
+    # voué à l'échec à chaque requête. « onnx » n'a pas de dépendance de service : sans artefact
+    # il se déclare simplement indisponible.
+    #
+    # La parité d'ordre avec l'ancien service Python (RerankerParityTest sur modèle réel) n'a
+    # pas été mesurée : arbitrage assumé, pris avant qu'il n'y ait une base d'utilisateurs à
+    # protéger. Conséquence à connaître — si le classement ONNX diverge de la référence Python,
+    # rien ne le signalera : le reranking ne tombe pas en panne, il classe moins bien. Le
+    # harnais reste disponible (voir le plan de migration, lot 2) si le besoin réapparaît.
+    engine: ${SPECTRA_RERANKER_ENGINE:onnx}
+    onnx:
+      # Répertoire contenant model.onnx et tokenizer.json. Même convention que les GGUF :
+      # un artefact déposé dans le volume des modèles, pas un fichier versionné.
+      model-path: ${SPECTRA_RERANKER_ONNX_PATH:./data/models/reranker}
+      # « sigmoid » reproduit l'échelle du service Python (sentence-transformers applique une
+      # sigmoïde sur un cross-encoder à un logit) ; « logit » publie le logit brut. Ne change
+      # PAS l'ordre — seulement l'échelle des rerankScores exposés par l'API, donc la
+      # comparabilité d'une campagne de benchmark à l'autre.
+      activation: ${SPECTRA_RERANKER_ONNX_ACTIVATION:sigmoid}
+      max-length: ${SPECTRA_RERANKER_ONNX_MAX_LENGTH:512}
+      batch-size: ${SPECTRA_RERANKER_ONNX_BATCH_SIZE:16}
   agentic-rag:
     enabled: ${SPECTRA_AGENTIC_RAG_ENABLED:false}
     max-iterations: ${SPECTRA_AGENTIC_MAX_ITERATIONS:3}
@@ -163,6 +209,16 @@ spectra:
     # ~1 négatif pour 3 chunks ≈ 10 % du dataset, pour apprendre l'abstention (anti-hallucination).
     refusal-every-n: 3
   fine-tuning:
+    # Exécuteur : « process » lance les scripts sur l'hôte (défaut historique, adapté au
+    # développement local) ; « http » délègue au service spectra-trainer, seule façon d'exécuter
+    # un fine-tuning depuis un conteneur — l'image spectra-api étant une JRE sans Python.
+    #
+    # Le défaut reste « process » : une installation existante qui entraîne depuis l'hôte ne doit
+    # pas se retrouver à pointer un service qu'elle n'a pas démarré. En compose, la variable
+    # d'environnement bascule sur « http » avec le profil « trainer ».
+    runner: ${SPECTRA_FINE_TUNING_RUNNER:process}
+    # URL du service d'entraînement, utilisée quand runner=http.
+    trainer-url: ${SPECTRA_TRAINER_URL:http://trainer:8000}
     work-dir: ./data/fine-tuning
     script: ./scripts/train.sh
     # Modèle de base par défaut quand la requête n'en précise pas : un alias du
@@ -170,12 +226,15 @@ spectra:
     # HuggingFace complet (« org/nom »). NB : un GGUF du registre local n'est pas
     # ré-entraînable, seuls des poids HuggingFace le sont.
     default-base-model: ${SPECTRA_FINE_TUNING_DEFAULT_BASE_MODEL:phi3}
-    # Catégories/types exclus du SFT (séparés par des virgules ; comparés à 'category' ET 'type').
+    # Catégories/types exclus du SFT (séparés par des virgules). Comparés à trois champs de
+    # chaque paire : 'category' (nature de la paire), 'type', et 'documentCategory' (catégorie
+    # du document source attribuée par le classifieur R8) — ce dernier permet d'écarter tout
+    # un thème du corpus sans raisonner sur la nature des paires produites.
     # Stratégie « fine-tuning vs RAG » : le fine-tuning encode mal les faits volatils et vieillit ;
     # laissez les faits changeants au RAG et réservez le SFT au style/format/procédure.
     # Exemple recommandé pour des faits volatils : "evenements,nomenclatures".
     # Vide = aucune exclusion (comportement par défaut).
-    sft-excluded-categories: ""
+    sft-excluded-categories: ${SPECTRA_SFT_EXCLUDED_CATEGORIES:}
   benchmark:
     # Fichier JSONL du benchmark qualité tenu à l'écart. Vide = ressource embarquée
     # (benchmarks/highway_benchmark.jsonl). À pointer vers un fichier curé pour votre corpus.
@@ -190,6 +249,53 @@ spectra:
     retention:
       archive-after-days: ${SPECTRA_GED_ARCHIVE_AFTER_DAYS:0}
       purge-after-days: ${SPECTRA_GED_PURGE_AFTER_DAYS:0}
+
+  # R8 — Classification automatique des documents par le LLM.
+  # Le modèle lit des extraits représentatifs de chaque document et lui attribue les
+  # catégories qui caractérisent son contenu. C'est ce qui rend le corpus filtrable par
+  # thème — et donc un jeu d'entraînement composable et équilibré.
+  classification:
+    enabled: ${SPECTRA_CLASSIFICATION_ENABLED:true}
+    # Classifier chaque document dès la fin de son ingestion. Désactivé par défaut : un
+    # import massif enchaînerait autant d'appels LLM que de fichiers. Préférer la
+    # classification par lot (POST /api/ged/documents/bulk/classify) quand le corpus est
+    # déjà en place, et activer ceci pour un flux d'arrivée continu.
+    auto-classify: ${SPECTRA_CLASSIFICATION_AUTO:false}
+    # Catégories autorisées. Les quatre premières sont celles du générateur de dataset
+    # (spectra.dataset) : filtrage et génération parlent ainsi le même vocabulaire.
+    # À remplacer par la nomenclature de VOTRE domaine — c'est le principal réglage utile.
+    taxonomy:
+      - procedures
+      - evenements
+      - nomenclatures
+      - reglementation
+      - technique
+      - securite
+      - maintenance
+      - formation
+      - contractuel
+      - rapport
+    # true = le modèle peut proposer une catégorie hors taxonomie quand aucune ne convient.
+    # Utile pour découvrir la nomenclature d'un fonds inconnu ; à refermer ensuite, sinon
+    # les étiquettes se dispersent et le filtrage perd son sens.
+    open-taxonomy: ${SPECTRA_CLASSIFICATION_OPEN_TAXONOMY:false}
+    max-categories: ${SPECTRA_CLASSIFICATION_MAX_CATEGORIES:3}
+    # Confiance minimale pour retenir une catégorie (0.0–1.0).
+    min-confidence: ${SPECTRA_CLASSIFICATION_MIN_CONFIDENCE:0.5}
+    # Extraits échantillonnés dans le document et budget de caractères soumis au modèle.
+    #
+    # ATTENTION — ce budget doit tenir dans la fenêtre vue PAR REQUÊTE, c'est-à-dire
+    # LLM_CONTEXT / LLM_PARALLEL, et non dans LLM_CONTEXT seul. Compte, en français
+    # (~3,5 car./token) :
+    #   extrait 6000 car. ≈ 1715 tokens + prompt ~350 + entête ~40 + réponse ~120 ≈ 2225.
+    # Confortable dès 4096 tokens par requête — le dimensionnement automatique d'une
+    # machine 16 Go, soit le minimum documenté. En dessous (paliers < 8 Go), abaissez ce
+    # budget : au-delà de la fenêtre, llama.cpp tronque le DÉBUT de la requête, donc les
+    # consignes « réponds uniquement en JSON » et la taxonomie — le modèle répond alors en
+    # prose et la classification échoue systématiquement, sur chaque document.
+    max-chunks: ${SPECTRA_CLASSIFICATION_MAX_CHUNKS:8}
+    max-excerpt-chars: ${SPECTRA_CLASSIFICATION_MAX_EXCERPT_CHARS:6000}
+    temperature: ${SPECTRA_CLASSIFICATION_TEMPERATURE:0.1}
 
 llmfit:
   path: ${LLMFIT_PATH:llmfit}

@@ -75,7 +75,7 @@ C4Component
     Rel(ftSvc, datasetGen, "getAllPairs()")
     Rel(ftSvc, ollamaClient, "createModel()")
     Rel(ftSvc, broadcaster, "publish(level, msg)")
-    Rel(ftSvc, scripts, "ProcessBuilder")
+    Rel(ftSvc, scripts, "TrainingRunner.train(TrainingSpec)")
 
     Rel(ragSvc, embedding, "embed(question)")
     Rel(ragSvc, chromaClient, "query(vector, k)")
@@ -115,7 +115,7 @@ C4Component
 *   @Async via self-injection @Lazy
 *   Retry exponentiel 1s/2s/4s
 *   Sink multicast buffer 500 msg
-*   ProcessBuilder pour scripts
+*   TrainingRunner (disponibilité vérifiée avant acceptation)
 
 ---
 

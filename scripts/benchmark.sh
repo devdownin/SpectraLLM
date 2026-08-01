@@ -23,7 +23,7 @@ API_BASE="${SPECTRA_API:-http://localhost:8080}"
 # (container_name: spectra-llm-chat / spectra-llm-embed ; ./data/models monté sur /models).
 CHAT_CONTAINER="${CHAT_CONTAINER:-spectra-llm-chat}"
 EMBED_CONTAINER="${EMBED_CONTAINER:-spectra-llm-embed}"
-CHAT_MODEL_PATH="${CHAT_MODEL_PATH:-/models/${LLM_CHAT_MODEL_FILE:-Phi-4-mini-reasoning-UD-IQ1_S.gguf}}"
+CHAT_MODEL_PATH="${CHAT_MODEL_PATH:-/models/${LLM_CHAT_MODEL_FILE:-Qwen2.5-7B-Instruct-Q4_K_M.gguf}}"
 EMBED_MODEL_PATH="/models/embed.gguf"
 RAG_QUESTION="${RAG_QUESTION:-Quelle est la procédure principale décrite dans les documents ?}"
 RAG_FOLLOWUP="${RAG_FOLLOWUP:-Peux-tu donner plus de détails sur ce point ?}"
