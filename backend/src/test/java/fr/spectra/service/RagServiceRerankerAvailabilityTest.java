@@ -6,7 +6,6 @@ import fr.spectra.dto.QueryRequest;
 import fr.spectra.dto.ServiceStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -46,6 +45,13 @@ import static org.mockito.Mockito.when;
  *
  * <p>Ces tests figent la propriété qui rend l'activation par défaut sûre. Sans elle, l'option (b)
  * serait une régression déguisée en fonctionnalité.
+ *
+ * <p><b>Pas de {@code @Nested} ici, délibérément.</b> Surefire rapporte alors « Tests run: 0 »
+ * pour la classe englobante, ce que {@code scripts/check-test-reports.sh} traite — à juste
+ * titre — comme une classe qui n'exécute rien. Le garde-fou ne peut pas distinguer ce cas d'un
+ * {@code assumeTrue} avorté dans un {@code @BeforeAll}, et c'est précisément ce qui fait sa
+ * valeur : il ne se laisse pas convaincre. Les sept tests étaient d'ailleurs invisibles au
+ * décompte du dépôt (978 rapportés contre 985 exécutés).
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -116,74 +122,68 @@ class RagServiceRerankerAvailabilityTest {
                 null, null, null, null, true);
     }
 
-    @Nested
-    @DisplayName("Moteur non chargé (artefact absent)")
-    class Unavailable {
+    // ── Moteur non chargé (artefact absent) ──────────────────────────────────
 
-        @Test
-        @DisplayName("n'est jamais appelé — pas d'échec par requête")
-        void neverInvoked() {
-            RerankerClient reranker = unavailableReranker();
+    @Test
+    @DisplayName("moteur non chargé : n'est jamais appelé — pas d'échec par requête")
+    void neverInvoked() {
+        RerankerClient reranker = unavailableReranker();
 
-            ragService(Optional.of(reranker)).retrieveContext(request(), "Quelles normes ?", null);
+        ragService(Optional.of(reranker)).retrieveContext(request(), "Quelles normes ?", null);
 
-            verify(reranker, never()).rerank(anyString(), anyList(), anyInt());
-        }
-
-        @Test
-        @DisplayName("ne déclenche pas la sur-extraction de candidats auprès de ChromaDB")
-        void doesNotOverFetchCandidates() {
-            // Le cœur du défaut : retrieveCount vaut max(topCandidates, maxContextChunks)
-            // quand le reranking est réputé actif. Sans reranker utilisable, ChromaDB ne doit
-            // être interrogé que pour maxContextChunks — 5, et non 20.
-            ragService(Optional.of(unavailableReranker()))
-                    .retrieveContext(request(), "Quelles normes ?", null);
-
-            verify(chromaDbClient).query(anyString(), anyList(), eq(MAX_CONTEXT_CHUNKS));
-            verify(chromaDbClient, never()).query(anyString(), anyList(), eq(TOP_CANDIDATES));
-        }
-
-        @Test
-        @DisplayName("rapporte rerankApplied=false, comme une installation sans reranking")
-        void reportsRerankNotApplied() {
-            RagService.RagContext ctx = ragService(Optional.of(unavailableReranker()))
-                    .retrieveContext(request(), "Quelles normes ?", null);
-
-            assertThat(ctx.rerankApplied()).isFalse();
-        }
-
-        @Test
-        @DisplayName("n'est pas annoncé comme capacité disponible")
-        void notAdvertisedAsAvailableModule() {
-            // Sinon l'interface proposerait un reranking que le backend ne peut pas rendre.
-            assertThat(ragService(Optional.of(unavailableReranker())).moduleAvailability())
-                    .containsEntry("rerank", false);
-        }
+        verify(reranker, never()).rerank(anyString(), anyList(), anyInt());
     }
 
-    @Nested
-    @DisplayName("Moteur chargé")
-    class Available {
+    @Test
+    @DisplayName("moteur non chargé : pas de sur-extraction de candidats auprès de ChromaDB")
+    void doesNotOverFetchCandidates() {
+        // Le cœur du défaut : retrieveCount vaut max(topCandidates, maxContextChunks)
+        // quand le reranking est réputé actif. Sans reranker utilisable, ChromaDB ne doit
+        // être interrogé que pour maxContextChunks — 5, et non 20.
+        ragService(Optional.of(unavailableReranker()))
+                .retrieveContext(request(), "Quelles normes ?", null);
 
-        @Test
-        @DisplayName("est utilisé, et la sur-extraction reprend son sens")
-        void invokedAndOverFetches() {
-            RerankerClient reranker = availableReranker();
+        verify(chromaDbClient).query(anyString(), anyList(), eq(MAX_CONTEXT_CHUNKS));
+        verify(chromaDbClient, never()).query(anyString(), anyList(), eq(TOP_CANDIDATES));
+    }
 
-            RagService.RagContext ctx = ragService(Optional.of(reranker))
-                    .retrieveContext(request(), "Quelles normes ?", null);
+    @Test
+    @DisplayName("moteur non chargé : rerankApplied=false, comme une installation sans reranking")
+    void reportsRerankNotApplied() {
+        RagService.RagContext ctx = ragService(Optional.of(unavailableReranker()))
+                .retrieveContext(request(), "Quelles normes ?", null);
 
-            verify(chromaDbClient).query(anyString(), anyList(), eq(TOP_CANDIDATES));
-            verify(reranker).rerank(anyString(), anyList(), eq(MAX_CONTEXT_CHUNKS));
-            assertThat(ctx.rerankApplied()).isTrue();
-        }
+        assertThat(ctx.rerankApplied()).isFalse();
+    }
 
-        @Test
-        @DisplayName("est annoncé comme capacité disponible")
-        void advertisedAsAvailableModule() {
-            assertThat(ragService(Optional.of(availableReranker())).moduleAvailability())
-                    .containsEntry("rerank", true);
-        }
+    @Test
+    @DisplayName("moteur non chargé : n'est pas annoncé comme capacité disponible")
+    void notAdvertisedAsAvailableModule() {
+        // Sinon l'interface proposerait un reranking que le backend ne peut pas rendre.
+        assertThat(ragService(Optional.of(unavailableReranker())).moduleAvailability())
+                .containsEntry("rerank", false);
+    }
+
+    // ── Moteur chargé ────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("moteur chargé : est utilisé, et la sur-extraction reprend son sens")
+    void invokedAndOverFetches() {
+        RerankerClient reranker = availableReranker();
+
+        RagService.RagContext ctx = ragService(Optional.of(reranker))
+                .retrieveContext(request(), "Quelles normes ?", null);
+
+        verify(chromaDbClient).query(anyString(), anyList(), eq(TOP_CANDIDATES));
+        verify(reranker).rerank(anyString(), anyList(), eq(MAX_CONTEXT_CHUNKS));
+        assertThat(ctx.rerankApplied()).isTrue();
+    }
+
+    @Test
+    @DisplayName("moteur chargé : est annoncé comme capacité disponible")
+    void advertisedAsAvailableModule() {
+        assertThat(ragService(Optional.of(availableReranker())).moduleAvailability())
+                .containsEntry("rerank", true);
     }
 
     @Test
