@@ -40,6 +40,8 @@ Spectra downloads the default models (~1.2 GB), starts the stack, and opens the 
 
 > **Requirements:** Docker (Compose v2) and 16 GB RAM. GPU optional — NVIDIA, AMD/ROCm and Vulkan supported, auto-detected. Prefer step-by-step control? → **[Getting Started](docs/getting-started.en.md)**
 
+> **Fine-tuning:** add `--trainer` to make it available (`./scripts/start.sh --trainer`). The training engine ships as a dedicated image — several GB, torch included — that the default stack does not start. Without the flag, a submission is rejected with instructions.
+
 ## 🏆 Why Spectra
 
 | | Spectra | LangChain | Haystack | Open WebUI |

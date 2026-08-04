@@ -28,8 +28,22 @@
 > motivé quand aucun exécuteur n'est disponible, et les arguments positionnels sont devenus un
 > `TrainingSpec` nommé.
 >
-> Restent **ouverts** : F12, F14, la part non couverte de F13 et la documentation désynchronisée
-> (§6). Aucun n'est bloquant.
+> **F1 est désormais clos pour de bon.** Le lot 4a avait rendu l'échec honnête (503 motivé au
+> lieu d'une `IOException` à mi-course) et le lot 4b avait fourni l'exécuteur manquant (service
+> `spectra-trainer`, `HttpTrainingRunner`). Restait le dernier maillon, purement opératoire, et
+> c'est celui que les utilisateurs rencontraient : **aucun chemin de lancement documenté ne
+> démarrait le trainer**. `start.sh` ignorait le profil `trainer` — que `stop.sh` connaissait
+> pourtant — et n'avait aucun moyen de basculer le runner. Un `docker compose up` nominal
+> donnait donc « script d'entraînement introuvable : /app/scripts/train.sh », pour un script
+> présent dans le dépôt et parfaitement exécutable. `./scripts/start.sh --trainer` pose
+> maintenant les deux réglages ensemble ; le motif de refus nomme cette commande.
+>
+> La **documentation désynchronisée du §6 est corrigée** : le mode « Simulation » (qui n'existe
+> pas) et le montage `./scripts` (qui n'existe pas non plus) ont disparu de la doc technique, du
+> diagramme C4 et de `llama-cpp.fr.md`.
+>
+> Restent **ouverts** : F12, F14, la part non couverte de F13, et le champ `reportPath` toujours
+> `null` signalé au §6. Aucun n'est bloquant.
 
 ---
 

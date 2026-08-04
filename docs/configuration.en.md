@@ -153,6 +153,12 @@ Disabled by default — no Kafka bean is created unless `SPECTRA_KAFKA_ENABLED=t
 | `SPECTRA_EVALUATION_JUDGE_MODEL` | *(empty)* | Neutral judge model for LLM-as-a-judge scoring. Empty = the evaluated model judges itself (possible bias) |
 | `SPECTRA_EVALUATION_MAX_COMPLETED_REPORTS` | `200` | Max COMPLETED evaluation reports kept (oldest evicted) |
 | `SPECTRA_FINE_TUNING_DEFAULT_BASE_MODEL` | `phi3` | Default base model when a request names none (catalog alias or full HF repo) |
+| `SPECTRA_FINE_TUNING_RUNNER` | `process` | Where training runs. `process` shells out to `scripts/train.sh` on the host; `http` delegates to the `spectra-trainer` service — the only option that works from a container, since the `spectra-api` image is a JRE with no Python |
+| `SPECTRA_TRAINER_URL` | `http://trainer:8000` | Trainer service endpoint, used when the runner is `http` |
+
+Setting the runner alone is not enough: the `trainer` compose profile has to be started too, or
+submissions fail with *"training service unreachable"*. `./scripts/start.sh --trainer` sets both
+together and is the recommended way in.
 
 ### Model Hub (llmfit)
 

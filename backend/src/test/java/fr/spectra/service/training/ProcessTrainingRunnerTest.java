@@ -51,6 +51,18 @@ class ProcessTrainingRunnerTest {
     }
 
     @Test
+    @DisplayName("le motif nomme la commande qui rend le fine-tuning disponible")
+    void unavailabilityReasonNamesTheRemedy() {
+        // Le script existe pourtant dans le dépôt : dire « introuvable » sans plus décrit une
+        // absence que l'exploitant ira chercher en vain. Ce qui manque n'est pas le fichier,
+        // c'est le service qui sait l'exécuter — et le démarrer tient en une commande. La
+        // figer ici, c'est empêcher qu'un remaniement ne rende le refus à nouveau muet.
+        String reason = runner(tempDir.resolve("absent.sh").toString()).unavailabilityReason();
+
+        assertThat(reason).contains("start.sh --trainer");
+    }
+
+    @Test
     @DisplayName("script présent → disponible, sans raison d'indisponibilité")
     void availableWhenScriptPresent() throws Exception {
         ProcessTrainingRunner runner = runner(echoScript().toString());

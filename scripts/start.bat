@@ -4,11 +4,16 @@ setlocal enabledelayedexpansion
 
 REM  ────────────────────────────────────────────────────────
 REM  Spectra — Script de lancement (Windows)
-REM  Usage: start.bat [--first-run] [--detach] [--gpu]
+REM  Usage: start.bat [--first-run] [--detach] [--gpu] [--trainer]
 REM
 REM    --first-run   Premier lancement tout-en-un : configuration initiale,
 REM                  telechargement des modeles, demarrage en arriere-plan
 REM                  puis ouverture du navigateur sur l'UI.
+REM    --trainer     Rend le fine-tuning executable : demarre le service
+REM                  spectra-trainer et branche l'API dessus. Sans cela, une
+REM                  soumission est refusee — l'image spectra-api est une JRE
+REM                  sans Python, elle ne peut pas lancer scripts/train.sh.
+REM                  L'image du trainer pese plusieurs Go (torch).
 REM  ────────────────────────────────────────────────────────
 
 REM  Les scripts vivent dans scripts\ mais la stack (docker-compose, data\, .env)
@@ -21,12 +26,14 @@ set COMPOSE=docker compose --project-directory . -f deploy/docker/docker-compose
 set DETACH=
 set GPU_FLAG=
 set FIRST_RUN=
+set TRAINER=
 
 :parse_args
 if "%~1"=="" goto done_args
 if "%~1"=="--detach" set DETACH=-d
 if "%~1"=="-d"       set DETACH=-d
 if "%~1"=="--gpu" set GPU_FLAG=--gpu
+if "%~1"=="--trainer" set TRAINER=1
 if "%~1"=="--first-run" (
     set FIRST_RUN=1
     set DETACH=-d
@@ -69,6 +76,36 @@ if !errorlevel!==0 (
     set COMPOSE=!COMPOSE! -f deploy/docker/docker-compose.gpu.yml
     echo   [OK] GPU active, docker-compose.gpu.yml inclus
 )
+
+REM  2 bis. Fine-tuning en conteneur. Miroir de start.sh, ou le raisonnement est detaille.
+REM  En resume : le profil compose « trainer » demarre le service qui sait executer
+REM  scripts/train.sh, et SPECTRA_FINE_TUNING_RUNNER=http dit a l'API de s'adresser a lui.
+REM  N'en poser qu'un donne les deux pannes symetriques — « script d'entrainement
+REM  introuvable » d'un cote, « service d'entrainement injoignable » de l'autre.
+if defined TRAINER goto enable_trainer
+findstr /R /C:"^ *SPECTRA_FINE_TUNING_RUNNER= *http" .env >nul 2>&1
+if not !errorlevel!==0 goto no_trainer
+
+:enable_trainer
+set "SPECTRA_FINE_TUNING_RUNNER=http"
+REM  Fusion et non affectation : un COMPOSE_PROFILES deja renseigne (reranker, kafka…)
+REM  serait sinon ecrase, et demander le trainer desactiverait le reste sans le dire.
+if defined COMPOSE_PROFILES goto have_profiles
+for /f "tokens=1,* delims==" %%A in ('findstr /R /C:"^ *COMPOSE_PROFILES=" .env 2^>nul') do set "COMPOSE_PROFILES=%%B"
+:have_profiles
+echo ,!COMPOSE_PROFILES!,| findstr /C:",trainer," >nul
+if !errorlevel!==0 goto profiles_ready
+if defined COMPOSE_PROFILES (
+    set "COMPOSE_PROFILES=!COMPOSE_PROFILES!,trainer"
+) else (
+    set "COMPOSE_PROFILES=trainer"
+)
+:profiles_ready
+echo.
+echo ^> Fine-tuning en conteneur active
+echo   [OK] service spectra-trainer + SPECTRA_FINE_TUNING_RUNNER=http
+echo        Premiere fois : l'image embarque torch, comptez plusieurs Go et un long build.
+:no_trainer
 
 REM  3. Build si l'image n'existe pas
 docker image inspect spectra-spectra-api >nul 2>&1
@@ -162,6 +199,25 @@ for /l %%i in (1,1,30) do (
 )
 if !READY!==0 echo   Interface Web: [TIMEOUT]
 
+REM  Service d'entrainement (seulement s'il a ete demande). Un trainer qui n'a pas demarre
+REM  rend le fine-tuning indisponible : cette information a sa place dans le recapitulatif
+REM  de demarrage, pas dans un refus a la premiere soumission.
+if not "!SPECTRA_FINE_TUNING_RUNNER!"=="http" goto skip_trainer_wait
+set /a "READY=0"
+for /l %%i in (1,1,30) do (
+    if !READY!==0 (
+        powershell -Command "try { Invoke-WebRequest -Uri http://localhost:8004/health -UseBasicParsing -TimeoutSec 2 | Out-Null; exit 0 } catch { exit 1 }" >nul 2>&1
+        if !errorlevel!==0 (
+            echo   Trainer:      [OK] pret
+            set /a "READY=1"
+        ) else (
+            timeout /t 2 /nobreak >nul
+        )
+    )
+)
+if !READY!==0 echo   Trainer:      [TIMEOUT]
+:skip_trainer_wait
+
 REM  6. Resume
 echo.
 echo ======================================
@@ -173,6 +229,12 @@ echo  API REST    :  http://localhost:8080/api/status
 echo  Swagger     :  http://localhost:8080/swagger-ui.html
 echo  LLM server  :  http://localhost:8081
 echo  ChromaDB    :  http://localhost:8000
+if "!SPECTRA_FINE_TUNING_RUNNER!"=="http" (
+    echo  Trainer     :  http://localhost:8004/health
+) else (
+    echo.
+    echo  Fine-tuning :  indisponible — relancez avec scripts\start.bat --trainer
+)
 echo.
 echo  Arret       :  scripts\stop.bat
 echo  Logs        :  %COMPOSE% logs -f
