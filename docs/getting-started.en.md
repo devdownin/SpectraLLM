@@ -65,7 +65,7 @@ huggingface-cli download nomic-ai/nomic-embed-text-v1.5-GGUF \
   --local-dir data/models/ --filename embed.gguf
 ```
 
-If the models are missing at startup, `model-init` will print exact download instructions and abort before the LLM servers start.
+If the models are missing at startup, the stack still comes up: `llm-chat` and `llm-embed` log `EN ATTENTE: modèle introuvable` and poll until the GGUF appears, then start serving on their own. Nothing aborts, so you can drop the files in — or download them from the Model Hub in the UI — while the stack is already running.
 
 ### 3. Start the stack
 

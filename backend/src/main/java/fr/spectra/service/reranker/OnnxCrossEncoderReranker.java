@@ -113,10 +113,21 @@ public class OnnxCrossEncoderReranker implements RerankerClient, AutoCloseable {
                     modelDir, graphInputs, activation, maxLength, batchSize);
         } catch (Exception e) {
             this.loadError = e.getMessage();
-            log.error("Reranker ONNX indisponible : {}. Placez model.onnx et tokenizer.json dans {} "
-                            + "(ou repassez sur spectra.reranker.engine=http). Le RAG continuera "
-                            + "de fonctionner sans reranking.",
-                    e.getMessage(), modelDir);
+            // Artefact simplement ABSENT : c'est l'état normal d'une installation neuve, puisque
+            // spectra.reranker.engine vaut « onnx » par défaut alors qu'aucun modèle n'est livré.
+            // Un ERROR sur ce chemin apprend aux exploitants à ignorer les ERROR — le jour où il
+            // y en a un vrai, il passe inaperçu. Un artefact PRÉSENT qui refuse de se charger,
+            // lui, est une panne inattendue : il garde son niveau.
+            if (!Files.isRegularFile(model) || !Files.isRegularFile(tokenizerFile)) {
+                log.warn("Reranker ONNX inactif : {}. Placez {} et {} dans {} "
+                                + "(ou repassez sur spectra.reranker.engine=http). Le RAG continuera "
+                                + "de fonctionner sans reranking.",
+                        e.getMessage(), MODEL_FILE, TOKENIZER_FILE, modelDir);
+            } else {
+                log.error("Reranker ONNX indisponible : {}. L'artefact est présent dans {} mais "
+                                + "n'a pas pu être chargé. Le RAG continuera de fonctionner sans reranking.",
+                        e.getMessage(), modelDir);
+            }
         }
     }
 

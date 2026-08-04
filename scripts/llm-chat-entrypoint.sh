@@ -172,7 +172,11 @@ while :; do
   sleep "${POLL_SECONDS}" &
   wait $! 2>/dev/null || true
 
-  if [ -z "${CHILD}" ] || ! kill -0 "${CHILD}" 2>/dev/null; then
+  # « ${CHILD:-} » et non « ${CHILD} » : quand le modèle est absent, start_server()
+  # sort AVANT d'affecter CHILD. Sous « set -u », la forme nue tuait ici le conteneur
+  # un intervalle après le boot — donc un crashloop via « restart: unless-stopped »,
+  # exactement le comportement bloquant que la suppression de model-init a retiré.
+  if [ -z "${CHILD:-}" ] || ! kill -0 "${CHILD}" 2>/dev/null; then
     log "llama-server est arrêté ou en attente de modèle — nouvelle tentative dans 5s"
     sleep 5
     resolve

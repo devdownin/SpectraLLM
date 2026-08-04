@@ -48,8 +48,8 @@ def shell_scripts():
     for path in sorted(SCRIPTS.rglob("*.sh")):
         body = path.read_text(encoding="utf-8")
         # Sans pipefail, le pipeline renvoie le statut de sa DERNIÈRE commande (sort, awk, sed…),
-        # qui réussit : le défaut n'existe pas. C'est le cas de check-models.sh, volontairement
-        # hors périmètre plutôt que « corrigé » sans raison.
+        # qui réussit : le défaut n'existe pas. Ces scripts sont volontairement hors périmètre
+        # plutôt que « corrigés » sans raison.
         if re.search(r"^set\s+-[a-z]*e[a-z]*\b", body, re.M) and "pipefail" in body:
             yield path, body
 

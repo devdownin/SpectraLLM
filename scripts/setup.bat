@@ -57,6 +57,7 @@ for %%D in (
     "data\fine-tuning\merged"
     "data\models"
     "data\source"
+    "data\chroma"
 ) do (
     if not exist %%D\ (
         mkdir %%D
@@ -114,8 +115,9 @@ if exist "data\models\embed.gguf" (
 
 :: ── 5. Modèle de chat ─────────────────────────────────────────────────────
 :: Le modele doit resider dans data\models\ sous le nom que la stack Docker lit
-:: (data\models\%%LLM_CHAT_MODEL_FILE%%), sinon model-init / llm-chat ne le
-:: trouvent pas — miroir de la section 6 de setup.sh.
+:: (data\models\%%LLM_CHAT_MODEL_FILE%%), sinon llm-chat ne le trouve pas et attend
+:: indefiniment : la stack demarre, mais le chat ne repond jamais.
+:: Miroir de la section 6 de setup.sh.
 set "CHAT_DOWNLOAD_NAME=Qwen2.5-7B-Instruct-Q4_K_M.gguf"
 set "CHAT_MODEL_FILE="
 set "CHAT_MODEL_NAME="

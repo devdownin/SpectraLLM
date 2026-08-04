@@ -31,6 +31,8 @@ Every setting has a working default — see the essentials note at the top of [.
 | `LLM_EMBED_MODEL_FILE` | `embed.gguf` | Embedding GGUF filename in `data/models/` |
 | `LLM_PARALLEL` | `2` | Parallel inference slots per server |
 | `LLAMA_CPP_IMAGE_TAG` | `server-b9828` | Pinned `ghcr.io/ggml-org/llama.cpp` image tag for llm-chat/llm-embed (the floating `server` tag tracks llama.cpp master and can break without warning) |
+| `CHROMADB_IMAGE_TAG` | `1.5.9` | Pinned `chromadb/chroma` image tag. `latest` once moved its persistence path from `/chroma/chroma` to `/data`, leaving the mounted volume empty and silently discarding the vector index on every `down`. Check the persistence path and `/api/v2/heartbeat` before bumping |
+| `SPECTRA_STARTUP_AUTO_INSTALL_MODELS` | `true` | On boot, download the default chat GGUF via the Model Hub when it is absent. Only the **default** model can be installed this way — the HuggingFace repo is hardcoded, and no repo can be derived from an arbitrary filename. If `LLM_CHAT_MODEL_FILE` names a different model and that file is missing, the API logs a warning and installs nothing rather than fetching several GB of something you did not ask for. Set to `false` in CI and on metered connections |
 
 ### Ingestion pipeline
 
@@ -39,7 +41,7 @@ Every setting has a working default — see the essentials note at the top of [.
 | `SPECTRA_CHUNK_MAX_TOKENS` | `512` | Max tokens per chunk |
 | `SPECTRA_CHUNK_OVERLAP_TOKENS` | `64` | Token overlap between chunks |
 | `SPECTRA_CHUNK_LOCALE` | `fr` | BCP 47 tag for sentence-boundary detection during chunking (`fr`, `en`, `de`…). Does **not** change tokenization |
-| `SPECTRA_EMBEDDING_BATCH_SIZE` | `32` | Chunks embedded per HTTP batch (500 chunks = 16 requests instead of 50 with the old default of 10). Lower it on very slow CPUs |
+| `SPECTRA_EMBEDDING_BATCH_SIZE` | `32` | Chunks embedded per HTTP batch (500 chunks = 16 requests instead of 50 with the old default of 10). Lower it on very slow CPUs. Bounded by the LLM clients' 16 MB response buffer (`AppConfig.LLM_MAX_IN_MEMORY_BYTES`) — a batch whose response exceeds it fails as a whole, so raise both together |
 | `SPECTRA_EMBEDDING_TIMEOUT` | `60` | Timeout (seconds) of each `/v1/embeddings` request — must cover a full batch on slow hardware |
 | `SPECTRA_CONCURRENT_INGESTIONS` | `1` | Parallel ingestion workers (upload, URL and batch paths all share this semaphore) |
 | `SPECTRA_MAX_ACTIVE_INGESTIONS` | `0` | Cap on active ingestion tasks (PENDING/PROCESSING). Beyond it, a new submission is rejected with **HTTP 429** before any temp write — backpressure against a flood of submissions piling up temp files and registry entries. `0` = unlimited |
@@ -183,6 +185,7 @@ GET /api/status/fts?collection=spectra_documents
 
 # Spring Boot health (used by Docker healthcheck)
 GET /actuator/health
+GET /actuator/health/readiness    # what the Compose healthcheck actually probes
 
 # Prometheus metrics (HTTP + RAG latency histograms, tag application=spectrallm)
 GET /actuator/prometheus
@@ -197,6 +200,10 @@ GET /api/metrics/personalization
 GET /api-docs
 GET /swagger-ui.html
 ```
+
+**`llmChat` health component** — `/actuator/health` reports whether the chat server is actually serving, with a `state` of `ready`, `loading` (server up, model still loading) or `unreachable`. It exists because the stack can be healthy end to end while llama-server is still loading a multi-gigabyte GGUF: `spectra-api` only waits for ChromaDB, `frontend` only waits for `spectra-api`, and the LLM servers are deliberately independent. The UI already surfaced this through `ServiceHealthBanner`; this covers operators on the command line and monitoring.
+
+It **never reports DOWN** — a model still loading is a normal startup state, not an outage, and a DOWN would flip the aggregate status that monitoring alerts on. It is also **not part of the `readiness` group**, which the Compose healthcheck probes and `frontend` gates on: putting the LLM there would make frontend startup wait for the model to load, reinstating the blocking dependency that removing `model-init` got rid of.
 
 **Consistency metrics** — hourly reconciliation between H2, ChromaDB and the BM25 index. Covers the default collection, every collection referenced by the GED, and the Kafka stream collection when enabled:
 

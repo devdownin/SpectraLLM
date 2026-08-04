@@ -41,7 +41,6 @@ OPERATIONAL_FILES=(
   ".github/workflows/ci.yml"
   "backend/src/main/java/fr/spectra/service/StartupOrchestrator.java"
   "scripts/benchmark.sh"
-  "scripts/check-models.sh"
   "scripts/detect-env.sh"
   "scripts/detect-env.bat"
   "scripts/llm-chat-entrypoint.sh"

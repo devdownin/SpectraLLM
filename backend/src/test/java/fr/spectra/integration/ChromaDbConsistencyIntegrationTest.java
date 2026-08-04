@@ -102,7 +102,11 @@ class ChromaDbConsistencyIntegrationTest {
             return;
         }
         if (!isDockerAvailable()) return;   // chromaBaseUrl reste null → tests sautés, un par un
-        chromaContainer = new GenericContainer<>("chromadb/chroma:latest")
+        // Même version épinglée que deploy/docker/docker-compose.yml : le test ne vaut que
+        // s'il interroge l'image RÉELLEMENT servie. Avec « latest » des deux côtés, les deux
+        // pouvaient déjà diverger — le test restait vert sur une image que la stack n'utilisait
+        // plus. À faire évoluer avec le compose, jamais séparément.
+        chromaContainer = new GenericContainer<>("chromadb/chroma:1.5.9")
                 .withExposedPorts(8000)
                 .withEnv("ANONYMIZED_TELEMETRY", "FALSE")
                 .waitingFor(Wait.forHttp("/api/v2/heartbeat").forPort(8000)

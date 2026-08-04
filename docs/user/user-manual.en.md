@@ -21,7 +21,7 @@ You need two **GGUF** files placed in `data/models/`:
 | `LLM_CHAT_MODEL_FILE` | `Qwen2.5-7B-Instruct-Q4_K_M.gguf` | Answers questions, generates the dataset |
 | `LLM_EMBED_MODEL_FILE` | `embed.gguf` | Converts text into vectors for search |
 
-If a file is missing at startup, the `model-init` service prints the exact download commands and stops the stack before the LLM servers start.
+If a file is missing at startup, the stack does not stop: the LLM servers wait for it, logging `EN ATTENTE: modèle introuvable`, and start serving as soon as the file appears. You can add it while the stack is running.
 
 ### Download the models
 
@@ -1271,7 +1271,7 @@ Documents → RAG → AI Comments → 👍 Approvals
 
 ### Startup auto-tuning
 
-Spectra automatically adjusts its inference parameters based on the resources available in each container. This detection happens on every startup of the `llm-chat` and `llm-embed` servers, via the `scripts/llama-autostart.sh` script.
+Spectra automatically adjusts its inference parameters based on the resources available in each container. This detection happens on every startup of the `llm-chat` and `llm-embed` servers, via their respective entrypoints `scripts/llm-chat-entrypoint.sh` and `scripts/llm-embed-entrypoint.sh`.
 
 **What the system detects and configures automatically:**
 

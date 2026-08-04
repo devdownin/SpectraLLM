@@ -81,7 +81,13 @@ services:
 
   # ── ChromaDB ──────────────────────────────────────────────────────────────
   chromadb:
-    image: chromadb/chroma:latest
+    # Image ÉPINGLÉE, même raisonnement que llama.cpp ci-dessus : « latest » a déjà
+    # dérivé en silence une fois. Le chemin de persistance est passé de /chroma/chroma
+    # (≤ 0.5.x) à /data, et le volume monté sur l'ancien chemin est resté vide pendant
+    # des mois — l'index vectoriel repartait de zéro à chaque « down », sans un message.
+    # Surcharge possible via CHROMADB_IMAGE_TAG ; vérifiez le chemin de persistance et
+    # /api/v2/heartbeat avant de monter de version.
+    image: chromadb/chroma:${CHROMADB_IMAGE_TAG:-1.5.9}
     container_name: spectra-chromadb
     deploy:
       resources:
@@ -92,7 +98,17 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - chromadb-data:/chroma/chroma
+      # /data et NON /chroma/chroma : ce dernier est le chemin de persistance de Chroma
+      # ≤ 0.5.x. L'image actuelle écrit dans /data — le volume monté sur l'ancien chemin
+      # restait donc VIDE et l'index vectoriel vivait dans la couche inscriptible du
+      # conteneur, détruite à chaque « docker compose down », sans même « -v ». C'est la
+      # cause réelle du « ChromaDB vide alors que la GED déclare N chunks » signalé au
+      # démarrage par ConsistencyReconciliationService.
+      #
+      # Bind-mount et NON volume nommé : la base H2 (état de la GED) vit dans ./data.
+      # Deux stockages aux cycles de vie distincts se désynchronisent tôt ou tard ;
+      # un seul répertoire = une seule sauvegarde, une seule remise à zéro.
+      - ./data/chroma:/data
     environment:
       - ANONYMIZED_TELEMETRY=FALSE
       - CHROMA_OTEL_EXPORTER_OTLP_ENDPOINT=
@@ -266,7 +282,11 @@ services:
       - SPECTRA_CHROMADB_BASE_URL=http://chromadb:8000
       - SPECTRA_PIPELINE_CHUNK_MAX_TOKENS=${SPECTRA_CHUNK_MAX_TOKENS:-256}
       - SPECTRA_PIPELINE_CHUNK_OVERLAP_TOKENS=${SPECTRA_CHUNK_OVERLAP_TOKENS:-64}
-      - SPECTRA_PIPELINE_EMBEDDING_BATCH_SIZE=${SPECTRA_EMBEDDING_BATCH_SIZE:-10}
+      # Aligné sur le défaut applicatif (application.yml) : trois valeurs différentes
+      # cohabitaient (32 ici, 10 en Compose, 5 en .env), si bien que le comportement
+      # dépendait du chemin de lancement — et que le défaut applicatif, seul à dépasser
+      # l'ancien plafond de buffer de 256 Ko, n'était jamais exercé.
+      - SPECTRA_PIPELINE_EMBEDDING_BATCH_SIZE=${SPECTRA_EMBEDDING_BATCH_SIZE:-32}
       - SPECTRA_PIPELINE_EMBEDDING_TIMEOUT_SECONDS=${SPECTRA_EMBEDDING_TIMEOUT:-30}
       - SPECTRA_PIPELINE_GENERATION_TIMEOUT_SECONDS=${SPECTRA_GENERATION_TIMEOUT:-120}
       - SPECTRA_PIPELINE_CONCURRENT_INGESTIONS=${SPECTRA_CONCURRENT_INGESTIONS:-4}
@@ -414,7 +434,6 @@ services:
     restart: unless-stopped
 
 volumes:
-  chromadb-data:
   reranker-model-cache:
   trainer-hf-cache:
   # Nom aligné sur le volume du broker Kafka Explorer pour un broker identique.

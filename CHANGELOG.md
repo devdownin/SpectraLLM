@@ -8,6 +8,68 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Corrigé — l'index vectoriel n'a jamais été persisté
+
+```
+docker run --rm -v spectrahead_chromadb-data:/v alpine du -sh /v   →  4.0K, 0 fichier
+docker run --rm -v spectrallm_chromadb-data:/v  alpine du -sh /v   →  4.0K, 0 fichier
+```
+
+Deux volumes vides, après 45 minutes de stack déclarant 372 chunks en GED. Le compose montait `/chroma/chroma`, chemin de persistance de Chroma ≤ 0.5.x, alors que l'image écrit dans `/data` : le volume ne recevait rien et l'index vivait dans la couche inscriptible du conteneur, **détruite à chaque `docker compose down`, sans même `-v`**. C'était la cause réelle du `ChromaDB vide alors que la GED déclare N chunk(s)` signalé au démarrage.
+
+ChromaDB monte désormais `./data/chroma:/data` — le même bind-mount que la base H2 et l'index FTS. Un seul cycle de vie, une seule sauvegarde, plus de désynchronisation par construction. Vérifié par destruction et recréation du conteneur : les 127 chunks survivent. Seul le compose avait dérivé — le manifeste Kubernetes, depuis retiré, utilisait bien `/data`.
+
+L'image `chromadb/chroma` est épinglée sur **1.5.9** (compose et Testcontainers) : `latest` est précisément ce qui a laissé le chemin changer en silence. Le test d'intégration était lui aussi sur `latest` alors qu'il prétend viser « la même image que la stack » — les deux doivent évoluer ensemble.
+
+### Corrigé — le démarrage tolérant des conteneurs LLM ne l'était pas
+
+`de9827e` a supprimé `model-init` pour que `llm-chat` *attende* son modèle. Il n'attendait pas :
+
+```
+[llm-chat] EN ATTENTE: modèle introuvable : …
+llm-chat-entrypoint.sh: line 175: CHILD: unbound variable   →  exit 1
+```
+
+Sous `set -u`, `start_server()` sort avant d'affecter `CHILD` quand le modèle manque ; la ligne 175 le déréférençait sans garde, là où `stop_server` utilisait déjà `${CHILD:-}`. Le conteneur mourait un intervalle après le boot, donc un crashloop via `restart: unless-stopped` — exactement le comportement bloquant que la suppression de `model-init` avait retiré. Ne se manifestait qu'à la première installation, modèles pas encore téléchargés.
+
+Corollaire : `model-init` était encore décrit comme un service actif dans huit emplacements (`architecture.en.md`, `technical-doc.fr.md`, les deux manuels, `getting-started`, `ci.yml`, `setup.sh`, `setup.bat`), dont une chaîne de dépendances qui n'existe plus. La chaîne réelle est `chromadb → spectra-api → frontend`, `llm-chat` et `llm-embed` étant indépendants.
+
+### Corrigé — le défaut applicatif de taille de lot d'embedding était inatteignable
+
+```
+DataBufferLimitException: Exceeded limit on max bytes to buffer : 262144
+[circuit-breaker] embedBatch ouvert → 0 chunk indexé sur 4 documents
+```
+
+`llamaCppEmbeddingWebClient` n'avait aucun `maxInMemorySize` et restait au défaut Spring de 256 Ko, quand `application.yml` fixe `embedding-batch-size` à 32 — soit 32 vecteurs de 768 dimensions en JSON, largement au-delà. Trois valeurs divergentes cohabitaient (32 en applicatif, 10 en Compose, 5 en `.env`), si bien que seules les plus basses masquaient le défaut au lieu de le révéler.
+
+Plafond de 16 Mo appliqué aux quatre clients LLM qui n'en avaient aucun (`llmWebClient`, chat, embedding, reranker) ; 16 Mo et non `-1`, pour qu'une réponse aberrante échoue plutôt que de consommer le heap. Taille de lot unifiée à 32 entre `application.yml` et Compose. La même ingestion passe désormais à 127/127 chunks, zéro erreur.
+
+### Corrigé — un modèle présent déclaré manquant, et un autre installé à sa place
+
+`StartupOrchestrator` journalisait `Modèle de chat par défaut manquant (qwen2.5-7b-instruct)` avec le GGUF bien présent : le repli de `resolveChatModelFile()` rendait l'**alias** du modèle, utilisé ensuite comme nom de fichier. `./data/models/qwen2.5-7b-instruct` ne désigne rien — le modèle était donc déclaré absent à chaque démarrage.
+
+S'ensuivait un second défaut : quel que soit le fichier jugé manquant, c'est `bartowski/Qwen2.5-7B-Instruct-GGUF` **en dur** qui était installé, avec `autoActivate=true`. Pour qui configure un autre modèle : plusieurs gigaoctets téléchargés sans l'avoir demandé, un modèle tiers activé par-dessus son choix, et le fichier attendu toujours absent. Compose et k8s renseignant tous deux `SPECTRA_LLM_CHAT_FILE`, le défaut ne frappait que les exécutions hors conteneur.
+
+Le repli rend maintenant un nom de fichier, et le rattrapage se limite au modèle par défaut — sinon un avertissement, et aucune installation. `SPECTRA_STARTUP_AUTO_INSTALL_MODELS` est désormais documentée.
+
+### Ajouté — sonde `llmChat` dans `/actuator/health`
+
+La stack pouvait être « healthy » de bout en bout pendant que llama-server chargeait encore un GGUF de plusieurs gigaoctets. L'interface le signalait déjà via `ServiceHealthBanner` ; rien ne l'exposait à qui exploite la stack en ligne de commande ou depuis une supervision. La sonde rend `ready`, `loading` ou `unreachable`.
+
+Elle ne renvoie **jamais** `DOWN` — un modèle qui charge est un état de démarrage normal, et un `DOWN` ferait basculer le statut agrégé sur lequel une supervision alerte. Elle reste **hors du groupe `readiness`**, que vise le healthcheck Compose et dont dépend `frontend` : l'y faire entrer rétablirait la dépendance bloquante retirée avec `model-init`.
+
+### Modifié — reranker ONNX absent : WARN, plus ERROR
+
+`spectra.reranker.engine` vaut `onnx` par défaut alors qu'aucun artefact n'est livré : toute installation neuve journalisait donc un `ERROR` pour une configuration supportée. Un artefact simplement absent passe en `WARN` ; un artefact **présent** qui refuse de se charger reste en `ERROR`, c'est une vraie panne.
+
+### Supprimé — `scripts/check-models.sh`
+
+Plus aucun appelant depuis la suppression de `model-init` : le script vérifiait la présence des GGUF dans `/models` avant démarrage des serveurs LLM, rôle que plus personne ne tient. Retiré de la liste `OPERATIONAL_FILES` de `check-model-defaults.sh`.
+
+### Sécurité — corpus de transactions ASF exclu du suivi Git
+
+`json/` (25 fichiers, 4 Mo) et `json.7z` rejoignent `.gitignore` : enregistrements clients réels — PAN télépéage, clés de transaction, montants, gares et trajets horodatés — sur un dépôt public. Le répertoire `data/` était déjà exclu ; celui-ci l'avait échappé. `payload.json`, suivi de longue date, reste à traiter séparément : le retirer du suivi n'effacerait pas l'historique déjà poussé.
 ### Corrigé — le fine-tuning était injoignable par le chemin de lancement documenté
 
 ```

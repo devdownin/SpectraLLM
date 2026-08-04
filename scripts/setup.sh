@@ -89,7 +89,7 @@ fi
 # ── 3. Répertoires de données ──────────────────────────────────────────────
 echo
 echo "> [3/7] Création des répertoires de données..."
-for dir in data/documents data/dataset data/fine-tuning data/fine-tuning/merged data/models data/source; do
+for dir in data/documents data/dataset data/fine-tuning data/fine-tuning/merged data/models data/source data/chroma; do
   if [ ! -d "$dir" ]; then
     mkdir -p "$dir"
     echo "  [CRÉÉ] $dir"
@@ -141,7 +141,8 @@ fi
 
 # ── 6. Modèle de chat ─────────────────────────────────────────────────────
 # Le modèle doit résider dans data/models/ sous le nom que la stack Docker lit
-# (data/models/${LLM_CHAT_MODEL_FILE}), sinon model-init / llm-chat ne le trouvent pas.
+# (data/models/${LLM_CHAT_MODEL_FILE}), sinon llm-chat ne le trouve pas et attend
+# indéfiniment : la stack démarre, mais le chat ne répond jamais.
 CHAT_DOWNLOAD_NAME="Qwen2.5-7B-Instruct-Q4_K_M.gguf"
 CHAT_MODEL_FILE="$(read_env_var LLM_CHAT_MODEL_FILE)"
 CHAT_MODEL_FILE="${CHAT_MODEL_FILE:-$CHAT_DOWNLOAD_NAME}"

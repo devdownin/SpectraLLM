@@ -111,9 +111,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    # La stack exige les GGUF (model-init échoue sinon et llm-chat/llm-embed ne
-    # démarrent jamais) : on télécharge les modèles PAR DÉFAUT du projet, mis en
-    # cache entre les runs (~4,8 Go au premier passage seulement).
+    # Sans les GGUF, llm-chat et llm-embed attendent le modèle en boucle au lieu
+    # d'échouer : la stack monte, mais le chat ne répond jamais et l'E2E teste une
+    # UI vide. On télécharge donc les modèles PAR DÉFAUT du projet, mis en cache
+    # entre les runs (~4,8 Go au premier passage seulement).
     - name: Cache GGUF models
       uses: actions/cache@v6
       with:
@@ -134,7 +135,7 @@ jobs:
     # créer data/logs/ et l'API meurt au boot. Miroir des répertoires de setup.sh.
     - name: Prepare writable data directories
       run: |
-        mkdir -p data/documents data/dataset data/fine-tuning/merged data/source data/logs
+        mkdir -p data/documents data/dataset data/fine-tuning/merged data/source data/logs data/chroma
         chmod -R a+rwX data
     - name: Set up Docker Compose
       run: |

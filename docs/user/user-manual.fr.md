@@ -21,7 +21,7 @@ Vous avez besoin de deux fichiers **GGUF** placés dans `data/models/` :
 | `LLM_CHAT_MODEL_FILE` | `Qwen2.5-7B-Instruct-Q4_K_M.gguf` | Répond aux questions, génère le dataset |
 | `LLM_EMBED_MODEL_FILE` | `embed.gguf` | Convertit le texte en vecteurs pour la recherche |
 
-Si un fichier est absent au démarrage, le service `model-init` affiche les commandes de téléchargement exactes et interrompt la stack avant que les serveurs LLM ne démarrent.
+Si un fichier est absent au démarrage, la stack ne s'interrompt pas : les serveurs LLM l'attendent en journalisant `EN ATTENTE: modèle introuvable`, et se mettent à servir dès qu'il apparaît. Vous pouvez donc l'ajouter stack déjà démarrée.
 
 ### Télécharger les modèles
 
@@ -1301,7 +1301,7 @@ Documents → RAG → Commentaires IA → 👍 Approbations
 
 ### Auto-tuning au démarrage
 
-Spectra ajuste automatiquement ses paramètres d'inférence en fonction des ressources disponibles dans chaque conteneur. Cette détection a lieu à chaque démarrage des serveurs `llm-chat` et `llm-embed`, via le script `scripts/llama-autostart.sh`.
+Spectra ajuste automatiquement ses paramètres d'inférence en fonction des ressources disponibles dans chaque conteneur. Cette détection a lieu à chaque démarrage des serveurs `llm-chat` et `llm-embed`, via leurs entrypoints respectifs `scripts/llm-chat-entrypoint.sh` et `scripts/llm-embed-entrypoint.sh`.
 
 **Ce que le système détecte et configure automatiquement :**
 

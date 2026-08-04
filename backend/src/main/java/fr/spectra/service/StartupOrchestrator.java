@@ -56,8 +56,21 @@ public class StartupOrchestrator {
             String chatFile = resolveChatModelFile();
             Path chatPath = modelsDir.resolve(chatFile);
             if (isMissing(chatPath)) {
-                log.info("Modèle de chat par défaut manquant ({}). Installation via le Model Hub…", chatFile);
-                llmFitService.installModel(DEFAULT_CHAT_REPO, DEFAULT_QUANTIZATION, true);
+                // Le rattrapage ne sait produire QUE le modèle par défaut : DEFAULT_CHAT_REPO
+                // et DEFAULT_QUANTIZATION sont en dur, et rien ne permet de déduire un dépôt
+                // HuggingFace d'un nom de fichier quelconque. Installer quand même reviendrait
+                // à télécharger plusieurs gigaoctets d'un AUTRE modèle que celui demandé, puis
+                // — autoActivate=true — à l'activer par-dessus le choix de l'utilisateur, sans
+                // que le fichier attendu cesse pour autant de manquer.
+                if (DEFAULT_CHAT_FILE.equals(chatFile)) {
+                    log.info("Modèle de chat par défaut manquant ({}). Installation via le Model Hub…", chatFile);
+                    llmFitService.installModel(DEFAULT_CHAT_REPO, DEFAULT_QUANTIZATION, true);
+                } else {
+                    log.warn("Modèle de chat configuré absent ({}). Aucune installation automatique : "
+                            + "le rattrapage ne sait installer que le modèle par défaut ({}). "
+                            + "Déposez le fichier dans {} ou installez-le depuis le Model Hub.",
+                            chatFile, DEFAULT_CHAT_FILE, modelsDir);
+                }
             }
 
             // Pas d'équivalent pour l'embedding : llmfit ne gère que les modèles de
@@ -81,19 +94,34 @@ public class StartupOrchestrator {
         return !Files.exists(path) || Files.size(path) < 1_048_576;
     }
 
-    private String resolveChatModelFile() {
+    /**
+     * Nom de FICHIER du GGUF de chat — jamais l'alias du modèle.
+     *
+     * <p>Le repli lisait {@code effectiveChatModel()}, qui rend l'alias ({@code
+     * qwen2.5-7b-instruct}) et non le fichier ({@code Qwen2.5-7B-Instruct-Q4_K_M.gguf}).
+     * Résolu en chemin, cet alias ne désigne rien : le modèle était déclaré manquant à
+     * CHAQUE démarrage, y compris avec le GGUF bien présent, ce qui déclenchait un
+     * téléchargement de plusieurs gigaoctets sans raison. Compose renseigne
+     * {@code SPECTRA_LLM_CHAT_FILE} et prenait donc la première branche — le défaut ne se
+     * voyait qu'en exécution hors conteneur.
+     *
+     * <p>Visible au paquet — et non {@code private} — pour que {@code StartupOrchestratorTest}
+     * puisse vérifier directement qu'un NOM DE FICHIER en sort. Passer par
+     * {@link #checkAndInstallMissingModels()} ne discriminerait pas : dans un environnement de
+     * test où aucun GGUF n'existe, l'alias comme le nom de fichier sont « manquants ».
+     */
+    String resolveChatModelFile() {
         if (properties.llm().chat() != null && properties.llm().chat().effectiveFile() != null) {
             return properties.llm().chat().effectiveFile();
         }
-        String configured = properties.llm().effectiveChatModel();
-        return configured != null ? configured : DEFAULT_CHAT_FILE;
+        return DEFAULT_CHAT_FILE;
     }
 
-    private String resolveEmbeddingModelFile() {
+    /** Même correction que {@link #resolveChatModelFile()} : un fichier, jamais un alias. */
+    String resolveEmbeddingModelFile() {
         if (properties.llm().embedding() != null && properties.llm().embedding().effectiveFile() != null) {
             return properties.llm().embedding().effectiveFile();
         }
-        String configured = properties.llm().effectiveEmbeddingModel();
-        return configured != null ? configured : DEFAULT_EMBED_FILE;
+        return DEFAULT_EMBED_FILE;
     }
 }
