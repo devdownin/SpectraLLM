@@ -1301,7 +1301,7 @@ Documents → RAG → Commentaires IA → 👍 Approbations
 
 ### Auto-tuning au démarrage
 
-Spectra ajuste automatiquement ses paramètres d'inférence en fonction des ressources disponibles dans chaque conteneur. Cette détection a lieu à chaque démarrage des serveurs `llm-chat` et `llm-embed`, via le script `scripts/llama-autostart.sh`.
+Spectra ajuste automatiquement ses paramètres d'inférence en fonction des ressources disponibles dans chaque conteneur. Cette détection a lieu à chaque démarrage des serveurs `llm-chat` et `llm-embed`, via leurs entrypoints respectifs `scripts/llm-chat-entrypoint.sh` et `scripts/llm-embed-entrypoint.sh`.
 
 **Ce que le système détecte et configure automatiquement :**
 

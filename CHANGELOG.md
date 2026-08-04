@@ -17,9 +17,9 @@ docker run --rm -v spectrallm_chromadb-data:/v  alpine du -sh /v   →  4.0K, 0 
 
 Deux volumes vides, après 45 minutes de stack déclarant 372 chunks en GED. Le compose montait `/chroma/chroma`, chemin de persistance de Chroma ≤ 0.5.x, alors que l'image écrit dans `/data` : le volume ne recevait rien et l'index vivait dans la couche inscriptible du conteneur, **détruite à chaque `docker compose down`, sans même `-v`**. C'était la cause réelle du `ChromaDB vide alors que la GED déclare N chunk(s)` signalé au démarrage.
 
-ChromaDB monte désormais `./data/chroma:/data` — le même bind-mount que la base H2 et l'index FTS. Un seul cycle de vie, une seule sauvegarde, plus de désynchronisation par construction. Vérifié par destruction et recréation du conteneur : les 127 chunks survivent. Le manifeste Kubernetes utilisait déjà `/data` ; seul le compose avait dérivé.
+ChromaDB monte désormais `./data/chroma:/data` — le même bind-mount que la base H2 et l'index FTS. Un seul cycle de vie, une seule sauvegarde, plus de désynchronisation par construction. Vérifié par destruction et recréation du conteneur : les 127 chunks survivent. Seul le compose avait dérivé — le manifeste Kubernetes, depuis retiré, utilisait bien `/data`.
 
-L'image `chromadb/chroma` est épinglée sur **1.5.9** (compose, k8s, Testcontainers) : `latest` est précisément ce qui a laissé le chemin changer en silence. Le test d'intégration était lui aussi sur `latest` alors qu'il prétend viser « la même image que la stack » — les deux doivent évoluer ensemble.
+L'image `chromadb/chroma` est épinglée sur **1.5.9** (compose et Testcontainers) : `latest` est précisément ce qui a laissé le chemin changer en silence. Le test d'intégration était lui aussi sur `latest` alors qu'il prétend viser « la même image que la stack » — les deux doivent évoluer ensemble.
 
 ### Corrigé — le démarrage tolérant des conteneurs LLM ne l'était pas
 
@@ -70,6 +70,48 @@ Plus aucun appelant depuis la suppression de `model-init` : le script vérifiait
 ### Sécurité — corpus de transactions ASF exclu du suivi Git
 
 `json/` (25 fichiers, 4 Mo) et `json.7z` rejoignent `.gitignore` : enregistrements clients réels — PAN télépéage, clés de transaction, montants, gares et trajets horodatés — sur un dépôt public. Le répertoire `data/` était déjà exclu ; celui-ci l'avait échappé. `payload.json`, suivi de longue date, reste à traiter séparément : le retirer du suivi n'effacerait pas l'historique déjà poussé.
+### Corrigé — le fine-tuning était injoignable par le chemin de lancement documenté
+
+```
+script d'entraînement introuvable : /app/scripts/train.sh
+```
+
+Le fichier est pourtant dans le dépôt, exécutable (`100755`), et son moteur — le service
+`spectra-trainer` — existait déjà. Ce qui manquait était le dernier maillon, purement
+opératoire : **aucune commande de lancement documentée ne démarrait ce service.** `start.sh`
+ignorait le profil compose `trainer` — que `stop.sh` connaissait pourtant — et n'avait aucun
+moyen de basculer `SPECTRA_FINE_TUNING_RUNNER`. Un `./scripts/start.sh` nominal donnait donc une
+fonctionnalité annoncée en tête du README qui refusait toute soumission.
+
+Les deux réglages n'ont de sens qu'ensemble, et les poser à la main donnait deux pannes
+symétriques : le profil sans le runner laissait l'API chercher un script que son image (une JRE
+nue) ne contient pas ; le runner sans le profil donnait « service d'entraînement injoignable ».
+
+- **`./scripts/start.sh --trainer`** (et `scripts\start.bat --trainer`) pose les deux d'un coup.
+  Renseigner `SPECTRA_FINE_TUNING_RUNNER=http` dans `.env` rend le choix permanent : le profil
+  s'active alors de lui-même.
+- **Fusion, et non affectation**, de `COMPOSE_PROFILES` : demander le trainer ne désactive plus
+  silencieusement les profils déjà en place (`reranker`, `kafka`…).
+- **Le motif de refus nomme le remède.** Dire « introuvable » d'un fichier bien présent envoyait
+  chercher au mauvais endroit ; le message cite désormais la commande, et signale le piège du
+  répertoire courant en exécution hors conteneur.
+- L'état du trainer apparaît dans le récapitulatif de démarrage, plutôt qu'à la première
+  soumission.
+
+**Documentation remise d'aplomb** — trois affirmations contredisaient le code, et la première
+masquait précisément cette panne :
+
+- le mode **« Simulation »** (« Python absent → `training_complete.json` + logs d'epoch
+  simulés ») n'existe pas : `train.sh` fait `exec python3 train_host.py` et échoue. La doc
+  faisait passer la panne pour un fonctionnement dégradé nominal ;
+- le montage **`./scripts:/app/scripts`** sur `spectra-api` n'existe pas non plus — le compose
+  ne monte que `./data:/app/data` — et le monter ne suffirait pas : l'image n'a ni Python, ni
+  `torch`, ni `peft` ;
+- le **diagramme C4** annonçait ce même montage.
+
+`SPECTRA_FINE_TUNING_RUNNER` et `SPECTRA_TRAINER_URL` rejoignent la table de configuration, et le
+service `trainer` la liste des composants. Constat **F1** de l'audit fine-tuning : clos.
+
 
 ### Dépendances — résorption de la file Dependabot
 

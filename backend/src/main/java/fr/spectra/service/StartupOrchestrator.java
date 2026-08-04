@@ -101,9 +101,9 @@ public class StartupOrchestrator {
      * qwen2.5-7b-instruct}) et non le fichier ({@code Qwen2.5-7B-Instruct-Q4_K_M.gguf}).
      * Résolu en chemin, cet alias ne désigne rien : le modèle était déclaré manquant à
      * CHAQUE démarrage, y compris avec le GGUF bien présent, ce qui déclenchait un
-     * téléchargement de plusieurs gigaoctets sans raison. Compose et k8s renseignent tous
-     * deux {@code SPECTRA_LLM_CHAT_FILE} et prenaient donc la première branche — le défaut
-     * ne se voyait qu'en exécution hors conteneur.
+     * téléchargement de plusieurs gigaoctets sans raison. Compose renseigne
+     * {@code SPECTRA_LLM_CHAT_FILE} et prenait donc la première branche — le défaut ne se
+     * voyait qu'en exécution hors conteneur.
      *
      * <p>Visible au paquet — et non {@code private} — pour que {@code StartupOrchestratorTest}
      * puisse vérifier directement qu'un NOM DE FICHIER en sort. Passer par

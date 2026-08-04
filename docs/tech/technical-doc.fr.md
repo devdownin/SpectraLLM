@@ -543,7 +543,13 @@ public Executor taskExecutor() {
 |-----------|------|---------|
 | GPU CUDA + Python + unsloth | **GPU** | `adapter.gguf` (QLoRA 4-bit) dans `data/fine-tuning/merged/` |
 | CPU + Python + transformers | **CPU** | Dossier `adapter/` (HF PEFT format) |
-| Python absent | **Simulation** | `adapter/training_complete.json` + logs epoch simulés |
+| Python absent | **échec** | `train.sh` fait `exec python3 train_host.py` — pas de repli |
+
+> Cette dernière ligne annonçait autrefois un mode « Simulation » produisant
+> `adapter/training_complete.json` et des logs d'epoch factices. **Ce repli n'existe pas** : un
+> environnement sans Python échoue, il ne dégrade pas. La documentation masquait ainsi la panne
+> la plus courante — un `spectra-api` incapable de lancer `train.sh` — en la faisant passer pour
+> un fonctionnement nominal.
 
 ### Étapes du pipeline fine-tuning
 
@@ -581,9 +587,27 @@ d'accepter le job puis d'échouer à mi-course.
 **Entraîner sous Docker :**
 
 ```bash
+./scripts/start.sh --trainer          # scripts\start.bat --trainer sous Windows
+```
+
+Le drapeau pose les **deux** réglages, qui n'ont de sens qu'ensemble : le profil compose
+`trainer`, qui démarre le service, et `SPECTRA_FINE_TUNING_RUNNER=http`, qui dit à l'API de
+s'adresser à lui. N'en poser qu'un donne les deux pannes symétriques, toutes deux constatées à
+la soumission — « script d'entraînement introuvable » quand le runner est resté en mode hôte,
+« service d'entraînement injoignable » quand le conteneur n'a pas démarré.
+
+Pour rendre le choix permanent, renseignez `SPECTRA_FINE_TUNING_RUNNER=http` dans `.env` :
+`start.sh` active alors le profil `trainer` de lui-même, sans le drapeau.
+
+L'équivalent manuel, si vous pilotez Compose directement :
+
+```bash
 docker compose --profile trainer up -d trainer
 SPECTRA_FINE_TUNING_RUNNER=http docker compose up -d spectra-api
 ```
+
+> ⚠️ L'image du trainer embarque `torch` : comptez plusieurs Go et un premier build long.
+> C'est la raison pour laquelle elle reste derrière un profil au lieu de démarrer par défaut.
 
 Le trainer monte `./data:/app/data` avec `WORKDIR /app`, **exactement comme `spectra-api`** :
 les chemins transmis sont absolus et calculés côté applicatif, un montage divergent ferait
@@ -1772,12 +1796,14 @@ Ces `.so` sont copiés depuis le stage `llama_cpp_build` vers `llama_cpp_runtime
 
 ```yaml
 volumes:
-  - ./data/documents:/app/data/documents
-  - ./data/dataset:/app/data/dataset
-  - ./data/fine-tuning:/app/data/fine-tuning    ← modèle GGUF fine-tuné
-  - ./data/models:/app/data/models              ← registre + embed.gguf
-  - ./scripts:/app/scripts                      ← train.sh accessible depuis FineTuningService
+  - ./data:/app/data     ← documents, dataset, fine-tuning (GGUF), models (registre + embed.gguf)
 ```
+
+Un **seul** montage, et pas de `./scripts`. Ce point a longtemps été documenté à l'envers : le
+diagramme annonçait `./scripts:/app/scripts`, ce qui laissait croire que `FineTuningService`
+pouvait lancer `train.sh` depuis le conteneur. Monter les scripts n'y suffirait pas — l'image
+est une JRE sans Python, sans `torch` ni `peft`. L'entraînement en conteneur passe par le
+service `spectra-trainer`, qui monte ce même `./data:/app/data` au même point (cf. §5).
 
 ### Volumes montés sur les serveurs llama
 

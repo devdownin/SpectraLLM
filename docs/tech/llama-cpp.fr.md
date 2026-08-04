@@ -305,7 +305,7 @@ Remplacer le service `ollama` par une infra `llama.cpp`.
 - [x] Generation dataset complete — service fonctionnel, paires Q&A generees par le LLM local
 - [ ] Changement de modele actif — non teste en conditions reelles (registre present, endpoint `/api/config/model` implemente)
 - [ ] Fine-tuning GPU — non teste; requiert un hote avec GPU NVIDIA CUDA 11.8+
-- [ ] Fallback CPU — non teste en conditions de production; simulation disponible dans `scripts/train.sh`
+- [ ] Fallback CPU — non teste en conditions de production; `train_host.py` bascule sur HuggingFace PEFT quand CUDA est absent. Il n'existe PAS de mode simulation : sans Python, `scripts/train.sh` echoue
 - [x] Healthchecks et dashboard — valide: tous les services repondent OK, dashboard affiche les statuts en temps reel
 
 ### Benchmarks

@@ -1271,7 +1271,7 @@ Documents → RAG → AI Comments → 👍 Approvals
 
 ### Startup auto-tuning
 
-Spectra automatically adjusts its inference parameters based on the resources available in each container. This detection happens on every startup of the `llm-chat` and `llm-embed` servers, via the `scripts/llama-autostart.sh` script.
+Spectra automatically adjusts its inference parameters based on the resources available in each container. This detection happens on every startup of the `llm-chat` and `llm-embed` servers, via their respective entrypoints `scripts/llm-chat-entrypoint.sh` and `scripts/llm-embed-entrypoint.sh`.
 
 **What the system detects and configures automatically:**
 
