@@ -31,13 +31,14 @@ Deep dive into every container and service of the Spectra stack. For the big pic
     ┌─────▼───────┐  ┌────▼──────┐  ┌────▼──────┐  ┌───────▼────────┐
     │  ChromaDB   │  │ llm-chat  │  │ llm-embed │  │  train.sh      │
     │  :8000      │  │ :8081     │  │ :8082     │  │  (Unsloth)     │
-    │  (vectors)  │  │ (chat)    │  │ (embed)   │  │                │
+    │  (vectors)  │  │ (chat)    │  │ (embed)   │  │  host, or the  │
+    │             │  │           │  │           │  │  trainer image │
     └─────────────┘  └───────────┘  └───────────┘  └────────────────┘
           │
     ┌─────▼──────────────────────────────────────────┐
     │  Optional services (Docker profiles)           │
     │  docparser :8001  · reranker :8002             │
-    │  browserless :3000                             │
+    │  browserless :3000 · trainer :8004             │
     └────────────────────────────────────────────────┘
 ```
 
@@ -53,6 +54,7 @@ Deep dive into every container and service of the Spectra stack. For the big pic
 | `docparser` | Layout-aware PDF → Markdown | optional |
 | `reranker` | Cross-Encoder re-ranking | optional |
 | `browserless` | Headless Chrome for JS-rendered pages | optional |
+| `trainer` | QLoRA fine-tuning engine, port 8004 — start with `./scripts/start.sh --trainer` | optional |
 
 ---
 

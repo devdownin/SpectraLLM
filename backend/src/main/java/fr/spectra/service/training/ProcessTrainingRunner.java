@@ -71,11 +71,20 @@ public class ProcessTrainingRunner implements TrainingRunner {
     @Override
     public String unavailabilityReason() {
         if (!Files.isRegularFile(Path.of(trainingScript))) {
+            // Le motif nomme le REMÈDE, pas seulement la cause. C'est la seule chose que
+            // l'exploitant voit : un « fichier introuvable » le laisse chercher un fichier qui
+            // est pourtant bien dans le dépôt — le script n'est pas absent, il est hors de
+            // portée de la JVM, et les deux situations n'appellent pas la même action.
             return "script d'entraînement introuvable : " + trainingScript
-                    + ". L'image spectra-api ne contient ni scripts/ ni Python — le fine-tuning "
-                    + "s'exécute depuis un environnement hôte disposant des dépendances "
-                    + "(pip install -r scripts/requirements.txt), ou via un service d'entraînement "
-                    + "dédié. Configurez spectra.fine-tuning.script si le script vit ailleurs.";
+                    + ". Sous Docker, c'est attendu : l'image spectra-api est une JRE qui ne "
+                    + "contient ni scripts/ ni Python. Relancez la pile avec "
+                    + "« ./scripts/start.sh --trainer » (scripts\\start.bat --trainer sous "
+                    + "Windows) : le service spectra-trainer démarre et l'API lui délègue "
+                    + "l'entraînement. Hors conteneur, installez les dépendances "
+                    + "(pip install -r scripts/requirements.txt) et lancez l'API depuis la "
+                    + "racine du dépôt — un chemin relatif est résolu depuis le répertoire "
+                    + "courant du processus. Configurez spectra.fine-tuning.script si le script "
+                    + "vit ailleurs.";
         }
         return null;
     }

@@ -39,7 +39,7 @@ C4Container
         ContainerDb(chroma, "spectra-chromadb", "ChromaDB — API v2", "Base de données vectorielle.\nStocke les chunks et leurs embeddings.\nCollection : spectra_documents.")
     }
 
-    System_Ext(scripts, "Scripts d'entraînement", "train.sh / train_host.py\nVolume monté : ./scripts\n(GPU · CPU · Simulation)")
+    System_Ext(scripts, "Scripts d'entraînement", "train.sh / train_host.py\nHôte, ou image spectra-trainer\n(profil compose « trainer »)\n(GPU · CPU)")
 
     SystemDb_Ext(fs, "Système de fichiers hôte", "Volumes Docker montés\ndata/documents · data/dataset\ndata/fine-tuning")
 
