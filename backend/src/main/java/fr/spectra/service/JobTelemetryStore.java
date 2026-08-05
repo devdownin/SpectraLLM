@@ -238,7 +238,16 @@ public class JobTelemetryStore {
         if (jobId == null || !SAFE_JOB_ID.matcher(jobId).matches()) {
             throw new IllegalArgumentException("Identifiant de job invalide");
         }
-        return workDir.resolve(jobId).resolve(name);
+        // Second garde, sur le chemin RÉSOLU et non sur la chaîne : c'est lui qui vaut preuve.
+        // Une forme valide ne garantit pas une destination valide — et une analyse statique ne
+        // peut pas le déduire d'une expression régulière, si stricte soit-elle. Normaliser puis
+        // vérifier le préfixe ferme la question pour de bon (CodeQL : path injection).
+        Path base = workDir.toAbsolutePath().normalize();
+        Path resolved = base.resolve(jobId).resolve(name).normalize();
+        if (!resolved.startsWith(base)) {
+            throw new IllegalArgumentException("Identifiant de job invalide");
+        }
+        return resolved;
     }
 
     /** Les identifiants sont des UUID ; tout le reste est refusé, séparateurs compris. */
