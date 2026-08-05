@@ -625,6 +625,8 @@
     "streamConnecting": "Connexion au flux de télémétrie…",
     "streamWaiting": "En attente d'événements…",
     "streamNotRetained": "Ce job est terminé — la télémétrie n'est pas conservée après coup.",
+    "telemetryLoading": "Chargement de la trace…",
+    "telemetryTruncated": "début tronqué",
     "history": "Historique des entraînements",
     "refresh": "Actualiser",
     "colJobId": "ID",

@@ -53,6 +53,8 @@ public class FineTuningService {
     private final DpoGenerationService dpoGenerator;
     private final FineTuningJobRepository repository;
     private final TrainingLogBroadcaster broadcaster;
+    /** Trace persistante : ce que l'UI relit après un rechargement (S1, S8). */
+    private final JobTelemetryStore telemetryStore;
     private final ModelRegistryService modelRegistry;
     private final BaseModelCatalog baseModelCatalog;
     private final GedService gedService;
@@ -95,6 +97,7 @@ public class FineTuningService {
                              DpoGenerationService dpoGenerator,
                              FineTuningJobRepository repository,
                              TrainingLogBroadcaster broadcaster,
+                             JobTelemetryStore telemetryStore,
                              ModelRegistryService modelRegistry,
                              BaseModelCatalog baseModelCatalog,
                              GedService gedService,
@@ -108,6 +111,7 @@ public class FineTuningService {
          this.dpoGenerator = dpoGenerator;
          this.repository = repository;
          this.broadcaster = broadcaster;
+         this.telemetryStore = telemetryStore;
          this.modelRegistry = modelRegistry;
          this.baseModelCatalog = baseModelCatalog;
          this.gedService = gedService;
@@ -299,7 +303,7 @@ public class FineTuningService {
     protected void runAsync(String jobId, FineTuningRequest request) {
         try {
             // ── Étape 1 : Export du dataset filtré ──
-            broadcaster.jobInfo(jobId, "Job " + jobId + " : export du dataset…");
+            publishAndRecord(jobId, "INFO", "Job " + jobId + " : export du dataset…");
             updateJob(jobId, j -> j.withStatus(Status.EXPORTING_DATASET, "Export du dataset..."));
 
             Path jobDir = workDir.resolve(jobId);
@@ -327,7 +331,8 @@ public class FineTuningService {
                     preference ? "paires de préférence" : "paires SFT");
 
             // ── Étape 2 : Lancement de l'entraînement externe ──
-            broadcaster.jobInfo(jobId, "Job " + jobId + " : lancement de l'entraînement (" + datasetSize + " exemples)…");
+            publishAndRecord(jobId, "INFO", "Job " + jobId + " : lancement de l'entraînement ("
+                    + datasetSize + " exemples)…");
             updateJob(jobId, j -> j.withStatus(Status.TRAINING, "Lancement de l'entraînement..."));
 
             // train_host.py produit un répertoire d'adaptateur LoRA (format HuggingFace/PEFT),
@@ -361,7 +366,7 @@ public class FineTuningService {
                 // Étape 3b (opt-in) : fusion LoRA → GGUF → enregistrement pour déploiement.
                 exportGgufAndRegister(jobId, request, adapterPath, jobDir);
             } else {
-                broadcaster.jobInfo(jobId, "Job " + jobId + " : adaptateur entraîné → " + adapterPath
+                publishAndRecord(jobId, "INFO", "Job " + jobId + " : adaptateur entraîné → " + adapterPath
                         + " (exporter en GGUF puis enregistrer pour le déployer)");
                 updateJob(jobId, j -> j.completed(adapterPath.toString()));
             }
@@ -381,7 +386,7 @@ public class FineTuningService {
                 return;
             }
             log.error("Job {} échoué: {}", jobId, e.getMessage(), e);
-            broadcaster.jobError(jobId, "Job " + jobId + " échoué : " + e.getMessage());
+            publishAndRecord(jobId, "ERROR", "Job " + jobId + " échoué : " + e.getMessage());
             updateJob(jobId, j -> j.failed(e.getMessage()));
         } finally {
             cancelledJobs.remove(jobId);
@@ -537,7 +542,8 @@ public class FineTuningService {
         }
         if (traced > 0) {
             log.info("Job {}: {} document(s) GED lié(s) au modèle '{}' et passé(s) TRAINED", jobId, traced, modelName);
-            broadcaster.jobInfo(jobId, "Job " + jobId + " : " + traced + " document(s) source tracé(s) en GED (TRAINED)");
+            publishAndRecord(jobId, "INFO", "Job " + jobId + " : " + traced
+                    + " document(s) source tracé(s) en GED (TRAINED)");
         }
     }
 
@@ -591,6 +597,22 @@ public class FineTuningService {
     private final java.util.concurrent.atomic.AtomicLong lastProgressBarPublish =
             new java.util.concurrent.atomic.AtomicLong(0);
 
+    /**
+     * Diffuse une ligne de suivi <b>et</b> la consigne dans la trace du job.
+     *
+     * <p>Un seul point de sortie pour les deux canaux : ce qu'on a vu passer en direct est
+     * exactement ce qu'on relit après un rechargement. Deux chemins séparés divergeraient au
+     * premier oubli.
+     */
+    private void publishAndRecord(String jobId, String level, String message) {
+        if ("ERROR".equals(level)) {
+            broadcaster.jobError(jobId, message);
+        } else {
+            broadcaster.jobInfo(jobId, message);
+        }
+        telemetryStore.appendLog(jobId, level, message);
+    }
+
     /** Journalisation, diffusion SSE et extraction de progression, communes aux deux exécutions. */
     private void onProcessLine(String jobId, String label, String line) {
         // Extraction AVANT tout filtrage : une ligne non diffusée doit quand même faire avancer
@@ -600,7 +622,7 @@ public class FineTuningService {
         }
         if (line.isBlank()) return;
         if (isProgressBarRefresh(line) && !allowProgressBarLine()) return;
-        broadcaster.jobInfo(jobId, line);   // diffusion temps réel vers /api/sse/training-logs
+        publishAndRecord(jobId, "INFO", line);   // SSE temps réel + trace relisible
     }
 
     /** Vrai pour un rafraîchissement de barre ; « 100% » passe toujours (fin d'étape lisible). */
@@ -625,7 +647,8 @@ public class FineTuningService {
     private void exportGgufAndRegister(String jobId, FineTuningRequest request,
                                        Path adapterPath, Path jobDir) throws Exception {
         updateJob(jobId, j -> j.withStatus(Status.IMPORTING_MODEL, "Fusion LoRA + conversion GGUF…"));
-        broadcaster.jobInfo(jobId, "Job " + jobId + " : fusion de l'adaptateur, conversion GGUF et enregistrement…");
+        publishAndRecord(jobId, "INFO",
+                "Job " + jobId + " : fusion de l'adaptateur, conversion GGUF et enregistrement…");
 
         Path mergedDir = jobDir.resolve("merged");
         // Même résolution que l'entraînement (manifeste unique) : l'adaptateur LoRA n'est
@@ -673,7 +696,7 @@ public class FineTuningService {
                                 .orElse(null)));
 
         log.info("Job {}: modèle '{}' converti et enregistré → {}", jobId, request.modelName(), registeredPath);
-        broadcaster.jobInfo(jobId, "Job " + jobId + " : modèle '" + request.modelName()
+        publishAndRecord(jobId, "INFO", "Job " + jobId + " : modèle '" + request.modelName()
                 + "' enregistré et déployable → " + registeredPath);
         updateJob(jobId, j -> j.completed(registeredPath));
     }
@@ -716,6 +739,9 @@ public class FineTuningService {
             Double loss = extract(LOSS_PATTERN, lower, Double::parseDouble);
             Double evalLoss = extract(EVAL_LOSS_PATTERN, lower, Double::parseDouble);
             updateJob(jobId, j -> j.withTrainingProgress(epoch, loss, evalLoss));
+            // Le job ne porte qu'une loss SCALAIRE — chaque ligne écrase la précédente. La série
+            // n'existe que si on l'écrit au moment où on la voit passer.
+            telemetryStore.appendLossPoint(jobId, epoch, loss, evalLoss);
         } catch (Exception e) {
             // Parsing best-effort, on ne casse pas le process pour une ligne mal formatée
         }

@@ -116,7 +116,8 @@ class FineTuningFailurePhaseTest {
         TrainingRunner runner = mock(TrainingRunner.class);
         FineTuningService service = new FineTuningService(
                 mock(DatasetGeneratorService.class), mock(DpoGenerationService.class),
-                repository, mock(TrainingLogBroadcaster.class), mock(ModelRegistryService.class),
+                repository, mock(TrainingLogBroadcaster.class), mock(JobTelemetryStore.class),
+                mock(ModelRegistryService.class),
                 mock(BaseModelCatalog.class), mock(GedService.class),
                 mock(IngestedFileRepository.class), "phi3", runner,
                 tempWorkDir.toString(), tempWorkDir.resolve("models").toString(), "");

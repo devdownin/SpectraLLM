@@ -651,7 +651,9 @@ Then, when launching fine-tuning (step 3), check **DPO Alignment** so the traine
 ```
 
    The progress bar advances continuously (epoch fractions), the loss chart plots one point per
-   logged step, and the telemetry stream shows the trainer's output live.
+   logged step, and the telemetry stream shows the trainer's output live. The log and the curve are
+   **kept on disk** (`data/fine-tuning/<jobId>/`): reloading the page, or coming back to a finished
+   job, brings them back — the live stream itself replays nothing.
 
 7. To stop a running job, click **Stop** at the top right of the monitor and confirm. Progress is
    lost — a job never resumes from a previous adapter. The same button is available from the

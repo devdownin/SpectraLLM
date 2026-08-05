@@ -173,6 +173,9 @@ const FineTuning: FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [loadingTelemetry, setLoadingTelemetry] = useState(false);
+  /** La trace affichée n'est qu'une queue : le journal complet est plus long sur disque. */
+  const [telemetryTruncated, setTelemetryTruncated] = useState(false);
   const [lossHistory, setLossHistory] = useState<LossPoint[]>([]);
 
   const trainingSchema = useMemo(() => makeTrainingSchema(t), [t]);
@@ -350,13 +353,50 @@ const FineTuning: FC = () => {
     // Comparaison via la ref (et non l'état capturé) pour que le rappel reste stable, et mise à
     // jour immédiate de celle-ci : une ligne SSE arrivant avant le prochain rendu doit déjà être
     // filtrée sur le NOUVEAU job.
-    if (activeJobIdRef.current !== job.jobId) {
+    const changed = activeJobIdRef.current !== job.jobId;
+    if (changed) {
       setLogs([]);
       setLossHistory([]);
     }
     activeJobIdRef.current = job.jobId;
     setActiveJob(job);
+    if (changed) loadTelemetry(job.jobId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /**
+   * Recharge la trace persistée du job : le flux SSE ne rejoue rien, ni à un client qui arrive en
+   * cours de route, ni pour un job terminé. Sans cet appel, un simple rechargement de page
+   * effaçait définitivement le suivi d'un run de plusieurs heures.
+   *
+   * Les lignes déjà écrites ne sont pas rediffusées par le SSE : pas de doublon à craindre.
+   */
+  const loadTelemetry = async (jobId: string) => {
+    setLoadingTelemetry(true);
+    try {
+      const res = await fineTuningApi.getTelemetry(jobId);
+      const { logs: persisted = [], losses = [], totalLogLines = 0, capped = false } = res.data ?? {};
+      // La trace ne remplace l'état courant que si le job affiché n'a pas changé entre-temps
+      // (l'utilisateur peut cliquer deux fois plus vite que le réseau ne répond).
+      if (activeJobIdRef.current !== jobId) return;
+      setLogs(persisted.map((l: { timestamp: string; level: string; message: string }) => ({
+        timestamp: l.timestamp,
+        level: (l.level as TrainingLog['level']) ?? 'INFO',
+        message: l.message,
+        jobId,
+      })));
+      setLossHistory(losses.map((p: LossPoint) => ({
+        epoch: p.epoch,
+        ...(p.loss != null ? { loss: p.loss } : {}),
+        ...(p.evalLoss != null ? { evalLoss: p.evalLoss } : {}),
+      })));
+      setTelemetryTruncated(capped || totalLogLines > persisted.length);
+    } catch {
+      // Trace indisponible (job purgé, API occupée) : le direct prend le relais, rien à signaler.
+    } finally {
+      setLoadingTelemetry(false);
+    }
+  };
 
   // ── Load job history ──────────────────────────────────────────────────────
   const loadJobs = useCallback(async () => {
@@ -773,16 +813,23 @@ const FineTuning: FC = () => {
                       }`} aria-hidden="true" />
                       {sseStatus === 'open' ? t('fineTuning.live') : sseStatus === 'connecting' ? t('fineTuning.connecting') : t('fineTuning.disconnected')}
                     </span>
-                    <span className="text-[10px] text-outline">{t('fineTuning.events', { count: logs.length })}</span>
+                    <span className="text-[10px] text-outline">
+                      {t('fineTuning.events', { count: logs.length })}
+                      {/* La trace relue n'est qu'une queue : le dire plutôt que de laisser croire
+                          que le run a commencé là. */}
+                      {telemetryTruncated && ` · ${t('fineTuning.telemetryTruncated')}`}
+                    </span>
                   </div>
                 </div>
                 {logs.length === 0 ? (
                   <div className="flex-1 flex items-center justify-center">
                     <p className="text-outline italic text-[11px] px-4 text-center">
-                      {/* Un job terminé n'a plus de télémétrie à montrer : elle n'est conservée
-                          nulle part. Le dire vaut mieux que « en attente d'évènements… », qui
-                          laisse croire que quelque chose va arriver. */}
-                      {activeJob && (activeJob.status === 'COMPLETED' || activeJob.status === 'FAILED')
+                      {/* Un job terminé dont la trace a été purgée (ou antérieur à sa mise en
+                          place) n'a rien à montrer : le dire vaut mieux que « en attente
+                          d'évènements… », qui laisse croire que quelque chose va arriver. */}
+                      {loadingTelemetry
+                        ? t('fineTuning.telemetryLoading')
+                        : activeJob && (activeJob.status === 'COMPLETED' || activeJob.status === 'FAILED')
                         ? t('fineTuning.streamNotRetained')
                         : sseStatus === 'closed'
                           ? t('fineTuning.streamInterrupted')

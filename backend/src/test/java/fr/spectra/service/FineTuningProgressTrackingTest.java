@@ -48,17 +48,20 @@ class FineTuningProgressTrackingTest {
 
     private FineTuningJobRepository repository;
     private TrainingLogBroadcaster broadcaster;
+    private JobTelemetryStore telemetryStore;
     private FineTuningService service;
 
     @BeforeEach
     void setUp() {
         repository = mock(FineTuningJobRepository.class);
         broadcaster = mock(TrainingLogBroadcaster.class);
+        telemetryStore = mock(JobTelemetryStore.class);
         service = new FineTuningService(
                 mock(DatasetGeneratorService.class),
                 mock(DpoGenerationService.class),
                 repository,
                 broadcaster,
+                telemetryStore,
                 mock(ModelRegistryService.class),
                 mock(BaseModelCatalog.class),
                 mock(GedService.class),
@@ -158,10 +161,25 @@ class FineTuningProgressTrackingTest {
     }
 
     @Test
+    @DisplayName("ce qui est diffusé est aussi consigné dans la trace du job")
+    void everyBroadcastLineIsAlsoRecorded() throws Exception {
+        // Un seul point de sortie pour les deux canaux : sans cela, ce qu'on relit après un
+        // rechargement finirait par diverger de ce qu'on a vu passer en direct.
+        emit("  epoch=0.33  loss=1.9000");
+
+        verify(broadcaster).jobInfo(eq(JOB_ID), eq("  epoch=0.33  loss=1.9000"));
+        verify(telemetryStore).appendLog(eq(JOB_ID), eq("INFO"), eq("  epoch=0.33  loss=1.9000"));
+        // La série n'existe QUE sur disque : le job ne porte qu'une loss scalaire, écrasée à
+        // chaque ligne.
+        verify(telemetryStore).appendLossPoint(JOB_ID, 0.33, 1.9, null);
+    }
+
+    @Test
     @DisplayName("une ligne vide n'est pas diffusée")
     void blankLinesAreDropped() throws Exception {
         emit("   ");
 
         verify(broadcaster, never()).jobInfo(any(), any());
+        verify(telemetryStore, never()).appendLog(any(), any(), any());
     }
 }

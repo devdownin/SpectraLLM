@@ -56,6 +56,7 @@ class FineTuningUnavailableRunnerTest {
                 mock(DpoGenerationService.class),
                 repository,
                 mock(TrainingLogBroadcaster.class),
+                mock(JobTelemetryStore.class),
                 mock(ModelRegistryService.class),
                 mock(BaseModelCatalog.class),
                 mock(GedService.class),

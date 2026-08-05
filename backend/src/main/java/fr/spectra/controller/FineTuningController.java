@@ -5,6 +5,7 @@ import fr.spectra.dto.FineTuningRequest;
 import fr.spectra.dto.ModelRegistrationRequest;
 import fr.spectra.service.BaseModelCatalog;
 import fr.spectra.service.FineTuningService;
+import fr.spectra.service.JobTelemetryStore;
 import fr.spectra.service.LlmChatClient;
 import fr.spectra.service.ModelRegistryService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -34,13 +35,16 @@ public class FineTuningController {
     private final LlmChatClient llmClient;
     private final BaseModelCatalog baseModelCatalog;
     private final ModelRegistryService modelRegistry;
+    private final JobTelemetryStore telemetryStore;
 
     public FineTuningController(FineTuningService fineTuningService, LlmChatClient llmClient,
-                                BaseModelCatalog baseModelCatalog, ModelRegistryService modelRegistry) {
+                                BaseModelCatalog baseModelCatalog, ModelRegistryService modelRegistry,
+                                JobTelemetryStore telemetryStore) {
         this.fineTuningService = fineTuningService;
         this.llmClient = llmClient;
         this.baseModelCatalog = baseModelCatalog;
         this.modelRegistry = modelRegistry;
+        this.telemetryStore = telemetryStore;
     }
 
     @PostMapping("/models/register")
@@ -111,6 +115,27 @@ public class FineTuningController {
     @Operation(summary = "Lister tous les jobs de fine-tuning")
     public List<FineTuningJob> listJobs() {
         return fineTuningService.getAllJobs();
+    }
+
+    @GetMapping("/{jobId}/telemetry")
+    @Operation(summary = "Trace persistée d'un job : journal de sortie et série de perte",
+            description = "Le flux SSE n'a pas de mémoire — il ne rejoue rien à un client qui se "
+                    + "connecte en cours de route, et rien du tout pour un job terminé. Cet "
+                    + "endpoint rend la trace écrite sur disque pendant l'exécution, ce qui "
+                    + "permet à l'interface de retrouver logs et courbe après un rechargement. "
+                    + "Un job sans trace (antérieur, ou dont le répertoire a été purgé) rend une "
+                    + "trace vide, pas une erreur.")
+    public JobTelemetryStore.Telemetry getJobTelemetry(
+            @PathVariable String jobId,
+            @RequestParam(defaultValue = "500") int tail) {
+        // Le job doit exister : cela borne l'identifiant aux valeurs que le service a produites,
+        // et distingue « job inconnu » (404) de « job sans trace » (trace vide).
+        if (fineTuningService.getJob(jobId) == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Job inconnu: " + jobId);
+        }
+        // Borne haute : un journal peut compter des dizaines de milliers de lignes, et les
+        // renvoyer toutes ferait payer au navigateur ce que personne ne lira.
+        return telemetryStore.read(jobId, Math.clamp(tail, 1, 5_000));
     }
 
     @GetMapping("/models")

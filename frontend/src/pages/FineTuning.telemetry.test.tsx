@@ -27,10 +27,26 @@ const OLD_FAILED = {
   createdAt: '2026-08-04T09:00:00Z', completedAt: '2026-08-04T09:02:00Z',
 };
 
+/** Trace persistée servie par l'API, par job. */
+const TELEMETRY: Record<string, unknown> = {
+  'job-en-cours': {
+    logs: [{ timestamp: '09:59:58', level: 'INFO', message: 'ligne écrite avant le rechargement' }],
+    losses: [{ epoch: 0.33, loss: 1.9 }, { epoch: 0.67, loss: 1.6, evalLoss: 1.8 }],
+    totalLogLines: 1, capped: false,
+  },
+  'job-ancien': {
+    logs: [{ timestamp: '09:01:00', level: 'ERROR', message: 'trace relue du job de la veille' }],
+    losses: [], totalLogLines: 42, capped: false,
+  },
+};
+const getTelemetry = vi.fn((jobId: string) =>
+  Promise.resolve({ data: TELEMETRY[jobId] ?? { logs: [], losses: [], totalLogLines: 0, capped: false } }));
+
 vi.mock('../services/api', () => ({
   fineTuningApi: {
     getJobs: vi.fn(() => Promise.resolve({ data: [RUNNING, OLD_FAILED] })),
     getJob: vi.fn(() => Promise.resolve({ data: RUNNING })),
+    getTelemetry: (jobId: string) => getTelemetry(jobId),
     createJob: vi.fn(),
     cancelJob: vi.fn(),
     getBaseModels: vi.fn(() => Promise.resolve({ data: [] })),
@@ -95,8 +111,28 @@ describe('FineTuning — télémétrie rattachée à son job', () => {
 
     await waitFor(() =>
       expect(screen.queryByText('ligne du job suivi')).not.toBeInTheDocument());
-    // Et l'on ne prétend pas attendre des évènements qui ne viendront jamais.
-    expect(screen.getByText(/telemetry is not retained/i)).toBeInTheDocument();
+    // Le moniteur affiche la trace PERSISTÉE du job sélectionné, pas celle du précédent.
+    expect(await screen.findByText('trace relue du job de la veille')).toBeInTheDocument();
+  });
+
+  it('retrouve la trace persistée du job restauré au chargement', async () => {
+    // C'est le cas du rechargement de page : le flux SSE ne rejoue rien, et sans relecture le
+    // suivi d'un run de plusieurs heures disparaissait entièrement.
+    render(<FineTuning />);
+
+    expect(await screen.findByText('ligne écrite avant le rechargement')).toBeInTheDocument();
+    await waitFor(() => expect(getTelemetry).toHaveBeenCalledWith('job-en-cours'));
+    // La courbe est reconstituée depuis la série persistée (2 points → tracé possible).
+    expect(await screen.findByText(/2 points/i)).toBeInTheDocument();
+  });
+
+  it('signale que le début du journal n\'est pas affiché', async () => {
+    render(<FineTuning />);
+    await screen.findByRole('heading', { name: 'spectra-domain' });
+    fireEvent.click(screen.getByRole('cell', { name: 'spectra-ancien' }));
+
+    // 42 lignes sur disque, 1 rendue : le dire évite de laisser croire que le run a commencé là.
+    expect(await screen.findByText(/beginning truncated/i)).toBeInTheDocument();
   });
 
   it('situe l\'échec d\'un ancien job sur sa phase réelle', async () => {

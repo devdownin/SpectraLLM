@@ -46,22 +46,26 @@
 >
 > ---
 >
-> **Statut au 2026-08-05 — lots 1 et 2 livrés.** Sont **corrigés** : S2, S3, S4, S5, S6, S9, S12,
-> S15, S16, et la moitié client de S1. Concrètement : la progression démarre à la première fraction
-> d'époque au lieu du premier tiers du run, la courbe compte un point par étape journalisée sur un
-> axe qui couvre les époques prévues, la courbe de validation ne disparaît plus, le jalon final
-> s'allume, un échec est signalé **là où il s'est produit**, la télémétrie n'affiche que les lignes
-> du job consulté, le flux n'est plus noyé par les barres de téléchargement ni muet avant le
-> premier pas, et l'entraînement s'arrête depuis sa propre page avec un refus 409 enfin lisible.
+> **Statut au 2026-08-05 — lots 1, 2 et 3 livrés.** Sont **corrigés** : S1, S2, S3, S4, S5, S6,
+> S8, S9, S12, S15 et S16 — c'est-à-dire les cinq constats élevés et l'essentiel des moyens.
+> Concrètement : la progression démarre à la première fraction d'époque au lieu du premier tiers du
+> run ; la courbe compte un point par étape journalisée, sur un axe qui couvre les époques prévues,
+> et la courbe de validation ne disparaît plus ; le jalon final s'allume ; un échec est signalé
+> **là où il s'est produit** ; la télémétrie n'affiche que les lignes du job consulté **et survit
+> au rechargement**, un job terminé gardant sa trace consultable ; le flux n'est plus noyé par les
+> barres de téléchargement ni muet avant le premier pas ; l'entraînement s'arrête depuis sa propre
+> page, et un refus 409 s'explique.
 >
-> Six jeux de tests accompagnent ces lots (`trainingProgress.test.ts`, `fineTuningSteps.test.ts`,
-> `FineTuning.cancel.test.tsx`, `FineTuning.telemetry.test.tsx`, `FineTuningProgressTrackingTest`,
-> `FineTuningFailurePhaseTest`, `TrainingLogBroadcasterTest`) : les règles de suivi vivent désormais
-> dans des fonctions pures plutôt que dans des ternaires du JSX.
+> Neuf jeux de tests accompagnent ces lots (`trainingProgress.test.ts`, `fineTuningSteps.test.ts`,
+> `apiError.test.ts`, `FineTuning.cancel.test.tsx`, `FineTuning.telemetry.test.tsx`,
+> `FineTuningProgressTrackingTest`, `FineTuningFailurePhaseTest`, `TrainingLogBroadcasterTest`,
+> `JobTelemetryStoreTest`) : les règles de suivi vivent désormais dans des fonctions pures et un
+> magasin testable, plutôt que dans des ternaires du JSX et un canal sans mémoire.
 >
-> Restent **ouverts** : S8 et la moitié serveur de S1 — **rien n'est persisté**, un rechargement de
-> page détruit encore logs et courbe d'un run de plusieurs heures —, puis S7, S10, S11, S13, S14,
-> S17 à S22 et l'alignement de la documentation. Aucun n'est bloquant.
+> Restent **ouverts**, tous de gravité moyenne ou faible : S7 (annulation et échec rendus à
+> l'identique), S10 (le hook SSE ne garantit pas la livraison), S11 (tout en INFO, lignes
+> tronquées), S13 (ni durée ni ETA sur la page), S14 (phases muettes), S17 à S22 et l'alignement de
+> la documentation. Aucun n'est bloquant.
 
 ---
 
@@ -90,7 +94,7 @@ complet du fine-tuning se trouve donc aujourd'hui *ailleurs que sur la page de f
 
 ## 2. La courbe de perte
 
-### S1 — La loss par étape est agrégée à un point par époque — **élevé** — ✅ partiellement corrigé
+### S1 — La loss par étape est agrégée à un point par époque — **élevé** — ✅ corrigé
 
 `train_host.py` fixe `logging_steps=1` sur les trois chemins d'entraînement (lignes 443, 469, 516)
 et `ProgressLogger` (`train_host.py:375-383`) imprime une ligne par étape :
@@ -125,9 +129,13 @@ points de même abscisse. La série compte désormais **un point par étape jour
 2000), et non plus un par époque. Au passage, la loss n'est plus rattachée à l'époque remontée par
 le sondage — jusqu'à 4 s de retard, donc une abscisse fausse.
 
-**Reste ouvert :** le job ne porte toujours qu'une loss scalaire. La série vit dans l'état de la
-page : un rechargement la perd, et un job terminé n'en a aucune. C'est le même correctif que S8
-(persistance), et il n'est pas fait.
+**Correction appliquée (moitié serveur).** Le job ne porte toujours qu'une loss scalaire — c'est
+la nature d'une colonne — mais chaque point extrait est désormais **écrit** dans
+`data/fine-tuning/<jobId>/losses.jsonl` au moment où il passe. La série survit donc au
+rechargement, et un job terminé en a une. `GET /api/fine-tuning/{jobId}/telemetry` la rend
+**sous-échantillonnée** au-delà de 2000 points : un run long avec `logging_steps=1` en produit des
+dizaines de milliers, que ni le réseau ni le graphe n'ont de raison de transporter ; le premier et
+le dernier sont toujours conservés.
 
 ### S2 — Le sondage efface l'eval_loss de la courbe — **élevé** — ✅ corrigé
 
@@ -272,7 +280,7 @@ redémarré — sont donc rendus de façon identique. L'énumération `Status` s
 
 ## 4. Flux de télémétrie
 
-### S8 — Les logs ne survivent ni au rechargement, ni à la navigation — **élevé**
+### S8 — Les logs ne survivent ni au rechargement, ni à la navigation — **élevé** — ✅ corrigé
 
 Aucun maillon de la chaîne ne conserve les lignes :
 
@@ -297,6 +305,30 @@ détruit l'intégralité de la trace.
 > `GET /api/fine-tuning/{jobId}/logs?tail=N`, que la page charge au montage avant de brancher le
 > SSE. Bénéfice secondaire : les logs d'un job **terminé** deviennent consultables, ce qu'aucun
 > chemin ne permet aujourd'hui.
+
+**Correction appliquée**, telle que décrite, avec la série de perte dans le même mouvement (S1) :
+
+- `JobTelemetryStore` écrit `train.log` (texte, lisible tel quel par un exploitant sans UI) et
+  `losses.jsonl` (la série que trace le graphe). **Un seul point de sortie** dans le service
+  alimente le flux SSE *et* la trace : ce qu'on a vu passer en direct est exactement ce qu'on
+  relit.
+- `GET /api/fine-tuning/{jobId}/telemetry?tail=N` rend les deux. La page l'appelle à chaque
+  sélection de job — y compris à la restauration après un rechargement — puis laisse le direct
+  prendre la suite. Un job inconnu rend 404 ; un job **sans trace** (antérieur, ou dont le
+  répertoire a été purgé) rend une trace vide, ce qui n'est pas une anomalie.
+- Le journal est **borné** (5 Mo par défaut) : au-delà, une unique ligne d'avertissement est
+  écrite puis le fichier cesse de croître. L'UI signale « début tronqué » dès que ce qu'elle
+  affiche n'est pas le début du run — un journal en queue qui se présenterait comme complet
+  serait un nouveau mensonge, plus discret que le précédent.
+- L'identifiant venant d'une variable de chemin HTTP, le magasin **confine** ses accès au
+  répertoire de travail : un `resolve()` nu suffirait à lire n'importe quel fichier de la machine.
+
+Couvert par `JobTelemetryStoreTest` (aller-retour, queue, sous-échantillonnage, bornage, job sans
+trace, ligne corrompue, traversée de répertoire), par le test de câblage de
+`FineTuningProgressTrackingTest` et par `FineTuning.telemetry.test.tsx`.
+
+Restent hors périmètre : la purge automatique des jobs FAILED de plus d'une heure emporte leur
+trace avec leur répertoire — c'est cohérent, le job disparaît aussi de l'historique.
 
 ### S9 — Le flux n'est rattaché à aucun job — **moyen** — ✅ corrigé
 
@@ -559,7 +591,9 @@ d'un job et sur clic « Refresh » — la table ne reflète donc pas l'avancemen
 | `parseTrainingOutput` + volume diffusé (backend) | `FineTuningProgressTrackingTest` | ✅ livré avec le lot 1 |
 | Phase d'échec (DTO, entité, annulation) | `FineTuningFailurePhaseTest` | ✅ livré avec le lot 2 |
 | Enveloppe des évènements SSE | `TrainingLogBroadcasterTest` | ✅ livré avec le lot 2 |
-| Télémétrie rattachée à son job (page) | `FineTuning.telemetry.test.tsx` | ✅ livré avec le lot 2 |
+| Télémétrie rattachée à son job, trace relue (page) | `FineTuning.telemetry.test.tsx` | ✅ livré avec les lots 2-3 |
+| Trace persistée (écriture, queue, bornage, confinement) | `JobTelemetryStoreTest` | ✅ livré avec le lot 3 |
+| Message d'erreur d'API | `apiError.test.ts` | ✅ livré avec le lot 3 |
 | `useGlobalTasks` (normaliseurs, ETA) | `useGlobalTasks.test.ts` | ✅ |
 | `TaskCenter` (relance) | `TaskCenter.retry.test.tsx` | ✅ partiel |
 | `LossChart.tsx` (rendu) | — | **aucun** |
@@ -579,8 +613,13 @@ l'étape 4 ; une phase d'échec illisible en base ne casse pas la relecture de l
 ligne d'un autre job n'apparaît pas dans la télémétrie du job consulté ; changer de job vide le
 moniteur.
 
-Reste à couvrir, avec les lots suivants : le hook SSE doit livrer chaque évènement une fois (S10),
-et la série de loss doit survivre à un rechargement (S1, S8).
+Ajoutés par le lot 3 : la trace écrite se relit avec son horodatage et son niveau ; la lecture rend
+la queue du journal en disant combien de lignes existent ; une série trop longue est
+sous-échantillonnée sans perdre son premier ni son dernier point ; le journal cesse de croître à sa
+borne en ne le signalant qu'une fois ; un identifiant qui sort du répertoire de travail est refusé ;
+et ce qui est diffusé est aussi consigné — un seul point de sortie pour les deux canaux.
+
+Reste à couvrir : le hook SSE doit livrer chaque évènement une fois (S10).
 
 ---
 
@@ -588,10 +627,10 @@ et la série de loss doit survivre à un rechargement (S1, S8).
 
 | # | Constat | Gravité | Effort | Statut |
 |---|---|---|---|---|
-| S1 | Loss par étape agrégée à un point par époque — courbe à 2-3 points | Élevé | Moyen | ⚠️ client corrigé, série non persistée |
+| S1 | Loss par étape agrégée à un point par époque — courbe à 2-3 points | Élevé | Moyen | ✅ corrigé |
 | S3 | Première époque entièrement invisible (entier tronqué) | Élevé | Faible | ✅ corrigé |
 | S5 | Un échec est toujours attribué à l'étape « Import » ; la phase fautive n'est pas conservée | Élevé | Faible (UI) + Moyen (DTO) | ✅ corrigé |
-| S8 | Logs perdus au rechargement, à la navigation et hors connexion | Élevé | Moyen | Ouvert |
+| S8 | Logs perdus au rechargement, à la navigation et hors connexion | Élevé | Moyen | ✅ corrigé |
 | S15 | Pas d'annulation depuis la page de fine-tuning | Élevé | Trivial | ✅ corrigé |
 | S2 | Le sondage efface l'eval_loss (annule le bénéfice de `valSplit`) | Élevé | Trivial | ✅ corrigé |
 | S9 | Flux SSE sans `jobId` — logs et courbe attribués au mauvais job | Moyen | Faible | ✅ corrigé |
@@ -621,12 +660,14 @@ et la série de loss doit survivre à un rechargement (S1, S8).
    s'est produit (champ `failedPhase`, migration incluse), et la télémétrie n'affiche que les
    lignes du job consulté — changer de job vide le moniteur au lieu de lui léguer la courbe et les
    logs du précédent. L'interface n'affirme plus rien de faux.
-3. **La substance du signal** — la moitié serveur de S1 (série de loss portée par le job ou par un
-   fichier), puis S8 (persistance des logs et endpoint de relecture). Les deux partagent la même
-   infrastructure : le répertoire de job existe déjà, il ne sert qu'à l'adaptateur. C'est ce qui
-   manque pour qu'un rechargement de page ne détruise plus le suivi d'un run de plusieurs heures.
-4. **Le reste** — durée/ETA sur la page (S13), phases muettes (S14), niveaux de log (S11), i18n
-   (S20), accessibilité (S21), historique (S22), et l'alignement du manuel (§8).
+3. ~~**La substance du signal** — la moitié serveur de S1, puis S8.~~ **Livré.** Journal et série
+   de perte sont écrits dans le répertoire du job pendant l'exécution, et relus par
+   `GET /{jobId}/telemetry` : un rechargement de page ne détruit plus le suivi, et un job terminé
+   garde une trace consultable — ce qu'aucun chemin ne permettait.
+4. **Le reste**, tout de gravité moyenne ou faible — livraison du flux SSE (S10), niveaux de log et
+   lisibilité des lignes (S11), durée/ETA sur la page (S13), phases muettes (S14), distinction
+   annulation/échec (S7), i18n (S20), accessibilité (S21), historique (S22), et l'alignement du
+   manuel (§8).
 
 Les tests du §9 ont été écrits **avec** le lot 1, et non après : sans eux, S3 et S6 sont exactement
 le genre de régression qui revient au prochain remaniement de la page. Les lots suivants doivent

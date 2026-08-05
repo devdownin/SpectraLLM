@@ -662,6 +662,8 @@ Puis, lors du lancement du fine-tuning (étape 3), cochez **Alignement DPO** pou
 
    La barre de progression avance en continu (fractions d'époque), la courbe de perte trace un
    point par étape journalisée, et le flux de télémétrie affiche la sortie du trainer en direct.
+   Journal et courbe sont **conservés sur disque** (`data/fine-tuning/<jobId>/`) : rafraîchir la
+   page ou revenir sur un job terminé les retrouve, là où le flux temps réel ne rejoue rien.
 
 7. Pour arrêter un job en cours, cliquez sur **Arrêter** en haut à droite du moniteur et confirmez.
    La progression est perdue — un job ne reprend jamais depuis un adaptateur précédent. Le même

@@ -57,7 +57,8 @@ class FineTuningErrorMappingTest {
         fineTuningService = mock(FineTuningService.class);
         FineTuningController controller = new FineTuningController(
                 fineTuningService, mock(LlmChatClient.class),
-                mock(BaseModelCatalog.class), mock(ModelRegistryService.class));
+                mock(BaseModelCatalog.class), mock(ModelRegistryService.class),
+                mock(fr.spectra.service.JobTelemetryStore.class));
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();

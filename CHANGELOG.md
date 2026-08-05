@@ -8,6 +8,34 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Ajouté — la trace d'un entraînement survit au rechargement de page
+
+Un fine-tuning dure des heures ; son suivi ne survivait pas à un `F5`. Le flux SSE est un canal
+sans mémoire — le sink ne rejoue son tampon qu'au *premier* abonné, et jette ce qui est émis sans
+abonné — et la courbe comme les lignes vivaient dans l'état de la page. Un job terminé, lui, n'avait
+jamais eu de trace consultable : les lignes n'existaient durablement que dans les logs serveur,
+invisibles depuis l'interface.
+
+Pendant l'exécution, le journal de sortie et la série de perte sont désormais écrits dans le
+répertoire de travail du job — `train.log`, du texte lisible tel quel par un exploitant sans UI, et
+`losses.jsonl`, la série que trace le graphe. **Un seul point de sortie** alimente le direct et la
+trace : ce qu'on a vu passer est exactement ce qu'on relit. `GET /api/fine-tuning/{jobId}/telemetry`
+rend les deux, et la page les charge à chaque sélection de job — rechargement compris — avant de
+laisser le direct prendre la suite.
+
+Trois bornes, parce qu'un fichier de log sans limite est un incident qui attend son heure :
+
+- le journal cesse de croître à 5 Mo, après une unique ligne d'avertissement — sans ce garde,
+  chaque ligne suivante en aurait réécrit une ;
+- la lecture ne rend que la **queue** (500 lignes par défaut, 5000 au plus) et l'interface signale
+  « début tronqué » dès que ce qu'elle affiche n'est pas le début du run ;
+- la série est **sous-échantillonnée** au-delà de 2000 points, premier et dernier conservés : un run
+  long avec `logging_steps=1` en produit des dizaines de milliers, que ni le réseau ni le graphe
+  n'ont de raison de transporter.
+
+L'identifiant de job venant d'une variable de chemin HTTP, les accès sont confinés au répertoire de
+travail : un `resolve()` nu aurait suffi à lire n'importe quel fichier de la machine.
+
 ### Corrigé — l'interface situait un échec de fine-tuning au mauvais endroit, et mélangeait les jobs
 
 Deux affirmations fausses, pour deux causes indépendantes.

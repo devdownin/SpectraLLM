@@ -625,6 +625,8 @@
     "streamConnecting": "Connecting to telemetry stream…",
     "streamWaiting": "Waiting for events…",
     "streamNotRetained": "This job has finished — telemetry is not retained afterwards.",
+    "telemetryLoading": "Loading recorded trace…",
+    "telemetryTruncated": "beginning truncated",
     "history": "Training History",
     "refresh": "Refresh",
     "colJobId": "Job ID",
