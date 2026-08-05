@@ -47,10 +47,16 @@ public class TrainingLogBroadcaster {
      * {@code jobId} laisse le client filtrer ; {@code null} signifie « concerne tout le monde ».
      */
     public void publish(String jobId, String level, String message) {
+        publish(jobId, level, message, null);
+    }
+
+    /** Évènement enrichi d'une charge utile structurée ({@code progress}), ou {@code null}. */
+    public void publish(String jobId, String level, String message, Map<String, Object> progress) {
         Map<String, Object> event = new HashMap<>();
         event.put("level", level);
         event.put("message", message);
         event.put("jobId", jobId);
+        event.put("progress", progress);
         event.put("timestamp", LocalTime.now().format(TIME_FMT));
         // publish() peut être appelé depuis plusieurs threads : retenter uniquement
         // en cas de contention d'émission (FAIL_NON_SERIALIZED) pour ne pas perdre
@@ -79,6 +85,26 @@ public class TrainingLogBroadcaster {
     /** Avertissement attribué à un job. */
     public void jobWarn(String jobId, String message) {
         publish(jobId, "WARN", message);
+    }
+
+    /**
+     * Progression d'entraînement : le message reste du texte lisible, mais l'évènement porte
+     * <b>en plus</b> les valeurs exactes. Le client n'a ainsi plus à les réextraire du message
+     * par expression régulière — troisième analyseur d'un format que personne n'avait écrit.
+     */
+    public void jobProgress(String jobId, String message,
+                            double epoch, Double loss, Double evalLoss) {
+        Map<String, Object> progress = new HashMap<>();
+        progress.put("epoch", epoch);
+        // Une valeur absente est une clé absente, et non un `null` : côté client, `null` devrait
+        // être distingué de 0, qui est une loss parfaitement légitime.
+        if (loss != null) {
+            progress.put("loss", loss);
+        }
+        if (evalLoss != null) {
+            progress.put("evalLoss", evalLoss);
+        }
+        publish(jobId, "INFO", message, progress);
     }
 
     /** Ligne d'erreur attribuée à un job. */

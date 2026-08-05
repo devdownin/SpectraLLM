@@ -767,6 +767,42 @@ Reste à couvrir : le hook SSE doit livrer chaque évènement une fois (S10).
 document ; elles relèvent de chantiers distincts (catalogue d'erreurs côté API, pagination de
 l'historique) et non de ce périmètre.
 
+### Suite structurelle — supprimer la cause commune de S3 et S11
+
+Deux constats de cet audit sont le **même défaut** vu deux fois : on devinait, par expression
+régulière, un sens que l'émetteur connaissait déjà.
+
+| Constat | Motif fautif | Ce qu'il ratait |
+|---|---|---|
+| S3 | `epoch[= ]*(\d+)` | la fraction : `epoch=0.97` lu `0` |
+| S11 | `\b…\b` autour de `traceback (most recent call last)` | la ligne finit sur une parenthèse |
+
+Et ce contrat — la prose `  epoch=0.33  loss=1.8421` — n'était écrit nulle part, alors que **trois**
+analyseurs devaient rester d'accord sur lui : `parseTrainingOutput` et `levelOf` en Java,
+`parseProgressLine` en TypeScript. Corriger les motifs traitait les symptômes ; la cause est qu'un
+format implicite servait de protocole entre deux langages.
+
+`scripts/train_host.py` émet désormais des lignes **structurées** (`scripts/spectra_events.py`) :
+
+```
+__SPECTRA_EVENT__ {"type": "progress", "epoch": 0.33, "loss": 1.8421}
+__SPECTRA_EVENT__ {"type": "log", "level": "ERROR", "message": "dataset vide"}
+```
+
+- Les valeurs sont **données**, plus devinées : ni troncature d'époque, ni `eval_loss` confondu
+  avec la loss d'entraînement, ni niveau déduit de mots-clés.
+- L'évènement SSE porte en plus `progress: { epoch, loss, evalLoss }` : le client lit les nombres
+  au lieu de les réextraire du message — le troisième analyseur disparaît.
+- Le rendu humain est produit **côté backend** : le flux et `train.log` restent lisibles, seul le
+  transport devient exact.
+- L'analyse textuelle reste comme **repli** — trainer antérieur, image non reconstruite, sortie de
+  bibliothèque tierce — et récupère aussi les évènements illisibles ou de type inconnu, plutôt que
+  de les avaler. Une ligne tronquée signale souvent le processus qui meurt : c'est l'indice le plus
+  utile du run.
+
+Le format est fixé des deux côtés : `scripts/tests/test_spectra_events.py` pour l'émetteur,
+`FineTuningProgressTrackingTest` pour le consommateur.
+
 Les tests du §9 ont été écrits **avec** le lot 1, et non après : sans eux, S3 et S6 sont exactement
 le genre de régression qui revient au prochain remaniement de la page. Les lots suivants doivent
 suivre la même règle.

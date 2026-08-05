@@ -8,6 +8,75 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Modifié — l'entraînement dit sa progression au lieu de la faire deviner
+
+La progression d'un run voyageait jusqu'à l'interface sous forme de **prose** — `  epoch=0.33
+loss=1.8421` — relue par **trois** expressions régulières distinctes : une en Java pour l'état du
+job, une en Java pour le niveau de la ligne, une en TypeScript pour la courbe. Trois
+implémentations d'un contrat que rien n'exprimait, et qui devaient rester d'accord.
+
+Elles ne l'étaient pas, et le lot précédent venait d'en corriger deux : `epoch[= ]*(\d+)` lisait
+`0` dans `epoch=0.97` (toute la première époque masquée), et les frontières de mots autour de
+`traceback (most recent call last)` ne pouvaient pas correspondre, la ligne finissant sur une
+parenthèse (une trace Python diffusée en bleu, comme une information).
+
+`scripts/train_host.py` émet désormais des lignes structurées via le nouveau module
+`scripts/spectra_events.py` :
+
+```
+__SPECTRA_EVENT__ {"type": "progress", "epoch": 0.33, "loss": 1.8421}
+__SPECTRA_EVENT__ {"type": "log", "level": "ERROR", "message": "dataset vide"}
+```
+
+Le backend les lit telles quelles et les rend lisibles de son côté : le flux SSE et `train.log`
+restent du texte, seul le **transport** devient exact. L'évènement SSE porte en plus les valeurs
+(`progress: { epoch, loss, evalLoss }`), si bien que le client n'a plus à les réextraire du
+message. Le niveau d'une erreur vient de l'émetteur, qui le connaît, au lieu d'être deviné sur
+des mots-clés.
+
+L'analyse textuelle **reste en place comme repli** : un dépôt cloné avant ce format, une image de
+trainer non reconstruite, ou la sortie d'une bibliothèque tierce n'émettent que de la prose et
+continuent d'être suivis. Un évènement illisible ou d'un type inconnu repart lui aussi par ce
+chemin plutôt que d'être avalé — une ligne tronquée signale souvent le processus qui meurt.
+
+Le format est fixé des deux côtés : `scripts/tests/test_spectra_events.py` (12 cas) pour
+l'émetteur, `FineTuningProgressTrackingTest` (6 cas de plus) pour le consommateur.
+
+### Corrigé — un scan de dépendances qui n'aboutit pas ne le disait pas
+
+`Dependency Check` n'avait **aucune borne de temps**. Sans clé d'API NVD, le NIST limite fortement
+le débit de l'alimentation de la base : le scan passe de quelques minutes à plusieurs dizaines, et
+se bloque parfois jusqu'au plafond GitHub de **six heures**. La PR affichait alors un check qui
+tourne indéfiniment — indiscernable d'un scan simplement lent — pendant qu'un runner était
+mobilisé pour rien. Le symptôme a bloqué trois PR (#281, #283, #311).
+
+Trois garde-fous, aucun ne masquant une vraie vulnérabilité :
+
+- `timeout-minutes` sur le job (40) et sur l'étape OWASP (30) : un blocage devient un échec
+  nommé et actionnable, au lieu d'une attente sans fin ;
+- l'absence de `NVD_API_KEY` était prise **en silence** ; elle émet désormais un avertissement
+  qui nomme la cause et le remède — une clé gratuite à déclarer en secret de dépôt ;
+- le rapport est téléversé avec `if: always()` : un scan qui échoue est précisément celui dont on
+  veut lire le rapport, or l'artefact n'était produit que quand personne n'en avait besoin.
+
+### Ajouté — le cycle de vie d'un fine-tuning est enfin testé de bout en bout
+
+Dernier angle mort du constat F13 de [l'audit fine-tuning](docs/process/audit-finetuning.fr.md) :
+les tests existants couvraient des méthodes périphériques, mais **ni la machine à états, ni le
+verrou d'unicité, ni l'annulation** — les trois mécanismes dont dépend tout le reste.
+
+`FineTuningOrchestrationTest` conduit un job réel contre un `TrainingRunner` de test qui rejoue les
+lignes de `ProgressLogger` et produit l'artefact attendu : la séquence `PENDING → EXPORTING_DATASET
+→ TRAINING → COMPLETED` est observée dans l'ordre, la soumission concurrente est tentée *pendant*
+l'entraînement — seul moment où le verrou est tenu — puis on vérifie qu'il est rendu, et une
+annulation en cours d'exécution atteint l'exécuteur sans qu'aucune ligne tardive ne ressuscite le
+job. S'y ajoutent les cas où l'orchestration doit refuser de conclure : code de sortie non nul,
+adaptateur absent malgré un code 0, dataset vide après filtrage.
+
+La valeur de ces tests a été vérifiée par mutation : neutraliser le verrou fait échouer le cas
+concurrent sur son assertion nommée, supprimer la transition `EXPORTING_DATASET` fait échouer la
+séquence d'états.
+
 ### Corrigé — le suivi d'un fine-tuning se lit enfin sans le décoder
 
 Dernier lot de [l'audit du suivi](docs/process/audit-suivi-finetuning-ui.fr.md), qui ferme les

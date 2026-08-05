@@ -156,6 +156,16 @@ export interface TrainingLog {
    * `null` = message global, à afficher quel que soit le job consulté.
    */
   jobId?: string | null;
+  /**
+   * Valeurs de progression **données** par le trainer (cf. `scripts/spectra_events.py`), au lieu
+   * d'être relues dans le message par expression régulière. Absent pour les lignes ordinaires,
+   * et pour un trainer antérieur à ce format — le repli textuel reste alors en place.
+   */
+  progress?: {
+    epoch: number;
+    loss?: number | null;
+    evalLoss?: number | null;
+  } | null;
 }
 
 export interface EvaluationScore {

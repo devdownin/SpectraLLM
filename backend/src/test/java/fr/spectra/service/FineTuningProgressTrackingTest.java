@@ -22,6 +22,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -204,5 +205,83 @@ class FineTuningProgressTrackingTest {
 
         verify(broadcaster, never()).jobInfo(any(), any());
         verify(telemetryStore, never()).appendLog(any(), any(), any());
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────
+    // Évènements structurés — l'autre moitié du contrat fixé par scripts/tests/test_spectra_events.py
+    // ─────────────────────────────────────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("une progression structurée est lue telle quelle, sans expression régulière")
+    void structuredProgressIsReadVerbatim() throws Exception {
+        emit("__SPECTRA_EVENT__ {\"type\": \"progress\", \"epoch\": 0.9737, \"loss\": 1.234568}");
+
+        FineTuningJob job = lastSaved();
+        // La valeur traverse sans perte : ni troncature de l'époque, ni arrondi de la loss au
+        // passage — c'est tout l'intérêt de ne plus la relire dans du texte.
+        assertThat(job.currentEpoch()).isEqualTo(0.9737);
+        assertThat(job.loss()).isEqualTo(1.234568);
+        verify(telemetryStore).appendLossPoint(JOB_ID, 0.9737, 1.234568, null);
+    }
+
+    @Test
+    @DisplayName("l'évènement porte les valeurs exactes, et le message reste lisible")
+    void structuredProgressBroadcastsValuesAndReadableText() throws Exception {
+        emit("__SPECTRA_EVENT__ {\"type\": \"progress\", \"epoch\": 1.0, \"evalLoss\": 0.95}");
+
+        // Le client reçoit les nombres : il n'a plus à les réextraire du message — troisième
+        // analyseur d'un format que personne n'avait écrit.
+        verify(broadcaster).jobProgress(eq(JOB_ID), eq("  epoch 1.00 · eval_loss 0.9500"),
+                eq(1.0), isNull(), eq(0.95));
+        // Et ce qui est consigné reste du texte : le JSON brut dans train.log serait illisible.
+        verify(telemetryStore).appendLog(JOB_ID, "INFO", "  epoch 1.00 · eval_loss 0.9500");
+        verify(broadcaster, never()).jobInfo(any(), any());
+    }
+
+    @Test
+    @DisplayName("le niveau déclaré fait foi, même sans mot-clé d'erreur dans le message")
+    void declaredLevelWinsOverKeywordGuessing() throws Exception {
+        // « dataset vide » ne contient aucun mot que l'heuristique reconnaît : deviné, ce
+        // message serait passé en bleu comme une information — alors qu'il dit l'échec.
+        emit("__SPECTRA_EVENT__ {\"type\": \"log\", \"level\": \"ERROR\", \"message\": \"dataset vide\"}");
+
+        assertThat(FineTuningService.levelOf("dataset vide")).isEqualTo("INFO");
+        verify(broadcaster).jobError(JOB_ID, "dataset vide");
+        verify(telemetryStore).appendLog(JOB_ID, "ERROR", "dataset vide");
+    }
+
+    @Test
+    @DisplayName("un évènement illisible repart par le chemin texte plutôt que d'être perdu")
+    void malformedEventFallsBackToText() throws Exception {
+        String truncated = "__SPECTRA_EVENT__ {\"type\": \"progress\", \"epoch\": ";
+
+        emit(truncated);
+
+        // Une ligne tronquée signale probablement le processus qui meurt en plein écrit :
+        // l'avaler ferait disparaître l'indice le plus utile du run.
+        verify(broadcaster).jobInfo(JOB_ID, truncated);
+    }
+
+    @Test
+    @DisplayName("un type d'évènement inconnu n'est pas silencieusement ignoré")
+    void unknownEventTypeFallsBackToText() throws Exception {
+        // Un trainer plus récent que ce backend émettra des types qu'il ne connaît pas ; les
+        // diffuser tels quels vaut mieux que de les faire disparaître.
+        String line = "__SPECTRA_EVENT__ {\"type\": \"checkpoint\", \"path\": \"/o/ckpt-500\"}";
+
+        emit(line);
+
+        verify(broadcaster).jobInfo(JOB_ID, line);
+    }
+
+    @Test
+    @DisplayName("la prose d'un trainer antérieur reste comprise")
+    void legacyProseStillTracked() throws Exception {
+        // Un dépôt cloné avant ce format, ou une image de trainer non reconstruite, n'émet que
+        // cela : le repli n'est pas du code mort, c'est la compatibilité.
+        emit("  epoch=0.33  loss=1.9000");
+
+        assertThat(lastSaved().currentEpoch()).isEqualTo(0.33);
+        verify(broadcaster).jobInfo(JOB_ID, "  epoch=0.33  loss=1.9000");
     }
 }

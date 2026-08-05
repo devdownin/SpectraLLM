@@ -42,8 +42,9 @@
 > pas) et le montage `./scripts` (qui n'existe pas non plus) ont disparu de la doc technique, du
 > diagramme C4 et de `llama-cpp.fr.md`.
 >
-> Restent **ouverts** : F12, F14, la part non couverte de F13, et le champ `reportPath` toujours
-> `null` signalé au §6. Aucun n'est bloquant.
+> Restent **ouverts** : F12, F14, et le champ `reportPath` toujours `null` signalé au §6.
+> **F13 est clos** : l'orchestration — machine à états, verrou d'unicité, annulation — est
+> désormais couverte de bout en bout par `FineTuningOrchestrationTest`. Aucun n'est bloquant.
 >
 > **Suite.** Le **suivi du processus dans l'interface** — barre d'étapes, courbe de perte, flux de
 > télémétrie, restitution des échecs, pilotage — fait l'objet d'un audit distinct :
@@ -457,7 +458,7 @@ Autres remarques sur le même fichier :
   à `AssistantPersona.SYSTEM_PROMPT`. Les deux sont identiques aujourd'hui par coïncidence ;
   modifier la constante Java désynchronisera silencieusement l'instruction imprimée.
 
-### F13 — Aucune couverture de test du moteur d'entraînement — **moyen**
+### F13 — Aucune couverture de test du moteur d'entraînement — **moyen** — ✅ corrigé
 
 - Côté Java, `FineTuningGedTraceTest` et `FineTuningSftExclusionTest` testent la traçabilité GED
   et le filtre de catégories — deux méthodes périphériques, atteintes par réflexion. Ni la
@@ -476,6 +477,27 @@ Les défauts F3, F4, F5 sont tous des invariants testables sans GPU ni télécha
 appliqué provient bien du tokenizer, que `max_length` est respecté). C'est le levier le moins
 cher pour éviter la réapparition de cette classe de bugs — et le corollaire naturel du refactor
 de F3, qui devra de toute façon rendre le module importable.
+
+**Correction appliquée.** Le volet Python l'avait été avec F3 (`scripts/tests/test_chat_format.py`,
+job CI `training-scripts`). Le volet Java l'est désormais : `FineTuningOrchestrationTest` conduit un
+job réel de bout en bout contre un `TrainingRunner` de test qui rejoue les lignes de
+`ProgressLogger` et produit l'artefact attendu. Sont couverts les trois mécanismes qui manquaient :
+
+- **la machine à états** — la séquence `PENDING → EXPORTING_DATASET → TRAINING → COMPLETED` est
+  observée dans l'ordre, et un échec est situé à la phase qu'il a interrompue ;
+- **le verrou d'unicité** — la soumission concurrente est tentée *pendant* l'entraînement, seul
+  moment où le verrou est réellement tenu, puis on vérifie qu'il est rendu (un échec ne doit pas
+  condamner la fonctionnalité jusqu'au redémarrage) ;
+- **l'annulation** — déclenchée en cours d'exécution, elle atteint l'exécuteur, laisse le job en
+  `CANCELLED` à la phase interrompue, et aucune ligne tardive ne le ressuscite.
+
+S'y ajoutent les cas où l'orchestration doit refuser de conclure : code de sortie non nul,
+adaptateur absent malgré un code 0 — un job vide s'afficherait sinon « terminé » —, et dataset
+vide après filtrage, qui ne doit même pas solliciter l'exécuteur.
+
+La valeur de ces tests a été vérifiée par mutation : neutraliser le verrou fait échouer le cas
+concurrent sur son assertion nommée, et supprimer la transition `EXPORTING_DATASET` fait échouer
+la séquence d'états. Aucun n'est complaisant.
 
 ---
 
@@ -565,7 +587,7 @@ attendu du couplage RAG + fine-tuning revendiqué par le produit.
 | F5 | `--max-length` ignoré sur GPU | Moyen | Trivial | ✅ corrigé |
 | F11 | Dépendances non bornées, `torch`/`peft` manquants | Moyen | Trivial | ✅ corrigé |
 | F12 | Téléchargement non épinglé de `convert_hf_to_gguf.py` | Moyen | Faible | Ouvert |
-| F13 | Aucun test du moteur d'entraînement | Moyen | Moyen | ⚠️ partiel (`chat_format` couvert, orchestration non) |
+| F13 | Aucun test du moteur d'entraînement | Moyen | Moyen | ✅ corrigé (`chat_format` + orchestration) |
 | F14 | Distribution d'entraînement ≠ distribution de service | Moyen | Moyen (conception) | Ouvert |
 | F10 | Arguments positionnels fragiles | Faible | Faible | ✅ `TrainingSpec` (lot 4a) |
 | §6 | Documentation décrivant un système différent du code | Faible | Faible | Ouvert |
@@ -580,8 +602,8 @@ Ce qui n'est **pas** résolu, et doit rester lisible : le fine-tuning demeure in
 (503 motivé) au lieu de l'accepter puis d'échouer à mi-course. Le rendre *exécutable* en
 conteneur est le lot 4b, dont l'urgence a baissé depuis le retrait de Kubernetes.
 
-Ensuite, par ordre de valeur : compléter F13 (l'orchestration `FineTuningService` — machine à
-états, verrou d'unicité, annulation — reste non testée), puis F12 (téléchargement non épinglé de
-`convert_hf_to_gguf.py`, en contradiction avec la promesse « 100 % local »), F14 (aligner une part
-du dataset SFT sur la forme réellement servie, persona + contexte), F10 et la mise à jour de la
-documentation (§6).
+Ensuite, par ordre de valeur : ~~compléter F13~~ **fait** — l'orchestration est couverte de bout en
+bout, mutations à l'appui —, puis F12 (le téléchargement de `convert_hf_to_gguf.py` est désormais
+épinglé, mais l'export exige toujours un accès sortant, en contradiction avec la promesse
+« 100 % local »), F14 (aligner une part du dataset SFT sur la forme réellement servie, persona +
+contexte) et la mise à jour de la documentation (§6).

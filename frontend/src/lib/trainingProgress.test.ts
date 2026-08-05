@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  parseProgressLine, mergeLossPoint, epochInProgress, trainingProgressPercent,
+  parseProgressLine, progressOfLogLine, mergeLossPoint, epochInProgress, trainingProgressPercent,
 } from './trainingProgress';
 import type { LossPoint } from './trainingProgress';
 
@@ -77,5 +77,40 @@ describe('trainingProgressPercent', () => {
   it('rend null uniquement quand la progression est réellement inconnue', () => {
     expect(trainingProgressPercent(null, 3)).toBeNull();
     expect(trainingProgressPercent(1, 0)).toBeNull();
+  });
+});
+
+describe('progressOfLogLine', () => {
+  it('prend les valeurs fournies par le trainer plutôt que de les relire dans le texte', () => {
+    // Le message est volontairement le rendu humain, pas le format d'origine : c'est bien la
+    // charge utile qui fait foi, et non ce qu'une expression régulière saurait en tirer.
+    expect(progressOfLogLine({
+      message: '  epoch 0.97 · loss 1.2346',
+      progress: { epoch: 0.9737, loss: 1.234568 },
+    })).toEqual({ epoch: 0.9737, loss: 1.234568 });
+  });
+
+  it('retombe sur la lecture du texte quand le trainer n\'émet que de la prose', () => {
+    // Un train.sh antérieur à ce format, ou une image de trainer non reconstruite : le repli
+    // n'est pas du code mort, c'est la compatibilité.
+    expect(progressOfLogLine({ message: '  epoch=0.33  loss=1.8421' }))
+      .toEqual({ epoch: 0.33, loss: 1.8421 });
+  });
+
+  it('traite un null comme une absence, mais garde un zéro', () => {
+    // Zéro est une loss légitime ; la confondre avec « pas de valeur » effacerait le point où
+    // l'entraînement a effectivement convergé.
+    expect(progressOfLogLine({ message: 'x', progress: { epoch: 2, loss: 0, evalLoss: null } }))
+      .toEqual({ epoch: 2, loss: 0 });
+  });
+
+  it('n\'ouvre pas de point de courbe pour une progression sans loss', () => {
+    // L'avancement vient déjà du job ; un point sans ordonnée ne ferait qu'un trou dans la série.
+    expect(progressOfLogLine({ message: 'x', progress: { epoch: 2 } })).toBeNull();
+  });
+
+  it('ignore une ligne ordinaire sans charge utile ni valeur', () => {
+    expect(progressOfLogLine({ message: 'Chargement du modèle de base…', progress: null }))
+      .toBeNull();
   });
 });

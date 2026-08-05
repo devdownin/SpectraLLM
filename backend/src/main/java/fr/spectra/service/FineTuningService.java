@@ -639,8 +639,21 @@ public class FineTuningService {
         return "INFO";
     }
 
+    /**
+     * Préfixe d'une ligne <b>machine</b> émise par l'entraînement. Doit rester identique côté
+     * Python ({@code scripts/spectra_events.py}) — c'est le seul point d'accord entre les deux.
+     */
+    static final String EVENT_SENTINEL = "__SPECTRA_EVENT__";
+
     /** Journalisation, diffusion SSE et extraction de progression, communes aux deux exécutions. */
     private void onProcessLine(String jobId, String label, String line) {
+        // Une ligne structurée dit ce qu'elle est : plus rien à deviner sur sa forme.
+        if (line.startsWith(EVENT_SENTINEL) && handleStructuredEvent(jobId, line)) {
+            return;
+        }
+        // Repli : prose relue par expressions régulières. Ce chemin reste nécessaire — un
+        // train.sh antérieur, ou une image de trainer non reconstruite, n'émet que cela — et
+        // c'est aussi lui qui traite la sortie des bibliothèques tierces.
         // Extraction AVANT tout filtrage : une ligne non diffusée doit quand même faire avancer
         // la progression du job.
         if ("train".equals(label)) {
@@ -649,6 +662,65 @@ public class FineTuningService {
         if (line.isBlank()) return;
         if (isProgressBarRefresh(line) && !allowProgressBarLine()) return;
         publishAndRecord(jobId, levelOf(line), line);   // SSE temps réel + trace relisible
+    }
+
+    /**
+     * Traite une ligne d'évènement structuré.
+     *
+     * @return {@code true} si la ligne a été consommée ; {@code false} si elle est illisible —
+     *         elle repart alors par le chemin ordinaire plutôt que d'être perdue, car c'est
+     *         peut-être elle qui explique l'échec.
+     */
+    private boolean handleStructuredEvent(String jobId, String line) {
+        try {
+            com.fasterxml.jackson.databind.JsonNode event =
+                    mapper.readTree(line.substring(EVENT_SENTINEL.length()).strip());
+            String type = event.path("type").asText("");
+            switch (type) {
+                case "progress" -> {
+                    if (!event.hasNonNull("epoch")) return false;
+                    double epoch = event.get("epoch").asDouble();
+                    Double loss = event.hasNonNull("loss") ? event.get("loss").asDouble() : null;
+                    Double evalLoss = event.hasNonNull("evalLoss")
+                            ? event.get("evalLoss").asDouble() : null;
+                    updateJob(jobId, j -> j.withTrainingProgress(epoch, loss, evalLoss));
+                    telemetryStore.appendLossPoint(jobId, epoch, loss, evalLoss);
+                    // Le rendu lisible est produit ICI : le flux et la trace restent du texte,
+                    // c'est le transport qui devient exact — pas ce que lit l'utilisateur.
+                    String rendered = renderProgress(epoch, loss, evalLoss);
+                    broadcaster.jobProgress(jobId, rendered, epoch, loss, evalLoss);
+                    telemetryStore.appendLog(jobId, "INFO", rendered);
+                    return true;
+                }
+                case "log" -> {
+                    // Le niveau vient de l'émetteur, qui le connaît : plus d'heuristique sur des
+                    // mots-clés, et donc plus de « Traceback (…): » classé en information.
+                    String level = event.path("level").asText("INFO").toUpperCase();
+                    String message = event.path("message").asText("");
+                    if (message.isBlank()) return false;
+                    publishAndRecord(jobId, level, message);
+                    return true;
+                }
+                default -> {
+                    return false;
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Job {} : évènement structuré illisible, traité comme texte ({})",
+                    jobId, e.getMessage());
+            return false;
+        }
+    }
+
+    /** Rendu humain d'une progression : « epoch 0.33 · loss 1.8421 · eval_loss 0.9500 ». */
+    private static String renderProgress(double epoch, Double loss, Double evalLoss) {
+        StringBuilder sb = new StringBuilder(String.format(java.util.Locale.ROOT,
+                "  epoch %.2f", epoch));
+        if (loss != null) sb.append(String.format(java.util.Locale.ROOT, " · loss %.4f", loss));
+        if (evalLoss != null) {
+            sb.append(String.format(java.util.Locale.ROOT, " · eval_loss %.4f", evalLoss));
+        }
+        return sb.toString();
     }
 
     /** Vrai pour un rafraîchissement de barre ; « 100% » passe toujours (fin d'étape lisible). */

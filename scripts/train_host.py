@@ -13,6 +13,11 @@ import argparse
 import sys
 import os
 
+# Module voisin, importable sans torch (comme base_models et chat_format) : il porte le format
+# des évènements que Spectra consomme. Le répertoire du script est en tête de sys.path dès lors
+# qu'il est lancé par chemin, ce que fait train.sh.
+import spectra_events
+
 # ── Arguments ─────────────────────────────────────────────────
 parser = argparse.ArgumentParser(description="Spectra fine-tuning host script")
 parser.add_argument("--dataset",        required=True, help="Chemin vers le fichier JSONL")
@@ -368,19 +373,29 @@ if not PREFERENCE:
     print(f"  {len(dataset)} séquences d'entraînement")
 
     if len(dataset) == 0:
-        print("ERREUR: dataset vide — vérifiez le fichier JSONL et le champ 'conversations'")
+        spectra_events.log("error",
+                           "dataset vide — vérifiez le fichier JSONL et le champ 'conversations'")
         sys.exit(1)
 
 # ── Entraînement ───────────────────────────────────────────────
 class ProgressLogger(TrainerCallback):
+    """
+    Émet la progression sous forme d'ÉVÈNEMENT STRUCTURÉ plutôt que de prose.
+
+    La ligne « epoch=0.33  loss=1.8421 » était relue par trois expressions régulières
+    distinctes — état du job, niveau de la ligne, courbe côté navigateur — dont deux se sont
+    révélées fausses : l'époque tronquée à l'entier masquait la première époque entière.
+    L'émetteur connaît ces valeurs ; les réécrire en texte pour les faire redeviner est ce qui
+    a créé le bug. Voir `scripts/spectra_events.py`.
+    """
+
     def on_log(self, args, state, control, logs=None, **kwargs):
         if not logs:
             return
         if "loss" in logs:
-            print(f"  epoch={state.epoch:.2f}  loss={logs['loss']:.4f}")
+            spectra_events.progress(state.epoch, loss=logs["loss"])
         if "eval_loss" in logs:
-            print(f"  epoch={state.epoch:.2f}  eval_loss={logs['eval_loss']:.4f}")
-        sys.stdout.flush()
+            spectra_events.progress(state.epoch, eval_loss=logs["eval_loss"])
 
 method_label = "ORPO" if args.orpo else ("DPO" if args.dpo else "SFT")
 print(f"\nDébut de l'entraînement ({args.epochs} époque(s), LoRA rank={args.lora_rank}"
@@ -398,8 +413,10 @@ if PREFERENCE:
         pref_data = [_json.loads(l) for l in _f if l.strip()]
     print(f"  {len(pref_data)} paires de préférence chargées")
     if pref_data and not all(k in pref_data[0] for k in ("prompt", "chosen", "rejected")):
-        print("ERREUR: le fichier de préférence doit contenir des objets {prompt, chosen, rejected}. "
-              "Passez dpo_pairs.jsonl (et non l'export SFT 'conversations').")
+        spectra_events.log("error",
+                           "le fichier de préférence doit contenir des objets "
+                           "{prompt, chosen, rejected}. Passez dpo_pairs.jsonl "
+                           "(et non l'export SFT 'conversations').")
         sys.exit(1)
 
     # Format « conversationnel » de TRL : prompt/chosen/rejected sont des LISTES de messages,
@@ -474,7 +491,9 @@ if PREFERENCE:
                 processing_class=tokenizer,
             )
     except ImportError as e:
-        print(f"ERREUR: TRL ({method_label}) indisponible ({e}). Installez-le : pip install trl")
+        spectra_events.log("error",
+                           f"TRL ({method_label}) indisponible ({e}). "
+                           f"Installez-le : pip install trl")
         sys.exit(1)
 
     pref_trainer.add_callback(ProgressLogger())
