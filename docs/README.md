@@ -39,6 +39,7 @@ New here? Start with **[Getting Started](getting-started.en.md)**.
 | **[Documentation audit (FR)](process/audit-documentation.fr.md)** | Audit of this documentation set (conformity, completeness). |
 | **[Security audit (FR)](process/audit-securite.fr.md)** | Technical security findings (auth model, exposure, DoS) — companion to [SECURITY.md](../SECURITY.md). |
 | **[Fine-tuning audit (FR)](process/audit-finetuning.fr.md)** | Technical findings on the fine-tuning chain (deployment, training correctness, DPO wiring). |
+| **[Fine-tuning UI tracking audit (FR)](process/audit-suivi-finetuning-ui.fr.md)** | What a running training job actually shows the user: progress, loss curve, telemetry stream, failure reporting, controls. |
 | **[Python surface audit (FR)](process/audit-python-java.fr.md)** | Every Python dependency inventoried (docparser, reranker, training scripts, CI), with the findings and the options weighed for each. |
 | **[Java migration plan (FR)](process/plan-migration-java.fr.md)** | The execution plan derived from that audit: batches, order, exit criteria, rollback and open decisions to remove Python from the request path. |
 
