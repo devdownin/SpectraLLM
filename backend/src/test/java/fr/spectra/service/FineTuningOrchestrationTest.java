@@ -68,7 +68,7 @@ class FineTuningOrchestrationTest {
 
     private static final FineTuningRequest REQUEST = new FineTuningRequest(
             "spectra-domain", "phi3", 64, 128, 3, 2e-4, 0.8,
-            false, false, false, false, 0.1);
+            false, false, false, false, 0.1, null);
 
     /**
      * Exécuteur d'entraînement de test : il rejoue des lignes, crée (ou non) l'artefact, et rend
@@ -158,7 +158,7 @@ class FineTuningOrchestrationTest {
         service = new FineTuningService(
                 datasetGenerator, mock(DpoGenerationService.class), repository,
                 mock(TrainingLogBroadcaster.class), telemetryStore, mock(ModelRegistryService.class),
-                mock(BaseModelCatalog.class), mock(GedService.class),
+                mock(EvaluationService.class), mock(BaseModelCatalog.class), mock(GedService.class),
                 mock(IngestedFileRepository.class), "phi3", runner,
                 workDir.toString(), workDir.resolve("models").toString(), "");
 

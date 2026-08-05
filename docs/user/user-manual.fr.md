@@ -655,6 +655,7 @@ Puis, lors du lancement du fine-tuning (étape 3), cochez **Alignement DPO** pou
    - **Alignement DPO** : cochez si vous avez généré des paires DPO (étape 2b) — entraîne par préférence plutôt que par SFT
    - **Alignement ORPO** : alternative au DPO en une seule passe, sans modèle de référence (mêmes paires de préférence). Les deux cases s'excluent : cocher l'une décoche l'autre
    - **Export GGUF & register** : après l'entraînement, fusionne l'adaptateur, convertit en GGUF et enregistre le modèle — c'est ce qui le rend déployable sans étape manuelle
+   - **Évaluer après** : enchaîne une évaluation LLM-as-a-judge dès que le modèle est enregistré, et rattache le rapport au job. La case n'est disponible qu'avec l'export GGUF : sans enregistrement, le modèle n'est pas servable et ne peut donc pas être évalué
 5. Cliquez sur **Launch Training**.
 6. Suivez la progression via la **barre d'étapes** :
 

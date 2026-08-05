@@ -138,7 +138,7 @@ class FineTuningErrorMappingTest {
         when(fineTuningService.getJob("job-42")).thenReturn(
                 fr.spectra.dto.FineTuningJob.pending("job-42", new fr.spectra.dto.FineTuningRequest(
                         "mon-modele", "phi3", 64, 128, 3, 2e-4, 0.8,
-                        false, false, false, false, 0.1)));
+                        false, false, false, false, 0.1, null)));
 
         mockMvc.perform(post("/api/fine-tuning")
                         .contentType(MediaType.APPLICATION_JSON).content(BODY))

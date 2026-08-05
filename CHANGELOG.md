@@ -8,6 +8,55 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Ajouté — le modèle est enfin entraîné sur ce qu'on lui sert
+
+Constat **F14** de [l'audit fine-tuning](docs/process/audit-finetuning.fr.md), et le dernier défaut
+de conception qui restait ouvert. `TrainingPair.of` construisait un prompt court : persona, puis
+question nue. Le service, lui, compose persona + consignes de citation + bloc de passages
+numérotés, et demande de citer ses sources.
+
+L'écart n'était pas seulement statistique. Le SFT enseignait **activement** à répondre de mémoire
+sans citer, alors que la production exige de répondre à partir du contexte en citant : le
+fine-tuning travaillait contre l'objectif de service, et les deux consignes les plus importantes
+du prompt servi — citer, et s'abstenir quand la réponse n'y est pas — n'étaient jamais entraînées.
+
+- La mise en forme du prompt RAG quitte `RagService` pour `fr.spectra.model.RagPromptFormat` :
+  **une seule** définition, partagée par le service et la génération du dataset.
+- Une part des paires est produite sous cette forme exacte (`spectra.dataset.grounded-every-n`,
+  défaut : un chunk sur deux), **sans aucun appel LLM supplémentaire** — question et réponse déjà
+  générées sont réemployées, seul le prompt système change.
+- Le contexte comporte des **distracteurs** venus d'un autre document
+  (`spectra.dataset.grounded-distractors`, défaut 2), et la position du vrai passage **tourne** :
+  figée en `[1]`, elle apprendrait un réflexe au lieu d'une lecture.
+- Un **refus ancré** accompagne les exemples négatifs — contexte fait de distracteurs seuls,
+  réponse d'abstention. C'est le seul exemple qui entraîne « si le contexte ne contient pas
+  l'information, dis-le clairement ».
+- Les deux formes coexistent : le mode direct existe toujours, et n'entraîner que la forme ancrée
+  le dégraderait à son tour.
+
+Le test anti-dérive compare le prompt **réellement envoyé** par `RagService` avec celui que porte
+une paire ancrée, et exige l'égalité stricte.
+
+### Ajouté — un entraînement terminé peut dire ce qu'il vaut
+
+Un job se terminait sur un « COMPLETED » muet quant à la **qualité** obtenue. L'évaluation
+LLM-as-a-judge existait pourtant de bout en bout — jusqu'au champ `EvaluationReport.jobId`, prévu
+pour rattacher un rapport au job qui avait produit le modèle, et qui n'a **jamais eu d'appelant**.
+Il fallait ouvrir un autre écran et retaper le nom du modèle.
+
+La case « Évaluer après » enchaîne l'évaluation dès l'enregistrement du modèle. Le job porte
+désormais un `evaluationId` (migration idempotente), et la page propose d'aller lire le score.
+
+Deux garde-fous :
+
+- L'option **exige l'export GGUF**, et le refus est immédiat plutôt que découvert des heures plus
+  tard : un adaptateur LoRA seul n'est pas servable, et l'évaluer aurait interrogé le modèle
+  *actif* tout en attribuant le score au nouveau — un chiffre faux, présenté comme vrai. Le
+  formulaire désactive la case tant que l'export n'est pas coché.
+- Une évaluation qui ne démarre pas **n'échoue pas le job** : l'entraînement a bien abouti et le
+  modèle est déployable. L'incident est dit dans le flux, pas transformé en échec.
+
+
 ### Modifié — l'entraînement dit sa progression au lieu de la faire deviner
 
 La progression d'un run voyageait jusqu'à l'interface sous forme de **prose** — `  epoch=0.33

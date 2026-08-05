@@ -42,7 +42,8 @@
 > pas) et le montage `./scripts` (qui n'existe pas non plus) ont disparu de la doc technique, du
 > diagramme C4 et de `llama-cpp.fr.md`.
 >
-> Restent **ouverts** : F12, F14, et le champ `reportPath` toujours `null` signalé au §6.
+> Restent **ouverts** : F12 et le champ `reportPath` toujours `null` signalé au §6.
+> **F14 est clos** : une part du dataset est générée sous la forme réellement servie.
 > **F13 est clos** : l'orchestration — machine à états, verrou d'unicité, annulation — est
 > désormais couverte de bout en bout par `FineTuningOrchestrationTest`. Aucun n'est bloquant.
 >
@@ -520,6 +521,31 @@ contexte extrait + question → réponse ancrée). C'est aussi le seul moyen d'a
 à *utiliser* le contexte plutôt qu'à répondre de mémoire — c'est-à-dire d'obtenir le bénéfice
 attendu du couplage RAG + fine-tuning revendiqué par le produit.
 
+**Correction appliquée.** Le défaut est plus profond que l'écart de distribution : le prompt servi
+porte aussi une **consigne de citation** (« cite tes sources en insérant le numéro entre
+crochets ») et une **consigne d'abstention** (« si le contexte ne contient pas l'information,
+dis-le clairement ») que le SFT n'enseignait ni l'une ni l'autre. Le fine-tuning entraînait donc à
+répondre *de mémoire, sans citer* — contre l'objectif de service.
+
+- La mise en forme du prompt RAG quitte `RagService` pour `fr.spectra.model.RagPromptFormat` :
+  **une seule** définition, partagée par le service et la génération du dataset. La leçon est
+  celle des évènements structurés du trainer — un format implicite dupliqué finit par diverger.
+- `DatasetGeneratorService` produit une part de paires **ancrées** (`spectra.dataset.
+  grounded-every-n`, défaut : un chunk sur deux), sous cette forme exacte. **Aucun appel LLM
+  supplémentaire** : question et réponse déjà générées sont réemployées, seul le prompt système
+  change — la correction est donc gratuite en inférence.
+- Le contexte comporte des **distracteurs** issus d'un autre document
+  (`spectra.dataset.grounded-distractors`, défaut 2) et la position du vrai passage **tourne** :
+  sans cela le modèle apprendrait à citer `[1]` par réflexe, pas à lire.
+- Un **refus ancré** accompagne les exemples négatifs : contexte fait de distracteurs seuls,
+  réponse d'abstention. C'est le seul exemple qui entraîne la consigne d'abstention.
+- Les deux formes coexistent dans le dataset : le mode direct (sans retrieval) existe toujours,
+  et n'entraîner que la forme ancrée le dégraderait à son tour.
+
+Le test anti-dérive est dans `RagServiceModelProfileTest` : il compare le prompt **réellement
+envoyé au modèle** par `RagService` avec celui que porte une paire d'entraînement ancrée, et
+exige l'égalité stricte.
+
 ---
 
 ## 6. Documentation désynchronisée
@@ -588,7 +614,7 @@ attendu du couplage RAG + fine-tuning revendiqué par le produit.
 | F11 | Dépendances non bornées, `torch`/`peft` manquants | Moyen | Trivial | ✅ corrigé |
 | F12 | Téléchargement non épinglé de `convert_hf_to_gguf.py` | Moyen | Faible | Ouvert |
 | F13 | Aucun test du moteur d'entraînement | Moyen | Moyen | ✅ corrigé (`chat_format` + orchestration) |
-| F14 | Distribution d'entraînement ≠ distribution de service | Moyen | Moyen (conception) | Ouvert |
+| F14 | Distribution d'entraînement ≠ distribution de service | Moyen | Moyen (conception) | ✅ corrigé |
 | F10 | Arguments positionnels fragiles | Faible | Faible | ✅ `TrainingSpec` (lot 4a) |
 | §6 | Documentation décrivant un système différent du code | Faible | Faible | Ouvert |
 
@@ -603,7 +629,14 @@ Ce qui n'est **pas** résolu, et doit rester lisible : le fine-tuning demeure in
 conteneur est le lot 4b, dont l'urgence a baissé depuis le retrait de Kubernetes.
 
 Ensuite, par ordre de valeur : ~~compléter F13~~ **fait** — l'orchestration est couverte de bout en
-bout, mutations à l'appui —, puis F12 (le téléchargement de `convert_hf_to_gguf.py` est désormais
-épinglé, mais l'export exige toujours un accès sortant, en contradiction avec la promesse
-« 100 % local »), F14 (aligner une part du dataset SFT sur la forme réellement servie, persona +
-contexte) et la mise à jour de la documentation (§6).
+bout, mutations à l'appui — et ~~F14~~ **fait** : le dataset comporte désormais une part de paires
+ancrées, sous la forme exacte du prompt servi, citations et abstention comprises.
+
+Restent **F12** (le téléchargement de `convert_hf_to_gguf.py` est désormais épinglé, mais l'export
+exige toujours un accès sortant, en contradiction avec la promesse « 100 % local ») et la mise à
+jour de la documentation (§6) — dont le champ `reportPath`, toujours `null` et propagé jusqu'au
+type TypeScript.
+
+**Ce que F14 ne prouve pas.** Le dataset a la bonne forme, et des tests le figent des deux côtés.
+Que cette forme *améliore* la qualité servie reste à mesurer sur un vrai entraînement : c'est
+précisément ce que l'évaluation enchaînée (`autoEvaluate`) rend possible sans quitter la page.

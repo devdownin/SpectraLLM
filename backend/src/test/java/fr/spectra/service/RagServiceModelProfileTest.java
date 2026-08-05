@@ -4,8 +4,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import fr.spectra.config.SpectraProperties;
 import fr.spectra.dto.QueryRequest;
 import fr.spectra.model.AssistantPersona;
+import fr.spectra.model.RagPromptFormat;
+import fr.spectra.model.TrainingPair;
 import fr.spectra.service.ActiveModelProfileService.ModelProfile;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -123,6 +126,26 @@ class RagServiceModelProfileTest {
                 .contains("[1] (Source: peage.json)")
                 .contains("Le péage de sortie est conforme.")
                 .contains("cite tes sources");
+    }
+
+    @Test
+    @DisplayName("le prompt SERVI est mot pour mot celui sur lequel une paire ancrée entraîne")
+    void servedPromptIsIdenticalToTheGroundedTrainingPrompt() {
+        // Le test anti-dérive de F14, et le seul qui soit vraiment probant : il compare ce que
+        // RagService envoie réellement au modèle avec ce qu'une paire d'entraînement ancrée
+        // porte comme prompt système. Tant qu'ils sont identiques, le modèle est entraîné sur ce
+        // qu'on lui sert ; toute divergence introduite d'un côté fait échouer ici.
+        activeProfile(null, null, null);   // persona canonique, celle du fine-tuning
+
+        ragService.query(ragRequest(null, null));
+
+        TrainingPair grounded = TrainingPair.grounded(
+                "Le péage est-il conforme ?", "Oui [1].",
+                RagPromptFormat.contextBlock(List.of(
+                        new RagPromptFormat.Passage("peage.json", "Le péage de sortie est conforme."))),
+                "peage.json", "qa", "question_answer_grounded", 0.9, null);
+
+        assertThat(capturedSystemPrompt()).isEqualTo(grounded.conversations().get(0).content());
     }
 
     @Test

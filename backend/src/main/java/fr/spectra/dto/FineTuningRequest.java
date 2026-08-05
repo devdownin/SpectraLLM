@@ -84,7 +84,22 @@ public record FineTuningRequest(
          */
         @DecimalMin(value = "0.0", message = "valSplit doit être ≥ 0")
         @DecimalMax(value = "0.5", message = "valSplit doit être ≤ 0.5")
-        Double valSplit
+        Double valSplit,
+
+        /**
+         * Enchaîner une évaluation LLM-as-a-judge dès que le modèle est enregistré.
+         *
+         * <p>Sans elle, un entraînement se termine sur un « COMPLETED » qui ne dit rien de la
+         * <i>qualité</i> obtenue : l'évaluation existait, mais il fallait la lancer à la main,
+         * depuis un autre écran, en retapant le nom du modèle. Le chaînage donne un score sans
+         * quitter la page — et remplit enfin {@code EvaluationReport.jobId}, jusqu'ici toujours
+         * nul faute d'appelant.
+         *
+         * <p><b>Exige {@code exportGguf}</b> : un adaptateur LoRA seul n'est pas servable par
+         * llm-chat. Évaluer sans lui aurait interrogé le modèle <i>actif</i> tout en attribuant
+         * le score au nouveau — un chiffre faux, et présenté comme vrai.
+         */
+        Boolean autoEvaluate
 ) {
     public FineTuningRequest {
         if (loraRank == null) loraRank = 64;
@@ -99,6 +114,7 @@ public record FineTuningRequest(
         if (orpoEnabled == null) orpoEnabled = false;
         if (exportGguf == null) exportGguf = false;
         if (valSplit == null) valSplit = 0.1;
+        if (autoEvaluate == null) autoEvaluate = false;
         // DPO et ORPO sont mutuellement exclusifs : ORPO a priorité.
         if (orpoEnabled && dpoEnabled) dpoEnabled = false;
     }

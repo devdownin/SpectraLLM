@@ -90,7 +90,7 @@ class TaskActivityServiceTest {
     @SuppressWarnings("unchecked")
     void trainingJobKeepsProgressFieldsButDropsHeavyOnes() {
         FineTuningJob job = new FineTuningJob("j1", FineTuningJob.Status.TRAINING, "spectra-domain",
-                "phi3", null, 120, "Époque 2", 1.5, 3, 0.42, 0.51, null, null, null, null,
+                "phi3", null, 120, "Époque 2", 1.5, 3, 0.42, 0.51, null, null, null, null, null,
                 Instant.parse("2026-07-13T10:00:00Z"), null);
         when(fineTuningService.getAllJobs()).thenReturn(List.of(job));
 

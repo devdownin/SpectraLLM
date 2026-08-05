@@ -35,6 +35,7 @@ class FineTuningSftExclusionTest {
                 mock(TrainingLogBroadcaster.class),
                 mock(JobTelemetryStore.class),
                 mock(ModelRegistryService.class),
+                mock(EvaluationService.class),
                 mock(BaseModelCatalog.class),
                 mock(GedService.class),
                 mock(IngestedFileRepository.class),

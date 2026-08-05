@@ -43,6 +43,10 @@ public class FineTuningJobEntity {
     @Column(length = 50)
     private String failedPhase;
 
+    /** Évaluation enchaînée après enregistrement — voir {@link FineTuningJob#evaluationId()}. */
+    @Column(length = 64)
+    private String evaluationId;
+
     private Instant createdAt;
     private Instant completedAt;
 
@@ -52,7 +56,8 @@ public class FineTuningJobEntity {
                                String parameters, int datasetSize, String currentStep,
                                Double currentEpoch, Integer totalEpochs, Double loss,
                                Double evalLoss, String outputPath, String reportPath, String error,
-                               String failedPhase, Instant createdAt, Instant completedAt) {
+                               String failedPhase, String evaluationId,
+                               Instant createdAt, Instant completedAt) {
         this.jobId = jobId;
         this.status = status;
         this.modelName = modelName;
@@ -68,6 +73,7 @@ public class FineTuningJobEntity {
         this.reportPath = reportPath;
         this.error = error;
         this.failedPhase = failedPhase;
+        this.evaluationId = evaluationId;
         this.createdAt = createdAt;
         this.completedAt = completedAt;
     }
@@ -85,7 +91,7 @@ public class FineTuningJobEntity {
                 dto.currentEpoch(), dto.totalEpochs(), dto.loss(), dto.evalLoss(),
                 dto.outputPath(), dto.reportPath(), dto.error(),
                 dto.failedPhase() != null ? dto.failedPhase().name() : null,
-                dto.createdAt(), dto.completedAt());
+                dto.evaluationId(), dto.createdAt(), dto.completedAt());
     }
 
     public FineTuningJob toDto() {
@@ -102,7 +108,7 @@ public class FineTuningJobEntity {
                 jobId, FineTuningJob.Status.valueOf(status),
                 modelName, baseModel, req, datasetSize,
                 currentStep, currentEpoch, totalEpochs, loss, evalLoss,
-                outputPath, reportPath, error, parseFailedPhase(), createdAt, completedAt);
+                outputPath, reportPath, error, parseFailedPhase(), evaluationId, createdAt, completedAt);
     }
 
     /**

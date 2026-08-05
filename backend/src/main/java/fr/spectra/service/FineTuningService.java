@@ -56,6 +56,12 @@ public class FineTuningService {
     /** Trace persistante : ce que l'UI relit après un rechargement (S1, S8). */
     private final JobTelemetryStore telemetryStore;
     private final ModelRegistryService modelRegistry;
+    /**
+     * Évaluation enchaînée après l'enregistrement du modèle (F14 côté qualité, cf.
+     * {@link FineTuningRequest#autoEvaluate()}). Injectée en {@code @Lazy} : les deux services
+     * partagent {@link DatasetGeneratorService} et Spring refuserait un cycle au démarrage.
+     */
+    private final EvaluationService evaluationService;
     private final BaseModelCatalog baseModelCatalog;
     private final GedService gedService;
     private final fr.spectra.persistence.IngestedFileRepository ingestedFileRepository;
@@ -99,6 +105,7 @@ public class FineTuningService {
                              TrainingLogBroadcaster broadcaster,
                              JobTelemetryStore telemetryStore,
                              ModelRegistryService modelRegistry,
+                             @org.springframework.context.annotation.Lazy EvaluationService evaluationService,
                              BaseModelCatalog baseModelCatalog,
                              GedService gedService,
                              fr.spectra.persistence.IngestedFileRepository ingestedFileRepository,
@@ -113,6 +120,7 @@ public class FineTuningService {
          this.broadcaster = broadcaster;
          this.telemetryStore = telemetryStore;
          this.modelRegistry = modelRegistry;
+         this.evaluationService = evaluationService;
          this.baseModelCatalog = baseModelCatalog;
          this.gedService = gedService;
          this.ingestedFileRepository = ingestedFileRepository;
@@ -190,6 +198,15 @@ public class FineTuningService {
         if (!trainingRunner.isAvailable()) {
             throw new TrainingUnavailableException(trainingRunner.unavailabilityReason());
         }
+        // Même logique de refus immédiat : une évaluation demandée sans export GGUF ne pourra
+        // pas avoir lieu — un adaptateur LoRA seul n'est pas servable par llm-chat. Le découvrir
+        // après des heures d'entraînement, ou pire l'exécuter quand même en interrogeant le
+        // modèle ACTIF sous le nom du nouveau, seraient l'un et l'autre pires que ce refus.
+        if (Boolean.TRUE.equals(request.autoEvaluate()) && !Boolean.TRUE.equals(request.exportGguf())) {
+            throw new IllegalArgumentException(
+                    "L'évaluation automatique exige l'export GGUF : sans enregistrement, le modèle "
+                            + "entraîné n'est pas servable et ne peut donc pas être évalué.");
+        }
         // Un seul entraînement simultané : refuser tant qu'un job tourne.
         if (!trainingRunning.compareAndSet(false, true)) {
             return null;
@@ -219,7 +236,8 @@ public class FineTuningService {
                     request.dpoEnabled(),
                     request.orpoEnabled(),
                     request.exportGguf(),
-                    request.valSplit()
+                    request.valSplit(),
+                    request.autoEvaluate()
             );
 
             FineTuningJob job = FineTuningJob.pending(jobId, resolved);
@@ -797,6 +815,36 @@ public class FineTuningService {
         publishAndRecord(jobId, "INFO", "Job " + jobId + " : modèle '" + request.modelName()
                 + "' enregistré et déployable → " + registeredPath);
         updateJob(jobId, j -> j.completed(registeredPath));
+
+        chainEvaluation(jobId, request);
+    }
+
+    /**
+     * Enchaîne l'évaluation du modèle qui vient d'être enregistré.
+     *
+     * <p>Appelée <b>après</b> le passage à COMPLETED, et volontairement : l'évaluation dure
+     * plusieurs minutes, et retarder le statut du job jusqu'à son terme présenterait un
+     * entraînement réussi comme encore en cours. Le job est terminal, l'évaluation vit sa vie ;
+     * le lien entre les deux est {@code evaluationId}.
+     *
+     * <p>Un échec de soumission n'échoue <b>pas</b> le job : l'entraînement, lui, a bien abouti et
+     * le modèle est déployable. Le dire dans le flux suffit — marquer FAILED un job dont
+     * l'artefact est sur le disque serait un mensonge coûteux.
+     */
+    private void chainEvaluation(String jobId, FineTuningRequest request) {
+        if (!Boolean.TRUE.equals(request.autoEvaluate())) return;
+        try {
+            String evalId = evaluationService.submit(
+                    new fr.spectra.dto.EvaluationRequest(request.modelName(), null, jobId));
+            updateJobEvenIfTerminal(jobId, j -> j.withEvaluation(evalId));
+            publishAndRecord(jobId, "INFO", "Job " + jobId + " : évaluation " + evalId
+                    + " lancée sur le modèle '" + request.modelName() + "'");
+        } catch (Exception e) {
+            log.warn("Job {} : évaluation enchaînée non lancée ({})", jobId, e.getMessage());
+            publishAndRecord(jobId, "WARN", "Job " + jobId
+                    + " : évaluation automatique non lancée — " + e.getMessage()
+                    + " (le modèle reste enregistré et déployable)");
+        }
     }
 
     /** Neutralise un nom de modèle pour l'utiliser comme nom de fichier GGUF. */
@@ -855,6 +903,22 @@ public class FineTuningService {
         try (var lines = Files.lines(file)) {
             return (int) lines.count();
         }
+    }
+
+    /**
+     * Mise à jour d'un job <b>déjà terminal</b>, pour les seuls rattachements qui surviennent
+     * après coup — aujourd'hui l'identifiant de l'évaluation enchaînée.
+     *
+     * <p>{@link #updateJob} refuse d'écrire sur un job terminal, et c'est ce qui empêche une
+     * ligne de progression tardive de ressusciter un job annulé. Ici, le statut n'est pas
+     * touché : on ajoute une référence à un travail lancé <i>parce que</i> le job a abouti.
+     * Un job annulé reste néanmoins exclu — il n'a rien lancé.
+     */
+    private void updateJobEvenIfTerminal(String jobId,
+                                         java.util.function.UnaryOperator<FineTuningJob> updater) {
+        if (cancelledJobs.contains(jobId)) return;
+        repository.findById(jobId).ifPresent(entity ->
+                repository.save(FineTuningJobEntity.fromDto(updater.apply(entity.toDto()))));
     }
 
     private void updateJob(String jobId, java.util.function.UnaryOperator<FineTuningJob> updater) {

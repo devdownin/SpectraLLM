@@ -58,6 +58,7 @@ class FineTuningUnavailableRunnerTest {
                 mock(TrainingLogBroadcaster.class),
                 mock(JobTelemetryStore.class),
                 mock(ModelRegistryService.class),
+                mock(EvaluationService.class),
                 mock(BaseModelCatalog.class),
                 mock(GedService.class),
                 mock(IngestedFileRepository.class),
@@ -77,7 +78,7 @@ class FineTuningUnavailableRunnerTest {
 
     private static FineTuningRequest request() {
         return new FineTuningRequest("mon-modele", "phi3", 64, 128, 3, 2e-4,
-                null, false, false, false, false, 0.0);
+                null, false, false, false, false, 0.0, null);
     }
 
     @Test
