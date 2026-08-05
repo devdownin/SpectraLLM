@@ -175,6 +175,29 @@ class FineTuningProgressTrackingTest {
     }
 
     @Test
+    @DisplayName("une trace Python n'est pas diffusée comme une information")
+    void errorLinesAreLabelledAsSuch() throws Exception {
+        // stderr est fusionné dans stdout en amont : sans détection à la source, une trace
+        // arrivait étiquetée INFO et se fondait, en bleu, dans un flux qui défile.
+        assertThat(FineTuningService.levelOf("Traceback (most recent call last):")).isEqualTo("ERROR");
+        assertThat(FineTuningService.levelOf("  ERREUR conversion GGUF : code 1")).isEqualTo("ERROR");
+        assertThat(FineTuningService.levelOf("torch.cuda.OutOfMemoryError: CUDA out of memory"))
+                .isEqualTo("ERROR");
+        assertThat(FineTuningService.levelOf("/x.py:12: UserWarning: `do_sample` is deprecated"))
+                .isEqualTo("WARN");
+        assertThat(FineTuningService.levelOf("WARNING: tokenizer has no chat template"))
+                .isEqualTo("WARN");
+        // Une ligne nominale ne doit pas virer au rouge pour un mot mal choisi.
+        assertThat(FineTuningService.levelOf("  Split validation : 108 entraînement / 12 validation"))
+                .isEqualTo("INFO");
+        assertThat(FineTuningService.levelOf("  epoch=0.33  loss=1.8421")).isEqualTo("INFO");
+
+        emit("Traceback (most recent call last):");
+        verify(broadcaster).jobError(eq(JOB_ID), eq("Traceback (most recent call last):"));
+        verify(telemetryStore).appendLog(eq(JOB_ID), eq("ERROR"), any());
+    }
+
+    @Test
     @DisplayName("une ligne vide n'est pas diffusée")
     void blankLinesAreDropped() throws Exception {
         emit("   ");

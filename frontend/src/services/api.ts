@@ -101,6 +101,8 @@ export const fineTuningApi = {
   getJob: (jobId: string) => api.get(`/fine-tuning/${jobId}`),
   createJob: (job: any) => api.post('/fine-tuning', job),
   cancelJob: (jobId: string) => api.delete(`/fine-tuning/${jobId}`),
+  /** L'entraînement est-il exécutable ici ? Le motif nomme la commande à lancer. */
+  getAvailability: () => api.get('/fine-tuning/availability'),
   /** Trace persistée d'un job (journal + série de perte) : ce que le flux SSE ne rejoue pas. */
   getTelemetry: (jobId: string, tail = 500) =>
     api.get(`/fine-tuning/${jobId}/telemetry`, { params: { tail } }),

@@ -154,7 +154,7 @@ public class FineTuningService {
         try {
             for (FineTuningJobEntity e : repository.findAll()) {
                 FineTuningJob j = e.toDto();
-                if (j.status() != Status.COMPLETED && j.status() != Status.FAILED) {
+                if (!j.status().isTerminal()) {
                     repository.save(FineTuningJobEntity.fromDto(
                             j.failed("Interrompu par un redémarrage du serveur")));
                     log.warn("Job {} ({}) marqué FAILED : interrompu par un redémarrage", j.jobId(), j.status());
@@ -248,7 +248,7 @@ public class FineTuningService {
         FineTuningJobEntity entity = repository.findById(jobId).orElse(null);
         if (entity == null) return false;
         FineTuningJob job = entity.toDto();
-        if (job.status() == Status.COMPLETED || job.status() == Status.FAILED) return false;
+        if (job.status().isTerminal()) return false;
         
         cancelledJobs.add(jobId);
         
@@ -256,7 +256,7 @@ public class FineTuningService {
             log.info("Job {}: interruption forcée de l'exécution en cours.", jobId);
         }
         
-        repository.save(FineTuningJobEntity.fromDto(job.failed("Annulé par l'utilisateur")));
+        repository.save(FineTuningJobEntity.fromDto(job.cancelled("Arrêté à la demande de l'utilisateur")));
         return true;
     }
 
@@ -274,7 +274,7 @@ public class FineTuningService {
         List<FineTuningJobEntity> toDelete = repository.findAll().stream()
                 .filter(e -> {
                     FineTuningJob j = e.toDto();
-                    return j.status() == Status.FAILED
+                    return (j.status() == Status.FAILED || j.status() == Status.CANCELLED)
                             && j.completedAt() != null && j.completedAt().isBefore(cutoff);
                 })
                 .toList();
@@ -329,6 +329,10 @@ public class FineTuningService {
 
             log.info("Job {}: dataset exporté ({} {})", jobId, datasetSize,
                     preference ? "paires de préférence" : "paires SFT");
+            // Le flux restait muet de bout en bout de cette phase : l'utilisateur ne savait ni
+            // qu'elle avançait, ni ce qu'elle avait produit.
+            publishAndRecord(jobId, "INFO", "Job " + jobId + " : dataset exporté — " + datasetSize
+                    + (preference ? " paires de préférence" : " paires SFT"));
 
             // ── Étape 2 : Lancement de l'entraînement externe ──
             publishAndRecord(jobId, "INFO", "Job " + jobId + " : lancement de l'entraînement ("
@@ -605,12 +609,34 @@ public class FineTuningService {
      * premier oubli.
      */
     private void publishAndRecord(String jobId, String level, String message) {
-        if ("ERROR".equals(level)) {
-            broadcaster.jobError(jobId, message);
-        } else {
-            broadcaster.jobInfo(jobId, message);
+        switch (level) {
+            case "ERROR" -> broadcaster.jobError(jobId, message);
+            case "WARN" -> broadcaster.jobWarn(jobId, message);
+            default -> broadcaster.jobInfo(jobId, message);
         }
         telemetryStore.appendLog(jobId, level, message);
+    }
+
+    /**
+     * Lignes de sortie qui ne sont pas des informations : {@code stderr} est fusionné dans
+     * {@code stdout} en amont ({@code redirectErrorStream}, {@code stderr=STDOUT}), si bien
+     * qu'une trace Python et un avertissement CUDA arrivaient étiquetés INFO — rendus en bleu
+     * comme le reste, et invisibles dans un flux qui défile.
+     */
+    private static final java.util.regex.Pattern ERROR_LINE = java.util.regex.Pattern.compile(
+            // Les frontières \\b se placent AUTOUR des mots seulement : « Traceback (…): » finit
+            // sur une parenthèse, et « OutOfMemoryError » n'a pas de frontière avant « Error » —
+            // deux formes que la version à \\b global laissait passer pour des informations.
+            "(?i)(traceback \\(most recent call last\\)|out of memory|"
+                    + "\\b(erreur|error|fatal|exception|killed|aborted)\\b|\\werror\\b)");
+    private static final java.util.regex.Pattern WARN_LINE = java.util.regex.Pattern.compile(
+            "(?i)(\\b(avertissement|warn|warning)\\b|\\wwarning\\b|deprecat\\w*)");
+
+    /** Niveau d'une ligne de sortie, à défaut de canal séparé. */
+    static String levelOf(String line) {
+        if (ERROR_LINE.matcher(line).find()) return "ERROR";
+        if (WARN_LINE.matcher(line).find()) return "WARN";
+        return "INFO";
     }
 
     /** Journalisation, diffusion SSE et extraction de progression, communes aux deux exécutions. */
@@ -622,7 +648,7 @@ public class FineTuningService {
         }
         if (line.isBlank()) return;
         if (isProgressBarRefresh(line) && !allowProgressBarLine()) return;
-        publishAndRecord(jobId, "INFO", line);   // SSE temps réel + trace relisible
+        publishAndRecord(jobId, levelOf(line), line);   // SSE temps réel + trace relisible
     }
 
     /** Vrai pour un rafraîchissement de barre ; « 100% » passe toujours (fin d'étape lisible). */
@@ -766,7 +792,7 @@ public class FineTuningService {
         if (cancelledJobs.contains(jobId)) return;
         repository.findById(jobId).ifPresent(entity -> {
             FineTuningJob current = entity.toDto();
-            if (current.status() == Status.FAILED || current.status() == Status.COMPLETED) return;
+            if (current.status().isTerminal()) return;
             FineTuningJob updated = updater.apply(current);
             repository.save(FineTuningJobEntity.fromDto(updated));
         });

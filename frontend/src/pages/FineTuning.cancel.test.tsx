@@ -31,6 +31,7 @@ vi.mock('../services/api', () => ({
     createJob: (job: unknown) => createJob(job),
     cancelJob: (id: string) => cancelJob(id),
     getBaseModels: vi.fn(() => Promise.resolve({ data: [] })),
+    getAvailability: vi.fn(() => Promise.resolve({ data: { available: true, reason: null } })),
   },
   configApi: {
     getModelConfig: vi.fn(() => Promise.resolve({ data: { model: '' } })),

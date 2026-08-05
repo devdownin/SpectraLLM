@@ -76,6 +76,11 @@ public class TrainingLogBroadcaster {
         publish(jobId, "INFO", message);
     }
 
+    /** Avertissement attribué à un job. */
+    public void jobWarn(String jobId, String message) {
+        publish(jobId, "WARN", message);
+    }
+
     /** Ligne d'erreur attribuée à un job. */
     public void jobError(String jobId, String message) {
         publish(jobId, "ERROR", message);

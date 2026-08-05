@@ -1,6 +1,7 @@
 import type { FC } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, ReferenceLine,
 } from 'recharts';
 
@@ -14,16 +15,18 @@ interface Props {
 const EVAL_COLOR = '#f0a066';
 
 const CustomTooltip = ({ active, payload }: any) => {
+  const { t } = useTranslation();
   if (!active || !payload?.length) return null;
   return (
     <div className="bg-surface-container border border-primary/20 px-3 py-2 text-[11px] font-label">
       {/* Époque fractionnaire : 2 décimales, comme la sortie du trainer (« epoch=0.33 »). */}
       <p className="text-on-surface-variant uppercase tracking-widest">
-        Epoch {Number(payload[0].payload.epoch).toFixed(2)}
+        {t('fineTuning.epochShort', { value: Number(payload[0].payload.epoch).toFixed(2) })}
       </p>
       {payload.map((entry: any) => (
         <p key={entry.dataKey} className="font-bold" style={{ color: entry.color }}>
-          {entry.dataKey === 'evalLoss' ? 'Eval loss' : 'Loss'} {entry.value.toFixed(4)}
+          {t(entry.dataKey === 'evalLoss' ? 'fineTuning.evalLoss' : 'fineTuning.trainLoss')}
+          {' '}{entry.value.toFixed(4)}
         </p>
       ))}
     </div>
@@ -31,10 +34,11 @@ const CustomTooltip = ({ active, payload }: any) => {
 };
 
 const LossChart: FC<Props> = ({ data, totalEpochs }) => {
+  const { t } = useTranslation();
   if (data.length < 2) {
     return (
       <div className="flex items-center justify-center h-full text-[12px] text-on-surface-variant">
-        {data.length === 0 ? 'Waiting for loss data…' : 'Accumulating data…'}
+        {t(data.length === 0 ? 'fineTuning.chartWaiting' : 'fineTuning.chartAccumulating')}
       </div>
     );
   }
@@ -69,6 +73,16 @@ const LossChart: FC<Props> = ({ data, totalEpochs }) => {
           tickFormatter={(v: number) => v.toFixed(3)}
         />
         <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(143,245,255,0.15)', strokeWidth: 1 }} />
+        {/* Deux courbes ne se distinguaient que par la couleur et le pointillé : une légende
+            nomme laquelle est laquelle, et rend le graphe lisible sans le survoler. */}
+        <Legend
+          verticalAlign="top"
+          height={18}
+          iconType="plainline"
+          formatter={(value: string) =>
+            t(value === 'evalLoss' ? 'fineTuning.evalLoss' : 'fineTuning.trainLoss')}
+          wrapperStyle={{ fontSize: 10, fontFamily: 'Space Grotesk', color: 'rgba(222,229,255,0.6)' }}
+        />
         {minLoss > 0 && (
           <ReferenceLine
             y={minLoss}

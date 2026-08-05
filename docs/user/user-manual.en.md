@@ -640,9 +640,11 @@ Then, when launching fine-tuning (step 3), check **DPO Alignment** so the traine
    - **Epochs**: number of training passes (3 by default)
    - **LoRA Rank**: fine-tuning precision (64 = good quality/speed balance)
    - **Min Confidence**: quality threshold for the pairs used (0.8 by default)
+   - **Validation split**: fraction of the dataset held out to measure `eval_loss` (0.1 by default, 0 to disable). Without it only the training loss is measured — it decreases by construction and says nothing about overfitting
    - **Multipacking**: check to concatenate short examples — speeds up training by 20–30%
    - **DPO Alignment**: check if you generated DPO pairs (step 2b) — trains by preference rather than SFT
-   - **ORPO Alignment**: a single-pass alternative to DPO, with no reference model (same preference pairs). DPO and ORPO are mutually exclusive; ORPO takes priority if both are checked.
+   - **ORPO Alignment**: a single-pass alternative to DPO, with no reference model (same preference pairs). The two checkboxes are mutually exclusive: ticking one unticks the other
+   - **Export GGUF & register**: after training, merges the adapter, converts to GGUF and registers the model — this is what makes it deployable with no manual step
 5. Click **Launch Training**.
 6. Track progress with the **step bar**:
 

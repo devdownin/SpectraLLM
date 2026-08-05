@@ -58,7 +58,8 @@ class FineTuningErrorMappingTest {
         FineTuningController controller = new FineTuningController(
                 fineTuningService, mock(LlmChatClient.class),
                 mock(BaseModelCatalog.class), mock(ModelRegistryService.class),
-                mock(fr.spectra.service.JobTelemetryStore.class));
+                mock(fr.spectra.service.JobTelemetryStore.class),
+                mock(fr.spectra.service.training.TrainingRunner.class));
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
@@ -101,14 +102,22 @@ class FineTuningErrorMappingTest {
     }
 
     @Test
-    @DisplayName("exécuteur disponible → 200 avec le jobId")
+    @DisplayName("exécuteur disponible → 200 avec le job complet, pas seulement son identifiant")
     void availableRunnerMapsTo200() throws Exception {
         when(fineTuningService.submit(any())).thenReturn("job-42");
+        // La réponse porte désormais le job entier : l'UI affiche son suivi sans attendre le
+        // premier sondage, au lieu d'un panneau creux pendant quatre secondes.
+        when(fineTuningService.getJob("job-42")).thenReturn(
+                fr.spectra.dto.FineTuningJob.pending("job-42", new fr.spectra.dto.FineTuningRequest(
+                        "mon-modele", "phi3", 64, 128, 3, 2e-4, 0.8,
+                        false, false, false, false, 0.1)));
 
         mockMvc.perform(post("/api/fine-tuning")
                         .contentType(MediaType.APPLICATION_JSON).content(BODY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.jobId").value("job-42"))
-                .andExpect(jsonPath("$.status").value("PENDING"));
+                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.modelName").value("mon-modele"))
+                .andExpect(jsonPath("$.totalEpochs").value(3));
     }
 }

@@ -12,9 +12,15 @@ export type JobStatus =
   | 'TRAINING'
   | 'IMPORTING_MODEL'
   | 'COMPLETED'
-  | 'FAILED';
+  | 'FAILED'
+  /** Arrêté à la demande de l'utilisateur : rien n'est cassé, personne n'a à enquêter. */
+  | 'CANCELLED';
 
-export const PIPELINE_STEPS: { status: Exclude<JobStatus, 'FAILED'>; icon: string }[] = [
+/** Vrai pour un état d'où le job ne repartira pas. */
+export const isTerminal = (status: JobStatus): boolean =>
+  status === 'COMPLETED' || status === 'FAILED' || status === 'CANCELLED';
+
+export const PIPELINE_STEPS: { status: Exclude<JobStatus, 'FAILED' | 'CANCELLED'>; icon: string }[] = [
   { status: 'PENDING',           icon: 'hourglass_empty' },
   { status: 'EXPORTING_DATASET', icon: 'dataset' },
   { status: 'TRAINING',          icon: 'model_training' },
@@ -22,7 +28,7 @@ export const PIPELINE_STEPS: { status: Exclude<JobStatus, 'FAILED'>; icon: strin
   { status: 'COMPLETED',         icon: 'check_circle' },
 ];
 
-export type StepState = 'done' | 'active' | 'failed' | 'todo';
+export type StepState = 'done' | 'active' | 'failed' | 'stopped' | 'todo';
 
 const indexOf = (status: JobStatus): number =>
   PIPELINE_STEPS.findIndex((s) => s.status === status);
@@ -42,13 +48,16 @@ const indexOf = (status: JobStatus): number =>
  * @param failedPhase phase atteinte à l'échec ; ignorée hors statut `FAILED`
  */
 export function stepStates(status: JobStatus, failedPhase?: JobStatus | null): StepState[] {
-  if (status === 'FAILED') {
-    // `FAILED` comme phase (donnée incohérente) ne désigne aucune étape : repli sur l'inconnu.
-    const known = failedPhase && failedPhase !== 'FAILED' ? indexOf(failedPhase) : -1;
-    const failedAt = known >= 0 ? known : PIPELINE_STEPS.length - 2; // repli : IMPORTING_MODEL
+  if (status === 'FAILED' || status === 'CANCELLED') {
+    // Une phase terminale (donnée incohérente) ne désigne aucune étape : repli sur l'inconnu.
+    const known = failedPhase && !isTerminal(failedPhase) ? indexOf(failedPhase) : -1;
+    const stoppedAt = known >= 0 ? known : PIPELINE_STEPS.length - 2; // repli : IMPORTING_MODEL
+    // Un arrêt volontaire n'est pas un incident : l'étape est marquée « stopped », que l'UI rend
+    // en neutre — pas en rouge, qui envoie enquêter sur ce que l'utilisateur a lui-même décidé.
+    const mark: StepState = status === 'CANCELLED' ? 'stopped' : 'failed';
     return PIPELINE_STEPS.map((_, i) => {
-      if (i === failedAt) return 'failed';
-      return known >= 0 && i < failedAt ? 'done' : 'todo';
+      if (i === stoppedAt) return mark;
+      return known >= 0 && i < stoppedAt ? 'done' : 'todo';
     });
   }
 

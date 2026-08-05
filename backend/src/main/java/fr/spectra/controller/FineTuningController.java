@@ -8,6 +8,7 @@ import fr.spectra.service.FineTuningService;
 import fr.spectra.service.JobTelemetryStore;
 import fr.spectra.service.LlmChatClient;
 import fr.spectra.service.ModelRegistryService;
+import fr.spectra.service.training.TrainingRunner;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -36,15 +37,17 @@ public class FineTuningController {
     private final BaseModelCatalog baseModelCatalog;
     private final ModelRegistryService modelRegistry;
     private final JobTelemetryStore telemetryStore;
+    private final TrainingRunner trainingRunner;
 
     public FineTuningController(FineTuningService fineTuningService, LlmChatClient llmClient,
                                 BaseModelCatalog baseModelCatalog, ModelRegistryService modelRegistry,
-                                JobTelemetryStore telemetryStore) {
+                                JobTelemetryStore telemetryStore, TrainingRunner trainingRunner) {
         this.fineTuningService = fineTuningService;
         this.llmClient = llmClient;
         this.baseModelCatalog = baseModelCatalog;
         this.modelRegistry = modelRegistry;
         this.telemetryStore = telemetryStore;
+        this.trainingRunner = trainingRunner;
     }
 
     @PostMapping("/models/register")
@@ -87,8 +90,10 @@ public class FineTuningController {
     }
 
     @PostMapping
-    @Operation(summary = "Lancer un job de fine-tuning QLoRA")
-    public ResponseEntity<Map<String, String>> startFineTuning(@Valid @RequestBody FineTuningRequest request) {
+    @Operation(summary = "Lancer un job de fine-tuning QLoRA",
+            description = "Rend le job COMPLET, et non le seul identifiant : l'appelant peut "
+                    + "afficher son suivi immédiatement, sans attendre le premier sondage.")
+    public ResponseEntity<FineTuningJob> startFineTuning(@Valid @RequestBody FineTuningRequest request) {
         String jobId = fineTuningService.submit(request);
         if (jobId == null) {
             // ProblemDetail (via ResponseStatusException) et non une Map ad hoc : le motif voyage
@@ -98,7 +103,27 @@ public class FineTuningController {
                     "Un entraînement est déjà en cours — un seul job à la fois. "
                             + "Attendez sa fin ou annulez-le, puis relancez.");
         }
-        return ResponseEntity.ok(Map.of("jobId", jobId, "status", "PENDING"));
+        // Le job vient d'être créé ; s'il avait déjà disparu, un 404 serait plus honnête qu'une
+        // réponse partielle.
+        FineTuningJob job = fineTuningService.getJob(jobId);
+        if (job == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Job inconnu: " + jobId);
+        }
+        return ResponseEntity.ok(job);
+    }
+
+    @GetMapping("/availability")
+    @Operation(summary = "L'entraînement est-il exécutable sur cette installation ?",
+            description = "La disponibilité de l'exécuteur n'était constatée qu'à la soumission : "
+                    + "l'utilisateur remplissait un formulaire, choisissait ses hyperparamètres, "
+                    + "lançait, et découvrait alors que le profil « trainer » n'était pas démarré. "
+                    + "Le motif nomme la commande à lancer.")
+    public Map<String, Object> getAvailability() {
+        String reason = trainingRunner.unavailabilityReason();
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("available", reason == null);
+        body.put("reason", reason);
+        return body;
     }
 
     @GetMapping("/{jobId}")

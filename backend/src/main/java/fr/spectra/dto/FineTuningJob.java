@@ -45,7 +45,19 @@ public record FineTuningJob(
         Instant completedAt
 ) {
     public enum Status {
-        PENDING, EXPORTING_DATASET, TRAINING, IMPORTING_MODEL, COMPLETED, FAILED
+        PENDING, EXPORTING_DATASET, TRAINING, IMPORTING_MODEL, COMPLETED, FAILED,
+        /**
+         * Arrêté à la demande de l'utilisateur. Distinct de {@link #FAILED} : rien n'est cassé,
+         * personne n'a à enquêter. Les confondre — ce que faisait l'annulation, qui écrivait
+         * FAILED — présentait un arrêt volontaire comme un incident, badge rouge et toast
+         * d'erreur compris.
+         */
+        CANCELLED;
+
+        /** Vrai pour un état d'où le job ne repartira pas. */
+        public boolean isTerminal() {
+            return this == COMPLETED || this == FAILED || this == CANCELLED;
+        }
     }
 
     public static FineTuningJob pending(String jobId, FineTuningRequest request) {
@@ -114,11 +126,24 @@ public record FineTuningJob(
      * sa phase d'origine : la réécrire ferait remonter l'échec à l'endroit du second appel plutôt
      * qu'à celui du premier.
      */
+    /**
+     * Marque l'arrêt volontaire, en retenant la phase interrompue comme le fait
+     * {@link #failed(String)} : « arrêté pendant l'entraînement » et « arrêté avant qu'il ne
+     * commence » n'ont pas le même coût.
+     */
+    public FineTuningJob cancelled(String reason) {
+        return new FineTuningJob(
+                jobId, Status.CANCELLED, modelName, baseModel, parameters, datasetSize,
+                "Arrêté", currentEpoch, totalEpochs, loss, evalLoss, outputPath, reportPath, reason,
+                status.isTerminal() ? failedPhase : status,
+                createdAt, Instant.now());
+    }
+
     public FineTuningJob failed(String error) {
         return new FineTuningJob(
                 jobId, Status.FAILED, modelName, baseModel, parameters, datasetSize,
                 "Échoué", currentEpoch, totalEpochs, loss, evalLoss, outputPath, reportPath, error,
-                status == Status.FAILED ? failedPhase : status,
+                status.isTerminal() ? failedPhase : status,
                 createdAt, Instant.now()
         );
     }

@@ -130,8 +130,24 @@ class FineTuningFailurePhaseTest {
 
         ArgumentCaptor<FineTuningJobEntity> saved = ArgumentCaptor.forClass(FineTuningJobEntity.class);
         verify(repository).save(saved.capture());
+        FineTuningJob cancelled = saved.getValue().toDto();
         // « Arrêté pendant l'entraînement » et « arrêté avant qu'il ne commence » n'ont pas la
         // même conséquence : le premier a consommé des heures de calcul, le second non.
-        assertThat(saved.getValue().toDto().failedPhase()).isEqualTo(Status.TRAINING);
+        assertThat(cancelled.failedPhase()).isEqualTo(Status.TRAINING);
+        // Et un arrêt volontaire n'est pas un incident : le confondre avec un échec envoyait
+        // l'utilisateur enquêter sur ce qu'il venait lui-même de décider.
+        assertThat(cancelled.status()).isEqualTo(Status.CANCELLED);
+    }
+
+    @Test
+    @DisplayName("un job annulé est terminal : ni réécrit par une ligne tardive, ni réconcilié")
+    void cancelledIsTerminal() {
+        assertThat(Status.CANCELLED.isTerminal()).isTrue();
+        assertThat(Status.FAILED.isTerminal()).isTrue();
+        assertThat(Status.COMPLETED.isTerminal()).isTrue();
+        // Sans cela, le redémarrage suivant « réconcilierait » un job annulé en FAILED, et une
+        // ligne de progression tardive le remettrait en TRAINING.
+        assertThat(Status.TRAINING.isTerminal()).isFalse();
+        assertThat(Status.PENDING.isTerminal()).isFalse();
     }
 }

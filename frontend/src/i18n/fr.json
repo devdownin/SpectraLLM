@@ -565,7 +565,9 @@
       "EXPORTING_DATASET": "Export",
       "TRAINING": "Entraînement",
       "IMPORTING_MODEL": "Import",
-      "COMPLETED": "Terminé"
+      "COMPLETED": "Terminé",
+      "CANCELLED": "Arrêté",
+      "FAILED": "Échoué"
     },
     "configure": "Configurer l'entraînement",
     "exportRecipe": "Exporter la recette",
@@ -642,7 +644,22 @@
     "namePattern": "Minuscules, chiffres, - et _ uniquement",
     "baseRequired": "Modèle de base requis",
     "evalLoss": "Loss validation",
-    "trainLoss": "Loss entraînement"
+    "trainLoss": "Loss entraînement",
+    "elapsed": "Écoulé",
+    "eta": "Restant ~{{time}}",
+    "colDuration": "Durée",
+    "colLoss": "Loss",
+    "copyLogs": "Copier le journal",
+    "logsCopied": "Journal copié",
+    "unavailable": "Entraînement indisponible",
+    "orpoAlignment": "Alignement ORPO",
+    "orpoHint": "(une passe, sans modèle de référence)",
+    "deploy": "Déployer ce modèle",
+    "cancelled": "Entraînement arrêté",
+    "cancelledDesc": "{{name}} — arrêté à votre demande",
+    "epochShort": "Époque {{value}}",
+    "chartWaiting": "En attente de données de perte…",
+    "chartAccumulating": "Accumulation des points…"
   },
   "documents": {
     "kicker": "Connaissances & archives",

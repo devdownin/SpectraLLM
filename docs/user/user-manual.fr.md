@@ -650,9 +650,11 @@ Puis, lors du lancement du fine-tuning (étape 3), cochez **Alignement DPO** pou
    - **Epochs** : nombre de passes d'entraînement (3 par défaut)
    - **LoRA Rank** : précision du fine-tuning (64 = bon équilibre qualité/vitesse)
    - **Min Confidence** : seuil de qualité des paires utilisées (0.8 par défaut)
+   - **Validation split** : fraction du jeu de données mise de côté pour mesurer l'`eval_loss` (0.1 par défaut, 0 pour désactiver). Sans elle, seule la loss d'entraînement est mesurée — elle décroît par construction et ne dit rien du sur-apprentissage
    - **Multipacking** : cochez pour concaténer les exemples courts — accélère l'entraînement de 20–30 %
    - **Alignement DPO** : cochez si vous avez généré des paires DPO (étape 2b) — entraîne par préférence plutôt que par SFT
-   - **Alignement ORPO** : alternative au DPO en une seule passe, sans modèle de référence (mêmes paires de préférence). DPO et ORPO sont exclusifs ; ORPO a priorité si les deux sont cochés.
+   - **Alignement ORPO** : alternative au DPO en une seule passe, sans modèle de référence (mêmes paires de préférence). Les deux cases s'excluent : cocher l'une décoche l'autre
+   - **Export GGUF & register** : après l'entraînement, fusionne l'adaptateur, convertit en GGUF et enregistre le modèle — c'est ce qui le rend déployable sans étape manuelle
 5. Cliquez sur **Launch Training**.
 6. Suivez la progression via la **barre d'étapes** :
 

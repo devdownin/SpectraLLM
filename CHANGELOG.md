@@ -8,6 +8,45 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Corrigé — le suivi d'un fine-tuning se lit enfin sans le décoder
+
+Dernier lot de [l'audit du suivi](docs/process/audit-suivi-finetuning-ui.fr.md), qui ferme les
+onze constats restants.
+
+**Un arrêt n'est plus un incident.** L'annulation écrivait `FAILED` : badge rouge, toast d'erreur,
+et un utilisateur envoyé enquêter sur ce qu'il venait lui-même de décider. `CANCELLED` existe
+désormais comme statut à part entière, retient la phase interrompue et se rend en neutre. Un
+`isTerminal()` partagé remplace les comparaisons à deux valeurs — sans quoi un job annulé aurait
+été « réconcilié » au démarrage suivant, et une ligne de progression tardive l'aurait remis en
+`TRAINING`.
+
+**Le flux ne perd plus d'évènements.** `useSse` n'exposait que le *dernier* message reçu : deux
+évènements traités avant un rendu n'en laissaient qu'un seul observable, et le compteur « N events »
+affirmait une complétude qu'il ne pouvait pas tenir. Un rappel `onMessage` livre chaque évènement,
+dans l'ordre.
+
+**Les erreurs se voient.** `stderr` est fusionné dans `stdout` en amont, si bien qu'une trace Python
+arrivait étiquetée INFO et se fondait, en bleu, dans un flux qui défile. Le niveau est maintenant
+détecté à la source, les lignes ne sont plus tronquées, et le journal se copie d'un clic.
+
+**Les phases muettes parlent.** L'export du dataset annonce ce qu'il a produit ; `export_gguf.py`
+n'avale plus la sortie de la conversion — plusieurs minutes de silence total pour une étape dont
+tout le mécanisme de diffusion existait déjà.
+
+**Et le reste, qui se constate à l'usage** : temps écoulé et estimation du restant sur la page ;
+statuts traduits et étape courante dérivée du statut, là où l'UI anglaise affichait
+`EXPORTING_DATASET` puis « Export du dataset... » ; graphe légendé et traduit ; barre de progression
+annonçable par un lecteur d'écran (`role="progressbar"`), flux en région live, étape courante
+`aria-current` ; historique portant durée, loss finale et motif d'échec ; indisponibilité de
+l'entraînement affichée **avant** que le formulaire ne soit rempli, avec la commande à lancer ;
+lien vers le Model Hub depuis un job terminé ; et réponse de création rendant le job complet, au
+lieu d'un panneau creux pendant quatre secondes.
+
+Enfin, la case **Alignement ORPO** apparaît dans le formulaire. La fonctionnalité était implémentée
+de bout en bout — DTO, service, `train.sh`, `train_host.py` — et documentée dans le manuel, mais
+n'avait jamais eu de contrôle : elle n'était atteignable que par appel API direct. DPO et ORPO
+consommant le même dataset de préférence, cocher l'un décoche l'autre.
+
 ### Ajouté — la trace d'un entraînement survit au rechargement de page
 
 Un fine-tuning dure des heures ; son suivi ne survivait pas à un `F5`. Le flux SSE est un canal

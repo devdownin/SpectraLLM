@@ -33,6 +33,16 @@ describe('stepStates', () => {
     }
   });
 
+  it('rend un arrêt volontaire distinct d\'un échec', () => {
+    // Constat S7 : l'annulation écrivait FAILED, si bien qu'un arrêt décidé par l'utilisateur
+    // s'affichait comme un incident — badge rouge et toast d'erreur compris.
+    const cancelled = stepStates('CANCELLED', 'TRAINING');
+    expect(cancelled).toEqual(['done', 'done', 'stopped', 'todo', 'todo']);
+    expect(cancelled).not.toContain('failed');
+
+    expect(stepStates('FAILED', 'TRAINING')).toEqual(['done', 'done', 'failed', 'todo', 'todo']);
+  });
+
   it('n\'a aucune étape active avant le démarrage', () => {
     expect(stepStates('PENDING')).toEqual(['active', 'todo', 'todo', 'todo', 'todo']);
   });

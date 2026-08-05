@@ -73,13 +73,17 @@ gguf_path = os.path.join(args.output, "model.gguf")
 print(f"  Conversion vers : {gguf_path}")
 print("  (peut prendre 1-2 minutes...)")
 
+# Sortie NON capturée : elle est héritée, donc diffusée ligne à ligne jusqu'au flux de suivi.
+# `capture_output=True` l'avalait entièrement — une étape de plusieurs minutes n'affichait alors
+# rien, alors que tout le mécanisme de diffusion existe des deux côtés et n'attendait que ça.
 result = subprocess.run(
     [sys.executable, convert_script, args.output,
      "--outfile", gguf_path, "--outtype", "q8_0"],
-    capture_output=True, text=True
+    text=True
 )
 if result.returncode != 0:
-    print(f"  ERREUR conversion GGUF :\n{result.stderr}")
+    print(f"  ERREUR conversion GGUF : code {result.returncode} "
+          f"(voir la sortie de conversion ci-dessus)")
     sys.exit(1)
 
 print(f"  GGUF généré : {gguf_path}\n")

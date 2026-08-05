@@ -565,7 +565,9 @@
       "EXPORTING_DATASET": "Export",
       "TRAINING": "Training",
       "IMPORTING_MODEL": "Import",
-      "COMPLETED": "Complete"
+      "COMPLETED": "Complete",
+      "CANCELLED": "Stopped",
+      "FAILED": "Failed"
     },
     "configure": "Configure Training Job",
     "exportRecipe": "Export Recipe",
@@ -642,7 +644,22 @@
     "namePattern": "Lowercase letters, digits, - and _ only",
     "baseRequired": "Base model required",
     "evalLoss": "Eval loss",
-    "trainLoss": "Training loss"
+    "trainLoss": "Training loss",
+    "elapsed": "Elapsed",
+    "eta": "~{{time}} left",
+    "colDuration": "Duration",
+    "colLoss": "Loss",
+    "copyLogs": "Copy log",
+    "logsCopied": "Log copied",
+    "unavailable": "Training unavailable",
+    "orpoAlignment": "ORPO Alignment",
+    "orpoHint": "(single pass, no reference model)",
+    "deploy": "Deploy this model",
+    "cancelled": "Training stopped",
+    "cancelledDesc": "{{name}} — stopped at your request",
+    "epochShort": "Epoch {{value}}",
+    "chartWaiting": "Waiting for loss data…",
+    "chartAccumulating": "Accumulating data…"
   },
   "documents": {
     "kicker": "Knowledge & Records",
