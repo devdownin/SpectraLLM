@@ -299,7 +299,7 @@ public class FineTuningService {
     protected void runAsync(String jobId, FineTuningRequest request) {
         try {
             // ── Étape 1 : Export du dataset filtré ──
-            broadcaster.info("Job " + jobId + " : export du dataset…");
+            broadcaster.jobInfo(jobId, "Job " + jobId + " : export du dataset…");
             updateJob(jobId, j -> j.withStatus(Status.EXPORTING_DATASET, "Export du dataset..."));
 
             Path jobDir = workDir.resolve(jobId);
@@ -327,7 +327,7 @@ public class FineTuningService {
                     preference ? "paires de préférence" : "paires SFT");
 
             // ── Étape 2 : Lancement de l'entraînement externe ──
-            broadcaster.info("Job " + jobId + " : lancement de l'entraînement (" + datasetSize + " exemples)…");
+            broadcaster.jobInfo(jobId, "Job " + jobId + " : lancement de l'entraînement (" + datasetSize + " exemples)…");
             updateJob(jobId, j -> j.withStatus(Status.TRAINING, "Lancement de l'entraînement..."));
 
             // train_host.py produit un répertoire d'adaptateur LoRA (format HuggingFace/PEFT),
@@ -361,7 +361,7 @@ public class FineTuningService {
                 // Étape 3b (opt-in) : fusion LoRA → GGUF → enregistrement pour déploiement.
                 exportGgufAndRegister(jobId, request, adapterPath, jobDir);
             } else {
-                broadcaster.info("Job " + jobId + " : adaptateur entraîné → " + adapterPath
+                broadcaster.jobInfo(jobId, "Job " + jobId + " : adaptateur entraîné → " + adapterPath
                         + " (exporter en GGUF puis enregistrer pour le déployer)");
                 updateJob(jobId, j -> j.completed(adapterPath.toString()));
             }
@@ -381,7 +381,7 @@ public class FineTuningService {
                 return;
             }
             log.error("Job {} échoué: {}", jobId, e.getMessage(), e);
-            broadcaster.error("Job " + jobId + " échoué : " + e.getMessage());
+            broadcaster.jobError(jobId, "Job " + jobId + " échoué : " + e.getMessage());
             updateJob(jobId, j -> j.failed(e.getMessage()));
         } finally {
             cancelledJobs.remove(jobId);
@@ -537,7 +537,7 @@ public class FineTuningService {
         }
         if (traced > 0) {
             log.info("Job {}: {} document(s) GED lié(s) au modèle '{}' et passé(s) TRAINED", jobId, traced, modelName);
-            broadcaster.info("Job " + jobId + " : " + traced + " document(s) source tracé(s) en GED (TRAINED)");
+            broadcaster.jobInfo(jobId, "Job " + jobId + " : " + traced + " document(s) source tracé(s) en GED (TRAINED)");
         }
     }
 
@@ -600,7 +600,7 @@ public class FineTuningService {
         }
         if (line.isBlank()) return;
         if (isProgressBarRefresh(line) && !allowProgressBarLine()) return;
-        broadcaster.info(line);   // diffusion temps réel vers /api/sse/training-logs
+        broadcaster.jobInfo(jobId, line);   // diffusion temps réel vers /api/sse/training-logs
     }
 
     /** Vrai pour un rafraîchissement de barre ; « 100% » passe toujours (fin d'étape lisible). */
@@ -625,7 +625,7 @@ public class FineTuningService {
     private void exportGgufAndRegister(String jobId, FineTuningRequest request,
                                        Path adapterPath, Path jobDir) throws Exception {
         updateJob(jobId, j -> j.withStatus(Status.IMPORTING_MODEL, "Fusion LoRA + conversion GGUF…"));
-        broadcaster.info("Job " + jobId + " : fusion de l'adaptateur, conversion GGUF et enregistrement…");
+        broadcaster.jobInfo(jobId, "Job " + jobId + " : fusion de l'adaptateur, conversion GGUF et enregistrement…");
 
         Path mergedDir = jobDir.resolve("merged");
         // Même résolution que l'entraînement (manifeste unique) : l'adaptateur LoRA n'est
@@ -673,7 +673,7 @@ public class FineTuningService {
                                 .orElse(null)));
 
         log.info("Job {}: modèle '{}' converti et enregistré → {}", jobId, request.modelName(), registeredPath);
-        broadcaster.info("Job " + jobId + " : modèle '" + request.modelName()
+        broadcaster.jobInfo(jobId, "Job " + jobId + " : modèle '" + request.modelName()
                 + "' enregistré et déployable → " + registeredPath);
         updateJob(jobId, j -> j.completed(registeredPath));
     }

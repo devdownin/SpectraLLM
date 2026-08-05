@@ -32,10 +32,25 @@ public class TrainingLogBroadcaster {
     private final Sinks.Many<Map<String, Object>> sink =
             Sinks.many().multicast().onBackpressureBuffer(500, false);
 
+    /** Évènement non rattaché à un job (message global). */
     public void publish(String level, String message) {
+        publish(null, level, message);
+    }
+
+    /**
+     * Évènement rattaché à un job.
+     *
+     * <p>Le canal est <b>unique et global</b> : tous les jobs y écrivent, et les clients ne
+     * peuvent pas s'abonner à un job en particulier. Sans identifiant dans l'enveloppe, une page
+     * affichant un job donné montrait donc la sortie de <i>n'importe quel</i> job en cours —
+     * consulter un job terminé de la veille lui attribuait les lignes du run actuel. Le
+     * {@code jobId} laisse le client filtrer ; {@code null} signifie « concerne tout le monde ».
+     */
+    public void publish(String jobId, String level, String message) {
         Map<String, Object> event = new HashMap<>();
         event.put("level", level);
         event.put("message", message);
+        event.put("jobId", jobId);
         event.put("timestamp", LocalTime.now().format(TIME_FMT));
         // publish() peut être appelé depuis plusieurs threads : retenter uniquement
         // en cas de contention d'émission (FAIL_NON_SERIALIZED) pour ne pas perdre
@@ -54,6 +69,16 @@ public class TrainingLogBroadcaster {
 
     public void error(String message) {
         publish("ERROR", message);
+    }
+
+    /** Ligne d'information attribuée à un job. */
+    public void jobInfo(String jobId, String message) {
+        publish(jobId, "INFO", message);
+    }
+
+    /** Ligne d'erreur attribuée à un job. */
+    public void jobError(String jobId, String message) {
+        publish(jobId, "ERROR", message);
     }
 
     /**

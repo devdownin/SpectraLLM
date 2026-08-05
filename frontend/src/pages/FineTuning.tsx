@@ -37,6 +37,8 @@ interface FineTuningJob {
   outputPath: string | null;
   reportPath: string | null;
   error: string | null;
+  /** Phase atteinte à l'échec — situe l'échec sur la barre d'étapes. Null avant introduction. */
+  failedPhase: JobStatus | null;
   createdAt: string;
   completedAt: string | null;
   parameters: {
@@ -57,7 +59,7 @@ interface StepBarProps { job: FineTuningJob }
 
 const StepBar: FC<StepBarProps> = ({ job }) => {
   const { t } = useTranslation();
-  const states = stepStates(job.status);
+  const states = stepStates(job.status, job.failedPhase);
 
   return (
     <div className="flex items-center w-full">
@@ -311,8 +313,14 @@ const FineTuning: FC = () => {
   // recording the previous message's loss under the new epoch (phantom loss point).
   const currentEpochRef = useRef<number | null | undefined>(activeJob?.currentEpoch);
   currentEpochRef.current = activeJob?.currentEpoch;
+  // Même raison pour le job affiché : le flux est global, il faut écarter les lignes d'un AUTRE
+  // job — sans quoi consulter un job terminé lui attribue la sortie du run en cours.
+  const activeJobIdRef = useRef<string | undefined>(activeJob?.jobId);
+  activeJobIdRef.current = activeJob?.jobId;
   useEffect(() => {
     if (!newLog) return;
+    // Une ligne sans jobId est un message global : elle concerne tout le monde.
+    if (newLog.jobId && activeJobIdRef.current && newLog.jobId !== activeJobIdRef.current) return;
     setLogs(prev => [...prev.slice(-999), newLog]);
     const parsed = parseProgressLine(newLog.message);
     if (!parsed) return;
@@ -333,6 +341,23 @@ const FineTuning: FC = () => {
     }
   }, [logs, autoScroll]);
 
+  /**
+   * Sélectionne un job à suivre, en **repartant d'un moniteur vide**. Sans cette remise à zéro,
+   * cliquer sur un job de l'historique lui attribuait la courbe et les lignes du job précédent :
+   * les deux séries vivent dans l'état de la page, rien ne les rattachait au job affiché.
+   */
+  const selectJob = useCallback((job: FineTuningJob) => {
+    // Comparaison via la ref (et non l'état capturé) pour que le rappel reste stable, et mise à
+    // jour immédiate de celle-ci : une ligne SSE arrivant avant le prochain rendu doit déjà être
+    // filtrée sur le NOUVEAU job.
+    if (activeJobIdRef.current !== job.jobId) {
+      setLogs([]);
+      setLossHistory([]);
+    }
+    activeJobIdRef.current = job.jobId;
+    setActiveJob(job);
+  }, []);
+
   // ── Load job history ──────────────────────────────────────────────────────
   const loadJobs = useCallback(async () => {
     try {
@@ -345,10 +370,10 @@ const FineTuning: FC = () => {
         jobRestoredRef.current = true;
         const inFlight = sorted.find(j =>
           j.status !== 'COMPLETED' && j.status !== 'FAILED');
-        if (inFlight) setActiveJob(inFlight);
+        if (inFlight) selectJob(inFlight);
       }
     } catch { /* ignore */ }
-  }, []);
+  }, [selectJob]);
 
   useEffect(() => { loadJobs(); }, [loadJobs]);
 
@@ -402,8 +427,7 @@ const FineTuning: FC = () => {
     try {
       const res = await fineTuningApi.createJob(data);
       const job: FineTuningJob = res.data;
-      setActiveJob(job);
-      setLossHistory([]);
+      selectJob(job);   // remet à zéro courbe et télémétrie du job précédent
       setShowForm(false);
       toast.success(t('fineTuning.submitted'), { description: t('fineTuning.submittedId', { id: job.jobId.slice(0, 8) }) });
     } catch (err: unknown) {
@@ -754,12 +778,17 @@ const FineTuning: FC = () => {
                 </div>
                 {logs.length === 0 ? (
                   <div className="flex-1 flex items-center justify-center">
-                    <p className="text-outline italic text-[11px]">
-                      {sseStatus === 'closed'
-                        ? t('fineTuning.streamInterrupted')
-                        : sseStatus === 'connecting'
-                          ? t('fineTuning.streamConnecting')
-                          : t('fineTuning.streamWaiting')}
+                    <p className="text-outline italic text-[11px] px-4 text-center">
+                      {/* Un job terminé n'a plus de télémétrie à montrer : elle n'est conservée
+                          nulle part. Le dire vaut mieux que « en attente d'évènements… », qui
+                          laisse croire que quelque chose va arriver. */}
+                      {activeJob && (activeJob.status === 'COMPLETED' || activeJob.status === 'FAILED')
+                        ? t('fineTuning.streamNotRetained')
+                        : sseStatus === 'closed'
+                          ? t('fineTuning.streamInterrupted')
+                          : sseStatus === 'connecting'
+                            ? t('fineTuning.streamConnecting')
+                            : t('fineTuning.streamWaiting')}
                     </p>
                   </div>
                 ) : (
@@ -810,7 +839,7 @@ const FineTuning: FC = () => {
             ) : jobs.map(job => (
               <TableRow
                 key={job.jobId}
-                onClick={() => setActiveJob(job)}
+                onClick={() => selectJob(job)}
                 className="cursor-pointer"
               >
                 <Td className="font-mono text-[11px]">{job.jobId.slice(0, 8)}</Td>

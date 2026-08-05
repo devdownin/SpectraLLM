@@ -624,6 +624,7 @@
     "streamInterrupted": "Telemetry stream interrupted — reconnection failed.",
     "streamConnecting": "Connecting to telemetry stream…",
     "streamWaiting": "Waiting for events…",
+    "streamNotRetained": "This job has finished — telemetry is not retained afterwards.",
     "history": "Training History",
     "refresh": "Refresh",
     "colJobId": "Job ID",

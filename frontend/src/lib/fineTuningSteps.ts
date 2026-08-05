@@ -33,15 +33,23 @@ const indexOf = (status: JobStatus): number =>
  * - `COMPLETED` marque **toutes** les étapes franchies, jalon final compris : un run réussi
  *   affichait quatre étapes allumées suivies d'une pastille grise, comme si la fin n'avait pas
  *   été atteinte.
- * - `FAILED` ne peut pointer l'étape réellement fautive : le backend écrase `currentStep` par
- *   « Échoué » et ne conserve pas la phase atteinte (constat S5, à traiter avec le lot suivant).
- *   En attendant, l'échec est signalé sur l'étape d'import — et **aucune étape n'est marquée
- *   franchie**, pour ne pas affirmer un avancement qu'on ne connaît pas.
+ * - `FAILED` s'appuie sur `failedPhase`, la phase que le job portait au moment de l'échec : les
+ *   étapes qui l'ont précédée sont **franchies**, celle-là est en échec, les suivantes n'ont pas
+ *   eu lieu. Sans cette information — jobs antérieurs à son introduction — l'échec ne peut être
+ *   situé : on le signale alors sur la dernière étape sans rien marquer comme franchi, plutôt que
+ *   d'affirmer un avancement inconnu.
+ *
+ * @param failedPhase phase atteinte à l'échec ; ignorée hors statut `FAILED`
  */
-export function stepStates(status: JobStatus): StepState[] {
+export function stepStates(status: JobStatus, failedPhase?: JobStatus | null): StepState[] {
   if (status === 'FAILED') {
-    const failedAt = PIPELINE_STEPS.length - 2; // IMPORTING_MODEL
-    return PIPELINE_STEPS.map((_, i) => (i === failedAt ? 'failed' : 'todo'));
+    // `FAILED` comme phase (donnée incohérente) ne désigne aucune étape : repli sur l'inconnu.
+    const known = failedPhase && failedPhase !== 'FAILED' ? indexOf(failedPhase) : -1;
+    const failedAt = known >= 0 ? known : PIPELINE_STEPS.length - 2; // repli : IMPORTING_MODEL
+    return PIPELINE_STEPS.map((_, i) => {
+      if (i === failedAt) return 'failed';
+      return known >= 0 && i < failedAt ? 'done' : 'todo';
+    });
   }
 
   const current = indexOf(status);

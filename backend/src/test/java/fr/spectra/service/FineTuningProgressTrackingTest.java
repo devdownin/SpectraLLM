@@ -21,6 +21,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -139,11 +140,11 @@ class FineTuningProgressTrackingTest {
             emit("Downloading model.safetensors:  " + i + "%|██        | " + i + "/100 [00:03<00:30, 3.2MB/s]");
         }
         // Au plus une ligne de barre par seconde : la rafale entière tient dans le même intervalle.
-        verify(broadcaster, times(1)).info(any());
+        verify(broadcaster, times(1)).jobInfo(eq(JOB_ID), any());
 
         emit("Début de l'entraînement (3 époque(s), LoRA rank=64)...");
         emit("  epoch=0.33  loss=1.9000");
-        verify(broadcaster, times(3)).info(any());
+        verify(broadcaster, times(3)).jobInfo(eq(JOB_ID), any());
     }
 
     @Test
@@ -153,7 +154,7 @@ class FineTuningProgressTrackingTest {
         emit("Downloading model.safetensors: 100%|██████████| 100/100 [00:31<00:00, 3.2MB/s]");
 
         // Sans exception pour « 100% », la barre resterait figée à 42 % pour toujours.
-        verify(broadcaster, times(2)).info(any());
+        verify(broadcaster, times(2)).jobInfo(eq(JOB_ID), any());
     }
 
     @Test
@@ -161,6 +162,6 @@ class FineTuningProgressTrackingTest {
     void blankLinesAreDropped() throws Exception {
         emit("   ");
 
-        verify(broadcaster, never()).info(any());
+        verify(broadcaster, never()).jobInfo(any(), any());
     }
 }

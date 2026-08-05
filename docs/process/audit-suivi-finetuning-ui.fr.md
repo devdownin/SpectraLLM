@@ -46,20 +46,22 @@
 >
 > ---
 >
-> **Statut au 2026-08-05 — lot 1 livré.** Sont **corrigés** : S2, S3, S4, S6, S12, S15, S16, et la
-> moitié client de S1. Concrètement : la progression démarre à la première fraction d'époque au
-> lieu du premier tiers du run, la courbe compte un point par étape journalisée sur un axe qui
-> couvre les époques prévues, la courbe de validation ne disparaît plus, le jalon final s'allume,
-> le flux de télémétrie n'est plus noyé par les barres de téléchargement ni muet avant le premier
-> pas, et l'entraînement s'arrête depuis sa propre page avec un refus 409 enfin lisible.
+> **Statut au 2026-08-05 — lots 1 et 2 livrés.** Sont **corrigés** : S2, S3, S4, S5, S6, S9, S12,
+> S15, S16, et la moitié client de S1. Concrètement : la progression démarre à la première fraction
+> d'époque au lieu du premier tiers du run, la courbe compte un point par étape journalisée sur un
+> axe qui couvre les époques prévues, la courbe de validation ne disparaît plus, le jalon final
+> s'allume, un échec est signalé **là où il s'est produit**, la télémétrie n'affiche que les lignes
+> du job consulté, le flux n'est plus noyé par les barres de téléchargement ni muet avant le
+> premier pas, et l'entraînement s'arrête depuis sa propre page avec un refus 409 enfin lisible.
 >
-> Trois jeux de tests accompagnent le lot (`trainingProgress.test.ts`, `fineTuningSteps.test.ts`,
-> `FineTuning.cancel.test.tsx`, `FineTuningProgressTrackingTest`) : les règles de suivi vivent
-> désormais dans des fonctions pures plutôt que dans des ternaires du JSX.
+> Six jeux de tests accompagnent ces lots (`trainingProgress.test.ts`, `fineTuningSteps.test.ts`,
+> `FineTuning.cancel.test.tsx`, `FineTuning.telemetry.test.tsx`, `FineTuningProgressTrackingTest`,
+> `FineTuningFailurePhaseTest`, `TrainingLogBroadcasterTest`) : les règles de suivi vivent désormais
+> dans des fonctions pures plutôt que dans des ternaires du JSX.
 >
-> Restent **ouverts** : S5 et S9 (les deux endroits où l'interface affirme quelque chose de faux),
-> S8 et la moitié serveur de S1 (rien n'est persisté), puis S7, S10, S11, S13, S14, S17 à S22 et
-> l'alignement de la documentation. Aucun n'est bloquant.
+> Restent **ouverts** : S8 et la moitié serveur de S1 — **rien n'est persisté**, un rechargement de
+> page détruit encore logs et courbe d'un run de plusieurs heures —, puis S7, S10, S11, S13, S14,
+> S17 à S22 et l'alignement de la documentation. Aucun n'est bloquant.
 
 ---
 
@@ -203,7 +205,7 @@ Reste ouvert : la `ReferenceLine` du minimum ignore toujours l'eval_loss.
 
 ## 3. Barre d'étapes et statut
 
-### S5 — Un échec est toujours attribué à l'étape « Import » — **élevé**
+### S5 — Un échec est toujours attribué à l'étape « Import » — **élevé** — ✅ corrigé
 
 `FineTuning.tsx:63-65` :
 
@@ -226,6 +228,20 @@ corrigeant le composant, l'information n'existe plus.
 
 > Correctif : conserver le statut atteint avant l'échec (champ `failedAt` / `lastStatus` sur le
 > DTO et l'entité), et dériver `current` de ce champ dans `StepBar`.
+
+**Correction appliquée**, dans les deux moitiés :
+
+- `FineTuningJob.failed()` retient la phase atteinte dans un champ `failedPhase` (colonne
+  `failed_phase`, migration idempotente). Un second échec ne la déplace pas — sans quoi la
+  réconciliation au démarrage réétiquetterait tous les échecs. L'annulation et l'interruption au
+  redémarrage la retiennent aussi : « arrêté pendant l'entraînement » et « arrêté avant qu'il ne
+  commence » n'ont pas la même conséquence.
+- `stepStates(status, failedPhase)` marque les étapes précédentes **franchies**, celle-là en
+  échec, les suivantes non advenues. Sans phase connue — jobs antérieurs à son introduction, ou
+  valeur illisible en base — le repli d'avant s'applique, mais sans marquer d'avancement.
+
+Couvert par `FineTuningFailurePhaseTest` (phase retenue, non déplacée, aller-retour en base,
+valeur corrompue tolérée, annulation) et `fineTuningSteps.test.ts`.
 
 ### S6 — L'étape « Complete » n'est jamais allumée — **faible** — ✅ corrigé
 
@@ -282,7 +298,7 @@ détruit l'intégralité de la trace.
 > SSE. Bénéfice secondaire : les logs d'un job **terminé** deviennent consultables, ce qu'aucun
 > chemin ne permet aujourd'hui.
 
-### S9 — Le flux n'est rattaché à aucun job — **moyen**
+### S9 — Le flux n'est rattaché à aucun job — **moyen** — ✅ corrigé
 
 L'évènement SSE porte `{level, message, timestamp}` (`TrainingLogBroadcaster.java:36-39`) : **pas
 de `jobId`**. La page consomme donc un canal global et l'affiche comme la télémétrie du job
@@ -296,7 +312,14 @@ sélectionné. Trois conséquences observables :
 - le ré-entraînement automatique déclenché par les commentaires (`ArticleCommentService`) émet dans
   le même canal, sans que rien n'indique qu'il s'agit d'un autre job.
 
-Ajouter `jobId` à l'évènement et filtrer côté page est un changement de deux lignes de chaque côté.
+**Correction appliquée** : l'évènement porte un `jobId` (`null` = message global, à afficher quel
+que soit le job consulté) et la page écarte les lignes d'un autre job. `selectJob()` remet par
+ailleurs courbe **et** télémétrie à zéro dès que le job affiché change — les deux séries vivent
+dans l'état de la page, rien ne les rattachait au job. Enfin, un job terminé n'affiche plus
+« en attente d'évènements… » mais dit que la télémétrie n'est pas conservée : elle ne le sera pas
+tant que S8 n'est pas traité, autant l'annoncer.
+
+Couvert par `TrainingLogBroadcasterTest` et `FineTuning.telemetry.test.tsx`.
 
 ### S10 — Le hook SSE ne garantit pas la livraison — **moyen**
 
@@ -534,6 +557,9 @@ d'un job et sur clic « Refresh » — la table ne reflète donc pas l'avancemen
 | État des étapes (`lib/fineTuningSteps`) | `fineTuningSteps.test.ts` | ✅ livré avec le lot 1 |
 | Pilotage de la page (arrêt, refus 409) | `FineTuning.cancel.test.tsx` | ✅ livré avec le lot 1 |
 | `parseTrainingOutput` + volume diffusé (backend) | `FineTuningProgressTrackingTest` | ✅ livré avec le lot 1 |
+| Phase d'échec (DTO, entité, annulation) | `FineTuningFailurePhaseTest` | ✅ livré avec le lot 2 |
+| Enveloppe des évènements SSE | `TrainingLogBroadcasterTest` | ✅ livré avec le lot 2 |
+| Télémétrie rattachée à son job (page) | `FineTuning.telemetry.test.tsx` | ✅ livré avec le lot 2 |
 | `useGlobalTasks` (normaliseurs, ETA) | `useGlobalTasks.test.ts` | ✅ |
 | `TaskCenter` (relance) | `TaskCenter.retry.test.tsx` | ✅ partiel |
 | `LossChart.tsx` (rendu) | — | **aucun** |
@@ -548,8 +574,13 @@ Les invariants figés par le lot 1, tous vérifiables sans navigateur réel ni G
 - une rafale de barre de progression ne produit qu'un évènement, les lignes utiles passent toutes ;
 - arrêter un job demande confirmation, puis appelle l'API — et n'appelle rien si l'on renonce.
 
-Reste à couvrir, avec les lots suivants : un job `FAILED` pendant `EXPORTING_DATASET` doit allumer
-l'étape 2 et non l'étape 4 (S5), et le hook SSE doit livrer chaque évènement une fois (S10).
+Ajoutés par le lot 2 : un job `FAILED` pendant `EXPORTING_DATASET` allume l'étape 2 et non
+l'étape 4 ; une phase d'échec illisible en base ne casse pas la relecture de l'historique ; une
+ligne d'un autre job n'apparaît pas dans la télémétrie du job consulté ; changer de job vide le
+moniteur.
+
+Reste à couvrir, avec les lots suivants : le hook SSE doit livrer chaque évènement une fois (S10),
+et la série de loss doit survivre à un rechargement (S1, S8).
 
 ---
 
@@ -559,11 +590,11 @@ l'étape 2 et non l'étape 4 (S5), et le hook SSE doit livrer chaque évènement
 |---|---|---|---|---|
 | S1 | Loss par étape agrégée à un point par époque — courbe à 2-3 points | Élevé | Moyen | ⚠️ client corrigé, série non persistée |
 | S3 | Première époque entièrement invisible (entier tronqué) | Élevé | Faible | ✅ corrigé |
-| S5 | Un échec est toujours attribué à l'étape « Import » ; la phase fautive n'est pas conservée | Élevé | Faible (UI) + Moyen (DTO) | Ouvert |
+| S5 | Un échec est toujours attribué à l'étape « Import » ; la phase fautive n'est pas conservée | Élevé | Faible (UI) + Moyen (DTO) | ✅ corrigé |
 | S8 | Logs perdus au rechargement, à la navigation et hors connexion | Élevé | Moyen | Ouvert |
 | S15 | Pas d'annulation depuis la page de fine-tuning | Élevé | Trivial | ✅ corrigé |
 | S2 | Le sondage efface l'eval_loss (annule le bénéfice de `valSplit`) | Élevé | Trivial | ✅ corrigé |
-| S9 | Flux SSE sans `jobId` — logs et courbe attribués au mauvais job | Moyen | Faible | Ouvert |
+| S9 | Flux SSE sans `jobId` — logs et courbe attribués au mauvais job | Moyen | Faible | ✅ corrigé |
 | S10 | Hook SSE sans garantie de livraison (dernier message seulement) | Moyen | Faible | Ouvert |
 | S11 | Tout en INFO, erreurs incluses ; lignes tronquées, non copiables | Moyen | Faible | Ouvert |
 | S12 | Silence puis rafale (buffering Python, `\r` de tqdm) | Moyen | Trivial | ✅ corrigé |
@@ -586,10 +617,10 @@ l'étape 2 et non l'étape 4 (S5), et le hook SSE doit livrer chaque évènement
 1. ~~**Le lot trivial à fort rendement** — S2, S3, S6, S15, S16, S4, S12.~~ **Livré**, avec ses
    tests de non-régression. La première époque est visible, la courbe de validation ne disparaît
    plus, la fin de parcours est marquée, l'annulation est sur la page et les refus s'expliquent.
-2. **La véracité du suivi** — S5 (conserver la phase de l'échec, côté DTO et entité) puis S9
-   (`jobId` dans l'évènement SSE, réinitialisation à la sélection d'un job). Ce sont les deux
-   endroits où l'interface affirme aujourd'hui quelque chose de faux. `stepStates` étant désormais
-   une fonction pure testée, la moitié UI de S5 tient en une ligne.
+2. ~~**La véracité du suivi** — S5 puis S9.~~ **Livré.** Un échec est signalé à la phase où il
+   s'est produit (champ `failedPhase`, migration incluse), et la télémétrie n'affiche que les
+   lignes du job consulté — changer de job vide le moniteur au lieu de lui léguer la courbe et les
+   logs du précédent. L'interface n'affirme plus rien de faux.
 3. **La substance du signal** — la moitié serveur de S1 (série de loss portée par le job ou par un
    fichier), puis S8 (persistance des logs et endpoint de relecture). Les deux partagent la même
    infrastructure : le répertoire de job existe déjà, il ne sert qu'à l'adaptateur. C'est ce qui

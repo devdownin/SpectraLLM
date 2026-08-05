@@ -150,6 +150,12 @@ export interface TrainingLog {
   message: string;
   level: 'INFO' | 'WARN' | 'ERROR';
   timestamp: string;
+  /**
+   * Job dont provient la ligne. Le flux `/api/sse/training-logs` est unique et global : sans cet
+   * identifiant, une page affichant un job donné montrait la sortie de n'importe quel autre.
+   * `null` = message global, à afficher quel que soit le job consulté.
+   */
+  jobId?: string | null;
 }
 
 export interface EvaluationScore {

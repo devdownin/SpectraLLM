@@ -39,6 +39,10 @@ public class FineTuningJobEntity {
     @Column(columnDefinition = "TEXT")
     private String error;
 
+    /** Phase atteinte à l'échec — voir {@link FineTuningJob#failedPhase()}. Stockée en clair. */
+    @Column(length = 50)
+    private String failedPhase;
+
     private Instant createdAt;
     private Instant completedAt;
 
@@ -48,7 +52,7 @@ public class FineTuningJobEntity {
                                String parameters, int datasetSize, String currentStep,
                                Double currentEpoch, Integer totalEpochs, Double loss,
                                Double evalLoss, String outputPath, String reportPath, String error,
-                               Instant createdAt, Instant completedAt) {
+                               String failedPhase, Instant createdAt, Instant completedAt) {
         this.jobId = jobId;
         this.status = status;
         this.modelName = modelName;
@@ -63,6 +67,7 @@ public class FineTuningJobEntity {
         this.outputPath = outputPath;
         this.reportPath = reportPath;
         this.error = error;
+        this.failedPhase = failedPhase;
         this.createdAt = createdAt;
         this.completedAt = completedAt;
     }
@@ -79,6 +84,7 @@ public class FineTuningJobEntity {
                 paramsJson, dto.datasetSize(), dto.currentStep(),
                 dto.currentEpoch(), dto.totalEpochs(), dto.loss(), dto.evalLoss(),
                 dto.outputPath(), dto.reportPath(), dto.error(),
+                dto.failedPhase() != null ? dto.failedPhase().name() : null,
                 dto.createdAt(), dto.completedAt());
     }
 
@@ -96,7 +102,22 @@ public class FineTuningJobEntity {
                 jobId, FineTuningJob.Status.valueOf(status),
                 modelName, baseModel, req, datasetSize,
                 currentStep, currentEpoch, totalEpochs, loss, evalLoss,
-                outputPath, reportPath, error, createdAt, completedAt);
+                outputPath, reportPath, error, parseFailedPhase(), createdAt, completedAt);
+    }
+
+    /**
+     * Phase d'échec relue depuis la base. Tolérante : une valeur inconnue (colonne écrite par une
+     * version ultérieure, ou éditée à la main) rend {@code null} plutôt que de faire échouer la
+     * lecture de TOUT l'historique des jobs sur un {@code IllegalArgumentException}.
+     */
+    private FineTuningJob.Status parseFailedPhase() {
+        if (failedPhase == null || failedPhase.isBlank()) return null;
+        try {
+            return FineTuningJob.Status.valueOf(failedPhase);
+        } catch (IllegalArgumentException e) {
+            log.warn("Phase d'échec inconnue '{}' pour le job '{}', champ ignoré", failedPhase, jobId);
+            return null;
+        }
     }
 
     public String getJobId() { return jobId; }

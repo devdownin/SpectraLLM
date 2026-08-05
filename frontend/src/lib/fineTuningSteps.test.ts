@@ -12,12 +12,25 @@ describe('stepStates', () => {
     expect(stepStates('TRAINING')).toEqual(['done', 'done', 'active', 'todo', 'todo']);
   });
 
-  it('n\'affirme aucun avancement pour un job échoué', () => {
-    // La phase réellement fautive n'est pas conservée par le backend (S5) : tant qu'elle ne
-    // l'est pas, aucune étape ne doit être présentée comme franchie.
-    const states = stepStates('FAILED');
-    expect(states.filter((s) => s === 'done')).toHaveLength(0);
-    expect(states.filter((s) => s === 'failed')).toHaveLength(1);
+  it('situe l\'échec sur la phase où il s\'est produit', () => {
+    // Constat S5 : l'index de l'échec était CONSTANT (l'avant-dernière étape), si bien qu'un
+    // dataset vide au filtrage s'affichait comme un échec d'import — l'inverse de ce qui
+    // s'était passé. Ici l'export échoue : l'attente est mise en échec à l'étape 2, la file
+    // d'attente qui la précède reste franchie, et rien après n'a eu lieu.
+    expect(stepStates('FAILED', 'EXPORTING_DATASET'))
+      .toEqual(['done', 'failed', 'todo', 'todo', 'todo']);
+    expect(stepStates('FAILED', 'IMPORTING_MODEL'))
+      .toEqual(['done', 'done', 'done', 'failed', 'todo']);
+  });
+
+  it('n\'affirme aucun avancement quand la phase de l\'échec est inconnue', () => {
+    // Jobs antérieurs à l'introduction de failedPhase : leur phase est perdue. Plutôt que de
+    // supposer, on ne marque aucune étape franchie.
+    for (const phase of [undefined, null, 'FAILED' as const]) {
+      const states = stepStates('FAILED', phase);
+      expect(states.filter((s) => s === 'done')).toHaveLength(0);
+      expect(states.filter((s) => s === 'failed')).toHaveLength(1);
+    }
   });
 
   it('n\'a aucune étape active avant le démarrage', () => {

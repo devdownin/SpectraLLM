@@ -29,6 +29,18 @@ public record FineTuningJob(
         String outputPath,
         String reportPath,
         String error,
+        /**
+         * Phase atteinte au moment de l'échec ({@code null} tant que le job n'a pas échoué).
+         *
+         * <p>Sans elle, l'échec était un point sans lieu : {@link #failed(String)} écrasait
+         * {@code currentStep} par « Échoué » et le statut valait {@code FAILED}, si bien que
+         * l'interface plaçait <b>tous</b> les échecs sur la dernière étape — un dataset vide au
+         * filtrage s'affichait comme un échec d'import, c'est-à-dire l'inverse de ce qui s'était
+         * passé. Elle vaut aussi pour une annulation et pour une interruption au redémarrage :
+         * savoir <i>où</i> le travail s'est arrêté est ce qui distingue « rien n'a été calculé »
+         * de « l'entraînement était fini, c'est la conversion qui a lâché ».</p>
+         */
+        Status failedPhase,
         Instant createdAt,
         Instant completedAt
 ) {
@@ -40,7 +52,7 @@ public record FineTuningJob(
         return new FineTuningJob(
                 jobId, Status.PENDING, request.modelName(), request.baseModel(),
                 request, 0, "En attente", null, request.epochs(),
-                null, null, null, null, null, Instant.now(), null
+                null, null, null, null, null, null, Instant.now(), null
         );
     }
 
@@ -48,7 +60,7 @@ public record FineTuningJob(
         return new FineTuningJob(
                 jobId, status, modelName, baseModel, parameters, datasetSize,
                 step, currentEpoch, totalEpochs, loss, evalLoss, outputPath, reportPath,
-                error, createdAt, completedAt
+                error, failedPhase, createdAt, completedAt
         );
     }
 
@@ -66,7 +78,7 @@ public record FineTuningJob(
                 "Entraînement epoch " + epochInProgress(epoch) + "/" + totalEpochs, epoch, totalEpochs,
                 loss != null ? loss : this.loss,
                 evalLoss != null ? evalLoss : this.evalLoss,
-                outputPath, reportPath, error, createdAt, completedAt
+                outputPath, reportPath, error, failedPhase, createdAt, completedAt
         );
     }
 
@@ -84,7 +96,7 @@ public record FineTuningJob(
         return new FineTuningJob(
                 jobId, status, modelName, baseModel, parameters, size,
                 currentStep, currentEpoch, totalEpochs, loss, evalLoss, outputPath, reportPath,
-                error, createdAt, completedAt
+                error, failedPhase, createdAt, completedAt
         );
     }
 
@@ -92,15 +104,21 @@ public record FineTuningJob(
         return new FineTuningJob(
                 jobId, Status.COMPLETED, modelName, baseModel, parameters, datasetSize,
                 "Terminé", totalEpochs != null ? totalEpochs.doubleValue() : currentEpoch,
-                totalEpochs, loss, evalLoss, outputPath, reportPath, null,
+                totalEpochs, loss, evalLoss, outputPath, reportPath, null, null,
                 createdAt, Instant.now()
         );
     }
 
+    /**
+     * Marque l'échec en <b>retenant la phase où il s'est produit</b>. Un job déjà FAILED conserve
+     * sa phase d'origine : la réécrire ferait remonter l'échec à l'endroit du second appel plutôt
+     * qu'à celui du premier.
+     */
     public FineTuningJob failed(String error) {
         return new FineTuningJob(
                 jobId, Status.FAILED, modelName, baseModel, parameters, datasetSize,
                 "Échoué", currentEpoch, totalEpochs, loss, evalLoss, outputPath, reportPath, error,
+                status == Status.FAILED ? failedPhase : status,
                 createdAt, Instant.now()
         );
     }

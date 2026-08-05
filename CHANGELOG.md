@@ -8,6 +8,29 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Corrigé — l'interface situait un échec de fine-tuning au mauvais endroit, et mélangeait les jobs
+
+Deux affirmations fausses, pour deux causes indépendantes.
+
+**Un échec était toujours signalé à l'avant-dernière étape.** L'index était constant côté UI, et
+pour cause : `failed()` écrasait l'étape courante par « Échoué » et le statut valait `FAILED` —
+**la phase de l'échec n'était conservée nulle part**. Un dataset vide au filtrage s'affichait donc
+comme un échec d'import, c'est-à-dire l'inverse de ce qui s'était passé : « l'entraînement a
+réussi, c'est la conversion qui a lâché ». Le job porte désormais un `failedPhase` (colonne
+`failed_phase`, migration idempotente) que la barre d'étapes exploite : les étapes précédentes sont
+franchies, la fautive en échec, les suivantes n'ont pas eu lieu. Une annulation et une interruption
+au redémarrage la retiennent aussi — arrêter un run à sa troisième époque et l'arrêter avant qu'il
+ne démarre n'ont pas le même coût. Un second échec ne déplace pas la phase du premier.
+
+**La télémétrie n'appartenait à personne.** `/api/sse/training-logs` est un canal unique où tous
+les jobs écrivent, et ses évènements ne portaient pas d'identifiant : la page affichait la sortie
+de n'importe quel job en cours comme si c'était celle du job consulté. Ouvrir un job échoué de la
+veille lui attribuait les lignes du run actuel — et sa courbe de perte, les deux séries vivant dans
+l'état de la page sans rattachement. L'évènement porte maintenant un `jobId` (`null` = message
+global), la page écarte les lignes des autres jobs, et changer de job vide le moniteur. Un job
+terminé annonce que sa télémétrie n'est pas conservée, au lieu d'afficher « en attente
+d'évènements… » pour des évènements qui ne viendront jamais.
+
 ### Corrigé — le suivi d'un fine-tuning ne montrait ni le premier tiers du run, ni sa courbe
 
 ```
