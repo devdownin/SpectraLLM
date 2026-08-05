@@ -11,6 +11,11 @@ on:
 jobs:
   depcheck:
     runs-on: ubuntu-latest
+    # Borne dure. Sans elle, une alimentation NVD qui n'avance plus (voir l'étape OWASP) laisse
+    # le job « en cours » jusqu'au plafond GitHub de SIX HEURES : la PR affiche un check qui
+    # tourne indéfiniment, indiscernable d'un scan lent, et un runner est mobilisé pour rien.
+    # Un échec au bout de 40 minutes est lisible et actionnable ; une attente sans fin ne l'est pas.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - name: Set up Java and Maven
@@ -40,12 +45,29 @@ jobs:
           restore-keys: |
             nvd-db-
 
+      # Sans clé d'API, le NIST limite fortement le débit de l'alimentation NVD : le scan passe
+      # de quelques minutes à plusieurs dizaines, et se bloque parfois jusqu'à la borne du job.
+      # Cette absence était SILENCIEUSE — la branche « sans clé » était prise sans rien dire, et
+      # un scan interminable ressemblait à un scan lent. L'avertissement nomme la cause et le
+      # remède avant que la lenteur ne soit constatée.
       - name: OWASP Dependency Check
+        timeout-minutes: 30
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY || '' }}
-        run: if [ -z "${NVD_API_KEY}" ]; then mvn -Pdep-check verify -DskipTests -f backend/pom.xml; else mvn -Pdep-check verify -DskipTests -DnvdApiKey="${NVD_API_KEY}" -f backend/pom.xml; fi
+        run: |
+          if [ -z "${NVD_API_KEY}" ]; then
+            echo "::warning title=NVD_API_KEY absente::L'alimentation de la base NVD est limitée en débit par le NIST sans clé d'API. Le scan peut dépasser la borne de 30 minutes et échouer sur un dépassement de délai, sans rapport avec les dépendances du projet. Remède : créer une clé (gratuite) sur https://nvd.nist.gov/developers/request-an-api-key et l'ajouter en secret de dépôt NVD_API_KEY."
+            mvn -Pdep-check verify -DskipTests -f backend/pom.xml
+          else
+            mvn -Pdep-check verify -DskipTests -DnvdApiKey="${NVD_API_KEY}" -f backend/pom.xml
+          fi
+
+      # `always()` : un scan qui échoue est justement celui dont on veut lire le rapport. Sans
+      # cela, l'artefact n'était produit que dans le cas où personne n'en a besoin.
       - name: Upload Report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: dependency-check-report
           path: backend/target/dependency-check-report.html
+          if-no-files-found: ignore

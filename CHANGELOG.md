@@ -8,6 +8,41 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Corrigé — un scan de dépendances qui n'aboutit pas ne le disait pas
+
+`Dependency Check` n'avait **aucune borne de temps**. Sans clé d'API NVD, le NIST limite fortement
+le débit de l'alimentation de la base : le scan passe de quelques minutes à plusieurs dizaines, et
+se bloque parfois jusqu'au plafond GitHub de **six heures**. La PR affichait alors un check qui
+tourne indéfiniment — indiscernable d'un scan simplement lent — pendant qu'un runner était
+mobilisé pour rien. Le symptôme a bloqué trois PR (#281, #283, #311).
+
+Trois garde-fous, aucun ne masquant une vraie vulnérabilité :
+
+- `timeout-minutes` sur le job (40) et sur l'étape OWASP (30) : un blocage devient un échec
+  nommé et actionnable, au lieu d'une attente sans fin ;
+- l'absence de `NVD_API_KEY` était prise **en silence** ; elle émet désormais un avertissement
+  qui nomme la cause et le remède — une clé gratuite à déclarer en secret de dépôt ;
+- le rapport est téléversé avec `if: always()` : un scan qui échoue est précisément celui dont on
+  veut lire le rapport, or l'artefact n'était produit que quand personne n'en avait besoin.
+
+### Ajouté — le cycle de vie d'un fine-tuning est enfin testé de bout en bout
+
+Dernier angle mort du constat F13 de [l'audit fine-tuning](docs/process/audit-finetuning.fr.md) :
+les tests existants couvraient des méthodes périphériques, mais **ni la machine à états, ni le
+verrou d'unicité, ni l'annulation** — les trois mécanismes dont dépend tout le reste.
+
+`FineTuningOrchestrationTest` conduit un job réel contre un `TrainingRunner` de test qui rejoue les
+lignes de `ProgressLogger` et produit l'artefact attendu : la séquence `PENDING → EXPORTING_DATASET
+→ TRAINING → COMPLETED` est observée dans l'ordre, la soumission concurrente est tentée *pendant*
+l'entraînement — seul moment où le verrou est tenu — puis on vérifie qu'il est rendu, et une
+annulation en cours d'exécution atteint l'exécuteur sans qu'aucune ligne tardive ne ressuscite le
+job. S'y ajoutent les cas où l'orchestration doit refuser de conclure : code de sortie non nul,
+adaptateur absent malgré un code 0, dataset vide après filtrage.
+
+La valeur de ces tests a été vérifiée par mutation : neutraliser le verrou fait échouer le cas
+concurrent sur son assertion nommée, supprimer la transition `EXPORTING_DATASET` fait échouer la
+séquence d'états.
+
 ### Corrigé — le suivi d'un fine-tuning se lit enfin sans le décoder
 
 Dernier lot de [l'audit du suivi](docs/process/audit-suivi-finetuning-ui.fr.md), qui ferme les
