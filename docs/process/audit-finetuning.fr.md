@@ -44,6 +44,12 @@
 >
 > Restent **ouverts** : F12, F14, la part non couverte de F13, et le champ `reportPath` toujours
 > `null` signalé au §6. Aucun n'est bloquant.
+>
+> **Suite.** Le **suivi du processus dans l'interface** — barre d'étapes, courbe de perte, flux de
+> télémétrie, restitution des échecs, pilotage — fait l'objet d'un audit distinct :
+> [audit-suivi-finetuning-ui.fr.md](audit-suivi-finetuning-ui.fr.md). Plusieurs points mineurs
+> listés au §7 y sont repris et instruits (réponse de création mal typée, message 409 perdu, ORPO
+> sans interface, volume des logs SSE).
 
 ---
 

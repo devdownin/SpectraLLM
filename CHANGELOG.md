@@ -8,6 +8,151 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Corrigé — le suivi d'un fine-tuning se lit enfin sans le décoder
+
+Dernier lot de [l'audit du suivi](docs/process/audit-suivi-finetuning-ui.fr.md), qui ferme les
+onze constats restants.
+
+**Un arrêt n'est plus un incident.** L'annulation écrivait `FAILED` : badge rouge, toast d'erreur,
+et un utilisateur envoyé enquêter sur ce qu'il venait lui-même de décider. `CANCELLED` existe
+désormais comme statut à part entière, retient la phase interrompue et se rend en neutre. Un
+`isTerminal()` partagé remplace les comparaisons à deux valeurs — sans quoi un job annulé aurait
+été « réconcilié » au démarrage suivant, et une ligne de progression tardive l'aurait remis en
+`TRAINING`.
+
+**Le flux ne perd plus d'évènements.** `useSse` n'exposait que le *dernier* message reçu : deux
+évènements traités avant un rendu n'en laissaient qu'un seul observable, et le compteur « N events »
+affirmait une complétude qu'il ne pouvait pas tenir. Un rappel `onMessage` livre chaque évènement,
+dans l'ordre.
+
+**Les erreurs se voient.** `stderr` est fusionné dans `stdout` en amont, si bien qu'une trace Python
+arrivait étiquetée INFO et se fondait, en bleu, dans un flux qui défile. Le niveau est maintenant
+détecté à la source, les lignes ne sont plus tronquées, et le journal se copie d'un clic.
+
+**Les phases muettes parlent.** L'export du dataset annonce ce qu'il a produit ; `export_gguf.py`
+n'avale plus la sortie de la conversion — plusieurs minutes de silence total pour une étape dont
+tout le mécanisme de diffusion existait déjà.
+
+**Et le reste, qui se constate à l'usage** : temps écoulé et estimation du restant sur la page ;
+statuts traduits et étape courante dérivée du statut, là où l'UI anglaise affichait
+`EXPORTING_DATASET` puis « Export du dataset... » ; graphe légendé et traduit ; barre de progression
+annonçable par un lecteur d'écran (`role="progressbar"`), flux en région live, étape courante
+`aria-current` ; historique portant durée, loss finale et motif d'échec ; indisponibilité de
+l'entraînement affichée **avant** que le formulaire ne soit rempli, avec la commande à lancer ;
+lien vers le Model Hub depuis un job terminé ; et réponse de création rendant le job complet, au
+lieu d'un panneau creux pendant quatre secondes.
+
+Enfin, la case **Alignement ORPO** apparaît dans le formulaire. La fonctionnalité était implémentée
+de bout en bout — DTO, service, `train.sh`, `train_host.py` — et documentée dans le manuel, mais
+n'avait jamais eu de contrôle : elle n'était atteignable que par appel API direct. DPO et ORPO
+consommant le même dataset de préférence, cocher l'un décoche l'autre.
+
+### Ajouté — la trace d'un entraînement survit au rechargement de page
+
+Un fine-tuning dure des heures ; son suivi ne survivait pas à un `F5`. Le flux SSE est un canal
+sans mémoire — le sink ne rejoue son tampon qu'au *premier* abonné, et jette ce qui est émis sans
+abonné — et la courbe comme les lignes vivaient dans l'état de la page. Un job terminé, lui, n'avait
+jamais eu de trace consultable : les lignes n'existaient durablement que dans les logs serveur,
+invisibles depuis l'interface.
+
+Pendant l'exécution, le journal de sortie et la série de perte sont désormais écrits dans le
+répertoire de travail du job — `train.log`, du texte lisible tel quel par un exploitant sans UI, et
+`losses.jsonl`, la série que trace le graphe. **Un seul point de sortie** alimente le direct et la
+trace : ce qu'on a vu passer est exactement ce qu'on relit. `GET /api/fine-tuning/{jobId}/telemetry`
+rend les deux, et la page les charge à chaque sélection de job — rechargement compris — avant de
+laisser le direct prendre la suite.
+
+Trois bornes, parce qu'un fichier de log sans limite est un incident qui attend son heure :
+
+- le journal cesse de croître à 5 Mo, après une unique ligne d'avertissement — sans ce garde,
+  chaque ligne suivante en aurait réécrit une ;
+- la lecture ne rend que la **queue** (500 lignes par défaut, 5000 au plus) et l'interface signale
+  « début tronqué » dès que ce qu'elle affiche n'est pas le début du run ;
+- la série est **sous-échantillonnée** au-delà de 2000 points, premier et dernier conservés : un run
+  long avec `logging_steps=1` en produit des dizaines de milliers, que ni le réseau ni le graphe
+  n'ont de raison de transporter.
+
+L'identifiant de job venant d'une variable de chemin HTTP, les accès sont confinés au répertoire de
+travail : un `resolve()` nu aurait suffi à lire n'importe quel fichier de la machine.
+
+### Corrigé — l'interface situait un échec de fine-tuning au mauvais endroit, et mélangeait les jobs
+
+Deux affirmations fausses, pour deux causes indépendantes.
+
+**Un échec était toujours signalé à l'avant-dernière étape.** L'index était constant côté UI, et
+pour cause : `failed()` écrasait l'étape courante par « Échoué » et le statut valait `FAILED` —
+**la phase de l'échec n'était conservée nulle part**. Un dataset vide au filtrage s'affichait donc
+comme un échec d'import, c'est-à-dire l'inverse de ce qui s'était passé : « l'entraînement a
+réussi, c'est la conversion qui a lâché ». Le job porte désormais un `failedPhase` (colonne
+`failed_phase`, migration idempotente) que la barre d'étapes exploite : les étapes précédentes sont
+franchies, la fautive en échec, les suivantes n'ont pas eu lieu. Une annulation et une interruption
+au redémarrage la retiennent aussi — arrêter un run à sa troisième époque et l'arrêter avant qu'il
+ne démarre n'ont pas le même coût. Un second échec ne déplace pas la phase du premier.
+
+**La télémétrie n'appartenait à personne.** `/api/sse/training-logs` est un canal unique où tous
+les jobs écrivent, et ses évènements ne portaient pas d'identifiant : la page affichait la sortie
+de n'importe quel job en cours comme si c'était celle du job consulté. Ouvrir un job échoué de la
+veille lui attribuait les lignes du run actuel — et sa courbe de perte, les deux séries vivant dans
+l'état de la page sans rattachement. L'évènement porte maintenant un `jobId` (`null` = message
+global), la page écarte les lignes des autres jobs, et changer de job vide le moniteur. Un job
+terminé annonce que sa télémétrie n'est pas conservée, au lieu d'afficher « en attente
+d'évènements… » pour des évènements qui ne viendront jamais.
+
+### Corrigé — le suivi d'un fine-tuning ne montrait ni le premier tiers du run, ni sa courbe
+
+```
+  epoch=0.33  loss=1.8421     ← émis à chaque étape par le trainer
+  epoch=0.67  loss=1.6203
+```
+
+`epoch[= ]*(\d+)` lisait `0` dans `epoch=0.97`, et `0` est *falsy* en JavaScript. Pendant toute la
+première époque — le premier tiers d'un run par défaut, plusieurs heures sur CPU — la barre de
+progression, le compteur d'époques et la loss étaient **entièrement masqués**, tandis que l'étape
+courante affichait `Entraînement epoch 0/3`, qui se lit comme un blocage. L'époque est désormais
+**fractionnaire** de bout en bout (`Double`, colonne migrée en `DOUBLE PRECISION`), l'affichage
+arrondit au supérieur (« epoch 1/3 ») et la progression est masquée si et seulement si elle est
+réellement inconnue.
+
+Même cause pour la courbe : les losses par étape étaient toutes écrasées dans un point par époque
+entière, soit **2 à 3 points** pour un run de 3 époques — moins que les 2 points minimum exigés par
+le graphe, qui affichait donc « Accumulating data… » presque tout du long. Elle en compte
+maintenant un par étape journalisée, sur un axe `type="number"` couvrant les époques prévues (le
+`domain` était inerte sur l'axe catégoriel par défaut).
+
+Trois autres défauts de restitution corrigés dans la foulée :
+
+- **La courbe de validation disparaissait.** Le sondage REST *remplaçait* le point de l'époque au
+  lieu de le fusionner, effaçant l'`eval_loss` déposée par le flux SSE — c'est-à-dire la seule
+  courbe qui signale un sur-apprentissage, et toute la raison d'être du curseur `valSplit`.
+- **Le jalon « Complete » n'était jamais allumé** : un run réussi affichait quatre étapes vertes
+  suivies d'une pastille grise.
+- **Le motif d'un refus 409 était perdu.** La route répondait `{"error": …}` là où l'UI lit le
+  `detail` d'un `ProblemDetail` ; l'utilisateur voyait « Request failed with status code 409 ».
+
+### Ajouté — arrêter un entraînement depuis sa propre page
+
+`DELETE /api/fine-tuning/{jobId}` existait, le centre d'activité du header l'utilisait, mais la
+page de fine-tuning — le seul écran dédié à ce travail — n'offrait aucun moyen de l'arrêter. Un
+bouton **Arrêter** apparaît désormais dans l'en-tête du moniteur tant que le job n'est pas
+terminal, avec confirmation : un entraînement interrompu est perdu, aucun job ne reprend depuis un
+adaptateur précédent.
+
+### Corrigé — le flux de télémétrie alternait silence et rafale
+
+Aucun `PYTHONUNBUFFERED` nulle part : sur un tube, Python bufférise par blocs et seul
+`ProgressLogger` appelait `flush()`. Tout ce qui précède la première étape — dont le téléchargement
+du modèle de base, plusieurs minutes — n'atteignait le flux qu'après coup. À l'inverse, les barres
+`tqdm` se terminent par `\r`, que le découpage en lignes traite comme une fin de ligne : chaque
+rafraîchissement devenait un évènement SSE, de quoi retourner le tampon de 500 du diffuseur en
+quelques secondes. Sortie non tamponnée des deux côtés (image du trainer et `train.sh`), et au plus
+une ligne de barre par seconde — « 100 % » passant toujours, pour qu'aucune barre ne reste figée.
+
+Ces défauts sont ceux du lot 1 de [l'audit du suivi de fine-tuning](docs/process/audit-suivi-finetuning-ui.fr.md),
+qui décrit aussi ce qui reste ouvert — dont la non-persistance des logs et de la courbe, qu'un
+simple rechargement de page détruit encore. Les règles de suivi vivent désormais dans des fonctions
+pures (`lib/trainingProgress.ts`, `lib/fineTuningSteps.ts`) couvertes par des tests, là où elles
+tenaient dans des ternaires du JSX.
+
 ### Corrigé — l'index vectoriel n'a jamais été persisté
 
 ```

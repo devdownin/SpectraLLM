@@ -16,6 +16,7 @@ import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -50,14 +51,18 @@ class FineTuningErrorMappingTest {
                     + "L'image spectra-api ne contient ni scripts/ ni Python.";
 
     private FineTuningService fineTuningService;
+    private fr.spectra.service.training.TrainingRunner trainingRunner;
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
         fineTuningService = mock(FineTuningService.class);
+        trainingRunner = mock(fr.spectra.service.training.TrainingRunner.class);
         FineTuningController controller = new FineTuningController(
                 fineTuningService, mock(LlmChatClient.class),
-                mock(BaseModelCatalog.class), mock(ModelRegistryService.class));
+                mock(BaseModelCatalog.class), mock(ModelRegistryService.class),
+                mock(fr.spectra.service.JobTelemetryStore.class),
+                trainingRunner);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
@@ -100,14 +105,47 @@ class FineTuningErrorMappingTest {
     }
 
     @Test
-    @DisplayName("exécuteur disponible → 200 avec le jobId")
+    @DisplayName("la disponibilité est interrogeable AVANT toute soumission")
+    void availabilityIsReadableUpFront() throws Exception {
+        // C'est ce que la page interroge pour afficher le motif en tête de formulaire, plutôt que
+        // de laisser l'utilisateur choisir ses hyperparamètres puis découvrir au lancement que le
+        // profil « trainer » n'est pas démarré.
+        when(trainingRunner.unavailabilityReason()).thenReturn(REASON);
+
+        mockMvc.perform(get("/api/fine-tuning/availability"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.available").value(false))
+                .andExpect(jsonPath("$.reason").value(containsString("train.sh")));
+    }
+
+    @Test
+    @DisplayName("exécuteur en état → available=true, sans motif")
+    void availabilityIsTrueWhenTheRunnerIsReady() throws Exception {
+        when(trainingRunner.unavailabilityReason()).thenReturn(null);
+
+        mockMvc.perform(get("/api/fine-tuning/availability"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.available").value(true))
+                .andExpect(jsonPath("$.reason").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("exécuteur disponible → 200 avec le job complet, pas seulement son identifiant")
     void availableRunnerMapsTo200() throws Exception {
         when(fineTuningService.submit(any())).thenReturn("job-42");
+        // La réponse porte désormais le job entier : l'UI affiche son suivi sans attendre le
+        // premier sondage, au lieu d'un panneau creux pendant quatre secondes.
+        when(fineTuningService.getJob("job-42")).thenReturn(
+                fr.spectra.dto.FineTuningJob.pending("job-42", new fr.spectra.dto.FineTuningRequest(
+                        "mon-modele", "phi3", 64, 128, 3, 2e-4, 0.8,
+                        false, false, false, false, 0.1)));
 
         mockMvc.perform(post("/api/fine-tuning")
                         .contentType(MediaType.APPLICATION_JSON).content(BODY))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.jobId").value("job-42"))
-                .andExpect(jsonPath("$.status").value("PENDING"));
+                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.modelName").value("mon-modele"))
+                .andExpect(jsonPath("$.totalEpochs").value(3));
     }
 }

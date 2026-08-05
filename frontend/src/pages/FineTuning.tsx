@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import type { FC } from 'react';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -10,12 +11,19 @@ import { useSse } from '../hooks/useSse';
 import type { TrainingLog } from '../types/api';
 import { configApi, fineTuningApi, recipeApi } from '../services/api';
 import { resolveTrainableBase, shouldReplace, suggestModelName } from '../lib/fineTuningPrefill';
+import {
+  parseProgressLine, mergeLossPoint, epochInProgress, trainingProgressPercent,
+} from '../lib/trainingProgress';
+import type { LossPoint } from '../lib/trainingProgress';
+import { PIPELINE_STEPS, stepStates, isTerminal } from '../lib/fineTuningSteps';
+import type { JobStatus } from '../lib/fineTuningSteps';
+import { apiErrorMessage } from '../lib/apiError';
+import { etaMs, formatEta } from '../hooks/useGlobalTasks';
 import LossChart from '../components/charts/LossChart';
+import ConfirmDialog from '../components/ConfirmDialog';
 import { PageHeader, Button, Badge, Table, TableHead, TableBody, TableRow, Th, Td, CountUp } from '../components/ui';
 
 // ── Types ────────────────────────────────────────────────────────────────────
-
-type JobStatus = 'PENDING' | 'EXPORTING_DATASET' | 'TRAINING' | 'IMPORTING_MODEL' | 'COMPLETED' | 'FAILED';
 
 interface FineTuningJob {
   jobId: string;
@@ -31,6 +39,8 @@ interface FineTuningJob {
   outputPath: string | null;
   reportPath: string | null;
   error: string | null;
+  /** Phase atteinte à l'échec — situe l'échec sur la barre d'étapes. Null avant introduction. */
+  failedPhase: JobStatus | null;
   createdAt: string;
   completedAt: string | null;
   parameters: {
@@ -43,36 +53,26 @@ interface FineTuningJob {
   };
 }
 
-// ── Pipeline step definitions ─────────────────────────────────────────────
-
-const PIPELINE_STEPS: { status: JobStatus; icon: string }[] = [
-  { status: 'PENDING',           icon: 'hourglass_empty' },
-  { status: 'EXPORTING_DATASET', icon: 'dataset' },
-  { status: 'TRAINING',          icon: 'model_training' },
-  { status: 'IMPORTING_MODEL',   icon: 'upload_file' },
-  { status: 'COMPLETED',         icon: 'check_circle' },
-];
-
-const stepIndex = (status: JobStatus): number =>
-  PIPELINE_STEPS.findIndex(s => s.status === status);
+// ── Pipeline step bar ─────────────────────────────────────────────────────
+// Les étapes et leur état vivent dans lib/fineTuningSteps : la règle était intestable tant
+// qu'elle tenait dans des ternaires du JSX — et le jalon final n'était jamais allumé (S6).
 
 interface StepBarProps { job: FineTuningJob }
 
 const StepBar: FC<StepBarProps> = ({ job }) => {
   const { t } = useTranslation();
-  const current = job.status === 'FAILED'
-    ? stepIndex('COMPLETED') - 1
-    : stepIndex(job.status);
+  const states = stepStates(job.status, job.failedPhase);
 
   return (
     <div className="flex items-center w-full">
       {PIPELINE_STEPS.map((step, i) => {
-        const isDone   = job.status !== 'FAILED' && i < current;
-        const isActive = i === current && job.status !== 'COMPLETED';
-        const isFailed = job.status === 'FAILED' && i === current;
+        const isDone    = states[i] === 'done';
+        const isActive  = states[i] === 'active';
+        const isFailed  = states[i] === 'failed';
+        const isStopped = states[i] === 'stopped';
         const isTraining = isActive && step.status === 'TRAINING';
         // Flow connector: the connector right before the active step
-        const isFlowConnector = isDone && i === current - 1 && job.status !== 'COMPLETED' && job.status !== 'FAILED';
+        const isFlowConnector = isDone && states[i + 1] === 'active';
 
         return (
           <div key={step.status} className="flex items-center flex-1 last:flex-none">
@@ -89,17 +89,21 @@ const StepBar: FC<StepBarProps> = ({ job }) => {
                 {isTraining && (
                   <div className="absolute -inset-[4px] border-t border-primary/50 orbit-ring pointer-events-none" />
                 )}
-                <div className={`w-9 h-9 flex items-center justify-center border transition-all relative z-10 ${
-                  isFailed  ? 'border-error bg-error/10 text-error' :
-                  isDone    ? 'border-primary bg-primary/10 text-primary' :
-                  isActive  ? 'border-secondary bg-secondary/10 text-secondary' :
-                              'border-outline-variant/30 text-outline'
-                }`}>
-                  <span className="material-symbols-outlined text-sm">{step.icon}</span>
+                <div
+                  aria-current={isActive ? 'step' : undefined}
+                  className={`w-9 h-9 flex items-center justify-center border transition-all relative z-10 ${
+                    isFailed  ? 'border-error bg-error/10 text-error' :
+                    isStopped ? 'border-on-surface-variant bg-surface-variant/40 text-on-surface-variant' :
+                    isDone    ? 'border-primary bg-primary/10 text-primary' :
+                    isActive  ? 'border-secondary bg-secondary/10 text-secondary' :
+                                'border-outline-variant/30 text-outline'
+                  }`}>
+                  <span aria-hidden="true" className="material-symbols-outlined text-sm">{step.icon}</span>
                 </div>
               </div>
               <span className={`font-label text-[10px] uppercase tracking-widest ${
                 isFailed  ? 'text-error' :
+                isStopped ? 'text-on-surface-variant' :
                 isDone    ? 'text-primary' :
                 isActive  ? 'text-secondary' :
                             'text-outline'
@@ -132,7 +136,16 @@ const jobStatusColor = (s: JobStatus) => {
   if (s === 'COMPLETED')  return 'text-primary border-primary';
   if (s === 'FAILED')     return 'text-error border-error';
   if (s === 'TRAINING')   return 'text-secondary border-secondary';
+  // CANCELLED reste neutre : un arrêt décidé par l'utilisateur n'a pas à s'afficher en rouge.
   return 'text-on-surface-variant border-outline-variant';
+};
+
+/** Durée écoulée d'un job, en millisecondes (jusqu'à sa fin s'il est terminé). */
+const jobDurationMs = (job: { createdAt: string; completedAt: string | null }, now: number) => {
+  const start = Date.parse(job.createdAt);
+  if (Number.isNaN(start)) return null;
+  const end = job.completedAt ? Date.parse(job.completedAt) : now;
+  return Number.isNaN(end) || end < start ? null : end - start;
 };
 
 // ── Validation Schema ────────────────────────────────────────────────────────
@@ -149,6 +162,7 @@ const makeTrainingSchema = (t: TFunction) => z.object({
   valSplit: z.number().min(0).max(0.5),
   packingEnabled: z.boolean().optional(),
   dpoEnabled: z.boolean().optional(),
+  orpoEnabled: z.boolean().optional(),
   exportGguf: z.boolean().optional(),
 });
 
@@ -164,7 +178,6 @@ interface Recipe {
 
 const FineTuning: FC = () => {
   const { t, i18n } = useTranslation();
-  const { data: newLog, status: sseStatus } = useSse<TrainingLog>('/api/sse/training-logs');
   const [logs, setLogs] = useState<TrainingLog[]>([]);
   const listRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -174,7 +187,16 @@ const FineTuning: FC = () => {
   const [showForm, setShowForm] = useState(false);
   const jobRestoredRef = useRef(false);
   const [submitting, setSubmitting] = useState(false);
-  const [lossHistory, setLossHistory] = useState<{ epoch: number; loss?: number; evalLoss?: number }[]>([]);
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [loadingTelemetry, setLoadingTelemetry] = useState(false);
+  /** La trace affichée n'est qu'une queue : le journal complet est plus long sur disque. */
+  const [telemetryTruncated, setTelemetryTruncated] = useState(false);
+  const [lossHistory, setLossHistory] = useState<LossPoint[]>([]);
+  /** Disponibilité de l'exécuteur, connue AVANT la soumission (S18). */
+  const [unavailableReason, setUnavailableReason] = useState<string | null>(null);
+  /** Horloge : le suivi doit vieillir en continu, le sondage seul ne rafraîchit rien entre deux ticks. */
+  const [now, setNow] = useState(() => Date.now());
 
   const trainingSchema = useMemo(() => makeTrainingSchema(t), [t]);
 
@@ -189,6 +211,7 @@ const FineTuning: FC = () => {
       valSplit: parseFloat(localStorage.getItem('spectra_ft_valsplit') || '0.1'),
       packingEnabled: false,
       dpoEnabled: false,
+      orpoEnabled: false,
       exportGguf: false,
     }
   });
@@ -198,7 +221,20 @@ const FineTuning: FC = () => {
 
   useEffect(() => {
     recipeApi.list().then(r => setRecipes(r.data ?? [])).catch(() => {});
+    // Le motif d'indisponibilité nomme la commande à lancer : l'afficher avant que l'utilisateur
+    // n'ait rempli le formulaire vaut mieux qu'après.
+    fineTuningApi.getAvailability()
+      .then(r => setUnavailableReason(r.data?.available ? null : (r.data?.reason ?? null)))
+      .catch(() => {});
   }, []);
+
+  // Une seconde suffit pour un temps écoulé, et l'horloge ne tourne que s'il y a à compter.
+  const jobRunning = activeJob != null && !isTerminal(activeJob.status);
+  useEffect(() => {
+    if (!jobRunning) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [jobRunning]);
 
   // ── Modèle actif → affichage + préremplissage des champs de nom ────────────
   // Le GGUF actuellement servi n'est PAS ré-entraînable : le champ baseModel doit
@@ -265,6 +301,7 @@ const FineTuning: FC = () => {
         valSplit: r.valSplit ?? 0.1,
         packingEnabled: r.packingEnabled ?? false,
         dpoEnabled: r.dpoEnabled ?? false,
+        orpoEnabled: r.orpoEnabled ?? false,
       });
     } catch {
       // Action utilisateur explicite : signaler l'échec plutôt que de ne rien faire.
@@ -314,35 +351,97 @@ const FineTuning: FC = () => {
   // recording the previous message's loss under the new epoch (phantom loss point).
   const currentEpochRef = useRef<number | null | undefined>(activeJob?.currentEpoch);
   currentEpochRef.current = activeJob?.currentEpoch;
-  useEffect(() => {
-    if (!newLog) return;
-    setLogs(prev => [...prev.slice(-999), newLog]);
-    // Parse "loss: 0.1234" / "loss=0.1234" and "eval_loss=0.1234" from log messages.
-    // The (?<!eval_) guard matters: without it "eval_loss=…" also satisfies "loss=…" and the
-    // validation loss was plotted as the training loss, hiding the very gap it measures.
-    const trainMatch = newLog.message.match(/(?<!eval_)loss[=:\s]+([0-9]+\.[0-9]+)/i);
-    const evalMatch = newLog.message.match(/eval_loss[=:\s]+([0-9]+\.[0-9]+)/i);
-    const epoch = currentEpochRef.current;
-    if ((trainMatch || evalMatch) && epoch) {
-      const point: { loss?: number; evalLoss?: number } = {};
-      if (trainMatch) point.loss = parseFloat(trainMatch[1]);
-      if (evalMatch) point.evalLoss = parseFloat(evalMatch[1]);
-      setLossHistory(prev => {
-        const last = prev[prev.length - 1];
-        // Training loss and eval_loss arrive on separate lines : on fusionne dans le point
-        // de l'époque courante au lieu de créer deux points concurrents.
-        if (last?.epoch === epoch) return [...prev.slice(0, -1), { ...last, ...point }];
-        return [...prev, { epoch, ...point }];
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [newLog]);
+  // Même raison pour le job affiché : le flux est global, il faut écarter les lignes d'un AUTRE
+  // job — sans quoi consulter un job terminé lui attribue la sortie du run en cours.
+  const activeJobIdRef = useRef<string | undefined>(activeJob?.jobId);
+  activeJobIdRef.current = activeJob?.jobId;
+
+  /**
+   * Traite UNE ligne de télémétrie. Branché sur le rappel de `useSse` et non sur son dernier
+   * message : deux évènements arrivés entre deux rendus n'en laissaient qu'un seul observable,
+   * si bien que le compteur « N events » affirmait une complétude qu'il ne pouvait pas tenir.
+   * Tout passe par des mises à jour fonctionnelles — le rappel n'a besoin d'aucun état frais.
+   */
+  const handleLogLine = useCallback((line: TrainingLog) => {
+    // Une ligne sans jobId est un message global : elle concerne tout le monde.
+    if (line.jobId && activeJobIdRef.current && line.jobId !== activeJobIdRef.current) return;
+    setLogs(prev => [...prev.slice(-999), line]);
+    const parsed = parseProgressLine(line.message);
+    if (!parsed) return;
+    // L'époque de la LIGNE prime sur celle du job : le sondage a jusqu'à 4 s de retard, et
+    // rattachait donc la loss à la mauvaise abscisse. Elle est fractionnaire, ce qui donne un
+    // point par étape au lieu d'un seul par époque — l'ancien code écrasait tout le reste.
+    const epoch = parsed.epoch ?? currentEpochRef.current;
+    if (epoch == null) return;
+    const point: LossPoint = { epoch };
+    if (parsed.loss !== undefined) point.loss = parsed.loss;
+    if (parsed.evalLoss !== undefined) point.evalLoss = parsed.evalLoss;
+    setLossHistory(prev => mergeLossPoint(prev, point));
+  }, []);
+
+  const { status: sseStatus } = useSse<TrainingLog>('/api/sse/training-logs', {
+    onMessage: handleLogLine,
+  });
 
   useEffect(() => {
     if (autoScroll && listRef.current) {
       listRef.current.scrollTop = listRef.current.scrollHeight;
     }
   }, [logs, autoScroll]);
+
+  /**
+   * Sélectionne un job à suivre, en **repartant d'un moniteur vide**. Sans cette remise à zéro,
+   * cliquer sur un job de l'historique lui attribuait la courbe et les lignes du job précédent :
+   * les deux séries vivent dans l'état de la page, rien ne les rattachait au job affiché.
+   */
+  const selectJob = useCallback((job: FineTuningJob) => {
+    // Comparaison via la ref (et non l'état capturé) pour que le rappel reste stable, et mise à
+    // jour immédiate de celle-ci : une ligne SSE arrivant avant le prochain rendu doit déjà être
+    // filtrée sur le NOUVEAU job.
+    const changed = activeJobIdRef.current !== job.jobId;
+    if (changed) {
+      setLogs([]);
+      setLossHistory([]);
+    }
+    activeJobIdRef.current = job.jobId;
+    setActiveJob(job);
+    if (changed) loadTelemetry(job.jobId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /**
+   * Recharge la trace persistée du job : le flux SSE ne rejoue rien, ni à un client qui arrive en
+   * cours de route, ni pour un job terminé. Sans cet appel, un simple rechargement de page
+   * effaçait définitivement le suivi d'un run de plusieurs heures.
+   *
+   * Les lignes déjà écrites ne sont pas rediffusées par le SSE : pas de doublon à craindre.
+   */
+  const loadTelemetry = async (jobId: string) => {
+    setLoadingTelemetry(true);
+    try {
+      const res = await fineTuningApi.getTelemetry(jobId);
+      const { logs: persisted = [], losses = [], totalLogLines = 0, capped = false } = res.data ?? {};
+      // La trace ne remplace l'état courant que si le job affiché n'a pas changé entre-temps
+      // (l'utilisateur peut cliquer deux fois plus vite que le réseau ne répond).
+      if (activeJobIdRef.current !== jobId) return;
+      setLogs(persisted.map((l: { timestamp: string; level: string; message: string }) => ({
+        timestamp: l.timestamp,
+        level: (l.level as TrainingLog['level']) ?? 'INFO',
+        message: l.message,
+        jobId,
+      })));
+      setLossHistory(losses.map((p: LossPoint) => ({
+        epoch: p.epoch,
+        ...(p.loss != null ? { loss: p.loss } : {}),
+        ...(p.evalLoss != null ? { evalLoss: p.evalLoss } : {}),
+      })));
+      setTelemetryTruncated(capped || totalLogLines > persisted.length);
+    } catch {
+      // Trace indisponible (job purgé, API occupée) : le direct prend le relais, rien à signaler.
+    } finally {
+      setLoadingTelemetry(false);
+    }
+  };
 
   // ── Load job history ──────────────────────────────────────────────────────
   const loadJobs = useCallback(async () => {
@@ -354,19 +453,18 @@ const FineTuning: FC = () => {
       // Restore active job once on initial load (page reload while a job is running)
       if (!jobRestoredRef.current && sorted.length > 0) {
         jobRestoredRef.current = true;
-        const inFlight = sorted.find(j =>
-          j.status !== 'COMPLETED' && j.status !== 'FAILED');
-        if (inFlight) setActiveJob(inFlight);
+        const inFlight = sorted.find(j => !isTerminal(j.status));
+        if (inFlight) selectJob(inFlight);
       }
     } catch { /* ignore */ }
-  }, []);
+  }, [selectJob]);
 
   useEffect(() => { loadJobs(); }, [loadJobs]);
 
   // ── Poll active job ───────────────────────────────────────────────────────
   useEffect(() => {
     if (!activeJob) return;
-    if (activeJob.status === 'COMPLETED' || activeJob.status === 'FAILED') return;
+    if (isTerminal(activeJob.status)) return;
 
     let failures = 0;
     const interval = setInterval(async () => {
@@ -375,20 +473,24 @@ const FineTuning: FC = () => {
         failures = 0;
         const job: FineTuningJob = res.data;
         setActiveJob(job);
-        // Accumulate loss from polling when SSE doesn't carry it
-        if (job.loss !== null && job.currentEpoch !== null) {
-          setLossHistory(prev => {
-            const epoch = job.currentEpoch!;
-            const last = prev[prev.length - 1];
-            if (last?.epoch === epoch) return [...prev.slice(0, -1), { epoch, loss: job.loss! }];
-            if (prev.some(p => p.epoch === epoch)) return prev;
-            return [...prev, { epoch, loss: job.loss! }];
-          });
+        // Filet de sécurité quand le flux SSE est coupé : le sondage alimente la courbe à partir
+        // de l'état du job. La FUSION est essentielle — remplacer le point effaçait l'eval_loss
+        // déjà déposée par le SSE, c'est-à-dire la seule courbe qui signale le sur-apprentissage.
+        if (job.currentEpoch !== null && (job.loss !== null || job.evalLoss !== null)) {
+          const point: LossPoint = { epoch: job.currentEpoch };
+          if (job.loss !== null) point.loss = job.loss;
+          if (job.evalLoss !== null) point.evalLoss = job.evalLoss;
+          setLossHistory(prev => mergeLossPoint(prev, point));
         }
-        if (job.status === 'COMPLETED' || job.status === 'FAILED') {
+        if (isTerminal(job.status)) {
           clearInterval(interval);
           loadJobs();
-          if (job.status === 'COMPLETED') {
+          if (job.status === 'CANCELLED') {
+            // Ni succès ni incident : l'utilisateur sait déjà ce qui s'est passé, il l'a demandé.
+            toast.info(i18n.t('fineTuning.cancelled'), {
+              description: i18n.t('fineTuning.cancelledDesc', { name: job.modelName }),
+            });
+          } else if (job.status === 'COMPLETED') {
             // Le job produit un adaptateur LoRA sur disque ; l'export GGUF + l'enregistrement
             // dans llama-server sont des étapes distinctes (ne pas prétendre qu'il est déployé).
             toast.success(i18n.t('fineTuning.complete'), {
@@ -414,20 +516,61 @@ const FineTuning: FC = () => {
     try {
       const res = await fineTuningApi.createJob(data);
       const job: FineTuningJob = res.data;
-      setActiveJob(job);
-      setLossHistory([]);
+      selectJob(job);   // remet à zéro courbe et télémétrie du job précédent
       setShowForm(false);
       toast.success(t('fineTuning.submitted'), { description: t('fineTuning.submittedId', { id: job.jobId.slice(0, 8) }) });
-    } catch (err: any) {
-      toast.error(t('fineTuning.submitError'), { description: err?.response?.data?.detail ?? err.message });
+    } catch (err: unknown) {
+      // apiErrorMessage lit aussi « error » : le refus 409 (« un entraînement est déjà en
+      // cours ») était sinon remplacé par « Request failed with status code 409 ».
+      toast.error(t('fineTuning.submitError'), { description: apiErrorMessage(err) });
     } finally {
       setSubmitting(false);
     }
   };
 
+  // ── Annuler le job en cours ───────────────────────────────────────────────
+  // L'API et le centre d'activité global le permettaient déjà ; la page dédiée au fine-tuning
+  // était le seul endroit d'où l'on ne pouvait PAS arrêter un entraînement qui monopolise la
+  // machine pendant des heures et bloque toute autre soumission.
+  const cancelActiveJob = async () => {
+    if (!activeJob) return;
+    setCancelling(true);
+    try {
+      await fineTuningApi.cancelJob(activeJob.jobId);
+      toast.info(t('fineTuning.cancelRequested'), { description: activeJob.modelName });
+      loadJobs();   // le sondage bascule le job en FAILED/« Annulé » au tick suivant
+    } catch (err: unknown) {
+      toast.error(t('fineTuning.cancelFailed'), { description: apiErrorMessage(err) });
+    } finally {
+      setCancelling(false);
+      setConfirmingCancel(false);
+    }
+  };
+
+  /** Copie le journal affiché : le diagnostic d'un échec commence souvent par un copier-coller. */
+  const copyLogs = async () => {
+    const text = logs.map(l => `[${l.timestamp}] [${l.level}] ${l.message}`).join('\n');
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(t('fineTuning.logsCopied'));
+    } catch {
+      toast.error(t('fineTuning.copyLogs'));
+    }
+  };
+
   // ── Derived progress ──────────────────────────────────────────────────────
-  const epochProgress = activeJob?.currentEpoch && activeJob?.totalEpochs
-    ? (activeJob.currentEpoch / activeJob.totalEpochs) * 100
+  // `!= null` et non la véracité : une époque à 0 est une progression CONNUE (0 %). Testée pour
+  // sa véracité, elle masquait tout le bloc pendant la première époque — le tiers d'un run par
+  // défaut, et le moment où l'utilisateur a le plus besoin de voir que ça avance.
+  const epochProgress = trainingProgressPercent(activeJob?.currentEpoch, activeJob?.totalEpochs);
+  const elapsedMs = activeJob ? jobDurationMs(activeJob, now) : null;
+  // Réutilise l'extrapolation du centre d'activité : une seule règle d'ETA dans l'application.
+  const remainingMs = activeJob && !isTerminal(activeJob.status)
+    ? etaMs({
+        status: 'running',
+        progress: epochProgress !== null ? epochProgress / 100 : null,
+        startedAt: activeJob.createdAt,
+      }, now)
     : null;
 
   return (
@@ -458,6 +601,16 @@ const FineTuning: FC = () => {
               <span className="material-symbols-outlined text-sm">download</span>{t('fineTuning.exportRecipe')}
             </button>
           </div>
+
+          {unavailableReason && (
+            <div role="alert" className="mb-6 p-4 bg-error/10 border border-error/30 space-y-1">
+              <p className="font-label text-[11px] uppercase tracking-widest text-error">
+                {t('fineTuning.unavailable')}
+              </p>
+              {/* Le motif du backend nomme la commande à lancer : le rendre tel quel. */}
+              <p className="text-[11px] text-on-surface-variant leading-relaxed">{unavailableReason}</p>
+            </div>
+          )}
 
           {activeModel && (
             <div className="mb-6 flex flex-wrap items-center gap-2">
@@ -572,9 +725,28 @@ const FineTuning: FC = () => {
                 <span className="text-[10px] text-on-surface-variant">{t('fineTuning.multipackingHint')}</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input type="checkbox" {...register('dpoEnabled')} className="accent-secondary" />
+                <input
+                  type="checkbox" {...register('dpoEnabled')} className="accent-secondary"
+                  onChange={(e) => {
+                    setValue('dpoEnabled', e.target.checked);
+                    if (e.target.checked) setValue('orpoEnabled', false);
+                  }}
+                />
                 <span className="font-label text-[11px] uppercase tracking-widest">{t('fineTuning.dpoAlignment')}</span>
                 <span className="text-[10px] text-on-surface-variant">{t('fineTuning.dpoHint')}</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                {/* DPO et ORPO consomment le même dataset de préférence et s'excluent : cocher
+                    l'un décoche l'autre, plutôt que de laisser le backend arbitrer en silence. */}
+                <input
+                  type="checkbox" {...register('orpoEnabled')} className="accent-secondary"
+                  onChange={(e) => {
+                    setValue('orpoEnabled', e.target.checked);
+                    if (e.target.checked) setValue('dpoEnabled', false);
+                  }}
+                />
+                <span className="font-label text-[11px] uppercase tracking-widest">{t('fineTuning.orpoAlignment')}</span>
+                <span className="text-[10px] text-on-surface-variant">{t('fineTuning.orpoHint')}</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer select-none">
                 <input type="checkbox" {...register('exportGguf')} className="accent-primary" />
@@ -607,10 +779,24 @@ const FineTuning: FC = () => {
           >
             {t('fineTuning.autoScroll', { state: autoScroll ? t('fineTuning.on') : t('fineTuning.off') })}
           </button>
-          {activeJob && (activeJob.status !== 'COMPLETED' && activeJob.status !== 'FAILED') && (
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 bg-secondary animate-pulse"></div>
-              <span className="text-[11px] font-bold text-secondary uppercase tracking-widest">{t('fineTuning.live')}</span>
+          {activeJob && !isTerminal(activeJob.status) && (
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 bg-secondary animate-pulse"></div>
+                <span className="text-[11px] font-bold text-secondary uppercase tracking-widest">{t('fineTuning.live')}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConfirmingCancel(true)}
+                disabled={cancelling}
+                title={t('fineTuning.cancelJob')}
+                className="flex items-center gap-1 px-2 py-1 border border-outline text-outline
+                           text-[10px] font-bold uppercase tracking-widest
+                           hover:border-error hover:text-error transition-colors disabled:opacity-50"
+              >
+                <span aria-hidden="true" className="material-symbols-outlined text-[14px]">stop_circle</span>
+                {t('fineTuning.cancelJob')}
+              </button>
             </div>
           )}
         </div>
@@ -638,14 +824,25 @@ const FineTuning: FC = () => {
 
                 <div>
                   <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">{t('fineTuning.status')}</p>
+                  {/* Libellé traduit, et non l'énumération brute : on lisait « EXPORTING_DATASET »
+                      à côté d'une étape traduite « Export », dans les deux langues. */}
                   <span className={`font-label text-[11px] font-bold uppercase tracking-widest px-2 py-0.5 border ${jobStatusColor(activeJob.status)}`}>
-                    {activeJob.status}
+                    {t(`fineTuning.steps.${activeJob.status}`, { defaultValue: activeJob.status })}
                   </span>
                 </div>
 
                 <div>
                   <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">{t('fineTuning.currentStep')}</p>
-                  <p className="text-xs font-label">{activeJob.currentStep}</p>
+                  {/* `currentStep` est produit en français par le backend : on affiche la forme
+                      traduite dérivée du statut, et on garde le texte serveur en info-bulle. */}
+                  <p className="text-xs font-label" title={activeJob.currentStep}>
+                    {activeJob.status === 'TRAINING' && activeJob.currentEpoch != null
+                      ? t('fineTuning.epochOf', {
+                          current: epochInProgress(activeJob.currentEpoch, activeJob.totalEpochs),
+                          total: activeJob.totalEpochs,
+                        })
+                      : t(`fineTuning.steps.${activeJob.status}`, { defaultValue: activeJob.currentStep })}
+                  </p>
                 </div>
 
                 {activeJob.datasetSize > 0 && (
@@ -661,13 +858,42 @@ const FineTuning: FC = () => {
                       <span className="text-[10px] font-label uppercase text-on-surface-variant">{t('fineTuning.trainingProgress')}</span>
                       <span className="font-headline font-bold text-sm">{epochProgress.toFixed(0)}%</span>
                     </div>
-                    <div className="w-full bg-outline-variant/20 h-1.5 relative">
+                    {/* role/aria-* : sans eux, la progression n'existait tout simplement pas pour
+                        un lecteur d'écran — la barre n'était qu'un div coloré. */}
+                    <div
+                      role="progressbar"
+                      aria-valuenow={Math.round(epochProgress)}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-label={t('fineTuning.trainingProgress')}
+                      className="w-full bg-outline-variant/20 h-1.5 relative"
+                    >
                       <div className="absolute top-0 left-0 h-full bg-secondary transition-all" style={{ width: `${epochProgress}%` }} />
                     </div>
                     <div className="flex justify-between text-[10px] text-outline">
-                      <span>{t('fineTuning.epochOf', { current: activeJob.currentEpoch, total: activeJob.totalEpochs })}</span>
+                      <span>{t('fineTuning.epochOf', {
+                        current: epochInProgress(activeJob.currentEpoch ?? 0, activeJob.totalEpochs),
+                        total: activeJob.totalEpochs,
+                      })}</span>
                       {activeJob.loss !== null && <span>{t('fineTuning.loss', { value: activeJob.loss.toFixed(4) })}</span>}
                     </div>
+                  </div>
+                )}
+
+                {/* Temps écoulé — et estimation du restant tant que le job tourne. L'ETA
+                    s'extrapole depuis la création : elle inclut donc l'export du dataset et le
+                    téléchargement du modèle de base, d'où le « ~ » et le mot « estimé ». */}
+                {elapsedMs !== null && (
+                  <div className="flex justify-between text-[10px]">
+                    <span className="font-label uppercase tracking-widest text-on-surface-variant">
+                      {t('fineTuning.elapsed')}
+                    </span>
+                    <span className="tabular-nums text-on-surface">
+                      {formatEta(elapsedMs)}
+                      {remainingMs !== null && (
+                        <span className="text-outline"> · {t('fineTuning.eta', { time: formatEta(remainingMs) })}</span>
+                      )}
+                    </span>
                   </div>
                 )}
 
@@ -678,9 +904,20 @@ const FineTuning: FC = () => {
                 )}
 
                 {activeJob.status === 'COMPLETED' && activeJob.outputPath && (
-                  <div className="p-3 bg-primary/5 border border-primary/20">
+                  <div className="p-3 bg-primary/5 border border-primary/20 space-y-2">
                     <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">{t('fineTuning.output')}</p>
                     <p className="text-[11px] text-primary break-all">{activeJob.outputPath}</p>
+                    {/* Le parcours s'arrêtait juste avant la mise en service, qui en est pourtant
+                        l'objet : le toast disait « exportez puis enregistrez » sans rien pour le
+                        faire, et aucun lien vers l'écran qui le propose. */}
+                    <Link
+                      to="/model-hub"
+                      className="inline-flex items-center gap-1 text-[10px] font-label uppercase tracking-widest
+                                 text-primary hover:underline"
+                    >
+                      <span aria-hidden="true" className="material-symbols-outlined text-[14px]">rocket_launch</span>
+                      {t('fineTuning.deploy')}
+                    </Link>
                   </div>
                 )}
               </div>
@@ -722,26 +959,62 @@ const FineTuning: FC = () => {
                       }`} aria-hidden="true" />
                       {sseStatus === 'open' ? t('fineTuning.live') : sseStatus === 'connecting' ? t('fineTuning.connecting') : t('fineTuning.disconnected')}
                     </span>
-                    <span className="text-[10px] text-outline">{t('fineTuning.events', { count: logs.length })}</span>
+                    <button
+                      type="button"
+                      onClick={copyLogs}
+                      disabled={logs.length === 0}
+                      title={t('fineTuning.copyLogs')}
+                      aria-label={t('fineTuning.copyLogs')}
+                      className="p-0.5 text-outline hover:text-primary transition-colors disabled:opacity-40"
+                    >
+                      <span aria-hidden="true" className="material-symbols-outlined text-[14px]">content_copy</span>
+                    </button>
+                    <span className="text-[10px] text-outline">
+                      {t('fineTuning.events', { count: logs.length })}
+                      {/* La trace relue n'est qu'une queue : le dire plutôt que de laisser croire
+                          que le run a commencé là. */}
+                      {telemetryTruncated && ` · ${t('fineTuning.telemetryTruncated')}`}
+                    </span>
                   </div>
                 </div>
                 {logs.length === 0 ? (
                   <div className="flex-1 flex items-center justify-center">
-                    <p className="text-outline italic text-[11px]">
-                      {sseStatus === 'closed'
-                        ? t('fineTuning.streamInterrupted')
-                        : sseStatus === 'connecting'
-                          ? t('fineTuning.streamConnecting')
-                          : t('fineTuning.streamWaiting')}
+                    <p className="text-outline italic text-[11px] px-4 text-center">
+                      {/* Un job terminé dont la trace a été purgée (ou antérieur à sa mise en
+                          place) n'a rien à montrer : le dire vaut mieux que « en attente
+                          d'évènements… », qui laisse croire que quelque chose va arriver. */}
+                      {loadingTelemetry
+                        ? t('fineTuning.telemetryLoading')
+                        : activeJob && isTerminal(activeJob.status)
+                        ? t('fineTuning.streamNotRetained')
+                        : sseStatus === 'closed'
+                          ? t('fineTuning.streamInterrupted')
+                          : sseStatus === 'connecting'
+                            ? t('fineTuning.streamConnecting')
+                            : t('fineTuning.streamWaiting')}
                     </p>
                   </div>
                 ) : (
-                  <div ref={listRef} className="custom-scrollbar py-2 overflow-y-auto flex-1">
+                  <div
+                    ref={listRef}
+                    role="log"
+                    aria-live="polite"
+                    aria-label={t('fineTuning.telemetry')}
+                    className="custom-scrollbar py-2 overflow-y-auto flex-1"
+                  >
                     {logs.map((log, index) => (
-                      <div key={index} className="flex gap-4 group px-4 border-l border-transparent hover:border-primary/30 transition-colors" style={{ height: 24, lineHeight: '24px' }}>
-                        <span className="text-on-surface-variant opacity-50 min-w-[80px]">{log.timestamp}</span>
-                        <span className={`font-bold min-w-[50px] ${log.level === 'ERROR' ? 'text-error' : 'text-primary'}`}>[{log.level}]</span>
-                        <span className="text-on-surface group-hover:text-primary transition-colors truncate">{log.message}</span>
+                      <div key={index} className="flex gap-4 group px-4 py-0.5 border-l border-transparent hover:border-primary/30 transition-colors leading-6">
+                        <span className="text-on-surface-variant opacity-50 min-w-[80px] shrink-0">{log.timestamp}</span>
+                        <span className={`font-bold min-w-[50px] shrink-0 ${
+                          log.level === 'ERROR' ? 'text-error'
+                            : log.level === 'WARN' ? 'text-secondary'
+                            : 'text-primary'
+                        }`}>[{log.level}]</span>
+                        {/* Plus de `truncate` : une trace d'exception était coupée à droite, sans
+                            repli ni info-bulle — le diagnostic exigeait de quitter l'application. */}
+                        <span className="text-on-surface group-hover:text-primary transition-colors whitespace-pre-wrap break-words">
+                          {log.message}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -768,7 +1041,8 @@ const FineTuning: FC = () => {
         <Table className="min-w-[640px]">
           <TableHead>
             <tr>
-              {['colJobId', 'colModel', 'colBase', 'colDataset', 'colEpochs', 'colStatus', 'colDate'].map(h => (
+              {['colJobId', 'colModel', 'colBase', 'colDataset', 'colEpochs', 'colLoss',
+                'colDuration', 'colStatus', 'colDate'].map(h => (
                 <Th key={h}>{t(`fineTuning.${h}`)}</Th>
               ))}
             </tr>
@@ -776,14 +1050,14 @@ const FineTuning: FC = () => {
           <TableBody>
             {jobs.length === 0 ? (
               <tr>
-                <Td colSpan={7} className="py-8 text-center text-on-surface-variant">
+                <Td colSpan={9} className="py-8 text-center text-on-surface-variant">
                   {t('fineTuning.noJobs')}
                 </Td>
               </tr>
             ) : jobs.map(job => (
               <TableRow
                 key={job.jobId}
-                onClick={() => setActiveJob(job)}
+                onClick={() => selectJob(job)}
                 className="cursor-pointer"
               >
                 <Td className="font-mono text-[11px]">{job.jobId.slice(0, 8)}</Td>
@@ -791,21 +1065,46 @@ const FineTuning: FC = () => {
                 <Td className="text-on-surface-variant">{job.baseModel}</Td>
                 <Td>{t('fineTuning.pairsCount', { count: job.datasetSize })}</Td>
                 <Td>{job.parameters?.epochs ?? '—'}</Td>
+                {/* Loss finale et durée : deux chiffres qu'on venait chercher en cliquant, faute
+                    de les voir — et rien n'indiquait qu'il fallait cliquer. */}
+                <Td className="tabular-nums">{job.loss != null ? job.loss.toFixed(4) : '—'}</Td>
+                <Td className="tabular-nums text-on-surface-variant">
+                  {(() => {
+                    const ms = jobDurationMs(job, now);
+                    return ms != null ? formatEta(ms) : '—';
+                  })()}
+                </Td>
                 <Td>
                   <Badge tone={
                     job.status === 'COMPLETED' ? 'success' :
                     job.status === 'FAILED'    ? 'error' :
+                    job.status === 'CANCELLED' ? 'neutral' :
                                                  'secondary'
-                  } dot>{job.status}</Badge>
+                  } dot>{t(`fineTuning.steps.${job.status}`, { defaultValue: job.status })}</Badge>
+                  {/* Le motif n'était visible qu'en sélectionnant la ligne. */}
+                  {job.error && (
+                    <p className="text-[10px] text-error truncate max-w-[220px]" title={job.error}>{job.error}</p>
+                  )}
                 </Td>
-                <Td className="text-on-surface-variant">
-                  {job.createdAt ? new Date(job.createdAt).toLocaleDateString(i18n.language) : '—'}
+                <Td className="text-on-surface-variant whitespace-nowrap">
+                  {job.createdAt ? new Date(job.createdAt).toLocaleString(i18n.language) : '—'}
                 </Td>
               </TableRow>
             ))}
           </TableBody>
         </Table>
       </section>
+
+      {/* Confirmation : un entraînement interrompu est perdu (aucune reprise d'adaptateur). */}
+      <ConfirmDialog
+        open={confirmingCancel}
+        busy={cancelling}
+        title={t('fineTuning.cancelJobTitle')}
+        message={t('fineTuning.cancelJobMessage', { name: activeJob?.modelName ?? '' })}
+        confirmLabel={t('fineTuning.cancelJobConfirm')}
+        onCancel={() => setConfirmingCancel(false)}
+        onConfirm={cancelActiveJob}
+      />
     </div>
   );
 };

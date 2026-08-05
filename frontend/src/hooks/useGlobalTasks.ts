@@ -179,7 +179,12 @@ export function normalizeTrainingJobs(raw: unknown): GlobalTask[] {
       kind: 'training' as const,
       icon: 'model_training',
       label: j.modelName ?? shortId(j.jobId),
-      detail: epochs ? `epoch ${j.currentEpoch}/${j.totalEpochs}` : (j.currentStep ?? null),
+      // currentEpoch est FRACTIONNAIRE (0.33 = un tiers de la première époque) : arrondi
+      // supérieur pour le libellé — « epoch 1/3 » — et valeur brute pour la barre, qui avance
+      // ainsi en continu au lieu de sauter d'un tiers à chaque époque franchie.
+      detail: epochs
+        ? `epoch ${Math.min(Math.max(1, Math.ceil(j.currentEpoch)), j.totalEpochs)}/${j.totalEpochs}`
+        : (j.currentStep ?? null),
       status,
       // La progression par époque n'a de sens que pendant l'entraînement.
       progress: status === 'running' ? ratio(j.currentEpoch, j.totalEpochs) : null,

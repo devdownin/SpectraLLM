@@ -108,13 +108,14 @@ CREATE TABLE IF NOT EXISTS fine_tuning_jobs (
     parameters       TEXT,
     dataset_size     INTEGER      NOT NULL DEFAULT 0,
     current_step     VARCHAR(255),
-    current_epoch    INTEGER,
+    current_epoch    DOUBLE PRECISION,
     total_epochs     INTEGER,
     loss             DOUBLE PRECISION,
     eval_loss        DOUBLE PRECISION,
     output_path      VARCHAR(255),
     report_path      VARCHAR(255),
     error            TEXT,
+    failed_phase     VARCHAR(50),
     created_at       TIMESTAMP WITH TIME ZONE,
     completed_at     TIMESTAMP WITH TIME ZONE,
     PRIMARY KEY (job_id)
@@ -122,6 +123,18 @@ CREATE TABLE IF NOT EXISTS fine_tuning_jobs (
 
 -- Migration : bases créées avant le suivi de l'eval_loss (idempotent sous H2)
 ALTER TABLE fine_tuning_jobs ADD COLUMN IF NOT EXISTS eval_loss DOUBLE PRECISION;
+
+-- Migration : l'époque courante devient FRACTIONNAIRE (« epoch=0.33 »). En entier, elle valait 0
+-- pendant toute la première époque et l'UI n'affichait alors aucune progression. Ré-exécuter cet
+-- ALTER sur une colonne déjà DOUBLE est sans effet ; les valeurs entières existantes sont
+-- préservées. Obligatoire ici : ddl-auto=validate refuserait un Double sur une colonne INTEGER.
+ALTER TABLE fine_tuning_jobs ALTER COLUMN current_epoch SET DATA TYPE DOUBLE PRECISION;
+
+-- Migration : phase atteinte à l'échec. Sans elle, un job FAILED ne dit pas OÙ il a échoué —
+-- l'étape est écrasée par « Échoué » — et l'interface plaçait donc tous les échecs sur la
+-- dernière étape du pipeline. Les jobs déjà en base restent à NULL : leur phase est perdue,
+-- l'UI les traite comme avant.
+ALTER TABLE fine_tuning_jobs ADD COLUMN IF NOT EXISTS failed_phase VARCHAR(50);
 
 -- Suivi persistant des installations Model Hub (llmfit download) : survit au redémarrage
 -- de l'API pour un historique fiable et la réconciliation des téléchargements interrompus.

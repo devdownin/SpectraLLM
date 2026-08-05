@@ -640,9 +640,11 @@ Then, when launching fine-tuning (step 3), check **DPO Alignment** so the traine
    - **Epochs**: number of training passes (3 by default)
    - **LoRA Rank**: fine-tuning precision (64 = good quality/speed balance)
    - **Min Confidence**: quality threshold for the pairs used (0.8 by default)
+   - **Validation split**: fraction of the dataset held out to measure `eval_loss` (0.1 by default, 0 to disable). Without it only the training loss is measured — it decreases by construction and says nothing about overfitting
    - **Multipacking**: check to concatenate short examples — speeds up training by 20–30%
    - **DPO Alignment**: check if you generated DPO pairs (step 2b) — trains by preference rather than SFT
-   - **ORPO Alignment**: a single-pass alternative to DPO, with no reference model (same preference pairs). DPO and ORPO are mutually exclusive; ORPO takes priority if both are checked.
+   - **ORPO Alignment**: a single-pass alternative to DPO, with no reference model (same preference pairs). The two checkboxes are mutually exclusive: ticking one unticks the other
+   - **Export GGUF & register**: after training, merges the adapter, converts to GGUF and registers the model — this is what makes it deployable with no manual step
 5. Click **Launch Training**.
 6. Track progress with the **step bar**:
 
@@ -650,7 +652,15 @@ Then, when launching fine-tuning (step 3), check **DPO Alignment** so the traine
 [QUEUED] ──→ [EXPORT] ──→ [TRAINING] ──→ [IMPORT] ──→ [COMPLETE]
 ```
 
-7. (Optional) Click **Export** to save the current configuration as a reusable YAML file.
+   The progress bar advances continuously (epoch fractions), the loss chart plots one point per
+   logged step, and the telemetry stream shows the trainer's output live. The log and the curve are
+   **kept on disk** (`data/fine-tuning/<jobId>/`): reloading the page, or coming back to a finished
+   job, brings them back — the live stream itself replays nothing.
+
+7. To stop a running job, click **Stop** at the top right of the monitor and confirm. Progress is
+   lost — a job never resumes from a previous adapter. The same button is available from the
+   activity centre in the header, on any page.
+8. (Optional) Click **Export** to save the current configuration as a reusable YAML file.
 
 #### Via the API
 

@@ -1,6 +1,7 @@
 import type { FC } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, ReferenceLine,
 } from 'recharts';
 
@@ -14,13 +15,18 @@ interface Props {
 const EVAL_COLOR = '#f0a066';
 
 const CustomTooltip = ({ active, payload }: any) => {
+  const { t } = useTranslation();
   if (!active || !payload?.length) return null;
   return (
     <div className="bg-surface-container border border-primary/20 px-3 py-2 text-[11px] font-label">
-      <p className="text-on-surface-variant uppercase tracking-widest">Epoch {payload[0].payload.epoch}</p>
+      {/* Époque fractionnaire : 2 décimales, comme la sortie du trainer (« epoch=0.33 »). */}
+      <p className="text-on-surface-variant uppercase tracking-widest">
+        {t('fineTuning.epochShort', { value: Number(payload[0].payload.epoch).toFixed(2) })}
+      </p>
       {payload.map((entry: any) => (
         <p key={entry.dataKey} className="font-bold" style={{ color: entry.color }}>
-          {entry.dataKey === 'evalLoss' ? 'Eval loss' : 'Loss'} {entry.value.toFixed(4)}
+          {t(entry.dataKey === 'evalLoss' ? 'fineTuning.evalLoss' : 'fineTuning.trainLoss')}
+          {' '}{entry.value.toFixed(4)}
         </p>
       ))}
     </div>
@@ -28,10 +34,11 @@ const CustomTooltip = ({ active, payload }: any) => {
 };
 
 const LossChart: FC<Props> = ({ data, totalEpochs }) => {
+  const { t } = useTranslation();
   if (data.length < 2) {
     return (
       <div className="flex items-center justify-center h-full text-[12px] text-on-surface-variant">
-        {data.length === 0 ? 'Waiting for loss data…' : 'Accumulating data…'}
+        {t(data.length === 0 ? 'fineTuning.chartWaiting' : 'fineTuning.chartAccumulating')}
       </div>
     );
   }
@@ -45,10 +52,15 @@ const LossChart: FC<Props> = ({ data, totalEpochs }) => {
     <ResponsiveContainer width="100%" height="100%">
       <LineChart data={data} margin={{ top: 8, right: 12, bottom: 4, left: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+        {/* type="number" est indispensable : sur l'axe CATÉGORIEL par défaut, `domain` et
+            `tickCount` sont ignorés — l'axe ne listait que les époques déjà collectées et la
+            courbe occupait toute la largeur quel que soit l'avancement réel. */}
         <XAxis
           dataKey="epoch"
-          domain={[1, totalEpochs]}
-          tickCount={Math.min(totalEpochs, 6)}
+          type="number"
+          domain={[0, Math.max(totalEpochs, 1)]}
+          ticks={Array.from({ length: Math.max(totalEpochs, 1) + 1 }, (_, i) => i)}
+          allowDecimals={false}
           tick={{ fill: 'rgba(222,229,255,0.4)', fontSize: 10, fontFamily: 'Space Grotesk' }}
           axisLine={false}
           tickLine={false}
@@ -61,6 +73,16 @@ const LossChart: FC<Props> = ({ data, totalEpochs }) => {
           tickFormatter={(v: number) => v.toFixed(3)}
         />
         <Tooltip content={<CustomTooltip />} cursor={{ stroke: 'rgba(143,245,255,0.15)', strokeWidth: 1 }} />
+        {/* Deux courbes ne se distinguaient que par la couleur et le pointillé : une légende
+            nomme laquelle est laquelle, et rend le graphe lisible sans le survoler. */}
+        <Legend
+          verticalAlign="top"
+          height={18}
+          iconType="plainline"
+          formatter={(value: string) =>
+            t(value === 'evalLoss' ? 'fineTuning.evalLoss' : 'fineTuning.trainLoss')}
+          wrapperStyle={{ fontSize: 10, fontFamily: 'Space Grotesk', color: 'rgba(222,229,255,0.6)' }}
+        />
         {minLoss > 0 && (
           <ReferenceLine
             y={minLoss}

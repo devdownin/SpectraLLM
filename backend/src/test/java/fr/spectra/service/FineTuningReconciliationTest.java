@@ -59,7 +59,8 @@ class FineTuningReconciliationTest {
                 java.util.Arrays.stream(jobs).map(FineTuningJobEntity::fromDto).toList());
         return new FineTuningService(
                 mock(DatasetGeneratorService.class), mock(DpoGenerationService.class),
-                repository, mock(TrainingLogBroadcaster.class), mock(ModelRegistryService.class),
+                repository, mock(TrainingLogBroadcaster.class), mock(JobTelemetryStore.class),
+                mock(ModelRegistryService.class),
                 mock(BaseModelCatalog.class), mock(GedService.class),
                 mock(IngestedFileRepository.class), "phi3", runner,
                 tempWorkDir.toString(), tempWorkDir.resolve("models").toString(), "");

@@ -67,6 +67,12 @@ EXTRA_ARGS+=(--val-split "$VAL_SPLIT")
 
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 
+# Sortie NON tamponnée. Le suivi de l'UI lit ce flux ligne à ligne ; sur un tube, Python
+# bufférise par blocs et seul ProgressLogger appelle flush(). Tout ce qui est imprimé AVANT la
+# première étape — téléchargement du modèle de base, tokenisation, split de validation — restait
+# donc invisible, c'est-à-dire précisément pendant la phase la plus longue et la plus silencieuse.
+export PYTHONUNBUFFERED=1
+
 exec "$PYTHON_BIN" "$SCRIPT_DIR/train_host.py" \
   --dataset    "$DATASET_PATH" \
   --output     "$OUTPUT_DIR" \

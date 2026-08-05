@@ -53,6 +53,8 @@ public class FineTuningService {
     private final DpoGenerationService dpoGenerator;
     private final FineTuningJobRepository repository;
     private final TrainingLogBroadcaster broadcaster;
+    /** Trace persistante : ce que l'UI relit après un rechargement (S1, S8). */
+    private final JobTelemetryStore telemetryStore;
     private final ModelRegistryService modelRegistry;
     private final BaseModelCatalog baseModelCatalog;
     private final GedService gedService;
@@ -95,6 +97,7 @@ public class FineTuningService {
                              DpoGenerationService dpoGenerator,
                              FineTuningJobRepository repository,
                              TrainingLogBroadcaster broadcaster,
+                             JobTelemetryStore telemetryStore,
                              ModelRegistryService modelRegistry,
                              BaseModelCatalog baseModelCatalog,
                              GedService gedService,
@@ -108,6 +111,7 @@ public class FineTuningService {
          this.dpoGenerator = dpoGenerator;
          this.repository = repository;
          this.broadcaster = broadcaster;
+         this.telemetryStore = telemetryStore;
          this.modelRegistry = modelRegistry;
          this.baseModelCatalog = baseModelCatalog;
          this.gedService = gedService;
@@ -150,7 +154,7 @@ public class FineTuningService {
         try {
             for (FineTuningJobEntity e : repository.findAll()) {
                 FineTuningJob j = e.toDto();
-                if (j.status() != Status.COMPLETED && j.status() != Status.FAILED) {
+                if (!j.status().isTerminal()) {
                     repository.save(FineTuningJobEntity.fromDto(
                             j.failed("Interrompu par un redémarrage du serveur")));
                     log.warn("Job {} ({}) marqué FAILED : interrompu par un redémarrage", j.jobId(), j.status());
@@ -244,7 +248,7 @@ public class FineTuningService {
         FineTuningJobEntity entity = repository.findById(jobId).orElse(null);
         if (entity == null) return false;
         FineTuningJob job = entity.toDto();
-        if (job.status() == Status.COMPLETED || job.status() == Status.FAILED) return false;
+        if (job.status().isTerminal()) return false;
         
         cancelledJobs.add(jobId);
         
@@ -252,7 +256,7 @@ public class FineTuningService {
             log.info("Job {}: interruption forcée de l'exécution en cours.", jobId);
         }
         
-        repository.save(FineTuningJobEntity.fromDto(job.failed("Annulé par l'utilisateur")));
+        repository.save(FineTuningJobEntity.fromDto(job.cancelled("Arrêté à la demande de l'utilisateur")));
         return true;
     }
 
@@ -270,7 +274,7 @@ public class FineTuningService {
         List<FineTuningJobEntity> toDelete = repository.findAll().stream()
                 .filter(e -> {
                     FineTuningJob j = e.toDto();
-                    return j.status() == Status.FAILED
+                    return (j.status() == Status.FAILED || j.status() == Status.CANCELLED)
                             && j.completedAt() != null && j.completedAt().isBefore(cutoff);
                 })
                 .toList();
@@ -299,7 +303,7 @@ public class FineTuningService {
     protected void runAsync(String jobId, FineTuningRequest request) {
         try {
             // ── Étape 1 : Export du dataset filtré ──
-            broadcaster.info("Job " + jobId + " : export du dataset…");
+            publishAndRecord(jobId, "INFO", "Job " + jobId + " : export du dataset…");
             updateJob(jobId, j -> j.withStatus(Status.EXPORTING_DATASET, "Export du dataset..."));
 
             Path jobDir = workDir.resolve(jobId);
@@ -325,9 +329,14 @@ public class FineTuningService {
 
             log.info("Job {}: dataset exporté ({} {})", jobId, datasetSize,
                     preference ? "paires de préférence" : "paires SFT");
+            // Le flux restait muet de bout en bout de cette phase : l'utilisateur ne savait ni
+            // qu'elle avançait, ni ce qu'elle avait produit.
+            publishAndRecord(jobId, "INFO", "Job " + jobId + " : dataset exporté — " + datasetSize
+                    + (preference ? " paires de préférence" : " paires SFT"));
 
             // ── Étape 2 : Lancement de l'entraînement externe ──
-            broadcaster.info("Job " + jobId + " : lancement de l'entraînement (" + datasetSize + " exemples)…");
+            publishAndRecord(jobId, "INFO", "Job " + jobId + " : lancement de l'entraînement ("
+                    + datasetSize + " exemples)…");
             updateJob(jobId, j -> j.withStatus(Status.TRAINING, "Lancement de l'entraînement..."));
 
             // train_host.py produit un répertoire d'adaptateur LoRA (format HuggingFace/PEFT),
@@ -361,7 +370,7 @@ public class FineTuningService {
                 // Étape 3b (opt-in) : fusion LoRA → GGUF → enregistrement pour déploiement.
                 exportGgufAndRegister(jobId, request, adapterPath, jobDir);
             } else {
-                broadcaster.info("Job " + jobId + " : adaptateur entraîné → " + adapterPath
+                publishAndRecord(jobId, "INFO", "Job " + jobId + " : adaptateur entraîné → " + adapterPath
                         + " (exporter en GGUF puis enregistrer pour le déployer)");
                 updateJob(jobId, j -> j.completed(adapterPath.toString()));
             }
@@ -381,7 +390,7 @@ public class FineTuningService {
                 return;
             }
             log.error("Job {} échoué: {}", jobId, e.getMessage(), e);
-            broadcaster.error("Job " + jobId + " échoué : " + e.getMessage());
+            publishAndRecord(jobId, "ERROR", "Job " + jobId + " échoué : " + e.getMessage());
             updateJob(jobId, j -> j.failed(e.getMessage()));
         } finally {
             cancelledJobs.remove(jobId);
@@ -537,7 +546,8 @@ public class FineTuningService {
         }
         if (traced > 0) {
             log.info("Job {}: {} document(s) GED lié(s) au modèle '{}' et passé(s) TRAINED", jobId, traced, modelName);
-            broadcaster.info("Job " + jobId + " : " + traced + " document(s) source tracé(s) en GED (TRAINED)");
+            publishAndRecord(jobId, "INFO", "Job " + jobId + " : " + traced
+                    + " document(s) source tracé(s) en GED (TRAINED)");
         }
     }
 
@@ -578,12 +588,80 @@ public class FineTuningService {
                 () -> cancelledJobs.contains(jobId));
     }
 
+    /**
+     * Lignes de rafraîchissement d'une barre de progression ({@code tqdm} et assimilés). Elles
+     * sont terminées par un {@code \r}, que le découpage en lignes — côté Java comme côté trainer
+     * — traite comme une fin de ligne : <b>chaque rafraîchissement devient un évènement SSE</b>.
+     * Un téléchargement HuggingFace en produit des centaines par seconde, de quoi retourner le
+     * tampon de 500 du diffuseur en quelques secondes et chasser l'utile.
+     */
+    private static final java.util.regex.Pattern PROGRESS_BAR_PATTERN =
+            java.util.regex.Pattern.compile("\\d+%\\||\\d+/\\d+ \\[|it/s|s/it|B/s");
+    private static final long PROGRESS_BAR_MIN_INTERVAL_MS = 1_000;
+    private final java.util.concurrent.atomic.AtomicLong lastProgressBarPublish =
+            new java.util.concurrent.atomic.AtomicLong(0);
+
+    /**
+     * Diffuse une ligne de suivi <b>et</b> la consigne dans la trace du job.
+     *
+     * <p>Un seul point de sortie pour les deux canaux : ce qu'on a vu passer en direct est
+     * exactement ce qu'on relit après un rechargement. Deux chemins séparés divergeraient au
+     * premier oubli.
+     */
+    private void publishAndRecord(String jobId, String level, String message) {
+        switch (level) {
+            case "ERROR" -> broadcaster.jobError(jobId, message);
+            case "WARN" -> broadcaster.jobWarn(jobId, message);
+            default -> broadcaster.jobInfo(jobId, message);
+        }
+        telemetryStore.appendLog(jobId, level, message);
+    }
+
+    /**
+     * Lignes de sortie qui ne sont pas des informations : {@code stderr} est fusionné dans
+     * {@code stdout} en amont ({@code redirectErrorStream}, {@code stderr=STDOUT}), si bien
+     * qu'une trace Python et un avertissement CUDA arrivaient étiquetés INFO — rendus en bleu
+     * comme le reste, et invisibles dans un flux qui défile.
+     */
+    private static final java.util.regex.Pattern ERROR_LINE = java.util.regex.Pattern.compile(
+            // Les frontières \\b se placent AUTOUR des mots seulement : « Traceback (…): » finit
+            // sur une parenthèse, et « OutOfMemoryError » n'a pas de frontière avant « Error » —
+            // deux formes que la version à \\b global laissait passer pour des informations.
+            "(?i)(traceback \\(most recent call last\\)|out of memory|"
+                    + "\\b(erreur|error|fatal|exception|killed|aborted)\\b|\\werror\\b)");
+    private static final java.util.regex.Pattern WARN_LINE = java.util.regex.Pattern.compile(
+            "(?i)(\\b(avertissement|warn|warning)\\b|\\wwarning\\b|deprecat\\w*)");
+
+    /** Niveau d'une ligne de sortie, à défaut de canal séparé. */
+    static String levelOf(String line) {
+        if (ERROR_LINE.matcher(line).find()) return "ERROR";
+        if (WARN_LINE.matcher(line).find()) return "WARN";
+        return "INFO";
+    }
+
     /** Journalisation, diffusion SSE et extraction de progression, communes aux deux exécutions. */
     private void onProcessLine(String jobId, String label, String line) {
-        broadcaster.info(line);   // diffusion temps réel vers /api/sse/training-logs
+        // Extraction AVANT tout filtrage : une ligne non diffusée doit quand même faire avancer
+        // la progression du job.
         if ("train".equals(label)) {
             parseTrainingOutput(jobId, line);
         }
+        if (line.isBlank()) return;
+        if (isProgressBarRefresh(line) && !allowProgressBarLine()) return;
+        publishAndRecord(jobId, levelOf(line), line);   // SSE temps réel + trace relisible
+    }
+
+    /** Vrai pour un rafraîchissement de barre ; « 100% » passe toujours (fin d'étape lisible). */
+    private static boolean isProgressBarRefresh(String line) {
+        return !line.contains("100%") && PROGRESS_BAR_PATTERN.matcher(line).find();
+    }
+
+    /** Au plus une ligne de barre par seconde : le flux reste vivant sans être noyé. */
+    private boolean allowProgressBarLine() {
+        long now = System.currentTimeMillis();
+        long last = lastProgressBarPublish.get();
+        return now - last >= PROGRESS_BAR_MIN_INTERVAL_MS
+                && lastProgressBarPublish.compareAndSet(last, now);
     }
 
     /**
@@ -595,7 +673,8 @@ public class FineTuningService {
     private void exportGgufAndRegister(String jobId, FineTuningRequest request,
                                        Path adapterPath, Path jobDir) throws Exception {
         updateJob(jobId, j -> j.withStatus(Status.IMPORTING_MODEL, "Fusion LoRA + conversion GGUF…"));
-        broadcaster.info("Job " + jobId + " : fusion de l'adaptateur, conversion GGUF et enregistrement…");
+        publishAndRecord(jobId, "INFO",
+                "Job " + jobId + " : fusion de l'adaptateur, conversion GGUF et enregistrement…");
 
         Path mergedDir = jobDir.resolve("merged");
         // Même résolution que l'entraînement (manifeste unique) : l'adaptateur LoRA n'est
@@ -643,7 +722,7 @@ public class FineTuningService {
                                 .orElse(null)));
 
         log.info("Job {}: modèle '{}' converti et enregistré → {}", jobId, request.modelName(), registeredPath);
-        broadcaster.info("Job " + jobId + " : modèle '" + request.modelName()
+        publishAndRecord(jobId, "INFO", "Job " + jobId + " : modèle '" + request.modelName()
                 + "' enregistré et déployable → " + registeredPath);
         updateJob(jobId, j -> j.completed(registeredPath));
     }
@@ -655,8 +734,13 @@ public class FineTuningService {
         return cleaned.isEmpty() ? "model" : cleaned;
     }
 
+    /**
+     * Époque courante, <b>fraction comprise</b> : {@code ProgressLogger} imprime
+     * « epoch=0.33 ». Le motif ne capturait que la partie entière — donc {@code 0} pendant toute
+     * la première époque, que l'UI interprétait comme « pas de progression connue ».
+     */
     private static final java.util.regex.Pattern EPOCH_PATTERN =
-            java.util.regex.Pattern.compile("epoch[= ]*(\\d+)");
+            java.util.regex.Pattern.compile("epoch[= ]*(\\d+(?:\\.\\d+)?)");
     /**
      * Loss d'entraînement. Le {@code (?<!eval_)} est essentiel : sans lui, la ligne
      * « eval_loss=0.45 » satisfait aussi « loss=… » et l'{@code eval_loss} était enregistré
@@ -676,11 +760,14 @@ public class FineTuningService {
         try {
             String lower = line.toLowerCase();
             if (!lower.contains("epoch")) return;
-            Integer epoch = extract(EPOCH_PATTERN, lower, Integer::parseInt);
+            Double epoch = extract(EPOCH_PATTERN, lower, Double::parseDouble);
             if (epoch == null) return;
             Double loss = extract(LOSS_PATTERN, lower, Double::parseDouble);
             Double evalLoss = extract(EVAL_LOSS_PATTERN, lower, Double::parseDouble);
             updateJob(jobId, j -> j.withTrainingProgress(epoch, loss, evalLoss));
+            // Le job ne porte qu'une loss SCALAIRE — chaque ligne écrase la précédente. La série
+            // n'existe que si on l'écrit au moment où on la voit passer.
+            telemetryStore.appendLossPoint(jobId, epoch, loss, evalLoss);
         } catch (Exception e) {
             // Parsing best-effort, on ne casse pas le process pour une ligne mal formatée
         }
@@ -705,7 +792,7 @@ public class FineTuningService {
         if (cancelledJobs.contains(jobId)) return;
         repository.findById(jobId).ifPresent(entity -> {
             FineTuningJob current = entity.toDto();
-            if (current.status() == Status.FAILED || current.status() == Status.COMPLETED) return;
+            if (current.status().isTerminal()) return;
             FineTuningJob updated = updater.apply(current);
             repository.save(FineTuningJobEntity.fromDto(updated));
         });

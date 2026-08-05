@@ -47,6 +47,11 @@ COPY --from=builder /install /usr/local
 ENV HF_HOME=/hf-cache
 RUN mkdir -p /hf-cache
 
+# Sortie non tamponnée : /train diffuse la sortie du script ligne à ligne vers l'UI. Sur un tube,
+# Python bufférise par blocs — tout ce qui précède la première étape d'entraînement (dont le
+# téléchargement du modèle de base, plusieurs minutes) n'atteignait le flux qu'après coup.
+ENV PYTHONUNBUFFERED=1
+
 # Les scripts d'entraînement sont copiés depuis le dépôt applicatif, et non dupliqués : une
 # copie divergerait, et le format de conversation (chat_format.py) est la source de vérité
 # partagée avec le manifeste des modèles de base.
