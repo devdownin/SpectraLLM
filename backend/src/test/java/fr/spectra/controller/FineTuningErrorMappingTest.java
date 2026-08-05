@@ -16,6 +16,7 @@ import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -50,16 +51,18 @@ class FineTuningErrorMappingTest {
                     + "L'image spectra-api ne contient ni scripts/ ni Python.";
 
     private FineTuningService fineTuningService;
+    private fr.spectra.service.training.TrainingRunner trainingRunner;
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
         fineTuningService = mock(FineTuningService.class);
+        trainingRunner = mock(fr.spectra.service.training.TrainingRunner.class);
         FineTuningController controller = new FineTuningController(
                 fineTuningService, mock(LlmChatClient.class),
                 mock(BaseModelCatalog.class), mock(ModelRegistryService.class),
                 mock(fr.spectra.service.JobTelemetryStore.class),
-                mock(fr.spectra.service.training.TrainingRunner.class));
+                trainingRunner);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
@@ -99,6 +102,31 @@ class FineTuningErrorMappingTest {
         mockMvc.perform(post("/api/fine-tuning")
                         .contentType(MediaType.APPLICATION_JSON).content(BODY))
                 .andExpect(status().isConflict());
+    }
+
+    @Test
+    @DisplayName("la disponibilité est interrogeable AVANT toute soumission")
+    void availabilityIsReadableUpFront() throws Exception {
+        // C'est ce que la page interroge pour afficher le motif en tête de formulaire, plutôt que
+        // de laisser l'utilisateur choisir ses hyperparamètres puis découvrir au lancement que le
+        // profil « trainer » n'est pas démarré.
+        when(trainingRunner.unavailabilityReason()).thenReturn(REASON);
+
+        mockMvc.perform(get("/api/fine-tuning/availability"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.available").value(false))
+                .andExpect(jsonPath("$.reason").value(containsString("train.sh")));
+    }
+
+    @Test
+    @DisplayName("exécuteur en état → available=true, sans motif")
+    void availabilityIsTrueWhenTheRunnerIsReady() throws Exception {
+        when(trainingRunner.unavailabilityReason()).thenReturn(null);
+
+        mockMvc.perform(get("/api/fine-tuning/availability"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.available").value(true))
+                .andExpect(jsonPath("$.reason").doesNotExist());
     }
 
     @Test
