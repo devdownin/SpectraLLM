@@ -48,12 +48,14 @@ vi.mock('sonner', () => ({
 
 /** EventSource simulé : le test pousse les lignes lui-même, comme le ferait le backend. */
 let sse: FakeEventSource | null = null;
+/** Enregistre l'instance courante. Passer `this` en argument évite de l'aliaser (no-this-alias). */
+const registerSse = (instance: FakeEventSource) => { sse = instance; };
 class FakeEventSource {
   onopen: ((e: unknown) => void) | null = null;
   onmessage: ((e: { data: string }) => void) | null = null;
   onerror: ((e: unknown) => void) | null = null;
   close = vi.fn();
-  constructor() { sse = this; }
+  constructor() { registerSse(this); }
 }
 vi.stubGlobal('EventSource', FakeEventSource);
 
