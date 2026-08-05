@@ -10,12 +10,18 @@ import { useSse } from '../hooks/useSse';
 import type { TrainingLog } from '../types/api';
 import { configApi, fineTuningApi, recipeApi } from '../services/api';
 import { resolveTrainableBase, shouldReplace, suggestModelName } from '../lib/fineTuningPrefill';
+import {
+  parseProgressLine, mergeLossPoint, epochInProgress, trainingProgressPercent,
+} from '../lib/trainingProgress';
+import type { LossPoint } from '../lib/trainingProgress';
+import { PIPELINE_STEPS, stepStates } from '../lib/fineTuningSteps';
+import type { JobStatus } from '../lib/fineTuningSteps';
+import { apiErrorMessage } from '../lib/apiError';
 import LossChart from '../components/charts/LossChart';
+import ConfirmDialog from '../components/ConfirmDialog';
 import { PageHeader, Button, Badge, Table, TableHead, TableBody, TableRow, Th, Td, CountUp } from '../components/ui';
 
 // ── Types ────────────────────────────────────────────────────────────────────
-
-type JobStatus = 'PENDING' | 'EXPORTING_DATASET' | 'TRAINING' | 'IMPORTING_MODEL' | 'COMPLETED' | 'FAILED';
 
 interface FineTuningJob {
   jobId: string;
@@ -43,36 +49,25 @@ interface FineTuningJob {
   };
 }
 
-// ── Pipeline step definitions ─────────────────────────────────────────────
-
-const PIPELINE_STEPS: { status: JobStatus; icon: string }[] = [
-  { status: 'PENDING',           icon: 'hourglass_empty' },
-  { status: 'EXPORTING_DATASET', icon: 'dataset' },
-  { status: 'TRAINING',          icon: 'model_training' },
-  { status: 'IMPORTING_MODEL',   icon: 'upload_file' },
-  { status: 'COMPLETED',         icon: 'check_circle' },
-];
-
-const stepIndex = (status: JobStatus): number =>
-  PIPELINE_STEPS.findIndex(s => s.status === status);
+// ── Pipeline step bar ─────────────────────────────────────────────────────
+// Les étapes et leur état vivent dans lib/fineTuningSteps : la règle était intestable tant
+// qu'elle tenait dans des ternaires du JSX — et le jalon final n'était jamais allumé (S6).
 
 interface StepBarProps { job: FineTuningJob }
 
 const StepBar: FC<StepBarProps> = ({ job }) => {
   const { t } = useTranslation();
-  const current = job.status === 'FAILED'
-    ? stepIndex('COMPLETED') - 1
-    : stepIndex(job.status);
+  const states = stepStates(job.status);
 
   return (
     <div className="flex items-center w-full">
       {PIPELINE_STEPS.map((step, i) => {
-        const isDone   = job.status !== 'FAILED' && i < current;
-        const isActive = i === current && job.status !== 'COMPLETED';
-        const isFailed = job.status === 'FAILED' && i === current;
+        const isDone   = states[i] === 'done';
+        const isActive = states[i] === 'active';
+        const isFailed = states[i] === 'failed';
         const isTraining = isActive && step.status === 'TRAINING';
         // Flow connector: the connector right before the active step
-        const isFlowConnector = isDone && i === current - 1 && job.status !== 'COMPLETED' && job.status !== 'FAILED';
+        const isFlowConnector = isDone && states[i + 1] === 'active';
 
         return (
           <div key={step.status} className="flex items-center flex-1 last:flex-none">
@@ -174,7 +169,9 @@ const FineTuning: FC = () => {
   const [showForm, setShowForm] = useState(false);
   const jobRestoredRef = useRef(false);
   const [submitting, setSubmitting] = useState(false);
-  const [lossHistory, setLossHistory] = useState<{ epoch: number; loss?: number; evalLoss?: number }[]>([]);
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [lossHistory, setLossHistory] = useState<LossPoint[]>([]);
 
   const trainingSchema = useMemo(() => makeTrainingSchema(t), [t]);
 
@@ -317,25 +314,17 @@ const FineTuning: FC = () => {
   useEffect(() => {
     if (!newLog) return;
     setLogs(prev => [...prev.slice(-999), newLog]);
-    // Parse "loss: 0.1234" / "loss=0.1234" and "eval_loss=0.1234" from log messages.
-    // The (?<!eval_) guard matters: without it "eval_loss=…" also satisfies "loss=…" and the
-    // validation loss was plotted as the training loss, hiding the very gap it measures.
-    const trainMatch = newLog.message.match(/(?<!eval_)loss[=:\s]+([0-9]+\.[0-9]+)/i);
-    const evalMatch = newLog.message.match(/eval_loss[=:\s]+([0-9]+\.[0-9]+)/i);
-    const epoch = currentEpochRef.current;
-    if ((trainMatch || evalMatch) && epoch) {
-      const point: { loss?: number; evalLoss?: number } = {};
-      if (trainMatch) point.loss = parseFloat(trainMatch[1]);
-      if (evalMatch) point.evalLoss = parseFloat(evalMatch[1]);
-      setLossHistory(prev => {
-        const last = prev[prev.length - 1];
-        // Training loss and eval_loss arrive on separate lines : on fusionne dans le point
-        // de l'époque courante au lieu de créer deux points concurrents.
-        if (last?.epoch === epoch) return [...prev.slice(0, -1), { ...last, ...point }];
-        return [...prev, { epoch, ...point }];
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const parsed = parseProgressLine(newLog.message);
+    if (!parsed) return;
+    // L'époque de la LIGNE prime sur celle du job : le sondage a jusqu'à 4 s de retard, et
+    // rattachait donc la loss à la mauvaise abscisse. Elle est fractionnaire, ce qui donne un
+    // point par étape au lieu d'un seul par époque — l'ancien code écrasait tout le reste.
+    const epoch = parsed.epoch ?? currentEpochRef.current;
+    if (epoch == null) return;
+    const point: LossPoint = { epoch };
+    if (parsed.loss !== undefined) point.loss = parsed.loss;
+    if (parsed.evalLoss !== undefined) point.evalLoss = parsed.evalLoss;
+    setLossHistory(prev => mergeLossPoint(prev, point));
   }, [newLog]);
 
   useEffect(() => {
@@ -375,15 +364,14 @@ const FineTuning: FC = () => {
         failures = 0;
         const job: FineTuningJob = res.data;
         setActiveJob(job);
-        // Accumulate loss from polling when SSE doesn't carry it
-        if (job.loss !== null && job.currentEpoch !== null) {
-          setLossHistory(prev => {
-            const epoch = job.currentEpoch!;
-            const last = prev[prev.length - 1];
-            if (last?.epoch === epoch) return [...prev.slice(0, -1), { epoch, loss: job.loss! }];
-            if (prev.some(p => p.epoch === epoch)) return prev;
-            return [...prev, { epoch, loss: job.loss! }];
-          });
+        // Filet de sécurité quand le flux SSE est coupé : le sondage alimente la courbe à partir
+        // de l'état du job. La FUSION est essentielle — remplacer le point effaçait l'eval_loss
+        // déjà déposée par le SSE, c'est-à-dire la seule courbe qui signale le sur-apprentissage.
+        if (job.currentEpoch !== null && (job.loss !== null || job.evalLoss !== null)) {
+          const point: LossPoint = { epoch: job.currentEpoch };
+          if (job.loss !== null) point.loss = job.loss;
+          if (job.evalLoss !== null) point.evalLoss = job.evalLoss;
+          setLossHistory(prev => mergeLossPoint(prev, point));
         }
         if (job.status === 'COMPLETED' || job.status === 'FAILED') {
           clearInterval(interval);
@@ -418,17 +406,39 @@ const FineTuning: FC = () => {
       setLossHistory([]);
       setShowForm(false);
       toast.success(t('fineTuning.submitted'), { description: t('fineTuning.submittedId', { id: job.jobId.slice(0, 8) }) });
-    } catch (err: any) {
-      toast.error(t('fineTuning.submitError'), { description: err?.response?.data?.detail ?? err.message });
+    } catch (err: unknown) {
+      // apiErrorMessage lit aussi « error » : le refus 409 (« un entraînement est déjà en
+      // cours ») était sinon remplacé par « Request failed with status code 409 ».
+      toast.error(t('fineTuning.submitError'), { description: apiErrorMessage(err) });
     } finally {
       setSubmitting(false);
     }
   };
 
+  // ── Annuler le job en cours ───────────────────────────────────────────────
+  // L'API et le centre d'activité global le permettaient déjà ; la page dédiée au fine-tuning
+  // était le seul endroit d'où l'on ne pouvait PAS arrêter un entraînement qui monopolise la
+  // machine pendant des heures et bloque toute autre soumission.
+  const cancelActiveJob = async () => {
+    if (!activeJob) return;
+    setCancelling(true);
+    try {
+      await fineTuningApi.cancelJob(activeJob.jobId);
+      toast.info(t('fineTuning.cancelRequested'), { description: activeJob.modelName });
+      loadJobs();   // le sondage bascule le job en FAILED/« Annulé » au tick suivant
+    } catch (err: unknown) {
+      toast.error(t('fineTuning.cancelFailed'), { description: apiErrorMessage(err) });
+    } finally {
+      setCancelling(false);
+      setConfirmingCancel(false);
+    }
+  };
+
   // ── Derived progress ──────────────────────────────────────────────────────
-  const epochProgress = activeJob?.currentEpoch && activeJob?.totalEpochs
-    ? (activeJob.currentEpoch / activeJob.totalEpochs) * 100
-    : null;
+  // `!= null` et non la véracité : une époque à 0 est une progression CONNUE (0 %). Testée pour
+  // sa véracité, elle masquait tout le bloc pendant la première époque — le tiers d'un run par
+  // défaut, et le moment où l'utilisateur a le plus besoin de voir que ça avance.
+  const epochProgress = trainingProgressPercent(activeJob?.currentEpoch, activeJob?.totalEpochs);
 
   return (
     <div className="space-y-12 animate-in fade-in duration-700">
@@ -608,9 +618,23 @@ const FineTuning: FC = () => {
             {t('fineTuning.autoScroll', { state: autoScroll ? t('fineTuning.on') : t('fineTuning.off') })}
           </button>
           {activeJob && (activeJob.status !== 'COMPLETED' && activeJob.status !== 'FAILED') && (
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 bg-secondary animate-pulse"></div>
-              <span className="text-[11px] font-bold text-secondary uppercase tracking-widest">{t('fineTuning.live')}</span>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 bg-secondary animate-pulse"></div>
+                <span className="text-[11px] font-bold text-secondary uppercase tracking-widest">{t('fineTuning.live')}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConfirmingCancel(true)}
+                disabled={cancelling}
+                title={t('fineTuning.cancelJob')}
+                className="flex items-center gap-1 px-2 py-1 border border-outline text-outline
+                           text-[10px] font-bold uppercase tracking-widest
+                           hover:border-error hover:text-error transition-colors disabled:opacity-50"
+              >
+                <span aria-hidden="true" className="material-symbols-outlined text-[14px]">stop_circle</span>
+                {t('fineTuning.cancelJob')}
+              </button>
             </div>
           )}
         </div>
@@ -665,7 +689,10 @@ const FineTuning: FC = () => {
                       <div className="absolute top-0 left-0 h-full bg-secondary transition-all" style={{ width: `${epochProgress}%` }} />
                     </div>
                     <div className="flex justify-between text-[10px] text-outline">
-                      <span>{t('fineTuning.epochOf', { current: activeJob.currentEpoch, total: activeJob.totalEpochs })}</span>
+                      <span>{t('fineTuning.epochOf', {
+                        current: epochInProgress(activeJob.currentEpoch ?? 0, activeJob.totalEpochs),
+                        total: activeJob.totalEpochs,
+                      })}</span>
                       {activeJob.loss !== null && <span>{t('fineTuning.loss', { value: activeJob.loss.toFixed(4) })}</span>}
                     </div>
                   </div>
@@ -806,6 +833,17 @@ const FineTuning: FC = () => {
           </TableBody>
         </Table>
       </section>
+
+      {/* Confirmation : un entraînement interrompu est perdu (aucune reprise d'adaptateur). */}
+      <ConfirmDialog
+        open={confirmingCancel}
+        busy={cancelling}
+        title={t('fineTuning.cancelJobTitle')}
+        message={t('fineTuning.cancelJobMessage', { name: activeJob?.modelName ?? '' })}
+        confirmLabel={t('fineTuning.cancelJobConfirm')}
+        onCancel={() => setConfirmingCancel(false)}
+        onConfirm={cancelActiveJob}
+      />
     </div>
   );
 };

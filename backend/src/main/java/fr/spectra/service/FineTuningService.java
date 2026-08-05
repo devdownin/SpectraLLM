@@ -578,12 +578,42 @@ public class FineTuningService {
                 () -> cancelledJobs.contains(jobId));
     }
 
+    /**
+     * Lignes de rafraîchissement d'une barre de progression ({@code tqdm} et assimilés). Elles
+     * sont terminées par un {@code \r}, que le découpage en lignes — côté Java comme côté trainer
+     * — traite comme une fin de ligne : <b>chaque rafraîchissement devient un évènement SSE</b>.
+     * Un téléchargement HuggingFace en produit des centaines par seconde, de quoi retourner le
+     * tampon de 500 du diffuseur en quelques secondes et chasser l'utile.
+     */
+    private static final java.util.regex.Pattern PROGRESS_BAR_PATTERN =
+            java.util.regex.Pattern.compile("\\d+%\\||\\d+/\\d+ \\[|it/s|s/it|B/s");
+    private static final long PROGRESS_BAR_MIN_INTERVAL_MS = 1_000;
+    private final java.util.concurrent.atomic.AtomicLong lastProgressBarPublish =
+            new java.util.concurrent.atomic.AtomicLong(0);
+
     /** Journalisation, diffusion SSE et extraction de progression, communes aux deux exécutions. */
     private void onProcessLine(String jobId, String label, String line) {
-        broadcaster.info(line);   // diffusion temps réel vers /api/sse/training-logs
+        // Extraction AVANT tout filtrage : une ligne non diffusée doit quand même faire avancer
+        // la progression du job.
         if ("train".equals(label)) {
             parseTrainingOutput(jobId, line);
         }
+        if (line.isBlank()) return;
+        if (isProgressBarRefresh(line) && !allowProgressBarLine()) return;
+        broadcaster.info(line);   // diffusion temps réel vers /api/sse/training-logs
+    }
+
+    /** Vrai pour un rafraîchissement de barre ; « 100% » passe toujours (fin d'étape lisible). */
+    private static boolean isProgressBarRefresh(String line) {
+        return !line.contains("100%") && PROGRESS_BAR_PATTERN.matcher(line).find();
+    }
+
+    /** Au plus une ligne de barre par seconde : le flux reste vivant sans être noyé. */
+    private boolean allowProgressBarLine() {
+        long now = System.currentTimeMillis();
+        long last = lastProgressBarPublish.get();
+        return now - last >= PROGRESS_BAR_MIN_INTERVAL_MS
+                && lastProgressBarPublish.compareAndSet(last, now);
     }
 
     /**
@@ -655,8 +685,13 @@ public class FineTuningService {
         return cleaned.isEmpty() ? "model" : cleaned;
     }
 
+    /**
+     * Époque courante, <b>fraction comprise</b> : {@code ProgressLogger} imprime
+     * « epoch=0.33 ». Le motif ne capturait que la partie entière — donc {@code 0} pendant toute
+     * la première époque, que l'UI interprétait comme « pas de progression connue ».
+     */
     private static final java.util.regex.Pattern EPOCH_PATTERN =
-            java.util.regex.Pattern.compile("epoch[= ]*(\\d+)");
+            java.util.regex.Pattern.compile("epoch[= ]*(\\d+(?:\\.\\d+)?)");
     /**
      * Loss d'entraînement. Le {@code (?<!eval_)} est essentiel : sans lui, la ligne
      * « eval_loss=0.45 » satisfait aussi « loss=… » et l'{@code eval_loss} était enregistré
@@ -676,7 +711,7 @@ public class FineTuningService {
         try {
             String lower = line.toLowerCase();
             if (!lower.contains("epoch")) return;
-            Integer epoch = extract(EPOCH_PATTERN, lower, Integer::parseInt);
+            Double epoch = extract(EPOCH_PATTERN, lower, Double::parseDouble);
             if (epoch == null) return;
             Double loss = extract(LOSS_PATTERN, lower, Double::parseDouble);
             Double evalLoss = extract(EVAL_LOSS_PATTERN, lower, Double::parseDouble);

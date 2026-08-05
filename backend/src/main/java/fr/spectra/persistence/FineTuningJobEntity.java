@@ -28,7 +28,8 @@ public class FineTuningJobEntity {
 
     private int datasetSize;
     private String currentStep;
-    private Integer currentEpoch;
+    /** Fractionnaire : voir {@link FineTuningJob#currentEpoch()} (colonne migrée en DOUBLE). */
+    private Double currentEpoch;
     private Integer totalEpochs;
     private Double loss;
     private Double evalLoss;
@@ -45,7 +46,7 @@ public class FineTuningJobEntity {
 
     public FineTuningJobEntity(String jobId, String status, String modelName, String baseModel,
                                String parameters, int datasetSize, String currentStep,
-                               Integer currentEpoch, Integer totalEpochs, Double loss,
+                               Double currentEpoch, Integer totalEpochs, Double loss,
                                Double evalLoss, String outputPath, String reportPath, String error,
                                Instant createdAt, Instant completedAt) {
         this.jobId = jobId;

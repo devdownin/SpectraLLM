@@ -553,6 +553,12 @@
     "kicker": "Architecture Evolution",
     "title": "Fine-tuning",
     "cancel": "Cancel",
+    "cancelJob": "Stop",
+    "cancelJobTitle": "Stop training?",
+    "cancelJobMessage": "Training of “{{name}}” will be interrupted. Progress is lost: every job starts from scratch.",
+    "cancelJobConfirm": "Stop training",
+    "cancelRequested": "Stop requested",
+    "cancelFailed": "Could not stop the job",
     "newJob": "New Training Job",
     "steps": {
       "PENDING": "Queued",

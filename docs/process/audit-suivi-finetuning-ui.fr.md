@@ -43,10 +43,30 @@
 >
 > Aucun test n'existe sur cette page : `FineTuning.tsx` n'a pas de fichier de test, et `LossChart`
 > non plus. Seuls les normaliseurs du centre d'activité sont couverts (`useGlobalTasks.test.ts`).
+>
+> ---
+>
+> **Statut au 2026-08-05 — lot 1 livré.** Sont **corrigés** : S2, S3, S4, S6, S12, S15, S16, et la
+> moitié client de S1. Concrètement : la progression démarre à la première fraction d'époque au
+> lieu du premier tiers du run, la courbe compte un point par étape journalisée sur un axe qui
+> couvre les époques prévues, la courbe de validation ne disparaît plus, le jalon final s'allume,
+> le flux de télémétrie n'est plus noyé par les barres de téléchargement ni muet avant le premier
+> pas, et l'entraînement s'arrête depuis sa propre page avec un refus 409 enfin lisible.
+>
+> Trois jeux de tests accompagnent le lot (`trainingProgress.test.ts`, `fineTuningSteps.test.ts`,
+> `FineTuning.cancel.test.tsx`, `FineTuningProgressTrackingTest`) : les règles de suivi vivent
+> désormais dans des fonctions pures plutôt que dans des ternaires du JSX.
+>
+> Restent **ouverts** : S5 et S9 (les deux endroits où l'interface affirme quelque chose de faux),
+> S8 et la moitié serveur de S1 (rien n'est persisté), puis S7, S10, S11, S13, S14, S17 à S22 et
+> l'alignement de la documentation. Aucun n'est bloquant.
 
 ---
 
 ## 1. État des lieux — ce que l'UI montre par phase
+
+> Ce tableau décrit l'état **constaté à l'audit**, avant le lot 1 ; il est conservé tel quel pour
+> la traçabilité. Les corrections apportées depuis sont détaillées sous chaque constat.
 
 | Phase (statut) | Affiché | Ce qui manque |
 |---|---|---|
@@ -68,7 +88,7 @@ complet du fine-tuning se trouve donc aujourd'hui *ailleurs que sur la page de f
 
 ## 2. La courbe de perte
 
-### S1 — La loss par étape est agrégée à un point par époque — **élevé**
+### S1 — La loss par étape est agrégée à un point par époque — **élevé** — ✅ partiellement corrigé
 
 `train_host.py` fixe `logging_steps=1` sur les trois chemins d'entraînement (lignes 443, 469, 516)
 et `ProgressLogger` (`train_host.py:375-383`) imprime une ligne par étape :
@@ -97,7 +117,17 @@ c'est-à-dire aucune des décisions que l'on prend en regardant une courbe de lo
 > fichier `losses.jsonl` dans le répertoire du job) et indexer le graphe sur l'**époque
 > fractionnaire** déjà présente dans la ligne (`epoch=0.33`), pas sur un entier.
 
-### S2 — Le sondage efface l'eval_loss de la courbe — **élevé**
+**Correction appliquée (moitié client).** `parseProgressLine` (`lib/trainingProgress.ts`) lit
+l'époque **dans la ligne elle-même**, fraction comprise, et `mergeLossPoint` n'agrège que les
+points de même abscisse. La série compte désormais **un point par étape journalisée** (bornée à
+2000), et non plus un par époque. Au passage, la loss n'est plus rattachée à l'époque remontée par
+le sondage — jusqu'à 4 s de retard, donc une abscisse fausse.
+
+**Reste ouvert :** le job ne porte toujours qu'une loss scalaire. La série vit dans l'état de la
+page : un rechargement la perd, et un job terminé n'en a aucune. C'est le même correctif que S8
+(persistance), et il n'est pas fait.
+
+### S2 — Le sondage efface l'eval_loss de la courbe — **élevé** — ✅ corrigé
 
 `FineTuning.tsx:379-387`, accumulation depuis le sondage REST :
 
@@ -115,7 +145,12 @@ justification même du curseur `valSplit` livré au constat F9 de l'audit préc�
 disparaît** selon l'ordre d'arrivée SSE / sondage. La fonctionnalité est livrée côté moteur, côté
 backend et côté graphe, et se perd sur cette unique ligne.
 
-### S3 — Toute la première époque est invisible — **élevé**
+**Correction appliquée.** Les deux chemins passent par `mergeLossPoint`, qui **fusionne**
+(`{ ...last, ...point }`) au lieu de remplacer, et le bloc de sondage lit désormais aussi
+`job.evalLoss`. Couvert par `trainingProgress.test.ts` (« fusionne l'eval_loss dans le point de la
+même époque au lieu de l'écraser »).
+
+### S3 — Toute la première époque est invisible — **élevé** — ✅ corrigé
 
 Trois filtres se cumulent sur la même cause, l'entier :
 
@@ -132,7 +167,21 @@ donc **ni pourcentage, ni compteur d'époque, ni loss, ni courbe**. Le seul cham
 C'est le moment où l'utilisateur a le plus besoin d'être rassuré (« est-ce que ça avance ? ») et
 c'est celui où l'interface en dit le moins.
 
-### S4 — L'axe des abscisses ne montre pas la progression — **faible**
+**Correction appliquée**, sur les trois emplacements :
+
+- `EPOCH_PATTERN` capture la fraction (`epoch[= ]*(\d+(?:\.\d+)?)`), `FineTuningJob.currentEpoch`
+  devient un `Double` et la colonne `current_epoch` passe en `DOUBLE PRECISION` (migration
+  idempotente dans `schema.sql`, vérifiée sur une base existante en `INTEGER`).
+- Le libellé n'affiche plus la troncature mais l'**époque en cours** — arrondi supérieur, borné au
+  total : `epoch=0.33` donne « epoch 1/3 » et non « epoch 0/3 ».
+- Côté page, `trainingProgressPercent` teste `!= null` et non la véracité : une époque à `0` est
+  une progression **connue** (0 %), pas une progression inconnue. La barre part donc de 0 % et
+  avance en continu au lieu de rester masquée puis de sauter d'un tiers.
+
+Effet de bord voulu : la barre et l'ETA du centre d'activité global avancent elles aussi en
+continu, `progress` étant désormais un ratio fractionnaire.
+
+### S4 — L'axe des abscisses ne montre pas la progression — **faible** — ✅ corrigé
 
 `LossChart.tsx:48-55` passe `domain={[1, totalEpochs]}` et `tickCount` à un `XAxis` **sans
 `type="number"`**. Le type par défaut de recharts est `category` : `domain` et `tickCount` sont
@@ -142,6 +191,13 @@ sur les N époques prévues ») n'est pas réalisée.
 
 Corollaire du même choix : la `ReferenceLine` « min » (ligne 64-71) est calculée sur la seule loss
 d'entraînement, jamais sur l'eval_loss — le minimum affiché n'est donc pas celui qui compte.
+
+**Correction appliquée** : `type="number"`, `domain={[0, totalEpochs]}` et une graduation par
+époque. L'axe couvre maintenant les époques **prévues** ; la courbe progresse de la gauche vers la
+droite au rythme réel du run. L'info-bulle affiche l'époque fractionnaire à deux décimales, comme
+la sortie du trainer.
+
+Reste ouvert : la `ReferenceLine` du minimum ignore toujours l'eval_loss.
 
 ---
 
@@ -171,13 +227,18 @@ corrigeant le composant, l'information n'existe plus.
 > Correctif : conserver le statut atteint avant l'échec (champ `failedAt` / `lastStatus` sur le
 > DTO et l'entité), et dériver `current` de ce champ dans `StepBar`.
 
-### S6 — L'étape « Complete » n'est jamais allumée — **faible**
+### S6 — L'étape « Complete » n'est jamais allumée — **faible** — ✅ corrigé
 
 `FineTuning.tsx:70-72` : pour un job `COMPLETED`, `current = 4`, `isDone = i < current` (donc faux
 en 4) et `isActive = i === current && job.status !== 'COMPLETED'` (faux par construction). Le
 dernier jalon reste dans le style neutre `border-outline-variant/30 text-outline` — un run réussi
 affiche quatre étapes vertes suivies d'une pastille grise. La fin du processus n'est jamais
 marquée comme atteinte.
+
+**Correction appliquée** : la règle d'état des étapes sort du JSX vers `lib/fineTuningSteps.ts`
+(`stepStates`), où `COMPLETED` marque **toutes** les étapes franchies. Couvert par
+`fineTuningSteps.test.ts`. L'extraction rend au passage S5 trivial à corriger côté UI, une fois la
+phase de l'échec conservée côté serveur.
 
 ### S7 — Une annulation est présentée comme un échec — **moyen**
 
@@ -268,7 +329,7 @@ sortir de l'application.
 > Correctif minimal : détecter le niveau à la source (préfixe `ERREUR`/`Traceback`/`WARNING`) ou
 > publier `stderr` sur un canal `error` distinct, et rendre les lignes dépliables + copiables.
 
-### S12 — Le flux est haché : silence puis rafale — **moyen**
+### S12 — Le flux est haché : silence puis rafale — **moyen** — ✅ corrigé
 
 Deux effets de tampon opposés se combinent, et aucun n'est neutralisé :
 
@@ -286,6 +347,16 @@ Deux effets de tampon opposés se combinent, et aucun n'est neutralisé :
 
 Un filtre à la source (ignorer les lignes purement `\r`, ou n'en garder qu'une par seconde) et un
 `PYTHONUNBUFFERED=1` dans l'image du trainer suffisent à rendre le flux lisible.
+
+**Correction appliquée**, des deux côtés :
+
+- `PYTHONUNBUFFERED=1` dans `services/trainer/Dockerfile` **et** dans `scripts/train.sh` (le mode
+  hôte souffrait du même tampon) : la phase antérieure au premier pas d'entraînement — dont le
+  téléchargement du modèle de base — s'affiche enfin au fil de l'eau.
+- `FineTuningService.onProcessLine` limite les rafraîchissements de barre à **un par seconde** et
+  écarte les lignes vides ; « 100 % » passe toujours, pour qu'aucune barre ne reste figée juste
+  avant la fin. L'extraction de progression est faite **avant** le filtrage : une ligne non
+  diffusée fait quand même avancer le job. Couvert par `FineTuningProgressTrackingTest`.
 
 ---
 
@@ -323,7 +394,7 @@ n'est pas figée.
 
 ## 6. Pilotage depuis la page
 
-### S15 — Aucun bouton d'annulation sur la page de fine-tuning — **élevé**
+### S15 — Aucun bouton d'annulation sur la page de fine-tuning — **élevé** — ✅ corrigé
 
 `DELETE /api/fine-tuning/{jobId}` existe (`FineTuningController.java:135-146`), `fineTuningApi.cancelJob`
 existe (`services/api.ts:103`), et **`TaskCenter` l'utilise** avec confirmation
@@ -337,7 +408,14 @@ plus attendue.
 resoumettre immédiatement renvoie un 409 transitoire, `trainingRunning` n'étant libéré que par le
 `finally` du thread asynchrone (`FineTuningService.java:386-389`).
 
-### S16 — Le motif du refus 409 n'est jamais affiché — **moyen**
+**Correction appliquée** : bouton « Arrêter » dans l'en-tête du moniteur, visible tant que le job
+n'est pas terminal, avec `ConfirmDialog` — un entraînement interrompu est perdu, la confirmation
+n'est pas décorative. Le sondage bascule ensuite le job de lui-même. Couvert par
+`FineTuning.cancel.test.tsx` (confirmation acceptée → appel API ; refusée → aucun appel).
+
+Le 409 transitoire, lui, reste ouvert — mais son message est désormais lisible (S16).
+
+### S16 — Le motif du refus 409 n'est jamais affiché — **moyen** — ✅ corrigé
 
 `FineTuningController.java:90-92` renvoie `{"error": "Un entraînement est déjà en cours"}` (un
 `Map`), tandis que la page lit `err?.response?.data?.detail` (`FineTuning.tsx:422`) — le format
@@ -348,6 +426,10 @@ s'affiche correctement — c'est l'un des rares messages d'erreur vraiment actio
 
 `TaskCenter.tsx:178` gère déjà les deux formes (`data.detail ?? data.error ?? message`) ; il suffit
 d'aligner la page, ou mieux, de faire renvoyer un `ProblemDetail` au contrôleur.
+
+**Correction appliquée**, les deux à la fois : le contrôleur lève une `ResponseStatusException`
+(donc un `ProblemDetail`, comme les autres refus) avec un motif qui dit quoi faire, et la page lit
+les deux formes via `lib/apiError.ts`. Couvert par `FineTuning.cancel.test.tsx`.
 
 ### S17 — La réponse de création n'est pas un job — **faible**
 
@@ -448,68 +530,73 @@ d'un job et sur clic « Refresh » — la table ne reflète donc pas l'avancemen
 
 | Élément | Test | État |
 |---|---|---|
-| `FineTuning.tsx` | — | **aucun** |
-| `LossChart.tsx` | — | **aucun** |
-| `useSse.ts` | — | **aucun** |
+| Lecture de la progression (`lib/trainingProgress`) | `trainingProgress.test.ts` | ✅ livré avec le lot 1 |
+| État des étapes (`lib/fineTuningSteps`) | `fineTuningSteps.test.ts` | ✅ livré avec le lot 1 |
+| Pilotage de la page (arrêt, refus 409) | `FineTuning.cancel.test.tsx` | ✅ livré avec le lot 1 |
+| `parseTrainingOutput` + volume diffusé (backend) | `FineTuningProgressTrackingTest` | ✅ livré avec le lot 1 |
 | `useGlobalTasks` (normaliseurs, ETA) | `useGlobalTasks.test.ts` | ✅ |
 | `TaskCenter` (relance) | `TaskCenter.retry.test.tsx` | ✅ partiel |
-| `parseTrainingOutput` (backend) | — | **aucun** |
+| `LossChart.tsx` (rendu) | — | **aucun** |
+| `useSse.ts` (livraison des évènements) | — | **aucun** |
 
-Les défauts S1, S2, S3, S5 et S6 sont tous des invariants vérifiables sans navigateur réel, par de
-simples tests de rendu (Testing Library, déjà utilisé dans le dépôt) ou de fonction pure :
+Les invariants figés par le lot 1, tous vérifiables sans navigateur réel ni GPU :
 
-- une ligne `epoch=0.97 loss=1.2` doit produire un point traçable ;
-- un `job.evalLoss` reçu par sondage ne doit pas effacer le point existant ;
-- un job `FAILED` pendant `EXPORTING_DATASET` doit allumer l'étape 2, pas l'étape 4 ;
-- un job `COMPLETED` doit allumer les cinq étapes ;
-- `parseTrainingOutput` doit conserver l'époque fractionnaire.
+- une ligne `epoch=0.97 loss=1.2` produit un point traçable, à l'abscisse `0.97` ;
+- un `job.evalLoss` reçu par sondage n'efface pas le point existant ;
+- un job `COMPLETED` allume les cinq étapes ;
+- `parseTrainingOutput` conserve l'époque fractionnaire et affiche « epoch 1/3 », pas « 0/3 » ;
+- une rafale de barre de progression ne produit qu'un évènement, les lignes utiles passent toutes ;
+- arrêter un job demande confirmation, puis appelle l'API — et n'appelle rien si l'on renonce.
 
-C'est le levier le moins cher : ces cinq assertions figent l'essentiel des constats élevés.
+Reste à couvrir, avec les lots suivants : un job `FAILED` pendant `EXPORTING_DATASET` doit allumer
+l'étape 2 et non l'étape 4 (S5), et le hook SSE doit livrer chaque évènement une fois (S10).
 
 ---
 
 ## 10. Priorisation
 
-| # | Constat | Gravité | Effort |
-|---|---|---|---|
-| S1 | Loss par étape agrégée à un point par époque — courbe à 2-3 points | Élevé | Moyen |
-| S3 | Première époque entièrement invisible (entier tronqué) | Élevé | Faible |
-| S5 | Un échec est toujours attribué à l'étape « Import » ; la phase fautive n'est pas conservée | Élevé | Faible (UI) + Moyen (DTO) |
-| S8 | Logs perdus au rechargement, à la navigation et hors connexion | Élevé | Moyen |
-| S15 | Pas d'annulation depuis la page de fine-tuning | Élevé | Trivial |
-| S2 | Le sondage efface l'eval_loss (annule le bénéfice de `valSplit`) | Élevé | Trivial |
-| S9 | Flux SSE sans `jobId` — logs et courbe attribués au mauvais job | Moyen | Faible |
-| S10 | Hook SSE sans garantie de livraison (dernier message seulement) | Moyen | Faible |
-| S11 | Tout en INFO, erreurs incluses ; lignes tronquées, non copiables | Moyen | Faible |
-| S12 | Silence puis rafale (buffering Python, `\r` de tqdm) | Moyen | Trivial |
-| S13 | Ni durée écoulée, ni ETA sur la page ; ETA globale biaisée | Moyen | Faible |
-| S14 | `EXPORTING_DATASET` et `IMPORTING_MODEL` sans signal de vie | Moyen | Faible |
-| S16 | Motif du 409 jamais affiché | Moyen | Trivial |
-| S20 | Statuts bruts, `currentStep` et erreurs en français dans l'UI anglaise | Moyen | Moyen |
-| S21 | Aucun attribut ARIA sur les indicateurs de progression | Moyen | Faible |
-| S7 | Annulation, échec et redémarrage rendus à l'identique | Moyen | Faible |
-| S4 | Axe X catégoriel : `domain`/`tickCount` inertes | Faible | Trivial |
-| S6 | L'étape « Complete » n'est jamais allumée | Faible | Trivial |
-| S17 | Réponse de création typée comme un job (panneau creux ~4 s) | Faible | Trivial |
-| S18 | Indisponibilité du trainer connue seulement à la soumission | Faible | Faible |
-| S19 | Job terminé sans chemin vers la mise en service | Faible | Faible |
-| S22 | Historique sans durée, loss, ni motif d'échec | Faible | Faible |
-| §8 | Manuel décrivant une case ORPO absente, omettant `valSplit` et l'export GGUF | Faible | Trivial |
+| # | Constat | Gravité | Effort | Statut |
+|---|---|---|---|---|
+| S1 | Loss par étape agrégée à un point par époque — courbe à 2-3 points | Élevé | Moyen | ⚠️ client corrigé, série non persistée |
+| S3 | Première époque entièrement invisible (entier tronqué) | Élevé | Faible | ✅ corrigé |
+| S5 | Un échec est toujours attribué à l'étape « Import » ; la phase fautive n'est pas conservée | Élevé | Faible (UI) + Moyen (DTO) | Ouvert |
+| S8 | Logs perdus au rechargement, à la navigation et hors connexion | Élevé | Moyen | Ouvert |
+| S15 | Pas d'annulation depuis la page de fine-tuning | Élevé | Trivial | ✅ corrigé |
+| S2 | Le sondage efface l'eval_loss (annule le bénéfice de `valSplit`) | Élevé | Trivial | ✅ corrigé |
+| S9 | Flux SSE sans `jobId` — logs et courbe attribués au mauvais job | Moyen | Faible | Ouvert |
+| S10 | Hook SSE sans garantie de livraison (dernier message seulement) | Moyen | Faible | Ouvert |
+| S11 | Tout en INFO, erreurs incluses ; lignes tronquées, non copiables | Moyen | Faible | Ouvert |
+| S12 | Silence puis rafale (buffering Python, `\r` de tqdm) | Moyen | Trivial | ✅ corrigé |
+| S13 | Ni durée écoulée, ni ETA sur la page ; ETA globale biaisée | Moyen | Faible | ⚠️ ETA globale lissée (progression continue) |
+| S14 | `EXPORTING_DATASET` et `IMPORTING_MODEL` sans signal de vie | Moyen | Faible | Ouvert |
+| S16 | Motif du 409 jamais affiché | Moyen | Trivial | ✅ corrigé |
+| S20 | Statuts bruts, `currentStep` et erreurs en français dans l'UI anglaise | Moyen | Moyen | Ouvert |
+| S21 | Aucun attribut ARIA sur les indicateurs de progression | Moyen | Faible | Ouvert |
+| S7 | Annulation, échec et redémarrage rendus à l'identique | Moyen | Faible | Ouvert |
+| S4 | Axe X catégoriel : `domain`/`tickCount` inertes | Faible | Trivial | ✅ corrigé |
+| S6 | L'étape « Complete » n'est jamais allumée | Faible | Trivial | ✅ corrigé |
+| S17 | Réponse de création typée comme un job (panneau creux ~4 s) | Faible | Trivial | Ouvert |
+| S18 | Indisponibilité du trainer connue seulement à la soumission | Faible | Faible | Ouvert |
+| S19 | Job terminé sans chemin vers la mise en service | Faible | Faible | Ouvert |
+| S22 | Historique sans durée, loss, ni motif d'échec | Faible | Faible | Ouvert |
+| §8 | Manuel décrivant une case ORPO absente, omettant `valSplit` et l'export GGUF | Faible | Trivial | ⚠️ arrêt documenté, reste ouvert |
 
 **Ordre suggéré.**
 
-1. **Le lot trivial à fort rendement** — S2, S3, S6, S15, S16, S4, S12. Une demi-journée : la
-   première époque devient visible, la courbe de validation cesse de disparaître, la fin de
-   parcours est marquée, l'annulation revient sur la page et les refus s'expliquent. Six des
-   sept correctifs tiennent en moins de dix lignes chacun.
+1. ~~**Le lot trivial à fort rendement** — S2, S3, S6, S15, S16, S4, S12.~~ **Livré**, avec ses
+   tests de non-régression. La première époque est visible, la courbe de validation ne disparaît
+   plus, la fin de parcours est marquée, l'annulation est sur la page et les refus s'expliquent.
 2. **La véracité du suivi** — S5 (conserver la phase de l'échec, côté DTO et entité) puis S9
    (`jobId` dans l'évènement SSE, réinitialisation à la sélection d'un job). Ce sont les deux
-   endroits où l'interface affirme aujourd'hui quelque chose de faux.
-3. **La substance du signal** — S1 (série de loss portée par le job ou par un fichier), puis S8
-   (persistance des logs et endpoint de relecture). Les deux partagent la même infrastructure : le
-   répertoire de job existe déjà, il ne sert qu'à l'adaptateur.
-4. **Le reste** — durée/ETA (S13), phases muettes (S14), niveaux de log (S11), i18n (S20),
-   accessibilité (S21), historique (S22), et l'alignement du manuel (§8).
+   endroits où l'interface affirme aujourd'hui quelque chose de faux. `stepStates` étant désormais
+   une fonction pure testée, la moitié UI de S5 tient en une ligne.
+3. **La substance du signal** — la moitié serveur de S1 (série de loss portée par le job ou par un
+   fichier), puis S8 (persistance des logs et endpoint de relecture). Les deux partagent la même
+   infrastructure : le répertoire de job existe déjà, il ne sert qu'à l'adaptateur. C'est ce qui
+   manque pour qu'un rechargement de page ne détruise plus le suivi d'un run de plusieurs heures.
+4. **Le reste** — durée/ETA sur la page (S13), phases muettes (S14), niveaux de log (S11), i18n
+   (S20), accessibilité (S21), historique (S22), et l'alignement du manuel (§8).
 
-Les tests du §9 sont à écrire **avec** le lot 1, pas après : sans eux, S3 et S6 sont exactement le
-genre de régression qui revient au prochain remaniement de la page.
+Les tests du §9 ont été écrits **avec** le lot 1, et non après : sans eux, S3 et S6 sont exactement
+le genre de régression qui revient au prochain remaniement de la page. Les lots suivants doivent
+suivre la même règle.

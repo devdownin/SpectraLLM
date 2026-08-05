@@ -8,6 +8,61 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Corrigé — le suivi d'un fine-tuning ne montrait ni le premier tiers du run, ni sa courbe
+
+```
+  epoch=0.33  loss=1.8421     ← émis à chaque étape par le trainer
+  epoch=0.67  loss=1.6203
+```
+
+`epoch[= ]*(\d+)` lisait `0` dans `epoch=0.97`, et `0` est *falsy* en JavaScript. Pendant toute la
+première époque — le premier tiers d'un run par défaut, plusieurs heures sur CPU — la barre de
+progression, le compteur d'époques et la loss étaient **entièrement masqués**, tandis que l'étape
+courante affichait `Entraînement epoch 0/3`, qui se lit comme un blocage. L'époque est désormais
+**fractionnaire** de bout en bout (`Double`, colonne migrée en `DOUBLE PRECISION`), l'affichage
+arrondit au supérieur (« epoch 1/3 ») et la progression est masquée si et seulement si elle est
+réellement inconnue.
+
+Même cause pour la courbe : les losses par étape étaient toutes écrasées dans un point par époque
+entière, soit **2 à 3 points** pour un run de 3 époques — moins que les 2 points minimum exigés par
+le graphe, qui affichait donc « Accumulating data… » presque tout du long. Elle en compte
+maintenant un par étape journalisée, sur un axe `type="number"` couvrant les époques prévues (le
+`domain` était inerte sur l'axe catégoriel par défaut).
+
+Trois autres défauts de restitution corrigés dans la foulée :
+
+- **La courbe de validation disparaissait.** Le sondage REST *remplaçait* le point de l'époque au
+  lieu de le fusionner, effaçant l'`eval_loss` déposée par le flux SSE — c'est-à-dire la seule
+  courbe qui signale un sur-apprentissage, et toute la raison d'être du curseur `valSplit`.
+- **Le jalon « Complete » n'était jamais allumé** : un run réussi affichait quatre étapes vertes
+  suivies d'une pastille grise.
+- **Le motif d'un refus 409 était perdu.** La route répondait `{"error": …}` là où l'UI lit le
+  `detail` d'un `ProblemDetail` ; l'utilisateur voyait « Request failed with status code 409 ».
+
+### Ajouté — arrêter un entraînement depuis sa propre page
+
+`DELETE /api/fine-tuning/{jobId}` existait, le centre d'activité du header l'utilisait, mais la
+page de fine-tuning — le seul écran dédié à ce travail — n'offrait aucun moyen de l'arrêter. Un
+bouton **Arrêter** apparaît désormais dans l'en-tête du moniteur tant que le job n'est pas
+terminal, avec confirmation : un entraînement interrompu est perdu, aucun job ne reprend depuis un
+adaptateur précédent.
+
+### Corrigé — le flux de télémétrie alternait silence et rafale
+
+Aucun `PYTHONUNBUFFERED` nulle part : sur un tube, Python bufférise par blocs et seul
+`ProgressLogger` appelait `flush()`. Tout ce qui précède la première étape — dont le téléchargement
+du modèle de base, plusieurs minutes — n'atteignait le flux qu'après coup. À l'inverse, les barres
+`tqdm` se terminent par `\r`, que le découpage en lignes traite comme une fin de ligne : chaque
+rafraîchissement devenait un évènement SSE, de quoi retourner le tampon de 500 du diffuseur en
+quelques secondes. Sortie non tamponnée des deux côtés (image du trainer et `train.sh`), et au plus
+une ligne de barre par seconde — « 100 % » passant toujours, pour qu'aucune barre ne reste figée.
+
+Ces défauts sont ceux du lot 1 de [l'audit du suivi de fine-tuning](docs/process/audit-suivi-finetuning-ui.fr.md),
+qui décrit aussi ce qui reste ouvert — dont la non-persistance des logs et de la courbe, qu'un
+simple rechargement de page détruit encore. Les règles de suivi vivent désormais dans des fonctions
+pures (`lib/trainingProgress.ts`, `lib/fineTuningSteps.ts`) couvertes par des tests, là où elles
+tenaient dans des ternaires du JSX.
+
 ### Corrigé — l'index vectoriel n'a jamais été persisté
 
 ```

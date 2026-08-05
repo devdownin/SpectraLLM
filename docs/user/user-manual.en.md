@@ -650,7 +650,13 @@ Then, when launching fine-tuning (step 3), check **DPO Alignment** so the traine
 [QUEUED] ──→ [EXPORT] ──→ [TRAINING] ──→ [IMPORT] ──→ [COMPLETE]
 ```
 
-7. (Optional) Click **Export** to save the current configuration as a reusable YAML file.
+   The progress bar advances continuously (epoch fractions), the loss chart plots one point per
+   logged step, and the telemetry stream shows the trainer's output live.
+
+7. To stop a running job, click **Stop** at the top right of the monitor and confirm. Progress is
+   lost — a job never resumes from a previous adapter. The same button is available from the
+   activity centre in the header, on any page.
+8. (Optional) Click **Export** to save the current configuration as a reusable YAML file.
 
 #### Via the API
 

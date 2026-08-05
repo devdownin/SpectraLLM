@@ -10,7 +10,14 @@ public record FineTuningJob(
         FineTuningRequest parameters,
         int datasetSize,
         String currentStep,
-        Integer currentEpoch,
+        /**
+         * Époques <b>consommées</b>, en valeur fractionnaire ({@code 0.33} = un tiers de la
+         * première époque). Le trainer l'émet ainsi à chaque étape ({@code epoch=0.33}) ; la
+         * tronquer en entier faisait valoir {@code 0} pendant toute la première époque, et
+         * l'interface — qui teste la valeur pour savoir si elle est connue — masquait alors
+         * progression, compteur et loss sur le premier tiers d'un run par défaut.
+         */
+        Double currentEpoch,
         Integer totalEpochs,
         Double loss,
         /**
@@ -50,15 +57,27 @@ public record FineTuningJob(
      * (le trainer logue la training loss par étape et l'eval_loss en fin d'époque) : un argument
      * {@code null} signifie « pas de nouvelle valeur », et la précédente est conservée plutôt
      * qu'effacée.
+     *
+     * @param epoch époques consommées, fractionnaires ({@code 0.33} = un tiers de la première)
      */
-    public FineTuningJob withTrainingProgress(int epoch, Double loss, Double evalLoss) {
+    public FineTuningJob withTrainingProgress(double epoch, Double loss, Double evalLoss) {
         return new FineTuningJob(
                 jobId, Status.TRAINING, modelName, baseModel, parameters, datasetSize,
-                "Entraînement epoch " + epoch + "/" + totalEpochs, epoch, totalEpochs,
+                "Entraînement epoch " + epochInProgress(epoch) + "/" + totalEpochs, epoch, totalEpochs,
                 loss != null ? loss : this.loss,
                 evalLoss != null ? evalLoss : this.evalLoss,
                 outputPath, reportPath, error, createdAt, completedAt
         );
+    }
+
+    /**
+     * Numéro de l'époque <b>en cours</b> pour l'affichage : {@code 0.33} époque consommée, c'est
+     * la première qui travaille. D'où l'arrondi supérieur — et non la troncature, qui affichait
+     * « epoch 0/3 », lisible comme un blocage.
+     */
+    private int epochInProgress(double epoch) {
+        int inProgress = Math.max(1, (int) Math.ceil(epoch));
+        return totalEpochs != null ? Math.min(inProgress, totalEpochs) : inProgress;
     }
 
     public FineTuningJob withDatasetSize(int size) {
@@ -72,7 +91,8 @@ public record FineTuningJob(
     public FineTuningJob completed(String outputPath) {
         return new FineTuningJob(
                 jobId, Status.COMPLETED, modelName, baseModel, parameters, datasetSize,
-                "Terminé", totalEpochs, totalEpochs, loss, evalLoss, outputPath, reportPath, null,
+                "Terminé", totalEpochs != null ? totalEpochs.doubleValue() : currentEpoch,
+                totalEpochs, loss, evalLoss, outputPath, reportPath, null,
                 createdAt, Instant.now()
         );
     }

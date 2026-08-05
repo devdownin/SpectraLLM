@@ -87,8 +87,12 @@ public class FineTuningController {
     public ResponseEntity<Map<String, String>> startFineTuning(@Valid @RequestBody FineTuningRequest request) {
         String jobId = fineTuningService.submit(request);
         if (jobId == null) {
-            return ResponseEntity.status(HttpStatus.CONFLICT)
-                    .body(Map.of("error", "Un entraînement est déjà en cours"));
+            // ProblemDetail (via ResponseStatusException) et non une Map ad hoc : le motif voyage
+            // alors dans « detail », le champ que lisent les clients de l'API — sinon l'UI n'avait
+            // que « Request failed with status code 409 » à afficher.
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Un entraînement est déjà en cours — un seul job à la fois. "
+                            + "Attendez sa fin ou annulez-le, puis relancez.");
         }
         return ResponseEntity.ok(Map.of("jobId", jobId, "status", "PENDING"));
     }

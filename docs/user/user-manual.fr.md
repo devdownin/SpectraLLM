@@ -660,7 +660,13 @@ Puis, lors du lancement du fine-tuning (étape 3), cochez **Alignement DPO** pou
 [QUEUED] ──→ [EXPORT] ──→ [TRAINING] ──→ [IMPORT] ──→ [COMPLETE]
 ```
 
-7. (Optionnel) Cliquez sur **Exporter** pour sauvegarder la configuration courante en fichier YAML réutilisable.
+   La barre de progression avance en continu (fractions d'époque), la courbe de perte trace un
+   point par étape journalisée, et le flux de télémétrie affiche la sortie du trainer en direct.
+
+7. Pour arrêter un job en cours, cliquez sur **Arrêter** en haut à droite du moniteur et confirmez.
+   La progression est perdue — un job ne reprend jamais depuis un adaptateur précédent. Le même
+   bouton est disponible depuis le centre d'activité de l'en-tête, quelle que soit la page.
+8. (Optionnel) Cliquez sur **Exporter** pour sauvegarder la configuration courante en fichier YAML réutilisable.
 
 #### Via l'API
 

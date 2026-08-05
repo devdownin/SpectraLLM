@@ -90,13 +90,15 @@ class TaskActivityServiceTest {
     @SuppressWarnings("unchecked")
     void trainingJobKeepsProgressFieldsButDropsHeavyOnes() {
         FineTuningJob job = new FineTuningJob("j1", FineTuningJob.Status.TRAINING, "spectra-domain",
-                "phi3", null, 120, "Époque 2", 2, 3, 0.42, 0.51, null, null, null,
+                "phi3", null, 120, "Époque 2", 1.5, 3, 0.42, 0.51, null, null, null,
                 Instant.parse("2026-07-13T10:00:00Z"), null);
         when(fineTuningService.getAllJobs()).thenReturn(List.of(job));
 
         Map<String, Object> m = ((List<Map<String, Object>>) service.snapshot().get("training")).get(0);
         assertThat(m.get("modelName")).isEqualTo("spectra-domain");
-        assertThat(m.get("currentEpoch")).isEqualTo(2);
+        // Fractionnaire : le flux de tâches doit transporter la progression intra-époque, sinon
+        // la barre du centre d'activité ne bouge qu'une fois par époque (et l'ETA saute d'autant).
+        assertThat(m.get("currentEpoch")).isEqualTo(1.5);
         assertThat(m.get("totalEpochs")).isEqualTo(3);
         assertThat(m.get("createdAt")).isEqualTo(Instant.parse("2026-07-13T10:00:00Z"));
         // Les champs lourds / hors-suivi ne sont pas émis sur le flux SSE.

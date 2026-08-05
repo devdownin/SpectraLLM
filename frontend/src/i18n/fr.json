@@ -553,6 +553,12 @@
     "kicker": "Évolution de l'architecture",
     "title": "Fine-tuning",
     "cancel": "Annuler",
+    "cancelJob": "Arrêter",
+    "cancelJobTitle": "Arrêter l'entraînement ?",
+    "cancelJobMessage": "L'entraînement de « {{name}} » sera interrompu. La progression est perdue : chaque job repart de zéro.",
+    "cancelJobConfirm": "Arrêter l'entraînement",
+    "cancelRequested": "Arrêt demandé",
+    "cancelFailed": "Arrêt impossible",
     "newJob": "Nouvel entraînement",
     "steps": {
       "PENDING": "En file",

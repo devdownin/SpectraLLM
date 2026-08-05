@@ -17,7 +17,10 @@ const CustomTooltip = ({ active, payload }: any) => {
   if (!active || !payload?.length) return null;
   return (
     <div className="bg-surface-container border border-primary/20 px-3 py-2 text-[11px] font-label">
-      <p className="text-on-surface-variant uppercase tracking-widest">Epoch {payload[0].payload.epoch}</p>
+      {/* Époque fractionnaire : 2 décimales, comme la sortie du trainer (« epoch=0.33 »). */}
+      <p className="text-on-surface-variant uppercase tracking-widest">
+        Epoch {Number(payload[0].payload.epoch).toFixed(2)}
+      </p>
       {payload.map((entry: any) => (
         <p key={entry.dataKey} className="font-bold" style={{ color: entry.color }}>
           {entry.dataKey === 'evalLoss' ? 'Eval loss' : 'Loss'} {entry.value.toFixed(4)}
@@ -45,10 +48,15 @@ const LossChart: FC<Props> = ({ data, totalEpochs }) => {
     <ResponsiveContainer width="100%" height="100%">
       <LineChart data={data} margin={{ top: 8, right: 12, bottom: 4, left: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+        {/* type="number" est indispensable : sur l'axe CATÉGORIEL par défaut, `domain` et
+            `tickCount` sont ignorés — l'axe ne listait que les époques déjà collectées et la
+            courbe occupait toute la largeur quel que soit l'avancement réel. */}
         <XAxis
           dataKey="epoch"
-          domain={[1, totalEpochs]}
-          tickCount={Math.min(totalEpochs, 6)}
+          type="number"
+          domain={[0, Math.max(totalEpochs, 1)]}
+          ticks={Array.from({ length: Math.max(totalEpochs, 1) + 1 }, (_, i) => i)}
+          allowDecimals={false}
           tick={{ fill: 'rgba(222,229,255,0.4)', fontSize: 10, fontFamily: 'Space Grotesk' }}
           axisLine={false}
           tickLine={false}
