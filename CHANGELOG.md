@@ -8,6 +8,40 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Modifié — l'entraînement dit sa progression au lieu de la faire deviner
+
+La progression d'un run voyageait jusqu'à l'interface sous forme de **prose** — `  epoch=0.33
+loss=1.8421` — relue par **trois** expressions régulières distinctes : une en Java pour l'état du
+job, une en Java pour le niveau de la ligne, une en TypeScript pour la courbe. Trois
+implémentations d'un contrat que rien n'exprimait, et qui devaient rester d'accord.
+
+Elles ne l'étaient pas, et le lot précédent venait d'en corriger deux : `epoch[= ]*(\d+)` lisait
+`0` dans `epoch=0.97` (toute la première époque masquée), et les frontières de mots autour de
+`traceback (most recent call last)` ne pouvaient pas correspondre, la ligne finissant sur une
+parenthèse (une trace Python diffusée en bleu, comme une information).
+
+`scripts/train_host.py` émet désormais des lignes structurées via le nouveau module
+`scripts/spectra_events.py` :
+
+```
+__SPECTRA_EVENT__ {"type": "progress", "epoch": 0.33, "loss": 1.8421}
+__SPECTRA_EVENT__ {"type": "log", "level": "ERROR", "message": "dataset vide"}
+```
+
+Le backend les lit telles quelles et les rend lisibles de son côté : le flux SSE et `train.log`
+restent du texte, seul le **transport** devient exact. L'évènement SSE porte en plus les valeurs
+(`progress: { epoch, loss, evalLoss }`), si bien que le client n'a plus à les réextraire du
+message. Le niveau d'une erreur vient de l'émetteur, qui le connaît, au lieu d'être deviné sur
+des mots-clés.
+
+L'analyse textuelle **reste en place comme repli** : un dépôt cloné avant ce format, une image de
+trainer non reconstruite, ou la sortie d'une bibliothèque tierce n'émettent que de la prose et
+continuent d'être suivis. Un évènement illisible ou d'un type inconnu repart lui aussi par ce
+chemin plutôt que d'être avalé — une ligne tronquée signale souvent le processus qui meurt.
+
+Le format est fixé des deux côtés : `scripts/tests/test_spectra_events.py` (12 cas) pour
+l'émetteur, `FineTuningProgressTrackingTest` (6 cas de plus) pour le consommateur.
+
 ### Corrigé — un scan de dépendances qui n'aboutit pas ne le disait pas
 
 `Dependency Check` n'avait **aucune borne de temps**. Sans clé d'API NVD, le NIST limite fortement

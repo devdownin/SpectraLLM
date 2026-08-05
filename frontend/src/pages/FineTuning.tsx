@@ -12,7 +12,7 @@ import type { TrainingLog } from '../types/api';
 import { configApi, fineTuningApi, recipeApi } from '../services/api';
 import { resolveTrainableBase, shouldReplace, suggestModelName } from '../lib/fineTuningPrefill';
 import {
-  parseProgressLine, mergeLossPoint, epochInProgress, trainingProgressPercent,
+  progressOfLogLine, mergeLossPoint, epochInProgress, trainingProgressPercent,
 } from '../lib/trainingProgress';
 import type { LossPoint } from '../lib/trainingProgress';
 import { PIPELINE_STEPS, stepStates, isTerminal } from '../lib/fineTuningSteps';
@@ -366,7 +366,8 @@ const FineTuning: FC = () => {
     // Une ligne sans jobId est un message global : elle concerne tout le monde.
     if (line.jobId && activeJobIdRef.current && line.jobId !== activeJobIdRef.current) return;
     setLogs(prev => [...prev.slice(-999), line]);
-    const parsed = parseProgressLine(line.message);
+    // Valeurs fournies par le trainer si celui-ci les émet, relues dans le texte sinon.
+    const parsed = progressOfLogLine(line);
     if (!parsed) return;
     // L'époque de la LIGNE prime sur celle du job : le sondage a jusqu'à 4 s de retard, et
     // rattachait donc la loss à la mauvaise abscisse. Elle est fractionnaire, ce qui donne un

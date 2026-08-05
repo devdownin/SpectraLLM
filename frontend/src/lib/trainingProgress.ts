@@ -59,6 +59,44 @@ export function parseProgressLine(
 }
 
 /**
+ * Charge utile structurée portée par l'évènement lui-même, quand le trainer sait l'émettre
+ * (cf. `scripts/spectra_events.py`). Les valeurs y sont **données**, pas devinées.
+ */
+export interface ProgressPayload {
+  epoch: number;
+  loss?: number | null;
+  evalLoss?: number | null;
+}
+
+/**
+ * Progression d'une ligne de télémétrie, structurée si l'émetteur l'a fournie, relue dans le
+ * texte sinon.
+ *
+ * Le champ `progress` est la source de vérité : il vient du trainer, qui connaît les valeurs.
+ * L'analyse du message reste le **repli** — un `train.sh` antérieur à ce format, ou une image de
+ * trainer non reconstruite, n'émet que de la prose et doit continuer d'être suivi.
+ *
+ * @returns `null` si la ligne ne porte aucune valeur de loss exploitable. Une progression sans
+ *   aucune loss n'ouvre pas de point sur la courbe : l'avancement, lui, vient déjà du job.
+ */
+export function progressOfLogLine(
+  line: { message: string; progress?: ProgressPayload | null },
+): { epoch: number | null; loss?: number; evalLoss?: number } | null {
+  const structured = line.progress;
+  if (structured && typeof structured.epoch === 'number') {
+    const parsed: { epoch: number | null; loss?: number; evalLoss?: number } = {
+      epoch: structured.epoch,
+    };
+    // `null` et absence se valent ici : le sérialiseur JSON peut produire l'un ou l'autre selon
+    // la version du backend, et ni l'un ni l'autre n'est une valeur de loss.
+    if (structured.loss != null) parsed.loss = structured.loss;
+    if (structured.evalLoss != null) parsed.evalLoss = structured.evalLoss;
+    return parsed.loss === undefined && parsed.evalLoss === undefined ? null : parsed;
+  }
+  return parseProgressLine(line.message);
+}
+
+/**
  * Ajoute un point à la série, ou le FUSIONNE dans le dernier point s'il porte la même époque.
  *
  * La fusion (et non le remplacement) est le cœur du correctif S2 : loss d'entraînement et
