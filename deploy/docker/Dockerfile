@@ -21,21 +21,26 @@ FROM maven:3-eclipse-temurin-25@sha256:1b1fc6d0168ea616afd1c861d6f32ec37c9ec2ffe
 WORKDIR /app
 COPY backend/pom.xml .
 
-# Cache PERSISTANT du dépôt Maven local, partagé entre les constructions.
+# Cache PERSISTANT du dépôt Maven local + reprise sur erreur réseau.
 #
-# Sans lui, la moindre modification du pom.xml invalide la couche et fait retélécharger
-# l'intégralité des dépendances depuis Maven Central — plusieurs centaines de mégaoctets.
-# Ce n'est pas qu'une question de durée : c'est le point le plus exposé au réseau de toute
-# la pile, et il a déjà fait tomber la CI sur un simple « 403 Forbidden » de Maven Central,
-# sans aucun rapport avec le code soumis.
+# Le cache profite aux constructions RÉPÉTÉES sur un même hôte — poste de développement,
+# runner auto-hébergé, constructeur buildx réutilisé : une modification du pom.xml n'y refait
+# plus l'intégralité des téléchargements. Il vit HORS des couches, la taille de l'image est
+# donc inchangée.
 #
-# Le cache vit HORS des couches de l'image : la taille finale est inchangée.
-RUN --mount=type=cache,target=/root/.m2 mvn dependency:go-offline -B
+# Il ne fait en revanche RIEN sur un runner éphémère, où il démarre vide à chaque exécution :
+# c'est le cache de COUCHES (cache-from: type=gha, cf. profiled-images.yml) qui y travaille,
+# et le job E2E, lui, construit sans aucun cache.
+#
+# D'où le second réglage, qui vise précisément ce cas : Maven Central répond parfois un 403
+# ou un 5xx transitoire, et une construction à froid n'a alors aucun recours. Ce 403 a déjà
+# fait tomber la CI, sans aucun rapport avec le code soumis. On retente au lieu d'abandonner.
+ARG MAVEN_RETRY="-Dmaven.wagon.http.retryHandler.count=3 -Daether.connector.http.retryHandler.count=3"
+RUN --mount=type=cache,target=/root/.m2 mvn dependency:go-offline -B $MAVEN_RETRY
 
 COPY backend/src ./src
-# Même cache : la compilation réutilise les artefacts déjà résolus ci-dessus. Sans le
-# partager, cette étape les retéléchargerait tous une seconde fois.
-RUN --mount=type=cache,target=/root/.m2 mvn package -DskipTests -B
+# Même cache et même reprise : la compilation réutilise les artefacts déjà résolus ci-dessus.
+RUN --mount=type=cache,target=/root/.m2 mvn package -DskipTests -B $MAVEN_RETRY
 
 # ── Runtime stage ──
 FROM eclipse-temurin:25-jre@sha256:f19dbf0a22d0b3658fda48ce7d7181df05ad14bda151dd5ad12cc09d1451c70e

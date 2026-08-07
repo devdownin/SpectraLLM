@@ -48,19 +48,26 @@ cloisonnée elle-même, Maven Central, PyPI et l'installateur llmfit étant tous
 C'est la raison du découpage build connecté / exécution hors ligne.
 
 
-### Modifié — les images ne retéléchargent plus leurs dépendances à chaque construction
+### Modifié — cache de dépendances au build, et reprise sur erreur réseau
 
-`mvn dependency:go-offline` puis `mvn package` s'exécutaient sans cache : la moindre
-modification du `pom.xml` invalidait la couche et faisait retélécharger l'intégralité des
-dépendances depuis Maven Central. Ce n'était pas qu'une question de durée — c'est le point le
-plus exposé au réseau de toute la pile, et il a déjà fait tomber la CI sur un simple
-**403 Forbidden** de Maven Central, sans aucun rapport avec le code soumis.
+`mvn dependency:go-offline` puis `mvn package`, comme les `pip install` des trois services
+Python, s'exécutaient sans cache : la moindre modification du `pom.xml` refaisait l'intégralité
+des téléchargements.
 
 Un cache BuildKit (`RUN --mount=type=cache`) est posé sur le dépôt Maven local et sur les roues
-pip des trois services Python. Le cache vivant **hors des couches**, la taille des images est
-inchangée — et `--no-cache-dir`, qui existait précisément pour ne pas grossir la couche, devient
-inutile là où le cache est monté. Le build du trainer, qui prend six minutes en CI pour
-l'essentiel à cause de torch et de ses dépendances CUDA, en est le principal bénéficiaire.
+pip. Il vit **hors des couches** — la taille des images est inchangée — et `--no-cache-dir`, qui
+n'existait que pour ne pas grossir la couche, devient inutile là où il est monté.
+
+> **Ce que ce cache fait, et ce qu'il ne fait pas.** Il profite aux constructions **répétées sur
+> un même hôte** : poste de développement, runner auto-hébergé, constructeur buildx réutilisé.
+> Sur un runner **éphémère**, il démarre vide à chaque exécution et n'apporte rien — c'est le
+> cache de **couches** (`cache-from: type=gha`) qui y travaille déjà, et le job E2E, lui,
+> construit sans aucun cache.
+
+C'est pourquoi le build Maven retente désormais les erreurs HTTP transitoires
+(`maven.wagon.http.retryHandler.count`). Maven Central répond parfois un 403 ou un 5xx sans
+rapport avec le projet — ce qui a déjà fait tomber la CI — et une construction à froid n'avait
+alors aucun recours. **C'est ce réglage-là, et non le cache, qui adresse cet incident.**
 
 > Prérequis : BuildKit, actif par défaut depuis Docker 23 et systématique via `docker compose`.
 > Une construction forcée sur l'ancien moteur (`DOCKER_BUILDKIT=0`) échouerait sur la syntaxe
