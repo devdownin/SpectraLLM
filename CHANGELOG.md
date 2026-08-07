@@ -8,6 +8,17 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Corrigé — `docparser` et `reranker` ne redémarraient pas
+
+Seuls services longue durée de la pile sans `restart: unless-stopped`, par oubli et non par
+choix : rien ne l'expliquait, et les huit autres l'ont. Être derrière un profil ne change rien
+au besoin — un plantage ou un redémarrage de l'hôte les laissait à terre, et leur indisponibilité
+dégrade silencieusement l'ingestion (`docparser`) ou la pertinence des réponses (`reranker`).
+
+`kafka-data-init` reste sans politique, et c'est correct : c'est un conteneur d'initialisation
+qui doit se terminer.
+
+
 ### Sécurité — les images de base sont épinglées par empreinte
 
 Les images **tierces** de la pile étaient déjà épinglées (llama.cpp `server-b9828`, chromadb
