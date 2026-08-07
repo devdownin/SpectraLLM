@@ -1,5 +1,8 @@
 # syntax=docker/dockerfile:1
-FROM python:3.11-slim
+# Image de base épinglée par empreinte (index multi-arch : amd64 et arm64). Un tag comme
+# « python:3.11-slim » est réassigné toutes les semaines. Justification complète et
+# commande de rafraîchissement : deploy/docker/Dockerfile.
+FROM python:3.11-slim@sha256:90744cff8f32887f075c47d747a173ff333e9e98801667af93c357fa9f5e28ff
 
 WORKDIR /app
 

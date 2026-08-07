@@ -5,7 +5,19 @@
 # (DOCKER_BUILDKIT=0) échouerait sur la syntaxe `RUN --mount`.
 
 # ── Build stage ──
-FROM maven:3-eclipse-temurin-25 AS build
+# ── Images de base épinglées par empreinte ───────────────────────────────────
+# Les images TIERCES de la pile sont déjà épinglées (llama.cpp server-b9828, chromadb 1.5.9,
+# kafka 4.2.0) ; celles depuis lesquelles ce projet CONSTRUIT ne l'étaient pas. Or un tag
+# comme « python:3.11-slim » est réassigné toutes les semaines : deux images construites à
+# quinze jours d'écart ne sont pas la même image, et rien ne le signale — exactement le
+# défaut que l'épinglage de llama.cpp corrige par ailleurs (cf. scripts/llama_cpp_convert.py).
+#
+# L'empreinte désigne l'INDEX multi-architecture, pas un manifeste mono-arch : amd64 et arm64
+# (Apple Silicon) restent tous deux construits depuis la même référence.
+#
+# Rafraîchir une empreinte :
+#   docker buildx imagetools inspect python:3.11-slim --format '{{.Manifest.Digest}}'
+FROM maven:3-eclipse-temurin-25@sha256:1b1fc6d0168ea616afd1c861d6f32ec37c9ec2ffe88a0351b3771dd4ad86b0d8 AS build
 WORKDIR /app
 COPY backend/pom.xml .
 
@@ -26,7 +38,7 @@ COPY backend/src ./src
 RUN --mount=type=cache,target=/root/.m2 mvn package -DskipTests -B
 
 # ── Runtime stage ──
-FROM eclipse-temurin:25-jre
+FROM eclipse-temurin:25-jre@sha256:f19dbf0a22d0b3658fda48ce7d7181df05ad14bda151dd5ad12cc09d1451c70e
 WORKDIR /app
 
 # Create a non-root user

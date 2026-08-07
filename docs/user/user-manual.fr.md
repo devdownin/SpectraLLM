@@ -89,6 +89,44 @@ Exemple de réponse résumée :
 
 ---
 
+### Installation cloisonnée (air-gapped)
+
+Le principe tient en une phrase : **la construction des images a besoin du réseau, l'exécution
+non.** Vous construisez sur une machine connectée, vous transférez, vous exécutez hors ligne.
+
+Ce qu'il faut pré-charger, et pourquoi :
+
+| À transférer | Pourquoi | Comment |
+|---|---|---|
+| Les **images** de la pile | leur construction tire Maven Central, PyPI, l'installateur llmfit et les images de base | `docker save … \| gzip > spectra-images.tgz` puis `docker load` — ou un registre interne |
+| Les **modèles GGUF** (`data/models/`) | `llm-chat` et `llm-embed` les chargent au démarrage | téléchargés comme au §1, puis copiés |
+| Le volume **`trainer-hf-cache`** | l'entraînement récupère sinon les poids du modèle de base (plusieurs Go) depuis HuggingFace | lancer **un** entraînement sur la machine connectée pour le peupler, puis exporter le volume |
+| Le volume **`reranker-model-cache`** | même raison, pour le re-ranking | idem, si le profil `reranker` est utilisé |
+
+Puis, sur la machine cloisonnée :
+
+```bash
+export HF_HUB_OFFLINE=1        # interdit tout accès au Hub, force l'usage exclusif du cache
+# export HF_ENDPOINT=https://miroir.interne/    # ou : pointer un miroir HuggingFace
+./scripts/start.sh --trainer
+```
+
+`HF_HUB_OFFLINE=1` est le garde-fou qui compte : sans lui, une pièce manquante du cache
+provoque une tentative de téléchargement, donc une attente puis un échec tardif, au lieu d'une
+erreur immédiate et claire.
+
+**Ce qui ne demande plus de réseau, et ne le demandait pas toujours** : l'export GGUF. Le
+convertisseur `convert_hf_to_gguf.py` était téléchargé à l'exécution — un export échouait donc
+en environnement cloisonné, après la fusion LoRA, soit plusieurs minutes de calcul perdues.
+L'image du trainer l'embarque désormais depuis sa construction. Pour fournir le vôtre :
+`SPECTRA_LLAMA_CPP_DIR=/chemin/vers/le/repertoire`.
+
+**Ce qui reste hors de portée** : construire les images sur la machine cloisonnée elle-même.
+Maven Central, PyPI et l'installateur llmfit sont tous requis au build. C'est la raison du
+découpage build connecté / exécution hors ligne ci-dessus.
+
+---
+
 ## 3. Pipeline en 4 étapes
 
 Voici le parcours complet pour créer votre assistant IA spécialisé :

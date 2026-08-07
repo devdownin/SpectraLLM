@@ -8,6 +8,35 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Sécurité — les images de base sont épinglées par empreinte
+
+Les images **tierces** de la pile étaient déjà épinglées (llama.cpp `server-b9828`, chromadb
+`1.5.9`, kafka `4.2.0`) ; celles depuis lesquelles le projet **construit** ne l'étaient pas.
+Or `python:3.11-slim` est réassigné toutes les semaines : deux images de trainer construites à
+quinze jours d'écart n'étaient pas la même image, et rien ne le signalait — exactement le
+défaut que l'épinglage de llama.cpp corrige par ailleurs.
+
+`python:3.11-slim`, `eclipse-temurin:25-jre` et `maven:3-eclipse-temurin-25` portent désormais
+leur empreinte. Celle-ci désigne l'**index multi-architecture** et non un manifeste mono-arch :
+amd64 et arm64 (Apple Silicon) restent construits depuis la même référence. La commande de
+rafraîchissement est donnée dans `deploy/docker/Dockerfile`.
+
+### Ajouté — l'installation cloisonnée est enfin documentée
+
+Le README promet « même hors ligne » depuis toujours, sans que rien n'explique comment.
+
+Le principe tient en une phrase : **la construction des images a besoin du réseau, l'exécution
+non.** Le manuel (fr + en) décrit ce qu'il faut pré-charger — les images, les modèles GGUF, le
+volume `trainer-hf-cache` (les poids du modèle de base, plusieurs Go) et
+`reranker-model-cache` — puis le rôle de `HF_HUB_OFFLINE=1` : sans lui, une pièce manquante du
+cache déclenche un téléchargement, donc une attente puis un échec tardif, au lieu d'une erreur
+immédiate.
+
+La section dit aussi ce qui **reste hors de portée** : construire les images sur la machine
+cloisonnée elle-même, Maven Central, PyPI et l'installateur llmfit étant tous requis au build.
+C'est la raison du découpage build connecté / exécution hors ligne.
+
+
 ### Modifié — les images ne retéléchargent plus leurs dépendances à chaque construction
 
 `mvn dependency:go-offline` puis `mvn package` s'exécutaient sans cache : la moindre
