@@ -77,18 +77,43 @@ def render_chat(messages, tokenizer, add_generation_prompt=False):
             tokenize=False, add_generation_prompt=add_generation_prompt)
 
 
+def as_id_list(encoded):
+    """
+    Normalise ce que rend ``apply_chat_template(tokenize=True)`` en **liste d'entiers**.
+
+    Le type de retour a changé selon les versions : transformers rend aujourd'hui un
+    ``BatchEncoding`` (un mappage ``input_ids`` / ``attention_mask``) là où il rendait une
+    liste. Sans cette normalisation, tout ce qui suit manipule un mappage comme une suite de
+    tokens : ``len()`` vaut 2 (le nombre de clés), le préfixe commun est nul, **chaque tour
+    assistant est écarté** et le dataset se retrouve vide.
+
+    La panne est silencieuse et trompeuse : l'entraînement s'arrête sur « dataset vide —
+    vérifiez le fichier JSONL », qui accuse les données alors qu'elles sont intactes. Aucun
+    fine-tuning ne pouvait aboutir sur une version pourtant autorisée par
+    ``scripts/requirements.txt``.
+    """
+    if hasattr(encoded, "input_ids"):
+        encoded = encoded.input_ids
+    elif isinstance(encoded, dict):
+        encoded = encoded["input_ids"]
+    # Certaines versions enveloppent le résultat dans un lot d'un seul élément.
+    if len(encoded) and isinstance(encoded[0], (list, tuple)):
+        encoded = encoded[0]
+    return list(encoded)
+
+
 def encode_chat(messages, tokenizer, add_generation_prompt=False):
     """Rend une conversation en TOKENS avec le gabarit du modèle (jetons spéciaux inclus)."""
     if not has_chat_template(tokenizer):
-        return tokenizer.encode(fallback_render(messages, add_generation_prompt),
-                                add_special_tokens=True)
+        return as_id_list(tokenizer.encode(fallback_render(messages, add_generation_prompt),
+                                           add_special_tokens=True))
     try:
-        return tokenizer.apply_chat_template(
-            messages, tokenize=True, add_generation_prompt=add_generation_prompt)
+        return as_id_list(tokenizer.apply_chat_template(
+            messages, tokenize=True, add_generation_prompt=add_generation_prompt))
     except Exception:
-        return tokenizer.apply_chat_template(
+        return as_id_list(tokenizer.apply_chat_template(
             merge_system_into_first_user(messages),
-            tokenize=True, add_generation_prompt=add_generation_prompt)
+            tokenize=True, add_generation_prompt=add_generation_prompt))
 
 
 def common_prefix_len(a, b):

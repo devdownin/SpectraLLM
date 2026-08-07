@@ -8,6 +8,31 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Corrigé — aucun fine-tuning ne pouvait aboutir avec transformers 5.5
+
+Défaut **bloquant**, trouvé en exécutant réellement un entraînement — ce qu'aucun test ne
+faisait. `apply_chat_template(tokenize=True)` rend aujourd'hui un `BatchEncoding` (un mappage
+`input_ids` / `attention_mask`) là où il rendait une liste d'entiers. La version installée,
+`transformers 5.5.0`, est pourtant **autorisée par `scripts/requirements.txt`**
+(`>=5.2.0,<=5.5.0`).
+
+`encode_chat` propageait ce mappage tel quel, et `encode_supervised` le manipulait comme une
+suite de tokens : `len()` valait `2` — le nombre de clés — le préfixe commun était nul, **chaque
+tour assistant était écarté**, et le dataset se retrouvait vide.
+
+La panne était silencieuse et trompeuse : l'entraînement s'arrêtait sur « dataset vide —
+vérifiez le fichier JSONL et le champ 'conversations' », qui **accuse les données** alors
+qu'elles sont intactes. L'utilisateur cherchait dans son dataset un défaut qui était dans le
+code.
+
+`as_id_list` normalise désormais le retour — mappage, lot d'un seul élément, ou liste déjà plate
+— et trois tests figent le contrat, dont un tokenizer de test qui reproduit le `BatchEncoding`.
+
+> Ce défaut n'était atteignable qu'en tokenisant avec un vrai tokenizer : les tests existants
+> utilisaient un double qui rendait une liste, c'est-à-dire l'ancien contrat. Un entraînement
+> réel, même sur un modèle minuscule, l'a fait apparaître immédiatement.
+
+
 ### Corrigé — les paires ancrées étaient tronquées par la tête, donc fausses
 
 Défaut introduit par le correctif F14 lui-même, trouvé avant fusion. Les chunks font jusqu'à
