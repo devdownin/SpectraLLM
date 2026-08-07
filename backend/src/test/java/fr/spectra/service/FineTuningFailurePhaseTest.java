@@ -99,7 +99,7 @@ class FineTuningFailurePhaseTest {
         // que faire échouer la lecture de TOUT l'historique sur un IllegalArgumentException.
         FineTuningJobEntity corrupted = new FineTuningJobEntity(
                 "job-1", "FAILED", "spectra-domain", "phi3", "{}", 0, "Échoué",
-                null, 3, null, null, null, null, "boum", "PHASE_INCONNUE", null,
+                null, 3, null, null, null, "boum", "PHASE_INCONNUE", null,
                 Instant.now(), Instant.now());
 
         FineTuningJob dto = corrupted.toDto();

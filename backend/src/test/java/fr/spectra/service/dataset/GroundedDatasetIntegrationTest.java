@@ -56,7 +56,7 @@ class GroundedDatasetIntegrationTest {
                         + " \"category\": \"technique\", \"reason\": \"péage\"}");
 
         return new DatasetGeneratorService(llm, chroma, mock(IngestedFileRepository.class),
-                null, datasetDir.toString(), 0, groundedEveryN, distractors);
+                null, datasetDir.toString(), 0, groundedEveryN, distractors, 100_000);
     }
 
     private List<TrainingPair> generate(int groundedEveryN, int distractors) {

@@ -23,6 +23,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class GroundedPairGenerationTest {
 
+    /** Budget large : ces cas portent sur la construction, pas sur la borne. */
+    private static final int GENEROUS = 100_000;
+
     private static Map<String, String> meta(String source) {
         Map<String, String> m = new HashMap<>();
         m.put("sourceFile", source);
@@ -84,7 +87,7 @@ class GroundedPairGenerationTest {
         List<String> citations = new ArrayList<>();
         for (int seed = 0; seed < 3; seed++) {
             TrainingPair twin = DatasetGeneratorService.groundedVariant(
-                    source, "Le vrai passage.", "s.pdf", distractors, seed);
+                    source, "Le vrai passage.", "s.pdf", distractors, seed, GENEROUS);
             citations.add(twin.conversations().get(2).content());
         }
 
@@ -101,7 +104,7 @@ class GroundedPairGenerationTest {
                 new RagPromptFormat.Passage("y.pdf", "Distracteur B"));
 
         TrainingPair twin = DatasetGeneratorService.groundedVariant(
-                source, "Le vrai passage.", "s.pdf", distractors, 1);
+                source, "Le vrai passage.", "s.pdf", distractors, 1, GENEROUS);
 
         // Le vrai passage est en deuxième position, et c'est [2] que la réponse cite. Un décalage
         // ici enseignerait au modèle à citer un passage qui ne justifie pas sa réponse — soit
@@ -118,7 +121,7 @@ class GroundedPairGenerationTest {
                 "question_answer", 0.9, null);
 
         TrainingPair twin = DatasetGeneratorService.groundedVariant(
-                source, "Passage.", "s.pdf", List.of(), 0);
+                source, "Passage.", "s.pdf", List.of(), 0, GENEROUS);
 
         assertThat(twin.conversations().get(0).content())
                 .contains("cite tes sources en insérant le numéro")
@@ -142,7 +145,7 @@ class GroundedPairGenerationTest {
         List<RagPromptFormat.Passage> distractors = List.of(
                 new RagPromptFormat.Passage("hiver.pdf", "La viabilité hivernale démarre le 15 novembre."));
 
-        TrainingPair grounded = DatasetGeneratorService.groundedRefusal(refusal, distractors);
+        TrainingPair grounded = DatasetGeneratorService.groundedRefusal(refusal, distractors, GENEROUS);
 
         assertThat(grounded.conversations().get(0).content())
                 .contains("[1] (Source: hiver.pdf)")
@@ -177,10 +180,112 @@ class GroundedPairGenerationTest {
     @Test
     @DisplayName("une paire mal formée ne produit pas de jumeau plutôt qu'un jumeau bancal")
     void malformedPairYieldsNoTwin() {
-        assertThat(DatasetGeneratorService.groundedVariant(null, "x", "s.pdf", List.of(), 0)).isNull();
+        assertThat(DatasetGeneratorService.groundedVariant(null, "x", "s.pdf", List.of(), 0, GENEROUS)).isNull();
         TrainingPair truncated = new TrainingPair(
                 List.of(new TrainingPair.Message("system", "s")),
                 new TrainingPair.Metadata("s.pdf", "qa", "question_answer", 0.9, null));
-        assertThat(DatasetGeneratorService.groundedVariant(truncated, "x", "s.pdf", List.of(), 0)).isNull();
+        assertThat(DatasetGeneratorService.groundedVariant(truncated, "x", "s.pdf", List.of(), 0, GENEROUS)).isNull();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────
+    // Budget — la troncature du trainer supprime les consignes AVANT tout le reste
+    // ─────────────────────────────────────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("un passage source trop long n'ouvre AUCUNE paire ancrée")
+    void oversizedSourcePassageYieldsNoGroundedPair() {
+        // Le cas qui compte. Le trainer tronque par la tête : persona, puis consignes de citation,
+        // puis premiers passages. Une paire ancrée trop longue enseignerait donc « réponds [1] »
+        // à partir d'un contexte amputé dont [1] a disparu, et sans plus aucune consigne pour
+        // l'expliquer — soit l'hallucination de source que ces consignes existent pour empêcher.
+        // Une paire en moins ne coûte rien ; une paire fausse s'apprend.
+        TrainingPair source = TrainingPair.of("Question ?", "Réponse.", "s.pdf", "qa",
+                "question_answer", 0.9, null);
+        String enormousChunk = "mot ".repeat(2000);
+
+        assertThat(DatasetGeneratorService.groundedVariant(
+                source, enormousChunk, "s.pdf", List.of(), 0, 1800)).isNull();
+    }
+
+    @Test
+    @DisplayName("le vrai passage n'est JAMAIS tronqué pour entrer dans le budget")
+    void theTruePassageIsNeverTruncated() {
+        // Le tronquer reviendrait au même défaut en plus discret : la réponse citerait un passage
+        // amputé de la phrase qui la justifie.
+        TrainingPair source = TrainingPair.of("Question ?", "Réponse.", "s.pdf", "qa",
+                "question_answer", 0.9, null);
+        String chunk = "Le péage de sortie est conforme au décret de 2019, article 4.";
+
+        TrainingPair twin = DatasetGeneratorService.groundedVariant(
+                source, chunk, "s.pdf", List.of(), 0, GENEROUS);
+
+        assertThat(twin.conversations().get(0).content()).contains(chunk);
+    }
+
+    @Test
+    @DisplayName("les distracteurs sont écartés un à un plutôt que de faire sauter la paire")
+    void distractorsAreDroppedBeforeThePairItself() {
+        TrainingPair source = TrainingPair.of("Question ?", "Réponse.", "s.pdf", "qa",
+                "question_answer", 0.9, null);
+        List<RagPromptFormat.Passage> distractors = List.of(
+                new RagPromptFormat.Passage("x.pdf", "court"),
+                new RagPromptFormat.Passage("y.pdf", "mot ".repeat(500)));
+
+        // Budget calculé pour laisser passer le vrai passage et le distracteur court, pas le long.
+        int budget = RagPromptFormat.INSTRUCTIONS_TEMPLATE.length() + 200;
+        TrainingPair twin = DatasetGeneratorService.groundedVariant(
+                source, "Le vrai passage.", "s.pdf", distractors, 0, budget);
+
+        assertThat(twin).isNotNull();
+        String system = twin.conversations().get(0).content();
+        assertThat(system).contains("court").doesNotContain("mot mot");
+    }
+
+    @Test
+    @DisplayName("la citation ne désigne jamais un passage écarté du contexte")
+    void citationNeverPointsPastTheKeptPassages() {
+        // La rotation porte sur les distracteurs RETENUS. Calculée sur ceux DEMANDÉS, elle
+        // produirait « [3] » dans un contexte qui n'a que deux passages : la même citation fausse,
+        // par un autre chemin.
+        TrainingPair source = TrainingPair.of("Question ?", "Réponse.", "s.pdf", "qa",
+                "question_answer", 0.9, null);
+        List<RagPromptFormat.Passage> distractors = List.of(
+                new RagPromptFormat.Passage("x.pdf", "mot ".repeat(500)),
+                new RagPromptFormat.Passage("y.pdf", "mot ".repeat(500)));
+
+        int budget = RagPromptFormat.INSTRUCTIONS_TEMPLATE.length() + 200;
+        TrainingPair twin = DatasetGeneratorService.groundedVariant(
+                source, "Le vrai passage.", "s.pdf", distractors, 2, budget);
+
+        // Les deux distracteurs sont écartés : il ne reste qu'un passage, donc [1] et rien d'autre.
+        assertThat(twin.conversations().get(2).content()).isEqualTo("Réponse [1].");
+        // « [2] » figure dans les CONSIGNES en tant qu'exemple : c'est le bloc de contexte qui ne
+        // doit pas porter de second passage.
+        assertThat(twin.conversations().get(0).content()).doesNotContain("[2] (Source:");
+    }
+
+    @Test
+    @DisplayName("un refus sans distracteur qui tienne n'est pas produit — pas un refus à vide")
+    void groundedRefusalNeedsAtLeastOneFittingDistractor() {
+        // Un contexte vide enseignerait « refuse sans lire », ce qui n'est pas la consigne :
+        // la consigne est de refuser APRÈS avoir constaté que le contexte ne répond pas.
+        TrainingPair refusal = TrainingPair.of("Question ?", "Je ne dispose pas de cette information.",
+                "s.pdf", "negative", "refusal", 0.9, null);
+        List<RagPromptFormat.Passage> tooLong = List.of(
+                new RagPromptFormat.Passage("x.pdf", "mot ".repeat(2000)));
+
+        assertThat(DatasetGeneratorService.groundedRefusal(refusal, tooLong, 1800)).isNull();
+    }
+
+    @Test
+    @DisplayName("le budget par défaut laisse passer un chunk de taille courante")
+    void theDefaultBudgetIsNotSoTightThatNothingPasses() {
+        // Une borne si stricte qu'elle écarte tout désactiverait F14 en silence. ~700 caractères
+        // correspondent à un chunk d'environ 200 tokens, taille courante après découpage.
+        TrainingPair source = TrainingPair.of("Question ?", "Réponse.", "s.pdf", "qa",
+                "question_answer", 0.9, null);
+
+        assertThat(DatasetGeneratorService.groundedVariant(
+                source, "a".repeat(700), "s.pdf", List.of(), 0, 1800)).isNotNull();
     }
 }

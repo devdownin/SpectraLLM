@@ -103,6 +103,19 @@ public class DatasetGeneratorService {
      * lui, présente plusieurs passages dont certains hors sujet.
      */
     private final int groundedDistractors;
+    /**
+     * Budget d'un exemple ancré, en caractères (système + question + réponse).
+     *
+     * <p>Approximation d'une limite qui s'exprime en <b>tokens</b> côté trainer
+     * ({@code SPECTRA_TRAIN_MAX_LENGTH}, défaut 512) : le générateur n'a pas de tokenizer. Le
+     * défaut 1800 vise ~512 tokens de français (≈ 3,5 caractères par token) et reste volontairement
+     * prudent — dépasser fait tronquer, et une troncature par la tête supprime les consignes de
+     * citation avant tout le reste.
+     *
+     * <p><b>À faire évoluer AVEC {@code SPECTRA_TRAIN_MAX_LENGTH}</b> : les augmenter séparément
+     * n'a pas de sens, l'un est la traduction de l'autre.
+     */
+    private final int groundedBudgetChars;
     /** Taxonomie de classification (R8) — partagée avec le classifieur documentaire. */
     private final List<String> taxonomy;
 
@@ -122,7 +135,8 @@ public class DatasetGeneratorService {
                                    @Value("${spectra.dataset.dir:./data/dataset}") String datasetDir,
                                    @Value("${spectra.dataset.refusal-every-n:3}") int refusalEveryN,
                                    @Value("${spectra.dataset.grounded-every-n:2}") int groundedEveryN,
-                                   @Value("${spectra.dataset.grounded-distractors:2}") int groundedDistractors) {
+                                   @Value("${spectra.dataset.grounded-distractors:2}") int groundedDistractors,
+                                   @Value("${spectra.dataset.grounded-budget-chars:1800}") int groundedBudgetChars) {
         this.llmChatClient = llmChatClient;
         this.chromaDbClient = chromaDbClient;
         this.fileRepo = fileRepo;
@@ -130,6 +144,7 @@ public class DatasetGeneratorService {
         this.refusalEveryN = refusalEveryN;
         this.groundedEveryN = groundedEveryN;
         this.groundedDistractors = Math.max(0, groundedDistractors);
+        this.groundedBudgetChars = groundedBudgetChars;
         this.taxonomy = properties != null && properties.classification() != null
                 ? properties.classification().effectiveTaxonomy()
                 : SpectraProperties.ClassificationProperties.DEFAULT_TAXONOMY;
@@ -302,6 +317,8 @@ public class DatasetGeneratorService {
             log.info("Génération de dataset: {} chunks à traiter", total);
 
             int pairsCount = 0;
+            // Paires ancrées écartées faute de tenir dans le budget (cf. groundedBudgetChars).
+            int groundedSkipped = 0;
 
             for (int i = 0; i < documents.size(); i++) {
                 // Point d'annulation
@@ -343,10 +360,17 @@ public class DatasetGeneratorService {
                         List<RagPromptFormat.Passage> distractors =
                                 distractorsFor(i, documents, metadatas, groundedDistractors);
                         for (TrainingPair pair : pairs) {
-                            TrainingPair twin = groundedVariant(pair, chunkText, sourceFile, distractors, i);
+                            TrainingPair twin = groundedVariant(
+                                    pair, chunkText, sourceFile, distractors, i, groundedBudgetChars);
                             if (twin != null) {
                                 newPairs.add(twin);
                                 pairsCount++;
+                            } else {
+                                // Écarté faute de place : le chunk est trop long pour le budget.
+                                // Compté, et signalé en fin de génération — un correctif qui ne
+                                // produit silencieusement rien est indiscernable d'un correctif
+                                // qui marche.
+                                groundedSkipped++;
                             }
                         }
                         // Le refus ancré est le SEUL exemple qui enseigne « si le contexte ne
@@ -354,8 +378,14 @@ public class DatasetGeneratorService {
                         // chaque requête et que rien n'entraînait. Son contexte exclut donc le
                         // vrai passage : c'est tout le propos.
                         if (refusal != null && !distractors.isEmpty()) {
-                            newPairs.add(groundedRefusal(refusal, distractors));
-                            pairsCount++;
+                            TrainingPair groundedRefusal =
+                                    groundedRefusal(refusal, distractors, groundedBudgetChars);
+                            if (groundedRefusal != null) {
+                                newPairs.add(groundedRefusal);
+                                pairsCount++;
+                            } else {
+                                groundedSkipped++;
+                            }
                         }
                     }
                 } catch (Exception e) {
@@ -375,6 +405,15 @@ public class DatasetGeneratorService {
                     taskId, GenerationTask.Status.COMPLETED, unique.size(), total, total, null, Instant.now()));
             log.info("Génération terminée: {} paires uniques (sur {} générées) depuis {} chunks",
                     unique.size(), pairsCount, total);
+            if (groundedSkipped > 0) {
+                // Le dire, et dire quoi faire : sinon le correctif F14 se désactive tout seul sur
+                // un corpus à gros chunks, sans que rien ne l'indique.
+                log.warn("{} paire(s) ancrée(s) écartée(s) : le passage source dépasse le budget de "
+                                + "{} caractères. Réduisez SPECTRA_CHUNK_MAX_TOKENS, ou augmentez "
+                                + "ENSEMBLE spectra.dataset.grounded-budget-chars et "
+                                + "SPECTRA_TRAIN_MAX_LENGTH.",
+                        groundedSkipped, groundedBudgetChars);
+            }
             persistPairs();
 
         } catch (Exception e) {
@@ -607,22 +646,79 @@ public class DatasetGeneratorService {
     }
 
     /**
+     * Coût fixe d'un prompt ancré : consignes de citation et balises de contexte, qui sont
+     * présentes quel que soit le nombre de passages.
+     */
+    private static final int GROUNDED_OVERHEAD_CHARS = RagPromptFormat.INSTRUCTIONS_TEMPLATE.length();
+
+    /**
+     * Passages retenus pour tenir dans le budget, <b>vrai passage d'abord et jamais tronqué</b>.
+     *
+     * <p>C'est le point le plus important de tout le correctif F14, et il vaut d'être explicite.
+     * Le trainer tronque une séquence trop longue <i>par la tête</i>
+     * ({@code chat_format.fit_to_max_length}), en supprimant d'abord les tokens de prompt — un
+     * ordre écrit pour l'ancienne forme, où la tête n'était qu'une persona de dix mots. Sur un
+     * prompt ancré, la tête, ce sont la persona <b>puis les consignes de citation</b>, puis les
+     * premiers passages. L'exemple survivant enseignerait alors « réponds {@code [1]} » à partir
+     * d'un contexte amputé dont {@code [1]} a disparu, sans plus aucune consigne pour l'expliquer.
+     * C'est-à-dire exactement l'hallucination de source que ces consignes existent pour empêcher.
+     *
+     * <p>Donc : un passage qui ne tient pas n'est <b>pas</b> tronqué, il est écarté ; et si le
+     * vrai passage lui-même ne tient pas, aucune paire ancrée n'est produite pour ce chunk. Une
+     * paire en moins ne coûte rien — une paire fausse s'apprend.
+     */
+    static List<RagPromptFormat.Passage> passagesWithinBudget(RagPromptFormat.Passage truePassage,
+                                                              List<RagPromptFormat.Passage> distractors,
+                                                              int available) {
+        List<RagPromptFormat.Passage> kept = new ArrayList<>();
+        int used = passageCost(truePassage);
+        if (used > available) return kept;   // vide = pas de paire ancrée possible
+        kept.add(truePassage);
+        for (RagPromptFormat.Passage distractor : distractors) {
+            int cost = passageCost(distractor);
+            if (used + cost > available) continue;
+            kept.add(distractor);
+            used += cost;
+        }
+        return kept;
+    }
+
+    /** Coût d'un passage, en-tête « [n] (Source: …) » comprise. */
+    private static int passageCost(RagPromptFormat.Passage passage) {
+        return RagPromptFormat.passage(1, passage.sourceFile(), passage.text()).length();
+    }
+
+    /**
      * Jumeau ancré d'une paire : même question, même réponse, prompt système du service.
      *
-     * @return {@code null} si la paire n'a pas la forme attendue (system/user/assistant)
+     * @param budgetChars budget de l'exemple COMPLET (système + question + réponse). Approximation
+     *                    en caractères d'une limite qui s'exprime en tokens côté trainer
+     *                    ({@code SPECTRA_TRAIN_MAX_LENGTH}) : le générateur ne dispose d'aucun
+     *                    tokenizer, et une borne prudente vaut mieux qu'une borne exacte trop tard.
+     * @return {@code null} si la paire n'a pas la forme attendue, ou si elle ne tient pas dans le
+     *         budget — auquel cas il n'y a simplement pas de jumeau ancré pour ce chunk
      */
     static TrainingPair groundedVariant(TrainingPair pair, String chunkText, String sourceFile,
-                                        List<RagPromptFormat.Passage> distractors, int seed) {
+                                        List<RagPromptFormat.Passage> distractors, int seed,
+                                        int budgetChars) {
         if (pair == null || pair.conversations() == null || pair.conversations().size() < 3) return null;
         String question = pair.conversations().get(1).content();
         String answer = pair.conversations().get(2).content();
         if (question == null || answer == null) return null;
 
+        int available = budgetChars - GROUNDED_OVERHEAD_CHARS - question.length() - answer.length();
+        List<RagPromptFormat.Passage> fitted = passagesWithinBudget(
+                new RagPromptFormat.Passage(sourceFile, chunkText), distractors, available);
+        if (fitted.isEmpty()) return null;
+
         // Position du vrai passage : elle TOURNE avec le chunk. Fixée à [1], le modèle
-        // apprendrait à citer la première position quoi qu'elle contienne.
-        int position = Math.floorMod(seed, distractors.size() + 1);
-        List<RagPromptFormat.Passage> passages = new ArrayList<>(distractors);
-        passages.add(position, new RagPromptFormat.Passage(sourceFile, chunkText));
+        // apprendrait à citer la première position quoi qu'elle contienne. La rotation porte sur
+        // les distracteurs RETENUS, pas sur ceux demandés : citer [3] quand le contexte n'a que
+        // deux passages serait la même citation fausse, par un autre chemin.
+        List<RagPromptFormat.Passage> kept = new ArrayList<>(fitted.subList(1, fitted.size()));
+        int position = Math.floorMod(seed, kept.size() + 1);
+        List<RagPromptFormat.Passage> passages = new ArrayList<>(kept);
+        passages.add(position, fitted.get(0));
 
         TrainingPair.Metadata meta = pair.metadata();
         return TrainingPair.grounded(
@@ -638,12 +734,29 @@ public class DatasetGeneratorService {
      * est l'abstention. Sans lui, la consigne « si le contexte ne contient pas l'information,
      * dis-le clairement » n'est jamais entraînée — seulement demandée au service.
      */
-    static TrainingPair groundedRefusal(TrainingPair refusal, List<RagPromptFormat.Passage> distractors) {
+    static TrainingPair groundedRefusal(TrainingPair refusal, List<RagPromptFormat.Passage> distractors,
+                                        int budgetChars) {
+        String question = refusal.conversations().get(1).content();
+        String answer = refusal.conversations().get(2).content();
+        int available = budgetChars - GROUNDED_OVERHEAD_CHARS - question.length() - answer.length();
+
+        // Même règle de budget que le jumeau ancré, à une différence près : ici tous les passages
+        // sont des distracteurs, donc le premier n'a rien de privilégié — mais un contexte VIDE
+        // enseignerait « refuse sans lire », ce qui n'est pas la consigne.
+        List<RagPromptFormat.Passage> kept = new ArrayList<>();
+        int used = 0;
+        for (RagPromptFormat.Passage distractor : distractors) {
+            int cost = passageCost(distractor);
+            if (used + cost > available) continue;
+            kept.add(distractor);
+            used += cost;
+        }
+        if (kept.isEmpty()) return null;
+
         TrainingPair.Metadata meta = refusal.metadata();
         return TrainingPair.grounded(
-                refusal.conversations().get(1).content(),
-                refusal.conversations().get(2).content(),
-                RagPromptFormat.contextBlock(distractors),
+                question, answer,
+                RagPromptFormat.contextBlock(kept),
                 meta.source(), meta.category(), meta.type() + "_grounded",
                 meta.confidence(), meta.documentCategory());
     }

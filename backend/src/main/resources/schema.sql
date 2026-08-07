@@ -113,6 +113,9 @@ CREATE TABLE IF NOT EXISTS fine_tuning_jobs (
     loss             DOUBLE PRECISION,
     eval_loss        DOUBLE PRECISION,
     output_path      VARCHAR(255),
+    -- LEGACY, plus mappée : le rapport de fine-tuning n'a jamais été écrit et le champ valait
+    -- toujours NULL. La colonne est conservée — la supprimer est irréversible et sans bénéfice —
+    -- mais plus aucun code ne la lit ni ne l'écrit.
     report_path      VARCHAR(255),
     error            TEXT,
     failed_phase     VARCHAR(50),

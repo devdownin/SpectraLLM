@@ -15,7 +15,7 @@ import i18n from 'i18next';
 const RUNNING = {
   jobId: 'job-en-cours', status: 'TRAINING', modelName: 'spectra-domain', baseModel: 'phi3',
   datasetSize: 120, currentStep: 'Entraînement epoch 1/3', currentEpoch: 0.33, totalEpochs: 3,
-  loss: 1.2, evalLoss: null, outputPath: null, reportPath: null, error: null, failedPhase: null,
+  loss: 1.2, evalLoss: null, outputPath: null, error: null, failedPhase: null,
   createdAt: '2026-08-05T10:00:00Z', completedAt: null,
   parameters: { loraRank: 64, loraAlpha: 128, epochs: 3, learningRate: 2e-4, minConfidence: 0.8, valSplit: 0.1 },
 };

@@ -61,6 +61,22 @@ COPY services/trainer/app.py /app/app.py
 COPY services/trainer/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
+# ── Convertisseur GGUF embarqué (F12) ─────────────────────────────────────────
+# L'export GGUF téléchargeait convert_hf_to_gguf.py À L'EXÉCUTION : un export échouait donc sans
+# accès sortant, en contradiction avec la promesse « 100 % local · même air-gapped », et rien
+# dans l'interface ne le laissait prévoir.
+#
+# On le récupère ici, à la CONSTRUCTION de l'image, où le réseau est disponible et où le résultat
+# est figé dans une couche. La révision vient de scripts/llama_cpp_convert.py — source unique,
+# alignée sur le tag de l'image llama-server qui servira le GGUF produit. Le fichier porte la
+# révision dans son nom : une image plus ancienne ne fournit jamais en silence un convertisseur
+# d'une autre révision que celle demandée à l'exécution.
+#
+# LLAMA_CPP_REVISION surcharge la révision au build (elle est aussi lue à l'exécution).
+ARG LLAMA_CPP_REVISION=""
+ENV LLAMA_CPP_REVISION=${LLAMA_CPP_REVISION}
+RUN python3 /app/scripts/llama_cpp_convert.py /opt/llama-cpp-converters
+
 EXPOSE 8000
 
 # L'entrypoint aligne l'utilisateur sur le propriétaire du volume partagé avant de céder la

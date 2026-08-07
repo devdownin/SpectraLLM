@@ -27,7 +27,6 @@ public record FineTuningJob(
          */
         Double evalLoss,
         String outputPath,
-        String reportPath,
         String error,
         /**
          * Phase atteinte au moment de l'échec ({@code null} tant que le job n'a pas échoué).
@@ -74,14 +73,14 @@ public record FineTuningJob(
         return new FineTuningJob(
                 jobId, Status.PENDING, request.modelName(), request.baseModel(),
                 request, 0, "En attente", null, request.epochs(),
-                null, null, null, null, null, null, null, Instant.now(), null
+                null, null, null, null, null, null, Instant.now(), null
         );
     }
 
     public FineTuningJob withStatus(Status status, String step) {
         return new FineTuningJob(
                 jobId, status, modelName, baseModel, parameters, datasetSize,
-                step, currentEpoch, totalEpochs, loss, evalLoss, outputPath, reportPath,
+                step, currentEpoch, totalEpochs, loss, evalLoss, outputPath,
                 error, failedPhase, evaluationId, createdAt, completedAt
         );
     }
@@ -100,7 +99,7 @@ public record FineTuningJob(
                 "Entraînement epoch " + epochInProgress(epoch) + "/" + totalEpochs, epoch, totalEpochs,
                 loss != null ? loss : this.loss,
                 evalLoss != null ? evalLoss : this.evalLoss,
-                outputPath, reportPath, error, failedPhase, evaluationId, createdAt, completedAt
+                outputPath, error, failedPhase, evaluationId, createdAt, completedAt
         );
     }
 
@@ -117,7 +116,7 @@ public record FineTuningJob(
     public FineTuningJob withDatasetSize(int size) {
         return new FineTuningJob(
                 jobId, status, modelName, baseModel, parameters, size,
-                currentStep, currentEpoch, totalEpochs, loss, evalLoss, outputPath, reportPath,
+                currentStep, currentEpoch, totalEpochs, loss, evalLoss, outputPath,
                 error, failedPhase, evaluationId, createdAt, completedAt
         );
     }
@@ -126,7 +125,7 @@ public record FineTuningJob(
         return new FineTuningJob(
                 jobId, Status.COMPLETED, modelName, baseModel, parameters, datasetSize,
                 "Terminé", totalEpochs != null ? totalEpochs.doubleValue() : currentEpoch,
-                totalEpochs, loss, evalLoss, outputPath, reportPath, null, null, evaluationId,
+                totalEpochs, loss, evalLoss, outputPath, null, null, evaluationId,
                 createdAt, Instant.now()
         );
     }
@@ -144,7 +143,7 @@ public record FineTuningJob(
     public FineTuningJob cancelled(String reason) {
         return new FineTuningJob(
                 jobId, Status.CANCELLED, modelName, baseModel, parameters, datasetSize,
-                "Arrêté", currentEpoch, totalEpochs, loss, evalLoss, outputPath, reportPath, reason,
+                "Arrêté", currentEpoch, totalEpochs, loss, evalLoss, outputPath, reason,
                 status.isTerminal() ? failedPhase : status, evaluationId,
                 createdAt, Instant.now());
     }
@@ -158,7 +157,7 @@ public record FineTuningJob(
     public FineTuningJob withEvaluation(String evaluationId) {
         return new FineTuningJob(
                 jobId, status, modelName, baseModel, parameters, datasetSize,
-                currentStep, currentEpoch, totalEpochs, loss, evalLoss, outputPath, reportPath,
+                currentStep, currentEpoch, totalEpochs, loss, evalLoss, outputPath,
                 error, failedPhase, evaluationId, createdAt, completedAt
         );
     }
@@ -166,7 +165,7 @@ public record FineTuningJob(
     public FineTuningJob failed(String error) {
         return new FineTuningJob(
                 jobId, Status.FAILED, modelName, baseModel, parameters, datasetSize,
-                "Échoué", currentEpoch, totalEpochs, loss, evalLoss, outputPath, reportPath, error,
+                "Échoué", currentEpoch, totalEpochs, loss, evalLoss, outputPath, error,
                 status.isTerminal() ? failedPhase : status, evaluationId,
                 createdAt, Instant.now()
         );

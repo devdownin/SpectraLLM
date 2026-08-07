@@ -176,6 +176,22 @@ def test_une_sequence_plus_courte_que_max_length_est_inchangee(length):
     assert fit_to_max_length(input_ids, labels, 512) == (input_ids, labels)
 
 
+def test_la_troncature_supprime_la_TETE_du_prompt_pas_la_fin():
+    # Propriété la plus coûteuse de cette fonction, et celle qu'on oublie en la lisant vite : ce
+    # qui disparaît en premier est le DÉBUT du prompt. Sur un exemple ancré, ce début, c'est la
+    # persona puis les consignes de citation — le modèle apprendrait alors à citer « [1] » sans
+    # jamais avoir vu la règle qui l'exige, ni le passage [1] qu'elle désigne.
+    # Le générateur de dataset borne donc les paires ancrées en amont (grounded-budget-chars).
+    prompt = list(range(0, 40))
+    answer = list(range(40, 50))
+    labels = [-100] * 40 + answer
+
+    fitted_ids, _ = fit_to_max_length(prompt + answer, labels, 20)
+
+    assert fitted_ids[0] != 0, "le premier token du prompt aurait dû être supprimé"
+    assert fitted_ids[-10:] == answer
+
+
 # ── Format de préférence (DPO/ORPO) ───────────────────────────────────────────
 
 def test_laplatissement_des_preferences_reutilise_le_gabarit_de_repli():

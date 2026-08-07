@@ -8,6 +8,55 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Corrigé — les paires ancrées étaient tronquées par la tête, donc fausses
+
+Défaut introduit par le correctif F14 lui-même, trouvé avant fusion. Les chunks font jusqu'à
+**512 tokens** (`chunk-max-tokens`) ; un prompt ancré en aligne trois — vrai passage plus deux
+distracteurs — plus ~150 tokens de consignes, soit **~1700 tokens** contre un `--max-length` par
+défaut de **512**.
+
+Or `fit_to_max_length` tronque **par la tête**, en supprimant d'abord les tokens de prompt. Cet
+ordre a été écrit pour l'ancienne forme, où la tête n'était qu'une persona de dix mots. Sur un
+prompt ancré, la tête, ce sont la persona **puis les consignes de citation**, puis les premiers
+passages. L'exemple survivant enseignait donc « réponds `[1]` » à partir d'un contexte amputé dont
+`[1]` avait disparu, sans plus aucune consigne pour l'expliquer — l'hallucination de source que
+ces consignes existent précisément pour empêcher.
+
+- Les paires ancrées sont bornées à la génération (`spectra.dataset.grounded-budget-chars`,
+  défaut 1800). Le **vrai passage n'est jamais tronqué** : s'il ne tient pas, aucune paire ancrée
+  n'est produite pour ce chunk. Une paire en moins ne coûte rien, une paire fausse s'apprend.
+- Les distracteurs sont écartés un à un avant de renoncer à la paire, et la rotation de la
+  citation porte sur les passages **retenus** — citer `[3]` dans un contexte de deux passages
+  serait la même citation fausse par un autre chemin.
+- Les paires écartées sont **comptées et signalées** en fin de génération, avec le remède : un
+  correctif qui ne produit silencieusement rien est indiscernable d'un correctif qui marche.
+- Filet de sécurité côté trainer : `train_host.py` compte les exemples tronqués et émet un
+  avertissement structuré au-delà de 20 %. C'est ce qui aurait rendu le défaut visible.
+
+### Corrigé — F12 : l'export GGUF ne nécessite plus d'accès sortant
+
+`convert_hf_to_gguf.py` était téléchargé **à l'exécution**. Un export échouait donc en
+environnement cloisonné, en contradiction avec la promesse « 100 % local · même air-gapped », et
+rien dans l'interface ne le laissait prévoir — l'échec survenait après la fusion LoRA, soit
+plusieurs minutes de calcul.
+
+Le convertisseur est désormais cherché **d'abord sur le disque** (`SPECTRA_LLAMA_CPP_DIR`, puis
+`/opt/llama-cpp-converters`), et l'image du trainer le récupère **à la construction**, où le
+réseau est disponible et le résultat figé dans une couche. Le téléchargement à l'exécution reste
+en dernier recours, et le dit désormais explicitement. Le fichier porte la révision dans son nom :
+une image plus ancienne ne fournit jamais en silence un convertisseur d'une autre révision.
+
+### Supprimé — le champ `reportPath`, mort depuis toujours
+
+Toujours `null`, et pourtant propagé dans le DTO, l'entité JPA, la réponse de l'API et jusqu'au
+type TypeScript du frontend. Il documentait une capacité inexistante : la documentation technique
+annonçait un `REPORT.md` que `FineTuningService` n'a jamais écrit. La trace d'un job est
+`train.log` + `losses.jsonl`, relus par `GET /api/fine-tuning/{jobId}/telemetry`.
+
+La colonne `report_path` est **conservée** en base et marquée héritée : la supprimer serait
+irréversible et sans bénéfice. Plus aucun code ne la lit ni ne l'écrit.
+
+
 ### Ajouté — le modèle est enfin entraîné sur ce qu'on lui sert
 
 Constat **F14** de [l'audit fine-tuning](docs/process/audit-finetuning.fr.md), et le dernier défaut

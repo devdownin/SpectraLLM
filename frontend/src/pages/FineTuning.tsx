@@ -37,7 +37,6 @@ interface FineTuningJob {
   loss: number | null;
   evalLoss: number | null;
   outputPath: string | null;
-  reportPath: string | null;
   error: string | null;
   /** Phase atteinte à l'échec — situe l'échec sur la barre d'étapes. Null avant introduction. */
   failedPhase: JobStatus | null;

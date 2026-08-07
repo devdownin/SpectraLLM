@@ -16,7 +16,7 @@ import i18n from 'i18next';
 const COMPLETED_JOB = {
   jobId: 'job-eval', status: 'COMPLETED', modelName: 'spectra-domain', baseModel: 'phi3',
   datasetSize: 120, currentStep: 'Terminé', currentEpoch: 3, totalEpochs: 3,
-  loss: 0.4, evalLoss: 0.5, outputPath: '/data/models/spectra-domain.gguf', reportPath: null,
+  loss: 0.4, evalLoss: 0.5, outputPath: '/data/models/spectra-domain.gguf',
   error: null, failedPhase: null, evaluationId: 'eval-7',
   createdAt: '2026-08-05T10:00:00Z', completedAt: '2026-08-05T11:00:00Z',
   parameters: { loraRank: 64, loraAlpha: 128, epochs: 3, learningRate: 2e-4, minConfidence: 0.8, valSplit: 0.1 },
