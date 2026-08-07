@@ -8,6 +8,93 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Corrigé — `docparser` et `reranker` ne redémarraient pas
+
+Seuls services longue durée de la pile sans `restart: unless-stopped`, par oubli et non par
+choix : rien ne l'expliquait, et les huit autres l'ont. Être derrière un profil ne change rien
+au besoin — un plantage ou un redémarrage de l'hôte les laissait à terre, et leur indisponibilité
+dégrade silencieusement l'ingestion (`docparser`) ou la pertinence des réponses (`reranker`).
+
+`kafka-data-init` reste sans politique, et c'est correct : c'est un conteneur d'initialisation
+qui doit se terminer.
+
+
+### Sécurité — les images de base sont épinglées par empreinte
+
+Les images **tierces** de la pile étaient déjà épinglées (llama.cpp `server-b9828`, chromadb
+`1.5.9`, kafka `4.2.0`) ; celles depuis lesquelles le projet **construit** ne l'étaient pas.
+Or `python:3.11-slim` est réassigné toutes les semaines : deux images de trainer construites à
+quinze jours d'écart n'étaient pas la même image, et rien ne le signalait — exactement le
+défaut que l'épinglage de llama.cpp corrige par ailleurs.
+
+`python:3.11-slim`, `eclipse-temurin:25-jre` et `maven:3-eclipse-temurin-25` portent désormais
+leur empreinte. Celle-ci désigne l'**index multi-architecture** et non un manifeste mono-arch :
+amd64 et arm64 (Apple Silicon) restent construits depuis la même référence. La commande de
+rafraîchissement est donnée dans `deploy/docker/Dockerfile`.
+
+### Ajouté — l'installation cloisonnée est enfin documentée
+
+Le README promet « même hors ligne » depuis toujours, sans que rien n'explique comment.
+
+Le principe tient en une phrase : **la construction des images a besoin du réseau, l'exécution
+non.** Le manuel (fr + en) décrit ce qu'il faut pré-charger — les images, les modèles GGUF, le
+volume `trainer-hf-cache` (les poids du modèle de base, plusieurs Go) et
+`reranker-model-cache` — puis le rôle de `HF_HUB_OFFLINE=1` : sans lui, une pièce manquante du
+cache déclenche un téléchargement, donc une attente puis un échec tardif, au lieu d'une erreur
+immédiate.
+
+La section dit aussi ce qui **reste hors de portée** : construire les images sur la machine
+cloisonnée elle-même, Maven Central, PyPI et l'installateur llmfit étant tous requis au build.
+C'est la raison du découpage build connecté / exécution hors ligne.
+
+
+### Modifié — cache de dépendances au build, et reprise sur erreur réseau
+
+`mvn dependency:go-offline` puis `mvn package`, comme les `pip install` des trois services
+Python, s'exécutaient sans cache : la moindre modification du `pom.xml` refaisait l'intégralité
+des téléchargements.
+
+Un cache BuildKit (`RUN --mount=type=cache`) est posé sur le dépôt Maven local et sur les roues
+pip. Il vit **hors des couches** — la taille des images est inchangée — et `--no-cache-dir`, qui
+n'existait que pour ne pas grossir la couche, devient inutile là où il est monté.
+
+> **Ce que ce cache fait, et ce qu'il ne fait pas.** Il profite aux constructions **répétées sur
+> un même hôte** : poste de développement, runner auto-hébergé, constructeur buildx réutilisé.
+> Sur un runner **éphémère**, il démarre vide à chaque exécution et n'apporte rien — c'est le
+> cache de **couches** (`cache-from: type=gha`) qui y travaille déjà, et le job E2E, lui,
+> construit sans aucun cache.
+
+C'est pourquoi le build Maven retente désormais les erreurs HTTP transitoires
+(`maven.wagon.http.retryHandler.count`). Maven Central répond parfois un 403 ou un 5xx sans
+rapport avec le projet — ce qui a déjà fait tomber la CI — et une construction à froid n'avait
+alors aucun recours. **C'est ce réglage-là, et non le cache, qui adresse cet incident.**
+
+> Prérequis : BuildKit, actif par défaut depuis Docker 23 et systématique via `docker compose`.
+> Une construction forcée sur l'ancien moteur (`DOCKER_BUILDKIT=0`) échouerait sur la syntaxe
+> `RUN --mount`.
+
+### Sécurité — l'installateur llmfit n'est plus pipé dans un shell
+
+L'image de l'API faisait `curl -fsSL https://llmfit.axjns.dev/install.sh | sh`. Deux défauts
+distincts, dont un qui n'a rien à voir avec la chaîne d'approvisionnement :
+
+- **Le shell exécute pendant que le téléchargement se poursuit.** Une connexion coupée en cours
+  de transfert fait exécuter un script **tronqué**, à moitié appliqué — et l'image se construit
+  quand même. L'anomalie n'apparaît qu'à l'usage.
+- **Rien ne vérifie ce qui est exécuté**, alors que le dépôt applique déjà ce principe au
+  convertisseur GGUF (constat F12) : « deux exports faits à quelques semaines d'intervalle
+  n'utilisaient pas le même code, et rien ne le signalait ».
+
+L'installateur est désormais téléchargé **dans un fichier** — `curl` échoue franchement sur un
+transfert incomplet — puis vérifié, puis exécuté. `LLMFIT_SHA256` (argument de build, câblé dans
+le compose) porte la somme attendue : renseignée, une empreinte qui ne correspond pas **fait
+échouer la construction** ; vide, le build émet un avertissement et **imprime l'empreinte
+obtenue**, qu'il suffit de recopier pour la figer.
+
+Vide par défaut, faute de somme publiée en amont — le même compromis que pour `NVD_API_KEY` :
+le garde-fou est en place et se signale, la valeur reste à fournir par l'exploitant.
+
+
 ### Corrigé — aucun fine-tuning ne pouvait aboutir avec transformers 5.5
 
 Défaut **bloquant**, trouvé en exécutant réellement un entraînement — ce qu'aucun test ne

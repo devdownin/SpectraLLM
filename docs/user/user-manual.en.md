@@ -89,6 +89,43 @@ Example summarized response:
 
 ---
 
+### Air-gapped installation
+
+The principle fits in one sentence: **building the images needs the network, running them does
+not.** You build on a connected machine, you transfer, you run offline.
+
+What to pre-seed, and why:
+
+| To transfer | Why | How |
+|---|---|---|
+| The stack's **images** | building them pulls Maven Central, PyPI, the llmfit installer and the base images | `docker save … \| gzip > spectra-images.tgz` then `docker load` — or an internal registry |
+| The **GGUF models** (`data/models/`) | `llm-chat` and `llm-embed` load them at startup | downloaded as in §1, then copied |
+| The **`trainer-hf-cache`** volume | otherwise training fetches the base model weights (several GB) from HuggingFace | run **one** training on the connected machine to populate it, then export the volume |
+| The **`reranker-model-cache`** volume | same reason, for re-ranking | likewise, if the `reranker` profile is used |
+
+Then, on the air-gapped machine:
+
+```bash
+export HF_HUB_OFFLINE=1        # forbids any Hub access, forces exclusive use of the cache
+# export HF_ENDPOINT=https://internal.mirror/    # or: point at a HuggingFace mirror
+./scripts/start.sh --trainer
+```
+
+`HF_HUB_OFFLINE=1` is the guard that matters: without it, a missing cache entry triggers a
+download attempt — so a wait followed by a late failure, instead of an immediate, clear error.
+
+**What no longer needs the network, and did not always**: the GGUF export. The
+`convert_hf_to_gguf.py` converter used to be downloaded at runtime — an export therefore failed
+in an air-gapped environment, *after* the LoRA merge, wasting several minutes of computation.
+The trainer image now embeds it from build time. To supply your own:
+`SPECTRA_LLAMA_CPP_DIR=/path/to/directory`.
+
+**What remains out of reach**: building the images on the air-gapped machine itself. Maven
+Central, PyPI and the llmfit installer are all required at build time. That is the reason for
+the connected-build / offline-run split above.
+
+---
+
 ## 3. The 4-Step Pipeline
 
 Here is the complete path to build your specialized AI assistant:

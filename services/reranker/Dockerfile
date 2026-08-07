@@ -1,10 +1,17 @@
-FROM python:3.11-slim
+# syntax=docker/dockerfile:1
+# Image de base épinglée par empreinte (index multi-arch : amd64 et arm64). Un tag comme
+# « python:3.11-slim » est réassigné toutes les semaines. Justification complète et
+# commande de rafraîchissement : deploy/docker/Dockerfile.
+FROM python:3.11-slim@sha256:90744cff8f32887f075c47d747a173ff333e9e98801667af93c357fa9f5e28ff
 
 WORKDIR /app
 
 # Install dependencies first (cache layer)
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Cache pip hors des couches : la taille de l'image est inchangée, mais une
+# reconstruction ne retélécharge plus les dépendances déjà résolues.
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -r requirements.txt
 
 # Copy application
 COPY app.py .

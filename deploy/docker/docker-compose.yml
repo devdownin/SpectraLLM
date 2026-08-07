@@ -143,6 +143,11 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+    # Même politique que le reste de la pile. Son absence ici était un oubli, pas un choix :
+    # un service derrière un profil n'en redémarre pas moins après un plantage ou un reboot de
+    # l'hôte — et son indisponibilité silencieuse dégrade l'ingestion (docparser) ou la
+    # pertinence des réponses (reranker) sans que rien ne le signale.
+    restart: unless-stopped
 
   # ── Reranker (optionnel, profil reranker) ─────────────────────────────────
   reranker:
@@ -181,6 +186,11 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
+    # Même politique que le reste de la pile. Son absence ici était un oubli, pas un choix :
+    # un service derrière un profil n'en redémarre pas moins après un plantage ou un reboot de
+    # l'hôte — et son indisponibilité silencieuse dégrade l'ingestion (docparser) ou la
+    # pertinence des réponses (reranker) sans que rien ne le signale.
+    restart: unless-stopped
 
   # ── Kafka (optionnel, profil kafka) ───────────────────────────────────────
   # Broker mono-nœud en mode KRaft (sans Zookeeper), pour l'ingestion streaming.
@@ -257,6 +267,12 @@ services:
     build:
       context: .
       dockerfile: deploy/docker/Dockerfile
+      args:
+        # Somme de contrôle attendue de l'installateur llmfit, vérifiée à la construction.
+        # Vide par défaut : la construction émet alors un avertissement et imprime l'empreinte
+        # obtenue, qu'il suffit de recopier ici (ou dans .env) pour la figer. Renseignée, une
+        # empreinte qui ne correspond pas FAIT ÉCHOUER le build — c'est tout l'objet.
+        LLMFIT_SHA256: ${LLMFIT_SHA256:-}
     container_name: spectra-api
     deploy:
       resources:

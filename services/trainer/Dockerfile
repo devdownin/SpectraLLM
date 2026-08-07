@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Spectra Trainer — fine-tuning QLoRA dans son propre conteneur.
 #
 # Contexte de build : la RACINE du dépôt (le service a besoin de scripts/, hors de son
@@ -9,7 +10,10 @@
 # compilent des extensions natives, d'autres se récupèrent depuis un dépôt Git. Les garder
 # dans l'image servie ajouterait ~300 Mo à la plus lourde de la pile, pour du code qui ne
 # s'exécutera jamais.
-FROM python:3.11-slim AS builder
+# Image de base épinglée par empreinte (index multi-arch : amd64 et arm64). Un tag comme
+# « python:3.11-slim » est réassigné toutes les semaines. Justification complète et
+# commande de rafraîchissement : deploy/docker/Dockerfile.
+FROM python:3.11-slim@sha256:90744cff8f32887f075c47d747a173ff333e9e98801667af93c357fa9f5e28ff AS builder
 
 RUN apt-get update \
     && apt-get install --no-install-recommends -y git build-essential \
@@ -19,11 +23,18 @@ RUN apt-get update \
 # reconstruite à chaque modification d'un script.
 COPY services/trainer/requirements.txt /tmp/api-requirements.txt
 COPY scripts/requirements.txt /tmp/training-requirements.txt
-RUN pip install --no-cache-dir --prefix=/install -r /tmp/api-requirements.txt \
-    && pip install --no-cache-dir --prefix=/install -r /tmp/training-requirements.txt
+# Cache PERSISTANT des roues pip, partagé entre les constructions.
+#
+# `--no-cache-dir` existait pour que le cache de pip ne grossisse pas la couche. Un cache
+# BuildKit atteint le même but par un autre chemin — il vit HORS des couches — tout en
+# évitant de retélécharger torch et ses dépendances CUDA à chaque reconstruction, soit
+# plusieurs gigaoctets et l'essentiel des six minutes que ce build prend en CI.
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --prefix=/install -r /tmp/api-requirements.txt \
+    && pip install --prefix=/install -r /tmp/training-requirements.txt
 
 # ── Étape 2 : image servie ───────────────────────────────────────────────────
-FROM python:3.11-slim
+FROM python:3.11-slim@sha256:90744cff8f32887f075c47d747a173ff333e9e98801667af93c357fa9f5e28ff
 
 # WORKDIR /app et volume ./data:/app/data : la symétrie avec spectra-api n'est pas cosmétique.
 # Le client transmet des chemins ABSOLUS calculés dans le conteneur applicatif
