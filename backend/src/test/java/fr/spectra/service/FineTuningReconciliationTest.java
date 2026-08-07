@@ -61,6 +61,7 @@ class FineTuningReconciliationTest {
                 mock(DatasetGeneratorService.class), mock(DpoGenerationService.class),
                 repository, mock(TrainingLogBroadcaster.class), mock(JobTelemetryStore.class),
                 mock(ModelRegistryService.class),
+                mock(EvaluationService.class),
                 mock(BaseModelCatalog.class), mock(GedService.class),
                 mock(IngestedFileRepository.class), "phi3", runner,
                 tempWorkDir.toString(), tempWorkDir.resolve("models").toString(), "");
@@ -68,7 +69,7 @@ class FineTuningReconciliationTest {
 
     private static FineTuningJob jobWith(String id, Status status) {
         FineTuningJob pending = FineTuningJob.pending(id, new FineTuningRequest(
-                "mon-modele", "phi3", 64, 128, 3, 2e-4, null, false, false, false, false, 0.0));
+                "mon-modele", "phi3", 64, 128, 3, 2e-4, null, false, false, false, false, 0.0, null));
         return status == Status.PENDING ? pending : pending.withStatus(status, "en cours");
     }
 

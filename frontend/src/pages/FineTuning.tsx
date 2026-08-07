@@ -37,10 +37,14 @@ interface FineTuningJob {
   loss: number | null;
   evalLoss: number | null;
   outputPath: string | null;
-  reportPath: string | null;
   error: string | null;
   /** Phase atteinte à l'échec — situe l'échec sur la barre d'étapes. Null avant introduction. */
   failedPhase: JobStatus | null;
+  /**
+   * Évaluation enchaînée après l'enregistrement du modèle. Null si elle n'a pas été demandée —
+   * ou si le job est antérieur au chaînage.
+   */
+  evaluationId: string | null;
   createdAt: string;
   completedAt: string | null;
   parameters: {
@@ -164,6 +168,7 @@ const makeTrainingSchema = (t: TFunction) => z.object({
   dpoEnabled: z.boolean().optional(),
   orpoEnabled: z.boolean().optional(),
   exportGguf: z.boolean().optional(),
+  autoEvaluate: z.boolean().optional(),
 });
 
 type TrainingFormValues = z.infer<ReturnType<typeof makeTrainingSchema>>;
@@ -213,6 +218,7 @@ const FineTuning: FC = () => {
       dpoEnabled: false,
       orpoEnabled: false,
       exportGguf: false,
+      autoEvaluate: false,
     }
   });
 
@@ -750,9 +756,34 @@ const FineTuning: FC = () => {
                 <span className="text-[10px] text-on-surface-variant">{t('fineTuning.orpoHint')}</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input type="checkbox" {...register('exportGguf')} className="accent-primary" />
+                <input
+                  type="checkbox"
+                  className="accent-primary"
+                  checked={watch('exportGguf') ?? false}
+                  onChange={e => {
+                    setValue('exportGguf', e.target.checked);
+                    // L'évaluation exige un modèle enregistré : décocher l'export la décoche
+                    // aussi, plutôt que de laisser une case active que le serveur refusera.
+                    if (!e.target.checked) setValue('autoEvaluate', false);
+                  }}
+                />
                 <span className="font-label text-[11px] uppercase tracking-widest">{t('fineTuning.exportGguf')}</span>
                 <span className="text-[10px] text-on-surface-variant">{t('fineTuning.exportGgufHint')}</span>
+              </label>
+              <label
+                className={`flex items-center gap-2 select-none ${
+                  watch('exportGguf') ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'
+                }`}
+                title={watch('exportGguf') ? undefined : t('fineTuning.autoEvaluateRequiresExport')}
+              >
+                <input
+                  type="checkbox"
+                  {...register('autoEvaluate')}
+                  className="accent-primary"
+                  disabled={!watch('exportGguf')}
+                />
+                <span className="font-label text-[11px] uppercase tracking-widest">{t('fineTuning.autoEvaluate')}</span>
+                <span className="text-[10px] text-on-surface-variant">{t('fineTuning.autoEvaluateHint')}</span>
               </label>
             </div>
 
@@ -919,6 +950,18 @@ const FineTuning: FC = () => {
                       <span aria-hidden="true" className="material-symbols-outlined text-[14px]">rocket_launch</span>
                       {t('fineTuning.deploy')}
                     </Link>
+                    {/* Un entraînement terminé ne disait rien de la QUALITÉ obtenue. Quand une
+                        évaluation a été enchaînée, c'est ici qu'on va la lire. */}
+                    {activeJob.evaluationId && (
+                      <Link
+                        to="/comparison"
+                        className="flex items-center gap-1 text-[10px] font-label uppercase tracking-widest
+                                   text-secondary hover:underline"
+                      >
+                        <span aria-hidden="true" className="material-symbols-outlined text-[14px]">grade</span>
+                        {t('fineTuning.evaluationLaunched')}
+                      </Link>
+                    )}
                   </div>
                 )}
               </div>

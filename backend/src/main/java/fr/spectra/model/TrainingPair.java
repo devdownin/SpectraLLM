@@ -49,4 +49,32 @@ public record TrainingPair(
                 new Metadata(source, category, type, confidence, documentCategory)
         );
     }
+
+    /**
+     * Paire <b>ancrée</b> : le prompt système est exactement celui du service RAG — persona,
+     * consignes de citation, bloc de passages numérotés — et la question reste nue.
+     *
+     * <p>C'est la correction du constat F14. {@link #of} produit un prompt court sans contexte,
+     * alors que le modèle est ensuite servi avec un contexte long et une consigne de citation
+     * qu'il n'a jamais vue. Le SFT enseignait donc à répondre <i>de mémoire, sans citer</i> —
+     * l'inverse de ce que la production demande. Une part du dataset construite sous cette forme
+     * est le seul moyen d'apprendre au modèle à <i>utiliser</i> le contexte : c'est le bénéfice
+     * attendu du couplage RAG + fine-tuning revendiqué par le produit.
+     *
+     * @param contextBlock passages numérotés, produits par
+     *                     {@link RagPromptFormat#contextBlock(List)}
+     */
+    public static TrainingPair grounded(String question, String response, String contextBlock,
+                                        String source, String category, String type,
+                                        double confidence, String documentCategory) {
+        return new TrainingPair(
+                List.of(
+                        new Message("system", RagPromptFormat.systemPrompt(
+                                AssistantPersona.SYSTEM_PROMPT, contextBlock)),
+                        new Message("user", question),
+                        new Message("assistant", response)
+                ),
+                new Metadata(source, category, type, confidence, documentCategory)
+        );
+    }
 }

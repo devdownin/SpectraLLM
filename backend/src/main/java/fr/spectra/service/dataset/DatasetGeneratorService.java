@@ -3,6 +3,7 @@ package fr.spectra.service.dataset;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import fr.spectra.config.SpectraProperties;
+import fr.spectra.model.RagPromptFormat;
 import fr.spectra.model.TrainingPair;
 import fr.spectra.persistence.IngestedFileEntity;
 import fr.spectra.persistence.IngestedFileRepository;
@@ -86,6 +87,35 @@ public class DatasetGeneratorService {
     private final Path pairsFile;
     /** Fréquence des exemples de refus : un toutes les N portions (0 = désactivé). */
     private final int refusalEveryN;
+    /**
+     * Fréquence des paires <b>ancrées</b> : une tous les N chunks (0 = désactivé).
+     *
+     * <p>Correction du constat F14. Sans elles, le modèle est affiné sur des prompts courts sans
+     * contexte puis servi avec un contexte long et une consigne de citation qu'il n'a jamais vue :
+     * le SFT enseigne à répondre de mémoire, exactement ce que le service interdit.
+     */
+    private final int groundedEveryN;
+    /**
+     * Nombre de passages <b>distracteurs</b> ajoutés autour du vrai passage.
+     *
+     * <p>Sans distracteur, le contexte contiendrait toujours un seul passage, toujours pertinent,
+     * toujours cité {@code [1]} : le modèle apprendrait la position, pas la lecture. Le service,
+     * lui, présente plusieurs passages dont certains hors sujet.
+     */
+    private final int groundedDistractors;
+    /**
+     * Budget d'un exemple ancré, en caractères (système + question + réponse).
+     *
+     * <p>Approximation d'une limite qui s'exprime en <b>tokens</b> côté trainer
+     * ({@code SPECTRA_TRAIN_MAX_LENGTH}, défaut 512) : le générateur n'a pas de tokenizer. Le
+     * défaut 1800 vise ~512 tokens de français (≈ 3,5 caractères par token) et reste volontairement
+     * prudent — dépasser fait tronquer, et une troncature par la tête supprime les consignes de
+     * citation avant tout le reste.
+     *
+     * <p><b>À faire évoluer AVEC {@code SPECTRA_TRAIN_MAX_LENGTH}</b> : les augmenter séparément
+     * n'a pas de sens, l'un est la traduction de l'autre.
+     */
+    private final int groundedBudgetChars;
     /** Taxonomie de classification (R8) — partagée avec le classifieur documentaire. */
     private final List<String> taxonomy;
 
@@ -103,12 +133,18 @@ public class DatasetGeneratorService {
                                    IngestedFileRepository fileRepo,
                                    SpectraProperties properties,
                                    @Value("${spectra.dataset.dir:./data/dataset}") String datasetDir,
-                                   @Value("${spectra.dataset.refusal-every-n:3}") int refusalEveryN) {
+                                   @Value("${spectra.dataset.refusal-every-n:3}") int refusalEveryN,
+                                   @Value("${spectra.dataset.grounded-every-n:2}") int groundedEveryN,
+                                   @Value("${spectra.dataset.grounded-distractors:2}") int groundedDistractors,
+                                   @Value("${spectra.dataset.grounded-budget-chars:1800}") int groundedBudgetChars) {
         this.llmChatClient = llmChatClient;
         this.chromaDbClient = chromaDbClient;
         this.fileRepo = fileRepo;
         this.pairsFile = Path.of(datasetDir).resolve("sft_pairs.jsonl");
         this.refusalEveryN = refusalEveryN;
+        this.groundedEveryN = groundedEveryN;
+        this.groundedDistractors = Math.max(0, groundedDistractors);
+        this.groundedBudgetChars = groundedBudgetChars;
         this.taxonomy = properties != null && properties.classification() != null
                 ? properties.classification().effectiveTaxonomy()
                 : SpectraProperties.ClassificationProperties.DEFAULT_TAXONOMY;
@@ -281,6 +317,8 @@ public class DatasetGeneratorService {
             log.info("Génération de dataset: {} chunks à traiter", total);
 
             int pairsCount = 0;
+            // Paires ancrées écartées faute de tenir dans le budget (cf. groundedBudgetChars).
+            int groundedSkipped = 0;
 
             for (int i = 0; i < documents.size(); i++) {
                 // Point d'annulation
@@ -305,11 +343,49 @@ public class DatasetGeneratorService {
                     pairsCount += pairs.size();
 
                     // Exemple de refus périodique : apprend l'abstention (anti-hallucination).
+                    TrainingPair refusal = null;
                     if (refusalEveryN > 0 && i % refusalEveryN == 0) {
-                        TrainingPair refusal = generateRefusalPair(chunkText, sourceFile, i / refusalEveryN, docCategory);
+                        refusal = generateRefusalPair(chunkText, sourceFile, i / refusalEveryN, docCategory);
                         if (refusal != null) {
                             newPairs.add(refusal);
                             pairsCount++;
+                        }
+                    }
+
+                    // ── F14 : jumeaux ANCRÉS, sous la forme réellement servie ──
+                    // Aucun appel LLM supplémentaire : on réemploie la question et la réponse
+                    // déjà produites, en changeant seulement le prompt système. Le coût de la
+                    // correction est donc nul en inférence, ce qui la rend activable par défaut.
+                    if (groundedEveryN > 0 && i % groundedEveryN == 0) {
+                        List<RagPromptFormat.Passage> distractors =
+                                distractorsFor(i, documents, metadatas, groundedDistractors);
+                        for (TrainingPair pair : pairs) {
+                            TrainingPair twin = groundedVariant(
+                                    pair, chunkText, sourceFile, distractors, i, groundedBudgetChars);
+                            if (twin != null) {
+                                newPairs.add(twin);
+                                pairsCount++;
+                            } else {
+                                // Écarté faute de place : le chunk est trop long pour le budget.
+                                // Compté, et signalé en fin de génération — un correctif qui ne
+                                // produit silencieusement rien est indiscernable d'un correctif
+                                // qui marche.
+                                groundedSkipped++;
+                            }
+                        }
+                        // Le refus ancré est le SEUL exemple qui enseigne « si le contexte ne
+                        // contient pas l'information, dis-le » — consigne que le service donne à
+                        // chaque requête et que rien n'entraînait. Son contexte exclut donc le
+                        // vrai passage : c'est tout le propos.
+                        if (refusal != null && !distractors.isEmpty()) {
+                            TrainingPair groundedRefusal =
+                                    groundedRefusal(refusal, distractors, groundedBudgetChars);
+                            if (groundedRefusal != null) {
+                                newPairs.add(groundedRefusal);
+                                pairsCount++;
+                            } else {
+                                groundedSkipped++;
+                            }
                         }
                     }
                 } catch (Exception e) {
@@ -329,6 +405,15 @@ public class DatasetGeneratorService {
                     taskId, GenerationTask.Status.COMPLETED, unique.size(), total, total, null, Instant.now()));
             log.info("Génération terminée: {} paires uniques (sur {} générées) depuis {} chunks",
                     unique.size(), pairsCount, total);
+            if (groundedSkipped > 0) {
+                // Le dire, et dire quoi faire : sinon le correctif F14 se désactive tout seul sur
+                // un corpus à gros chunks, sans que rien ne l'indique.
+                log.warn("{} paire(s) ancrée(s) écartée(s) : le passage source dépasse le budget de "
+                                + "{} caractères. Réduisez SPECTRA_CHUNK_MAX_TOKENS, ou augmentez "
+                                + "ENSEMBLE spectra.dataset.grounded-budget-chars et "
+                                + "SPECTRA_TRAIN_MAX_LENGTH.",
+                        groundedSkipped, groundedBudgetChars);
+            }
             persistPairs();
 
         } catch (Exception e) {
@@ -519,6 +604,190 @@ public class DatasetGeneratorService {
 
         return pairs;
     }
+
+    // ─────────────────────────────────────────────────────────────────────────────────────────
+    // F14 — paires ancrées : entraîner sur la forme réellement servie
+    // ─────────────────────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Choisit des passages <b>distracteurs</b> pour le contexte d'une paire ancrée.
+     *
+     * <p>Priorité aux chunks d'un <i>autre</i> document : un chunk voisin du même fichier a de
+     * bonnes chances de contenir lui aussi la réponse, et servirait alors de second passage
+     * correct — la citation attendue deviendrait fausse sans que rien ne le signale.
+     *
+     * <p>Sélection déterministe (pas de tirage aléatoire) : deux générations sur le même corpus
+     * produisent le même dataset, ce qui est la condition pour qu'un écart de qualité entre deux
+     * entraînements soit imputable à autre chose qu'au hasard.
+     */
+    static List<RagPromptFormat.Passage> distractorsFor(int index, List<String> documents,
+                                                        List<Map<String, String>> metadatas,
+                                                        int count) {
+        List<RagPromptFormat.Passage> picked = new ArrayList<>();
+        int size = documents.size();
+        if (size <= 1 || count <= 0) return picked;
+
+        String ownSource = metadatas.get(index).getOrDefault("sourceFile", "inconnu");
+        // Deux passes : d'abord les autres documents, puis n'importe quel autre chunk si le
+        // corpus n'en contient qu'un — mieux vaut un distracteur imparfait que pas de contexte.
+        for (boolean otherDocumentOnly : new boolean[]{true, false}) {
+            for (int step = 1; step < size && picked.size() < count; step++) {
+                int candidate = (index + step) % size;
+                if (candidate == index) continue;
+                String source = metadatas.get(candidate).getOrDefault("sourceFile", "inconnu");
+                if (otherDocumentOnly && source.equals(ownSource)) continue;
+                RagPromptFormat.Passage passage =
+                        new RagPromptFormat.Passage(source, documents.get(candidate));
+                if (!picked.contains(passage)) picked.add(passage);
+            }
+            if (picked.size() >= count) break;
+        }
+        return picked;
+    }
+
+    /**
+     * Coût fixe d'un prompt ancré : consignes de citation et balises de contexte, qui sont
+     * présentes quel que soit le nombre de passages.
+     */
+    private static final int GROUNDED_OVERHEAD_CHARS = RagPromptFormat.INSTRUCTIONS_TEMPLATE.length();
+
+    /**
+     * Passages retenus pour tenir dans le budget, <b>vrai passage d'abord et jamais tronqué</b>.
+     *
+     * <p>C'est le point le plus important de tout le correctif F14, et il vaut d'être explicite.
+     * Le trainer tronque une séquence trop longue <i>par la tête</i>
+     * ({@code chat_format.fit_to_max_length}), en supprimant d'abord les tokens de prompt — un
+     * ordre écrit pour l'ancienne forme, où la tête n'était qu'une persona de dix mots. Sur un
+     * prompt ancré, la tête, ce sont la persona <b>puis les consignes de citation</b>, puis les
+     * premiers passages. L'exemple survivant enseignerait alors « réponds {@code [1]} » à partir
+     * d'un contexte amputé dont {@code [1]} a disparu, sans plus aucune consigne pour l'expliquer.
+     * C'est-à-dire exactement l'hallucination de source que ces consignes existent pour empêcher.
+     *
+     * <p>Donc : un passage qui ne tient pas n'est <b>pas</b> tronqué, il est écarté ; et si le
+     * vrai passage lui-même ne tient pas, aucune paire ancrée n'est produite pour ce chunk. Une
+     * paire en moins ne coûte rien — une paire fausse s'apprend.
+     */
+    static List<RagPromptFormat.Passage> passagesWithinBudget(RagPromptFormat.Passage truePassage,
+                                                              List<RagPromptFormat.Passage> distractors,
+                                                              int available) {
+        List<RagPromptFormat.Passage> kept = new ArrayList<>();
+        int used = passageCost(truePassage);
+        if (used > available) return kept;   // vide = pas de paire ancrée possible
+        kept.add(truePassage);
+        for (RagPromptFormat.Passage distractor : distractors) {
+            int cost = passageCost(distractor);
+            if (used + cost > available) continue;
+            kept.add(distractor);
+            used += cost;
+        }
+        return kept;
+    }
+
+    /** Coût d'un passage, en-tête « [n] (Source: …) » comprise. */
+    private static int passageCost(RagPromptFormat.Passage passage) {
+        return RagPromptFormat.passage(1, passage.sourceFile(), passage.text()).length();
+    }
+
+    /**
+     * Jumeau ancré d'une paire : même question, même réponse, prompt système du service.
+     *
+     * @param budgetChars budget de l'exemple COMPLET (système + question + réponse). Approximation
+     *                    en caractères d'une limite qui s'exprime en tokens côté trainer
+     *                    ({@code SPECTRA_TRAIN_MAX_LENGTH}) : le générateur ne dispose d'aucun
+     *                    tokenizer, et une borne prudente vaut mieux qu'une borne exacte trop tard.
+     * @return {@code null} si la paire n'a pas la forme attendue, ou si elle ne tient pas dans le
+     *         budget — auquel cas il n'y a simplement pas de jumeau ancré pour ce chunk
+     */
+    static TrainingPair groundedVariant(TrainingPair pair, String chunkText, String sourceFile,
+                                        List<RagPromptFormat.Passage> distractors, int seed,
+                                        int budgetChars) {
+        if (pair == null || pair.conversations() == null || pair.conversations().size() < 3) return null;
+        String question = pair.conversations().get(1).content();
+        String answer = pair.conversations().get(2).content();
+        if (question == null || answer == null) return null;
+
+        int available = budgetChars - GROUNDED_OVERHEAD_CHARS - question.length() - answer.length();
+        List<RagPromptFormat.Passage> fitted = passagesWithinBudget(
+                new RagPromptFormat.Passage(sourceFile, chunkText), distractors, available);
+        if (fitted.isEmpty()) return null;
+
+        // Position du vrai passage : elle TOURNE avec le chunk. Fixée à [1], le modèle
+        // apprendrait à citer la première position quoi qu'elle contienne. La rotation porte sur
+        // les distracteurs RETENUS, pas sur ceux demandés : citer [3] quand le contexte n'a que
+        // deux passages serait la même citation fausse, par un autre chemin.
+        List<RagPromptFormat.Passage> kept = new ArrayList<>(fitted.subList(1, fitted.size()));
+        int position = Math.floorMod(seed, kept.size() + 1);
+        List<RagPromptFormat.Passage> passages = new ArrayList<>(kept);
+        passages.add(position, fitted.get(0));
+
+        TrainingPair.Metadata meta = pair.metadata();
+        return TrainingPair.grounded(
+                question,
+                withCitation(answer, position + 1),
+                RagPromptFormat.contextBlock(passages),
+                meta.source(), meta.category(), meta.type() + "_grounded",
+                meta.confidence(), meta.documentCategory());
+    }
+
+    /**
+     * Refus ancré : le contexte ne contient <b>que</b> des distracteurs, et la réponse attendue
+     * est l'abstention. Sans lui, la consigne « si le contexte ne contient pas l'information,
+     * dis-le clairement » n'est jamais entraînée — seulement demandée au service.
+     */
+    static TrainingPair groundedRefusal(TrainingPair refusal, List<RagPromptFormat.Passage> distractors,
+                                        int budgetChars) {
+        String question = refusal.conversations().get(1).content();
+        String answer = refusal.conversations().get(2).content();
+        int available = budgetChars - GROUNDED_OVERHEAD_CHARS - question.length() - answer.length();
+
+        // Même règle de budget que le jumeau ancré, à une différence près : ici tous les passages
+        // sont des distracteurs, donc le premier n'a rien de privilégié — mais un contexte VIDE
+        // enseignerait « refuse sans lire », ce qui n'est pas la consigne.
+        List<RagPromptFormat.Passage> kept = new ArrayList<>();
+        int used = 0;
+        for (RagPromptFormat.Passage distractor : distractors) {
+            int cost = passageCost(distractor);
+            if (used + cost > available) continue;
+            kept.add(distractor);
+            used += cost;
+        }
+        if (kept.isEmpty()) return null;
+
+        TrainingPair.Metadata meta = refusal.metadata();
+        return TrainingPair.grounded(
+                question, answer,
+                RagPromptFormat.contextBlock(kept),
+                meta.source(), meta.category(), meta.type() + "_grounded",
+                meta.confidence(), meta.documentCategory());
+    }
+
+    /**
+     * Insère la citation {@code [n]} attendue par les consignes de service, avant la ponctuation
+     * finale — la forme exacte de l'exemple donné dans le prompt (« … est 512 [3]. »).
+     *
+     * <p>Une réponse qui cite déjà est laissée intacte : la reciter ajouterait un numéro que le
+     * contexte ne justifie pas, c'est-à-dire précisément ce que les consignes interdisent.
+     */
+    static String withCitation(String answer, int number) {
+        String trimmed = answer.strip();
+        if (trimmed.isEmpty() || CITATION.matcher(trimmed).find()) return answer;
+        int end = trimmed.length() - 1;
+        char last = trimmed.charAt(end);
+        if (last == '.' || last == '!' || last == '?') {
+            // L'espace française avant « ? » et « ! » fait partie du texte : la citation
+            // s'insère AVANT elle, sinon on produit « conforme  [2]? » — deux espaces et une
+            // ponctuation collée, dans un dataset dont le modèle apprendra la typographie.
+            int bodyEnd = end;
+            while (bodyEnd > 0 && Character.isWhitespace(trimmed.charAt(bodyEnd - 1))) bodyEnd--;
+            String gap = trimmed.substring(bodyEnd, end);
+            return trimmed.substring(0, bodyEnd) + " [" + number + "]" + gap + last;
+        }
+        return trimmed + " [" + number + "]";
+    }
+
+    /** Citation déjà présente : un numéro entre crochets. */
+    private static final java.util.regex.Pattern CITATION =
+            java.util.regex.Pattern.compile("\\[\\d+]");
 
     /** Paire de classification adossée au verdict du classifieur documentaire. */
     private TrainingPair classificationPairFromGed(String chunkText, String sourceFile, String category) {

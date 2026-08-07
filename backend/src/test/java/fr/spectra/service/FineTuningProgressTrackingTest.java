@@ -64,6 +64,7 @@ class FineTuningProgressTrackingTest {
                 broadcaster,
                 telemetryStore,
                 mock(ModelRegistryService.class),
+                mock(EvaluationService.class),
                 mock(BaseModelCatalog.class),
                 mock(GedService.class),
                 mock(IngestedFileRepository.class),
@@ -75,7 +76,7 @@ class FineTuningProgressTrackingTest {
 
         FineTuningRequest request = new FineTuningRequest(
                 "spectra-domain", "phi3", 64, 128, 3, 2e-4, 0.8,
-                false, false, false, false, 0.1);
+                false, false, false, false, 0.1, null);
 
         // Dépôt à état : chaque ligne de sortie met à jour le job à partir du PRÉCÉDENT. Un mock
         // renvoyant toujours le job initial masquerait le cumul des valeurs — précisément ce que

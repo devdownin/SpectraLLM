@@ -27,7 +27,6 @@ public record FineTuningJob(
          */
         Double evalLoss,
         String outputPath,
-        String reportPath,
         String error,
         /**
          * Phase atteinte au moment de l'échec ({@code null} tant que le job n'a pas échoué).
@@ -41,6 +40,16 @@ public record FineTuningJob(
          * de « l'entraînement était fini, c'est la conversion qui a lâché ».</p>
          */
         Status failedPhase,
+        /**
+         * Évaluation enchaînée automatiquement après l'enregistrement du modèle ({@code null}
+         * si {@code autoEvaluate} était désactivé, ou si le job n'a pas abouti).
+         *
+         * <p>C'est le lien qui manquait entre les deux moitiés de la chaîne : un job se terminait
+         * sur un statut « COMPLETED » sans le moindre indice de <i>qualité</i>, et l'évaluation
+         * — pourtant implémentée — vivait sur un autre écran, sans rattachement au job qui avait
+         * produit le modèle.</p>
+         */
+        String evaluationId,
         Instant createdAt,
         Instant completedAt
 ) {
@@ -71,8 +80,8 @@ public record FineTuningJob(
     public FineTuningJob withStatus(Status status, String step) {
         return new FineTuningJob(
                 jobId, status, modelName, baseModel, parameters, datasetSize,
-                step, currentEpoch, totalEpochs, loss, evalLoss, outputPath, reportPath,
-                error, failedPhase, createdAt, completedAt
+                step, currentEpoch, totalEpochs, loss, evalLoss, outputPath,
+                error, failedPhase, evaluationId, createdAt, completedAt
         );
     }
 
@@ -90,7 +99,7 @@ public record FineTuningJob(
                 "Entraînement epoch " + epochInProgress(epoch) + "/" + totalEpochs, epoch, totalEpochs,
                 loss != null ? loss : this.loss,
                 evalLoss != null ? evalLoss : this.evalLoss,
-                outputPath, reportPath, error, failedPhase, createdAt, completedAt
+                outputPath, error, failedPhase, evaluationId, createdAt, completedAt
         );
     }
 
@@ -107,8 +116,8 @@ public record FineTuningJob(
     public FineTuningJob withDatasetSize(int size) {
         return new FineTuningJob(
                 jobId, status, modelName, baseModel, parameters, size,
-                currentStep, currentEpoch, totalEpochs, loss, evalLoss, outputPath, reportPath,
-                error, failedPhase, createdAt, completedAt
+                currentStep, currentEpoch, totalEpochs, loss, evalLoss, outputPath,
+                error, failedPhase, evaluationId, createdAt, completedAt
         );
     }
 
@@ -116,7 +125,7 @@ public record FineTuningJob(
         return new FineTuningJob(
                 jobId, Status.COMPLETED, modelName, baseModel, parameters, datasetSize,
                 "Terminé", totalEpochs != null ? totalEpochs.doubleValue() : currentEpoch,
-                totalEpochs, loss, evalLoss, outputPath, reportPath, null, null,
+                totalEpochs, loss, evalLoss, outputPath, null, null, evaluationId,
                 createdAt, Instant.now()
         );
     }
@@ -134,16 +143,30 @@ public record FineTuningJob(
     public FineTuningJob cancelled(String reason) {
         return new FineTuningJob(
                 jobId, Status.CANCELLED, modelName, baseModel, parameters, datasetSize,
-                "Arrêté", currentEpoch, totalEpochs, loss, evalLoss, outputPath, reportPath, reason,
-                status.isTerminal() ? failedPhase : status,
+                "Arrêté", currentEpoch, totalEpochs, loss, evalLoss, outputPath, reason,
+                status.isTerminal() ? failedPhase : status, evaluationId,
                 createdAt, Instant.now());
+    }
+
+    /**
+     * Rattache l'évaluation enchaînée. Appelée <b>après</b> {@link #completed(String)} : le job
+     * est déjà terminal, et c'est voulu — l'évaluation dure plusieurs minutes, et faire attendre
+     * le statut du job jusqu'à son terme reviendrait à présenter un entraînement réussi comme
+     * encore en cours.
+     */
+    public FineTuningJob withEvaluation(String evaluationId) {
+        return new FineTuningJob(
+                jobId, status, modelName, baseModel, parameters, datasetSize,
+                currentStep, currentEpoch, totalEpochs, loss, evalLoss, outputPath,
+                error, failedPhase, evaluationId, createdAt, completedAt
+        );
     }
 
     public FineTuningJob failed(String error) {
         return new FineTuningJob(
                 jobId, Status.FAILED, modelName, baseModel, parameters, datasetSize,
-                "Échoué", currentEpoch, totalEpochs, loss, evalLoss, outputPath, reportPath, error,
-                status.isTerminal() ? failedPhase : status,
+                "Échoué", currentEpoch, totalEpochs, loss, evalLoss, outputPath, error,
+                status.isTerminal() ? failedPhase : status, evaluationId,
                 createdAt, Instant.now()
         );
     }

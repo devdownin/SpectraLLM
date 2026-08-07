@@ -45,6 +45,7 @@ class FineTuningGedTraceTest {
                 mock(TrainingLogBroadcaster.class),
                 mock(JobTelemetryStore.class),
                 mock(ModelRegistryService.class),
+                mock(EvaluationService.class),
                 mock(BaseModelCatalog.class),
                 gedService,
                 fileRepo,

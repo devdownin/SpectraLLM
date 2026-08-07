@@ -18,7 +18,7 @@ class FineTuningRequestTest {
 
     private static FineTuningRequest withRank(Integer loraRank) {
         return new FineTuningRequest("mon-modele", null, loraRank, null, null,
-                null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null);
     }
 
     @ParameterizedTest(name = "rang {0} → alpha {1}")
@@ -41,7 +41,7 @@ class FineTuningRequestTest {
     @Test
     void unLoraAlphaExpliciteNEstJamaisEcrase() {
         FineTuningRequest request = new FineTuningRequest("mon-modele", null, 8, 64, null,
-                null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null);
 
         assertThat(request.loraAlpha()).isEqualTo(64);
     }
@@ -63,7 +63,7 @@ class FineTuningRequestTest {
     @Test
     void valSplitZeroDesactiveExplicitementLEvaluation() {
         FineTuningRequest request = new FineTuningRequest("mon-modele", null, null, null, null,
-                null, null, null, null, null, null, 0.0);
+                null, null, null, null, null, null, 0.0, null);
 
         assertThat(request.valSplit()).isZero();
     }
@@ -71,7 +71,7 @@ class FineTuningRequestTest {
     @Test
     void orpoDesactiveDpo() {
         FineTuningRequest request = new FineTuningRequest("mon-modele", null, null, null, null,
-                null, null, null, true, true, null, null);
+                null, null, null, true, true, null, null, null);
 
         assertThat(request.orpoEnabled()).isTrue();
         assertThat(request.dpoEnabled()).isFalse();

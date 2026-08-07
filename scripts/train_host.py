@@ -135,6 +135,11 @@ class ConversationDataset(TorchDataset):
 
     def __init__(self, path, tokenizer, max_length=512):
         self.samples = []
+        #: Exemples dont le PROMPT a été amputé pour tenir dans max_length. Compté, parce que
+        #: la troncature est silencieuse et que ce qu'elle supprime en premier est ce qui compte
+        #: le plus : la persona, puis — sur un exemple ancré — les consignes de citation. Un
+        #: modèle entraîné sur des prompts ainsi amputés apprend à citer sans savoir pourquoi.
+        self.truncated = 0
         with open(path, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
@@ -146,7 +151,10 @@ class ConversationDataset(TorchDataset):
                     # Aucun token supervisé (pas de réponse assistant) → exemple inutile
                     continue
 
+                before = len(input_ids)
                 input_ids, labels = self._fit(input_ids, labels, max_length)
+                if len(input_ids) < before:
+                    self.truncated += 1
                 if all(l == -100 for l in labels):
                     # La réponse a entièrement disparu à la troncature → on saute
                     continue
@@ -376,6 +384,18 @@ if not PREFERENCE:
         spectra_events.log("error",
                            "dataset vide — vérifiez le fichier JSONL et le champ 'conversations'")
         sys.exit(1)
+
+    # Filet de sécurité général : la troncature est silencieuse, et elle supprime le prompt PAR LA
+    # TÊTE — donc la persona d'abord, puis les consignes de citation d'un exemple ancré. Un taux
+    # élevé signifie que le dataset est entraîné sur des prompts amputés de ce qui les explique.
+    # Le seuil (20 %) distingue quelques exemples longs d'un dataset mal dimensionné.
+    truncated = getattr(dataset, "truncated", 0)
+    if truncated and truncated * 5 >= len(dataset):
+        spectra_events.log(
+            "warn",
+            f"{truncated}/{len(dataset)} exemples tronqués à {MAX_SEQ_LENGTH} tokens : "
+            f"la tête du prompt (persona, consignes de citation) est supprimée en premier. "
+            f"Augmentez SPECTRA_TRAIN_MAX_LENGTH ou réduisez la taille des chunks.")
 
 # ── Entraînement ───────────────────────────────────────────────
 class ProgressLogger(TrainerCallback):

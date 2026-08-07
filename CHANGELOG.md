@@ -8,6 +8,129 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Corrigé — aucun fine-tuning ne pouvait aboutir avec transformers 5.5
+
+Défaut **bloquant**, trouvé en exécutant réellement un entraînement — ce qu'aucun test ne
+faisait. `apply_chat_template(tokenize=True)` rend aujourd'hui un `BatchEncoding` (un mappage
+`input_ids` / `attention_mask`) là où il rendait une liste d'entiers. La version installée,
+`transformers 5.5.0`, est pourtant **autorisée par `scripts/requirements.txt`**
+(`>=5.2.0,<=5.5.0`).
+
+`encode_chat` propageait ce mappage tel quel, et `encode_supervised` le manipulait comme une
+suite de tokens : `len()` valait `2` — le nombre de clés — le préfixe commun était nul, **chaque
+tour assistant était écarté**, et le dataset se retrouvait vide.
+
+La panne était silencieuse et trompeuse : l'entraînement s'arrêtait sur « dataset vide —
+vérifiez le fichier JSONL et le champ 'conversations' », qui **accuse les données** alors
+qu'elles sont intactes. L'utilisateur cherchait dans son dataset un défaut qui était dans le
+code.
+
+`as_id_list` normalise désormais le retour — mappage, lot d'un seul élément, ou liste déjà plate
+— et trois tests figent le contrat, dont un tokenizer de test qui reproduit le `BatchEncoding`.
+
+> Ce défaut n'était atteignable qu'en tokenisant avec un vrai tokenizer : les tests existants
+> utilisaient un double qui rendait une liste, c'est-à-dire l'ancien contrat. Un entraînement
+> réel, même sur un modèle minuscule, l'a fait apparaître immédiatement.
+
+
+### Corrigé — les paires ancrées étaient tronquées par la tête, donc fausses
+
+Défaut introduit par le correctif F14 lui-même, trouvé avant fusion. Les chunks font jusqu'à
+**512 tokens** (`chunk-max-tokens`) ; un prompt ancré en aligne trois — vrai passage plus deux
+distracteurs — plus ~150 tokens de consignes, soit **~1700 tokens** contre un `--max-length` par
+défaut de **512**.
+
+Or `fit_to_max_length` tronque **par la tête**, en supprimant d'abord les tokens de prompt. Cet
+ordre a été écrit pour l'ancienne forme, où la tête n'était qu'une persona de dix mots. Sur un
+prompt ancré, la tête, ce sont la persona **puis les consignes de citation**, puis les premiers
+passages. L'exemple survivant enseignait donc « réponds `[1]` » à partir d'un contexte amputé dont
+`[1]` avait disparu, sans plus aucune consigne pour l'expliquer — l'hallucination de source que
+ces consignes existent précisément pour empêcher.
+
+- Les paires ancrées sont bornées à la génération (`spectra.dataset.grounded-budget-chars`,
+  défaut 1800). Le **vrai passage n'est jamais tronqué** : s'il ne tient pas, aucune paire ancrée
+  n'est produite pour ce chunk. Une paire en moins ne coûte rien, une paire fausse s'apprend.
+- Les distracteurs sont écartés un à un avant de renoncer à la paire, et la rotation de la
+  citation porte sur les passages **retenus** — citer `[3]` dans un contexte de deux passages
+  serait la même citation fausse par un autre chemin.
+- Les paires écartées sont **comptées et signalées** en fin de génération, avec le remède : un
+  correctif qui ne produit silencieusement rien est indiscernable d'un correctif qui marche.
+- Filet de sécurité côté trainer : `train_host.py` compte les exemples tronqués et émet un
+  avertissement structuré au-delà de 20 %. C'est ce qui aurait rendu le défaut visible.
+
+### Corrigé — F12 : l'export GGUF ne nécessite plus d'accès sortant
+
+`convert_hf_to_gguf.py` était téléchargé **à l'exécution**. Un export échouait donc en
+environnement cloisonné, en contradiction avec la promesse « 100 % local · même air-gapped », et
+rien dans l'interface ne le laissait prévoir — l'échec survenait après la fusion LoRA, soit
+plusieurs minutes de calcul.
+
+Le convertisseur est désormais cherché **d'abord sur le disque** (`SPECTRA_LLAMA_CPP_DIR`, puis
+`/opt/llama-cpp-converters`), et l'image du trainer le récupère **à la construction**, où le
+réseau est disponible et le résultat figé dans une couche. Le téléchargement à l'exécution reste
+en dernier recours, et le dit désormais explicitement. Le fichier porte la révision dans son nom :
+une image plus ancienne ne fournit jamais en silence un convertisseur d'une autre révision.
+
+### Supprimé — le champ `reportPath`, mort depuis toujours
+
+Toujours `null`, et pourtant propagé dans le DTO, l'entité JPA, la réponse de l'API et jusqu'au
+type TypeScript du frontend. Il documentait une capacité inexistante : la documentation technique
+annonçait un `REPORT.md` que `FineTuningService` n'a jamais écrit. La trace d'un job est
+`train.log` + `losses.jsonl`, relus par `GET /api/fine-tuning/{jobId}/telemetry`.
+
+La colonne `report_path` est **conservée** en base et marquée héritée : la supprimer serait
+irréversible et sans bénéfice. Plus aucun code ne la lit ni ne l'écrit.
+
+
+### Ajouté — le modèle est enfin entraîné sur ce qu'on lui sert
+
+Constat **F14** de [l'audit fine-tuning](docs/process/audit-finetuning.fr.md), et le dernier défaut
+de conception qui restait ouvert. `TrainingPair.of` construisait un prompt court : persona, puis
+question nue. Le service, lui, compose persona + consignes de citation + bloc de passages
+numérotés, et demande de citer ses sources.
+
+L'écart n'était pas seulement statistique. Le SFT enseignait **activement** à répondre de mémoire
+sans citer, alors que la production exige de répondre à partir du contexte en citant : le
+fine-tuning travaillait contre l'objectif de service, et les deux consignes les plus importantes
+du prompt servi — citer, et s'abstenir quand la réponse n'y est pas — n'étaient jamais entraînées.
+
+- La mise en forme du prompt RAG quitte `RagService` pour `fr.spectra.model.RagPromptFormat` :
+  **une seule** définition, partagée par le service et la génération du dataset.
+- Une part des paires est produite sous cette forme exacte (`spectra.dataset.grounded-every-n`,
+  défaut : un chunk sur deux), **sans aucun appel LLM supplémentaire** — question et réponse déjà
+  générées sont réemployées, seul le prompt système change.
+- Le contexte comporte des **distracteurs** venus d'un autre document
+  (`spectra.dataset.grounded-distractors`, défaut 2), et la position du vrai passage **tourne** :
+  figée en `[1]`, elle apprendrait un réflexe au lieu d'une lecture.
+- Un **refus ancré** accompagne les exemples négatifs — contexte fait de distracteurs seuls,
+  réponse d'abstention. C'est le seul exemple qui entraîne « si le contexte ne contient pas
+  l'information, dis-le clairement ».
+- Les deux formes coexistent : le mode direct existe toujours, et n'entraîner que la forme ancrée
+  le dégraderait à son tour.
+
+Le test anti-dérive compare le prompt **réellement envoyé** par `RagService` avec celui que porte
+une paire ancrée, et exige l'égalité stricte.
+
+### Ajouté — un entraînement terminé peut dire ce qu'il vaut
+
+Un job se terminait sur un « COMPLETED » muet quant à la **qualité** obtenue. L'évaluation
+LLM-as-a-judge existait pourtant de bout en bout — jusqu'au champ `EvaluationReport.jobId`, prévu
+pour rattacher un rapport au job qui avait produit le modèle, et qui n'a **jamais eu d'appelant**.
+Il fallait ouvrir un autre écran et retaper le nom du modèle.
+
+La case « Évaluer après » enchaîne l'évaluation dès l'enregistrement du modèle. Le job porte
+désormais un `evaluationId` (migration idempotente), et la page propose d'aller lire le score.
+
+Deux garde-fous :
+
+- L'option **exige l'export GGUF**, et le refus est immédiat plutôt que découvert des heures plus
+  tard : un adaptateur LoRA seul n'est pas servable, et l'évaluer aurait interrogé le modèle
+  *actif* tout en attribuant le score au nouveau — un chiffre faux, présenté comme vrai. Le
+  formulaire désactive la case tant que l'export n'est pas coché.
+- Une évaluation qui ne démarre pas **n'échoue pas le job** : l'entraînement a bien abouti et le
+  modèle est déployable. L'incident est dit dans le flux, pas transformé en échec.
+
+
 ### Modifié — l'entraînement dit sa progression au lieu de la faire deviner
 
 La progression d'un run voyageait jusqu'à l'interface sous forme de **prose** — `  epoch=0.33

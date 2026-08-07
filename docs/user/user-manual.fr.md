@@ -635,6 +635,17 @@ Puis, lors du lancement du fine-tuning (étape 3), cochez **Alignement DPO** pou
 
 **Objectif** : affiner les poids du modèle sur votre dataset pour qu'il maîtrise votre domaine.
 
+> **Prérequis en conteneur.** L'image `spectra-api` est une JRE : elle ne contient ni Python ni
+> les scripts d'entraînement. Une soumission y est donc refusée par un **503 motivé**, et non
+> acceptée puis échouée à mi-course. Démarrez la pile avec le service d'entraînement :
+>
+> ```bash
+> ./scripts/start.sh --trainer          # scripts\start.bat --trainer sous Windows
+> ```
+>
+> L'image du trainer pèse plusieurs Go (PyTorch) : elle n'est construite que si vous la demandez,
+> d'où ce drapeau plutôt qu'un démarrage par défaut.
+
 #### Via l'interface (recommandé)
 
 1. Cliquez sur **Fine-Tuning Command** dans le menu gauche.
@@ -655,6 +666,7 @@ Puis, lors du lancement du fine-tuning (étape 3), cochez **Alignement DPO** pou
    - **Alignement DPO** : cochez si vous avez généré des paires DPO (étape 2b) — entraîne par préférence plutôt que par SFT
    - **Alignement ORPO** : alternative au DPO en une seule passe, sans modèle de référence (mêmes paires de préférence). Les deux cases s'excluent : cocher l'une décoche l'autre
    - **Export GGUF & register** : après l'entraînement, fusionne l'adaptateur, convertit en GGUF et enregistre le modèle — c'est ce qui le rend déployable sans étape manuelle
+   - **Évaluer après** : enchaîne une évaluation LLM-as-a-judge dès que le modèle est enregistré, et rattache le rapport au job. La case n'est disponible qu'avec l'export GGUF : sans enregistrement, le modèle n'est pas servable et ne peut donc pas être évalué
 5. Cliquez sur **Launch Training**.
 6. Suivez la progression via la **barre d'étapes** :
 

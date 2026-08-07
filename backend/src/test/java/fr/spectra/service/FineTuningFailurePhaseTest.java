@@ -39,7 +39,7 @@ class FineTuningFailurePhaseTest {
 
     private static final FineTuningRequest REQUEST = new FineTuningRequest(
             "spectra-domain", "phi3", 64, 128, 3, 2e-4, 0.8,
-            false, false, false, false, 0.1);
+            false, false, false, false, 0.1, null);
 
     private static FineTuningJob pending() {
         return FineTuningJob.pending("job-1", REQUEST);
@@ -99,7 +99,7 @@ class FineTuningFailurePhaseTest {
         // que faire échouer la lecture de TOUT l'historique sur un IllegalArgumentException.
         FineTuningJobEntity corrupted = new FineTuningJobEntity(
                 "job-1", "FAILED", "spectra-domain", "phi3", "{}", 0, "Échoué",
-                null, 3, null, null, null, null, "boum", "PHASE_INCONNUE",
+                null, 3, null, null, null, "boum", "PHASE_INCONNUE", null,
                 Instant.now(), Instant.now());
 
         FineTuningJob dto = corrupted.toDto();
@@ -118,6 +118,7 @@ class FineTuningFailurePhaseTest {
                 mock(DatasetGeneratorService.class), mock(DpoGenerationService.class),
                 repository, mock(TrainingLogBroadcaster.class), mock(JobTelemetryStore.class),
                 mock(ModelRegistryService.class),
+                mock(EvaluationService.class),
                 mock(BaseModelCatalog.class), mock(GedService.class),
                 mock(IngestedFileRepository.class), "phi3", runner,
                 tempWorkDir.toString(), tempWorkDir.resolve("models").toString(), "");

@@ -625,6 +625,17 @@ Then, when launching fine-tuning (step 3), check **DPO Alignment** so the traine
 
 **Goal**: fine-tune the model's weights on your dataset so it masters your domain.
 
+> **Container prerequisite.** The `spectra-api` image is a JRE: it contains neither Python nor the
+> training scripts. A submission is therefore refused with an explicit **503**, rather than accepted
+> and failed halfway through. Start the stack with the training service:
+>
+> ```bash
+> ./scripts/start.sh --trainer          # scripts\start.bat --trainer on Windows
+> ```
+>
+> The trainer image weighs several GB (PyTorch): it is only built on request, hence this flag
+> rather than starting it by default.
+
 #### Via the interface (recommended)
 
 1. Click **Fine-Tuning Command** in the left menu.
@@ -645,6 +656,7 @@ Then, when launching fine-tuning (step 3), check **DPO Alignment** so the traine
    - **DPO Alignment**: check if you generated DPO pairs (step 2b) — trains by preference rather than SFT
    - **ORPO Alignment**: a single-pass alternative to DPO, with no reference model (same preference pairs). The two checkboxes are mutually exclusive: ticking one unticks the other
    - **Export GGUF & register**: after training, merges the adapter, converts to GGUF and registers the model — this is what makes it deployable with no manual step
+   - **Evaluate after**: chains an LLM-as-a-judge evaluation as soon as the model is registered, and links the report back to the job. The checkbox is only available with GGUF export: without registration the model cannot be served, and therefore cannot be evaluated
 5. Click **Launch Training**.
 6. Track progress with the **step bar**:
 

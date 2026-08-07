@@ -229,7 +229,7 @@ public class ArticleCommentService {
             // exportGguf=true : sans conversion GGUF ni enregistrement, l'apprentissage continu
             // produirait un adaptateur jamais servi — donc sans effet observable.
             FineTuningRequest request = new FineTuningRequest(
-                    modelName, null, null, null, null, null, null, null, true, null, true, null);
+                    modelName, null, null, null, null, null, null, null, true, null, true, null, null);
             String jobId = fineTuningService.submit(request);
             if (jobId == null) {
                 // submit() renvoie null quand un entraînement tourne déjà (409). Les paires

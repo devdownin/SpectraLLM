@@ -1,5 +1,5 @@
 """
-Invariants de l'approvisionnement des convertisseurs GGUF (`scripts/llama_cpp_convert.py`).
+Invariants de l'approvisionnement des convertisseurs GGUF (`scripts/lcc.py`).
 
 Aucun accès réseau : ce qui compte ici est vérifiable hors ligne — que la révision soit
 **épinglée** et jamais `master`, qu'elle reste alignée sur l'image llama.cpp servie, et que le
@@ -96,3 +96,63 @@ def test_paquet_installe_a_la_priorite(tmp_path, monkeypatch):
     monkeypatch.setattr(lcc.urllib.request, "urlretrieve",
                         lambda *_a, **_k: pytest.fail("le paquet local devait suffire"))
     assert lcc.resolve("convert_x.py", tmp_path) == "/opt/llama_cpp/convert_x.py"
+
+
+# ── Hors ligne : F12 ──────────────────────────────────────────────────────────
+
+def test_une_copie_locale_est_preferee_au_telechargement(tmp_path, monkeypatch):
+    # Le cœur de F12 : un déploiement sans accès sortant doit pouvoir exporter. Si `resolve`
+    # tentait le réseau malgré une copie sur le disque, la promesse « même air-gapped » resterait
+    # fausse — et l'échec surviendrait après la fusion LoRA, c'est-à-dire après plusieurs minutes.
+    vendored = tmp_path / "vendored"
+    vendored.mkdir()
+    rev = lcc.pinned_revision()
+    (vendored / f"convert_hf_to_gguf-{rev}.py").write_text("# convertisseur")
+    monkeypatch.setenv("SPECTRA_LLAMA_CPP_DIR", str(vendored))
+
+    def _refuse(*_args, **_kwargs):
+        raise AssertionError("aucun accès réseau ne doit être tenté")
+
+    monkeypatch.setattr(lcc.urllib.request, "urlretrieve", _refuse)
+
+    resolved = lcc.resolve("convert_hf_to_gguf.py", tmp_path / "cache")
+
+    assert resolved.endswith(f"convert_hf_to_gguf-{rev}.py")
+
+
+def test_une_copie_locale_d_une_AUTRE_revision_n_est_pas_reutilisee(tmp_path, monkeypatch):
+    # Le nom versionné est ce qui prouve la révision. Accepter une copie quelconque ramènerait le
+    # défaut d'origine : un GGUF converti par un code différent de celui que sert llama-server.
+    vendored = tmp_path / "vendored"
+    vendored.mkdir()
+    (vendored / "convert_hf_to_gguf-b0001.py").write_text("# vieux convertisseur")
+    monkeypatch.setenv("SPECTRA_LLAMA_CPP_DIR", str(vendored))
+
+    assert lcc.find_vendored("convert_hf_to_gguf.py", "b9999") is None
+
+
+def test_le_nom_nu_reste_accepte_pour_une_copie_deposee_a_la_main(tmp_path, monkeypatch):
+    # Un exploitant qui dépose le fichier lui-même n'a pas à connaître la convention de nommage.
+    vendored = tmp_path / "vendored"
+    vendored.mkdir()
+    (vendored / "convert_hf_to_gguf.py").write_text("# convertisseur")
+    monkeypatch.setenv("SPECTRA_LLAMA_CPP_DIR", str(vendored))
+
+    assert lcc.find_vendored("convert_hf_to_gguf.py", "b9828") is not None
+
+
+def test_sans_copie_locale_la_recherche_ne_trouve_rien(tmp_path, monkeypatch):
+    monkeypatch.setenv("SPECTRA_LLAMA_CPP_DIR", str(tmp_path))
+
+    assert lcc.find_vendored("convert_hf_to_gguf.py", "b9828") is None
+
+
+def test_vendor_refuse_un_fichier_vide(tmp_path, monkeypatch):
+    # Un fichier vide passerait les tests d'existence et ferait échouer l'export bien plus tard,
+    # avec un message sans rapport. La construction d'image doit échouer ici, pas l'export.
+    monkeypatch.setattr(lcc.urllib.request, "urlretrieve",
+                        lambda _url, target: pathlib.Path(target).write_text(""))
+
+    with pytest.raises(RuntimeError, match="vide"):
+        lcc.vendor("convert_hf_to_gguf.py", tmp_path)
+

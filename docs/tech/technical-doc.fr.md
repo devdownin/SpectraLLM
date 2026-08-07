@@ -102,7 +102,7 @@ Aucun service interne n'est exposé sur le réseau hôte. Seul `spectra-api` com
 [DatasetGeneratorService] → POST http://llm-chat:8081/v1/chat/completions
             │  3–4 appels LLM / chunk (Q&A + résumé + classif + négatifs)
             ▼
-[FineTuningService] → TrainingRunner → scripts/train.sh (GPU/CPU/simulation)
+[FineTuningService] → TrainingRunner → scripts/train.sh (GPU ou repli CPU)
             │  Résultat : data/fine-tuning/merged/model.gguf
             ▼
 [ModelRegistryService] → data/models/registry.json
@@ -567,7 +567,13 @@ PENDING → EXPORTING_DATASET → TRAINING → IMPORTING_MODEL → COMPLETED
 1. **Export dataset** : filtre les paires par `minConfidence`, écrit `dataset.jsonl`
 2. **Entraînement** : `TrainingRunner.train(TrainingSpec, …)`
 3. **Enregistrement** : `ModelRegistryService.registerChatModel()` avec source GGUF et métadonnées
-4. **Rapport** : génère `REPORT.md` dans le dossier du job
+4. **Évaluation** (optionnelle, `autoEvaluate`) : enchaîne une évaluation LLM-as-a-judge sur le
+   modèle enregistré et rattache le rapport au job (`evaluationId`)
+
+> Il n'existe **pas** de rapport `REPORT.md` : la documentation en décrivait un que le code n'a
+> jamais écrit, et le champ `reportPath` — toujours `null` — a été supprimé du DTO, de l'entité
+> et du type TypeScript. La trace d'un job est `train.log` + `losses.jsonl`, relus par
+> `GET /api/fine-tuning/{jobId}/telemetry`.
 
 ### Exécuteurs (`TrainingRunner`)
 

@@ -34,7 +34,6 @@ public class FineTuningJobEntity {
     private Double loss;
     private Double evalLoss;
     private String outputPath;
-    private String reportPath;
 
     @Column(columnDefinition = "TEXT")
     private String error;
@@ -42,6 +41,10 @@ public class FineTuningJobEntity {
     /** Phase atteinte à l'échec — voir {@link FineTuningJob#failedPhase()}. Stockée en clair. */
     @Column(length = 50)
     private String failedPhase;
+
+    /** Évaluation enchaînée après enregistrement — voir {@link FineTuningJob#evaluationId()}. */
+    @Column(length = 64)
+    private String evaluationId;
 
     private Instant createdAt;
     private Instant completedAt;
@@ -51,8 +54,9 @@ public class FineTuningJobEntity {
     public FineTuningJobEntity(String jobId, String status, String modelName, String baseModel,
                                String parameters, int datasetSize, String currentStep,
                                Double currentEpoch, Integer totalEpochs, Double loss,
-                               Double evalLoss, String outputPath, String reportPath, String error,
-                               String failedPhase, Instant createdAt, Instant completedAt) {
+                               Double evalLoss, String outputPath, String error,
+                               String failedPhase, String evaluationId,
+                               Instant createdAt, Instant completedAt) {
         this.jobId = jobId;
         this.status = status;
         this.modelName = modelName;
@@ -65,9 +69,9 @@ public class FineTuningJobEntity {
         this.loss = loss;
         this.evalLoss = evalLoss;
         this.outputPath = outputPath;
-        this.reportPath = reportPath;
         this.error = error;
         this.failedPhase = failedPhase;
+        this.evaluationId = evaluationId;
         this.createdAt = createdAt;
         this.completedAt = completedAt;
     }
@@ -83,9 +87,9 @@ public class FineTuningJobEntity {
                 dto.jobId(), dto.status().name(), dto.modelName(), dto.baseModel(),
                 paramsJson, dto.datasetSize(), dto.currentStep(),
                 dto.currentEpoch(), dto.totalEpochs(), dto.loss(), dto.evalLoss(),
-                dto.outputPath(), dto.reportPath(), dto.error(),
+                dto.outputPath(), dto.error(),
                 dto.failedPhase() != null ? dto.failedPhase().name() : null,
-                dto.createdAt(), dto.completedAt());
+                dto.evaluationId(), dto.createdAt(), dto.completedAt());
     }
 
     public FineTuningJob toDto() {
@@ -102,7 +106,7 @@ public class FineTuningJobEntity {
                 jobId, FineTuningJob.Status.valueOf(status),
                 modelName, baseModel, req, datasetSize,
                 currentStep, currentEpoch, totalEpochs, loss, evalLoss,
-                outputPath, reportPath, error, parseFailedPhase(), createdAt, completedAt);
+                outputPath, error, parseFailedPhase(), evaluationId, createdAt, completedAt);
     }
 
     /**

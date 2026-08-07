@@ -9,6 +9,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import fr.spectra.dto.QueryRequest;
 import fr.spectra.dto.QueryResponse;
 import fr.spectra.dto.RagOverrides;
+import fr.spectra.model.RagPromptFormat;
 import fr.spectra.service.ActiveModelProfileService.ModelProfile;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -75,27 +76,19 @@ public class RagService {
     private static final Logger log = LoggerFactory.getLogger(RagService.class);
     private static final String COLLECTION_NAME = "spectra_documents";
 
-    // Consignes RAG et bloc de contexte. La persona n'est plus figée ici : elle provient du
-    // modèle de chat actif (systemPrompt du registre) et est préfixée à la génération, de sorte
-    // qu'un modèle personnalisé soit servi sous SA propre identité. Un modèle issu du
-    // fine-tuning enregistre précisément AssistantPersona.SYSTEM_PROMPT : la cohérence
+    // Consignes RAG et bloc de contexte : voir fr.spectra.model.RagPromptFormat. La mise en forme
+    // a été SORTIE d'ici parce qu'elle est aussi celle sur laquelle le modèle doit être entraîné
+    // (F14) — la garder privée revenait à définir un contrat de service que la génération du
+    // dataset ne pouvait pas connaître.
+    //
+    // La persona n'est pas figée : elle provient du modèle de chat actif (systemPrompt du
+    // registre), de sorte qu'un modèle personnalisé soit servi sous SA propre identité. Un modèle
+    // issu du fine-tuning enregistre précisément AssistantPersona.SYSTEM_PROMPT : la cohérence
     // entraînement ↔ service est donc préservée sans être imposée aux autres modèles.
-    private static final String RAG_INSTRUCTIONS_TEMPLATE = """
-            Réponds de manière précise et concise en te basant UNIQUEMENT sur le contexte fourni ci-dessous.
-            Chaque passage du contexte est numéroté [1], [2], … : cite tes sources en insérant le numéro
-            correspondant entre crochets juste après l'information qu'il justifie (ex. « la valeur par défaut
-            est 512 [3]. »). N'invente jamais de numéro et ne cite que des passages réellement présents.
-            Si le contexte ne contient pas l'information demandée, dis-le clairement.
-            Ne fabrique pas d'information.
-
-            === CONTEXTE ===
-            %s
-            === FIN DU CONTEXTE ===""";
 
     /** Prompt système RAG : persona du modèle actif, consignes de citation, puis contexte. */
     private static String ragSystemPrompt(ModelProfile profile, String contextBlock) {
-        return profile.personaOrDefault() + "\n"
-                + String.format(RAG_INSTRUCTIONS_TEMPLATE, contextBlock);
+        return RagPromptFormat.systemPrompt(profile.personaOrDefault(), contextBlock);
     }
 
     /** Prompt système du mode direct (sans contexte récupéré) : persona du modèle actif. */
@@ -1116,9 +1109,9 @@ public class RagService {
             Float bm25Score   = (bm25Scores   != null && i < bm25Scores.size())   ? bm25Scores.get(i)   : null;
             // Passage numéroté [n] : la numérotation suit l'ordre de la liste des sources renvoyée
             // au client (sources.get(i) ↔ [i+1]), pour que les citations [n] de la réponse soient
-            // résolubles côté Playground vers le bon extrait.
-            context.append("[").append(i + 1).append("] (Source: ").append(sourceFile).append(")\n")
-                    .append(chunkText).append("\n\n");
+            // résolubles côté Playground vers le bon extrait. Mise en forme partagée avec la
+            // génération du dataset (F14) : le modèle doit s'entraîner sur ce qu'on lui sert.
+            context.append(RagPromptFormat.passage(i + 1, sourceFile, chunkText));
             sources.add(new QueryResponse.Source(
                     chunkText.length() > 200 ? chunkText.substring(0, 200) + "..." : chunkText,
                     sourceFile, distance, rerankScore, bm25Score));

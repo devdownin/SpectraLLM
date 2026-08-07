@@ -17,6 +17,7 @@ from chat_format import (  # noqa: E402
     common_prefix_len,
     encode_supervised,
     fit_to_max_length,
+    as_id_list,
     flatten_preference_row,
     has_chat_template,
     merge_system_into_first_user,
@@ -176,6 +177,22 @@ def test_une_sequence_plus_courte_que_max_length_est_inchangee(length):
     assert fit_to_max_length(input_ids, labels, 512) == (input_ids, labels)
 
 
+def test_la_troncature_supprime_la_TETE_du_prompt_pas_la_fin():
+    # Propriété la plus coûteuse de cette fonction, et celle qu'on oublie en la lisant vite : ce
+    # qui disparaît en premier est le DÉBUT du prompt. Sur un exemple ancré, ce début, c'est la
+    # persona puis les consignes de citation — le modèle apprendrait alors à citer « [1] » sans
+    # jamais avoir vu la règle qui l'exige, ni le passage [1] qu'elle désigne.
+    # Le générateur de dataset borne donc les paires ancrées en amont (grounded-budget-chars).
+    prompt = list(range(0, 40))
+    answer = list(range(40, 50))
+    labels = [-100] * 40 + answer
+
+    fitted_ids, _ = fit_to_max_length(prompt + answer, labels, 20)
+
+    assert fitted_ids[0] != 0, "le premier token du prompt aurait dû être supprimé"
+    assert fitted_ids[-10:] == answer
+
+
 # ── Format de préférence (DPO/ORPO) ───────────────────────────────────────────
 
 def test_laplatissement_des_preferences_reutilise_le_gabarit_de_repli():
@@ -203,3 +220,62 @@ def test_laplatissement_des_preferences_reutilise_le_gabarit_de_repli():
 ])
 def test_longueur_du_prefixe_commun(a, b, expected):
     assert common_prefix_len(a, b) == expected
+
+
+# ── Type de retour du gabarit : le défaut qui vidait tout dataset ─────────────
+
+class BatchEncodingLikeTokenizer(FakeTokenizer):
+    """
+    Tokenizer dont ``apply_chat_template(tokenize=True)`` rend un **mappage**, et non une liste.
+
+    C'est ce que fait transformers 5.5.0 — version pourtant autorisée par
+    ``scripts/requirements.txt``. Reproduit ici parce que le défaut n'était visible qu'à
+    l'exécution réelle d'un entraînement : aucun test ne tokenisait avec un vrai tokenizer.
+    """
+
+    class _BatchEncoding(dict):
+        # BatchEncoding expose ses clés AUSSI en attributs : les deux accès doivent marcher.
+        def __getattr__(self, name):
+            try:
+                return self[name]
+            except KeyError as exc:
+                raise AttributeError(name) from exc
+
+    def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=False):
+        rendered = super().apply_chat_template(
+            messages, tokenize=tokenize, add_generation_prompt=add_generation_prompt)
+        if not tokenize:
+            return rendered
+        return self._BatchEncoding(input_ids=rendered, attention_mask=[1] * len(rendered))
+
+
+def test_un_mappage_de_tokenisation_est_ramene_a_une_liste_d_ids():
+    # Sans normalisation, `len()` vaut 2 (le nombre de clés) et tout ce qui suit raisonne sur
+    # un mappage pris pour une suite de tokens.
+    assert as_id_list({"input_ids": [7, 8, 9], "attention_mask": [1, 1, 1]}) == [7, 8, 9]
+
+
+def test_un_lot_d_un_seul_element_est_aplati():
+    assert as_id_list({"input_ids": [[7, 8, 9]]}) == [7, 8, 9]
+
+
+def test_une_liste_deja_plate_traverse_inchangee():
+    assert as_id_list([7, 8, 9]) == [7, 8, 9]
+
+
+def test_la_supervision_survit_a_un_tokenizer_qui_rend_un_mappage():
+    # LE test de non-régression. Sans lui, le défaut revient au prochain changement de version
+    # de transformers : chaque tour assistant est écarté, le dataset se retrouve vide, et
+    # l'entraînement s'arrête sur « dataset vide — vérifiez le fichier JSONL » — un message qui
+    # accuse les données alors qu'elles sont intactes. AUCUN fine-tuning ne pouvait aboutir.
+    tokenizer = BatchEncodingLikeTokenizer()
+
+    input_ids, labels = encode_supervised([SYSTEM, USER, ASSISTANT], tokenizer)
+
+    assert input_ids, "aucun token encodé : le dataset serait vide"
+    supervised = [l for l in labels if l != -100]
+    assert supervised, "aucun token supervisé : chaque exemple serait écarté"
+    # La réponse est supervisée, le prompt masqué — exactement comme avec une liste nue.
+    assert "".join(chr(t) for t in supervised).startswith("REPONSE")
+    assert all(l == -100 for l in labels[:len(labels) - len(supervised)])
+

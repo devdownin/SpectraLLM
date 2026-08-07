@@ -42,7 +42,9 @@
 > pas) et le montage `./scripts` (qui n'existe pas non plus) ont disparu de la doc technique, du
 > diagramme C4 et de `llama-cpp.fr.md`.
 >
-> Restent **ouverts** : F12, F14, et le champ `reportPath` toujours `null` signalé au §6.
+> **Tous les constats sont clos.** F12 (accès sortant à l'export) et le champ mort
+> `reportPath` du §6 l'ont été en dernier.
+> **F14 est clos** : une part du dataset est générée sous la forme réellement servie.
 > **F13 est clos** : l'orchestration — machine à états, verrou d'unicité, annulation — est
 > désormais couverte de bout en bout par `FineTuningOrchestrationTest`. Aucun n'est bloquant.
 >
@@ -435,7 +437,7 @@ bitsandbytes>=0.49.2   accelerate>=1.13.0
 consiste à retirer `unsloth`/`bitsandbytes`, pas à « remplacer unsloth par transformers + peft »
 (qui étaient de toute façon absents du fichier).
 
-### F12 — `export_gguf.py` télécharge du code distant non épinglé à l'exécution — **moyen**
+### F12 — `export_gguf.py` télécharge du code distant non épinglé à l'exécution — **moyen** — ✅ corrigé
 
 `export_gguf.py:68-83` : si `convert_hf_to_gguf.py` n'est pas trouvé localement, le script le
 télécharge depuis `raw.githubusercontent.com/ggerganov/llama.cpp/master/…` et l'exécute
@@ -457,6 +459,20 @@ Autres remarques sur le même fichier :
   l'exploitation autoroutière."`), juste sous un commentaire expliquant qu'elle doit correspondre
   à `AssistantPersona.SYSTEM_PROMPT`. Les deux sont identiques aujourd'hui par coïncidence ;
   modifier la constante Java désynchronisera silencieusement l'instruction imprimée.
+
+**Correction appliquée.** L'épinglage de la révision avait déjà traité le second point ; restait
+le premier, c'est-à-dire la contradiction avec la promesse produit.
+
+`llama_cpp_convert.resolve()` cherche désormais le convertisseur **d'abord sur le disque** :
+`SPECTRA_LLAMA_CPP_DIR` (fourni par l'exploitant), puis `/opt/llama-cpp-converters` (rempli à la
+**construction** de l'image du trainer, où le réseau est disponible et le résultat figé dans une
+couche), puis le paquet `llama_cpp`, puis le cache, et seulement en **dernier recours** le
+téléchargement — qui le dit désormais explicitement dans le flux, pour qu'un échec en
+environnement cloisonné soit compris du premier coup.
+
+Le fichier embarqué porte la révision dans son nom : une image plus ancienne ne fournit jamais en
+silence un convertisseur d'une autre révision que celle demandée à l'exécution. Un déploiement
+air-gapped passe par le disque et ne touche jamais le réseau.
 
 ### F13 — Aucune couverture de test du moteur d'entraînement — **moyen** — ✅ corrigé
 
@@ -519,6 +535,31 @@ Recommandation : générer une part du dataset SFT sous la forme réellement ser
 contexte extrait + question → réponse ancrée). C'est aussi le seul moyen d'apprendre au modèle
 à *utiliser* le contexte plutôt qu'à répondre de mémoire — c'est-à-dire d'obtenir le bénéfice
 attendu du couplage RAG + fine-tuning revendiqué par le produit.
+
+**Correction appliquée.** Le défaut est plus profond que l'écart de distribution : le prompt servi
+porte aussi une **consigne de citation** (« cite tes sources en insérant le numéro entre
+crochets ») et une **consigne d'abstention** (« si le contexte ne contient pas l'information,
+dis-le clairement ») que le SFT n'enseignait ni l'une ni l'autre. Le fine-tuning entraînait donc à
+répondre *de mémoire, sans citer* — contre l'objectif de service.
+
+- La mise en forme du prompt RAG quitte `RagService` pour `fr.spectra.model.RagPromptFormat` :
+  **une seule** définition, partagée par le service et la génération du dataset. La leçon est
+  celle des évènements structurés du trainer — un format implicite dupliqué finit par diverger.
+- `DatasetGeneratorService` produit une part de paires **ancrées** (`spectra.dataset.
+  grounded-every-n`, défaut : un chunk sur deux), sous cette forme exacte. **Aucun appel LLM
+  supplémentaire** : question et réponse déjà générées sont réemployées, seul le prompt système
+  change — la correction est donc gratuite en inférence.
+- Le contexte comporte des **distracteurs** issus d'un autre document
+  (`spectra.dataset.grounded-distractors`, défaut 2) et la position du vrai passage **tourne** :
+  sans cela le modèle apprendrait à citer `[1]` par réflexe, pas à lire.
+- Un **refus ancré** accompagne les exemples négatifs : contexte fait de distracteurs seuls,
+  réponse d'abstention. C'est le seul exemple qui entraîne la consigne d'abstention.
+- Les deux formes coexistent dans le dataset : le mode direct (sans retrieval) existe toujours,
+  et n'entraîner que la forme ancrée le dégraderait à son tour.
+
+Le test anti-dérive est dans `RagServiceModelProfileTest` : il compare le prompt **réellement
+envoyé au modèle** par `RagService` avec celui que porte une paire d'entraînement ancrée, et
+exige l'égalité stricte.
 
 ---
 
@@ -586,9 +627,9 @@ attendu du couplage RAG + fine-tuning revendiqué par le produit.
 | F6 | `loraAlpha` figé à 128 quel que soit le rang | Moyen | Trivial | ✅ corrigé |
 | F5 | `--max-length` ignoré sur GPU | Moyen | Trivial | ✅ corrigé |
 | F11 | Dépendances non bornées, `torch`/`peft` manquants | Moyen | Trivial | ✅ corrigé |
-| F12 | Téléchargement non épinglé de `convert_hf_to_gguf.py` | Moyen | Faible | Ouvert |
+| F12 | Téléchargement non épinglé de `convert_hf_to_gguf.py` | Moyen | Faible | ✅ corrigé |
 | F13 | Aucun test du moteur d'entraînement | Moyen | Moyen | ✅ corrigé (`chat_format` + orchestration) |
-| F14 | Distribution d'entraînement ≠ distribution de service | Moyen | Moyen (conception) | Ouvert |
+| F14 | Distribution d'entraînement ≠ distribution de service | Moyen | Moyen (conception) | ✅ corrigé |
 | F10 | Arguments positionnels fragiles | Faible | Faible | ✅ `TrainingSpec` (lot 4a) |
 | §6 | Documentation décrivant un système différent du code | Faible | Faible | Ouvert |
 
@@ -603,7 +644,16 @@ Ce qui n'est **pas** résolu, et doit rester lisible : le fine-tuning demeure in
 conteneur est le lot 4b, dont l'urgence a baissé depuis le retrait de Kubernetes.
 
 Ensuite, par ordre de valeur : ~~compléter F13~~ **fait** — l'orchestration est couverte de bout en
-bout, mutations à l'appui —, puis F12 (le téléchargement de `convert_hf_to_gguf.py` est désormais
-épinglé, mais l'export exige toujours un accès sortant, en contradiction avec la promesse
-« 100 % local »), F14 (aligner une part du dataset SFT sur la forme réellement servie, persona +
-contexte) et la mise à jour de la documentation (§6).
+bout, mutations à l'appui — et ~~F14~~ **fait** : le dataset comporte désormais une part de paires
+ancrées, sous la forme exacte du prompt servi, citations et abstention comprises.
+
+~~F12~~ **fait** : le convertisseur est cherché d'abord sur le disque, et l'image du trainer
+l'embarque depuis sa construction — un export en environnement cloisonné ne dépend plus d'un accès
+sortant. ~~§6~~ **fait** : le champ `reportPath`, toujours `null` et propagé jusqu'au type
+TypeScript, est supprimé, et la documentation ne décrit plus ni « simulation » ni `REPORT.md`.
+
+**Aucun constat de cet audit ne reste ouvert.**
+
+**Ce que F14 ne prouve pas.** Le dataset a la bonne forme, et des tests le figent des deux côtés.
+Que cette forme *améliore* la qualité servie reste à mesurer sur un vrai entraînement : c'est
+précisément ce que l'évaluation enchaînée (`autoEvaluate`) rend possible sans quitter la page.

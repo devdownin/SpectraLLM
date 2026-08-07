@@ -113,9 +113,13 @@ CREATE TABLE IF NOT EXISTS fine_tuning_jobs (
     loss             DOUBLE PRECISION,
     eval_loss        DOUBLE PRECISION,
     output_path      VARCHAR(255),
+    -- LEGACY, plus mappée : le rapport de fine-tuning n'a jamais été écrit et le champ valait
+    -- toujours NULL. La colonne est conservée — la supprimer est irréversible et sans bénéfice —
+    -- mais plus aucun code ne la lit ni ne l'écrit.
     report_path      VARCHAR(255),
     error            TEXT,
     failed_phase     VARCHAR(50),
+    evaluation_id    VARCHAR(64),
     created_at       TIMESTAMP WITH TIME ZONE,
     completed_at     TIMESTAMP WITH TIME ZONE,
     PRIMARY KEY (job_id)
@@ -135,6 +139,11 @@ ALTER TABLE fine_tuning_jobs ALTER COLUMN current_epoch SET DATA TYPE DOUBLE PRE
 -- dernière étape du pipeline. Les jobs déjà en base restent à NULL : leur phase est perdue,
 -- l'UI les traite comme avant.
 ALTER TABLE fine_tuning_jobs ADD COLUMN IF NOT EXISTS failed_phase VARCHAR(50);
+
+-- Migration : évaluation enchaînée après l'enregistrement du modèle. Un entraînement se terminait
+-- sur un « COMPLETED » muet quant à la QUALITÉ obtenue, l'évaluation vivant sur un autre écran
+-- sans rattachement au job. Les jobs déjà en base restent à NULL : ils n'ont pas été évalués.
+ALTER TABLE fine_tuning_jobs ADD COLUMN IF NOT EXISTS evaluation_id VARCHAR(64);
 
 -- Suivi persistant des installations Model Hub (llmfit download) : survit au redémarrage
 -- de l'API pour un historique fiable et la réconciliation des téléchargements interrompus.
