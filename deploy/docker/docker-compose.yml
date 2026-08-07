@@ -257,6 +257,12 @@ services:
     build:
       context: .
       dockerfile: deploy/docker/Dockerfile
+      args:
+        # Somme de contrôle attendue de l'installateur llmfit, vérifiée à la construction.
+        # Vide par défaut : la construction émet alors un avertissement et imprime l'empreinte
+        # obtenue, qu'il suffit de recopier ici (ou dans .env) pour la figer. Renseignée, une
+        # empreinte qui ne correspond pas FAIT ÉCHOUER le build — c'est tout l'objet.
+        LLMFIT_SHA256: ${LLMFIT_SHA256:-}
     container_name: spectra-api
     deploy:
       resources:

@@ -1,10 +1,14 @@
+# syntax=docker/dockerfile:1
 FROM python:3.11-slim
 
 WORKDIR /app
 
 # Install dependencies first (cache layer)
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Cache pip hors des couches : la taille de l'image est inchangée, mais une
+# reconstruction ne retélécharge plus les dépendances déjà résolues.
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -r requirements.txt
 
 # Copy application
 COPY app.py .

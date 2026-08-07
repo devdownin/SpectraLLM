@@ -8,6 +8,46 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Modifié — les images ne retéléchargent plus leurs dépendances à chaque construction
+
+`mvn dependency:go-offline` puis `mvn package` s'exécutaient sans cache : la moindre
+modification du `pom.xml` invalidait la couche et faisait retélécharger l'intégralité des
+dépendances depuis Maven Central. Ce n'était pas qu'une question de durée — c'est le point le
+plus exposé au réseau de toute la pile, et il a déjà fait tomber la CI sur un simple
+**403 Forbidden** de Maven Central, sans aucun rapport avec le code soumis.
+
+Un cache BuildKit (`RUN --mount=type=cache`) est posé sur le dépôt Maven local et sur les roues
+pip des trois services Python. Le cache vivant **hors des couches**, la taille des images est
+inchangée — et `--no-cache-dir`, qui existait précisément pour ne pas grossir la couche, devient
+inutile là où le cache est monté. Le build du trainer, qui prend six minutes en CI pour
+l'essentiel à cause de torch et de ses dépendances CUDA, en est le principal bénéficiaire.
+
+> Prérequis : BuildKit, actif par défaut depuis Docker 23 et systématique via `docker compose`.
+> Une construction forcée sur l'ancien moteur (`DOCKER_BUILDKIT=0`) échouerait sur la syntaxe
+> `RUN --mount`.
+
+### Sécurité — l'installateur llmfit n'est plus pipé dans un shell
+
+L'image de l'API faisait `curl -fsSL https://llmfit.axjns.dev/install.sh | sh`. Deux défauts
+distincts, dont un qui n'a rien à voir avec la chaîne d'approvisionnement :
+
+- **Le shell exécute pendant que le téléchargement se poursuit.** Une connexion coupée en cours
+  de transfert fait exécuter un script **tronqué**, à moitié appliqué — et l'image se construit
+  quand même. L'anomalie n'apparaît qu'à l'usage.
+- **Rien ne vérifie ce qui est exécuté**, alors que le dépôt applique déjà ce principe au
+  convertisseur GGUF (constat F12) : « deux exports faits à quelques semaines d'intervalle
+  n'utilisaient pas le même code, et rien ne le signalait ».
+
+L'installateur est désormais téléchargé **dans un fichier** — `curl` échoue franchement sur un
+transfert incomplet — puis vérifié, puis exécuté. `LLMFIT_SHA256` (argument de build, câblé dans
+le compose) porte la somme attendue : renseignée, une empreinte qui ne correspond pas **fait
+échouer la construction** ; vide, le build émet un avertissement et **imprime l'empreinte
+obtenue**, qu'il suffit de recopier pour la figer.
+
+Vide par défaut, faute de somme publiée en amont — le même compromis que pour `NVD_API_KEY` :
+le garde-fou est en place et se signale, la valeur reste à fournir par l'exploitant.
+
+
 ### Corrigé — aucun fine-tuning ne pouvait aboutir avec transformers 5.5
 
 Défaut **bloquant**, trouvé en exécutant réellement un entraînement — ce qu'aucun test ne

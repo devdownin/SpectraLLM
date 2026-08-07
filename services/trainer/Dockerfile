@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Spectra Trainer — fine-tuning QLoRA dans son propre conteneur.
 #
 # Contexte de build : la RACINE du dépôt (le service a besoin de scripts/, hors de son
@@ -19,8 +20,15 @@ RUN apt-get update \
 # reconstruite à chaque modification d'un script.
 COPY services/trainer/requirements.txt /tmp/api-requirements.txt
 COPY scripts/requirements.txt /tmp/training-requirements.txt
-RUN pip install --no-cache-dir --prefix=/install -r /tmp/api-requirements.txt \
-    && pip install --no-cache-dir --prefix=/install -r /tmp/training-requirements.txt
+# Cache PERSISTANT des roues pip, partagé entre les constructions.
+#
+# `--no-cache-dir` existait pour que le cache de pip ne grossisse pas la couche. Un cache
+# BuildKit atteint le même but par un autre chemin — il vit HORS des couches — tout en
+# évitant de retélécharger torch et ses dépendances CUDA à chaque reconstruction, soit
+# plusieurs gigaoctets et l'essentiel des six minutes que ce build prend en CI.
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --prefix=/install -r /tmp/api-requirements.txt \
+    && pip install --prefix=/install -r /tmp/training-requirements.txt
 
 # ── Étape 2 : image servie ───────────────────────────────────────────────────
 FROM python:3.11-slim
