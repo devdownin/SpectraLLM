@@ -22,6 +22,9 @@
 
 SPECTRA_COMPOSE_FILE="deploy/docker/docker-compose.yml"
 SPECTRA_COMPOSE_GPU_FILE="deploy/docker/docker-compose.gpu.yml"
+# Overlay réservé au job E2E (noms d'images attendus par le cache de couches). Aucun script
+# ne le charge — il est déclaré ici pour que verify.sh puisse le valider comme les autres.
+SPECTRA_COMPOSE_CI_FILE="deploy/docker/docker-compose.ci.yml"
 
 # Lit la DERNIÈRE affectation d'une clé dans .env, sans sourcer le fichier.
 #

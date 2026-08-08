@@ -109,6 +109,12 @@ jobs:
   e2e:
     name: E2E tests (Playwright)
     runs-on: ubuntu-latest
+    # COMPOSE_FILE et COMPOSE_PROJECT_NAME plutôt que des `-f` répétés sur cinq commandes :
+    # une seule définition, et l'overlay CI ne peut plus être oublié sur l'une d'elles —
+    # `logs` ou `down` viseraient alors un autre projet que `up`.
+    env:
+      COMPOSE_FILE: deploy/docker/docker-compose.yml:deploy/docker/docker-compose.ci.yml
+      COMPOSE_PROJECT_NAME: spectra-e2e
     steps:
     - uses: actions/checkout@v4
     # Sans les GGUF, llm-chat et llm-embed attendent le modèle en boucle au lieu
@@ -137,15 +143,45 @@ jobs:
       run: |
         mkdir -p data/documents data/dataset data/fine-tuning/merged data/source data/logs data/chroma
         chmod -R a+rwX data
+    # Cache de couches partagé entre exécutions, comme profiled-images.yml le fait déjà pour
+    # ses propres images. Il exige buildx (le pilote docker-container), donc une construction
+    # hors de `docker compose build` — d'où ces deux étapes et l'overlay
+    # docker-compose.ci.yml, qui déclare sous quels noms Compose doit retrouver le résultat.
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    - name: Build spectra-api (cache GHA)
+      uses: docker/build-push-action@v7
+      with:
+        context: .
+        file: deploy/docker/Dockerfile
+        tags: spectra-e2e-api:ci
+        push: false
+        # `load: true` — contrairement à profiled-images.yml, qui ne fait que chauffer le
+        # cache : ici l'image doit atterrir dans le magasin local, c'est Compose qui la démarre.
+        load: true
+        cache-from: type=gha,scope=e2e-spectra-api
+        cache-to: type=gha,scope=e2e-spectra-api,mode=max
+    - name: Build frontend (cache GHA)
+      uses: docker/build-push-action@v7
+      with:
+        context: ./frontend
+        tags: spectra-e2e-frontend:ci
+        push: false
+        load: true
+        cache-from: type=gha,scope=e2e-frontend
+        cache-to: type=gha,scope=e2e-frontend,mode=max
     # `--wait` s'appuie sur les healthchecks declares dans le fichier Compose — ceux-la
     # memes que scripts/start.sh utilise. L'etape suivante installait `wait-on` pour
     # interroger deux URLs codees en dur : une definition concurrente du « pret », qui
     # ignorait sept des neuf services et laissait donc passer un demarrage partiel
     # jusqu'a ce qu'un test E2E echoue sur une cause sans rapport apparent.
+    #
+    # `--no-build` n'est pas une optimisation, c'est le garde-fou du cache : si les images
+    # construites ci-dessus ne portaient pas les noms attendus, Compose les reconstruirait
+    # sans un mot et le cache deviendrait un no-op invisible — la CI resterait verte. Avec
+    # ce drapeau, l'écart échoue franchement.
     - name: Set up Docker Compose
-      run: |
-        docker compose --project-directory . -f deploy/docker/docker-compose.yml build
-        docker compose --project-directory . -f deploy/docker/docker-compose.yml up -d --wait --wait-timeout 300
+      run: docker compose --project-directory . up -d --wait --no-build --wait-timeout 300
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
@@ -160,11 +196,11 @@ jobs:
     - name: Dump container logs (on failure)
       if: failure()
       run: |
-        docker compose --project-directory . -f deploy/docker/docker-compose.yml ps -a
-        docker compose --project-directory . -f deploy/docker/docker-compose.yml logs --no-color --tail=200
+        docker compose --project-directory . ps -a
+        docker compose --project-directory . logs --no-color --tail=200
     - name: Stop services
       if: always()
-      run: docker compose --project-directory . -f deploy/docker/docker-compose.yml down
+      run: docker compose --project-directory . down
 
   python-services:
     name: Python service (${{ matrix.service }})
