@@ -12,14 +12,25 @@ possibles de `.env`, comparaison des invocations Compose entre scripts, entre pl
 avec la CI. Les constats sont classés par ce qu'ils coûtent à l'utilisateur, pas par la
 taille du correctif.
 
+Une seconde passe, menée après coup sur le coût réel du build et du démarrage, a ouvert deux
+zones que la première n'avait pas regardées : les **contextes de construction Docker** et
+l'**exposition réseau**. Elle a produit les constats D10 à D13, dont deux défauts de sécurité
+— voir « Suite de l'audit » en fin de document pour le découpage en trois PR.
+
 ---
 
 ## Résumé
 
-Neuf constats, dont trois pannes silencieuses. Le fil commun n'est pas la complexité des
-scripts : c'est la **duplication d'une définition** — du fichier `.env`, de l'invocation
-Compose, de la notion de « service prêt ». Chaque fois, deux endroits décrivaient la même
-chose, et un seul faisait autorité.
+Treize constats, dont cinq pannes silencieuses et deux défauts de sécurité.
+
+Le fil commun des neuf premiers n'est pas la complexité des scripts : c'est la **duplication
+d'une définition** — du fichier `.env`, de l'invocation Compose, de la notion de « service
+prêt ». Chaque fois, deux endroits décrivaient la même chose, et un seul faisait autorité.
+
+Les quatre suivants ont un autre fil, plus inquiétant : un réglage **écrit au bon endroit
+mais qui n'arrive jamais à destination**. Un `.dockerignore` qui ne couvre pas le contexte
+qu'on croit (D10), une clé d'API qui ne franchit pas la frontière du conteneur (D12). Dans
+les deux cas la configuration est juste, lisible, et sans effet.
 
 | # | Constat | Gravité | État |
 |---|---|---|---|
@@ -32,6 +43,10 @@ chose, et un seul faisait autorité.
 | D7 | `scripts/adddoc.sh` annoncé par `setup.sh` mais absent du dépôt | Fonctionnel | Corrigé |
 | D8 | `build.sh --no-cache` systématique ; nom de JAR codé en dur | Simplification | Corrigé |
 | D9 | Aucun moyen de reconstruire au démarrage après une modification du code | Ergonomie | Corrigé |
+| D10 | `frontend/.dockerignore` absent : le `node_modules` de l'hôte écrase celui du conteneur | Panne silencieuse | Corrigé (#316) |
+| D11 | Aucun `start_interval` : jusqu'à 70 s d'attente pure à chaque démarrage | Simplification | Corrigé (#316) |
+| D12 | `SPECTRA_API_KEY` n'atteignait jamais le conteneur — authentification inactivable | Sécurité | Corrigé (#317) |
+| D13 | Les neuf ports publiés sur `0.0.0.0`, sans authentification | Sécurité | Corrigé (#317) |
 
 ---
 
@@ -209,6 +224,128 @@ inverse du précédent, sur la même ligne de code.
 
 ---
 
+# Seconde passe — build et exposition réseau
+
+Les quatre constats qui suivent viennent d'une relecture ciblée sur ce que le déploiement
+coûte réellement : le temps de construction, le temps de démarrage, et la surface exposée.
+Ils sont indépendants des neuf premiers et ont été livrés séparément (#316, #317).
+
+## D10 — Le `node_modules` de l'hôte écrasait celui du conteneur
+
+Le service frontend construit avec `context: ./frontend`, et Docker cherche le
+`.dockerignore` **à la racine du contexte**. Celui du dépôt ne s'y appliquait donc pas : ses
+lignes `frontend/node_modules` et `frontend/dist` n'ont jamais eu le moindre effet sur cette
+image — elles décrivent le contexte de `spectra-api`, dans lequel `frontend/` est de toute
+façon exclu en entier.
+
+Sans exclusion, l'ordre du Dockerfile se retournait contre lui-même :
+
+```dockerfile
+COPY package*.json ./
+RUN npm ci        # produit /app/node_modules — correct, alpine/musl
+COPY . .          # ← recopie le node_modules de l'HÔTE par-dessus
+RUN npm run build
+```
+
+Les binaires natifs (esbuild, rollup) sont liés à la plateforme et à la libc : un
+`node_modules` glibc ou macOS atterrissait dans une image **alpine (musl)**.
+
+Ce qui rendait le défaut durable, c'est qu'il était structurellement invisible en CI : le job
+`e2e`, celui qui construit l'image, tourne sur un runner distinct du job `frontend`, et son
+checkout n'a donc jamais de `node_modules`. En local, c'était l'inverse — `verify.sh` installe
+les dépendances dans `frontend/`, et un `build.sh` derrière tombait dessus.
+
+**Correctif.** `frontend/.dockerignore`. Le contexte expédié au démon passe de 268 Mo à
+1,6 Mo, mesuré en rejouant les motifs sur l'arborescence réelle.
+
+## D11 — Jusqu'à 70 s d'attente pure au démarrage
+
+Sans `start_interval`, Docker sonde toutes les `interval` secondes, y compris pendant le
+`start_period` : un service prêt à t=8 s n'était déclaré sain qu'à t=30 s. L'attente est
+*pure* — rien ne se passe pendant ce temps.
+
+Le coût ne s'arrêtait pas à un service, parce que `depends_on: condition: service_healthy`
+sérialise la chaîne et fait s'additionner les granularités : chromadb (20 s) → spectra-api
+(20 s) → frontend (30 s). C'est autant sur chaque `up --wait`, donc sur chaque `start.sh`
+et sur chaque exécution du job E2E.
+
+**Correctif.** `start_interval: 3s` sur huit services, `interval` inchangé en régime établi.
+`kafka` en est dépourvu à dessein, son `interval` valant déjà 5 s. Contrepartie assumée : le
+champ demande Docker Engine ≥ 25 (janvier 2024), désormais explicite dans les deux README.
+
+**Ce que la mesure a montré, et pas montré.** Le job E2E n'a pas raccourci (3 min 40 contre
+3 min 34) : sa durée est dominée par la construction des images et le chargement du modèle,
+où quelques dizaines de secondes se noient. Le gain se concentre sur `up --wait`, introduit
+par la PR précédente — les deux changements ne se rejoindront qu'une fois fusionnés. Les 70 s
+restent donc un calcul à partir des `interval` déclarés, pas une mesure.
+
+## D12 — `SPECTRA_API_KEY` n'atteignait jamais le conteneur
+
+`ApiKeyFilter` lit `@Value("${SPECTRA_API_KEY:}")` et protège `/api/**` dès que la clé est
+non vide. Le filtre fonctionne.
+
+Le défaut était en amont : le bloc `environment:` de `spectra-api` ne listait pas la
+variable, et le fichier Compose n'a pas d'`env_file:`. Or **Compose n'injecte pas `.env` dans
+les conteneurs** — il ne s'en sert que pour interpoler le fichier Compose lui-même.
+
+Renseigner `SPECTRA_API_KEY` dans `.env`, exactement comme `.env.example` l'explique sur dix
+lignes, ne faisait donc rien : le filtre restait sur une chaîne vide, journalisait
+« authentification API désactivée » et laissait passer toutes les requêtes, pendant que
+`scripts/pipeline.sh` envoyait consciencieusement un en-tête `X-API-Key` que personne ne
+vérifiait.
+
+Le contrôle est documenté à trois endroits. `docs/process/audit-securite.fr.md` le classait
+déjà « non sécurisé par défaut » (S2), en le présentant comme un opt-in qu'on oublie ; le
+constat était incomplet, car le défaut n'était pas seulement ouvert mais **irrémédiable**
+sans éditer le fichier Compose. Le paragraphe S2 a été mis à jour.
+
+**Correctif.** Une ligne de passe-plat. Vérifié sur la configuration rendue : `""` par
+défaut, la valeur transmise quand elle est posée.
+
+## D13 — Neuf ports publiés sur toutes les interfaces, sans authentification
+
+Les mappings étaient de la forme `"8000:8000"`, donc sur `0.0.0.0`. Sur un portable en wifi
+ou un serveur, tout le réseau local atteignait, sans la moindre authentification :
+
+| Port | Service | Ce qu'on y fait |
+|---|---|---|
+| 8000 | ChromaDB | lecture **et écriture** sur l'index vectoriel, donc sur le corpus ingéré |
+| 8081 / 8082 | llama.cpp chat / embed | inférence libre — `llama-server` n'a pas d'authentification |
+| 8080 | spectra-api | celle de D12, donc aucune en pratique |
+| 8002 / 8003 / 8004 / 9092 | reranker, docparser, trainer, kafka | tout |
+
+Pour un projet dont l'argument central est « 100 % local, vos données ne quittent jamais
+votre machine », publier au réseau la base qui *contient* les documents méritait d'être une
+décision, pas un défaut.
+
+Aucun de ces ports n'est nécessaire au fonctionnement : les services se parlent par le réseau
+Compose, sous leurs noms de service. La publication ne sert qu'à l'accès depuis l'**hôte** —
+navigateur sur 80, scripts et Swagger sur 8080, diagnostic pour le reste.
+
+**Correctif.** `SPECTRA_BIND_ADDR`, défaut `127.0.0.1`, sur les neuf mappings.
+`SPECTRA_BIND_ADDR=0.0.0.0` restaure le comportement précédent pour un déploiement
+multi-hôte volontaire. C'est un changement de comportement pour qui consulte Spectra depuis
+un autre poste — assumé : l'échec est immédiat et lisible (connexion refusée), pas une
+dégradation silencieuse, et la remise en route tient en une variable documentée.
+
+---
+
+## Suite de l'audit — découpage en trois PR
+
+Les correctifs ont été livrés séparément, chacun partant de `main`, pour que la revue puisse
+accepter ou écarter un axe sans bloquer les autres :
+
+| PR | Contenu | Constats |
+|---|---|---|
+| #315 | Scripts d'installation, de démarrage et d'arrêt | D1 → D9 |
+| #316 | Contexte de build frontend, granularité des healthchecks | D10, D11 |
+| #317 | Exposition réseau et authentification | D12, D13 |
+
+#316 et #317 modifient toutes deux `docker-compose.yml` : la première fusionnée mettra
+l'autre en conflit, à résoudre en fusionnant `main` dans la branche restante.
+
+---
+
 ## Ce qui n'a pas été touché
 
 - **La duplication `.sh` / `.bat`** (~1 200 lignes). Elle est irréductible — batch ne source
@@ -220,15 +357,40 @@ inverse du précédent, sur la même ligne de code.
 - **Les 39 clés actives de `.env.example`.** Les commenter serait cohérent avec son rôle de
   catalogue, mais `check-model-defaults.sh` en fait sa source de vérité pour les noms de
   GGUF : le changement demande d'y toucher aussi, et sort du périmètre du démarrage.
+- **Le cache de couches du job E2E.** `profiled-images.yml` utilise déjà
+  `cache-from/cache-to: type=gha` ; `ci.yml` construit à froid, et E2E est son job le plus
+  long (~3 min 40). Transposable, mais c'est du temps de CI, pas du temps d'utilisateur.
+- **Le cache npm du build frontend.** Maven et pip ont leur `--mount=type=cache`, npm non.
+- **La taille du modèle en E2E.** 4,7 Go de Qwen 7B pour piloter Playwright. Un GGUF
+  minuscule suffirait, mais cela touche à ce que le test prétend valider : c'est une décision
+  de fond, pas une optimisation.
+- **Le reste de la surface de sécurité.** D12 et D13 refermaient deux trous béants du chemin
+  de déploiement ; ils ne traitent ni S1 (aucune identité par utilisateur, `?actor=` purement
+  déclaratif) ni l'absence d'authentification propre à ChromaDB et à llama-server. Voir
+  `docs/process/audit-securite.fr.md`.
 
 ## Vérification
 
 ```
-scripts/tests/          346 tests   OK
-shellcheck -S error     scripts/*.sh scripts/lib/*.sh   OK
-docker compose config   base + overlay GPU              OK
+scripts/tests/          346 tests (345 sur #316 et #317)   OK
+shellcheck -S error     scripts/*.sh scripts/lib/*.sh      OK
+docker compose config   base + overlay GPU                 OK
+check-model-defaults.sh cohérence des GGUF par défaut      OK
+CI                      17/17 sur #315, 16/16 sur #316 et #317, E2E compris
 ```
 
-Les quatre états de `.env` (absent, avec bornes, legacy shell, legacy batch, copie de
+Les cinq états de `.env` (absent, avec bornes, legacy shell, legacy batch, copie de
 `.env.example`) ont été rejoués manuellement : bloc unique, idempotence sur deux passages
 consécutifs, réglages personnels conservés, `.env.bak` produit lors des deux migrations.
+
+La configuration **rendue** par Compose a été vérifiée, et pas seulement sa syntaxe : les
+huit `start_interval` présents une fois tous les profils actifs (sans profils, Compose n'en
+rend que cinq — les services optionnels ne sont pas instanciés), `host_ip: 127.0.0.1` sur les
+neuf ports et `0.0.0.0` sous surcharge, `SPECTRA_API_KEY` transmis quand il est posé.
+
+**Ce qui n'a pas pu être vérifié ici**, faute de démon Docker dans l'environnement d'audit :
+l'exécution réelle de `up --wait` et `down`, le gain de temps effectif de D11, le 401 renvoyé
+par l'API quand la clé est active, le refus de connexion depuis une autre machine, et les
+scripts `.bat` (aucun hôte Windows). Le job E2E de la CI couvre le démarrage complet de la
+stack sur les trois PR — c'est lui qui a validé que le durcissement de D13 ne casse pas
+l'accès local, et que l'image frontend se construit bien avec le `.dockerignore` de D10.
