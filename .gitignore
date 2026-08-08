@@ -31,6 +31,8 @@ data/
 
 # Env
 .env
+# Sauvegarde produite par detect-env.sh --force et par la migration d'un ancien .env
+.env.bak
 
 # Python
 __pycache__/

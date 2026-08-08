@@ -17,7 +17,8 @@ setlocal enabledelayedexpansion
 :: ────────────────────────────────────────────────────────────────────────────
 
 :: Les scripts vivent dans scripts\ mais operent sur la racine du depot
-:: (data\, .env, .env.example).
+:: (data\, .env, .env.example). %SCRIPT_DIR% pointe vers scripts\.
+set "SCRIPT_DIR=%~dp0"
 cd /d "%~dp0.."
 
 set DOWNLOAD_EMBED=0
@@ -68,18 +69,25 @@ for %%D in (
 )
 
 :: ── 3. Fichier .env ────────────────────────────────────────────────────────
+::
+:: Ce script ne COPIE PLUS .env.example. La copie paraissait inoffensive ; elle ne
+:: l'etait pas. .env.example est un CATALOGUE commente, mais il laisse 39 cles actives,
+:: et une valeur posee dans .env l'emporte sur tout le reste. En copier le fichier
+:: entier figeait LLM_PARALLEL=1 et LLM_CONTEXT=8192 — donc annulait le dimensionnement
+:: calcule par detect-env.bat — et injectait dans le conteneur d'API
+:: SPECTRA_KAFKA_BOOTSTRAP_SERVERS=localhost:9092 alors que le broker s'appelle
+:: kafka:29092 sur le reseau Compose.
+::
+:: detect-env.bat est desormais le seul createur de .env ; .env.example reste la
+:: reference ou l'on va chercher, a la ligne, ce qu'on veut surcharger.
 echo.
 echo ^> [3/6] Fichier de configuration .env...
 if not exist ".env" (
-    if exist ".env.example" (
-        copy ".env.example" ".env" >nul
-        echo   [CREE] .env copie depuis .env.example
-        echo   Editez .env pour personnaliser la configuration.
-    ) else (
-        echo   [AVERT] .env.example introuvable — ignoré
-    )
+    call "%SCRIPT_DIR%detect-env.bat"
+    echo   [CREE] .env genere d'apres le materiel detecte
+    echo   Options disponibles : voir .env.example ^(catalogue commente^).
 ) else (
-    echo   [OK] .env existe deja
+    echo   [OK] .env existe deja — vos reglages sont conserves
 )
 
 :: ── 4. Modèle d'embedding ─────────────────────────────────────────────────

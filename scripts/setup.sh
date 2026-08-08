@@ -99,18 +99,29 @@ for dir in data/documents data/dataset data/fine-tuning data/fine-tuning/merged 
 done
 
 # ── 4. Fichier .env ────────────────────────────────────────────────────────
+#
+# Ce script ne COPIE PLUS .env.example. La copie paraissait inoffensive ; elle ne l'était
+# pas. .env.example est un CATALOGUE commenté, mais il laisse 39 clés actives, et une
+# valeur posée dans .env l'emporte sur tout le reste. En copier le fichier entier :
+#   — figeait LLM_PARALLEL=1 et LLM_CONTEXT=8192, donc annulait le dimensionnement
+#     calculé par detect-env.sh d'après la RAM et le nombre de cœurs ;
+#   — injectait dans le conteneur d'API SPECTRA_KAFKA_BOOTSTRAP_SERVERS=localhost:9092,
+#     alors que le broker s'appelle kafka:29092 sur le réseau Compose — l'API cherchait
+#     donc Kafka dans son propre conteneur ;
+#   — et, comme elle créait .env AVANT detect-env.sh, elle faisait sortir celui-ci sans
+#     rien écrire : ni profil matériel, ni SPECTRA_GPU_ENABLED, donc pas d'accélération
+#     GPU, y compris quand l'utilisateur avait demandé --gpu.
+#
+# detect-env.sh est désormais le seul créateur de .env ; .env.example reste la référence
+# où l'on va chercher, à la ligne, ce qu'on veut surcharger.
 echo
 echo "> [4/7] Fichier de configuration .env..."
 if [ ! -f ".env" ]; then
-  if [ -f ".env.example" ]; then
-    cp .env.example .env
-    green "  [CRÉÉ] .env copié depuis .env.example"
-    echo "  Éditez .env pour personnaliser la configuration."
-  else
-    yellow "  [AVERT] .env.example introuvable — ignoré"
-  fi
+  bash "$SCRIPT_DIR/detect-env.sh"
+  green "  [CRÉÉ] .env généré d'après le matériel détecté"
+  echo "  Options disponibles : voir .env.example (catalogue commenté)."
 else
-  green "  [OK] .env existe déjà"
+  green "  [OK] .env existe déjà — vos réglages sont conservés"
 fi
 
 # ── 5. Modèle d'embedding ─────────────────────────────────────────────────
@@ -260,7 +271,7 @@ if [ "$ERRORS" -eq 0 ]; then
   echo "    ./scripts/start.sh"
   echo
   echo "  Pour tester avec des exemples :"
-  echo "    bash scripts/adddoc.sh examples"
+  echo "    ./scripts/adddoc.sh examples"
 else
   red "  [!] Configuration incomplète — $ERRORS élément(s) à corriger."
   echo "  Relancez ./setup.sh après avoir résolu les problèmes ci-dessus."

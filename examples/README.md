@@ -5,11 +5,11 @@ Ce dossier contient des documents de démonstration pour tester Spectra sans avo
 ## Démarrage rapide
 
 ```bash
-# Windows
-adddoc.bat examples
-
 # Linux / macOS
-bash adddoc.sh examples
+./scripts/adddoc.sh examples
+
+# Windows
+scripts\adddoc.bat examples
 
 # Via l'API directement
 curl -X POST http://localhost:8080/api/ingest \
@@ -30,7 +30,7 @@ Ces trois documents couvrent le vocabulaire, les procédures et les nomenclature
 
 ## Résultat attendu après ingestion
 
-Après `adddoc.bat examples` + génération de dataset, vous devriez obtenir :
+Après `./scripts/adddoc.sh examples` + génération de dataset, vous devriez obtenir :
 - ~30 chunks vectorisés dans ChromaDB
 - ~25–40 paires d'entraînement (selon les paramètres)
 - Des questions du type : "Quelle est la fréquence recommandée pour la lubrification des roulements ?" ou "Quels EPI sont obligatoires lors d'une opération de soudage ?"
@@ -45,7 +45,7 @@ fichiers, et le score de retrieval vérifie que la bonne source remonte dans le 
 
 ```bash
 # Windows
-adddoc.bat examples\highway
+./scripts/adddoc.sh examples/highway
 
 # Via l'API directement (Linux / macOS / Windows)
 curl -X POST http://localhost:8080/api/ingest \
