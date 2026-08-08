@@ -160,6 +160,11 @@ if wanted compose; then
       docker compose --project-directory . -f "$SPECTRA_COMPOSE_FILE" config -q
     run "docker compose config (overlay GPU)" \
       docker compose --project-directory . -f "$SPECTRA_COMPOSE_FILE" -f "$SPECTRA_COMPOSE_GPU_FILE" config -q
+    # Même raisonnement que pour l'overlay GPU : celui-ci n'est chargé que par le job E2E,
+    # donc jamais par un développeur. Une erreur de syntaxe n'y apparaîtrait qu'en CI, sur
+    # le job le plus long et le plus lent à diagnostiquer.
+    run "docker compose config (overlay CI)" \
+      docker compose --project-directory . -f "$SPECTRA_COMPOSE_FILE" -f "$SPECTRA_COMPOSE_CI_FILE" config -q
   else
     skip "docker compose config" "docker compose indisponible"
   fi

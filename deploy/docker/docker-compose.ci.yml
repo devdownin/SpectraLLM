@@ -1,0 +1,24 @@
+# Overlay réservé à l'intégration continue — n'a aucun effet en local.
+#
+# POURQUOI CE FICHIER EXISTE
+# Le job E2E construit `spectra-api` et `frontend` sans cache de couches : chaque exécution
+# refait le `mvn package` complet et le `npm ci` + build Vite, alors que `profiled-images.yml`
+# alimente déjà un cache GitHub Actions pour les images qu'il construit. Le job le plus long
+# de la CI était donc le seul à repartir de zéro.
+#
+# Les mettre en cache suppose de les construire avec buildx (`type=gha` exige le pilote
+# docker-container), donc HORS de `docker compose build`. Compose doit ensuite retrouver ces
+# images déjà construites — et c'est là qu'est le piège : sans `image:`, il dérive le nom du
+# répertoire du projet (« spectrallm-spectra-api »). Bâtir sur cette dérivation, c'est parier
+# sur une convention qu'aucun fichier ne déclare : le jour où elle change, Compose ne trouve
+# rien, RECONSTRUIT sans rien dire, et le cache devient un no-op invisible — la CI reste verte
+# et personne ne voit que l'optimisation a cessé de fonctionner.
+#
+# On déclare donc les noms ici, une fois, et le workflow construit exactement ces tags-là.
+# Le job passe par ailleurs `--no-build` : si le nom ne correspondait pas, Compose échoue
+# franchement au lieu de reconstruire en douce.
+services:
+  spectra-api:
+    image: spectra-e2e-api:ci
+  frontend:
+    image: spectra-e2e-frontend:ci
