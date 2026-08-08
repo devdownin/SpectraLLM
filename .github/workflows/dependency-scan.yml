@@ -66,7 +66,7 @@ jobs:
       # cela, l'artefact n'était produit que dans le cas où personne n'en a besoin.
       - name: Upload Report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dependency-check-report
           path: backend/target/dependency-check-report.html
