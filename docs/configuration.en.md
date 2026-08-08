@@ -171,6 +171,29 @@ together and is the recommended way in.
 | `LLMFIT_CACHE_DIR` | `~/.llmfit` | llmfit download cache (inventoried by the storage report; safe duplicates purgeable) |
 | `LLMFIT_INSTALL_RETENTION_DAYS` | `0` | Purge terminal installation jobs older than N days (0 = keep forever) |
 
+### Network exposure & API authentication
+
+| Environment variable | Default | Description |
+|---|---|---|
+| `SPECTRA_BIND_ADDR` | `127.0.0.1` | Host address the stack's ports are published on. The default reaches this machine only. Set to `0.0.0.0` for a deliberate multi-host deployment |
+| `SPECTRA_API_KEY` | *(empty)* | Required in the `X-API-Key` header on every `/api/**` route when set. Empty = no authentication. `/actuator` is always exempt so health checks work without a key |
+
+Containers do **not** need the published ports to reach each other — they talk over the
+Compose network using service names. Publishing exists only for host access: the browser on
+port 80, scripts and Swagger on 8080, diagnostics for the rest. That is why loopback is the
+default.
+
+Opening the stack with `SPECTRA_BIND_ADDR=0.0.0.0` exposes more than the API. ChromaDB (8000)
+accepts reads **and writes** to the vector index — the ingested corpus — and llama-server
+(8081, 8082) has no authentication of its own. Neither has any notion of an API key: only
+`spectra-api` enforces `SPECTRA_API_KEY`. Treat `0.0.0.0` as a decision to put the whole stack
+behind a reverse proxy you control, not as a convenience toggle.
+
+> Setting `SPECTRA_API_KEY` in `.env` is enough today. It was not always: `docker-compose.yml`
+> did not pass the variable into the container, and Compose does not inject `.env` into
+> containers — it only uses it to interpolate the Compose file. The key never reached
+> `ApiKeyFilter`, which stayed on an empty string and let every request through.
+
 ---
 
 ## Health & Observability

@@ -48,6 +48,15 @@ sans configuration explicite expose **tous** les endpoints mutants sans authenti
 `SECURITY.md` recommande bien de définir la clé, mais c'est un opt-in : l'oubli est silencieux
 côté sécurité (l'application fonctionne parfaitement).
 
+> **Correctif (2026-08).** L'opt-in ne fonctionnait même pas par le chemin documenté. Le bloc
+> `environment:` de `spectra-api` ne listait pas `SPECTRA_API_KEY`, et Compose n'injecte pas
+> `.env` dans les conteneurs — il ne s'en sert que pour interpoler le fichier Compose. Une clé
+> renseignée dans `.env`, comme `.env.example` l'explique, n'atteignait donc jamais la JVM :
+> `ApiKeyFilter` restait sur une chaîne vide et laissait tout passer, tandis que
+> `scripts/pipeline.sh` envoyait un en-tête `X-API-Key` que personne ne vérifiait. Le
+> passe-plat a été ajouté ; S2 redevient ce que ce paragraphe décrit — un défaut ouvert,
+> mais refermable.
+
 Recommandation : au minimum, logger un avertissement **au niveau WARN à chaque démarrage** de
 façon très visible (déjà partiellement le cas) et le documenter en tête de `getting-started`.
 Idéalement, refuser de démarrer en profil `prod` sans clé (fail-closed).

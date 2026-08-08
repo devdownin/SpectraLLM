@@ -1,3 +1,24 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# ADRESSE D'ÉCOUTE DES PORTS PUBLIÉS — SPECTRA_BIND_ADDR (défaut : 127.0.0.1)
+#
+# Les neuf ports étaient publiés en « 8000:8000 », c'est-à-dire sur 0.0.0.0. Sur un
+# portable en wifi ou un serveur, tout le réseau local atteignait donc, SANS la moindre
+# authentification :
+#   — chromadb (8000) : lecture ET ÉCRITURE sur l'index vectoriel, donc sur le corpus
+#     de documents ingérés — c'est la donnée que ce projet promet de garder chez vous ;
+#   — llm-chat / llm-embed (8081, 8082) : llama-server n'a pas d'authentification ;
+#   — spectra-api (8080), reranker, docparser, trainer, kafka.
+#
+# Rien de tout cela n'est nécessaire au fonctionnement : les services se parlent par le
+# réseau Compose, sous leurs noms de service. La publication ne sert qu'à l'accès depuis
+# l'HÔTE — le navigateur sur le port 80, les scripts et Swagger sur 8080, le diagnostic
+# pour le reste. La boucle locale y suffit, et c'est désormais le défaut.
+#
+# Déploiement multi-hôte volontaire (serveur consulté depuis un autre poste) :
+#   SPECTRA_BIND_ADDR=0.0.0.0
+# À ne faire qu'en ayant renseigné SPECTRA_API_KEY, et de préférence derrière un
+# reverse-proxy TLS : ouvrir 8000 et 8081 revient à publier la base et le moteur.
+# ═══════════════════════════════════════════════════════════════════════════════
 services:
 
   # ── Serveur LLM — Chat ────────────────────────────────────────────────────
@@ -21,7 +42,7 @@ services:
           # avec LLM_CONTEXT. À relever pour un modèle plus grand ou un contexte plus large.
           memory: ${LLM_CHAT_MEMORY_LIMIT:-8g}
     ports:
-      - "8081:8081"
+      - "${SPECTRA_BIND_ADDR:-127.0.0.1}:8081:8081"
     volumes:
       - ./data/models:/models
       - ./scripts/llm-chat-entrypoint.sh:/llm-chat-entrypoint.sh:ro
@@ -62,7 +83,7 @@ services:
           # d'ingestion (SPECTRA_EMBEDDING_BATCH_SIZE).
           memory: ${LLM_EMBED_MEMORY_LIMIT:-2g}
     ports:
-      - "8082:8082"
+      - "${SPECTRA_BIND_ADDR:-127.0.0.1}:8082:8082"
     volumes:
       - ./data/models:/models
       - ./scripts/llm-embed-entrypoint.sh:/llm-embed-entrypoint.sh:ro
@@ -96,7 +117,7 @@ services:
           # service dont la consommation dépend le plus des données.
           memory: ${CHROMADB_MEMORY_LIMIT:-4g}
     ports:
-      - "8000:8000"
+      - "${SPECTRA_BIND_ADDR:-127.0.0.1}:8000:8000"
     volumes:
       # /data et NON /chroma/chroma : ce dernier est le chemin de persistance de Chroma
       # ≤ 0.5.x. L'image actuelle écrit dans /data — le volume monté sur l'ancien chemin
@@ -134,7 +155,7 @@ services:
         limits:
           memory: 2gb
     ports:
-      - "8003:8001"
+      - "${SPECTRA_BIND_ADDR:-127.0.0.1}:8003:8001"
     environment:
       - USE_DOCLING=${USE_DOCLING:-false}
     healthcheck:
@@ -164,7 +185,7 @@ services:
           # torch plus le Cross-Encoder chargé en mémoire.
           memory: ${RERANKER_MEMORY_LIMIT:-4g}
     ports:
-      - "8002:8000"
+      - "${SPECTRA_BIND_ADDR:-127.0.0.1}:8002:8000"
     volumes:
       # Cache HuggingFace persistant : le modèle (~500 Mo) y survit aux reconstructions
       # d'image. C'est lui qui permet de servir — et d'exporter en ONNX — sans accès au Hub.
@@ -210,7 +231,7 @@ services:
           # Broker de développement.
           memory: ${KAFKA_MEMORY_LIMIT:-2g}
     ports:
-      - "9092:9092"
+      - "${SPECTRA_BIND_ADDR:-127.0.0.1}:9092:9092"
     healthcheck:
       test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092"]
       interval: 5s
@@ -282,7 +303,7 @@ services:
           # actif, les allocations NATIVES d'ONNX Runtime, qui échappent au heap.
           memory: ${SPECTRA_API_MEMORY_LIMIT:-4g}
     ports:
-      - "8080:8080"
+      - "${SPECTRA_BIND_ADDR:-127.0.0.1}:8080:8080"
     environment:
       - JAVA_OPTS=${JAVA_OPTS:--Xms256m -Xmx1024m -XX:+UseZGC}
       # Provider LLM : llama-cpp (deux serveurs dédiés chat + embed)
@@ -295,6 +316,17 @@ services:
       # le registre local associe ainsi les modèles par défaut à leur source servable.
       - SPECTRA_LLM_CHAT_FILE=${LLM_CHAT_MODEL_FILE:-Qwen2.5-7B-Instruct-Q4_K_M.gguf}
       - SPECTRA_LLM_EMBEDDING_FILE=${LLM_EMBED_MODEL_FILE:-embed.gguf}
+      # Authentification de l'API. SANS défaut : la clé ne doit pas être inventée ici.
+      #
+      # Cette ligne manquait, et son absence rendait le contrôle INACTIVABLE par le chemin
+      # documenté. ApiKeyFilter lit bien ${SPECTRA_API_KEY:} côté Spring, mais Compose
+      # n'injecte pas .env dans les conteneurs — il ne s'en sert que pour interpoler ce
+      # fichier-ci. Une variable absente de ce bloc ne franchit donc pas la frontière du
+      # conteneur : renseigner SPECTRA_API_KEY dans .env, exactement comme .env.example
+      # l'explique, laissait le filtre sur une chaîne vide. Il journalisait alors
+      # « authentification API désactivée » et laissait passer toutes les requêtes, pendant
+      # que scripts/pipeline.sh envoyait consciencieusement un en-tête X-API-Key ignoré.
+      - SPECTRA_API_KEY=${SPECTRA_API_KEY:-}
       - SPECTRA_CHROMADB_BASE_URL=http://chromadb:8000
       - SPECTRA_PIPELINE_CHUNK_MAX_TOKENS=${SPECTRA_CHUNK_MAX_TOKENS:-256}
       - SPECTRA_PIPELINE_CHUNK_OVERLAP_TOKENS=${SPECTRA_CHUNK_OVERLAP_TOKENS:-64}
@@ -386,7 +418,7 @@ services:
           # Nginx servant des fichiers statiques.
           memory: ${FRONTEND_MEMORY_LIMIT:-256m}
     ports:
-      - "80:80"
+      - "${SPECTRA_BIND_ADDR:-127.0.0.1}:80:80"
     depends_on:
       spectra-api:
         condition: service_healthy
@@ -425,7 +457,7 @@ services:
           # tué par l'OOM killer sans cause claire ; trop haut, la limite ne protège de rien.
           memory: ${TRAINER_MEMORY_LIMIT:-12g}
     ports:
-      - "8004:8000"
+      - "${SPECTRA_BIND_ADDR:-127.0.0.1}:8004:8000"
     volumes:
       # MÊME point de montage que spectra-api. Le client transmet des chemins absolus
       # (/app/data/fine-tuning/<job>/dataset.jsonl) calculés dans le conteneur applicatif :
