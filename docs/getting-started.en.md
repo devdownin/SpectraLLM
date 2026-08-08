@@ -50,6 +50,17 @@ cd SpectraLLM
 mkdir -p data/models data/documents data/dataset
 ```
 
+`detect-env.sh` writes a marked **auto block** at the top of `.env` — hardware profile, JVM
+heap, LLM context/parallelism, GPU flags — and regenerates it on every start. Everything
+below the `SPECTRA:AUTO:END` marker is yours and is never touched; since the **last**
+assignment of a key wins, your lines always override the detected ones.
+
+Do **not** `cp .env.example .env`. That file is a commented catalogue, not a starter
+config: copying it wholesale pins ~39 keys, which would override both the hardware sizing
+and the container-only defaults from `docker-compose.yml`. Copy the individual lines you
+want to change instead, below the marker. Use `./scripts/detect-env.sh --force` to start
+over from a clean file (the previous one is kept as `.env.bak`).
+
 ### 2. Download the models
 
 Two GGUF files are required — one for chat, one for embeddings:
@@ -73,8 +84,10 @@ If the models are missing at startup, the stack still comes up: `llm-chat` and `
 # The stack lives in deploy/docker/ — alias the invocation once:
 alias spectra-compose='docker compose --project-directory . -f deploy/docker/docker-compose.yml'
 
-# Base stack (inference + vector DB)
-spectra-compose up -d
+# Base stack (inference + vector DB). --wait blocks until every service reports healthy
+# via its Compose healthcheck, and exits non-zero if one never does — this is exactly
+# what scripts/start.sh does for you.
+spectra-compose up -d --wait
 
 # With layout-aware PDF parsing
 spectra-compose --profile layout-parser up -d
@@ -85,6 +98,9 @@ spectra-compose --profile reranker up -d
 # With both optional services
 spectra-compose --profile layout-parser --profile reranker up -d
 ```
+
+> Rebuilding after a code change: `./scripts/start.sh --build` (or `spectra-compose up -d --build`).
+> Without it, an already-built image is reused as-is and the **previous** code restarts.
 
 ### 4. Access
 

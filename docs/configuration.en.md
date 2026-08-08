@@ -4,6 +4,32 @@ Every setting has a working default — see the essentials note at the top of [.
 
 > All shell commands in this document are run from the repository root.
 
+## How `.env` is laid out
+
+`.env` has two zones, and knowing which one you are writing in is the difference between a
+setting that sticks and one that silently disappears:
+
+| Zone | Written by | Lifetime |
+|---|---|---|
+| Auto block, between the `SPECTRA:AUTO:BEGIN` / `SPECTRA:AUTO:END` markers | `scripts/detect-env.sh` (`detect-env.bat`), re-run on every `start.sh` | Regenerated each start — edits here are lost |
+| Everything below `SPECTRA:AUTO:END` | You | Never touched by any script |
+
+Compose keeps the **last** assignment of a repeated key, so your zone always wins over the
+detected one. That is the whole mechanism: hardware detection stays live across hardware
+changes, and your overrides survive it.
+
+Two consequences worth stating outright:
+
+- **Do not copy `.env.example` over `.env`.** It is a commented catalogue that still leaves
+  ~39 keys active; copying it pins values that then override both the hardware sizing and
+  the container-only defaults in `docker-compose.yml` — including
+  `SPECTRA_KAFKA_BOOTSTRAP_SERVERS`, which must be `kafka:29092` inside the Compose network
+  and is documented as `localhost:9092` for an external broker. Copy the individual lines
+  you need, below the marker.
+- **A shell variable beats `.env`.** `SPECTRA_FINE_TUNING_RUNNER=http ./scripts/start.sh`
+  wins over any value in the file; the scripts apply the same precedence when they decide
+  what to start.
+
 ## Configuration Reference
 
 ### Core inference
