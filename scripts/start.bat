@@ -4,7 +4,7 @@ setlocal enabledelayedexpansion
 
 REM  ────────────────────────────────────────────────────────
 REM  Spectra — Script de lancement (Windows)
-REM  Usage: start.bat [--first-run] [--detach] [--gpu] [--trainer]
+REM  Usage: start.bat [--first-run] [--detach] [--gpu] [--trainer] [--build]
 REM
 REM    --first-run   Premier lancement tout-en-un : configuration initiale,
 REM                  telechargement des modeles, demarrage en arriere-plan
@@ -14,6 +14,9 @@ REM                  spectra-trainer et branche l'API dessus. Sans cela, une
 REM                  soumission est refusee — l'image spectra-api est une JRE
 REM                  sans Python, elle ne peut pas lancer scripts/train.sh.
 REM                  L'image du trainer pese plusieurs Go (torch).
+REM    --build       Reconstruit les images avant de demarrer. Sans cette option,
+REM                  une image deja construite est reutilisee telle quelle : apres
+REM                  une modification du code, c'est l'ANCIENNE qui redemarre.
 REM  ────────────────────────────────────────────────────────
 
 REM  Les scripts vivent dans scripts\ mais la stack (docker-compose, data\, .env)
@@ -27,6 +30,7 @@ set DETACH=
 set GPU_FLAG=
 set FIRST_RUN=
 set TRAINER=
+set BUILD=
 
 :parse_args
 if "%~1"=="" goto done_args
@@ -34,6 +38,7 @@ if "%~1"=="--detach" set DETACH=-d
 if "%~1"=="-d"       set DETACH=-d
 if "%~1"=="--gpu" set GPU_FLAG=--gpu
 if "%~1"=="--trainer" set TRAINER=1
+if "%~1"=="--build" set BUILD=--build
 if "%~1"=="--first-run" (
     set FIRST_RUN=1
     set DETACH=-d
@@ -70,9 +75,12 @@ echo.
 echo ^> Detection de la configuration serveur...
 call "%SCRIPT_DIR%detect-env.bat" %GPU_FLAG%
 
-REM  Lire si GPU active dans .env (racine du depot)
-findstr /C:"SPECTRA_GPU_ENABLED=true" .env >nul 2>&1
-if !errorlevel!==0 (
+REM  Lire si GPU active dans .env (racine du depot). La DERNIERE affectation fait foi :
+REM  c'est la regle qu'applique Compose, et celle qui permet a un reglage personnel place
+REM  sous le bloc auto de detect-env.bat de l'emporter sur ce qui a ete detecte.
+set "GPU_ENABLED="
+for /f "tokens=1,* delims==" %%A in ('findstr /R /C:"^ *SPECTRA_GPU_ENABLED=" .env 2^>nul') do set "GPU_ENABLED=%%B"
+if "!GPU_ENABLED!"=="true" (
     set COMPOSE=!COMPOSE! -f deploy/docker/docker-compose.gpu.yml
     echo   [OK] GPU active, docker-compose.gpu.yml inclus
 )
@@ -107,13 +115,20 @@ echo   [OK] service spectra-trainer + SPECTRA_FINE_TUNING_RUNNER=http
 echo        Premiere fois : l'image embarque torch, comptez plusieurs Go et un long build.
 :no_trainer
 
-REM  3. Build si l'image n'existe pas
-docker image inspect spectra-spectra-api >nul 2>&1
-if %errorlevel% neq 0 (
+REM  3. Build si l'image n'existe pas, ou sur demande explicite.
+REM  On interroge COMPOSE plutot qu'un nom d'image code en dur : « spectra-spectra-api »
+REM  supposait un projet nomme « spectra », alors que Compose le derive du repertoire
+REM  (« spectrallm-spectra-api » pour un clone standard). L'inspection echouait donc
+REM  toujours, et chaque start.bat relancait un build complet dont il n'avait pas besoin.
+if defined BUILD goto build_ready
+set "HAVE_IMAGE="
+for /f "delims=" %%I in ('!COMPOSE! images -q spectra-api 2^>nul') do set "HAVE_IMAGE=1"
+if not defined HAVE_IMAGE (
+    set BUILD=--build
     echo.
-    echo ^> Image spectra-api non trouvee, build en cours...
-    !COMPOSE! build
+    echo ^> Image spectra-api non trouvee, elle sera construite au demarrage.
 )
+:build_ready
 
 REM  En mode premier plan, docker compose bloque le terminal : afficher les
 REM  URLs d'acces AVANT le demarrage, sinon l'utilisateur ne les voit jamais.
@@ -126,102 +141,48 @@ if "%DETACH%"=="" (
 )
 
 REM  4. Demarrage des services
+REM
+REM  « --wait » remplace les cinq boucles PowerShell qui vivaient ici. Elles interrogeaient
+REM  des URLs codees en dur alors que CHAQUE service declare deja son healthcheck dans le
+REM  fichier Compose : deux definitions du « pret » pour un meme service, dont une seule
+REM  fait autorite. Elles ne couvraient d'ailleurs que quatre services sur neuf — un
+REM  reranker ou un docparser en echec passait inapercu jusqu'a la premiere requete — et un
+REM  depassement de delai n'affichait qu'un « [TIMEOUT] » cosmetique : le recapitulatif
+REM  « Spectra est pret ! » s'affichait quand meme, sur une stack en panne.
 echo.
 echo ^> Demarrage des services Docker...
-%COMPOSE% up %DETACH%
 
-REM  Si mode detache, on continue avec le post-setup
-if "%DETACH%"=="" goto eof
-
-echo   [OK] Services demarres en arriere-plan
-
-REM  5. Attente que les services soient prets
-echo.
-echo ^> Attente des services...
-
-REM  Serveur LLM
-set /a "READY=0"
-for /l %%i in (1,1,30) do (
-    if !READY!==0 (
-        powershell -Command "try { Invoke-WebRequest -Uri http://localhost:8081/health -UseBasicParsing -TimeoutSec 2 | Out-Null; exit 0 } catch { exit 1 }" >nul 2>&1
-        if !errorlevel!==0 (
-            echo   LLM server:   [OK] pret
-            set /a "READY=1"
-        ) else (
-            timeout /t 2 /nobreak >nul
-        )
-    )
+if "%DETACH%"=="" (
+    %COMPOSE% up %BUILD%
+    goto eof
 )
-if !READY!==0 echo   LLM server:   [TIMEOUT]
 
-REM  ChromaDB
-set /a "READY=0"
-for /l %%i in (1,1,30) do (
-    if !READY!==0 (
-        powershell -Command "try { Invoke-WebRequest -Uri http://localhost:8000/api/v1/heartbeat -UseBasicParsing -TimeoutSec 2 | Out-Null; exit 0 } catch { exit 1 }" >nul 2>&1
-        if !errorlevel!==0 (
-            echo   ChromaDB:     [OK] pret
-            set /a "READY=1"
-        ) else (
-            timeout /t 2 /nobreak >nul
-        )
-    )
-)
-if !READY!==0 echo   ChromaDB:     [TIMEOUT]
+set STARTED=1
+REM  Le delai couvre le start_period le plus long de la stack (llm-chat, 120 s) augmente du
+REM  chargement effectif d'un modele 7B.
+%COMPOSE% up -d --wait --wait-timeout 300 %BUILD%
+if !errorlevel! neq 0 set STARTED=0
 
-REM  Spectra API
-set /a "READY=0"
-for /l %%i in (1,1,30) do (
-    if !READY!==0 (
-        powershell -Command "try { Invoke-WebRequest -Uri http://localhost:8080/actuator/health -UseBasicParsing -TimeoutSec 2 | Out-Null; exit 0 } catch { exit 1 }" >nul 2>&1
-        if !errorlevel!==0 (
-            echo   Spectra API:  [OK] pret
-            set /a "READY=1"
-        ) else (
-            timeout /t 2 /nobreak >nul
-        )
-    )
+if "!STARTED!"=="1" (
+    echo   [OK] Tous les services sont sains
+) else (
+    echo.
+    echo   [ATTENTION] Un ou plusieurs services ne sont pas devenus sains dans le delai imparti.
+    %COMPOSE% ps
+    echo.
+    echo   Diagnostic : %COMPOSE% logs --tail=50
+    echo   Un modele GGUF absent de data\models\ est la cause la plus frequente :
+    echo   llm-chat et llm-embed attendent alors le fichier au lieu de servir.
 )
-if !READY!==0 echo   Spectra API:  [TIMEOUT]
-
-REM  Interface Web (nginx + React)
-set /a "READY=0"
-for /l %%i in (1,1,30) do (
-    if !READY!==0 (
-        powershell -Command "try { Invoke-WebRequest -Uri http://localhost/ -UseBasicParsing -TimeoutSec 2 | Out-Null; exit 0 } catch { exit 1 }" >nul 2>&1
-        if !errorlevel!==0 (
-            echo   Interface Web: [OK] prete
-            set /a "READY=1"
-        ) else (
-            timeout /t 2 /nobreak >nul
-        )
-    )
-)
-if !READY!==0 echo   Interface Web: [TIMEOUT]
-
-REM  Service d'entrainement (seulement s'il a ete demande). Un trainer qui n'a pas demarre
-REM  rend le fine-tuning indisponible : cette information a sa place dans le recapitulatif
-REM  de demarrage, pas dans un refus a la premiere soumission.
-if not "!SPECTRA_FINE_TUNING_RUNNER!"=="http" goto skip_trainer_wait
-set /a "READY=0"
-for /l %%i in (1,1,30) do (
-    if !READY!==0 (
-        powershell -Command "try { Invoke-WebRequest -Uri http://localhost:8004/health -UseBasicParsing -TimeoutSec 2 | Out-Null; exit 0 } catch { exit 1 }" >nul 2>&1
-        if !errorlevel!==0 (
-            echo   Trainer:      [OK] pret
-            set /a "READY=1"
-        ) else (
-            timeout /t 2 /nobreak >nul
-        )
-    )
-)
-if !READY!==0 echo   Trainer:      [TIMEOUT]
-:skip_trainer_wait
 
 REM  6. Resume
 echo.
 echo ======================================
-echo  Spectra est pret !
+if "!STARTED!"=="1" (
+    echo  Spectra est pret !
+) else (
+    echo  Spectra a demarre partiellement.
+)
 echo.
 echo  Interface Web :  http://localhost
 echo.
@@ -241,7 +202,12 @@ echo  Logs        :  %COMPOSE% logs -f
 echo ======================================
 
 REM  7. Premier lancement : ouvrir le navigateur sur l'UI
-if defined FIRST_RUN start "" http://localhost
+if defined FIRST_RUN if "!STARTED!"=="1" start "" http://localhost
+
+if not "!STARTED!"=="1" (
+    endlocal
+    exit /b 1
+)
 
 :eof
 endlocal
