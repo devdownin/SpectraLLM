@@ -25,7 +25,10 @@ bash scripts/setup-java.sh
 ### Prerequisites
 
 - **JDK 25 (LTS)** — for local compilation
-- **Docker Desktop** (or Docker Engine + Compose v2)
+- **Docker Desktop** (or Docker Engine **25+** + Compose v2) — 25 is the floor because the
+  stack's healthchecks use `start_interval`, which probes every 3 s during startup instead
+  of every 20–30 s. Older engines reject the field at container creation, so `up` fails
+  outright rather than degrading quietly.
 - **16 GB RAM** minimum (32 GB recommended for 7B models)
 - A `.gguf` model file placed in `data/models/`
 
