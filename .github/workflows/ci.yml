@@ -137,18 +137,19 @@ jobs:
       run: |
         mkdir -p data/documents data/dataset data/fine-tuning/merged data/source data/logs data/chroma
         chmod -R a+rwX data
+    # `--wait` s'appuie sur les healthchecks declares dans le fichier Compose — ceux-la
+    # memes que scripts/start.sh utilise. L'etape suivante installait `wait-on` pour
+    # interroger deux URLs codees en dur : une definition concurrente du « pret », qui
+    # ignorait sept des neuf services et laissait donc passer un demarrage partiel
+    # jusqu'a ce qu'un test E2E echoue sur une cause sans rapport apparent.
     - name: Set up Docker Compose
       run: |
         docker compose --project-directory . -f deploy/docker/docker-compose.yml build
-        docker compose --project-directory . -f deploy/docker/docker-compose.yml up -d
+        docker compose --project-directory . -f deploy/docker/docker-compose.yml up -d --wait --wait-timeout 300
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '22'
-    - name: Wait for services to be ready
-      run: |
-        npm install -g wait-on
-        wait-on http://localhost:80 http://localhost:8080/actuator/health --timeout 120000
     - name: Run E2E tests
       run: |
         npm install playwright core-js

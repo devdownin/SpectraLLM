@@ -148,11 +148,18 @@ if wanted frontend && need npm "frontend (lint + tests + build)"; then
   fi
 fi
 
-# ── compose : le fichier se résout-il ? ───────────────────────────────────────
+# ── compose : les fichiers se résolvent-ils ? ─────────────────────────────────
+# L'overlay GPU est vérifié LUI AUSSI. Il ne l'était pas, et c'est le fichier le moins
+# exercé de la pile : personne ne le charge sans carte graphique, donc une erreur de syntaxe
+# y aurait dormi jusqu'au premier démarrage GPU d'un utilisateur.
+# shellcheck source=lib/compose.sh
+source scripts/lib/compose.sh
 if wanted compose; then
   if docker compose version >/dev/null 2>&1; then
     run "docker compose config" \
-      docker compose --project-directory . -f deploy/docker/docker-compose.yml config -q
+      docker compose --project-directory . -f "$SPECTRA_COMPOSE_FILE" config -q
+    run "docker compose config (overlay GPU)" \
+      docker compose --project-directory . -f "$SPECTRA_COMPOSE_FILE" -f "$SPECTRA_COMPOSE_GPU_FILE" config -q
   else
     skip "docker compose config" "docker compose indisponible"
   fi

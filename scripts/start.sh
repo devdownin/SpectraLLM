@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ────────────────────────────────────────────────────────
 # Spectra — Script de lancement
-# Usage: ./start.sh [--first-run] [--gpu] [--detach] [--trainer]
+# Usage: ./start.sh [--first-run] [--gpu] [--detach] [--trainer] [--build]
 #
 #   --first-run    Premier lancement tout-en-un : configuration initiale,
 #                  téléchargement des modèles (embedding + chat), démarrage
@@ -15,6 +15,9 @@
 #                  sans Python, elle ne peut pas lancer scripts/train.sh.
 #                  L'image du trainer pèse plusieurs Go (torch) : le premier
 #                  lancement est long.
+#   --build        Reconstruit les images avant de démarrer. Sans cette option,
+#                  une image déjà construite est réutilisée telle quelle : après
+#                  une modification du code, c'est l'ANCIENNE qui redémarre.
 # ────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -23,8 +26,9 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # --project-directory ., data/, .env) est ancrée à la racine du dépôt.
 cd "$SCRIPT_DIR/.."
 
-# Invocation Compose : fichier sous deploy/docker/, contexte projet = racine.
-COMPOSE=(docker compose --project-directory . -f deploy/docker/docker-compose.yml)
+# Invocation Compose : une seule définition pour start/stop/build/verify.
+# shellcheck source=lib/compose.sh
+source "$SCRIPT_DIR/lib/compose.sh"
 
 bold()  { echo -e "\033[1m$*\033[0m"; }
 green() { echo -e "\033[1;32m$*\033[0m"; }
@@ -33,6 +37,7 @@ DETACH=""
 GPU_FLAG=""
 FIRST_RUN=""
 TRAINER=""
+BUILD=""
 
 # Parse des arguments
 for arg in "$@"; do
@@ -41,15 +46,9 @@ for arg in "$@"; do
         --gpu)         GPU_FLAG="--gpu" ;;
         --first-run)   FIRST_RUN=1; DETACH="-d" ;;
         --trainer)     TRAINER=1 ;;
+        --build)       BUILD="--build" ;;
     esac
 done
-
-# Lit la dernière affectation d'une clé dans .env. Compose fait de même pour interpoler
-# ses variables ; le script doit lire le même fichier pour décider des mêmes choses.
-env_value() {
-    [[ -f .env ]] || return 0
-    sed -n "s/^[[:space:]]*$1=[[:space:]]*//p" .env | tail -1 | tr -d '\r'
-}
 
 echo "╔══════════════════════════════════════╗"
 echo "║        Spectra — Démarrage           ║"
@@ -73,16 +72,18 @@ echo "► Création des répertoires de données..."
 mkdir -p data/documents data/dataset data/fine-tuning data/models
 echo "  ✓ data/documents, data/dataset, data/fine-tuning, data/models"
 
-# 2. Détection automatique de la configuration serveur
+# 2. Détection automatique de la configuration serveur.
+# Rejoue la détection à CHAQUE démarrage : le matériel change (GPU branché, RAM libérée,
+# machine différente pour un même dépôt) et le bloc auto de .env doit le suivre. Les
+# réglages personnels, écrits sous ce bloc, sont préservés — cf. detect-env.sh.
 echo ""
 echo "► Détection de la configuration serveur..."
 bash "$SCRIPT_DIR/detect-env.sh" $GPU_FLAG
 
-# Lire le .env (racine du dépôt) pour déterminer si le GPU est activé
-if grep -q 'SPECTRA_GPU_ENABLED=true' .env 2>/dev/null; then
-    COMPOSE+=(-f deploy/docker/docker-compose.gpu.yml)
-    echo "  ✓ GPU activé → docker-compose.gpu.yml inclus"
-fi
+# Construit le tableau COMPOSE, overlay GPU compris s'il y a lieu, à partir du .env
+# que detect-env.sh vient d'écrire.
+spectra_compose_init
+[[ "$SPECTRA_GPU_OVERLAY" -eq 1 ]] && echo "  ✓ GPU activé → docker-compose.gpu.yml inclus"
 
 # 2 bis. Fine-tuning en conteneur.
 #
@@ -97,18 +98,10 @@ fi
 #
 # Le shell l'emporte sur .env pour l'interpolation Compose : c'est la même règle de priorité
 # qui est appliquée ici, sinon le script déciderait sur une valeur que Compose n'utilisera pas.
-ENV_RUNNER="$(env_value SPECTRA_FINE_TUNING_RUNNER)"
+ENV_RUNNER="$(spectra_env_value SPECTRA_FINE_TUNING_RUNNER)"
 if [[ -n "$TRAINER" || "${SPECTRA_FINE_TUNING_RUNNER:-$ENV_RUNNER}" == "http" ]]; then
     export SPECTRA_FINE_TUNING_RUNNER=http
-
-    # Fusion plutôt qu'affectation : un COMPOSE_PROFILES déjà renseigné (reranker, kafka…)
-    # serait sinon écrasé, et demander le trainer désactiverait silencieusement le reste.
-    PROFILES="${COMPOSE_PROFILES:-$(env_value COMPOSE_PROFILES)}"
-    case ",$PROFILES," in
-        *,trainer,*) ;;
-        *) PROFILES="${PROFILES:+$PROFILES,}trainer" ;;
-    esac
-    export COMPOSE_PROFILES="$PROFILES"
+    spectra_add_profile trainer
 
     echo ""
     echo "► Fine-tuning en conteneur activé"
@@ -116,13 +109,13 @@ if [[ -n "$TRAINER" || "${SPECTRA_FINE_TUNING_RUNNER:-$ENV_RUNNER}" == "http" ]]
     echo "    Première fois : l'image embarque torch, comptez plusieurs Go et un long build."
 fi
 
-# 3. Build si l'image n'existe pas
+# 3. Build si l'image n'existe pas, ou sur demande explicite.
 # On interroge Compose lui-même plutôt qu'un nom d'image codé en dur (qui dépend du nom
 # de projet dérivé du répertoire, p. ex. « spectrallm-spectra-api »).
-if ! "${COMPOSE[@]}" images -q spectra-api 2>/dev/null | grep -q .; then
+if [[ -z "$BUILD" ]] && ! "${COMPOSE[@]}" images -q spectra-api 2>/dev/null | grep -q .; then
+    BUILD="--build"
     echo ""
-    echo "► Image spectra-api non trouvée, build en cours..."
-    "${COMPOSE[@]}" build
+    echo "► Image spectra-api non trouvée, elle sera construite au démarrage."
 fi
 
 # En mode premier plan, docker compose bloque le terminal : afficher les URLs
@@ -136,102 +129,64 @@ if [[ -z "$DETACH" ]]; then
 fi
 
 # 4. Démarrage des services
+#
+# `--wait` remplace les cinq boucles curl qui vivaient ici. Elles interrogeaient des URLs
+# codées en dur alors que CHAQUE service déclare déjà son healthcheck dans le fichier
+# Compose : deux définitions du « prêt » pour un même service, dont une seule faisait
+# autorité. Elles ne couvraient d'ailleurs que quatre services sur neuf — un reranker ou
+# un docparser en échec passait inaperçu jusqu'à la première requête — et un dépassement
+# de délai n'affichait qu'un « ✗ timeout » cosmétique : le récapitulatif « Spectra est
+# prêt ! » s'affichait quand même, en vert, sur une stack en panne.
 echo ""
 echo "► Démarrage des services Docker..."
-"${COMPOSE[@]}" up $DETACH
-
-# Si mode détaché, on continue avec le post-setup
+STARTED=1
 if [[ -n "$DETACH" ]]; then
-    echo "  ✓ Services démarrés en arrière-plan"
-
-    # 5. Attente que les services soient prêts
-    echo ""
-    echo "► Attente des services..."
-
-    # Serveur LLM
-    echo -n "  LLM server:   "
-    for i in $(seq 1 30); do
-        if curl -sf http://localhost:8081/health &>/dev/null; then
-            echo "✓ prêt"
-            break
-        fi
-        if [[ $i -eq 30 ]]; then echo "✗ timeout"; fi
-        sleep 2
-    done
-
-    # ChromaDB
-    echo -n "  ChromaDB:     "
-    for i in $(seq 1 30); do
-        if curl -sf http://localhost:8000/api/v1/heartbeat &>/dev/null; then
-            echo "✓ prêt"
-            break
-        fi
-        if [[ $i -eq 30 ]]; then echo "✗ timeout"; fi
-        sleep 2
-    done
-
-    # Spectra API
-    echo -n "  Spectra API:  "
-    for i in $(seq 1 30); do
-        if curl -sf http://localhost:8080/actuator/health &>/dev/null; then
-            echo "✓ prêt"
-            break
-        fi
-        if [[ $i -eq 30 ]]; then echo "✗ timeout"; fi
-        sleep 2
-    done
-
-    # Interface Web (nginx + React)
-    echo -n "  Interface Web:"
-    for i in $(seq 1 30); do
-        if curl -sf http://localhost/ &>/dev/null; then
-            echo " ✓ prêt"
-            break
-        fi
-        if [[ $i -eq 30 ]]; then echo " ✗ timeout"; fi
-        sleep 2
-    done
-
-    # Service d'entraînement (seulement s'il a été demandé). Le vérifier ici plutôt que de
-    # laisser l'utilisateur le découvrir en soumettant un job : un trainer qui n'a pas
-    # démarré rend le fine-tuning indisponible, et c'est une information qui a sa place
-    # dans le récapitulatif de démarrage, pas dans un refus une heure plus tard.
-    if [[ "${SPECTRA_FINE_TUNING_RUNNER:-}" == "http" ]]; then
-        echo -n "  Trainer:      "
-        for i in $(seq 1 30); do
-            if curl -sf http://localhost:8004/health &>/dev/null; then
-                echo "✓ prêt"
-                break
-            fi
-            if [[ $i -eq 30 ]]; then echo "✗ timeout"; fi
-            sleep 2
-        done
-    fi
-
-    # 6. Résumé
-    echo ""
-    echo "══════════════════════════════════════"
-    green " Spectra est prêt !"
-    echo ""
-    green " Interface Web :  http://localhost"
-    echo ""
-    echo " API REST    :  http://localhost:8080/api/status"
-    echo " Swagger     :  http://localhost:8080/swagger-ui.html"
-    echo " LLM server  :  http://localhost:8081"
-    echo " ChromaDB    :  http://localhost:8000"
-    if [[ "${SPECTRA_FINE_TUNING_RUNNER:-}" == "http" ]]; then
-        echo " Trainer     :  http://localhost:8004/health"
-    else
-        echo ""
-        echo " Fine-tuning :  indisponible — relancez avec ./scripts/start.sh --trainer"
-    fi
-    echo ""
-    echo " Arrêt       :  ./scripts/stop.sh"
-    echo " Logs        :  ${COMPOSE[*]} logs -f"
-    echo "══════════════════════════════════════"
-
-    # 7. Premier lancement : ouvrir le navigateur sur l'UI (best effort)
-    if [[ -n "$FIRST_RUN" ]]; then
-        (xdg-open "http://localhost" 2>/dev/null || open "http://localhost" 2>/dev/null || true) &
-    fi
+    # --wait sort en erreur si un service n'atteint jamais l'état sain ; on ne veut pas
+    # pour autant interrompre le script sous `set -e`, mais afficher l'état et la marche
+    # à suivre. Le délai couvre le start_period le plus long de la stack (llm-chat, 120 s)
+    # augmenté du chargement effectif d'un modèle 7B.
+    "${COMPOSE[@]}" up -d --wait --wait-timeout 300 $BUILD || STARTED=0
+else
+    exec "${COMPOSE[@]}" up $BUILD
 fi
+
+if [[ "$STARTED" -eq 1 ]]; then
+    echo "  ✓ Tous les services sont sains"
+else
+    echo ""
+    bold "  ⚠ Un ou plusieurs services ne sont pas devenus sains dans le délai imparti."
+    "${COMPOSE[@]}" ps
+    echo ""
+    echo "  Diagnostic : ${COMPOSE[*]} logs --tail=50"
+    echo "  Un modèle GGUF absent de data/models/ est la cause la plus fréquente :"
+    echo "  llm-chat et llm-embed attendent alors le fichier au lieu de servir."
+fi
+
+# 5. Résumé
+echo ""
+echo "══════════════════════════════════════"
+[[ "$STARTED" -eq 1 ]] && green " Spectra est prêt !" || bold " Spectra a démarré partiellement."
+echo ""
+green " Interface Web :  http://localhost"
+echo ""
+echo " API REST    :  http://localhost:8080/api/status"
+echo " Swagger     :  http://localhost:8080/swagger-ui.html"
+echo " LLM server  :  http://localhost:8081"
+echo " ChromaDB    :  http://localhost:8000"
+if [[ "${SPECTRA_FINE_TUNING_RUNNER:-}" == "http" ]]; then
+    echo " Trainer     :  http://localhost:8004/health"
+else
+    echo ""
+    echo " Fine-tuning :  indisponible — relancez avec ./scripts/start.sh --trainer"
+fi
+echo ""
+echo " Arrêt       :  ./scripts/stop.sh"
+echo " Logs        :  ${COMPOSE[*]} logs -f"
+echo "══════════════════════════════════════"
+
+# 6. Premier lancement : ouvrir le navigateur sur l'UI (best effort)
+if [[ -n "$FIRST_RUN" && "$STARTED" -eq 1 ]]; then
+    (xdg-open "http://localhost" 2>/dev/null || open "http://localhost" 2>/dev/null || true) &
+fi
+
+[[ "$STARTED" -eq 1 ]] || exit 1
