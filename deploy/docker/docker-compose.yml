@@ -63,12 +63,30 @@ services:
       # que la documentation les présentait comme le moyen de surcharger l'offload GPU.
       - LLM_CHAT_EXTRA_ARGS=${LLM_CHAT_EXTRA_ARGS:-}
       - LLM_CHAT_WATCH_INTERVAL=${LLM_CHAT_WATCH_INTERVAL:-10}
+    # `start_interval` (présent sur presque tous les services de ce fichier) est ce qui
+    # sépare « le service répond » de « Compose le sait ». Sans lui, Docker sonde toutes
+    # les `interval` secondes, y compris pendant le `start_period` : un service prêt à
+    # t=8 s n'était déclaré sain qu'à t=30 s ici, et l'attente est PURE — rien ne se passe
+    # pendant ce temps.
+    #
+    # Le coût ne s'arrête pas à un service. `depends_on: condition: service_healthy`
+    # sérialise chromadb (interval 20 s) → spectra-api (20 s) → frontend (30 s) : les
+    # granularités s'additionnent, jusqu'à 70 s de sondage empilés par-dessus la
+    # disponibilité réelle. C'est autant sur chaque `docker compose up --wait`, donc sur
+    # chaque ./scripts/start.sh et sur chaque exécution du job E2E.
+    #
+    # Sondage à 3 s pendant la phase de démarrage, `interval` inchangé en régime établi :
+    # la fréquence n'est utile que tant qu'on attend quelque chose.
+    #
+    # PRÉREQUIS : Docker Engine ≥ 25 (janvier 2024). Un moteur antérieur rejette le champ.
+    # kafka en est dépourvu à dessein — son `interval` vaut déjà 5 s.
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8081/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 120s
+      start_interval: 3s
     restart: unless-stopped
 
   # ── Serveur LLM — Embedding ───────────────────────────────────────────────
@@ -98,6 +116,7 @@ services:
       timeout: 10s
       retries: 5
       start_period: 90s
+      start_interval: 3s
     restart: unless-stopped
 
   # ── ChromaDB ──────────────────────────────────────────────────────────────
@@ -139,6 +158,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+      start_interval: 3s
     restart: unless-stopped
 
   # ── Parser de documents (optionnel, profil layout-parser) ─────────────────
@@ -164,6 +184,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+      start_interval: 3s
     # Même politique que le reste de la pile. Son absence ici était un oubli, pas un choix :
     # un service derrière un profil n'en redémarre pas moins après un plantage ou un reboot de
     # l'hôte — et son indisponibilité silencieuse dégrade l'ingestion (docparser) ou la
@@ -207,6 +228,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
+      start_interval: 3s
     # Même politique que le reste de la pile. Son absence ici était un oubli, pas un choix :
     # un service derrière un profil n'en redémarre pas moins après un plantage ou un reboot de
     # l'hôte — et son indisponibilité silencieuse dégrade l'ingestion (docparser) ou la
@@ -401,6 +423,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 60s
+      start_interval: 3s
     depends_on:
       chromadb:
         condition: service_healthy
@@ -428,6 +451,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+      start_interval: 3s
     restart: unless-stopped
 
   # ── Entraînement (optionnel, profil trainer) ──────────────────────────────
@@ -479,6 +503,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+      start_interval: 3s
     restart: unless-stopped
 
 volumes:
