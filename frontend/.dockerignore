@@ -1,0 +1,28 @@
+# Contexte de build du service `frontend` (docker-compose.yml : `context: ./frontend`).
+#
+# POURQUOI CE FICHIER EXISTE
+# Docker cherche le .dockerignore À LA RACINE DU CONTEXTE. Le .dockerignore du dépôt ne
+# s'applique donc PAS ici : il ne couvre que le contexte de `spectra-api` (`context: .`).
+# Les lignes `frontend/node_modules` et `frontend/dist` qu'il contient n'ont jamais eu
+# d'effet sur cette image — elles décrivent un contexte dans lequel `frontend/` est de
+# toute façon exclu en entier.
+#
+# Sans exclusion, le `COPY . .` du Dockerfile recopiait le node_modules de la MACHINE HÔTE
+# par-dessus celui que `npm ci` venait de produire dans l'image, deux instructions plus
+# haut. Les binaires natifs (esbuild, rollup) sont liés à la plateforme et à la libc : un
+# node_modules glibc ou macOS atterrissait ainsi dans une image alpine (musl).
+#
+# Le défaut ne pouvait pas se voir en CI : le job `e2e`, qui construit l'image, tourne sur
+# un runner distinct du job `frontend`, et son checkout n'a donc jamais de node_modules.
+# En local, il est au contraire facile à déclencher — scripts/verify.sh installe les
+# dépendances dans frontend/, et un ./scripts/build.sh derrière tombait dessus.
+#
+# Accessoirement : 325 Mo de contexte cessent d'être expédiés au démon à chaque build.
+node_modules
+dist
+coverage
+
+# Sorties de test et métadonnées : inutiles à la construction de l'image.
+.git
+.gitignore
+*.log

@@ -38,7 +38,7 @@ git clone https://github.com/devdownin/SpectraLLM.git && cd SpectraLLM
 
 Spectra télécharge les modèles par défaut (~1,2 Go), démarre la stack et ouvre l'interface sur **http://localhost**. Déposez un PDF sur la page Ingestion et posez vos questions.
 
-> **Prérequis :** Docker (Compose v2) et 16 Go de RAM. GPU optionnel — NVIDIA, AMD/ROCm et Vulkan supportés, détection automatique. Vous préférez le pas-à-pas ? → **[Getting Started](docs/getting-started.en.md)**
+> **Prérequis :** Docker Engine 25+ (Compose v2) et 16 Go de RAM. GPU optionnel — NVIDIA, AMD/ROCm et Vulkan supportés, détection automatique. Vous préférez le pas-à-pas ? → **[Getting Started](docs/getting-started.en.md)**
 
 > **Fine-tuning :** ajoutez `--trainer` pour qu'il soit disponible (`./scripts/start.sh --trainer`). Le moteur d'entraînement vit dans une image dédiée — plusieurs Go, torch compris — que la stack par défaut ne démarre pas. Sans ce drapeau, une soumission est refusée avec la marche à suivre.
 
