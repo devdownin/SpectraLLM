@@ -56,6 +56,14 @@ côté sécurité (l'application fonctionne parfaitement).
 > `scripts/pipeline.sh` envoyait un en-tête `X-API-Key` que personne ne vérifiait. Le
 > passe-plat a été ajouté ; S2 redevient ce que ce paragraphe décrit — un défaut ouvert,
 > mais refermable.
+>
+> Le correctif tenait à une ligne, et rien n'empêchait qu'elle disparaisse de nouveau — sans
+> aucun signal, puisque `@Value("${SPECTRA_API_KEY:}")` a une valeur par défaut : le filtre
+> reprendrait sa chaîne vide et continuerait. `scripts/tests/test_compose_env_passthrough.py`
+> verrouille désormais la classe entière : toute variable lue par le backend via un
+> placeholder de style variable d'environnement doit figurer dans l'environnement **rendu**
+> par `docker compose config` pour `spectra-api`. La régression a été rejouée pour vérifier
+> que le test la détecte.
 
 Recommandation : au minimum, logger un avertissement **au niveau WARN à chaque démarrage** de
 façon très visible (déjà partiellement le cas) et le documenter en tête de `getting-started`.
@@ -181,6 +189,7 @@ Ces surfaces ont déjà été traitées et constituent la vraie force sécurité
 | S1 | Identité par utilisateur + acteur dérivé du principal (audit trail probant, RBAC) | Élevé | Architectural (auth) — décision produit |
 | S3 | Auth compatible SSE (le SSO réglerait S1 **et** S3) | Élevé | Architectural |
 | S2 | Fail-closed en prod sans clé (ou avertissement très visible) | Élevé | Faible |
+| S2b | Ports sur la boucle locale par défaut (`SPECTRA_BIND_ADDR`) — **fait**, cf. audit déploiement D13 | Élevé | Faible |
 | S5 | Actuator : `when-authorized` / restreindre `prometheus` au réseau de scrape | Moyen | Faible |
 | S7 | Rate limiting sur les endpoints LLM | Moyen | Moyen |
 | S4 | Exempter `OPTIONS` du filtre clé API | Faible | Trivial |

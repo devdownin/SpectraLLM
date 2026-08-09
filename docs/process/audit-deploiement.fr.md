@@ -14,14 +14,15 @@ taille du correctif.
 
 Une seconde passe, menée après coup sur le coût réel du build et du démarrage, a ouvert deux
 zones que la première n'avait pas regardées : les **contextes de construction Docker** et
-l'**exposition réseau**. Elle a produit les constats D10 à D13, dont deux défauts de sécurité
-— voir « Suite de l'audit » en fin de document pour le découpage en trois PR.
+l'**exposition réseau**. Elle a produit les constats D10 à D13, dont deux défauts de sécurité.
+D14 est venu ensuite, du constat que le job de CI le plus long était le seul à construire sans
+cache — voir « Suite de l'audit » en fin de document pour le découpage en cinq PR.
 
 ---
 
 ## Résumé
 
-Treize constats, dont cinq pannes silencieuses et deux défauts de sécurité.
+Quatorze constats, dont cinq pannes silencieuses et deux défauts de sécurité.
 
 Le fil commun des neuf premiers n'est pas la complexité des scripts : c'est la **duplication
 d'une définition** — du fichier `.env`, de l'invocation Compose, de la notion de « service
@@ -47,6 +48,7 @@ les deux cas la configuration est juste, lisible, et sans effet.
 | D11 | Aucun `start_interval` : jusqu'à 70 s d'attente pure à chaque démarrage | Simplification | Corrigé (#316) |
 | D12 | `SPECTRA_API_KEY` n'atteignait jamais le conteneur — authentification inactivable | Sécurité | Corrigé (#317) |
 | D13 | Les neuf ports publiés sur `0.0.0.0`, sans authentification | Sécurité | Corrigé (#317) |
+| D14 | Le job CI le plus long était le seul à construire sans cache de couches | Simplification | Corrigé (#325) |
 
 ---
 
@@ -273,11 +275,20 @@ et sur chaque exécution du job E2E.
 `kafka` en est dépourvu à dessein, son `interval` valant déjà 5 s. Contrepartie assumée : le
 champ demande Docker Engine ≥ 25 (janvier 2024), désormais explicite dans les deux README.
 
-**Ce que la mesure a montré, et pas montré.** Le job E2E n'a pas raccourci (3 min 40 contre
-3 min 34) : sa durée est dominée par la construction des images et le chargement du modèle,
-où quelques dizaines de secondes se noient. Le gain se concentre sur `up --wait`, introduit
-par la PR précédente — les deux changements ne se rejoindront qu'une fois fusionnés. Les 70 s
-restent donc un calcul à partir des `interval` déclarés, pas une mesure.
+**Ce que la mesure a montré, et pas montré.** Rien de mesurable, et c'est une conclusion en
+soi. Le job E2E n'a pas raccourci — 3 min 40 contre 3 min 34 avant, puis 4 min 12 une fois
+`start_interval` et `up --wait` réunis. L'écart est du bruit, dans les deux sens.
+
+La raison est structurelle : **la CI ne peut pas isoler ce gain**. La durée du job est
+dominée par la construction des images, qui variait alors de plusieurs minutes d'un run à
+l'autre faute de cache de couches (voir D14) ; quelques dizaines de secondes de sondage s'y
+noient. Les runners ne sont pas non plus identiques d'une exécution à l'autre.
+
+**Les 70 s restent donc un calcul** à partir des `interval` déclarés et de la chaîne
+`depends_on`, pas une mesure — et il ne faut pas les présenter autrement. La seule façon
+honnête de les observer serait de chronométrer `up -d --wait` seul, images déjà construites,
+avant/après. Le cache de couches de D14 rend cette mesure possible en stabilisant le temps de
+build ; elle n'a pas encore été faite.
 
 ## D12 — `SPECTRA_API_KEY` n'atteignait jamais le conteneur
 
@@ -328,21 +339,67 @@ multi-hôte volontaire. C'est un changement de comportement pour qui consulte Sp
 un autre poste — assumé : l'échec est immédiat et lisible (connexion refusée), pas une
 dégradation silencieuse, et la remise en route tient en une variable documentée.
 
+## D14 — Le job le plus long de la CI était le seul à construire sans cache
+
+E2E dure ~4 min et reconstruisait intégralement `spectra-api` (`mvn package`) et le frontend
+(`npm ci` + build Vite) à chaque exécution. `profiled-images.yml` alimente pourtant déjà un
+cache GitHub Actions pour les images qu'il construit : la stratégie existait dans le dépôt,
+elle n'était simplement pas appliquée là où elle coûtait le plus cher.
+
+`type=gha` exige le pilote **docker-container** de buildx, donc une construction hors de
+`docker compose build`. Les deux images sont bâties par `docker/build-push-action` avec
+`load: true` — contrairement à `profiled-images.yml`, qui passe `load: false` parce qu'il ne
+fait que chauffer le cache ; ici l'image doit atterrir dans le magasin local, puisque c'est
+Compose qui la démarre.
+
+**Le piège, et pourquoi il existe un fichier de plus.** Compose doit ensuite *retrouver* ces
+images. Sans `image:`, il dérive le nom du répertoire du projet (`spectrallm-spectra-api`) —
+une convention qu'aucun fichier du dépôt ne déclare, et que `docker compose config` ne rend
+même pas pour un service qui n'a qu'un `build:`. Bâtir dessus, c'était accepter que le jour
+où elle change, Compose ne trouve rien, **reconstruise sans un mot**, et que le cache devienne
+un no-op invisible : CI verte, job aussi lent qu'avant, personne ne le voit. Soit exactement
+la famille de défauts que D10 et D12 viennent de refermer.
+
+`deploy/docker/docker-compose.ci.yml` déclare donc les deux noms, une fois, et le workflow
+construit exactement ces tags. **`up --no-build` ferme la boucle** : si les noms divergeaient,
+Compose échoue franchement au lieu de reconstruire en douce. Ce n'est pas une optimisation,
+c'est le garde-fou du cache.
+
+Au passage, `COMPOSE_FILE` et `COMPOSE_PROJECT_NAME` au niveau du job remplacent les `-f`
+répétés sur cinq commandes — l'overlay ne peut plus être oublié sur l'une d'elles, où `logs`
+et `down` viseraient alors un autre projet que `up`. Et `verify.sh` valide ce nouvel overlay
+comme il valide déjà celui du GPU : un fichier que personne ne charge localement verrait son
+erreur de syntaxe n'apparaître qu'en CI, sur le job le plus lent à diagnostiquer.
+
 ---
 
-## Suite de l'audit — découpage en trois PR
+## Suite de l'audit — cinq PR
 
 Les correctifs ont été livrés séparément, chacun partant de `main`, pour que la revue puisse
-accepter ou écarter un axe sans bloquer les autres :
+accepter ou écarter un axe sans bloquer les autres. Les cinq sont fusionnées.
 
 | PR | Contenu | Constats |
 |---|---|---|
 | #315 | Scripts d'installation, de démarrage et d'arrêt | D1 → D9 |
 | #316 | Contexte de build frontend, granularité des healthchecks | D10, D11 |
 | #317 | Exposition réseau et authentification | D12, D13 |
+| #325 | Cache de couches GHA sur le job E2E | D14 |
+| #326 | Test de garde sur le passe-plat des variables et la liaison des ports | verrouille D12, D13 |
 
-#316 et #317 modifient toutes deux `docker-compose.yml` : la première fusionnée mettra
-l'autre en conflit, à résoudre en fusionnant `main` dans la branche restante.
+Le conflit annoncé entre #316 et #317, qui modifient toutes deux `docker-compose.yml`, ne
+s'est pas matérialisé : `start_interval` vit dans les blocs `healthcheck:`, le durcissement
+dans `ports:` et `environment:`. Git a fusionné sans arbitrage — vérification faite ensuite
+sur la configuration *rendue*, et pas seulement sur l'absence de marqueur de conflit.
+
+**#326 est né d'une remarque de la revue de #317** : le correctif de `SPECTRA_API_KEY` tenait
+à une ligne, et rien n'empêchait qu'elle disparaisse à nouveau. `scripts/tests/test_compose_env_passthrough.py`
+interroge la configuration rendue par `docker compose config` — un `grep` sur le YAML verrait
+la ligne sans savoir dans quel service elle vit — et vérifie que toute variable lue par le
+backend via `@Value("${SCREAMING_SNAKE}")` figure bien dans l'environnement de `spectra-api`,
+et que tout port publié porte `host_ip: 127.0.0.1`. Une troisième assertion garde la garde :
+si la regex cesse de correspondre au code Java, le premier contrôle passerait à vide, et il
+échoue alors bruyamment plutôt que de rassurer à tort. Les deux régressions ont été rejouées
+pour confirmer que le test les attrape réellement.
 
 ---
 
@@ -357,26 +414,30 @@ l'autre en conflit, à résoudre en fusionnant `main` dans la branche restante.
 - **Les 39 clés actives de `.env.example`.** Les commenter serait cohérent avec son rôle de
   catalogue, mais `check-model-defaults.sh` en fait sa source de vérité pour les noms de
   GGUF : le changement demande d'y toucher aussi, et sort du périmètre du démarrage.
-- **Le cache de couches du job E2E.** `profiled-images.yml` utilise déjà
-  `cache-from/cache-to: type=gha` ; `ci.yml` construit à froid, et E2E est son job le plus
-  long (~3 min 40). Transposable, mais c'est du temps de CI, pas du temps d'utilisateur.
 - **Le cache npm du build frontend.** Maven et pip ont leur `--mount=type=cache`, npm non.
+  Le cache de couches de D14 le masque en partie — tant que `package-lock.json` ne bouge pas,
+  la couche `npm ci` est réutilisée telle quelle — mais pas quand une dépendance change.
 - **La taille du modèle en E2E.** 4,7 Go de Qwen 7B pour piloter Playwright. Un GGUF
   minuscule suffirait, mais cela touche à ce que le test prétend valider : c'est une décision
   de fond, pas une optimisation.
 - **Le reste de la surface de sécurité.** D12 et D13 refermaient deux trous béants du chemin
   de déploiement ; ils ne traitent ni S1 (aucune identité par utilisateur, `?actor=` purement
-  déclaratif) ni l'absence d'authentification propre à ChromaDB et à llama-server. Voir
+  déclaratif) ni l'absence d'authentification propre à ChromaDB et à llama-server — seul
+  `spectra-api` connaît `SPECTRA_API_KEY`. C'est pourquoi `SPECTRA_BIND_ADDR=0.0.0.0` reste
+  une décision à prendre en connaissance de cause, et non un simple interrupteur. Voir
   `docs/process/audit-securite.fr.md`.
+- **La mesure réelle du gain de D11.** Le cache de couches la rend possible en stabilisant le
+  temps de build, mais elle demande de chronométrer `up -d --wait` seul, images déjà
+  construites, avant/après. Tant qu'elle n'est pas faite, les 70 s restent un calcul.
 
 ## Vérification
 
 ```
-scripts/tests/          346 tests (345 sur #316 et #317)   OK
-shellcheck -S error     scripts/*.sh scripts/lib/*.sh      OK
-docker compose config   base + overlay GPU                 OK
-check-model-defaults.sh cohérence des GGUF par défaut      OK
-CI                      17/17 sur #315, 16/16 sur #316 et #317, E2E compris
+scripts/tests/          349 tests                              OK
+shellcheck -S error     scripts/*.sh scripts/lib/*.sh          OK
+docker compose config   base + overlay GPU + overlay CI        OK
+check-model-defaults.sh cohérence des GGUF par défaut          OK
+CI                      verte sur les cinq PR, E2E compris
 ```
 
 Les cinq états de `.env` (absent, avec bornes, legacy shell, legacy batch, copie de
@@ -386,11 +447,23 @@ consécutifs, réglages personnels conservés, `.env.bak` produit lors des deux 
 La configuration **rendue** par Compose a été vérifiée, et pas seulement sa syntaxe : les
 huit `start_interval` présents une fois tous les profils actifs (sans profils, Compose n'en
 rend que cinq — les services optionnels ne sont pas instanciés), `host_ip: 127.0.0.1` sur les
-neuf ports et `0.0.0.0` sous surcharge, `SPECTRA_API_KEY` transmis quand il est posé.
+neuf ports et `0.0.0.0` sous surcharge, `SPECTRA_API_KEY` transmis quand il est posé, et
+l'overlay CI rendant bien `spectra-e2e-api:ci` et `spectra-e2e-frontend:ci`. Ces trois
+derniers points ne relèvent plus de la vérification manuelle : `test_compose_env_passthrough.py`
+les rejoue à chaque exécution de la suite.
 
 **Ce qui n'a pas pu être vérifié ici**, faute de démon Docker dans l'environnement d'audit :
 l'exécution réelle de `up --wait` et `down`, le gain de temps effectif de D11, le 401 renvoyé
 par l'API quand la clé est active, le refus de connexion depuis une autre machine, et les
-scripts `.bat` (aucun hôte Windows). Le job E2E de la CI couvre le démarrage complet de la
-stack sur les trois PR — c'est lui qui a validé que le durcissement de D13 ne casse pas
-l'accès local, et que l'image frontend se construit bien avec le `.dockerignore` de D10.
+scripts `.bat` (aucun hôte Windows).
+
+Le job E2E de la CI comble une partie de cette liste, et c'est à lui qu'il faut se fier
+plutôt qu'aux vérifications locales : il a validé que le durcissement de D13 ne casse pas
+l'accès local (la CI interroge la stack depuis l'hôte et passe avec le binding sur la boucle
+locale), que l'image frontend se construit avec le `.dockerignore` de D10, que le runner
+tourne bien sur un Docker Engine ≥ 25 comme `start_interval` l'exige, et que le montage de
+D14 charge effectivement les images sous les tags attendus — `up --no-build` aurait échoué
+sinon.
+
+Restent hors de portée de tout ce qui a été fait ici : le 401, le refus de connexion
+distante, et les scripts Windows.
