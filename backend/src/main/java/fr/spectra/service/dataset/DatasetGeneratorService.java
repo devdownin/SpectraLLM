@@ -6,7 +6,10 @@ import fr.spectra.config.SpectraProperties;
 import fr.spectra.model.RagPromptFormat;
 import fr.spectra.model.TrainingPair;
 import fr.spectra.persistence.IngestedFileEntity;
+import fr.spectra.persistence.GenerationTaskEntity;
+import fr.spectra.persistence.GenerationTaskRepository;
 import fr.spectra.persistence.IngestedFileRepository;
+import fr.spectra.persistence.PersistentTaskMap;
 import fr.spectra.service.ChromaDbClient;
 import fr.spectra.service.LlmChatClient;
 import jakarta.annotation.PostConstruct;
@@ -124,13 +127,21 @@ public class DatasetGeneratorService {
     private DatasetGeneratorService self;
 
     private final List<TrainingPair> generatedPairs = new CopyOnWriteArrayList<>();
-    private final Map<String, GenerationTask> tasks = new ConcurrentHashMap<>();
+    /**
+     * Tâches de génération. Écriture-traversante : toute mutation est répercutée dans
+     * {@code generation_tasks} (cf. {@link fr.spectra.persistence.PersistentTaskMap}). La table
+     * et son entité existaient sans que rien ne les alimente — une génération interrompue par un
+     * redémarrage disparaissait de l'historique. Voir docs/process/audit-simplification.fr.md (S1).
+     */
+    private final PersistentTaskMap<GenerationTask> tasks;
+    private final GenerationTaskRepository taskRepository;
     private final AtomicBoolean generationRunning = new AtomicBoolean(false);
     private final Set<String> cancelledTasks = ConcurrentHashMap.newKeySet();
 
     public DatasetGeneratorService(LlmChatClient llmChatClient,
                                    ChromaDbClient chromaDbClient,
                                    IngestedFileRepository fileRepo,
+                                   GenerationTaskRepository taskRepository,
                                    SpectraProperties properties,
                                    @Value("${spectra.dataset.dir:./data/dataset}") String datasetDir,
                                    @Value("${spectra.dataset.refusal-every-n:3}") int refusalEveryN,
@@ -140,6 +151,12 @@ public class DatasetGeneratorService {
         this.llmChatClient = llmChatClient;
         this.chromaDbClient = chromaDbClient;
         this.fileRepo = fileRepo;
+        this.taskRepository = taskRepository;
+        this.tasks = new PersistentTaskMap<>(
+                t -> taskRepository.save(GenerationTaskEntity.fromDto(t)),
+                taskRepository::deleteById,
+                GenerationTask::taskId,
+                "génération");
         this.pairsFile = Path.of(datasetDir).resolve("sft_pairs.jsonl");
         this.refusalEveryN = refusalEveryN;
         this.groundedEveryN = groundedEveryN;
@@ -184,6 +201,41 @@ public class DatasetGeneratorService {
         return taskId;
     }
 
+    /**
+     * Au démarrage, recharge les tâches depuis la base et solde celles restées en vol.
+     *
+     * <p>Miroir de {@code IngestionService.reconcileInterruptedTasks()} et, plus loin, de
+     * {@code FineTuningService.reconcileInterruptedJobs()} : une tâche PENDING ou PROCESSING
+     * retrouvée en base est orpheline, son exécution vivait dans la JVM précédente.
+     */
+    @jakarta.annotation.PostConstruct
+    void reconcileInterruptedTasks() {
+        try {
+            Map<String, GenerationTask> restored = new java.util.HashMap<>();
+            int interrupted = 0;
+            for (GenerationTaskEntity e : taskRepository.findAll()) {
+                GenerationTask t = e.toDto();
+                if (t.status() == GenerationTask.Status.PENDING
+                        || t.status() == GenerationTask.Status.PROCESSING) {
+                    t = new GenerationTask(t.taskId(), GenerationTask.Status.FAILED,
+                            t.pairsGenerated(), t.chunksProcessed(), t.totalChunks(),
+                            "Interrompu par un redémarrage du serveur", t.createdAt());
+                    taskRepository.save(GenerationTaskEntity.fromDto(t));
+                    interrupted++;
+                }
+                restored.put(t.taskId(), t);
+            }
+            tasks.rehydrate(restored);
+            if (interrupted > 0) {
+                log.warn("{} génération(s) marquée(s) FAILED : interrompue(s) par un redémarrage",
+                        interrupted);
+            }
+            log.info("{} tâche(s) de génération rechargée(s) depuis la base", restored.size());
+        } catch (Exception e) {
+            log.warn("Rechargement de l'historique de génération impossible : {}", e.getMessage());
+        }
+    }
+
     public GenerationTask getTask(String taskId) {
         return tasks.get(taskId);
     }
@@ -212,13 +264,17 @@ public class DatasetGeneratorService {
     @Scheduled(fixedDelay = 3_600_000)
     public void cleanupOldTasks() {
         Instant cutoff = Instant.now().minusSeconds(3600);
-        tasks.entrySet().removeIf(e -> {
-            GenerationTask t = e.getValue();
-            return (t.status() == GenerationTask.Status.COMPLETED
-                    || t.status() == GenerationTask.Status.FAILED
-                    || t.status() == GenerationTask.Status.CANCELLED)
-                    && t.createdAt() != null && t.createdAt().isBefore(cutoff);
-        });
+        // remove() et NON entrySet().removeIf() : la vue renvoyée par le décorateur est non
+        // modifiable, précisément pour qu'une purge ne puisse pas vider la map en laissant les
+        // lignes en base. Chaque suppression passe donc par le miroir.
+        tasks.values().stream()
+                .filter(t -> (t.status() == GenerationTask.Status.COMPLETED
+                        || t.status() == GenerationTask.Status.FAILED
+                        || t.status() == GenerationTask.Status.CANCELLED)
+                        && t.createdAt() != null && t.createdAt().isBefore(cutoff))
+                .map(GenerationTask::taskId)
+                .toList()
+                .forEach(tasks::remove);
     }
 
     public List<TrainingPair> getAllPairs() {

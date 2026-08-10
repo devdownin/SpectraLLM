@@ -32,7 +32,7 @@ class DatasetGeneratorServiceTest {
     @BeforeEach
     void setUp() throws Exception {
         service = new DatasetGeneratorService(mock(LlmChatClient.class), mock(ChromaDbClient.class),
-                mock(IngestedFileRepository.class), null, "./data/dataset", 3, 2, 2, 1800);
+                mock(IngestedFileRepository.class), mock(fr.spectra.persistence.GenerationTaskRepository.class), null, "./data/dataset", 3, 2, 2, 1800);
 
         extractJsonMethod = DatasetGeneratorService.class.getDeclaredMethod("extractJson", String.class);
         extractJsonMethod.setAccessible(true);

@@ -25,7 +25,7 @@ faut en faire.
 
 | # | Constat | Nature | État |
 |---|---|---|---|
-| S1 | Deux tranches de persistance complètes branchées sur rien | Fonctionnel ou mort | **Décision requise** |
+| S1 | Deux tranches de persistance complètes branchées sur rien | Fonctionnel | **Corrigé** — dépôts branchés |
 | S2 | `installModel()` : 282 lignes, dont une lambda de 240 | Lisibilité | Proposé |
 | S3 | Trois auxiliaires dupliqués à l'identique | Duplication | Proposé |
 | S4 | Code mort avéré : un DTO, un export d'API, trois types | Mort | **Corrigé** |
@@ -36,8 +36,9 @@ faut en faire.
 
 ## S1 — Deux tranches de persistance branchées sur rien
 
-C'est le constat le plus important, et le seul que je n'ai pas corrigé : les deux corrections
-possibles sont opposées.
+C'est le constat le plus important. Les deux corrections possibles étaient opposées — brancher
+ou supprimer — et **c'est brancher qui a été retenu**, conformément à la recommandation
+ci-dessous. Le détail de la mise en œuvre est en fin de section.
 
 Le dépôt contient, pour les tâches d'ingestion et de génération de jeux de données, tout
 l'appareillage de persistance :
@@ -88,8 +89,40 @@ L'asymétrie n'est documentée nulle part. Les deux lectures sont défendables :
 
 **Recommandation : brancher plutôt que supprimer.** Deux des quatre familles persistent déjà,
 la réconciliation au démarrage existe, et le schéma a été tenu à jour — tout indique une
-intention jamais menée à terme plutôt qu'un renoncement. Mais c'est un changement de
-comportement, donc votre décision, pas la mienne.
+intention jamais menée à terme plutôt qu'un renoncement.
+
+### Mise en œuvre
+
+Le point délicat n'est pas d'appeler `save()`, c'est de garantir qu'aucune écriture n'y
+échappe. L'état des tâches d'ingestion est muté depuis **deux** endroits : `IngestionService`
+et `IngestionTaskExecutor`, à qui la map est passée en paramètre et qui la modifie sur neuf
+sites ; côté génération, onze sites du même service. Brancher site par site suppose de tous
+les trouver — et que le prochain contributeur qui en ajoute un y pense. C'est le mode de
+défaillance que cet audit dénonce partout ailleurs : un branchement qui cesse silencieusement
+de fonctionner.
+
+`PersistentTaskMap<V>` décore donc la map elle-même. Toute mutation, présente ou future, passe
+par le miroir ; aucun appelant n'a à savoir que la persistance existe, et l'exécuteur n'a pas
+été touché.
+
+Trois décisions à noter :
+
+- **La map reste l'autorité à l'exécution.** `computeIfPresent` porte l'atomicité sur laquelle
+  repose une correction de course annulation/fin documentée dans `cancelTask()` ; un
+  aller-retour en base la réintroduirait. La base sert à survivre au redémarrage, pas à
+  arbitrer la concurrence.
+- **Un échec d'écriture en base ne fait pas échouer la tâche** — il est journalisé. Perdre
+  l'historique est regrettable ; faire échouer une ingestion de plusieurs milliers de chunks
+  parce que H2 hoquette le serait davantage.
+- **Les vues (`entrySet`, `keySet`, `values`) sont non modifiables.** Écrire la purge horaire
+  `entrySet().removeIf(...)` — le réflexe naturel, et ce que faisait le code — viderait la map
+  en laissant les lignes en base. Elle lève maintenant `UnsupportedOperationException` ; les
+  deux `cleanupOldTasks` passent par `remove()`.
+
+Au démarrage, `reconcileInterruptedTasks()` recharge l'historique et solde en `FAILED` les
+tâches restées `PENDING`/`PROCESSING` — miroir exact de
+`FineTuningService.reconcileInterruptedJobs()`. Les quatre familles de tâches se comportent
+désormais de la même façon.
 
 ---
 
@@ -220,7 +253,7 @@ forcément. **Renforcer les tests d'abord, refondre ensuite.**
 ## Vérification
 
 ```
-backend    mvn package        1078 tests, 0 échec, 10 sautés   OK
+backend    mvn package        1086 tests, 0 échec, 10 sautés   OK
 frontend   tsc --noEmit       aucune erreur                    OK
 frontend   eslint             0 erreur, 77 avertissements      OK (inchangé)
 frontend   vitest             suite complète                   OK
@@ -230,8 +263,12 @@ Les suppressions de S4 ont été validées dans les deux sens : aucune référen
 frontend après coup, et compilation TypeScript stricte plus build Maven complet — un symbole
 encore utilisé aurait fait échouer l'un ou l'autre.
 
-**Ce qui n'a pas été vérifié :** les mesures de S1 reposent sur l'analyse statique (aucune
-injection, aucune requête brute) et non sur l'observation d'une exécution. La conclusion
-« perdu au redémarrage » se confirmerait en démarrant une ingestion, en redémarrant l'API et
-en constatant la disparition de la tâche — ce que l'absence de démon Docker dans
-l'environnement d'audit n'a pas permis de faire.
+Le branchement de S1 est couvert par `PersistentTaskMapTest` (8 cas). Les deux régressions
+qu'il doit attraper ont été rejouées pour vérifier qu'il se déclenche vraiment : supprimer le
+miroir de `computeIfPresent` — la voie par laquelle passent les neuf mutations de l'exécuteur —
+et rendre les vues à nouveau modifiables font chacune échouer le cas correspondant.
+
+**Ce qui n'a pas été vérifié :** le diagnostic initial de S1 repose sur l'analyse statique
+(aucune injection, aucune requête brute), et sa correction sur des tests unitaires. Le cycle
+complet — lancer une ingestion, redémarrer l'API, constater que la tâche est bien présente et
+marquée `FAILED` — demande un démon Docker, absent de l'environnement d'audit.
