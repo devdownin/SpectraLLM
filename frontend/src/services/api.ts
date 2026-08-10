@@ -84,10 +84,6 @@ export const gedApi = {
   cancelClassificationTask: (taskId: string) => api.delete(`/ged/classification/tasks/${taskId}`),
 };
 
-export const documentsApi = {
-  listIngestedFiles: () => api.get('/ingest/files'),
-};
-
 export const datasetApi = {
   getStats: () => api.get('/dataset/stats'),
   generateDataset: (maxChunks = 0) => api.post(`/dataset/generate?maxChunks=${maxChunks}`),
