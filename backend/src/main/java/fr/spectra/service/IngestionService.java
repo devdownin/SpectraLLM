@@ -6,6 +6,7 @@ import fr.spectra.model.ExtractedDocument;
 import fr.spectra.model.TextChunk;
 import fr.spectra.persistence.IngestedFileEntity;
 import fr.spectra.persistence.IngestedFileRepository;
+import fr.spectra.persistence.PersistentTaskMap;
 import fr.spectra.persistence.StreamSourceEntity;
 import fr.spectra.service.extraction.DocumentExtractorFactory;
 import org.slf4j.Logger;
@@ -120,7 +121,15 @@ public class IngestionService {
     @org.springframework.context.annotation.Lazy
     private DocumentClassificationService classificationService;
 
-    private final Map<String, IngestionTask> tasks = new ConcurrentHashMap<>();
+    /**
+     * Tâches d'ingestion. Écriture-traversante : toute mutation est répercutée dans
+     * {@code ingestion_tasks} (cf. {@link PersistentTaskMap}). La table et son entité
+     * existaient depuis longtemps sans que rien ne les alimente — une tâche interrompue par un
+     * redémarrage disparaissait donc de l'historique, alors que les jobs de fine-tuning et
+     * d'installation de modèle, eux, survivaient. Voir docs/process/audit-simplification.fr.md (S1).
+     */
+    private final PersistentTaskMap<IngestionTask> tasks;
+    private final fr.spectra.persistence.IngestionTaskRepository taskRepository;
     private final Set<String> cancelledTaskIds = ConcurrentHashMap.newKeySet();
     /**
      * Hachages en cours d'ingestion (hash → instant de réservation). Empêche deux uploads
@@ -143,6 +152,7 @@ public class IngestionService {
                             IngestedFileRepository repository,
                             GedService gedService,
                             fr.spectra.persistence.StreamSourceRepository streamSourceRepository,
+                            fr.spectra.persistence.IngestionTaskRepository taskRepository,
                             SpectraProperties properties,
                             @org.springframework.beans.factory.annotation.Value("${spectra.pipeline.max-uncompressed-mb:0}") int maxUncompressedMb,
                             @org.springframework.beans.factory.annotation.Value("${spectra.pipeline.concurrent-ingestions:4}") int concurrentIngestions,
@@ -160,6 +170,12 @@ public class IngestionService {
         this.repository = repository;
         this.gedService = gedService;
         this.streamSourceRepository = streamSourceRepository;
+        this.tasks = new PersistentTaskMap<>(
+                t -> taskRepository.save(fr.spectra.persistence.IngestionTaskEntity.fromDto(t)),
+                taskRepository::deleteById,
+                IngestionTask::taskId,
+                "ingestion");
+        this.taskRepository = taskRepository;
         this.embeddingBatchSize = properties.pipeline().embeddingBatchSize();
         this.defaultCollection = properties.chromadb() != null
                 ? properties.chromadb().effectiveCollection()
@@ -365,6 +381,46 @@ public class IngestionService {
         return submit(files, false);
     }
 
+    /**
+     * Au démarrage, recharge les tâches depuis la base et solde celles restées en vol.
+     *
+     * <p>Une tâche PENDING ou PROCESSING retrouvée en base est forcément orpheline : son
+     * exécution vivait dans la JVM précédente. La laisser telle quelle afficherait une barre de
+     * progression éternellement figée — le même fantôme que
+     * {@code FineTuningService.reconcileInterruptedJobs()} élimine côté entraînement, dont ceci
+     * est le miroir.
+     *
+     * <p>Les tâches terminales sont rechargées intactes : c'est tout l'intérêt de la
+     * persistance, l'historique d'ingestion survit désormais au redémarrage.
+     */
+    @jakarta.annotation.PostConstruct
+    void reconcileInterruptedTasks() {
+        try {
+            Map<String, IngestionTask> restored = new java.util.HashMap<>();
+            int interrupted = 0;
+            for (fr.spectra.persistence.IngestionTaskEntity e : taskRepository.findAll()) {
+                IngestionTask t = e.toDto();
+                if (t.status() == IngestionTask.Status.PENDING
+                        || t.status() == IngestionTask.Status.PROCESSING) {
+                    t = t.failed("Interrompu par un redémarrage du serveur");
+                    taskRepository.save(fr.spectra.persistence.IngestionTaskEntity.fromDto(t));
+                    interrupted++;
+                }
+                restored.put(t.taskId(), t);
+            }
+            tasks.rehydrate(restored);
+            if (interrupted > 0) {
+                log.warn("{} tâche(s) d'ingestion marquée(s) FAILED : interrompue(s) par un redémarrage",
+                        interrupted);
+            }
+            log.info("{} tâche(s) d'ingestion rechargée(s) depuis la base", restored.size());
+        } catch (Exception e) {
+            // Un historique illisible ne doit pas empêcher l'API de démarrer : on repart d'une
+            // map vide plutôt que de bloquer l'ingestion.
+            log.warn("Rechargement de l'historique d'ingestion impossible : {}", e.getMessage());
+        }
+    }
+
     public IngestionTask getTask(String taskId) {
         return tasks.get(taskId);
     }
@@ -416,13 +472,17 @@ public class IngestionService {
     @Scheduled(fixedDelay = 3_600_000)
     public void cleanupOldTasks() {
         Instant cutoff = Instant.now().minusSeconds(3600);
-        tasks.entrySet().removeIf(e -> {
-            IngestionTask t = e.getValue();
-            return (t.status() == IngestionTask.Status.COMPLETED
-                    || t.status() == IngestionTask.Status.FAILED
-                    || t.status() == IngestionTask.Status.CANCELLED)
-                    && t.completedAt() != null && t.completedAt().isBefore(cutoff);
-        });
+        // remove() et NON entrySet().removeIf() : la vue renvoyée par le décorateur est non
+        // modifiable, précisément pour qu'une purge ne puisse pas vider la map en laissant les
+        // lignes en base. Chaque suppression passe donc par le miroir.
+        tasks.values().stream()
+                .filter(t -> (t.status() == IngestionTask.Status.COMPLETED
+                        || t.status() == IngestionTask.Status.FAILED
+                        || t.status() == IngestionTask.Status.CANCELLED)
+                        && t.completedAt() != null && t.completedAt().isBefore(cutoff))
+                .map(IngestionTask::taskId)
+                .toList()
+                .forEach(tasks::remove);
         cancelledTaskIds.removeIf(id -> !tasks.containsKey(id));
         // Purge les réservations in-flight périmées (ingestions échouées/crashées) pour borner la mémoire.
         Instant claimCutoff = Instant.now().minus(INFLIGHT_TTL);

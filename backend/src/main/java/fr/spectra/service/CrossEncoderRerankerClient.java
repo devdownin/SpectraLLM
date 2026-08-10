@@ -1,6 +1,7 @@
 package fr.spectra.service;
 
 import fr.spectra.config.SpectraProperties;
+import fr.spectra.util.HealthProbe;
 import fr.spectra.dto.ServiceStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -49,20 +50,7 @@ public class CrossEncoderRerankerClient implements RerankerClient {
 
     @Override
     public ServiceStatus checkHealth() {
-        long start = System.currentTimeMillis();
-        try {
-            webClient.get()
-                    .uri("/health")
-                    .retrieve()
-                    .bodyToMono(Map.class)
-                    .block(HEALTH_TIMEOUT);
-            long elapsed = System.currentTimeMillis() - start;
-            return new ServiceStatus("reranker", baseUrl, true, "ok", elapsed, Map.of());
-        } catch (Exception e) {
-            long elapsed = System.currentTimeMillis() - start;
-            log.warn("Reranker indisponible: {}", e.getMessage());
-            return ServiceStatus.unavailable("reranker", baseUrl, elapsed);
-        }
+        return HealthProbe.probe(webClient, "reranker", baseUrl, HEALTH_TIMEOUT);
     }
 
     @Override

@@ -180,7 +180,8 @@ class ChromaDbConsistencyIntegrationTest {
 
         ingestionService = new IngestionService(
                 factory, textCleaner, chunkingService, embeddingService, chromaDbClient, ftsService,
-                executor, fileRepo, gedService, mock(StreamSourceRepository.class), props, 50, 2, 0);
+                executor, fileRepo, gedService, mock(StreamSourceRepository.class),
+                mock(fr.spectra.persistence.IngestionTaskRepository.class), props, 50, 2, 0);
     }
 
     // ── Scénarios de l'audit ─────────────────────────────────────────────────
@@ -321,7 +322,8 @@ class ChromaDbConsistencyIntegrationTest {
                 new SimpleMeterRegistry(), props, 10, 50, 2);
         return new IngestionService(
                 factory, textCleaner, chunkingService, embeddingService, chromaDbClient, ftsService,
-                executor, fileRepo, gedForB, mock(StreamSourceRepository.class), props, 50, 2, 0);
+                executor, fileRepo, gedForB, mock(StreamSourceRepository.class),
+                mock(fr.spectra.persistence.IngestionTaskRepository.class), props, 50, 2, 0);
     }
 
     private static MockMultipartFile file(String name, byte[] content) {

@@ -56,6 +56,7 @@ class GroundedDatasetIntegrationTest {
                         + " \"category\": \"technique\", \"reason\": \"péage\"}");
 
         return new DatasetGeneratorService(llm, chroma, mock(IngestedFileRepository.class),
+                mock(fr.spectra.persistence.GenerationTaskRepository.class),
                 null, datasetDir.toString(), 0, groundedEveryN, distractors, 100_000);
     }
 

@@ -25,9 +25,10 @@ faut en faire.
 
 | # | Constat | Nature | État |
 |---|---|---|---|
-| S1 | Deux tranches de persistance complètes branchées sur rien | Fonctionnel ou mort | **Décision requise** |
+| S1 | Deux tranches de persistance complètes branchées sur rien | Fonctionnel | **Corrigé** — dépôts branchés |
+| S1b | La génération DPO, sixième famille de tâches, sans persistance du tout | Fonctionnel | **Corrigé** — table créée |
 | S2 | `installModel()` : 282 lignes, dont une lambda de 240 | Lisibilité | Proposé |
-| S3 | Trois auxiliaires dupliqués à l'identique | Duplication | Proposé |
+| S3 | Trois auxiliaires dupliqués à l'identique | Duplication | **Corrigé** — `fr.spectra.util` |
 | S4 | Code mort avéré : un DTO, un export d'API, trois types | Mort | **Corrigé** |
 | S5 | `Documentation.tsx` : 1 496 lignes de contenu statique | Volume | Proposé |
 | S6 | Deux pages à état lourd (24 et 18 `useState`) | Complexité | Observé |
@@ -36,8 +37,9 @@ faut en faire.
 
 ## S1 — Deux tranches de persistance branchées sur rien
 
-C'est le constat le plus important, et le seul que je n'ai pas corrigé : les deux corrections
-possibles sont opposées.
+C'est le constat le plus important. Les deux corrections possibles étaient opposées — brancher
+ou supprimer — et **c'est brancher qui a été retenu**, conformément à la recommandation
+ci-dessous. Le détail de la mise en œuvre est en fin de section.
 
 Le dépôt contient, pour les tâches d'ingestion et de génération de jeux de données, tout
 l'appareillage de persistance :
@@ -88,8 +90,59 @@ L'asymétrie n'est documentée nulle part. Les deux lectures sont défendables :
 
 **Recommandation : brancher plutôt que supprimer.** Deux des quatre familles persistent déjà,
 la réconciliation au démarrage existe, et le schéma a été tenu à jour — tout indique une
-intention jamais menée à terme plutôt qu'un renoncement. Mais c'est un changement de
-comportement, donc votre décision, pas la mienne.
+intention jamais menée à terme plutôt qu'un renoncement.
+
+### Mise en œuvre
+
+Le point délicat n'est pas d'appeler `save()`, c'est de garantir qu'aucune écriture n'y
+échappe. L'état des tâches d'ingestion est muté depuis **deux** endroits : `IngestionService`
+et `IngestionTaskExecutor`, à qui la map est passée en paramètre et qui la modifie sur neuf
+sites ; côté génération, onze sites du même service. Brancher site par site suppose de tous
+les trouver — et que le prochain contributeur qui en ajoute un y pense. C'est le mode de
+défaillance que cet audit dénonce partout ailleurs : un branchement qui cesse silencieusement
+de fonctionner.
+
+`PersistentTaskMap<V>` décore donc la map elle-même. Toute mutation, présente ou future, passe
+par le miroir ; aucun appelant n'a à savoir que la persistance existe, et l'exécuteur n'a pas
+été touché.
+
+Trois décisions à noter :
+
+- **La map reste l'autorité à l'exécution.** `computeIfPresent` porte l'atomicité sur laquelle
+  repose une correction de course annulation/fin documentée dans `cancelTask()` ; un
+  aller-retour en base la réintroduirait. La base sert à survivre au redémarrage, pas à
+  arbitrer la concurrence.
+- **Un échec d'écriture en base ne fait pas échouer la tâche** — il est journalisé. Perdre
+  l'historique est regrettable ; faire échouer une ingestion de plusieurs milliers de chunks
+  parce que H2 hoquette le serait davantage.
+- **Les vues (`entrySet`, `keySet`, `values`) sont non modifiables.** Écrire la purge horaire
+  `entrySet().removeIf(...)` — le réflexe naturel, et ce que faisait le code — viderait la map
+  en laissant les lignes en base. Elle lève maintenant `UnsupportedOperationException` ; les
+  deux `cleanupOldTasks` passent par `remove()`.
+
+Au démarrage, `reconcileInterruptedTasks()` recharge l'historique et solde en `FAILED` les
+tâches restées `PENDING`/`PROCESSING` — miroir exact de
+`FineTuningService.reconcileInterruptedJobs()`.
+
+### S1b — il y avait six familles, pas quatre
+
+Le recensement initial en comptait quatre. Il en manquait deux, trouvées en appliquant le
+correctif :
+
+| Famille | Persistance | Reprise |
+|---|---|---|
+| Ingestion, génération SFT | JPA *(branché)* | oui |
+| Fine-tuning, installation de modèle | JPA | oui |
+| Comparaison qualité | fichier JSON (`persistCompareJobs`) | oui |
+| **Génération DPO** | **aucune** | **non** |
+
+La comparaison qualité persiste, autrement — par un fichier JSON — mais elle persiste et se
+réconcilie. La génération DPO, elle, ne faisait ni l'un ni l'autre : c'était la dernière
+famille dont l'état disparaissait en silence.
+
+Différence avec S1 : aucune table dormante n'existait, il a fallu créer `dpo_tasks`, son entité
+et son dépôt. Le branchement lui-même se réduit ensuite à trois lignes, `PersistentTaskMap`
+étant déjà là. **Les six familles se comportent maintenant de la même façon.**
 
 ---
 
@@ -136,11 +189,20 @@ Le risque n'est pas le volume — une quarantaine de lignes en tout — mais la 
 `extractJson` d'un côté sans l'autre est exactement le genre de correction à moitié appliquée
 qui se remarque des mois plus tard.
 
-**Proposition, et pourquoi je ne l'ai pas appliquée.** Le backend n'a aucun package
-utilitaire. Factoriser suppose donc d'en créer un (`fr.spectra.util`) ou de choisir un autre
-point d'accueil — une décision de conception qui vous revient, pas un nettoyage évident. Si
-vous voulez que je le fasse, deux classes minuscules (`JsonExtraction`, `TextSimilarity`) et
-un `HealthProbe` partagé par les deux clients suffisent.
+**Correction.** Trois classes dans un nouveau package `fr.spectra.util` : `LlmJson.extract()`,
+`TextSimilarity.jaccard()` et `HealthProbe.probe()`. Les six sites d'appel les utilisent
+désormais, et chaque classe a ses tests — ces fonctions n'en avaient aucun, étant privées.
+
+**Un quatrième cas, laissé tel quel — et c'est délibéré.** `DatasetGeneratorService` porte lui
+aussi un `extractJson`, que la recherche de duplication n'avait pas remonté : il n'est **pas**
+identique aux deux autres. Il renvoie `"{}"` là où ils renvoient `null`, et ne retire la
+clôture Markdown que si le texte *commence* par elle. Il a sa propre suite de tests, dont un
+cas paramétré qui vérifie qu'il rend toujours un objet JSON valide.
+
+Les fusionner supposerait de choisir un contrat et de corriger les appelants de l'autre : ce
+n'est plus de la déduplication, c'est un changement de comportement déguisé en nettoyage. Trois
+implémentations dont deux identiques et une divergente, ce n'est pas la même chose que trois
+copies — et le raccourci aurait cassé quelque chose.
 
 ---
 
@@ -220,7 +282,7 @@ forcément. **Renforcer les tests d'abord, refondre ensuite.**
 ## Vérification
 
 ```
-backend    mvn package        1078 tests, 0 échec, 10 sautés   OK
+backend    mvn package        1086 tests, 0 échec, 10 sautés   OK
 frontend   tsc --noEmit       aucune erreur                    OK
 frontend   eslint             0 erreur, 77 avertissements      OK (inchangé)
 frontend   vitest             suite complète                   OK
@@ -230,8 +292,12 @@ Les suppressions de S4 ont été validées dans les deux sens : aucune référen
 frontend après coup, et compilation TypeScript stricte plus build Maven complet — un symbole
 encore utilisé aurait fait échouer l'un ou l'autre.
 
-**Ce qui n'a pas été vérifié :** les mesures de S1 reposent sur l'analyse statique (aucune
-injection, aucune requête brute) et non sur l'observation d'une exécution. La conclusion
-« perdu au redémarrage » se confirmerait en démarrant une ingestion, en redémarrant l'API et
-en constatant la disparition de la tâche — ce que l'absence de démon Docker dans
-l'environnement d'audit n'a pas permis de faire.
+Le branchement de S1 est couvert par `PersistentTaskMapTest` (8 cas). Les deux régressions
+qu'il doit attraper ont été rejouées pour vérifier qu'il se déclenche vraiment : supprimer le
+miroir de `computeIfPresent` — la voie par laquelle passent les neuf mutations de l'exécuteur —
+et rendre les vues à nouveau modifiables font chacune échouer le cas correspondant.
+
+**Ce qui n'a pas été vérifié :** le diagnostic initial de S1 repose sur l'analyse statique
+(aucune injection, aucune requête brute), et sa correction sur des tests unitaires. Le cycle
+complet — lancer une ingestion, redémarrer l'API, constater que la tâche est bien présente et
+marquée `FAILED` — demande un démon Docker, absent de l'environnement d'audit.

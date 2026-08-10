@@ -90,7 +90,7 @@ class IngestionServiceContractTest {
         return new IngestionService(
                 factory, textCleaner, chunkingService, embeddingService, chromaDbClient,
                 ftsService, executor, repository, gedService,
-                mock(StreamSourceRepository.class), props, 50, 4, 0);
+                mock(StreamSourceRepository.class), mock(fr.spectra.persistence.IngestionTaskRepository.class), props, 50, 4, 0);
     }
 
     private IngestionTaskExecutor realExecutor() {

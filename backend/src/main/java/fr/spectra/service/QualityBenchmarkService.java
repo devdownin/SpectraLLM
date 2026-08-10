@@ -1,6 +1,7 @@
 package fr.spectra.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import fr.spectra.util.LlmJson;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
@@ -474,12 +475,4 @@ public class QualityBenchmarkService {
         return entries;
     }
 
-    private String extractJson(String text) {
-        if (text == null || text.isBlank()) return null;
-        String clean = text.replaceAll("```json|```", "").trim();
-        int start = clean.indexOf('{');
-        int end = clean.lastIndexOf('}');
-        if (start < 0 || end < 0 || end <= start) return null;
-        return clean.substring(start, end + 1);
-    }
 }
