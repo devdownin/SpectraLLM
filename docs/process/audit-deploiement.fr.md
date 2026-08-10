@@ -426,9 +426,11 @@ pour confirmer que le test les attrape réellement.
   `spectra-api` connaît `SPECTRA_API_KEY`. C'est pourquoi `SPECTRA_BIND_ADDR=0.0.0.0` reste
   une décision à prendre en connaissance de cause, et non un simple interrupteur. Voir
   `docs/process/audit-securite.fr.md`.
-- **La mesure réelle du gain de D11.** Le cache de couches la rend possible en stabilisant le
-  temps de build, mais elle demande de chronométrer `up -d --wait` seul, images déjà
-  construites, avant/après. Tant qu'elle n'est pas faite, les 70 s restent un calcul.
+- **La mesure réelle du gain de D11.** `scripts/bench-startup.sh` la produit désormais : il
+  construit les images hors chronomètre, puis chronomètre `up -d --wait` seul sur plusieurs
+  itérations. Il n'a pas pu être exécuté ici (aucun démon Docker dans l'environnement
+  d'audit) — **les 70 s restent donc un calcul**, et le resteront jusqu'à ce que quelqu'un
+  lance le script sur une machine équipée, une fois avec `start_interval` et une fois sans.
 
 ## Vérification
 
