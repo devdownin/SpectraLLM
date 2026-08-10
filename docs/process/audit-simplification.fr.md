@@ -26,8 +26,9 @@ faut en faire.
 | # | Constat | Nature | État |
 |---|---|---|---|
 | S1 | Deux tranches de persistance complètes branchées sur rien | Fonctionnel | **Corrigé** — dépôts branchés |
+| S1b | La génération DPO, sixième famille de tâches, sans persistance du tout | Fonctionnel | **Corrigé** — table créée |
 | S2 | `installModel()` : 282 lignes, dont une lambda de 240 | Lisibilité | Proposé |
-| S3 | Trois auxiliaires dupliqués à l'identique | Duplication | Proposé |
+| S3 | Trois auxiliaires dupliqués à l'identique | Duplication | **Corrigé** — `fr.spectra.util` |
 | S4 | Code mort avéré : un DTO, un export d'API, trois types | Mort | **Corrigé** |
 | S5 | `Documentation.tsx` : 1 496 lignes de contenu statique | Volume | Proposé |
 | S6 | Deux pages à état lourd (24 et 18 `useState`) | Complexité | Observé |
@@ -121,8 +122,27 @@ Trois décisions à noter :
 
 Au démarrage, `reconcileInterruptedTasks()` recharge l'historique et solde en `FAILED` les
 tâches restées `PENDING`/`PROCESSING` — miroir exact de
-`FineTuningService.reconcileInterruptedJobs()`. Les quatre familles de tâches se comportent
-désormais de la même façon.
+`FineTuningService.reconcileInterruptedJobs()`.
+
+### S1b — il y avait six familles, pas quatre
+
+Le recensement initial en comptait quatre. Il en manquait deux, trouvées en appliquant le
+correctif :
+
+| Famille | Persistance | Reprise |
+|---|---|---|
+| Ingestion, génération SFT | JPA *(branché)* | oui |
+| Fine-tuning, installation de modèle | JPA | oui |
+| Comparaison qualité | fichier JSON (`persistCompareJobs`) | oui |
+| **Génération DPO** | **aucune** | **non** |
+
+La comparaison qualité persiste, autrement — par un fichier JSON — mais elle persiste et se
+réconcilie. La génération DPO, elle, ne faisait ni l'un ni l'autre : c'était la dernière
+famille dont l'état disparaissait en silence.
+
+Différence avec S1 : aucune table dormante n'existait, il a fallu créer `dpo_tasks`, son entité
+et son dépôt. Le branchement lui-même se réduit ensuite à trois lignes, `PersistentTaskMap`
+étant déjà là. **Les six familles se comportent maintenant de la même façon.**
 
 ---
 
@@ -169,11 +189,20 @@ Le risque n'est pas le volume — une quarantaine de lignes en tout — mais la 
 `extractJson` d'un côté sans l'autre est exactement le genre de correction à moitié appliquée
 qui se remarque des mois plus tard.
 
-**Proposition, et pourquoi je ne l'ai pas appliquée.** Le backend n'a aucun package
-utilitaire. Factoriser suppose donc d'en créer un (`fr.spectra.util`) ou de choisir un autre
-point d'accueil — une décision de conception qui vous revient, pas un nettoyage évident. Si
-vous voulez que je le fasse, deux classes minuscules (`JsonExtraction`, `TextSimilarity`) et
-un `HealthProbe` partagé par les deux clients suffisent.
+**Correction.** Trois classes dans un nouveau package `fr.spectra.util` : `LlmJson.extract()`,
+`TextSimilarity.jaccard()` et `HealthProbe.probe()`. Les six sites d'appel les utilisent
+désormais, et chaque classe a ses tests — ces fonctions n'en avaient aucun, étant privées.
+
+**Un quatrième cas, laissé tel quel — et c'est délibéré.** `DatasetGeneratorService` porte lui
+aussi un `extractJson`, que la recherche de duplication n'avait pas remonté : il n'est **pas**
+identique aux deux autres. Il renvoie `"{}"` là où ils renvoient `null`, et ne retire la
+clôture Markdown que si le texte *commence* par elle. Il a sa propre suite de tests, dont un
+cas paramétré qui vérifie qu'il rend toujours un objet JSON valide.
+
+Les fusionner supposerait de choisir un contrat et de corriger les appelants de l'autre : ce
+n'est plus de la déduplication, c'est un changement de comportement déguisé en nettoyage. Trois
+implémentations dont deux identiques et une divergente, ce n'est pas la même chose que trois
+copies — et le raccourci aurait cassé quelque chose.
 
 ---
 

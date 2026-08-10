@@ -1,6 +1,7 @@
 package fr.spectra.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import fr.spectra.util.TextSimilarity;
 import fr.spectra.dto.FineTuningRequest;
 import fr.spectra.dto.QueryRequest;
 import fr.spectra.model.DpoPair;
@@ -315,7 +316,7 @@ public class ArticleCommentService {
             String rejectedContent = null;
 
             for (String candidate : rejects) {
-                if (jaccardSimilarity(app.getContent(), candidate) <= SIMILARITY_THRESHOLD) {
+                if (TextSimilarity.jaccard(app.getContent(), candidate) <= SIMILARITY_THRESHOLD) {
                     rejectedContent = candidate;
                     break;
                 }
@@ -378,7 +379,7 @@ public class ArticleCommentService {
                     "Focus : " + focus + "\n\nCommentaire de référence :\n" + chosen);
             if (result == null || result.isBlank()) return null;
             String candidate = result.trim();
-            if (jaccardSimilarity(chosen, candidate) > SIMILARITY_THRESHOLD) {
+            if (TextSimilarity.jaccard(chosen, candidate) > SIMILARITY_THRESHOLD) {
                 log.debug("Rejet synthétique trop similaire au chosen (Jaccard > {}) — ignoré", SIMILARITY_THRESHOLD);
                 return null;
             }
@@ -392,12 +393,4 @@ public class ArticleCommentService {
     /**
      * Similarité de Jaccard sur ensembles de mots (minuscules) pour détecter les paires trop proches.
      */
-    private double jaccardSimilarity(String a, String b) {
-        Set<String> setA = Arrays.stream(a.toLowerCase().split("\\s+")).collect(Collectors.toSet());
-        Set<String> setB = Arrays.stream(b.toLowerCase().split("\\s+")).collect(Collectors.toSet());
-        if (setA.isEmpty() && setB.isEmpty()) return 1.0;
-        long intersection = setA.stream().filter(setB::contains).count();
-        long union = setA.size() + setB.size() - intersection;
-        return union == 0 ? 1.0 : (double) intersection / union;
-    }
 }

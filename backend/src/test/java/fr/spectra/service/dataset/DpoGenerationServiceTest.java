@@ -16,7 +16,8 @@ import static org.mockito.Mockito.mock;
 class DpoGenerationServiceTest {
 
     private DpoGenerationService newService(Path dir) {
-        return new DpoGenerationService(mock(DatasetGeneratorService.class), mock(LlmChatClient.class), dir.toString());
+        return new DpoGenerationService(mock(DatasetGeneratorService.class), mock(LlmChatClient.class),
+                mock(fr.spectra.persistence.DpoTaskRepository.class), dir.toString());
     }
 
     @Test

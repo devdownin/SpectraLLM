@@ -1,9 +1,13 @@
 package fr.spectra.service.dataset;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import fr.spectra.util.TextSimilarity;
 import fr.spectra.model.DpoPair;
 import fr.spectra.model.TrainingPair;
 import fr.spectra.service.LlmChatClient;
+import fr.spectra.persistence.DpoTaskEntity;
+import fr.spectra.persistence.DpoTaskRepository;
+import fr.spectra.persistence.PersistentTaskMap;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -62,7 +66,14 @@ public class DpoGenerationService {
     private final List<DpoPair> preferencePairs = new CopyOnWriteArrayList<>();
 
     private final List<DpoPair> dpoPairs = new CopyOnWriteArrayList<>();
-    private final Map<String, DpoTask> tasks = new ConcurrentHashMap<>();
+    /**
+     * Tâches DPO. Écriture-traversante : toute mutation est répercutée dans {@code dpo_tasks}
+     * (cf. {@link fr.spectra.persistence.PersistentTaskMap}). C'était la dernière famille de
+     * tâches asynchrones dont l'état disparaissait à chaque redémarrage — les cinq autres
+     * survivaient. Voir docs/process/audit-simplification.fr.md (S1).
+     */
+    private final PersistentTaskMap<DpoTask> tasks;
+    private final DpoTaskRepository taskRepository;
     /** Empêche deux générations DPO concurrentes de tronquer/écraser dpo_pairs.jsonl et la liste partagée. */
     private final java.util.concurrent.atomic.AtomicBoolean generationRunning =
             new java.util.concurrent.atomic.AtomicBoolean(false);
@@ -72,9 +83,16 @@ public class DpoGenerationService {
 
     public DpoGenerationService(DatasetGeneratorService sftService,
                                 LlmChatClient chatClient,
+                                DpoTaskRepository taskRepository,
                                 @Value("${spectra.dataset.dir:./data/dataset}") String datasetDir) {
         this.sftService = sftService;
         this.chatClient = chatClient;
+        this.taskRepository = taskRepository;
+        this.tasks = new PersistentTaskMap<>(
+                t -> taskRepository.save(DpoTaskEntity.fromDto(t)),
+                taskRepository::deleteById,
+                DpoTask::taskId,
+                "DPO");
         this.pairsFile = Path.of(datasetDir).resolve("dpo_pairs.jsonl");
         this.preferencePairsFile = Path.of(datasetDir).resolve("dpo_preference_pairs.jsonl");
     }
@@ -83,6 +101,36 @@ public class DpoGenerationService {
     private void loadPersistedPairs() {
         loadInto(pairsFile, dpoPairs, "dpo_pairs.jsonl");
         loadInto(preferencePairsFile, preferencePairs, "dpo_preference_pairs.jsonl");
+        reconcileInterruptedTasks();
+    }
+
+    /**
+     * Recharge les tâches depuis la base et solde en FAILED celles restées en vol.
+     *
+     * <p>Miroir de {@code IngestionService.reconcileInterruptedTasks()} : une tâche PENDING ou
+     * PROCESSING retrouvée en base est orpheline, son exécution vivait dans la JVM précédente.
+     */
+    void reconcileInterruptedTasks() {
+        try {
+            Map<String, DpoTask> restored = new java.util.HashMap<>();
+            int interrupted = 0;
+            for (DpoTaskEntity e : taskRepository.findAll()) {
+                DpoTask t = e.toDto();
+                if ("PENDING".equals(t.status()) || "PROCESSING".equals(t.status())) {
+                    t = t.failed("Interrompu par un redémarrage du serveur");
+                    taskRepository.save(DpoTaskEntity.fromDto(t));
+                    interrupted++;
+                }
+                restored.put(t.taskId(), t);
+            }
+            tasks.rehydrate(restored);
+            if (interrupted > 0) {
+                log.warn("{} tâche(s) DPO marquée(s) FAILED : interrompue(s) par un redémarrage",
+                        interrupted);
+            }
+        } catch (Exception e) {
+            log.warn("Rechargement de l'historique DPO impossible : {}", e.getMessage());
+        }
     }
 
     private void loadInto(Path file, List<DpoPair> target, String label) {
@@ -288,7 +336,7 @@ public class DpoGenerationService {
             if (rejected == null || rejected.isBlank()) return null;
 
             String rejectedTrimmed = rejected.trim();
-            double similarity = jaccardSimilarity(chosen, rejectedTrimmed);
+            double similarity = TextSimilarity.jaccard(chosen, rejectedTrimmed);
             if (similarity > SIMILARITY_THRESHOLD) {
                 log.warn("Paire DPO ignorée — chosen/rejected trop similaires (Jaccard={}) pour : {}",
                         String.format("%.2f", similarity), user.substring(0, Math.min(60, user.length())));
@@ -306,14 +354,6 @@ public class DpoGenerationService {
     /**
      * Similarité de Jaccard sur ensembles de mots pour détecter les paires chosen/rejected trop proches.
      */
-    private double jaccardSimilarity(String a, String b) {
-        Set<String> setA = Arrays.stream(a.toLowerCase().split("\\s+")).collect(Collectors.toSet());
-        Set<String> setB = Arrays.stream(b.toLowerCase().split("\\s+")).collect(Collectors.toSet());
-        if (setA.isEmpty() && setB.isEmpty()) return 1.0;
-        long intersection = setA.stream().filter(setB::contains).count();
-        long union = setA.size() + setB.size() - intersection;
-        return union == 0 ? 1.0 : (double) intersection / union;
-    }
 
     private String extractRole(TrainingPair pair, String role) {
         return pair.conversations().stream()

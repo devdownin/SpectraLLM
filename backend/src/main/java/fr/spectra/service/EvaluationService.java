@@ -1,6 +1,7 @@
 package fr.spectra.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import fr.spectra.util.LlmJson;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import fr.spectra.dto.AbComparisonReport;
@@ -660,7 +661,7 @@ public class EvaluationService {
                 log.warn("Échec appel juge A/B: {}", e.getMessage());
                 return null;
             }
-            String json = extractJson(response);
+            String json = LlmJson.extract(response);
             if (json == null) return null;
             @SuppressWarnings("unchecked")
             Map<String, Object> parsed = mapper.readValue(json, Map.class);
@@ -1132,14 +1133,6 @@ public class EvaluationService {
                 .findFirst().orElse(null);
     }
 
-    private String extractJson(String text) {
-        if (text == null || text.isBlank()) return null;
-        String clean = text.replaceAll("```json|```", "").trim();
-        int start = clean.indexOf('{');
-        int end   = clean.lastIndexOf('}');
-        if (start < 0 || end < 0 || end <= start) return null;
-        return clean.substring(start, end + 1);
-    }
 
     private double averageScore(List<EvaluationScore> scores) {
         return scores.isEmpty() ? 0.0
