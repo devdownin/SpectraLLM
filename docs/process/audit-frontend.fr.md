@@ -31,9 +31,9 @@ pour une page. À chaque fois, la chose juste est là, et le code passe à côt�
 | F2 | `services/api.ts` : 92 fonctions, **0 %** couvert | Risque | **Corrigé** |
 | F3 | `apiErrorMessage` adopté sur **1 chemin d'erreur sur 16** | Régression latente | **Corrigé** |
 | F4 | La logique vit dans les pages, pas dans les composants | Structure | Élevé |
-| F5 | Deux systèmes d'icônes : 198 usages contre 2 | Poids inutile | Faible |
-| F6 | Trois dépendances de formulaire pour une seule page | Poids inutile | Faible |
-| F7 | i18n inégal : trois pages très en retard | Cohérence | Moyen |
+| F5 | Deux systèmes d'icônes : 198 usages contre 2 | Poids inutile | **Corrigé** |
+| F6 | Trois dépendances de formulaire pour une seule page | Poids inutile | **Vérifié — à garder** |
+| F7 | i18n inégal : trois pages très en retard | Cohérence | **Corrigé** (sauf `Documentation`) |
 | F8 | 73 des 77 avertissements ESLint sont `no-explicit-any` | Typage | Moyen |
 
 ---
@@ -237,7 +237,12 @@ couvert à 16 % sans filet, c'est déplacer du risque, pas le réduire.
 Dependabot — pour deux icônes dans un seul écran. La convention du projet est visiblement
 `material-symbols`, chargé en CSS depuis `fonts.css`.
 
-Remplacer ces deux icônes et retirer la dépendance est un changement d'une ligne par icône.
+### Correction
+
+Une seule icône était concernée — `Loader2`, utilisée une fois dans `StartupOverlay`. Le projet
+avait déjà sa convention de spinner (`material-symbols-outlined animate-spin">progress_activity`,
+employée à cinq endroits) : la remplacer était un changement d'une ligne, et `lucide-react` est
+retirée de `package.json`.
 
 ---
 
@@ -247,10 +252,20 @@ Remplacer ces deux icônes et retirer la dépendance est un changement d'une lig
 Trois bibliothèques, un seul consommateur — et le chunk `FineTuning` pèse 127 kB (36 kB gzip),
 le troisième du build.
 
-Ce n'est pas nécessairement à supprimer : si d'autres formulaires validés arrivent, l'outillage
-est déjà là et le choix est bon. Mais c'est une décision à prendre consciemment, pas à
-subir — et si aucun autre formulaire n'est prévu, une validation manuscrite y coûterait moins
-cher que trois dépendances à maintenir.
+### Vérification : à garder
+
+La mesure tranche dans l'autre sens, et il faut le dire clairement — **ce constat ne débouche
+sur aucune correction**.
+
+Ces trois dépendances ne décorent pas un formulaire trivial : `zod` porte un schéma de **dix
+champs** avec bornes (`min`/`max`), expression régulière et messages d'erreur traduits, et
+`useForm` fournit `register`, `handleSubmit`, `watch`, `reset`, `setValue`, `getValues` et
+`formState.errors`, tous utilisés.
+
+Les retirer supposerait de réécrire à la main la validation, l'affichage des erreurs et l'état
+du formulaire, sur une page de 1 156 lignes. Ce serait une régression déguisée en nettoyage —
+exactement le raccourci que ces audits cherchent à éviter ailleurs. **L'outillage gagne sa
+place** ; le constat se referme sur une décision consciente, ce qui était son objet.
 
 ---
 
@@ -268,10 +283,32 @@ sur la majorité des pages. Trois font exception :
 | **`Playground.tsx`** | 7 | **8** |
 | **`Documentation.tsx`** | 4 | **73** |
 
-`Playground` est une page de fonctionnalité principale : y laisser huit chaînes non traduites
-casse l'expérience dans l'une des deux langues. `Documentation` est un cas à part, traité par
-le constat S5 de l'audit de simplification — son contenu devrait sortir du TSX, ce qui réglera
-l'i18n en même temps.
+`Playground` est une page de fonctionnalité principale : y laisser des chaînes non traduites
+casse l'expérience dans l'une des deux langues.
+
+### Correction, et un chiffre à rectifier
+
+**Le tableau ci-dessus sous-estimait le problème.** Il comptait le texte entre balises ; en y
+ajoutant les `aria-label`, `title`, `placeholder` et les toasts — tous lus par l'utilisateur ou
+par un lecteur d'écran — `Playground` totalisait **43** chaînes en dur pour 8 appels à `t()`, et
+non 8. La page était essentiellement monolingue.
+
+42 d'entre elles sont désormais traduites (« BM25 » reste tel quel : c'est un nom
+d'algorithme), plus les 18 de `Dashboard`. Les deux locales passent de 708 à **842 clés**, à
+parité exacte.
+
+**`Documentation` (64 chaînes) est laissée de côté, délibérément.** Son contenu doit sortir du
+TSX — c'est le constat S5 de l'audit de simplification. Traduire 64 chaînes dans un fichier
+qui doit être restructuré serait du travail à jeter ; l'extraction réglera l'i18n en même temps.
+
+### Le verrou
+
+`i18n/locales.test.ts` empêche la dérive de recommencer. Une clé ajoutée d'un seul côté ne
+casse rien de visible — i18next se rabat sur l'autre langue, et l'écran affiche simplement le
+mauvais idiome. Personne ne le voit en revue. Trois cas ferment la porte : parité exacte des
+clés, aucune traduction vide (pire qu'une clé absente, puisque le repli ne se déclenche même
+pas), et **mêmes variables d'interpolation** de part et d'autre — un `{{name}}` oublié laisse
+un trou dans la phrase sans qu'i18next ne signale quoi que ce soit.
 
 ---
 

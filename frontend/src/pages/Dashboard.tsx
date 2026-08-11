@@ -185,7 +185,7 @@ const Dashboard: FC = () => {
                 <span className="material-symbols-outlined text-base">memory</span>
               </div>
               <div>
-                <p className="font-headline font-bold text-sm uppercase">Chat</p>
+                <p className="font-headline font-bold text-sm uppercase">{t('dashboard.chat')}</p>
                 <p className="text-[11px] text-on-surface-variant uppercase tracking-widest">LLM Inference · llama.cpp</p>
               </div>
             </div>
@@ -222,7 +222,7 @@ const Dashboard: FC = () => {
                 <span className="material-symbols-outlined text-base">hub</span>
               </div>
               <div>
-                <p className="font-headline font-bold text-sm uppercase">Embed</p>
+                <p className="font-headline font-bold text-sm uppercase">{t('dashboard.embed')}</p>
                 <p className="text-[11px] text-on-surface-variant uppercase tracking-widest">Embeddings · llama.cpp</p>
               </div>
             </div>
@@ -254,7 +254,7 @@ const Dashboard: FC = () => {
                 <span className="material-symbols-outlined text-base">database</span>
               </div>
               <div>
-                <p className="font-headline font-bold text-sm uppercase">ChromaDB</p>
+                <p className="font-headline font-bold text-sm uppercase">{t('dashboard.chromadb')}</p>
                 <p className="text-[11px] text-on-surface-variant uppercase tracking-widest">Vector Storage · API v2</p>
               </div>
             </div>
@@ -425,7 +425,7 @@ const Dashboard: FC = () => {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
 
           <div className="bg-surface-container p-5 border-t-2 border-primary/60">
-            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">Documents</p>
+            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">{t('dashboard.documents')}</p>
             {statsLoading ? <Skeleton className="h-9 w-12" /> : (
               <>
                 <p className="font-headline font-bold text-3xl">{totalDocs}</p>
@@ -443,7 +443,7 @@ const Dashboard: FC = () => {
           </div>
 
           <div className="bg-surface-container p-5 border-t-2 border-secondary/60">
-            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">AI Comments</p>
+            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">{t('dashboard.aiComments')}</p>
             {statsLoading ? <Skeleton className="h-9 w-12" /> : (
               <>
                 <p className="font-headline font-bold text-3xl">{commentStats?.aiGenerated ?? 0}</p>
@@ -455,18 +455,18 @@ const Dashboard: FC = () => {
           </div>
 
           <div className="bg-surface-container p-5 border-t-2 border-primary/40">
-            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">Reviewed</p>
+            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">{t('dashboard.reviewed')}</p>
             {statsLoading ? <Skeleton className="h-9 w-12" /> : (
               <>
                 <p className="font-headline font-bold text-3xl">
                   {(commentStats?.approved ?? 0) + (commentStats?.rejected ?? 0)}
                 </p>
                 <div className="flex gap-3 mt-2">
-                  <span className="flex items-center gap-1 text-[10px] font-bold text-primary" title="Approved">
+                  <span className="flex items-center gap-1 text-[10px] font-bold text-primary" title={t('dashboard.approved')}>
                     <span aria-hidden="true" className="material-symbols-outlined text-[12px]">thumb_up</span>
                     {commentStats?.approved ?? 0}
                   </span>
-                  <span className="flex items-center gap-1 text-[10px] font-bold text-error" title="Rejected">
+                  <span className="flex items-center gap-1 text-[10px] font-bold text-error" title={t('dashboard.rejected')}>
                     <span aria-hidden="true" className="material-symbols-outlined text-[12px]">thumb_down</span>
                     {commentStats?.rejected ?? 0}
                   </span>
@@ -476,7 +476,7 @@ const Dashboard: FC = () => {
           </div>
 
           <div className={`bg-surface-container p-5 border-t-2 ${dpoPairsReady ? 'border-primary' : 'border-outline-variant/30'}`}>
-            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">DPO Ready</p>
+            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">{t('dashboard.dpoReady')}</p>
             {statsLoading ? <Skeleton className="h-9 w-12" /> : (
               <>
                 <p className={`font-headline font-bold text-3xl ${dpoPairsReady ? 'text-primary' : 'text-outline'}`}>
@@ -513,7 +513,7 @@ const Dashboard: FC = () => {
       {/* ── Data Visualizations ── */}
       {!statsLoading && (gedStats?.byLifecycle || stats?.byCategory) && (
         <section className="space-y-4">
-          <h3 className="font-headline text-sm font-bold uppercase tracking-tight text-on-surface-variant">Visualizations</h3>
+          <h3 className="font-headline text-sm font-bold uppercase tracking-tight text-on-surface-variant">{t('dashboard.visualizations')}</h3>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
             {gedStats?.byLifecycle && Object.keys(gedStats.byLifecycle).length > 0 && (
@@ -577,7 +577,7 @@ const Dashboard: FC = () => {
       <section className="space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <h3 className="font-headline text-sm font-bold uppercase tracking-tight text-on-surface-variant">Personalization Cycle</h3>
+            <h3 className="font-headline text-sm font-bold uppercase tracking-tight text-on-surface-variant">{t('dashboard.personalizationCycle')}</h3>
             {statsErrors.includes('metrics') && (
               <Tooltip content="Unable to load personalization metrics.">
                 <span className="material-symbols-outlined text-sm text-error cursor-help">warning</span>
@@ -594,7 +594,7 @@ const Dashboard: FC = () => {
 
           {/* Approuvés + approval ratio */}
           <div className="bg-surface-container p-5 border-t-2 border-primary space-y-2">
-            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Approved</p>
+            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">{t('dashboard.approved')}</p>
             {statsLoading ? <Skeleton className="h-9 w-12" /> : (
               <>
                 <p className="font-headline font-bold text-3xl text-primary">
@@ -618,13 +618,13 @@ const Dashboard: FC = () => {
                         <div className="bg-outline-variant/30 transition-all" style={{ width: `${pctP}%` }} />
                       </div>
                       <div className="flex gap-3 text-[10px] text-outline">
-                        <span className="flex items-center gap-1 text-primary" title="Approved">
+                        <span className="flex items-center gap-1 text-primary" title={t('dashboard.approved')}>
                           <span aria-hidden="true" className="material-symbols-outlined text-[12px]">thumb_up</span>{m.approvedComments}
                         </span>
-                        <span className="flex items-center gap-1 text-error" title="Rejected">
+                        <span className="flex items-center gap-1 text-error" title={t('dashboard.rejected')}>
                           <span aria-hidden="true" className="material-symbols-outlined text-[12px]">thumb_down</span>{m.rejectedComments}
                         </span>
-                        <span className="flex items-center gap-1" title="Pending">
+                        <span className="flex items-center gap-1" title={t('dashboard.pending')}>
                           <span aria-hidden="true" className="material-symbols-outlined text-[12px]">schedule</span>{pending}
                         </span>
                       </div>
@@ -637,7 +637,7 @@ const Dashboard: FC = () => {
 
           {/* Paires DPO */}
           <div className="bg-surface-container p-5 border-t-2 border-secondary space-y-2">
-            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">DPO Pairs</p>
+            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">{t('dashboard.dpoPairs')}</p>
             {statsLoading ? <Skeleton className="h-9 w-12" /> : (
               <>
                 <p className="font-headline font-bold text-3xl text-secondary">
@@ -654,7 +654,7 @@ const Dashboard: FC = () => {
 
           {/* Fine-Tunings */}
           <div className="bg-surface-container p-5 border-t-2 border-outline-variant space-y-2">
-            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Fine-Tunings</p>
+            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">{t('dashboard.fineTunings')}</p>
             {statsLoading ? <Skeleton className="h-9 w-12" /> : (
               <>
                 <p className="font-headline font-bold text-3xl">
@@ -669,7 +669,7 @@ const Dashboard: FC = () => {
 
           {/* Score Éval. avec tendance */}
           <div className="bg-surface-container p-5 border-t-2 border-outline-variant space-y-2">
-            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Eval Score</p>
+            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">{t('dashboard.evalScore')}</p>
             {statsLoading ? <Skeleton className="h-9 w-12" /> : (() => {
               const m = personalizationMetrics;
               const completed = (m?.evaluations ?? []).filter(e => e.status === 'COMPLETED');
@@ -792,7 +792,7 @@ const Dashboard: FC = () => {
             {(personalizationMetrics?.evaluations.filter(e => e.status === 'COMPLETED').length ?? 0) > 0 && (
               <div className="bg-surface-container p-4 space-y-3 flex flex-col h-full">
                 <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant flex items-center justify-between">
-                  <span>Score Evolution</span>
+                  <span>{t('dashboard.scoreEvolution')}</span>
                   <button type="button" onClick={() => navigate('/comparison')} className="hover:text-primary transition-colors flex items-center gap-1">
                      <span className="material-symbols-outlined text-[11px]">open_in_new</span> Details
                   </button>
@@ -845,7 +845,7 @@ const Dashboard: FC = () => {
 
       {/* ── RAG Capabilities ── */}
       <section className="space-y-4">
-        <h3 className="font-headline text-sm font-bold uppercase tracking-tight text-on-surface-variant">RAG Capabilities</h3>
+        <h3 className="font-headline text-sm font-bold uppercase tracking-tight text-on-surface-variant">{t('dashboard.ragCapabilities')}</h3>
         <AnimatedContent className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
           {[
             { label: 'Hybrid Search',   icon: 'merge',          desc: 'BM25 + RRF vectors',           color: 'primary' },
@@ -866,7 +866,7 @@ const Dashboard: FC = () => {
 
       {/* ── Quick Actions ── */}
       <section className="space-y-4">
-        <h3 className="font-headline text-sm font-bold uppercase tracking-tight text-on-surface-variant">Pipeline</h3>
+        <h3 className="font-headline text-sm font-bold uppercase tracking-tight text-on-surface-variant">{t('dashboard.pipeline')}</h3>
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
           {[
             { step: '1', label: 'Ingest',      sub: 'Upload documents',  icon: 'cloud_upload',   route: '/ingestion' },
