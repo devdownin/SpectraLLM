@@ -28,7 +28,7 @@ pour une page. À chaque fois, la chose juste est là, et le code passe à côt�
 | # | Constat | Nature | Effort |
 |---|---|---|---|
 | F1 | La couverture affichée vaut **le double** de la réelle | Mesure faussée | Faible, mais coûteux à assumer |
-| F2 | `services/api.ts` : 92 fonctions, **0 %** couvert | Risque | Moyen |
+| F2 | `services/api.ts` : 92 fonctions, **0 %** couvert | Risque | **Corrigé** |
 | F3 | `apiErrorMessage` adopté sur **1 chemin d'erreur sur 16** | Régression latente | **Corrigé** |
 | F4 | La logique vit dans les pages, pas dans les composants | Structure | Élevé |
 | F5 | Deux systèmes d'icônes : 198 usages contre 2 | Poids inutile | Faible |
@@ -107,8 +107,34 @@ répertoire `services/`. À comparer avec `lib/`, où chaque module a son test �
 existe dans ce dépôt, elle ne s'est simplement pas appliquée ici.
 
 Un test par fonction serait absurde. Ce qui vaut le coup est plus étroit : vérifier que chaque
-groupe d'appels vise la bonne route et propage bien le corps et les erreurs. Une vingtaine de
-cas sur les familles réellement utilisées suffiraient à couvrir la surface qui casse.
+groupe d'appels vise la bonne route et propage bien le corps et les erreurs.
+
+### Correction
+
+22 cas, ciblés sur les deux seules surfaces qui peuvent casser **en silence** :
+
+- **l'intercepteur de réponse**, qui arbitre ce qui remonte à l'utilisateur. Cinq cas figent
+  qu'une panne réseau alerte, qu'une 5xx affiche le message du serveur et non celui d'axios,
+  que les **4xx sont laissées aux pages** — les remonter doublerait le message affiché — que
+  l'identifiant de toast reste stable pour qu'un sondage en panne n'empile pas les alertes, et
+  que l'erreur est toujours **rejetée**, sans quoi le `catch` de la page ne s'exécute jamais et
+  l'écran reste en chargement ;
+- **les URL assemblées à la main**. Une quinzaine d'appels concatènent `?actor=`,
+  `?lifecycle=&actor=`, `?force=`, passent un corps à un `DELETE` ou montent un `FormData`.
+  Rien dans le typage ne les protège.
+
+Le cas le plus utile de l'ensemble : `commentApi.addHuman` et `commentApi.generate` visent la
+**même route** et ne diffèrent que par un booléen `generate`. Les intervertir appellerait le
+LLM à chaque commentaire saisi à la main — sans erreur visible, juste une facture de calcul et
+un texte que personne n'a écrit.
+
+**Couverture de `api.ts` : 0/92 → 19/92 fonctions**, 18/164 → 46/164 instructions. Le reste,
+ce sont les `api.get('/x')` d'une ligne dont un test ne ferait que recopier l'URL — les couvrir
+ferait monter le pourcentage sans rien protéger, soit exactement le geste que F1 dénonce.
+
+Deux tests ont d'ailleurs échoué à la première exécution, sur des hypothèses fausses de ma
+part : `getTelemetry` passe son plafond par `params` et non dans l'URL, et la méthode s'appelle
+`addHuman`, pas `add`. Ils ont été corrigés d'après le code réel.
 
 ---
 
