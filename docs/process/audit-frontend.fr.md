@@ -27,7 +27,7 @@ pour une page. À chaque fois, la chose juste est là, et le code passe à côt�
 
 | # | Constat | Nature | Effort |
 |---|---|---|---|
-| F1 | La couverture affichée vaut **le double** de la réelle | Mesure faussée | Faible, mais coûteux à assumer |
+| F1 | La couverture affichée vaut **le double** de la réelle | Mesure faussée | **Corrigé** |
 | F2 | `services/api.ts` : 92 fonctions, **0 %** couvert | Risque | **Corrigé** |
 | F3 | `apiErrorMessage` adopté sur **1 chemin d'erreur sur 16** | Régression latente | **Corrigé** |
 | F4 | La logique vit dans les pages, pas dans les composants | Structure | Élevé |
@@ -78,21 +78,45 @@ de fonctions** pour justifier de ne pas refondre les pages à état lourd (const
 chiffres étaient faux. La conclusion, elle, en sort renforcée : refondre un composant de
 1 300 lignes sous 24 % de couverture de fonctions est encore moins raisonnable que sous 45 %.
 
-**Correction, et pourquoi elle n'est pas appliquée ici.** Ajouter `all: true` et un `include`
-prend trois lignes. Mais `codecov.yml` compare au commit de base avec `threshold: 1%` : publier
-soudain 33 % au lieu de 61 % ferait **échouer le statut Codecov** de la PR qui corrige le
-réglage. C'est très probablement la raison pour laquelle personne ne l'a fait.
+### Correction — et un chiffrage que j'avais annoncé quatre fois trop grand
 
-Deux façons de l'assumer, et c'est une décision de mainteneur :
+Ajouter `all: true` et un `include` prend trois lignes. Le blocage était ailleurs :
+`codecov.yml` comparait au commit de base avec `threshold: 1%`, donc la PR qui rendait le
+chiffre honnête aurait échoué au statut. C'est très probablement pourquoi le réglage est resté
+faux si longtemps.
 
-- **accepter la chute une fois** — corriger le réglage et forcer le statut sur cette PR, en
-  expliquant dans le corps que le chiffre ne baisse pas, il devient vrai ;
-- **poser un plancher explicite** — remplacer `target: auto` par un objectif chiffré (par
-  exemple 33 %) au moment d'activer `all`, puis le remonter progressivement. L'indicateur
-  redevient honnête *et* la CI reste verte.
+**Mais l'ampleur annoncée — « 33 % au lieu de 61 % » — ne valait que pour le frontend seul.**
+Les cinq rapports (Jacoco, Vitest, docparser, reranker, trainer) sont téléversés **sans
+flags** : Codecov les fusionne en un seul chiffre global, où le frontend ne pèse que 1 832
+lignes sur 12 579. Mesuré :
 
-Je recommande la seconde : elle rend le progrès mesurable au lieu de repartir d'un « auto »
-qui, lui, se contentera de figer la nouvelle base.
+| | Couvert / total | % |
+|---|---|---|
+| Backend (Jacoco) | 7 056 / 10 264 | 68,7 % |
+| Python (trois services) | 458 / 483 | 94,8 % |
+| Frontend, dénominateur tronqué | 1 169 / 1 832 | 63,8 % |
+| Frontend, dénominateur complet | 1 125 / 3 254 | **34,6 %** |
+| **Global avant** | 8 683 / 12 579 | **69,03 %** |
+| **Global après** | 8 639 / 14 001 | **61,70 %** |
+
+L'écart réel est de **−7,33 points**, non de −28. La conclusion tenait — 7,33 dépasse largement
+le seuil de 1 % — mais l'ordre de grandeur comptait pour choisir le plancher.
+
+**Ce qui est appliqué :** `target: 60%` sur `project`, `target: 70%` sur `patch`.
+
+Un objectif **chiffré remplace la comparaison au commit de base**. Livrés dans la même PR,
+`all: true` et `target: 60%` donnent 61,70 % contre un plancher de 60 % : **vert du premier
+coup, sans statut à forcer**. C'est ce qui rend l'option « plancher » strictement meilleure que
+l'option « accepter la chute », que je présentais à tort comme équivalente.
+
+- **60 %** et non 62 % : le global atterrit à 61,70 %, un plancher à 62 % échouerait
+  immédiatement et 61 % ne laisserait que 0,7 point. 60 % laisse 1,7 point de marge de
+  travail — une marge, pas un droit à la dérive.
+- **70 % sur le patch** : le code neuf est tenu plus haut que le legacy. C'est le seul levier
+  qui fait remonter la couverture sans campagne dédiée, et il laisse de la place aux lignes
+  qu'on ne teste pas raisonnablement (journalisation, gardes défensives). Une PR légitimement
+  en dessous — un correctif d'une ligne dans un fichier non couvert — se traite en l'expliquant
+  en revue, pas en baissant le seuil.
 
 ---
 
