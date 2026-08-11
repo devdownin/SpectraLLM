@@ -26,6 +26,7 @@ const RagComparisonDialog = lazy(() => import('../components/playground/RagCompa
 const RagTracePanel = lazy(() => import('../components/playground/RagTracePanel'));
 
 const RagBadges: FC<{ meta: RagMeta; onShowTrace?: () => void }> = ({ meta, onShowTrace }) => {
+  const { t } = useTranslation();
   const badges: { label: string; active: boolean; tooltip: string }[] = [
     { label: 'CONV',  active: meta.conversationalApplied, tooltip: meta.rewrittenQuestion
         ? `Conversational RAG — question rephrased for retrieval: “${meta.rewrittenQuestion}”`
@@ -66,7 +67,7 @@ const RagBadges: FC<{ meta: RagMeta; onShowTrace?: () => void }> = ({ meta, onSh
           type="button"
           onClick={onShowTrace}
           className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-outline hover:text-primary transition-colors px-1.5 py-0.5"
-          aria-label="View algorithm trace details"
+          aria-label={t('playground.traceDetails')}
         >
           <span className="material-symbols-outlined text-[13px]">insights</span>
           Trace
@@ -107,9 +108,9 @@ const SourceItem: FC<{
       const items: any[] = res.data?.content ?? res.data ?? [];
       const match = items.find(d => d.fileName === src.sourceFile) ?? items[0];
       if (match?.sha256) navigate(`/documents?doc=${encodeURIComponent(match.sha256)}`);
-      else toast.error('Document not found in Documents');
+      else toast.error(t('playground.docNotFound'));
     } catch {
-      toast.error('Could not open the document');
+      toast.error(t('playground.docOpenFailed'));
     }
   };
 
@@ -127,7 +128,7 @@ const SourceItem: FC<{
         <span className="font-mono text-[10px] text-on-surface-variant truncate flex-1">{src.sourceFile}</span>
         {pct !== null && <span className="text-[10px] font-bold text-primary shrink-0" title={t('playground.relevance')}>{pct}%</span>}
         {isBm25Only(src) && (
-          <span className="text-[10px] font-bold text-secondary shrink-0" title="Found by keyword search (BM25) — no vector distance available">BM25</span>
+          <span className="text-[10px] font-bold text-secondary shrink-0" title={t('playground.bm25Only')}>BM25</span>
         )}
         <span aria-hidden="true" className={`material-symbols-outlined text-[12px] text-outline shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}>expand_more</span>
       </button>
@@ -135,7 +136,7 @@ const SourceItem: FC<{
         <div className="pl-5 pb-2 space-y-1.5">
           {snippet
             ? <p className="text-[11px] text-on-surface-variant leading-relaxed whitespace-pre-wrap">{snippet}</p>
-            : <p className="text-[11px] text-outline italic">No preview available.</p>}
+            : <p className="text-[11px] text-outline italic">{t('playground.noPreview')}</p>}
           <div className={`flex items-center ${expert ? 'justify-between' : 'justify-end'}`}>
             {expert && (
               <span className="text-[10px] font-mono text-outline">
@@ -326,7 +327,7 @@ const Playground: FC = () => {
       d ? { ...d, activeModel: modelName } : d);
     try {
       await configApi.setModelConfig({ model: modelName });
-      toast.info('Active model updated', {
+      toast.info(t('playground.modelUpdated'), {
         description: `llm-chat reloads "${modelName}" automatically within a few seconds.`,
       });
     } catch (error) {
@@ -334,7 +335,7 @@ const Playground: FC = () => {
       queryClient.setQueryData(['playground-models'], (d: typeof modelsData) =>
         d ? { ...d, activeModel: previous } : d);
       // 400 : alias inconnu du registre — le détail liste les modèles enregistrés.
-      toast.error('Failed to switch model', {
+      toast.error(t('playground.modelSwitchFailed'), {
         description: apiErrorMessage(error),
       });
     }
@@ -345,7 +346,7 @@ const Playground: FC = () => {
   const clearChat = () => {
     setMessages([{ role: 'assistant', content: 'Discussion cleared. System ready.', status: 'SENT', local: true }]);
     setConfirmClear(false);
-    toast.info('Chat history cleared');
+    toast.info(t('playground.historyCleared'));
   };
 
   /** Confirme uniquement s'il y a une vraie conversation à perdre. */
@@ -405,7 +406,7 @@ const Playground: FC = () => {
   const exportConversation = (format: 'md' | 'json') => {
     setExportMenuOpen(false);
     const real = messages.filter(m => m.content?.trim());
-    if (real.length <= 1) { toast.info('Nothing to export yet'); return; }
+    if (real.length <= 1) { toast.info(t('playground.nothingToExport')); return; }
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
     if (format === 'md') {
       downloadFile(`spectra-chat-${stamp}.md`, 'text/markdown', conversationToMarkdown());
@@ -443,7 +444,7 @@ const Playground: FC = () => {
   const submitQuery = async (text: string, regenerate = false, tempOverride?: number) => {
     if (!text.trim() || isTyping) return;
     if (llmDown) {
-      toast.error('Model offline', { description: 'The chat model service is unreachable. Check llama-cpp-chat.' });
+      toast.error(t('playground.modelOffline'), { description: t('playground.modelOfflineDesc') });
       return;
     }
     const effTemperature = tempOverride ?? temperature;
@@ -591,7 +592,7 @@ const Playground: FC = () => {
           flushTokens();
           let msg = 'Spectra core is currently unreachable or timed out.';
           try { msg = JSON.parse(event.data).message ?? msg; } catch { /* ignore */ }
-          toast.error('Query Uplink Failed', { description: msg });
+          toast.error(t('playground.queryFailed'), { description: msg });
           setMessages(prev => {
             const lastUserIdx = prev.findLastIndex(m => m.role === 'user' && m.content === currentInput);
             const lastAsstIdx = prev.findLastIndex(m => m.role === 'assistant');
@@ -630,12 +631,12 @@ const Playground: FC = () => {
               return m;
             });
         });
-        if (timedOut) toast.warning('Generation timed out (stalled)');
-        else toast.info('Generation stopped');
+        if (timedOut) toast.warning(t('playground.generationTimeout'));
+        else toast.info(t('playground.generationStopped'));
         return;
       }
-      toast.error('Query Uplink Failed', {
-        description: 'Spectra core is currently unreachable or timed out.'
+      toast.error(t('playground.queryFailed'), {
+        description: t('playground.coreUnreachable')
       });
       setMessages(prev => {
         const lastUserIdx = prev.findLastIndex(m => m.role === 'user' && m.content === currentInput);
@@ -670,7 +671,7 @@ const Playground: FC = () => {
     // (ou pendant une génération) effaçait le texte tapé sans l'envoyer.
     if (!input.trim() || isTyping) return;
     if (llmDown) {
-      toast.error('Model offline', { description: 'The chat model service is unreachable. Check llama-cpp-chat.' });
+      toast.error(t('playground.modelOffline'), { description: t('playground.modelOfflineDesc') });
       return;
     }
     const text = input;
@@ -709,7 +710,7 @@ const Playground: FC = () => {
   const stopGeneration = () => abortRef.current?.abort();
 
   const copyAnswer = (text: string) => {
-    navigator.clipboard.writeText(text).then(() => toast.success('Answer copied')).catch(() => {});
+    navigator.clipboard.writeText(text).then(() => toast.success(t('playground.answerCopied'))).catch(() => {});
   };
 
   /** Lance une comparaison A/B : rejoue la question de ce tour avec {@code mod} désactivé. */
@@ -718,7 +719,7 @@ const Playground: FC = () => {
     const before = messages.slice(0, msgIndex);
     const userIdx = before.map(m => m.role).lastIndexOf('user');
     const question = userIdx >= 0 ? before[userIdx].content : '';
-    if (!question) { toast.error('No question found to compare'); return; }
+    if (!question) { toast.error(t('playground.noQuestion')); return; }
     setComparison({ baseline: messages[msgIndex], question, module: mod, history: buildHistory(userIdx) });
   };
 
@@ -752,7 +753,7 @@ const Playground: FC = () => {
       <aside className="w-80 bg-surface-container p-6 space-y-8 overflow-y-auto custom-scrollbar">
         {services && (
           <div>
-            <h3 className="font-headline text-sm font-bold tracking-tight mb-4 uppercase">System</h3>
+            <h3 className="font-headline text-sm font-bold tracking-tight mb-4 uppercase">{t('playground.system')}</h3>
             <div className="space-y-2">
               {[
                 { label: 'Chat Model', svc: chatService, warn: llmDown },
@@ -780,12 +781,12 @@ const Playground: FC = () => {
           </div>
         )}
         <div>
-          <h3 className="font-headline text-sm font-bold tracking-tight mb-4 uppercase">Model Parameters</h3>
+          <h3 className="font-headline text-sm font-bold tracking-tight mb-4 uppercase">{t('playground.modelParameters')}</h3>
           <div className="space-y-6">
             <div className="space-y-2">
               <div className="flex justify-between items-center">
                 <Tooltip content="Controls randomness: Lower is more deterministic, higher is more creative.">
-                  <label className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant cursor-help">Temperature</label>
+                  <label className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant cursor-help">{t('playground.temperature')}</label>
                 </Tooltip>
                 <span className="text-[11px] font-mono text-primary">{temperature.toFixed(1)}</span>
               </div>
@@ -801,7 +802,7 @@ const Playground: FC = () => {
             <div className="space-y-2">
               <div className="flex justify-between items-center">
                 <Tooltip content="Limits the cumulative probability of the most likely tokens.">
-                  <label className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant cursor-help">Top P</label>
+                  <label className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant cursor-help">{t('playground.topP')}</label>
                 </Tooltip>
                 <span className="text-[11px] font-mono text-primary">{topP.toFixed(2)}</span>
               </div>
@@ -818,7 +819,7 @@ const Playground: FC = () => {
 
         {availableModels.length > 0 && (
           <div>
-            <h3 className="font-headline text-sm font-bold tracking-tight mb-4 uppercase">Active Model</h3>
+            <h3 className="font-headline text-sm font-bold tracking-tight mb-4 uppercase">{t('playground.activeModel')}</h3>
             <div className="space-y-3">
               {availableModels.map(m => (
                 <button
@@ -846,7 +847,7 @@ const Playground: FC = () => {
         )}
 
         <div>
-          <h3 className="font-headline text-sm font-bold tracking-tight mb-4 uppercase">RAG Configuration</h3>
+          <h3 className="font-headline text-sm font-bold tracking-tight mb-4 uppercase">{t('playground.ragConfiguration')}</h3>
           <div className="space-y-3">
             <label className="flex items-center gap-3 cursor-pointer group">
               <input
@@ -862,7 +863,7 @@ const Playground: FC = () => {
               <div className="w-4 h-4 border border-primary flex items-center justify-center group-hover:bg-primary/10 transition-colors peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-primary peer-focus-visible:outline-offset-2">
                 {ragEnabled && <div className="w-2 h-2 bg-primary"></div>}
               </div>
-              <span className="text-xs font-label uppercase tracking-widest">Enable Knowledge Base</span>
+              <span className="text-xs font-label uppercase tracking-widest">{t('playground.enableKb')}</span>
             </label>
 
             {ragEnabled && (
@@ -882,7 +883,7 @@ const Playground: FC = () => {
                     {convEnabled && <div className="w-2 h-2 bg-secondary"></div>}
                   </div>
                   <Tooltip content="Sends the conversation history to rephrase the question before retrieval (Conversational RAG).">
-                    <span className="text-xs font-label uppercase tracking-widest cursor-help">Conversational History</span>
+                    <span className="text-xs font-label uppercase tracking-widest cursor-help">{t('playground.history')}</span>
                   </Tooltip>
                 </label>
 
@@ -1045,7 +1046,7 @@ const Playground: FC = () => {
           role="log"
           aria-live="polite"
           aria-busy={isTyping}
-          aria-label="Conversation"
+          aria-label={t('playground.conversation')}
           className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar"
         >
           {messages.map((msg, i) => (
@@ -1124,38 +1125,38 @@ const Playground: FC = () => {
                   <div className="mt-3 flex items-center justify-between gap-3">
                     {msg.metrics && expertMode ? (
                       <div className="flex items-center gap-3 text-[10px] font-mono text-outline">
-                        <span title="Time to first token">TTFT {(msg.metrics.ttftMs / 1000).toFixed(1)}s</span>
-                        <span title="Total time">{(msg.metrics.totalMs / 1000).toFixed(1)}s</span>
-                        <span title="Tokens (approx.)">{msg.metrics.tokens} tok</span>
+                        <span title={t('playground.timeToFirstToken')}>TTFT {(msg.metrics.ttftMs / 1000).toFixed(1)}s</span>
+                        <span title={t('playground.totalTime')}>{(msg.metrics.totalMs / 1000).toFixed(1)}s</span>
+                        <span title={t('playground.tokensApprox')}>{msg.metrics.tokens} tok</span>
                         {msg.stopped && (
-                          <span className="text-error font-bold uppercase tracking-wider" title="Generation stopped — answer may be incomplete">
+                          <span className="text-error font-bold uppercase tracking-wider" title={t('playground.stoppedIncomplete')}>
                             stopped
                           </span>
                         )}
                       </div>
                     ) : msg.stopped ? (
-                      <span className="text-[10px] font-mono text-error font-bold uppercase tracking-wider" title="Generation stopped — answer may be incomplete">
+                      <span className="text-[10px] font-mono text-error font-bold uppercase tracking-wider" title={t('playground.stoppedIncomplete')}>
                         stopped
                       </span>
                     ) : <span />}
 
                     <div className="flex items-center gap-1">
                       <button type="button" onClick={() => sendFeedback(i, 'UP')}
-                        aria-label="Good answer" aria-pressed={msg.feedback === 'UP'}
+                        aria-label={t('playground.goodAnswer')} aria-pressed={msg.feedback === 'UP'}
                         className={`material-symbols-outlined text-[14px] px-1 transition-colors ${msg.feedback === 'UP' ? 'text-primary' : 'text-outline hover:text-primary'}`}>thumb_up</button>
                       <button type="button" onClick={() => sendFeedback(i, 'DOWN')}
-                        aria-label="Bad answer" aria-pressed={msg.feedback === 'DOWN'}
+                        aria-label={t('playground.badAnswer')} aria-pressed={msg.feedback === 'DOWN'}
                         className={`material-symbols-outlined text-[14px] px-1 transition-colors ${msg.feedback === 'DOWN' ? 'text-error' : 'text-outline hover:text-error'}`}>thumb_down</button>
 
                       <span className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-                        <button type="button" onClick={() => copyAnswer(msg.content)} aria-label="Copy answer"
+                        <button type="button" onClick={() => copyAnswer(msg.content)} aria-label={t('playground.copyAnswer')}
                           className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-outline hover:text-primary transition-colors px-1.5 py-0.5">
                           <span aria-hidden="true" className="material-symbols-outlined text-[13px]">content_copy</span>Copy
                         </button>
                         {i === lastAssistantIdx && (
                           <div className="relative">
                             <button type="button" onClick={() => setRegenMenuOpen(o => !o)} disabled={isTyping}
-                              aria-label="Regenerate" aria-haspopup="menu" aria-expanded={regenMenuOpen}
+                              aria-label={t('playground.regenerate')} aria-haspopup="menu" aria-expanded={regenMenuOpen}
                               className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-outline hover:text-primary transition-colors px-1.5 py-0.5 disabled:opacity-40">
                               <span aria-hidden="true" className="material-symbols-outlined text-[13px]">refresh</span>Regenerate
                               <span aria-hidden="true" className={`material-symbols-outlined text-[12px] transition-transform ${regenMenuOpen ? 'rotate-180' : ''}`}>expand_more</span>
@@ -1185,7 +1186,7 @@ const Playground: FC = () => {
                         {appliedModules(msg.ragMeta).length > 0 && (
                           <div className="relative">
                             <button type="button" onClick={() => setCompareMenuIdx(idx => idx === i ? null : i)} disabled={isTyping}
-                              aria-label="Compare without a module" aria-haspopup="menu" aria-expanded={compareMenuIdx === i}
+                              aria-label={t('playground.compareWithout')} aria-haspopup="menu" aria-expanded={compareMenuIdx === i}
                               className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-outline hover:text-primary transition-colors px-1.5 py-0.5 disabled:opacity-40">
                               <span aria-hidden="true" className="material-symbols-outlined text-[13px]">compare_arrows</span>Compare
                               <span aria-hidden="true" className={`material-symbols-outlined text-[12px] transition-transform ${compareMenuIdx === i ? 'rotate-180' : ''}`}>expand_more</span>
@@ -1216,12 +1217,12 @@ const Playground: FC = () => {
                 )}
                 {msg.role === 'user' && (
                   <div className="mt-2 flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-                    <button type="button" onClick={() => editMessage(i)} disabled={isTyping} aria-label="Edit message"
+                    <button type="button" onClick={() => editMessage(i)} disabled={isTyping} aria-label={t('playground.editMessage')}
                       className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-outline hover:text-secondary transition-colors px-1.5 py-0.5 disabled:opacity-40">
                       <span aria-hidden="true" className="material-symbols-outlined text-[13px]">edit</span>Edit
                     </button>
                     {msg.status === 'ERROR' && (
-                      <button type="button" onClick={() => regenerateLast()} disabled={isTyping} aria-label="Retry"
+                      <button type="button" onClick={() => regenerateLast()} disabled={isTyping} aria-label={t('playground.retry')}
                         className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-error hover:text-error/80 transition-colors px-1.5 py-0.5 disabled:opacity-40">
                         <span aria-hidden="true" className="material-symbols-outlined text-[13px]">replay</span>Retry
                       </button>
@@ -1239,7 +1240,7 @@ const Playground: FC = () => {
                   <div className="w-1 h-1 bg-primary animate-bounce [animation-delay:0.2s]"></div>
                   <div className="w-1 h-1 bg-primary animate-bounce [animation-delay:0.4s]"></div>
                 </div>
-                <span className="text-[10px] uppercase tracking-widest text-outline">Processing...</span>
+                <span className="text-[10px] uppercase tracking-widest text-outline">{t('playground.processing')}</span>
               </div>
             </div>
           )}
@@ -1251,7 +1252,7 @@ const Playground: FC = () => {
           <button
             type="button"
             onClick={scrollToBottom}
-            aria-label="Scroll to latest message"
+            aria-label={t('playground.scrollLatest')}
             className="absolute bottom-28 right-6 z-10 flex items-center gap-1 bg-surface-container-high border border-outline-variant/30 text-on-surface-variant hover:text-primary px-2.5 py-1.5 shadow-lg text-[10px] uppercase tracking-widest transition-colors animate-in fade-in slide-in-from-bottom-2"
           >
             <span aria-hidden="true" className={`material-symbols-outlined text-[14px] ${isTyping ? 'text-primary animate-bounce' : ''}`}>arrow_downward</span>
@@ -1267,7 +1268,7 @@ const Playground: FC = () => {
             </p>
           )}
           <div className="flex items-end gap-3 bg-surface-container-lowest border border-outline-variant/20 p-2">
-            <label htmlFor="chat-input" className="sr-only">Message</label>
+            <label htmlFor="chat-input" className="sr-only">{t('playground.message')}</label>
             <textarea
               id="chat-input"
               ref={textareaRef}
@@ -1292,7 +1293,7 @@ const Playground: FC = () => {
               <button
                 type="button"
                 onClick={stopGeneration}
-                aria-label="Stop generation"
+                aria-label={t('playground.stopGeneration')}
                 className="bg-error/90 text-on-error p-2 transition-all hover:bg-error flex items-center justify-center"
               >
                 <span aria-hidden="true" className="material-symbols-outlined">stop</span>
@@ -1302,7 +1303,7 @@ const Playground: FC = () => {
                 type="button"
                 onClick={handleSend}
                 disabled={!input.trim() || llmDown}
-                aria-label="Send message"
+                aria-label={t('playground.sendMessage')}
                 className="bg-primary text-on-primary-fixed p-2 transition-all hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center"
               >
                 <span aria-hidden="true" className="material-symbols-outlined">send</span>
