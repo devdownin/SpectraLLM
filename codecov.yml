@@ -1,17 +1,35 @@
 version: "3"
 
+# Les cinq rapports (Jacoco, Vitest, docparser, reranker, trainer) sont téléversés SANS flags :
+# Codecov les fusionne en un seul chiffre global. Un pourcentage cité ici ne parle donc jamais
+# d'un module en particulier.
 coverage:
   status:
     project:
       default:
-        # Compare coverage to the base commit.
-        target: auto
-        # Allow the coverage to drop by up to 1% before failing the status check.
+        # Plancher CHIFFRÉ, et non « auto ».
+        #
+        # « auto » compare au commit de base. C'est ce qui rendait impossible la correction du
+        # dénominateur de couverture du frontend (`all: true` dans vitest.config.ts) : le
+        # global passe de 69,0 % à 61,7 %, soit -7,3 points, très au-delà du seuil de 1 %. La
+        # PR qui rendait le chiffre HONNÊTE aurait donc échoué au statut — raison probable pour
+        # laquelle le réglage est resté faux si longtemps.
+        #
+        # Un objectif chiffré remplace la comparaison au commit de base : 61,7 % > 60 %, la CI
+        # reste verte et le chiffre devient vrai. La marge de 1,7 point est une marge de
+        # travail, pas un droit à la dérive — à remonter au fur et à mesure.
+        target: 60%
         threshold: 1%
     patch:
       default:
-        # The coverage for the new code only (patch).
-        target: auto
+        # Le code NEUF est tenu plus haut que le legacy : c'est le seul levier qui fait
+        # remonter la couverture sans campagne dédiée. 70 % laisse de la place aux lignes
+        # qu'on ne teste pas raisonnablement (journalisation, gardes défensives) tout en
+        # rendant intenable une fonctionnalité livrée sans test.
+        #
+        # Une PR légitimement en dessous (correctif d'une ligne dans un fichier non couvert)
+        # se traite en expliquant pourquoi dans la revue, pas en baissant ce seuil.
+        target: 70%
         threshold: 1%
 
 ignore:
