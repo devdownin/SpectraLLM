@@ -29,7 +29,7 @@ pour une page. À chaque fois, la chose juste est là, et le code passe à côt�
 |---|---|---|---|
 | F1 | La couverture affichée vaut **le double** de la réelle | Mesure faussée | Faible, mais coûteux à assumer |
 | F2 | `services/api.ts` : 92 fonctions, **0 %** couvert | Risque | Moyen |
-| F3 | `apiErrorMessage` adopté sur **1 chemin d'erreur sur 16** | Régression latente | Faible |
+| F3 | `apiErrorMessage` adopté sur **1 chemin d'erreur sur 16** | Régression latente | **Corrigé** |
 | F4 | La logique vit dans les pages, pas dans les composants | Structure | Élevé |
 | F5 | Deux systèmes d'icônes : 198 usages contre 2 | Poids inutile | Faible |
 | F6 | Trois dépendances de formulaire pour une seule page | Poids inutile | Faible |
@@ -144,6 +144,40 @@ incomplète. `apiErrorMessage` prend un `unknown`, ce qui ferme la porte.
 **C'est le meilleur rapport de cet audit** : une quinzaine de remplacements mécaniques, qui
 suppriment une régression déjà identifiée une fois et neuf `any` au passage.
 
+### Correction
+
+**Vingt** sites d'appel passent désormais par `apiErrorMessage`, y compris **l'intercepteur
+axios global** — qui ne lisait que `message` et affichait donc « Request failed with status
+code 500 » sur toute erreur serveur portant un `ProblemDetail`. C'était le site le plus
+visible, sur un toast vu partout, et il ne figurait pas dans le décompte initial de seize.
+
+Une mesure a précisé le diagnostic au passage : `GlobalExceptionHandler` convertit les **62**
+`ResponseStatusException` du backend en `ProblemDetail` (`detail`), tandis que **16** méthodes
+de contrôleur renvoient un `Map.of("error", …)`. Les deux formes sont donc courantes, et les
+six formules ad hoc se répartissaient ainsi :
+
+| Formule | Sites | Ce qu'elle ratait |
+|---|---|---|
+| `detail ?? error ?? message` | 6 | rien — équivalente |
+| `error ?? detail ?? message` | 2 | rien, priorité inversée |
+| `detail ?? message` | 3 | les 16 réponses `error` |
+| `error` seul | 4 | les 62 réponses `detail` |
+| `detail ?? indice i18n` | 2 | `error` et `message` |
+| `message` seul | 3 | **tout, dans les deux formes** |
+
+Huit des vingt étaient donc déjà correctes. **Le paragraphe ci-dessus laissait entendre que
+toutes étaient fautives : c'était trop fort**, et la mesure le corrige. Le gain n'en est pas
+moins réel — douze sites rataient effectivement une forme sur deux, et centraliser met les
+huit autres à l'abri d'un changement futur du format d'erreur.
+
+`apiErrorStatus()` a été ajouté au même module pour les quatre sites qui lisent le **code**
+HTTP (409 « déjà en cours », 429 contre-pression). Sans lui, ces sites conservaient un
+`err: any` uniquement pour atteindre `response.status` — ce qui rouvrait la porte aux
+extractions improvisées, c'est-à-dire à la cause même du défaut corrigé ici.
+
+Effet mesuré sur F8 : **77 → 55 avertissements ESLint**, l'écart étant intégralement composé
+de `no-explicit-any` devenus inutiles.
+
 ---
 
 ## F4 — La logique vit dans les pages, pas dans les composants
@@ -215,7 +249,7 @@ l'i18n en même temps.
 
 ---
 
-## F8 — 73 des 77 avertissements ESLint sont `no-explicit-any`
+## F8 — 73 des 77 avertissements ESLint sont `no-explicit-any` (55 après F3)
 
 Le reste tient en quatre : un `react-refresh/only-export-components`, un
 `react-hooks/exhaustive-deps`, deux sans règle identifiée.

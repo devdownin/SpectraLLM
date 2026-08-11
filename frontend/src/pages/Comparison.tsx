@@ -11,6 +11,7 @@ import BatchEvaluateDialog from '../components/BatchEvaluateDialog';
 import AbComparisonView from '../components/AbComparisonView';
 import Skeleton from '../components/Skeleton';
 import { EmptyState, Button, PageHeader, Input, CountUp } from '../components/ui';
+import { apiErrorMessage } from '../lib/apiError';
 
 const STATUS_COLOR: Record<string, string> = {
   PENDING:   'text-on-surface-variant',
@@ -183,10 +184,10 @@ const Comparison: FC = () => {
     try {
       await evaluationApi.submit();
       await queryClient.invalidateQueries({ queryKey: ['evaluation-reports'] });
-    } catch (err: any) {
+    } catch (err) {
       // Toast (et non alert natif) : cohérent avec le reste de l'application.
       toast.error(t('comparison.startFailed'), {
-        description: err?.response?.data?.detail ?? t('comparison.startFailedHint'),
+        description: apiErrorMessage(err, t('comparison.startFailedHint')),
       });
     } finally {
       setIsTriggering(false);

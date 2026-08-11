@@ -9,6 +9,7 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import { PageHeader, Button } from '../components/ui';
 import { ingestApi, datasetApi } from '../services/api';
 import { etaMs, formatEta } from '../hooks/useGlobalTasks';
+import { apiErrorMessage, apiErrorStatus } from '../lib/apiError';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -263,12 +264,12 @@ const Ingestion: FC = () => {
       const taskId: string = res.data.taskId;
       setIngestEntries(prev => prev.map(e => e.id === id ? { ...e, taskId, status: 'PENDING' } : e));
       pollIngest(id, taskId);
-    } catch (err: any) {
-      const msg = err?.response?.data?.detail ?? err.message;
+    } catch (err) {
+      const msg = apiErrorMessage(err);
       setIngestEntries(prev => prev.map(e => e.id === id ? { ...e, status: 'FAILED', error: msg } : e));
       // 429 = contre-pression du serveur (trop d'ingestions actives) : message dédié, non alarmant.
       // La ligne reste relançable (bouton « Relancer ») une fois le pipeline désengorgé.
-      if (err?.response?.status === 429) {
+      if (apiErrorStatus(err) === 429) {
         toast.warning(i18n.t('ingestion.busyTitle'), { description: i18n.t('ingestion.busyDesc', { name: file.name }) });
       } else {
         toast.error(i18n.t('ingestion.ingestFailed', { name: file.name }), { description: msg });
@@ -309,10 +310,10 @@ const Ingestion: FC = () => {
       const taskId: string = res.data.taskId;
       setIngestEntries(prev => prev.map(e => e.id === id ? { ...e, taskId, status: 'PENDING' } : e));
       pollIngest(id, taskId);
-    } catch (err: any) {
-      const msg = err?.response?.data?.detail ?? err.message;
+    } catch (err) {
+      const msg = apiErrorMessage(err);
       setIngestEntries(prev => prev.map(e => e.id === id ? { ...e, status: 'FAILED', error: msg } : e));
-      if (err?.response?.status === 429) {
+      if (apiErrorStatus(err) === 429) {
         toast.warning(i18n.t('ingestion.busyTitle'), { description: i18n.t('ingestion.busyDesc', { name: trimmed }) });
       } else {
         toast.error(i18n.t('ingestion.urlIngestFailed'), { description: msg });
@@ -426,8 +427,8 @@ const Ingestion: FC = () => {
       setGenTask({ taskId, status: 'PENDING', pairsGenerated: 0, chunksProcessed: 0, totalChunks: 0, error: null });
       pollGenTask(taskId);
       toast.success(t('ingestion.generationStarted'), { description: t('ingestion.generationTask', { id: taskId.slice(0, 8) }) });
-    } catch (err: any) {
-      toast.error(t('ingestion.generationError'), { description: err?.response?.data?.detail ?? err.message });
+    } catch (err) {
+      toast.error(t('ingestion.generationError'), { description: apiErrorMessage(err) });
     }
   };
 

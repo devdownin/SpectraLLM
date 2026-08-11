@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { modelsHubApi } from '../services/api';
 import { toast } from 'sonner';
 import ConfirmDialog from './ConfirmDialog';
+import { apiErrorMessage } from '../lib/apiError';
 
 const formatSize = (bytes: number) => {
   if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
@@ -35,9 +36,9 @@ const ModelStoragePanel: FC = () => {
       toast.success(t('storage.orphanDeleted', { file: res.data.file }));
       queryClient.invalidateQueries({ queryKey: ['models-storage'] });
     },
-    onError: (error: any) => {
+    onError: (error) => {
       toast.error(t('storage.deleteFailed'), {
-        description: error?.response?.data?.detail ?? error?.response?.data?.error ?? error?.message,
+        description: apiErrorMessage(error),
       });
     },
   });
@@ -62,9 +63,9 @@ const ModelStoragePanel: FC = () => {
       }
       queryClient.invalidateQueries({ queryKey: ['models-storage'] });
     },
-    onError: (error: any) => {
+    onError: (error) => {
       toast.error(t('storage.purgeFailed'), {
-        description: error?.response?.data?.detail ?? error?.response?.data?.error ?? error?.message,
+        description: apiErrorMessage(error),
       });
     },
   });
@@ -82,9 +83,9 @@ const ModelStoragePanel: FC = () => {
       queryClient.invalidateQueries({ queryKey: ['models-storage'] });
       queryClient.invalidateQueries({ queryKey: ['model-recommendations'] });
     },
-    onError: (error: any) => {
+    onError: (error) => {
       toast.error(t('storage.deleteFailed'), {
-        description: error?.response?.data?.detail ?? error?.response?.data?.error ?? error?.message,
+        description: apiErrorMessage(error),
       });
     },
   });

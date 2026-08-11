@@ -2,6 +2,7 @@ import type { FC } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { configApi } from '../services/api';
 import { toast } from 'sonner';
+import { apiErrorMessage } from '../lib/apiError';
 
 /**
  * Cohérence embedding ↔ index vectoriel.
@@ -36,9 +37,9 @@ const EmbeddingConsistencyCard: FC = () => {
       });
       queryClient.invalidateQueries({ queryKey: ['embedding-reindex'] });
     },
-    onError: (error: any) => {
+    onError: (error) => {
       toast.error('Failed to start reindexing', {
-        description: error?.response?.data?.error ?? error?.response?.data?.detail ?? error?.message,
+        description: apiErrorMessage(error),
       });
     },
   });

@@ -4,6 +4,7 @@ import { Trans, useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { configApi, evaluationApi } from '../services/api';
+import { apiErrorMessage } from '../lib/apiError';
 
 interface RegisteredModel {
   id?: string;
@@ -60,9 +61,9 @@ const BatchEvaluateDialog: FC<Props> = ({ open, onClose, onSubmitted }) => {
       onClose();
       setSelected([]);
       setTestSetSize('');
-    } catch (err: any) {
+    } catch (err) {
       toast.error(t('batchEval.startFailed'), {
-        description: err?.response?.data?.message ?? err?.message,
+        description: apiErrorMessage(err),
       });
     } finally {
       setSubmitting(false);

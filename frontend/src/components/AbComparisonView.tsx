@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { configApi, evaluationApi } from '../services/api';
 import type { AbComparisonReport, AbItem } from '../types/api';
 import Skeleton from './Skeleton';
+import { apiErrorMessage } from '../lib/apiError';
 
 interface RegisteredModel { id?: string; name?: string; type?: string; }
 
@@ -100,8 +101,8 @@ const AbComparisonView: FC = () => {
       setSelectedId(res.data?.abId ?? null);
       await queryClient.invalidateQueries({ queryKey: ['ab-reports'] });
       toast.success(t('ab.started'), { description: t('ab.startedDesc') });
-    } catch (err: any) {
-      toast.error(t('ab.startFailed'), { description: err?.response?.data?.message ?? err?.message });
+    } catch (err) {
+      toast.error(t('ab.startFailed'), { description: apiErrorMessage(err) });
     } finally {
       setSubmitting(false);
     }

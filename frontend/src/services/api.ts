@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { toast } from 'sonner';
+import { apiErrorMessage } from '../lib/apiError';
 
 const api = axios.create({
   baseURL: '/api',
@@ -16,7 +17,7 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     const status = error.response?.status;
-    const message = error.response?.data?.message || error.message || 'Spectra API Error';
+    const message = apiErrorMessage(error, 'Spectra API Error') ?? 'Spectra API Error';
     console.error(`[API Error] ${message}`, error);
     if (!error.response) {
       toast.error('Connection failed', {
