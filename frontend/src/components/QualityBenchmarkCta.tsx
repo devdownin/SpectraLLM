@@ -4,6 +4,7 @@ import { Trans, useTranslation } from 'react-i18next';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { qualityBenchmarkApi } from '../services/api';
 import { toast } from 'sonner';
+import { apiErrorMessage, apiErrorStatus } from '../lib/apiError';
 
 /**
  * Boucle « comparatif → qualité mesurée ».
@@ -66,10 +67,10 @@ const QualityBenchmarkCta: FC<{ candidate: string; baseline: string; onDismiss: 
   const start = useMutation({
     mutationFn: () => qualityBenchmarkApi.compareAsync(baseline, candidate),
     onSuccess: (res) => setJobId(res.data.jobId),
-    onError: (error: any) => {
-      const conflict = error?.response?.status === 409;
+    onError: (error) => {
+      const conflict = apiErrorStatus(error) === 409;
       toast.error(conflict ? t('qualityBench.alreadyRunning') : t('qualityBench.startFailed'), {
-        description: error?.response?.data?.error ?? error?.response?.data?.detail ?? error.message,
+        description: apiErrorMessage(error),
       });
     },
   });

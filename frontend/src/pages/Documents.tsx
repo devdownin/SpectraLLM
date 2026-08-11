@@ -19,6 +19,7 @@ import type {
   IngestedFile, IngestedFileSheet, DocumentLifecycle, ArticleComment,
   ClassificationConfig, ClassificationTask,
 } from '../types/api';
+import { apiErrorMessage } from '../lib/apiError';
 
 const PAGE_SIZE = 50;
 /** Taille d'un lot chargé depuis le serveur (pagination incrémentale « Load more »). */
@@ -181,7 +182,7 @@ const Documents: FC = () => {
     onSuccess: () => toast.success(t('documents.lifecycleUpdated')),
     onError: (err: any, _vars, snapshot) => {
       restoreDocCaches(snapshot);
-      toast.error(t('documents.transitionFailed'), { description: err.response?.data?.error });
+      toast.error(t('documents.transitionFailed'), { description: apiErrorMessage(err) });
     },
     onSettled: reconcileDocCaches,
   });
@@ -194,7 +195,7 @@ const Documents: FC = () => {
       setSelectedSha(null);
       toast.success(t('documents.docDeleted'));
     },
-    onError: (err: any) => toast.error(t('documents.deleteFailed'), { description: err.response?.data?.error }),
+    onError: (err) => toast.error(t('documents.deleteFailed'), { description: apiErrorMessage(err) }),
   });
 
   const bulkLifecycleMutation = useMutation({
@@ -276,8 +277,8 @@ const Documents: FC = () => {
       );
       reconcileDocCaches();
     },
-    onError: (err: any) => toast.error(t('documents.classifyFailed'),
-      { description: err.response?.data?.error ?? t('documents.llmUnavailable') }),
+    onError: (err) => toast.error(t('documents.classifyFailed'),
+      { description: apiErrorMessage(err, t('documents.llmUnavailable')) }),
   });
 
   const bulkClassifyMutation = useMutation({
@@ -287,8 +288,8 @@ const Documents: FC = () => {
       setClassifyTaskId(res.data.taskId);
       toast.success(t('documents.bulkClassifyStarted'));
     },
-    onError: (err: any) => toast.error(t('documents.bulkClassifyFailed'),
-      { description: err.response?.data?.error }),
+    onError: (err) => toast.error(t('documents.bulkClassifyFailed'),
+      { description: apiErrorMessage(err) }),
   });
 
   // Suivi du lot : on interroge la progression tant que la tâche tourne, puis on s'arrête.
@@ -352,8 +353,8 @@ const Documents: FC = () => {
       setCommentTab('list');
       toast.success(t('documents.aiCommentGenerated'));
     },
-    onError: (err: any) => toast.error(t('documents.aiCommentFailed'),
-      { description: err.response?.data?.error ?? t('documents.llmUnavailable') }),
+    onError: (err) => toast.error(t('documents.aiCommentFailed'),
+      { description: apiErrorMessage(err, t('documents.llmUnavailable')) }),
   });
 
   const rateCommentMutation = useMutation({

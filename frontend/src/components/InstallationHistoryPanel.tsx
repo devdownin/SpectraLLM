@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { modelsHubApi } from '../services/api';
+import { apiErrorMessage } from '../lib/apiError';
 
 /**
  * Historique persistant des installations Model Hub (llmfit download).
@@ -43,9 +44,9 @@ const InstallationHistoryPanel: FC = () => {
       toast.success(t('installs.retryStarted', { name: j.modelName }));
       queryClient.invalidateQueries({ queryKey: ['models-installations'] });
     },
-    onError: (error: any) => {
+    onError: (error) => {
       toast.error(t('installs.retryFailed'), {
-        description: error?.response?.data?.detail ?? error?.response?.data?.error ?? error?.message,
+        description: apiErrorMessage(error),
       });
     },
   });

@@ -15,6 +15,7 @@ import {
   ablationApi,
 } from '../services/api';
 import ConfirmDialog from './ConfirmDialog';
+import { apiErrorMessage } from '../lib/apiError';
 
 /**
  * Centre d'activité global (header) : rend visibles TOUTES les tâches de fond
@@ -173,9 +174,9 @@ const TaskCenter: FC = () => {
     try {
       await cancel(rawTaskId(task));
       toast.info(t('taskCenter.cancelRequested'), { description: task.label });
-    } catch (err: any) {
+    } catch (err) {
       toast.error(t('taskCenter.cancelFailed'), {
-        description: err?.response?.data?.detail ?? err?.response?.data?.error ?? err?.message,
+        description: apiErrorMessage(err),
       });
     }
   };
@@ -187,9 +188,9 @@ const TaskCenter: FC = () => {
     try {
       await ingestApi.ingestUrls(urls);
       toast.info(t('taskCenter.retryRequested'), { description: task.label });
-    } catch (err: any) {
+    } catch (err) {
       toast.error(t('taskCenter.retryFailed'), {
-        description: err?.response?.data?.detail ?? err?.response?.data?.error ?? err?.message,
+        description: apiErrorMessage(err),
       });
     }
   };

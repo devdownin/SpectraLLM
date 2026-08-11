@@ -18,6 +18,7 @@ import type { OverrideKey, ModuleDef } from '../lib/ragPipeline';
 import { parseCitations } from '../lib/citations';
 import type { Source, RagMeta, MessageMetrics, RequestParams, Message } from '../components/playground/ragTypes';
 import { STRATEGY_COLORS, STAGE_LABELS } from '../components/playground/ragTypes';
+import { apiErrorMessage } from '../lib/apiError';
 
 // Panneaux lourds chargés à la demande (React.lazy) : n'entrent dans le bundle que lorsque
 // l'utilisateur ouvre une comparaison A/B ou une trace — allège le chunk initial du Playground.
@@ -328,13 +329,13 @@ const Playground: FC = () => {
       toast.info('Active model updated', {
         description: `llm-chat reloads "${modelName}" automatically within a few seconds.`,
       });
-    } catch (error: any) {
+    } catch (error) {
       setActiveModel(previous);
       queryClient.setQueryData(['playground-models'], (d: typeof modelsData) =>
         d ? { ...d, activeModel: previous } : d);
       // 400 : alias inconnu du registre — le détail liste les modèles enregistrés.
       toast.error('Failed to switch model', {
-        description: error?.response?.data?.error ?? error?.response?.data?.detail ?? error?.message,
+        description: apiErrorMessage(error),
       });
     }
   };

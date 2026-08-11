@@ -9,6 +9,7 @@ import QualityBenchmarkCta from '../components/QualityBenchmarkCta';
 import { EmptyState, Button, PageHeader, Field, Input } from '../components/ui';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { toast } from 'sonner';
+import { apiErrorMessage } from '../lib/apiError';
 
 const ModelHub: FC = () => {
   const { t } = useTranslation();
@@ -128,10 +129,9 @@ const ModelHub: FC = () => {
       if (autoActivate) autoActivatedInstalls.current.add(variables.modelName);
       subscribeProgress(variables.modelName);
     },
-    onError: (error: any) => {
-      // L'API renvoie un ProblemDetail (RFC 9457) : le message utile est dans `detail`.
+    onError: (error) => {
       toast.error(t('modelHub.installStartFailed'), {
-        description: error?.response?.data?.detail ?? error?.response?.data?.message ?? error.message,
+        description: apiErrorMessage(error),
       });
     }
   });
@@ -447,7 +447,7 @@ const ModelHub: FC = () => {
           <EmptyState
             icon="error"
             title={t('modelHub.loadError')}
-            description={(recommendationsError as any)?.response?.data?.detail
+            description={apiErrorMessage(recommendationsError)
               ?? t('modelHub.loadErrorHint')}
             action={
               <Button onClick={() => refetch()} icon="refresh">

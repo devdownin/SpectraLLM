@@ -18,3 +18,17 @@ export function apiErrorMessage(err: unknown, fallback?: string): string | undef
   const message = (err as { message?: unknown })?.message;
   return typeof message === 'string' && message.trim() ? message : fallback;
 }
+
+/**
+ * Code HTTP d'une erreur d'API, ou `undefined` si l'erreur n'en porte pas
+ * (panne réseau, exception locale).
+ *
+ * <p>Pendant de {@link apiErrorMessage} pour les quelques endroits qui doivent distinguer un
+ * cas précis — 409 « déjà en cours », 429 contre-pression — et non seulement afficher un
+ * message. Sans lui, ces sites retombaient sur `err: any` juste pour lire `response.status`,
+ * ce qui rouvrait la porte aux extractions de message improvisées.
+ */
+export function apiErrorStatus(err: unknown): number | undefined {
+  const status = (err as { response?: { status?: unknown } })?.response?.status;
+  return typeof status === 'number' ? status : undefined;
+}

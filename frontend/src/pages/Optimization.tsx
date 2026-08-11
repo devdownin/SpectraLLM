@@ -15,6 +15,7 @@ import type {
   AblationReport,
   RagOverrides,
 } from '../types/api';
+import { apiErrorMessage, apiErrorStatus } from '../lib/apiError';
 
 /**
  * Écran « Optimisation des réponses » — valide et compare l'apport de chaque option
@@ -258,11 +259,11 @@ const Optimization: FC = () => {
     mutationFn: async () =>
       (await ablationApi.runAsync({ arms, maxContextChunks: maxChunks, runs })).data as { jobId: string },
     onSuccess: (data) => setJobId(data.jobId),
-    onError: (error: any) => {
-      const conflict = error?.response?.status === 409;
+    onError: (error) => {
+      const conflict = apiErrorStatus(error) === 409;
       toast.error(conflict ? t('optimization.alreadyRunning') : t('optimization.startFailed'), {
         description: conflict ? undefined
-          : error?.response?.data?.detail ?? t('optimization.startFailedHint'),
+          : apiErrorMessage(error, t('optimization.startFailedHint')),
       });
     },
   });
