@@ -12,7 +12,7 @@ import { gedApi, commentApi } from '../services/api';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import {
   DOCUMENT_TYPES, LIFECYCLE_BAR_COLORS, LIFECYCLE_COLORS, LIFECYCLE_TONES,
-  QUALITY_THRESHOLDS, getDocumentType, getGroupKey, getGroupLabel,
+  QUALITY_THRESHOLDS, getDocumentType, getGroupLabel,
 } from '../lib/documentTaxonomy';
 import type { DocumentTypeKey, GroupBy, SortMode } from '../lib/documentTaxonomy';
 import type {
@@ -20,6 +20,11 @@ import type {
   ClassificationConfig, ClassificationTask,
 } from '../types/api';
 import { apiErrorMessage } from '../lib/apiError';
+import {
+  filterDocuments, sortDocuments, groupDocuments,
+  availableFormats as listAvailableFormats,
+  availableCategories as listAvailableCategories,
+} from '../lib/documentFilters';
 
 const PAGE_SIZE = 50;
 /** Taille d'un lot chargé depuis le serveur (pagination incrémentale « Load more »). */
@@ -380,60 +385,30 @@ const Documents: FC = () => {
 
   // ── Filtering & Sorting ────────────────────────────────────────────────────
 
-  const availableFormats = useMemo(() => {
-    const seen = new Set<DocumentTypeKey>();
-    (documents ?? []).forEach(doc => seen.add(getDocumentType(doc).key));
-    return Array.from(seen).sort();
-  }, [documents]);
+  // Filtrage, tri et regroupement vivent dans lib/documentFilters.ts : ce sont des fonctions
+  // pures, elles n'ont rien à faire dans un composant de 1 495 lignes (constat F4 de l'audit
+  // frontend). Elles y sont testées une par une, ce qu'elles n'étaient pas ici.
+  const availableFormats = useMemo(() => listAvailableFormats(documents), [documents]);
 
-  /**
-   * Catégories proposées au filtre : la taxonomie configurée, complétée par celles
-   * réellement rencontrées dans le corpus (taxonomie ouverte, ou taxonomie modifiée
-   * après une première classification).
-   */
-  const availableCategories = useMemo(() => {
-    const seen = new Set<string>(classificationConfig?.taxonomy ?? []);
-    (documents ?? []).forEach(doc => (doc.categories ?? []).forEach(c => seen.add(c)));
-    return Array.from(seen).sort();
-  }, [documents, classificationConfig]);
+  const availableCategories = useMemo(
+    () => listAvailableCategories(documents, classificationConfig?.taxonomy),
+    [documents, classificationConfig],
+  );
 
-  const filtered = useMemo(() => {
-    return (documents ?? [])
-      .filter(doc => {
-        if (deferredSearch) {
-          const q = deferredSearch.toLowerCase();
-          if (!doc.fileName.toLowerCase().includes(q) &&
-              !doc.sha256.toLowerCase().includes(q) &&
-              !doc.tags.some(t => t.toLowerCase().includes(q)) &&
-              !(doc.categories ?? []).some(c => c.toLowerCase().includes(q)) &&
-              !(doc.collectionName ?? '').toLowerCase().includes(q)) return false;
-        }
-        if (selectedFormats.size > 0 && !selectedFormats.has(getDocumentType(doc).key)) return false;
-        if (qualityMin > 0 && (doc.qualityScore ?? 0) < qualityMin) return false;
-        if (selectedCategory === 'unclassified') {
-          if ((doc.categories ?? []).length > 0) return false;
-        } else if (selectedCategory !== 'all' && !(doc.categories ?? []).includes(selectedCategory)) {
-          return false;
-        }
-        return true;
-      })
-      .sort((a, b) => {
-        if (sortMode === 'name') return a.fileName.localeCompare(b.fileName);
-        if (sortMode === 'chunks') return b.chunksCreated - a.chunksCreated;
-        if (sortMode === 'quality') return (b.qualityScore ?? 0) - (a.qualityScore ?? 0);
-        return Date.parse(b.ingestedAt) - Date.parse(a.ingestedAt);
-      });
-  }, [documents, deferredSearch, selectedFormats, qualityMin, sortMode, selectedCategory]);
+  const filtered = useMemo(
+    () => sortDocuments(
+      filterDocuments(documents, {
+        search: deferredSearch,
+        formats: selectedFormats,
+        qualityMin,
+        category: selectedCategory,
+      }),
+      sortMode,
+    ),
+    [documents, deferredSearch, selectedFormats, qualityMin, sortMode, selectedCategory],
+  );
 
-  const groups = useMemo((): Record<string, IngestedFile[]> => {
-    if (groupBy === 'none') return {};
-    return filtered.reduce((acc, doc) => {
-      const key = getGroupKey(doc, groupBy);
-      if (!acc[key]) acc[key] = [];
-      acc[key].push(doc);
-      return acc;
-    }, {} as Record<string, IngestedFile[]>);
-  }, [filtered, groupBy]);
+  const groups = useMemo(() => groupDocuments(filtered, groupBy), [filtered, groupBy]);
 
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const paginatedItems = groupBy === 'none' ? filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE) : [];
