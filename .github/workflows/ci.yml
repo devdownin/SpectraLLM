@@ -147,8 +147,6 @@ jobs:
     # ses propres images. Il exige buildx (le pilote docker-container), donc une construction
     # hors de `docker compose build` — d'où ces deux étapes et l'overlay
     # docker-compose.ci.yml, qui déclare sous quels noms Compose doit retrouver le résultat.
-    - name: Set up Docker daemon
-      uses: crazy-max/ghaction-setup-docker@v3
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
     - name: Build spectra-api (cache GHA)
