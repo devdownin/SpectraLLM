@@ -30,7 +30,7 @@ pour une page. À chaque fois, la chose juste est là, et le code passe à côt�
 | F1 | La couverture affichée vaut **le double** de la réelle | Mesure faussée | **Corrigé** |
 | F2 | `services/api.ts` : 92 fonctions, **0 %** couvert | Risque | **Corrigé** |
 | F3 | `apiErrorMessage` adopté sur **1 chemin d'erreur sur 16** | Régression latente | **Corrigé** |
-| F4 | La logique vit dans les pages, pas dans les composants | Structure | Élevé |
+| F4 | La logique vit dans les pages, pas dans les composants | Structure | **Entamé** — filtres extraits |
 | F5 | Deux systèmes d'icônes : 198 usages contre 2 | Poids inutile | **Corrigé** |
 | F6 | Trois dépendances de formulaire pour une seule page | Poids inutile | **Vérifié — à garder** |
 | F7 | i18n inégal : trois pages très en retard | Cohérence | **Corrigé** (sauf `Documentation`) |
@@ -247,6 +247,46 @@ dialogues et parlent au réseau. Les hooks métier existent pourtant déjà (`us
 
 **À ne pas traiter tant que F1 et F2 ne sont pas faits.** Extraire de la logique d'un fichier
 couvert à 16 % sans filet, c'est déplacer du risque, pas le réduire.
+
+### Première extraction — le filtrage des documents
+
+F1 et F2 étant faits, l'extraction commence. Elle suit la règle que ce constat imposait :
+**ne déplacer que ce dont le déplacement est démontrablement neutre**, et poser le filet en
+même temps.
+
+`pages/Documents.tsx` portait quatre `useMemo` — formats disponibles, catégories disponibles,
+filtrage/tri, regroupement — qui n'ont rien de spécifique à React : ce sont des **fonctions
+pures**, données en entrée, données en sortie. Elles vivent désormais dans
+`lib/documentFilters.ts`, à côté de `documentTaxonomy` dont elles dépendent.
+
+Trois règles qu'aucun test ne fixait, et que le déplacement a rendues visibles :
+
+- la recherche porte sur **cinq** champs (nom, empreinte, étiquettes, catégories, collection).
+  En perdre un ne vide pas la liste, il la rend *incomplète* — un défaut qu'on ne remarque
+  qu'en cherchant un document précis, longtemps après ;
+- `unclassified` n'est pas « pas de filtre » mais un filtre **sur l'absence** de catégorie,
+  alors que `all` désactive le filtre. Deux valeurs de la même variable, aux effets opposés ;
+- un `qualityScore` absent vaut **zéro** face à un seuil, sinon un document jamais évalué
+  passerait tous les seuils.
+
+Un défaut a été corrigé au passage : `sortDocuments` trie sur une **copie**. L'ancien code
+triait en place, ce qui était sans danger tant que le tri suivait immédiatement un `filter`
+(tableau neuf) — mais séparer les deux fonctions rendait ce détail dangereux, la liste venant
+du cache React Query.
+
+| | Avant | Après |
+|---|---|---|
+| `Documents.tsx` | 1 495 lignes | 1 470 |
+| `lib/documentFilters.ts` | — | **12/12 fonctions couvertes** |
+| Tests | — | **26 cas** |
+
+Le gain n'est pas la taille — 25 lignes — mais le fait que la logique qui décide **de ce que
+l'utilisateur voit** soit désormais testée. Les quatre régressions correspondantes ont été
+rejouées et sont attrapées.
+
+**Le reste de F4 attend la même méthode**, morceau par morceau : chercher ce qui est
+extractible sans risque, l'extraire avec ses tests. Les machines à états de `Playground`
+(24 `useState`) ne relèvent pas de cette catégorie et restent hors de portée.
 
 ---
 
