@@ -426,11 +426,12 @@ pour confirmer que le test les attrape réellement.
   `spectra-api` connaît `SPECTRA_API_KEY`. C'est pourquoi `SPECTRA_BIND_ADDR=0.0.0.0` reste
   une décision à prendre en connaissance de cause, et non un simple interrupteur. Voir
   `docs/process/audit-securite.fr.md`.
-- **La mesure réelle du gain de D11.** `scripts/bench-startup.sh` la produit désormais : il
-  construit les images hors chronomètre, puis chronomètre `up -d --wait` seul sur plusieurs
-  itérations. Il n'a pas pu être exécuté ici (aucun démon Docker dans l'environnement
-  d'audit) — **les 70 s restent donc un calcul**, et le resteront jusqu'à ce que quelqu'un
-  lance le script sur une machine équipée, une fois avec `start_interval` et une fois sans.
+- **La mesure réelle du gain de D11.** `scripts/bench-startup.sh` la produit, et le workflow
+  manuel `Bench startup (D11)` lui donne la machine qui lui manquait : la CI a un démon Docker,
+  l'environnement d'audit n'en a jamais eu. Le workflow mesure **avec puis sans**
+  `start_interval` — il peut retirer les lignes du fichier Compose, son checkout étant
+  éphémère, ce que le script refuse de faire chez un utilisateur.
+  **Les 70 s restent un calcul** tant que personne n'a déclenché ce workflow.
 
 ## Vérification
 

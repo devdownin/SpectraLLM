@@ -1,0 +1,109 @@
+# =============================================================================
+# Mesure du temps de démarrage de la stack — constat D11 de l'audit de déploiement.
+#
+# POURQUOI CE WORKFLOW EXISTE
+# L'audit a ajouté `start_interval: 3s` aux healthchecks en CALCULANT qu'il fait gagner jusqu'à
+# 70 s. Ce chiffre n'a jamais été mesuré : la durée du job E2E est dominée par la construction
+# des images, et quelques dizaines de secondes s'y noient — trois tentatives de lecture sur ce
+# job ont donné 3 min 34, 3 min 40 puis 4 min 12, c'est-à-dire du bruit.
+#
+# `scripts/bench-startup.sh` isole ce qu'il faut isoler : images construites UNE fois hors
+# chronomètre, démarrage à blanc écarté, puis N chronométrages de `up -d --wait` seul. Il
+# refuse de tourner sans démon Docker — raison pour laquelle il n'a jamais pu être exécuté
+# depuis un environnement de développement.
+#
+# Ce workflow lui donne la machine qui lui manquait. Il est MANUEL (`workflow_dispatch`) : la
+# mesure prend une dizaine de minutes et n'a aucune raison de tourner à chaque poussée.
+#
+# CE QU'IL FAIT DE PLUS QUE LE SCRIPT
+# Le script ne bascule pas `docker-compose.yml` entre les deux mesures — modifier le fichier
+# sous les pieds de l'utilisateur serait une mauvaise surprise. Ici le checkout est éphémère :
+# le workflow peut donc retirer les `start_interval`, remesurer, et livrer directement l'écart
+# AVEC / SANS, qui est la seule chose que D11 demande.
+# =============================================================================
+name: Bench startup (D11)
+
+on:
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: "Chronométrages par configuration (hors démarrage à blanc)"
+        required: false
+        default: "3"
+
+jobs:
+  bench:
+    name: Démarrage avec / sans start_interval
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      # Même cache que le job E2E : sans les GGUF, llm-chat attend le modèle en boucle et
+      # `up --wait` expire — on mesurerait un échec.
+      - name: Cache GGUF models
+        uses: actions/cache@v6
+        with:
+          path: data/models
+          key: e2e-gguf-qwen25-7b-instruct-q4km-nomic-q4km
+
+      - name: Download default GGUF models (cache miss only)
+        run: |
+          mkdir -p data/models
+          [ -f data/models/embed.gguf ] || curl -sSL --fail --retry 3 \
+            "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf" \
+            -o data/models/embed.gguf
+          [ -f data/models/Qwen2.5-7B-Instruct-Q4_K_M.gguf ] || curl -sSL --fail --retry 3 \
+            "https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf" \
+            -o data/models/Qwen2.5-7B-Instruct-Q4_K_M.gguf
+
+      - name: Prepare writable data directories
+        run: |
+          mkdir -p data/documents data/dataset data/fine-tuning/merged data/source data/logs data/chroma
+          chmod -R a+rwX data
+
+      - name: Mesure AVEC start_interval
+        id: avec
+        run: |
+          ./scripts/bench-startup.sh "${{ inputs.iterations }}" | tee avec.txt
+
+      # Le checkout est éphémère : on peut retirer les start_interval sans risque, et sans
+      # toucher au dépôt. C'est la moitié manquante de la comparaison.
+      - name: Retirer les start_interval
+        run: |
+          sed -i '/^[[:space:]]*start_interval:/d' deploy/docker/docker-compose.yml
+          echo "start_interval restants : $(grep -c 'start_interval' deploy/docker/docker-compose.yml || true)"
+          docker compose --project-directory . -f deploy/docker/docker-compose.yml config -q
+
+      - name: Mesure SANS start_interval
+        run: |
+          ./scripts/bench-startup.sh "${{ inputs.iterations }}" | tee sans.txt
+
+      - name: Verdict
+        if: always()
+        run: |
+          {
+            echo "## D11 — temps de démarrage, \`up -d --wait\` seul"
+            echo
+            echo "Images construites hors chronomètre, démarrage à blanc écarté,"
+            echo "\`${{ inputs.iterations }}\` itérations par configuration."
+            echo
+            echo "### AVEC start_interval"
+            echo '```'
+            sed -n '/══ Résultat ══/,$p' avec.txt 2>/dev/null || echo "mesure indisponible"
+            echo '```'
+            echo "### SANS start_interval"
+            echo '```'
+            sed -n '/══ Résultat ══/,$p' sans.txt 2>/dev/null || echo "mesure indisponible"
+            echo '```'
+            echo
+            echo "L'audit annonçait un gain **calculé** de jusqu'à 70 s."
+            echo "Si l'écart mesuré ici est plus petit, c'est le calcul qu'il faut corriger,"
+            echo "pas la mesure — voir \`docs/process/audit-deploiement.fr.md\` (D11)."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Journaux des conteneurs (en cas d'échec)
+        if: failure()
+        run: |
+          docker compose --project-directory . -f deploy/docker/docker-compose.yml ps -a || true
+          docker compose --project-directory . -f deploy/docker/docker-compose.yml logs --no-color --tail=100 || true
