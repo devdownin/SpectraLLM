@@ -33,7 +33,7 @@ pour une page. À chaque fois, la chose juste est là, et le code passe à côt�
 | F4 | La logique vit dans les pages, pas dans les composants | Structure | **Entamé** — filtres extraits |
 | F5 | Deux systèmes d'icônes : 198 usages contre 2 | Poids inutile | **Corrigé** |
 | F6 | Trois dépendances de formulaire pour une seule page | Poids inutile | **Vérifié — à garder** |
-| F7 | i18n inégal : trois pages très en retard | Cohérence | **Corrigé** (sauf `Documentation`) |
+| F7 | i18n inégal : trois pages très en retard | Cohérence | **Corrigé** — sauf `Documentation`, qualifié |
 | F8 | 73 des 77 avertissements ESLint sont `no-explicit-any` | Typage | Moyen |
 
 ---
@@ -361,9 +361,30 @@ non 8. La page était essentiellement monolingue.
 d'algorithme), plus les 18 de `Dashboard`. Les deux locales passent de 708 à **842 clés**, à
 parité exacte.
 
-**`Documentation` (64 chaînes) est laissée de côté, délibérément.** Son contenu doit sortir du
-TSX — c'est le constat S5 de l'audit de simplification. Traduire 64 chaînes dans un fichier
-qui doit être restructuré serait du travail à jeter ; l'extraction réglera l'i18n en même temps.
+**`Documentation` (64 chaînes) est laissée de côté, délibérément** — et le motif a changé
+après vérification.
+
+L'idée était que son contenu allait sortir du TSX (constat S5 de l'audit de simplification), et
+que traduire un fichier voué à être restructuré serait du travail à jeter. **S5 s'est refermé
+sans correctif** : la page est un écran conçu — 598 `className`, 146 grilles ou cartes — et non
+un document, donc rien ne sera restructuré.
+
+Le reliquat de F7 reste néanmoins hors périmètre, pour une autre raison. Sur ces ~70 chaînes,
+**dix-sept sont des paragraphes multi-lignes portant du balisage en ligne** :
+
+```tsx
+Spectra lets you build your own artificial intelligence assistant specialized in{' '}
+<strong>your business domain</strong>, from your own documents.
+```
+
+Les traduire correctement suppose de les restructurer en composants `<Trans>` d'i18next, puis
+d'écrire en français une documentation technique destinée aux utilisateurs. Ce n'est pas une
+passe mécanique comme sur `Playground` et `Dashboard`, où les chaînes étaient des libellés :
+**c'est un travail de rédaction**, sur une page à 0 / 47 fonctions couvertes.
+
+Une traduction mécanique produirait une documentation en mauvais français — pire, pour un
+lecteur, qu'une documentation en anglais assumée. Le constat est donc **ouvert et qualifié** :
+il attend quelqu'un qui écrive la version française, pas un refactoring.
 
 ### Le verrou
 

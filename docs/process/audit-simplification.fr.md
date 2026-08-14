@@ -30,7 +30,7 @@ faut en faire.
 | S2 | `installModel()` : 282 lignes, dont une lambda de 240 | Lisibilité | Proposé |
 | S3 | Trois auxiliaires dupliqués à l'identique | Duplication | **Corrigé** — `fr.spectra.util` |
 | S4 | Code mort avéré : un DTO, un export d'API, trois types | Mort | **Corrigé** |
-| S5 | `Documentation.tsx` : 1 496 lignes de contenu statique | Volume | Proposé |
+| S5 | `Documentation.tsx` : 1 496 lignes de contenu statique | Volume | **Vérifié — à ne pas faire** |
 | S6 | Deux pages à état lourd (24 et 18 `useState`) | Complexité | Observé |
 
 ---
@@ -237,10 +237,34 @@ C'est une page de documentation dont le texte est écrit en dur dans le composan
 en sous-composants ne simplifierait rien : on obtiendrait dix fichiers contenant toujours le
 même texte.
 
-**Proposition.** Sortir le contenu du TSX — fichiers Markdown/MDX, ou structure de données
-parcourue par le composant. Le gain n'est pas la taille mais l'édition : modifier un
-paragraphe de documentation cesserait de demander une modification de code, une revue et un
-build. À mettre en regard du coût, réel, d'introduire une chaîne MDX dans le build Vite.
+**Proposition initiale.** Sortir le contenu du TSX — fichiers Markdown/MDX, ou structure de
+données parcourue par le composant. Le gain n'est pas la taille mais l'édition : modifier un
+paragraphe cesserait de demander une modification de code, une revue et un build.
+
+### Vérification : à ne pas faire sous cette forme
+
+La mesure qui fondait ce constat — 301 lignes de texte contre 51 de logique — comptait les
+*lignes de texte*. Elle ratait ce dans quoi ce texte est tissé :
+
+| | |
+|---|---|
+| `className=` | **598** |
+| grilles, cartes, bordures | **146** |
+| SVG en ligne | 6 |
+| **couverture** | **0 / 47 fonctions** |
+
+Ce n'est pas un document, c'est un **écran conçu** : grilles de cartes à icônes, encadrés
+colorés, mises en page propres à chaque section. Le convertir en Markdown perdrait la
+présentation ; le convertir en MDX demanderait une dépendance de build *et* la réécriture
+intégrale d'une page de 1 496 lignes **dont aucune fonction n'est couverte**.
+
+C'est exactement l'arbitrage refusé pour S6 et F4 : échanger de la lisibilité contre du risque,
+sur du code sans filet. Et le bénéfice attendu — éditer la documentation sans passer par une
+revue — vaut pour un contenu qui bouge souvent, ce qui n'est pas le cas ici.
+
+**Le constat se referme sur une décision, pas sur un correctif.** Si la page devient un jour
+un vrai document éditorial, l'extraction se justifiera ; en attendant, elle coûterait plus
+qu'elle ne rapporte.
 
 ---
 
