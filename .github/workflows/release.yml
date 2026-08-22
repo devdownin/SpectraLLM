@@ -14,6 +14,11 @@ on:
         description: 'Commit SHA to tag (default: HEAD of this branch)'
         required: false
         type: string
+      allow_generated_notes:
+        description: "Publier même sans notes curées (corps générique : liste brute des PR)."
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -62,6 +67,18 @@ jobs:
             -m "SpectraLLM ${{ steps.meta.outputs.tag }}"
           git push origin "${{ steps.meta.outputs.tag }}"
 
+      # Le repli sur --generate-notes était un AVERTISSEMENT. Un avertissement ne bloque rien,
+      # et personne ne lit le journal d'une release réussie : la 0.7 puis la 0.8.0 sont toutes
+      # deux parties avec le corps générique — quatre-vingts lignes dont une quarantaine de
+      # « build(deps): bump … », sur la page que voit quiconque clique « Releases ».
+      #
+      # Le garde-fou du format de tag, juste au-dessus, est bloquant depuis le début. Celui-ci
+      # ne l'était pas, sans raison : il protège exactement la même chose — que la release
+      # ressemble à ce qu'on voulait publier.
+      #
+      # L'échappatoire reste explicite (`allow_generated_notes`, déclenchement manuel seulement)
+      # pour le jour où l'on veut sciemment une release sans notes curées. Explicite, donc
+      # visible dans l'historique du workflow — contrairement à un repli silencieux.
       - name: Resolve release notes
         id: notes
         run: |
@@ -69,9 +86,12 @@ jobs:
           NOTES_FILE=".github/release-notes/${TAG}.md"
           if [ -f "$NOTES_FILE" ]; then
             echo "path=$NOTES_FILE" >> "$GITHUB_OUTPUT"
-          else
-            echo "::warning::Aucune note curée $NOTES_FILE — repli sur --generate-notes (corps générique). Ajoutez le fichier pour une release soignée."
+          elif [ "${{ inputs.allow_generated_notes }}" = "true" ]; then
+            echo "::warning::Aucune note curée $NOTES_FILE — corps générique demandé explicitement (allow_generated_notes)."
             echo "path=" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Aucune note curée $NOTES_FILE. Écrivez-la (prenez modèle sur .github/release-notes/v0.7.1.md), poussez-la sur la branche par défaut, puis relancez — sinon la release part avec la liste brute des PR fusionnées, dependabot compris. Pour l'accepter sciemment : relancez ce workflow à la main avec allow_generated_notes."
+            exit 1
           fi
 
       - name: Create GitHub Release

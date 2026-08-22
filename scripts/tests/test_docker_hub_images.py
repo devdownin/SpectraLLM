@@ -465,28 +465,42 @@ def overlay_default_tags() -> list[str]:
     return re.findall(r"\$\{SPECTRA_IMAGE_TAG:-([^}]+)\}", read(HUB_OVERLAY))
 
 
-def latest_released_version() -> str | None:
+def latest_release_tag() -> str | None:
     """
-    Dernière version publiée, lue dans `.github/release-notes/vX.Y[.Z].md`.
+    Dernier tag de version du dépôt (`vX.Y[.Z]`), ou None si les tags sont absents.
 
-    Ce répertoire, et non le CHANGELOG : les tags d'image dérivent du TAG GIT
-    (`docker-publish.yml` se déclenche sur `v*`), et c'est ce répertoire que `release.yml`
-    indexe par tag. Le CHANGELOG suit une autre numérotation — au moment d'écrire ceci, il
-    en est à 1.13.0 quand le dernier tag est v0.7.1 — et s'y fier ferait comparer deux
-    choses qui n'ont jamais désigné la même version.
+    LE TAG GIT, ET RIEN D'AUTRE. C'est lui qui décide du tag d'image : `docker-publish.yml`
+    se déclenche sur `v*` et en dérive `X.Y.Z`, `X.Y` et `latest`. Toute autre source
+    répondrait à une question différente de celle qu'on pose.
 
-    Ni git : `actions/checkout` ne récupère ni l'historique ni les tags par défaut, et un
-    contrôle qui dépend de ce qu'on a bien voulu cloner est un contrôle qui ne vérifie
-    plus rien le jour où la configuration change.
+    Ce contrôle a d'abord été accroché à `.github/release-notes/`, en supposant que ce
+    répertoire suivait les tags. v0.8.0 a prouvé le contraire : le tag existait, le fichier
+    non — et le contrôle aurait affirmé que la dernière version était la 0.7.1. D'où
+    `test_the_latest_release_tag_has_curated_notes`, qui rend cet écart bruyant.
+
+    `actions/checkout` ne récupère pas les tags par défaut ; le job qui exécute ces tests
+    demande donc `fetch-depth: 0`. Sans tags — clone superficiel, archive téléchargée — le
+    contrôle est SAUTÉ et le dit : un contrôle qui conclut sur rien est pire qu'un contrôle
+    absent.
     """
-    versions = []
-    for path in RELEASE_NOTES.glob("v*.md"):
-        match = re.fullmatch(r"v(\d+(?:\.\d+)*)", path.stem)
-        if match:
-            versions.append(tuple(int(part) for part in match.group(1).split(".")))
-    if not versions:
+    proc = subprocess.run(
+        ["git", "tag", "--list", "v*", "--sort=-v:refname"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
         return None
-    return ".".join(str(part) for part in max(versions))
+    for line in proc.stdout.splitlines():
+        if re.fullmatch(r"v\d+(?:\.\d+)*", line.strip()):
+            return line.strip()
+    return None
+
+
+def latest_released_version() -> str | None:
+    """Le dernier tag, sans son « v » — la forme que portent les tags d'image."""
+    tag = latest_release_tag()
+    return tag[1:] if tag else None
 
 
 def test_both_services_pull_the_same_version():
@@ -521,20 +535,42 @@ def test_the_overlay_default_is_latest_or_the_released_version():
     à tous ceux qui n'épinglent pas, sans que personne s'en aperçoive.
     """
     default = overlay_default_tags()[0]
-    released = latest_released_version()
 
     if default == "latest":
         return
 
-    assert released is not None, (
-        f"l'overlay épingle « {default} » mais aucune note de release ne permet de vérifier "
-        "à quelle version cela correspond"
-    )
+    released = latest_released_version()
+    if released is None:
+        pytest.skip("tags git absents (clone superficiel) — impossible de vérifier l'épinglage")
+
     assert default == released, (
-        f"l'overlay tire « {default} » par défaut alors que la dernière version publiée est "
-        f"« {released} » (.github/release-notes/). Après chaque publication, alignez le défaut "
-        "de deploy/docker/docker-compose.hub.yml — sinon les utilisateurs qui n'épinglent "
-        "rien restent sur une version périmée, en silence."
+        f"l'overlay tire « {default} » par défaut alors que le dernier tag publié est "
+        f"« v{released} ». Après chaque publication, alignez le défaut de "
+        "deploy/docker/docker-compose.hub.yml — sinon les utilisateurs qui n'épinglent rien "
+        "restent sur une version périmée, en silence."
+    )
+
+
+def test_the_latest_release_tag_has_curated_notes():
+    """
+    `release.yml` charge `.github/release-notes/<tag>.md` pour le corps de la release. Sans
+    ce fichier, il publiait la liste brute des PR fusionnées — dependabot compris. C'est
+    arrivé à la v0.7, puis à la v0.8.0 : quatre-vingts lignes sur la page que voit quiconque
+    clique « Releases ».
+
+    Le workflow échoue désormais quand le fichier manque. Ce test le dit AVANT le tag, au
+    moment où la correction ne coûte qu'un fichier — plutôt qu'après, quand la release est
+    déjà publiée et qu'il faut l'éditer à la main.
+    """
+    tag = latest_release_tag()
+    if tag is None:
+        pytest.skip("tags git absents (clone superficiel)")
+
+    notes = RELEASE_NOTES / f"{tag}.md"
+
+    assert notes.is_file(), (
+        f"le dernier tag {tag} n'a pas de notes curées ({notes.relative_to(REPO_ROOT)}). "
+        "Écrivez-les — sinon la release part avec la liste brute des PR fusionnées."
     )
 
 

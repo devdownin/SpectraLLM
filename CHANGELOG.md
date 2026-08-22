@@ -8,6 +8,33 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Corrigé — une release sur deux partait avec le corps générique
+
+`release.yml` avertissait quand `.github/release-notes/<tag>.md` manquait, puis publiait la
+liste brute des PR fusionnées. Un avertissement ne bloque rien, et personne ne lit le journal
+d'une release réussie : la v0.7 puis la v0.8.0 sont toutes deux parties ainsi — quatre-vingts
+lignes dont une quarantaine de « build(deps): bump … », sur la page que voit quiconque clique
+« Releases ». Le garde-fou du format de tag, dans le même workflow, était bloquant depuis le
+début ; celui-ci ne l'était pas, sans raison — il protège pourtant la même chose.
+
+Le workflow échoue maintenant, avec l'échappatoire explicite `allow_generated_notes` pour le
+jour où l'on veut sciemment s'en passer. Un test dit l'écart AVANT le tag, au moment où la
+correction ne coûte qu'un fichier. Les notes de la v0.8.0 sont écrites.
+
+### Modifié — l'overlay Docker Hub épingle la version au lieu de suivre `latest`
+
+Le défaut décide de ce que reçoit quiconque ne configure rien. `latest` sert ce qui a été
+publié le jour du démarrage, pas ce que cette copie du dépôt a été testée avec — c'est
+exactement le raisonnement qui avait fait épingler llama.cpp et chromadb, et le précédent est
+dans ce fichier. Le défaut vaut désormais `0.8.0`, et un contrôle le compare au dernier tag
+git : périmé, il ne casse rien, il sert juste une vieille version en silence.
+
+Le contrôle était d'abord accroché aux notes de release, en supposant qu'elles suivaient les
+tags. La v0.8.0 a prouvé le contraire — tag présent, fichier absent. Il interroge maintenant
+les tags eux-mêmes, et le job CI qui l'exécute les récupère (`fetch-depth: 0`) ; sans eux, il
+se saute en le disant.
+
+
 ### Ajouté — les images Spectra se publient sur Docker Hub
 
 Toutes les images **tierces** de la pile venaient déjà d'un registre (llama.cpp, chromadb,
