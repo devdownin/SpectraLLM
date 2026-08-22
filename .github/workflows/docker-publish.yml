@@ -50,6 +50,11 @@ on:
         required: false
         default: false
         type: boolean
+      descriptions_only:
+        description: "Ne mettre à jour que les pages de présentation Docker Hub, sans rien construire."
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -81,6 +86,7 @@ jobs:
       version: ${{ steps.resolve.outputs.version }}
       tags: ${{ steps.resolve.outputs.tags }}
       push: ${{ steps.resolve.outputs.push }}
+      build_images: ${{ steps.resolve.outputs.build_images }}
       matrix: ${{ steps.resolve.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
@@ -91,6 +97,7 @@ jobs:
           DRY_RUN: ${{ inputs.dry_run || false }}
           INCLUDE_PROFILED: ${{ inputs.include_profiled || false }}
           INPUT_VERSION: ${{ inputs.version }}
+          DESCRIPTIONS_ONLY: ${{ inputs.descriptions_only || false }}
           HUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           HAS_TOKEN: ${{ secrets.DOCKERHUB_TOKEN != '' }}
         run: |
@@ -129,9 +136,20 @@ jobs:
           # commentaire sur `outputs:` ci-dessus) ; ici on ne fait que refuser tôt une
           # publication sans identifiants, avant d'engager de longues minutes de build.
           PUSH="true"
+          BUILD_IMAGES="true"
+          if [ "$DESCRIPTIONS_ONLY" = "true" ]; then
+            # Rafraîchir les pages Docker Hub ne demande ni construction ni poussée
+            # d'image : une correction de texte ne doit pas coûter une heure de runner.
+            BUILD_IMAGES="false"
+            echo "::notice::descriptions_only — seules les pages de présentation sont mises à jour."
+          fi
           if [ "$DRY_RUN" = "true" ]; then
             PUSH="false"
             echo "::notice::dry_run — les images sont construites, rien n'est poussé."
+            if [ "$DESCRIPTIONS_ONLY" = "true" ]; then
+              echo "::error::dry_run et descriptions_only ensemble ne feraient RIEN : la mise à jour des pages écrit sur Docker Hub, elle n'a pas de mode à blanc. Choisissez l'un ou l'autre."
+              exit 1
+            fi
           else
             MISSING=""
             [ -z "$HUB_USERNAME" ] && MISSING="$MISSING secrets.DOCKERHUB_USERNAME"
@@ -182,6 +200,7 @@ jobs:
             echo "version=$VERSION"
             echo "tags=$TAGS"
             echo "push=$PUSH"
+            echo "build_images=$BUILD_IMAGES"
             echo "matrix=$MATRIX"
           } >> "$GITHUB_OUTPUT"
 
@@ -198,6 +217,7 @@ jobs:
   publish:
     name: ${{ matrix.image }}
     needs: preflight
+    if: needs.preflight.outputs.build_images == 'true'
     runs-on: ubuntu-latest
     # Le trainer installe torch et compile des extensions natives ; le multi-architecture
     # du backend passe par une émulation partielle. Le défaut de 6 h est excessif, 30 min
@@ -331,4 +351,103 @@ jobs:
             fi
             echo ""
             echo "Tags : \`${{ needs.preflight.outputs.tags }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ── Pages de présentation Docker Hub ─────────────────────────────────────────
+  # La description longue d'un dépôt Docker Hub est sa VITRINE : c'est la page que voit
+  # quelqu'un qui découvre le projet par le registre plutôt que par GitHub. Laissée vide,
+  # elle affiche « No overview available » sous un nom d'image — et l'image la mieux
+  # construite du monde n'y répond pas à la seule question posée : qu'est-ce que c'est,
+  # et comment je la démarre.
+  #
+  # Elle vit donc dans le dépôt (deploy/docker/hub/<image>.md), versionnée et relue comme
+  # le reste, et non dans un champ de formulaire que personne ne peut auditer. Toute
+  # modification faite à la main dans l'interface serait écrasée à la publication
+  # suivante : c'est délibéré — deux sources pour un même texte, c'est une divergence
+  # qu'on découvre trop tard.
+  describe:
+    name: Update Docker Hub pages
+    needs: [preflight, publish]
+    # `always()` : le job de publication est SAUTÉ en descriptions_only, et un job sauté
+    # ne satisfait pas un `needs` ordinaire. On exige donc explicitement qu'il ait réussi
+    # ou été sauté — jamais qu'il ait échoué : publier une page qui décrit des images qui
+    # n'ont pas été poussées serait un mensonge daté.
+    if: |
+      always() && needs.preflight.outputs.push == 'true'
+      && (needs.publish.result == 'success' || needs.publish.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Push overviews to Docker Hub
+        env:
+          NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE || secrets.DOCKERHUB_USERNAME }}
+          HUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          HUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # L'API de Docker Hub — celle qui porte les descriptions — n'est pas le registre :
+          # elle veut un JWT, que l'on échange contre le jeton d'accès. Le `docker login` du
+          # job de publication ne vaut rien ici.
+          JWT="$(curl -sS --fail-with-body -X POST https://hub.docker.com/v2/users/login \
+                   -H 'Content-Type: application/json' \
+                   -d "$(jq -n --arg u "$HUB_USERNAME" --arg p "$HUB_TOKEN" \
+                           '{username:$u,password:$p}')" \
+                 | jq -r '.token // empty')"
+          if [ -z "$JWT" ]; then
+            echo "::error::Authentification Docker Hub refusée. Le jeton doit avoir la portée « Read & Write » — un jeton en lecture seule passe le login du registre mais pas l'API."
+            exit 1
+          fi
+          # Le JWT vaut le jeton pendant sa durée de vie : masqué, pour qu'aucune trace
+          # d'erreur ne le recopie dans le journal.
+          echo "::add-mask::$JWT"
+
+          FAILED=""
+          for file in deploy/docker/hub/*.md; do
+            image="$(basename "$file" .md)"
+
+            # Description courte : lue dans le fichier lui-même, en commentaire HTML (donc
+            # invisible sur la page rendue). Deux textes dans deux fichiers divergeraient.
+            short="$(sed -n 's/^<!-- short: \(.*\) -->$/\1/p' "$file" | head -1)"
+
+            payload="$(jq -n --rawfile full "$file" --arg short "$short" \
+                        '{full_description: $full}
+                         + (if $short == "" then {} else {description: $short} end)')"
+
+            code="$(curl -sS -o /tmp/hub-response.json -w '%{http_code}' -X PATCH \
+                      "https://hub.docker.com/v2/repositories/$NAMESPACE/$image/" \
+                      -H "Authorization: JWT $JWT" \
+                      -H 'Content-Type: application/json' \
+                      -d "$payload" || echo "000")"
+
+            case "$code" in
+              2??)
+                echo "  ✓ $image ($(wc -c < "$file") octets)"
+                ;;
+              404)
+                # Un dépôt Docker Hub naît à la première POUSSÉE d'image. Décrire un dépôt
+                # qui n'existe pas encore est un ordre impossible, pas une panne mystérieuse.
+                echo "::error::$image : dépôt introuvable sous « $NAMESPACE ». Un dépôt Docker Hub est créé par la première poussée d'image — publiez les images avant d'en mettre la page à jour."
+                FAILED="$FAILED $image"
+                ;;
+              *)
+                echo "::error::$image : Docker Hub a répondu $code — $(cat /tmp/hub-response.json)"
+                FAILED="$FAILED $image"
+                ;;
+            esac
+          done
+
+          if [ -n "$FAILED" ]; then
+            echo "::error::Page(s) non mise(s) à jour :$FAILED"
+            exit 1
+          fi
+
+          {
+            echo "### Pages Docker Hub"
+            echo ""
+            for file in deploy/docker/hub/*.md; do
+              image="$(basename "$file" .md)"
+              echo "- [$NAMESPACE/$image](https://hub.docker.com/r/$NAMESPACE/$image)"
+            done
           } >> "$GITHUB_STEP_SUMMARY"

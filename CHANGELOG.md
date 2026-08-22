@@ -47,6 +47,16 @@ qu'à l'affichage ; un test interdit le retour en arrière. Renseigner `DOCKERHU
 **variable** de dépôt garde en prime les tags lisibles dans les journaux — un espace de noms
 est public, il est dans le nom de l'image.
 
+Les deux dépôts Docker Hub ont enfin une **vitrine** : `deploy/docker/hub/<image>.md` est
+poussé comme description longue par le même workflow. Une page vide affiche « No overview
+available » sous un nom d'image — c'est la première chose que voit qui découvre le projet par
+le registre, et elle ne répond à aucune des deux questions qu'il se pose. Le texte vit dans le
+dépôt, versionné et relu comme le reste, jamais dans un champ de formulaire : l'éditer côté
+Docker Hub serait écrasé à la publication suivante. L'entrée `descriptions_only` corrige une
+coquille sans reconstruire trois gigaoctets d'images, et deux contrôles interdisent ce qui ne
+se voit pas à l'écriture — un lien relatif (Docker Hub n'en résout aucun, la page s'affiche
+pourtant très bien dans GitHub) et un dépassement des limites du service.
+
 Ce qu'il reste à faire une fois : renseigner `DOCKERHUB_USERNAME` et `DOCKERHUB_TOKEN` dans
 les secrets du dépôt. Sans eux, une publication **échoue** en nommant celui qui manque —
 plutôt que de finir en vert sans avoir rien poussé. Mode d'emploi complet :
