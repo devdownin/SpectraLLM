@@ -103,6 +103,74 @@ def test_the_download_fails_loudly_on_an_http_error(path):
 
 
 @pytest.mark.parametrize("path", [SETUP_SH, SETUP_BAT])
+def test_the_gguf_downloads_declare_their_expected_format(path):
+    """
+    Un miroir mal configuré, un proxy d'entreprise ou un portail captif renvoient une page
+    en **200** : `--fail` la laisse passer, et le « modèle » obtenu n'est rejeté qu'au
+    démarrage de llama.cpp, plusieurs étapes plus loin. Quatre octets suffisent à le savoir
+    tout de suite — encore faut-il que les appels les réclament.
+    """
+    body = path.read_text(encoding="utf-8", errors="replace")
+    calls = re.findall(r"fetch_file .*", body)
+    gguf_calls = [c for c in calls if "gguf" in c.lower() and "GGUF" in c]
+
+    assert len(gguf_calls) == 2, (
+        f"{path.name} : {len(gguf_calls)} téléchargement(s) GGUF déclarent le format attendu, "
+        f"deux étaient prévus (embedding et chat) : {calls}"
+    )
+
+
+@pytest.mark.parametrize("path", [SETUP_SH, SETUP_BAT])
+def test_verification_happens_before_the_rename(path):
+    """
+    L'ordre est tout : vérifier APRÈS le renommage laisserait, le temps d'un contrôle, un
+    fichier invalide sous le nom que toute la chaîne considère comme valide — et sur un
+    échec, il faudrait le supprimer, c'est-à-dire réintroduire exactement l'état qu'on
+    voulait rendre impossible.
+    """
+    body = path.read_text(encoding="utf-8", errors="replace")
+
+    if path.suffix == ".sh":
+        # Corps de la fonction, et non le fichier entier : un commentaire parlant
+        # d'empreinte ailleurs suffirait sinon à faire passer ce test pour de mauvaises
+        # raisons.
+        start = body.index("fetch_file() {")
+        block = body[start:body.index("\n}", start)]
+        checks = [block.index(m) for m in ('"$magic"', "file_sha256") if m in block]
+        rename_at = block.index("mv -f")
+    else:
+        # « ^:verify_file » et non « :verify_file » : la première occurrence est l'APPEL,
+        # à l'intérieur même du bloc qu'on veut découper.
+        start = re.search(r"^:fetch_file$", body, re.M).start()
+        end = re.search(r"^:verify_file$", body, re.M).start()
+        block = body[start:end]
+        checks = [block.index("call :verify_file")] if "call :verify_file" in block else []
+        rename_at = block.index("move /y")
+
+    assert checks, f"{path.name} : aucune vérification dans le corps du téléchargement"
+    assert max(checks) < rename_at, (
+        f"{path.name} : le renommage vers le nom définitif précède la vérification — "
+        "un fichier invalide porterait ce nom, ne serait-ce qu'un instant, et il faudrait "
+        "l'effacer ensuite : exactement l'état qu'on veut rendre impossible."
+    )
+
+
+@pytest.mark.parametrize("path", [SETUP_SH, SETUP_BAT])
+def test_the_model_source_is_redirectable(path):
+    """
+    Réseau d'entreprise, miroir HuggingFace, installation cloisonnée : la source doit être
+    déplaçable sans éditer le script. HF_ENDPOINT est la variable que le projet utilise
+    DÉJÀ pour cela (docker-compose.yml la transmet au reranker et au trainer) — en inventer
+    une seconde pour le même besoin obligerait à déclarer le miroir à deux endroits.
+    """
+    body = path.read_text(encoding="utf-8", errors="replace")
+
+    assert "HF_ENDPOINT" in body, f"{path.name} : le miroir HuggingFace n'est pas redirigeable"
+    for var in ("SPECTRA_EMBED_MODEL_URL", "SPECTRA_CHAT_MODEL_URL"):
+        assert var in body, f"{path.name} : {var} absente (source arbitraire impossible)"
+
+
+@pytest.mark.parametrize("path", [SETUP_SH, SETUP_BAT])
 def test_the_download_resumes_instead_of_restarting(path):
     """
     4,7 Go coupés à 90 % : sans reprise, on retélécharge les 90 % déjà obtenus. `-C -` est

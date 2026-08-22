@@ -79,6 +79,15 @@ huggingface-cli download nomic-ai/nomic-embed-text-v1.5-GGUF \
   --local-dir data/models/ --filename embed.gguf
 ```
 
+> **Behind a mirror, a corporate proxy, or offline?** `setup.sh` builds its URLs from
+> `HF_ENDPOINT` — the same variable `docker-compose.yml` already passes to the reranker and
+> the trainer, so a mirror is declared once for the whole stack. For a source that isn't a
+> HuggingFace mirror, `SPECTRA_EMBED_MODEL_URL` / `SPECTRA_CHAT_MODEL_URL` replace the URL
+> outright. And `SPECTRA_EMBED_MODEL_SHA256` / `SPECTRA_CHAT_MODEL_SHA256` pin the expected
+> digest: a mismatch fails the download and removes the file instead of leaving you with a
+> model that llama.cpp will reject much later. Left empty, the script prints the digest it
+> obtained — copy it to pin it. See [`.env.example`](../.env.example).
+
 If the models are missing at startup, the stack still comes up: `llm-chat` and `llm-embed` log `EN ATTENTE: modèle introuvable` and poll until the GGUF appears, then start serving on their own. Nothing aborts, so you can drop the files in — or download them from the Model Hub in the UI — while the stack is already running.
 
 ### 3. Start the stack

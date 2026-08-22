@@ -8,6 +8,27 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Ajouté — les modèles se vérifient, et se prennent ailleurs qu'à la source
+
+Deux compléments au correctif ci-dessous, qui ne traitait que la complétude du transfert.
+
+**Ce qu'on reçoit est vérifié avant d'être accepté.** Un miroir mal configuré, un proxy
+d'entreprise ou un portail captif renvoient une page en **200** : `--fail` la laisse passer,
+et le « modèle » obtenu n'est rejeté qu'au démarrage de llama.cpp, plusieurs étapes plus
+loin. Les quatre premiers octets d'un GGUF suffisent à le savoir tout de suite. S'y ajoute
+l'empreinte SHA-256 : vérifiée si elle est épinglée (`SPECTRA_EMBED_MODEL_SHA256`,
+`SPECTRA_CHAT_MODEL_SHA256`), affichée sinon — même convention que `LLMFIT_SHA256` côté
+image, pour qu'épingler ne demande que de recopier la valeur obtenue. Les deux contrôles ont
+lieu AVANT le renommage : ce qui échoue ne porte jamais le nom définitif.
+
+**La source est déplaçable.** `HF_ENDPOINT` — déjà transmise au reranker et au trainer par
+`docker-compose.yml` — construit désormais aussi les URL des scripts de setup : un miroir se
+déclare une fois et vaut pour toute la pile, plutôt qu'une seconde variable pour le même
+besoin. Pour une source qui n'est pas un miroir HuggingFace,
+`SPECTRA_EMBED_MODEL_URL` / `SPECTRA_CHAT_MODEL_URL` remplacent l'URL entière, comme
+`SPECTRA_RERANKER_ONNX_URL` le fait déjà pour l'artefact du reranker.
+
+
 ### Corrigé — un téléchargement de modèle interrompu passait pour un succès
 
 Les modèles par défaut pèsent ~4,8 Go. Sur une connexion domestique, une coupure en cours de

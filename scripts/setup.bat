@@ -91,10 +91,30 @@ if not exist ".env" (
 )
 
 :: ── 4. Modèle d'embedding ─────────────────────────────────────────────────
+:: D'OU VIENNENT LES MODELES. Miroir de la section 5 de setup.sh :
+::   — HF_ENDPOINT est deja la convention du projet pour les environnements contraints
+::     (docker-compose.yml la transmet au reranker et au trainer) ;
+::   — SPECTRA_*_MODEL_URL remplace l'URL entiere, pour une source qui n'est pas un
+::     miroir HuggingFace ;
+::   — SPECTRA_*_MODEL_SHA256 epingle l'empreinte attendue.
+:: L'environnement l'emporte sur .env, comme partout ailleurs dans ce script.
+if exist ".env" (
+    for /f "usebackq eol=# tokens=1,* delims==" %%A in (".env") do (
+        if "%%A"=="HF_ENDPOINT" if not defined HF_ENDPOINT set "HF_ENDPOINT=%%B"
+        if "%%A"=="SPECTRA_EMBED_MODEL_URL" if not defined SPECTRA_EMBED_MODEL_URL set "SPECTRA_EMBED_MODEL_URL=%%B"
+        if "%%A"=="SPECTRA_CHAT_MODEL_URL" if not defined SPECTRA_CHAT_MODEL_URL set "SPECTRA_CHAT_MODEL_URL=%%B"
+        if "%%A"=="SPECTRA_EMBED_MODEL_SHA256" if not defined SPECTRA_EMBED_MODEL_SHA256 set "SPECTRA_EMBED_MODEL_SHA256=%%B"
+        if "%%A"=="SPECTRA_CHAT_MODEL_SHA256" if not defined SPECTRA_CHAT_MODEL_SHA256 set "SPECTRA_CHAT_MODEL_SHA256=%%B"
+    )
+)
+if not defined HF_ENDPOINT set "HF_ENDPOINT=https://huggingface.co"
+if "!HF_ENDPOINT:~-1!"=="/" set "HF_ENDPOINT=!HF_ENDPOINT:~0,-1!"
+
 :: URL declarees UNE fois : elles sont reprises telles quelles dans les messages qui
 :: expliquent le telechargement manuel. Deux copies divergeraient, et c'est celle que
 :: l'utilisateur lit quand l'automatique a echoue — donc celle qui doit etre juste.
-set "EMBED_MODEL_URL=https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf"
+set "EMBED_MODEL_URL=!SPECTRA_EMBED_MODEL_URL!"
+if not defined EMBED_MODEL_URL set "EMBED_MODEL_URL=!HF_ENDPOINT!/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf"
 echo.
 echo ^> [4/6] Modele d'embedding (data\models\embed.gguf)...
 if exist "data\models\embed.gguf" (
@@ -105,7 +125,7 @@ if exist "data\models\embed.gguf" (
 ) else (
     if !DOWNLOAD_EMBED!==1 (
         echo   Telechargement de nomic-embed-text-v1.5.Q4_K_M.gguf (~81 Mo^)...
-        call :fetch_file "%EMBED_MODEL_URL%" "data\models\embed.gguf"
+        call :fetch_file "!EMBED_MODEL_URL!" "data\models\embed.gguf" GGUF "!SPECTRA_EMBED_MODEL_SHA256!"
         if errorlevel 1 (
             echo   [ERREUR] Echec du telechargement de embed.gguf
             echo   Le transfert partiel est conserve : relancez pour reprendre.
@@ -119,7 +139,7 @@ if exist "data\models\embed.gguf" (
         echo   Telechargez-le avec :
         echo     setup.bat --download-embed
         echo   Ou manuellement :
-        echo     curl -L %EMBED_MODEL_URL% -o data\models\embed.gguf
+        echo     curl -L !EMBED_MODEL_URL! -o data\models\embed.gguf
         set /a ERRORS+=1
     )
 )
@@ -130,7 +150,8 @@ if exist "data\models\embed.gguf" (
 :: indefiniment : la stack demarre, mais le chat ne repond jamais.
 :: Miroir de la section 6 de setup.sh.
 set "CHAT_DOWNLOAD_NAME=Qwen2.5-7B-Instruct-Q4_K_M.gguf"
-set "CHAT_MODEL_URL=https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/%CHAT_DOWNLOAD_NAME%"
+set "CHAT_MODEL_URL=!SPECTRA_CHAT_MODEL_URL!"
+if not defined CHAT_MODEL_URL set "CHAT_MODEL_URL=!HF_ENDPOINT!/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/%CHAT_DOWNLOAD_NAME%"
 set "CHAT_MODEL_FILE="
 set "CHAT_MODEL_NAME="
 if exist ".env" (
@@ -152,7 +173,7 @@ if exist "data\models\!CHAT_MODEL_FILE!" (
     if !DOWNLOAD_CHAT!==1 (
         echo   Telechargement de %CHAT_DOWNLOAD_NAME% (~4,7 Go^)...
         echo   (plusieurs minutes selon votre connexion ; une coupure se reprend au relancement^)
-        call :fetch_file "%CHAT_MODEL_URL%" "data\models\%CHAT_DOWNLOAD_NAME%"
+        call :fetch_file "!CHAT_MODEL_URL!" "data\models\%CHAT_DOWNLOAD_NAME%" GGUF "!SPECTRA_CHAT_MODEL_SHA256!"
         if errorlevel 1 (
             echo   [ERREUR] Echec du telechargement de %CHAT_DOWNLOAD_NAME%
             echo   Le transfert partiel est conserve : relancez pour reprendre.
@@ -172,7 +193,7 @@ if exist "data\models\!CHAT_MODEL_FILE!" (
         echo     setup.bat --download-chat
         echo.
         echo   Option 2 — Telechargement manuel :
-        echo     curl -L %CHAT_MODEL_URL% ^
+        echo     curl -L !CHAT_MODEL_URL! ^
         echo       -o data\models\%CHAT_DOWNLOAD_NAME%
         echo.
         echo   Option 3 — Tout modele GGUF instruction-tuned fonctionne :
@@ -276,15 +297,22 @@ exit /b 0
 ::   — « --fail » MANQUAIT ici alors que setup.sh l'a : sans lui, une 404 ou une page
 ::     d'erreur HTML etait enregistree comme si c'etait le modele, curl sortait en 0, et le
 ::     script annoncait « [OK] telecharge ». Un GGUF de 12 Ko contenant du HTML.
+:: fetch_file URL DESTINATION [MAGIE] [SHA256_ATTENDUE]
 :fetch_file
 set "FF_URL=%~1"
 set "FF_DEST=%~2"
 set "FF_PART=%~2.part"
+set "FF_MAGIC=%~3"
+set "FF_EXPECTED=%~4"
 for /l %%A in (1,1,3) do (
     curl -L --fail --progress-bar --retry 3 --retry-delay 2 -C - "!FF_URL!" -o "!FF_PART!"
     if not errorlevel 1 (
-        move /y "!FF_PART!" "!FF_DEST!" >nul
-        exit /b 0
+        call :verify_file
+        if not errorlevel 1 (
+            move /y "!FF_PART!" "!FF_DEST!" >nul
+            exit /b 0
+        )
+        exit /b 1
     )
     if %%A lss 3 (
         echo   Echec du transfert — nouvelle tentative dans 3 s...
@@ -293,6 +321,53 @@ for /l %%A in (1,1,3) do (
 )
 :: Le .part est CONSERVE : la prochaine execution reprendra ou celle-ci s'est arretee.
 exit /b 1
+
+:: Verifie le .part AVANT tout renommage : ce qui echoue ici ne doit jamais porter le nom
+:: definitif. Miroir des controles de fetch_file() dans setup.sh.
+::
+:: PowerShell plutot que certutil : il est deja l'outil de ces scripts (adddoc.bat,
+:: detect-env.bat, pipeline.bat), il lit quatre octets sans charger 4,7 Go en memoire, et
+:: Get-FileHash evite d'avoir a filtrer l'entete decoratif de certutil.
+:verify_file
+if defined FF_MAGIC (
+    REM  La comparaison est faite PAR PowerShell, qui ne renvoie qu'un jeton : recopier les
+    REM  premiers octets d'un fichier binaire dans une variable batch y injecterait des
+    REM  caracteres de controle, et casserait la comparaison elle-meme.
+    set "FF_HEAD="
+    for /f "delims=" %%M in ('powershell -NoProfile -Command "$s=[IO.File]::OpenRead('!FF_PART!'); $b=New-Object byte[] 4; $null=$s.Read($b,0,4); $s.Close(); if ((-join ([char[]]$b)) -ceq '!FF_MAGIC!') { 'OK' } else { 'BAD' }" 2^>nul') do set "FF_HEAD=%%M"
+    REM  Seul un « BAD » explicite condamne le fichier. Une variable VIDE signifie que
+    REM  PowerShell n'a pas repondu — absence d'outil, pas fichier corrompu : supprimer un
+    REM  telechargement valide pour cette raison serait le comble.
+    if not defined FF_HEAD echo   PowerShell indisponible : format NON verifie.
+    if "!FF_HEAD!"=="BAD" (
+        echo   [ERREUR] Le fichier recu ne commence pas par « !FF_MAGIC! » : ce n'est pas
+        echo   le format attendu. Verifiez l'URL ^(miroir, proxy, portail captif^) :
+        echo     !FF_URL!
+        del /q "!FF_PART!" >nul 2>&1
+        exit /b 1
+    )
+)
+set "FF_ACTUAL="
+for /f "delims=" %%H in ('powershell -NoProfile -Command "(Get-FileHash -Algorithm SHA256 -LiteralPath '!FF_PART!').Hash.ToLower()" 2^>nul') do set "FF_ACTUAL=%%H"
+if not defined FF_ACTUAL (
+    if defined FF_EXPECTED echo   PowerShell indisponible : empreinte NON verifiee.
+    exit /b 0
+)
+if defined FF_EXPECTED (
+    if /i not "!FF_ACTUAL!"=="!FF_EXPECTED!" (
+        echo   [ERREUR] Empreinte SHA-256 incorrecte — fichier corrompu ou substitue.
+        echo     attendue : !FF_EXPECTED!
+        echo     obtenue  : !FF_ACTUAL!
+        del /q "!FF_PART!" >nul 2>&1
+        exit /b 1
+    )
+    echo   [OK] empreinte SHA-256 verifiee
+    exit /b 0
+)
+:: Affichee a defaut d'etre epinglee — meme convention que LLMFIT_SHA256 dans le
+:: Dockerfile : il suffit de recopier la valeur pour la figer.
+echo   Empreinte SHA-256 : !FF_ACTUAL!
+exit /b 0
 
 :set_env_var
 if not exist ".env" type nul > ".env"
