@@ -2,7 +2,7 @@
 #
 # POURQUOI CE FICHIER EXISTE
 # La pile par défaut tire ses images tierces d'un registre (llama.cpp, chromadb, kafka) mais
-# CONSTRUIT les deux siennes : `mvn package` complet pour spectra-api, `npm ci` + build Vite
+# CONSTRUIT les deux siennes : `mvn package` complet pour le backend, `npm ci` + build Vite
 # pour le frontend. C'est plusieurs minutes sur une machine correcte, davantage sur une
 # machine modeste, et un échec pur et simple derrière un réseau qui filtre Maven Central ou
 # le registre npm — alors que .github/workflows/docker-publish.yml produit déjà ces images
@@ -33,7 +33,7 @@
 # .env.example. Détail complet : docs/tech/docker-hub.fr.md
 services:
   spectra-api:
-    image: ${SPECTRA_IMAGE_NAMESPACE:-devdownin}/spectra-api:${SPECTRA_IMAGE_TAG:-latest}
+    image: ${SPECTRA_IMAGE_NAMESPACE:-compagnonsdudev}/spectrallm:${SPECTRA_IMAGE_TAG:-latest}
 
   frontend:
-    image: ${SPECTRA_IMAGE_NAMESPACE:-devdownin}/spectra-frontend:${SPECTRA_IMAGE_TAG:-latest}
+    image: ${SPECTRA_IMAGE_NAMESPACE:-compagnonsdudev}/spectrallm-frontend:${SPECTRA_IMAGE_TAG:-latest}

@@ -16,10 +16,11 @@ imposait donc un `mvn package` complet et un build Vite sur la machine de l'util
 plusieurs minutes au mieux, un échec net derrière un réseau qui filtre Maven Central ou le
 registre npm — pour un résultat que la CI produit déjà à chaque version.
 
-`.github/workflows/docker-publish.yml` pousse `spectra-api` et `spectra-frontend` sur le tag
-de version (`v*`), en `amd64` + `arm64`, avec les tags `X.Y.Z`, `X.Y` et `latest` — une
-pré-version reste **hors** de `latest`. Les trois services profilés (docparser, reranker,
-trainer) sont derrière un drapeau : plusieurs gigaoctets chacun, et seuls concernés ceux qui
+`.github/workflows/docker-publish.yml` pousse `compagnonsdudev/spectrallm` (le backend) et
+`compagnonsdudev/spectrallm-frontend` sur le tag de version (`v*`), en `amd64` + `arm64`,
+avec les tags `X.Y.Z`, `X.Y` et `latest` — une pré-version reste **hors** de `latest`. Les
+trois services profilés (docparser, reranker, trainer) sont derrière un drapeau : plusieurs
+gigaoctets chacun, et seuls concernés ceux qui
 activent le profil. `scripts/publish-images.sh` fait la même chose depuis un poste, avec un
 `--dry-run` qui exerce toute la chaîne sans identifiants.
 

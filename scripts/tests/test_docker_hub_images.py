@@ -10,7 +10,7 @@ vérité — le nom des images.
 Une dérive ne produit aucune erreur au moment où elle est commise. Elle produit, plus tard,
 l'une de ces deux pannes, toutes deux silencieuses côté auteur :
 
-  — le script pousse `spectra-web` pendant que l'overlay tire `spectra-frontend` :
+  — le script pousse `spectrallm-web` pendant que l'overlay tire `spectrallm-frontend` :
     l'utilisateur reçoit un `manifest unknown` sur une image dont il n'a jamais entendu
     parler, à un moment où il ne peut rien diagnostiquer ;
   — l'overlay référence un service qui n'existe pas dans le fichier Compose de base :
@@ -37,7 +37,7 @@ BASE_COMPOSE = REPO_ROOT / "deploy/docker/docker-compose.yml"
 ENV_EXAMPLE = REPO_ROOT / ".env.example"
 
 # Images publiées à CHAQUE version (les autres sont derrière `--include-profiled`).
-DEFAULT_IMAGES = {"spectra-api", "spectra-frontend"}
+DEFAULT_IMAGES = {"spectrallm", "spectrallm-frontend"}
 
 
 def read(path: Path) -> str:
@@ -58,7 +58,7 @@ def script_entries() -> list[dict]:
     """Entrées du script shell : « nom|contexte|dockerfile|plateformes|build-args »."""
     entries = []
     for match in re.finditer(
-        r'"(spectra-[a-z]+)\|([^|"]*)\|([^|"]*)\|([^|"]*)\|([^"]*)"', read(PUBLISH_SH)
+        r'"(spectrallm[a-z-]*)\|([^|"]*)\|([^|"]*)\|([^|"]*)\|([^"]*)"', read(PUBLISH_SH)
     ):
         name, context, dockerfile, platforms, build_args = match.groups()
         entries.append(

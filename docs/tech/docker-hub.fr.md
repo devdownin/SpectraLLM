@@ -19,13 +19,13 @@ Ce document décrit les deux moitiés de la réponse : **publier** (côté maint
 
 | Image | Contenu | Architectures | Publiée |
 |---|---|---|---|
-| `<ns>/spectra-api` | Backend Java 25 / Spring Boot : API, pipeline RAG, GED | `amd64`, `arm64` | à chaque version |
-| `<ns>/spectra-frontend` | Interface React servie par Nginx | `amd64`, `arm64` | à chaque version |
-| `<ns>/spectra-docparser` | Parsing de mise en page (profil `layout-parser`) | `amd64` | sur demande |
-| `<ns>/spectra-reranker` | Cross-Encoder de reranking (profil `reranker`) | `amd64` | sur demande |
-| `<ns>/spectra-trainer` | Fine-tuning QLoRA/DPO, torch inclus (profil `trainer`) | `amd64` | sur demande |
+| `<ns>/spectrallm` | Backend Java 25 / Spring Boot : API, pipeline RAG, GED | `amd64`, `arm64` | à chaque version |
+| `<ns>/spectrallm-frontend` | Interface React servie par Nginx | `amd64`, `arm64` | à chaque version |
+| `<ns>/spectrallm-docparser` | Parsing de mise en page (profil `layout-parser`) | `amd64` | sur demande |
+| `<ns>/spectrallm-reranker` | Cross-Encoder de reranking (profil `reranker`) | `amd64` | sur demande |
+| `<ns>/spectrallm-trainer` | Fine-tuning QLoRA/DPO, torch inclus (profil `trainer`) | `amd64` | sur demande |
 
-`<ns>` est l'espace de noms Docker Hub du projet — `devdownin` par défaut, surchargeable
+`<ns>` est l'espace de noms Docker Hub du projet — `compagnonsdudev` par défaut, surchargeable
 partout (voir §5).
 
 **Pourquoi les trois derniers ne partent pas à chaque version.** Ils pèsent plusieurs
@@ -58,7 +58,7 @@ déclenchement manuel sans version produit `edge-<sha>`, également sans `latest
 
    Jamais le mot de passe du compte : un jeton se révoque seul, sans toucher au compte ni
    aux autres automatisations.
-3. Les dépôts (`spectra-api`, `spectra-frontend`, …) sont **créés automatiquement à la
+3. Les dépôts (`spectrallm`, `spectrallm-frontend`, …) sont **créés automatiquement à la
    première poussée**. Vérifiez ensuite leur visibilité dans l'interface : un dépôt privé
    se tire avec un `docker login`, ce qui n'est pas ce qu'on veut d'une image destinée aux
    utilisateurs.
@@ -88,7 +88,7 @@ git tag -a v0.7.1 -m "SpectraLLM v0.7.1" && git push origin v0.7.1
 ```
 
 Le workflow [`docker-publish.yml`](../../.github/workflows/docker-publish.yml) se déclenche
-sur `v*`, construit `spectra-api` et `spectra-frontend` en `amd64` + `arm64`, et les pousse
+sur `v*`, construit `spectrallm` et `spectrallm-frontend` en `amd64` + `arm64`, et les pousse
 avec les trois tags du §1. Le récapitulatif du job affiche la commande `docker pull`
 correspondante.
 
@@ -137,7 +137,7 @@ rigoureusement inchangé.
 ## 4. Vérifier une publication
 
 ```bash
-docker buildx imagetools inspect devdownin/spectra-api:0.7.1
+docker buildx imagetools inspect compagnonsdudev/spectrallm:0.7.1
 ```
 
 La sortie doit montrer un **index** listant `linux/amd64` et `linux/arm64`, et les
@@ -175,8 +175,8 @@ Avec ce drapeau, l'écart échoue franchement.
 Dans `.env` (ou dans l'environnement du shell, qui l'emporte) :
 
 ```bash
-SPECTRA_IMAGE_NAMESPACE=devdownin   # votre compte, ou un miroir : registry.interne/equipe
-SPECTRA_IMAGE_TAG=0.7.1             # « latest » suit la dernière version publiée
+SPECTRA_IMAGE_NAMESPACE=compagnonsdudev   # votre compte, ou un miroir : registry.interne/equipe
+SPECTRA_IMAGE_TAG=0.7.1                  # « latest » suit la dernière version publiée
 ```
 
 Épinglez une version en production. Le raisonnement est celui qui vaut déjà pour
@@ -198,7 +198,7 @@ locale, elle, fonctionne.
 | Symptôme | Cause probable |
 |---|---|
 | `denied: requested access to the resource is denied` | `SPECTRA_IMAGE_NAMESPACE` ne désigne pas l'espace de noms réellement publié, ou le dépôt est privé et le `docker login` manque. |
-| `manifest unknown` sur `up` | La version demandée (`SPECTRA_IMAGE_TAG`) n'a pas été publiée. `docker buildx imagetools inspect <ns>/spectra-api:latest` dit ce qui existe. |
+| `manifest unknown` sur `up` | La version demandée (`SPECTRA_IMAGE_TAG`) n'a pas été publiée. `docker buildx imagetools inspect <ns>/spectrallm:latest` dit ce qui existe. |
 | Compose reconstruit malgré l'overlay | Le `--no-build` a été oublié, ou l'un des deux `-f` manque sur la commande. |
 | `multiple platforms feature is currently not supported` | Constructeur `buildx` au pilote `docker`. `scripts/publish-images.sh` en crée un adapté ; en manuel : `docker buildx create --driver docker-container --use`. |
 | `toomanyrequests` au `pull` | Quota de tirage anonyme de Docker Hub atteint. Un `docker login`, même avec un compte gratuit, relève la limite. |

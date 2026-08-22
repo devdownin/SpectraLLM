@@ -3,7 +3,7 @@
 # POURQUOI CE WORKFLOW EXISTE
 # ---------------------------
 # Toutes les images TIERCES de la pile sont tirées d'un registre (llama.cpp, chromadb,
-# kafka) ; les deux images que ce projet CONSTRUIT — spectra-api et le frontend — ne
+# kafka) ; les deux images que ce projet CONSTRUIT — le backend et le frontend — ne
 # l'étaient nulle part. Démarrer Spectra imposait donc de compiler le backend Maven et de
 # bâtir le bundle Vite sur la machine de l'utilisateur : plusieurs minutes au mieux, un
 # échec sur un réseau d'entreprise qui filtre Maven Central au pire — pour un résultat que
@@ -144,9 +144,9 @@ jobs:
           fi
 
           # ── Matrice ────────────────────────────────────────────────────────────
-          # spectra-api et le frontend sont les deux images que TOUTE pile Spectra
-          # démarre : elles partent à chaque publication, en multi-architecture (amd64 +
-          # arm64, donc Apple Silicon).
+          # spectrallm (le backend) et spectrallm-frontend sont les deux images que TOUTE
+          # pile Spectra démarre : elles partent à chaque publication, en multi-architecture
+          # (amd64 + arm64, donc Apple Silicon).
           #
           # Les trois services profilés sont derrière un drapeau, et en amd64 seul : ils
           # embarquent torch, pèsent plusieurs gigaoctets, et n'intéressent que qui active
@@ -154,13 +154,13 @@ jobs:
           # ajouterait des heures pour une poignée d'utilisateurs — mieux vaut qu'ils
           # construisent localement, nativement.
           DEFAULT='[
-            {"image":"spectra-api","context":".","dockerfile":"deploy/docker/Dockerfile","platforms":"linux/amd64,linux/arm64","free_disk":false,"build_args":"","title":"Spectra API (backend Java + RAG)"},
-            {"image":"spectra-frontend","context":"frontend","dockerfile":"frontend/Dockerfile","platforms":"linux/amd64,linux/arm64","free_disk":false,"build_args":"","title":"Spectra frontend (React + Nginx)"}
+            {"image":"spectrallm","context":".","dockerfile":"deploy/docker/Dockerfile","platforms":"linux/amd64,linux/arm64","free_disk":false,"build_args":"","title":"SpectraLLM — backend (API, RAG, fine-tuning)"},
+            {"image":"spectrallm-frontend","context":"frontend","dockerfile":"frontend/Dockerfile","platforms":"linux/amd64,linux/arm64","free_disk":false,"build_args":"","title":"SpectraLLM — interface web (React + Nginx)"}
           ]'
           PROFILED='[
-            {"image":"spectra-docparser","context":"services/docparser","dockerfile":"services/docparser/Dockerfile","platforms":"linux/amd64","free_disk":true,"build_args":"USE_DOCLING=false","title":"Spectra docparser (parsing de mise en page)"},
-            {"image":"spectra-reranker","context":"services/reranker","dockerfile":"services/reranker/Dockerfile","platforms":"linux/amd64","free_disk":true,"build_args":"RERANKER_MODEL=cross-encoder/mmarco-mMiniLMv2-L12-H384-v1","title":"Spectra reranker (Cross-Encoder)"},
-            {"image":"spectra-trainer","context":".","dockerfile":"services/trainer/Dockerfile","platforms":"linux/amd64","free_disk":true,"build_args":"","title":"Spectra trainer (fine-tuning QLoRA/DPO)"}
+            {"image":"spectrallm-docparser","context":"services/docparser","dockerfile":"services/docparser/Dockerfile","platforms":"linux/amd64","free_disk":true,"build_args":"USE_DOCLING=false","title":"SpectraLLM — docparser (parsing de mise en page)"},
+            {"image":"spectrallm-reranker","context":"services/reranker","dockerfile":"services/reranker/Dockerfile","platforms":"linux/amd64","free_disk":true,"build_args":"RERANKER_MODEL=cross-encoder/mmarco-mMiniLMv2-L12-H384-v1","title":"SpectraLLM — reranker (Cross-Encoder)"},
+            {"image":"spectrallm-trainer","context":".","dockerfile":"services/trainer/Dockerfile","platforms":"linux/amd64","free_disk":true,"build_args":"","title":"SpectraLLM — trainer (fine-tuning QLoRA/DPO)"}
           ]'
 
           # jq et non `tr -d` pour compacter : les titres contiennent des espaces, qu'une

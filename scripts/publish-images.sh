@@ -7,7 +7,7 @@
 #   --tag VERSION       Version publiée (ex. v0.7.1 ou 0.7.1). Défaut : le tag git
 #                       pointant sur HEAD, sinon « edge-<sha> ».
 #   --namespace NS      Espace de noms Docker Hub. Défaut : $SPECTRA_IMAGE_NAMESPACE,
-#                       sinon la valeur par défaut du dépôt (devdownin).
+#                       sinon la valeur par défaut du dépôt (compagnonsdudev).
 #   --platforms LIST    Architectures visées. Défaut : linux/amd64,linux/arm64
 #                       (les services profilés restent en linux/amd64 seul).
 #   --include-profiled  Publie aussi docparser, reranker et trainer. Plusieurs Go :
@@ -48,7 +48,7 @@ die()   { echo -e "\033[31mErreur : $*\033[0m" >&2; exit 1; }
 
 # Valeur par défaut de l'espace de noms. DOIT rester alignée sur celle de
 # deploy/docker/docker-compose.hub.yml : l'overlay tire ce que ce script pousse.
-DEFAULT_NAMESPACE="devdownin"
+DEFAULT_NAMESPACE="compagnonsdudev"
 DEFAULT_PLATFORMS="linux/amd64,linux/arm64"
 # Les images profilées embarquent torch. Sous émulation QEMU, leur construction arm64
 # prendrait des heures pour les rares utilisateurs concernés — qui ont tout intérêt à
@@ -122,14 +122,14 @@ fi
 # ── Images ────────────────────────────────────────────────────────────────────
 # Format : nom|contexte|dockerfile|plateformes|build-args
 IMAGES=(
-    "spectra-api|.|deploy/docker/Dockerfile|$PLATFORMS|"
-    "spectra-frontend|frontend|frontend/Dockerfile|$PLATFORMS|"
+    "spectrallm|.|deploy/docker/Dockerfile|$PLATFORMS|"
+    "spectrallm-frontend|frontend|frontend/Dockerfile|$PLATFORMS|"
 )
 if [[ "$INCLUDE_PROFILED" -eq 1 ]]; then
     IMAGES+=(
-        "spectra-docparser|services/docparser|services/docparser/Dockerfile|$PROFILED_PLATFORMS|USE_DOCLING=false"
-        "spectra-reranker|services/reranker|services/reranker/Dockerfile|$PROFILED_PLATFORMS|RERANKER_MODEL=cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
-        "spectra-trainer|.|services/trainer/Dockerfile|$PROFILED_PLATFORMS|"
+        "spectrallm-docparser|services/docparser|services/docparser/Dockerfile|$PROFILED_PLATFORMS|USE_DOCLING=false"
+        "spectrallm-reranker|services/reranker|services/reranker/Dockerfile|$PROFILED_PLATFORMS|RERANKER_MODEL=cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
+        "spectrallm-trainer|.|services/trainer/Dockerfile|$PROFILED_PLATFORMS|"
     )
 fi
 
