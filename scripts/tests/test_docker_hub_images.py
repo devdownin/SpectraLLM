@@ -36,6 +36,7 @@ HUB_OVERLAY = REPO_ROOT / "deploy/docker/docker-compose.hub.yml"
 BASE_COMPOSE = REPO_ROOT / "deploy/docker/docker-compose.yml"
 ENV_EXAMPLE = REPO_ROOT / ".env.example"
 HUB_PAGES = REPO_ROOT / "deploy/docker/hub"
+RELEASE_NOTES = REPO_ROOT / ".github/release-notes"
 
 # Limites imposées par Docker Hub sur un dépôt.
 SHORT_DESCRIPTION_MAX = 100
@@ -454,6 +455,86 @@ def test_hub_pages_link_and_embed_absolutely(image):
     assert not relative, (
         f"{image}.md contient {len(relative)} lien(s)/image(s) relatif(s), cassé(s) sur "
         f"Docker Hub : {relative[:5]}"
+    )
+
+
+# ── Version tirée par défaut ─────────────────────────────────────────────────────
+
+def overlay_default_tags() -> list[str]:
+    """Valeur(s) par défaut de SPECTRA_IMAGE_TAG dans l'overlay."""
+    return re.findall(r"\$\{SPECTRA_IMAGE_TAG:-([^}]+)\}", read(HUB_OVERLAY))
+
+
+def latest_released_version() -> str | None:
+    """
+    Dernière version publiée, lue dans `.github/release-notes/vX.Y[.Z].md`.
+
+    Ce répertoire, et non le CHANGELOG : les tags d'image dérivent du TAG GIT
+    (`docker-publish.yml` se déclenche sur `v*`), et c'est ce répertoire que `release.yml`
+    indexe par tag. Le CHANGELOG suit une autre numérotation — au moment d'écrire ceci, il
+    en est à 1.13.0 quand le dernier tag est v0.7.1 — et s'y fier ferait comparer deux
+    choses qui n'ont jamais désigné la même version.
+
+    Ni git : `actions/checkout` ne récupère ni l'historique ni les tags par défaut, et un
+    contrôle qui dépend de ce qu'on a bien voulu cloner est un contrôle qui ne vérifie
+    plus rien le jour où la configuration change.
+    """
+    versions = []
+    for path in RELEASE_NOTES.glob("v*.md"):
+        match = re.fullmatch(r"v(\d+(?:\.\d+)*)", path.stem)
+        if match:
+            versions.append(tuple(int(part) for part in match.group(1).split(".")))
+    if not versions:
+        return None
+    return ".".join(str(part) for part in max(versions))
+
+
+def test_both_services_pull_the_same_version():
+    """
+    Le backend et le frontend sont bâtis depuis le même commit et ne sont jamais testés
+    séparément. Deux défauts différents dans l'overlay assembleraient deux versions qui
+    n'ont jamais tourné ensemble — et rien ne le signalerait au démarrage.
+    """
+    defaults = overlay_default_tags()
+
+    assert defaults, "aucun défaut SPECTRA_IMAGE_TAG lu dans l'overlay"
+    assert len(set(defaults)) == 1, (
+        f"l'overlay tire des versions différentes selon le service : {defaults}"
+    )
+
+
+def test_the_overlay_default_is_latest_or_the_released_version():
+    """
+    Le défaut de l'overlay décide de ce que reçoit quiconque ne configure rien.
+
+    Deux valeurs sont acceptables, et une seule à la fois :
+
+      — « latest », état explicitement transitoire tant qu'aucune version n'a été publiée,
+        ou choix assumé d'une vitrine accueillante ;
+      — la dernière version publiée, épinglée — le raisonnement que ce dépôt applique déjà
+        à llama.cpp et ChromaDB, avec un précédent concret : le tag mobile de ChromaDB a
+        déplacé son chemin de persistance sans un message, et l'index vectoriel repartait
+        de zéro à chaque « docker compose down ».
+
+    Ce qui n'est PAS acceptable, c'est une troisième valeur : un numéro figé qui n'est plus
+    celui de la dernière version. Il ne casse rien — il sert simplement une version périmée
+    à tous ceux qui n'épinglent pas, sans que personne s'en aperçoive.
+    """
+    default = overlay_default_tags()[0]
+    released = latest_released_version()
+
+    if default == "latest":
+        return
+
+    assert released is not None, (
+        f"l'overlay épingle « {default} » mais aucune note de release ne permet de vérifier "
+        "à quelle version cela correspond"
+    )
+    assert default == released, (
+        f"l'overlay tire « {default} » par défaut alors que la dernière version publiée est "
+        f"« {released} » (.github/release-notes/). Après chaque publication, alignez le défaut "
+        "de deploy/docker/docker-compose.hub.yml — sinon les utilisateurs qui n'épinglent "
+        "rien restent sur une version périmée, en silence."
     )
 
 
