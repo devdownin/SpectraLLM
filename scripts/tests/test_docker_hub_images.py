@@ -37,6 +37,8 @@ BASE_COMPOSE = REPO_ROOT / "deploy/docker/docker-compose.yml"
 ENV_EXAMPLE = REPO_ROOT / ".env.example"
 HUB_PAGES = REPO_ROOT / "deploy/docker/hub"
 RELEASE_NOTES = REPO_ROOT / ".github/release-notes"
+START_SH = REPO_ROOT / "scripts/start.sh"
+START_BAT = REPO_ROOT / "scripts/start.bat"
 
 # Limites imposées par Docker Hub sur un dépôt.
 SHORT_DESCRIPTION_MAX = 100
@@ -572,6 +574,35 @@ def test_the_latest_release_tag_has_curated_notes():
         f"le dernier tag {tag} n'a pas de notes curées ({notes.relative_to(REPO_ROOT)}). "
         "Écrivez-les — sinon la release part avec la liste brute des PR fusionnées."
     )
+
+
+def test_the_hub_option_is_wired_and_not_merely_announced():
+    """
+    `--hub` promet de démarrer sans rien construire. Trois choses doivent être vraies pour
+    que la promesse tienne, et aucune ne se voit dans la ligne d'usage :
+
+      — l'overlay doit être CHARGÉ (sans lui, Compose construit comme avant, en silence) ;
+      — `--no-build` doit être passé à `up` : c'est ce qui transforme une image absente en
+        échec franc, au lieu d'une reconstruction qui annule tout l'intérêt du tirage ;
+      — les images doivent être TIRÉES avant le démarrage.
+
+    Le test de parité Windows compare les options ANNONCÉES ; il ne dit rien de ce
+    qu'elles font. C'est exactement l'écart qui a laissé `stop.bat` ne pas arrêter les
+    services profilés — même interface, comportements différents.
+    """
+    for path, overlay in ((START_SH, "SPECTRA_COMPOSE_HUB_FILE"), (START_BAT, "docker-compose.hub.yml")):
+        body = read(path)
+        name = path.name
+
+        assert "--hub" in body, f"{name} n'accepte pas --hub"
+        assert overlay in body, f"{name} ne charge pas l'overlay des images publiées"
+        assert "--no-build" in body, (
+            f"{name} ne passe pas --no-build : une image absente serait reconstruite en "
+            "silence, et le mode --hub deviendrait un no-op invisible"
+        )
+        assert "pull spectra-api frontend" in body, (
+            f"{name} ne tire pas les deux images de l'overlay avant de démarrer"
+        )
 
 
 def test_the_documentation_names_the_secrets_the_workflow_reads():

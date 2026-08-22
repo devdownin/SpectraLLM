@@ -9,6 +9,7 @@
 [![Java CI with Maven](https://github.com/devdownin/SpectraLLM/actions/workflows/ci.yml/badge.svg)](https://github.com/devdownin/SpectraLLM/actions/workflows/ci.yml)
 [![Code Coverage](https://codecov.io/gh/devdownin/SpectraLLM/branch/main/graph/badge.svg)](https://codecov.io/gh/devdownin/SpectraLLM)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/devdownin/SpectraLLM/badge)](https://securityscorecards.dev/viewer/?uri=github.com/devdownin/SpectraLLM)
+[![Docker Hub](https://img.shields.io/docker/v/compagnonsdudev/spectrallm?logo=docker&logoColor=white&label=Docker%20Hub&sort=semver)](https://hub.docker.com/r/compagnonsdudev/spectrallm)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 
 [Démarrage rapide](#-démarrage-rapide) · [Pourquoi Spectra](#-pourquoi-spectra) · [Comment ça marche](#-comment-ça-marche) · [Documentation](#-documentation) · [English](./README.md)
@@ -33,10 +34,12 @@ Un seul `docker compose up`. Une interface web pour tout le parcours. Vos donné
 
 ```bash
 git clone https://github.com/devdownin/SpectraLLM.git && cd SpectraLLM
-./scripts/start.sh --first-run      # Windows : scripts\start.bat --first-run
+./scripts/start.sh --first-run --hub      # Windows : scripts\start.bat --first-run --hub
 ```
 
 Spectra télécharge les modèles par défaut (~1,2 Go), démarre la stack et ouvre l'interface sur **http://localhost**. Déposez un PDF sur la page Ingestion et posez vos questions.
+
+> **`--hub` tire les images publiées** ([`compagnonsdudev/spectrallm`](https://hub.docker.com/r/compagnonsdudev/spectrallm) et [`spectrallm-frontend`](https://hub.docker.com/r/compagnonsdudev/spectrallm-frontend), `amd64` + `arm64`) au lieu de les construire : ni `mvn package`, ni build Vite sur votre machine — et plus d'échec derrière un réseau qui filtre Maven Central ou le registre npm. Retirez le drapeau pour construire depuis les sources, ce qu'il faut faire dès que vous modifiez le code.
 
 > **Prérequis :** Docker Engine 25+ (Compose v2) et 16 Go de RAM. GPU optionnel — NVIDIA, AMD/ROCm et Vulkan supportés, détection automatique. Vous préférez le pas-à-pas ? → **[Getting Started](docs/getting-started.en.md)**
 

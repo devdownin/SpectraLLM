@@ -219,8 +219,19 @@ vérifiable la promesse « cette image correspond à ce commit du dépôt ».
 
 ## 5. Consommer : démarrer sans rien construire
 
-L'overlay [`docker-compose.hub.yml`](../../deploy/docker/docker-compose.hub.yml) remplace
-la construction des deux images par un tirage :
+Le chemin le plus court :
+
+```bash
+./scripts/start.sh --hub          # Windows : scripts\start.bat --hub
+```
+
+Il fait tout ce que fait `start.sh` — détection matérielle, répertoires, `--wait` — mais
+tire les images au lieu de les construire. `--hub` et `--build` demandent l'inverse l'un de
+l'autre : les passer ensemble échoue plutôt que de laisser l'ordre des arguments décider.
+
+Sous le capot, c'est l'overlay
+[`docker-compose.hub.yml`](../../deploy/docker/docker-compose.hub.yml), qui remplace la
+construction des deux images par un tirage :
 
 ```bash
 docker compose --project-directory . \
