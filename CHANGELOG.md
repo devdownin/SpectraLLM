@@ -8,6 +8,59 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Ajouté — les modèles se vérifient, et se prennent ailleurs qu'à la source
+
+Deux compléments au correctif ci-dessous, qui ne traitait que la complétude du transfert.
+
+**Ce qu'on reçoit est vérifié avant d'être accepté.** Un miroir mal configuré, un proxy
+d'entreprise ou un portail captif renvoient une page en **200** : `--fail` la laisse passer,
+et le « modèle » obtenu n'est rejeté qu'au démarrage de llama.cpp, plusieurs étapes plus
+loin. Les quatre premiers octets d'un GGUF suffisent à le savoir tout de suite. S'y ajoute
+l'empreinte SHA-256 : vérifiée si elle est épinglée (`SPECTRA_EMBED_MODEL_SHA256`,
+`SPECTRA_CHAT_MODEL_SHA256`), affichée sinon — même convention que `LLMFIT_SHA256` côté
+image, pour qu'épingler ne demande que de recopier la valeur obtenue. Les deux contrôles ont
+lieu AVANT le renommage : ce qui échoue ne porte jamais le nom définitif.
+
+**La source est déplaçable.** `HF_ENDPOINT` — déjà transmise au reranker et au trainer par
+`docker-compose.yml` — construit désormais aussi les URL des scripts de setup : un miroir se
+déclare une fois et vaut pour toute la pile, plutôt qu'une seconde variable pour le même
+besoin. Pour une source qui n'est pas un miroir HuggingFace,
+`SPECTRA_EMBED_MODEL_URL` / `SPECTRA_CHAT_MODEL_URL` remplacent l'URL entière, comme
+`SPECTRA_RERANKER_ONNX_URL` le fait déjà pour l'artefact du reranker.
+
+
+### Corrigé — un téléchargement de modèle interrompu passait pour un succès
+
+Les modèles par défaut pèsent ~4,8 Go. Sur une connexion domestique, une coupure en cours de
+transfert n'est pas un cas limite : c'est le cas courant. Or `setup.sh` et `setup.bat`
+écrivaient **directement sur le nom définitif**. Une coupure, un Ctrl-C ou un disque plein
+laissaient un GGUF tronqué à l'emplacement attendu — et le lancement suivant, qui ne teste
+que la PRÉSENCE du fichier, annonçait « [OK] présent — 2,1G ». La pile démarrait, et la
+panne se manifestait ailleurs : `llama-server` refusant le modèle, ou l'entrypoint attendant
+un fichier qui existe.
+
+Les deux scripts passent désormais par un sous-programme unique, qui télécharge vers
+« .part » et ne renomme qu'au succès : **le fichier définitif n'existe que s'il est
+complet**. Ce détour rend la reprise possible — `-C -` repart de l'octet où l'on s'était
+arrêté, ce qui sur 4,7 Go est la différence entre reprendre 10 % et retélécharger 90 % — et
+trois tentatives couvrent la connexion coupée en plein transfert, que le `--retry` de curl
+ignore.
+
+`setup.bat` avait sa propre variante du même défaut : il lui manquait `--fail`, que
+`setup.sh` avait et que le reranker batch avait vingt lignes plus bas. Sans ce drapeau, une
+404 ou une page d'erreur HTML était enregistrée comme si c'était le modèle, curl sortait en
+0, et le script annonçait « [OK] telecharge ». Un GGUF de 12 Ko contenant du HTML, sur
+Windows uniquement — l'exact angle mort de `test_windows_scripts_parity`, qui compare les
+options annoncées et non ce qu'elles font.
+
+### Corrigé — la taille annoncée des modèles était fausse d'un facteur quatre
+
+Le README annonçait « ~1,2 Go » là où le seul modèle de chat en pèse 4,7. Les manuels et le
+guide de démarrage décrivaient encore un défaut « Phi-4-mini (~1,1 Go) » sous une commande
+qui télécharge Qwen2.5-7B — étiquette restée d'un changement de modèle par défaut. C'est la
+phrase qui décide si l'utilisateur lance la commande maintenant ou la remet à plus tard.
+
+
 ### Ajouté — `start.sh --hub` : démarrer sans rien construire
 
 Les images sont publiées depuis la v0.8.0, mais le chemin pour les utiliser n'existait que

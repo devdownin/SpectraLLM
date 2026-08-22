@@ -42,7 +42,7 @@ cd SpectraLLM
 ./scripts/start.sh --first-run        # Windows: scripts\start.bat --first-run
 ```
 
-This downloads the default models (embedding ~81 MB + chat ~1.1 GB), starts the full stack in the background, waits for every service to be ready, then opens the Web UI at **http://localhost**. Steps 1–4 below do the same thing manually, for when you want control over each stage.
+This downloads the default models (embedding ~81 MB + chat ~4.7 GB — **~4.8 GB in total**), starts the full stack in the background, waits for every service to be ready, then opens the Web UI at **http://localhost**. Steps 1–4 below do the same thing manually, for when you want control over each stage.
 
 ### 1. Clone and prepare
 
@@ -69,7 +69,7 @@ over from a clean file (the previous one is kept as `.env.bak`).
 Two GGUF files are required — one for chat, one for embeddings:
 
 ```bash
-# Chat model (~1.1 GB) — Phi-4-mini by default
+# Chat model (~4.7 GB) — Qwen2.5-7B-Instruct by default
 huggingface-cli download bartowski/Qwen2.5-7B-Instruct-GGUF \
   Qwen2.5-7B-Instruct-Q4_K_M.gguf --local-dir data/models/
 
@@ -78,6 +78,15 @@ huggingface-cli download nomic-ai/nomic-embed-text-v1.5-GGUF \
   nomic-embed-text-v1.5.Q4_0.gguf \
   --local-dir data/models/ --filename embed.gguf
 ```
+
+> **Behind a mirror, a corporate proxy, or offline?** `setup.sh` builds its URLs from
+> `HF_ENDPOINT` — the same variable `docker-compose.yml` already passes to the reranker and
+> the trainer, so a mirror is declared once for the whole stack. For a source that isn't a
+> HuggingFace mirror, `SPECTRA_EMBED_MODEL_URL` / `SPECTRA_CHAT_MODEL_URL` replace the URL
+> outright. And `SPECTRA_EMBED_MODEL_SHA256` / `SPECTRA_CHAT_MODEL_SHA256` pin the expected
+> digest: a mismatch fails the download and removes the file instead of leaving you with a
+> model that llama.cpp will reject much later. Left empty, the script prints the digest it
+> obtained — copy it to pin it. See [`.env.example`](../.env.example).
 
 If the models are missing at startup, the stack still comes up: `llm-chat` and `llm-embed` log `EN ATTENTE: modèle introuvable` and poll until the GGUF appears, then start serving on their own. Nothing aborts, so you can drop the files in — or download them from the Model Hub in the UI — while the stack is already running.
 
