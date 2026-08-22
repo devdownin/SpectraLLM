@@ -1,0 +1,39 @@
+# Overlay « images publiées » — démarre Spectra SANS rien construire.
+#
+# POURQUOI CE FICHIER EXISTE
+# La pile par défaut tire ses images tierces d'un registre (llama.cpp, chromadb, kafka) mais
+# CONSTRUIT les deux siennes : `mvn package` complet pour le backend, `npm ci` + build Vite
+# pour le frontend. C'est plusieurs minutes sur une machine correcte, davantage sur une
+# machine modeste, et un échec pur et simple derrière un réseau qui filtre Maven Central ou
+# le registre npm — alors que .github/workflows/docker-publish.yml produit déjà ces images
+# à chaque version et les pousse sur Docker Hub.
+#
+# Cet overlay dit à Compose d'utiliser CES images-là.
+#
+#   docker compose --project-directory . \
+#     -f deploy/docker/docker-compose.yml -f deploy/docker/docker-compose.hub.yml pull
+#   docker compose --project-directory . \
+#     -f deploy/docker/docker-compose.yml -f deploy/docker/docker-compose.hub.yml up -d --wait --no-build
+#
+# `pull` puis `up --no-build`, et non un `pull_policy: always` posé ici : le tirage reste
+# une ÉTAPE EXPLICITE, que l'on peut sauter une fois les images en cache local — un
+# déploiement hors ligne (la promesse centrale de ce projet) ne doit pas dépendre d'un
+# registre à chaque démarrage. Et `--no-build` est le garde-fou : si un nom d'image ne
+# correspondait à rien, Compose reconstruirait en silence et l'overlay deviendrait un no-op
+# invisible — exactement le piège documenté dans docker-compose.ci.yml. Avec ce drapeau,
+# l'écart échoue franchement.
+#
+# CE QUE CET OVERLAY NE COUVRE PAS, ET POURQUOI
+# Les trois services profilés (docparser, reranker, trainer) continuent de se construire
+# localement. Leur publication est OPTIONNELLE (drapeau `include_profiled` du workflow) :
+# les épingler ici ferait échouer au tirage tout utilisateur d'un profil sur une version
+# où ils n'ont pas été publiés — un échec là où la construction locale, elle, marche.
+#
+# Espace de noms et version : cf. SPECTRA_IMAGE_NAMESPACE / SPECTRA_IMAGE_TAG dans
+# .env.example. Détail complet : docs/tech/docker-hub.fr.md
+services:
+  spectra-api:
+    image: ${SPECTRA_IMAGE_NAMESPACE:-compagnonsdudev}/spectrallm:${SPECTRA_IMAGE_TAG:-latest}
+
+  frontend:
+    image: ${SPECTRA_IMAGE_NAMESPACE:-compagnonsdudev}/spectrallm-frontend:${SPECTRA_IMAGE_TAG:-latest}

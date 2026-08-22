@@ -25,6 +25,10 @@ SPECTRA_COMPOSE_GPU_FILE="deploy/docker/docker-compose.gpu.yml"
 # Overlay réservé au job E2E (noms d'images attendus par le cache de couches). Aucun script
 # ne le charge — il est déclaré ici pour que verify.sh puisse le valider comme les autres.
 SPECTRA_COMPOSE_CI_FILE="deploy/docker/docker-compose.ci.yml"
+# Overlay « images publiées sur Docker Hub » : démarre la pile sans rien construire. Chargé
+# à la main (cf. docs/tech/docker-hub.fr.md), donc jamais par la CI ni par start.sh — d'où
+# la même déclaration ici, pour que verify.sh en valide la syntaxe comme celle des autres.
+SPECTRA_COMPOSE_HUB_FILE="deploy/docker/docker-compose.hub.yml"
 
 # Lit la DERNIÈRE affectation d'une clé dans .env, sans sourcer le fichier.
 #

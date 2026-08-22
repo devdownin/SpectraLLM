@@ -17,7 +17,15 @@
 #
 # Rafraîchir une empreinte :
 #   docker buildx imagetools inspect python:3.11-slim --format '{{.Manifest.Digest}}'
-FROM maven:3-eclipse-temurin-25@sha256:1b1fc6d0168ea616afd1c861d6f32ec37c9ec2ffe88a0351b3771dd4ad86b0d8 AS build
+#
+# `--platform=$BUILDPLATFORM` : ce stage tourne sur l'architecture du CONSTRUCTEUR, jamais
+# sur celle de la cible. Il ne produit qu'un .jar — du bytecode, identique pour amd64 et
+# arm64. Sans cette précision, une construction multi-architecture (celle qui publie les
+# images, cf. .github/workflows/docker-publish.yml) exécuterait `mvn package` sous
+# émulation QEMU pour produire exactement le même fichier : des dizaines de minutes
+# gagnées pour un résultat inchangé. Le stage d'exécution ci-dessous, lui, reste bien bâti
+# pour l'architecture cible — c'est là que vit la JRE.
+FROM --platform=$BUILDPLATFORM maven:3-eclipse-temurin-25@sha256:1b1fc6d0168ea616afd1c861d6f32ec37c9ec2ffe88a0351b3771dd4ad86b0d8 AS build
 WORKDIR /app
 COPY backend/pom.xml .
 

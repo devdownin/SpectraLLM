@@ -8,6 +8,41 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Ajouté — les images Spectra se publient sur Docker Hub
+
+Toutes les images **tierces** de la pile venaient déjà d'un registre (llama.cpp, chromadb,
+kafka) ; les deux que le projet **construit** ne venaient de nulle part. Démarrer Spectra
+imposait donc un `mvn package` complet et un build Vite sur la machine de l'utilisateur :
+plusieurs minutes au mieux, un échec net derrière un réseau qui filtre Maven Central ou le
+registre npm — pour un résultat que la CI produit déjà à chaque version.
+
+`.github/workflows/docker-publish.yml` pousse `compagnonsdudev/spectrallm` (le backend) et
+`compagnonsdudev/spectrallm-frontend` sur le tag de version (`v*`), en `amd64` + `arm64`,
+avec les tags `X.Y.Z`, `X.Y` et `latest` — une pré-version reste **hors** de `latest`. Les
+trois services profilés (docparser, reranker, trainer) sont derrière un drapeau : plusieurs
+gigaoctets chacun, et seuls concernés ceux qui
+activent le profil. `scripts/publish-images.sh` fait la même chose depuis un poste, avec un
+`--dry-run` qui exerce toute la chaîne sans identifiants.
+
+Le multi-architecture ne coûte presque rien parce que les stages de build des deux
+Dockerfiles portent désormais `--platform=$BUILDPLATFORM` : ils tournent sur l'architecture
+du constructeur et ne produisent qu'un `.jar` et des fichiers statiques, identiques pour
+amd64 et arm64. Sans cela, chaque publication rejouerait `mvn package` et `npm ci` sous
+émulation QEMU pour un résultat rigoureusement inchangé.
+
+Côté consommation, `deploy/docker/docker-compose.hub.yml` démarre la pile depuis ces images
+(`pull` puis `up --no-build` — le tirage reste explicite, un déploiement hors ligne ne doit
+pas dépendre d'un registre à chaque démarrage). `scripts/tests/test_docker_hub_images.py`
+relie les quatre fichiers : un nom d'image qui divergerait entre le workflow, le script et
+l'overlay fait échouer la CI, au lieu de produire chez l'utilisateur un `manifest unknown`
+sur une image dont il n'a jamais entendu parler.
+
+Ce qu'il reste à faire une fois : renseigner `DOCKERHUB_USERNAME` et `DOCKERHUB_TOKEN` dans
+les secrets du dépôt. Sans eux, une publication **échoue** en nommant celui qui manque —
+plutôt que de finir en vert sans avoir rien poussé. Mode d'emploi complet :
+`docs/tech/docker-hub.fr.md`.
+
+
 ### Corrigé — `docparser` et `reranker` ne redémarraient pas
 
 Seuls services longue durée de la pile sans `restart: unless-stopped`, par oubli et non par
