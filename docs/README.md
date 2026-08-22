@@ -25,6 +25,7 @@ New here? Start with **[Getting Started](getting-started.en.md)**.
 
 | Guide | Inside |
 |---|---|
+| **[Docker Hub images (FR)](tech/docker-hub.fr.md)** | Publishing the Spectra images to Docker Hub, and starting the stack from them without building anything. |
 | **[llama.cpp Guide](tech/llama-cpp.fr.md)** | Inference engine details, migration and tuning. |
 | **[Reliability](process/reliability.fr.md)** | Operational hardening and the improvements log. |
 | **[Security](../SECURITY.md)** | Security policy and how to report vulnerabilities. |

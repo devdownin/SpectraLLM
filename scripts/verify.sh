@@ -165,6 +165,11 @@ if wanted compose; then
     # le job le plus long et le plus lent à diagnostiquer.
     run "docker compose config (overlay CI)" \
       docker compose --project-directory . -f "$SPECTRA_COMPOSE_FILE" -f "$SPECTRA_COMPOSE_CI_FILE" config -q
+    # Overlay des images publiées : chargé à la main par qui déploie sans construire. Aucun
+    # job ne l'exerce, donc une erreur de syntaxe n'apparaîtrait que chez cet utilisateur-là,
+    # au premier démarrage — c'est-à-dire au seul moment où il ne peut rien diagnostiquer.
+    run "docker compose config (overlay Docker Hub)" \
+      docker compose --project-directory . -f "$SPECTRA_COMPOSE_FILE" -f "$SPECTRA_COMPOSE_HUB_FILE" config -q
   else
     skip "docker compose config" "docker compose indisponible"
   fi

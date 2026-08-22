@@ -1,5 +1,12 @@
 # Build stage
-FROM node:22-alpine AS build
+#
+# `--platform=$BUILDPLATFORM` : ce stage tourne sur l'architecture du CONSTRUCTEUR. Il ne
+# produit que des fichiers statiques (JS, CSS, HTML), identiques quelle que soit
+# l'architecture visée. Sans cette précision, la construction multi-architecture qui publie
+# l'image (.github/workflows/docker-publish.yml) rejouerait `npm ci` + le build Vite sous
+# émulation QEMU pour un résultat rigoureusement identique. Le stage Nginx ci-dessous
+# reste bâti pour l'architecture cible.
+FROM --platform=$BUILDPLATFORM node:22-alpine AS build
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci

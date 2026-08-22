@@ -1,0 +1,314 @@
+# Publication des images Spectra vers le registre Docker Hub.
+#
+# POURQUOI CE WORKFLOW EXISTE
+# ---------------------------
+# Toutes les images TIERCES de la pile sont tirées d'un registre (llama.cpp, chromadb,
+# kafka) ; les deux images que ce projet CONSTRUIT — spectra-api et le frontend — ne
+# l'étaient nulle part. Démarrer Spectra imposait donc de compiler le backend Maven et de
+# bâtir le bundle Vite sur la machine de l'utilisateur : plusieurs minutes au mieux, un
+# échec sur un réseau d'entreprise qui filtre Maven Central au pire — pour un résultat que
+# la CI produit déjà à chaque release.
+#
+# `profiled-images.yml` construit sans publier (il ne vérifie que la CONSTRUCTIBILITÉ) et
+# `ci.yml` charge ses images dans le magasin local du runner. Ce workflow-ci est le seul à
+# POUSSER, et il ne pousse que sur un tag de version — ou sur demande explicite.
+#
+# CE QU'IL FAUT CONFIGURER (une fois, côté dépôt GitHub)
+# ------------------------------------------------------
+#   secrets.DOCKERHUB_USERNAME   compte Docker Hub qui pousse
+#   secrets.DOCKERHUB_TOKEN      jeton d'accès (Account Settings → Personal access tokens),
+#                                portée « Read & Write ». JAMAIS le mot de passe du compte :
+#                                un jeton se révoque seul, sans toucher au compte.
+#   vars.DOCKERHUB_NAMESPACE     (optionnel) organisation Docker Hub visée si elle diffère
+#                                du compte qui pousse. Défaut : DOCKERHUB_USERNAME.
+#
+# Sans ces secrets, une exécution en publication ÉCHOUE avec le message qui dit lequel
+# manque — plutôt que de se terminer en vert sans avoir rien poussé.
+# Le mode `dry_run` permet de tout exercer (construction, tags, plateformes) sans
+# credentials et sans rien publier.
+#
+# Détail complet : docs/tech/docker-hub.fr.md
+name: Publish images (Docker Hub)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version à publier (ex. v0.7.1). Vide = tag « edge-<sha> », sans « latest »."
+        required: false
+        type: string
+      dry_run:
+        description: "Tout construire sans rien pousser (ne demande aucun secret)."
+        required: false
+        default: false
+        type: boolean
+      include_profiled:
+        description: "Publier aussi docparser / reranker / trainer (plusieurs Go, amd64 seul)."
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  # Deux publications simultanées du même tag se disputeraient les mêmes références de
+  # registre. On ne les annule PAS pour autant : une poussée à demi faite laisserait un tag
+  # partiellement écrit côté Docker Hub, ce qui est pire que d'attendre.
+  group: docker-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ── Résolution des tags et des credentials, une seule fois pour toute la matrice ──
+  # Fait ici et non dans chaque job de publication : cinq copies de cette logique
+  # dériveraient, et une image publiée sous un tag différent des autres est un piège
+  # silencieux — la pile devient un assemblage de versions qui n'ont jamais été testées
+  # ensemble.
+  preflight:
+    name: Resolve tags and credentials
+    runs-on: ubuntu-latest
+    outputs:
+      namespace: ${{ steps.resolve.outputs.namespace }}
+      version: ${{ steps.resolve.outputs.version }}
+      tags: ${{ steps.resolve.outputs.tags }}
+      push: ${{ steps.resolve.outputs.push }}
+      matrix: ${{ steps.resolve.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve
+        id: resolve
+        env:
+          DRY_RUN: ${{ inputs.dry_run || false }}
+          INCLUDE_PROFILED: ${{ inputs.include_profiled || false }}
+          INPUT_VERSION: ${{ inputs.version }}
+          HUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          HUB_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE }}
+          HAS_TOKEN: ${{ secrets.DOCKERHUB_TOKEN != '' }}
+        run: |
+          set -euo pipefail
+
+          # ── Version ────────────────────────────────────────────────────────────
+          if [ "${{ github.event_name }}" = "push" ]; then
+            RAW="${{ github.ref_name }}"
+          else
+            RAW="${INPUT_VERSION}"
+          fi
+
+          MINOR=""
+          LATEST="false"
+          if [ -z "$RAW" ]; then
+            # Publication hors version : un tag daté du commit, jamais « latest ». Sert à
+            # essayer la chaîne complète sans engager le tag que les utilisateurs tirent.
+            VERSION="edge-$(git rev-parse --short HEAD 2>/dev/null || printf '%s' "${GITHUB_SHA:0:7}")"
+          elif printf '%s' "$RAW" | grep -Eq '^v[0-9]+\.[0-9]+(\.[0-9]+)?$'; then
+            VERSION="${RAW#v}"
+            LATEST="true"
+            # « 0.7.1 » donne aussi « 0.7 » : un utilisateur qui veut les correctifs de la
+            # série sans les surprises d'une montée de version majeure a un tag pour cela.
+            # « 0.7 » ne le donne pas — ce serait le même tag deux fois.
+            CANDIDATE="$(printf '%s' "$VERSION" | cut -d. -f1,2)"
+            [ "$CANDIDATE" != "$VERSION" ] && MINOR="$CANDIDATE"
+          else
+            # Pré-version (v1.0.0-rc1) ou tag hors convention : publié TEL QUEL, et surtout
+            # pas en « latest » — une release candidate ne doit pas devenir le défaut de
+            # ceux qui n'épinglent rien.
+            VERSION="${RAW#v}"
+          fi
+
+          # ── Espace de noms et credentials ──────────────────────────────────────
+          NAMESPACE="${HUB_NAMESPACE:-$HUB_USERNAME}"
+          PUSH="true"
+          if [ "$DRY_RUN" = "true" ]; then
+            PUSH="false"
+            echo "::notice::dry_run — les images sont construites, rien n'est poussé."
+            NAMESPACE="${NAMESPACE:-spectrallm-dry-run}"
+          else
+            MISSING=""
+            [ -z "$HUB_USERNAME" ] && MISSING="$MISSING secrets.DOCKERHUB_USERNAME"
+            [ "$HAS_TOKEN" != "true" ] && MISSING="$MISSING secrets.DOCKERHUB_TOKEN"
+            if [ -n "$MISSING" ]; then
+              echo "::error::Secret(s) manquant(s) :$MISSING. Configurez-les dans Settings → Secrets and variables → Actions (voir docs/tech/docker-hub.fr.md), ou relancez avec dry_run pour construire sans publier."
+              exit 1
+            fi
+          fi
+
+          # Un espace de noms invalide n'est refusé qu'au moment du push, après de longues
+          # minutes de construction. On le valide donc AVANT de construire quoi que ce soit.
+          if ! printf '%s' "$NAMESPACE" | grep -Eq '^[a-z0-9][a-z0-9_-]{1,254}$'; then
+            echo "::error::Espace de noms Docker Hub invalide : « $NAMESPACE » (minuscules, chiffres, « - » et « _ » seulement)."
+            exit 1
+          fi
+
+          # ── Matrice ────────────────────────────────────────────────────────────
+          # spectra-api et le frontend sont les deux images que TOUTE pile Spectra
+          # démarre : elles partent à chaque publication, en multi-architecture (amd64 +
+          # arm64, donc Apple Silicon).
+          #
+          # Les trois services profilés sont derrière un drapeau, et en amd64 seul : ils
+          # embarquent torch, pèsent plusieurs gigaoctets, et n'intéressent que qui active
+          # le profil correspondant. Les construire pour arm64 sous émulation QEMU
+          # ajouterait des heures pour une poignée d'utilisateurs — mieux vaut qu'ils
+          # construisent localement, nativement.
+          DEFAULT='[
+            {"image":"spectra-api","context":".","dockerfile":"deploy/docker/Dockerfile","platforms":"linux/amd64,linux/arm64","free_disk":false,"build_args":"","title":"Spectra API (backend Java + RAG)"},
+            {"image":"spectra-frontend","context":"frontend","dockerfile":"frontend/Dockerfile","platforms":"linux/amd64,linux/arm64","free_disk":false,"build_args":"","title":"Spectra frontend (React + Nginx)"}
+          ]'
+          PROFILED='[
+            {"image":"spectra-docparser","context":"services/docparser","dockerfile":"services/docparser/Dockerfile","platforms":"linux/amd64","free_disk":true,"build_args":"USE_DOCLING=false","title":"Spectra docparser (parsing de mise en page)"},
+            {"image":"spectra-reranker","context":"services/reranker","dockerfile":"services/reranker/Dockerfile","platforms":"linux/amd64","free_disk":true,"build_args":"RERANKER_MODEL=cross-encoder/mmarco-mMiniLMv2-L12-H384-v1","title":"Spectra reranker (Cross-Encoder)"},
+            {"image":"spectra-trainer","context":".","dockerfile":"services/trainer/Dockerfile","platforms":"linux/amd64","free_disk":true,"build_args":"","title":"Spectra trainer (fine-tuning QLoRA/DPO)"}
+          ]'
+
+          # jq et non `tr -d` pour compacter : les titres contiennent des espaces, qu'une
+          # suppression aveugle collerait. Un JSON invalide ici ne se voit qu'au
+          # `fromJSON` du job suivant, sous la forme d'une erreur qui ne dit pas pourquoi.
+          if [ "$INCLUDE_PROFILED" = "true" ]; then
+            MATRIX="$(jq -cn --argjson a "$DEFAULT" --argjson b "$PROFILED" '$a + $b')"
+          else
+            MATRIX="$(printf '%s' "$DEFAULT" | jq -c .)"
+          fi
+
+          # Liste finale des tags, calculée UNE fois : toutes les images de la matrice
+          # reçoivent exactement la même. Une image publiée sous un tag que les autres n'ont
+          # pas transforme la pile en assemblage de versions qui n'ont jamais tourné ensemble.
+          TAGS="$VERSION"
+          [ -n "$MINOR" ] && TAGS="$TAGS,$MINOR"
+          [ "$LATEST" = "true" ] && TAGS="$TAGS,latest"
+
+          {
+            echo "namespace=$NAMESPACE"
+            echo "version=$VERSION"
+            echo "tags=$TAGS"
+            echo "push=$PUSH"
+            echo "matrix=$MATRIX"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Publication Docker Hub"
+            echo ""
+            echo "| Champ | Valeur |"
+            echo "|---|---|"
+            echo "| Espace de noms | \`$NAMESPACE\` |"
+            echo "| Version | \`$VERSION\` |"
+            echo "| Tags posés | \`$TAGS\` |"
+            echo "| Poussé | $PUSH |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    name: ${{ matrix.image }}
+    needs: preflight
+    runs-on: ubuntu-latest
+    # Le trainer installe torch et compile des extensions natives ; le multi-architecture
+    # du backend passe par une émulation partielle. Le défaut de 6 h est excessif, 30 min
+    # ne suffiraient pas toujours.
+    timeout-minutes: 120
+    strategy:
+      # Savoir QUELLES images échouent vaut mieux que savoir qu'une image échoue — et une
+      # image publiée pendant qu'une autre casse est un état à connaître, pas à masquer.
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.preflight.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        if: matrix.free_disk
+        # Les runners hébergés offrent ~14 Go utiles ; l'image du trainer les dépasse sans
+        # ce ménage. Échec par manque de place sinon — et le message n'oriente pas vers la
+        # vraie cause. Même étape que profiled-images.yml, même raison.
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          df -h /
+
+      - name: Set up QEMU
+        # Nécessaire au seul arm64 : la couche d'exécution des deux images multi-arch
+        # (JRE, Nginx) est bâtie pour l'architecture cible. Les étapes coûteuses — mvn
+        # package, npm ci + build Vite — tournent nativement grâce au `--platform=$BUILDPLATFORM`
+        # posé sur les stages de build des Dockerfiles : leurs artefacts (un .jar, des
+        # fichiers statiques) ne dépendent pas de l'architecture.
+        if: contains(matrix.platforms, 'arm64')
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        # Sauté en dry_run : c'est ce qui permet d'exercer la chaîne sans credentials.
+        if: needs.preflight.outputs.push == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Références complètes de l'image, une par tag. Fait en shell plutôt qu'avec
+      # docker/metadata-action : la règle tient en trois lignes, et elle est ici LISIBLE —
+      # là où une liste de `type=raw,…,enable=…` fait dépendre le résultat de la façon dont
+      # l'action traite une valeur vide, c'est-à-dire d'un détail qu'aucun fichier du dépôt
+      # ne documente.
+      - name: Compose image references
+        id: refs
+        env:
+          NAMESPACE: ${{ needs.preflight.outputs.namespace }}
+          IMAGE: ${{ matrix.image }}
+          TAGS: ${{ needs.preflight.outputs.tags }}
+        run: |
+          set -euo pipefail
+          {
+            echo "refs<<REFS_EOF"
+            # `printf '%s\n'` et non `printf '%s'` : sans le saut de ligne final, `read`
+            # rend faux sur la dernière valeur et la boucle se termine AVANT de la traiter.
+            # Le dernier tag — « latest », le plus visible de tous — disparaissait ainsi
+            # sans le moindre message, et une pré-version se serait publiée sans aucun tag.
+            printf '%s\n' "$TAGS" | tr ',' '\n' | while IFS= read -r tag; do
+              [ -n "$tag" ] && echo "$NAMESPACE/$IMAGE:$tag"
+            done
+            echo "REFS_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and push ${{ matrix.image }}
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: ${{ matrix.platforms }}
+          push: ${{ needs.preflight.outputs.push == 'true' }}
+          tags: ${{ steps.refs.outputs.refs }}
+          labels: |
+            org.opencontainers.image.title=${{ matrix.title }}
+            org.opencontainers.image.description=Spectra — turn your documents into a private, fine-tuned AI. 100% local.
+            org.opencontainers.image.vendor=SpectraLLM
+            org.opencontainers.image.licenses=AGPL-3.0-or-later
+            org.opencontainers.image.source=https://github.com/devdownin/SpectraLLM
+            org.opencontainers.image.documentation=https://github.com/devdownin/SpectraLLM/blob/main/docs/tech/docker-hub.fr.md
+            org.opencontainers.image.version=${{ needs.preflight.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          build-args: ${{ matrix.build_args }}
+          # Attestations de provenance : le manifeste publié dit d'où l'image vient, quel
+          # workflow l'a produite et depuis quel commit. C'est ce qui rend vérifiable la
+          # promesse « cette image correspond à ce tag du dépôt ».
+          provenance: mode=max
+          sbom: true
+          # Cache partagé avec les autres workflows par scope dédié : une publication ne
+          # doit pas invalider le cache du job E2E, et réciproquement.
+          cache-from: type=gha,scope=publish-${{ matrix.image }}
+          cache-to: type=gha,scope=publish-${{ matrix.image }},mode=max
+
+      - name: Summary
+        run: |
+          {
+            echo "### ${{ matrix.image }}"
+            echo ""
+            if [ "${{ needs.preflight.outputs.push }}" = "true" ]; then
+              echo '```bash'
+              echo "docker pull ${{ needs.preflight.outputs.namespace }}/${{ matrix.image }}:${{ needs.preflight.outputs.version }}"
+              echo '```'
+            else
+              echo "_dry_run — image construite pour ${{ matrix.platforms }}, non poussée._"
+            fi
+            echo ""
+            echo "Tags : \`${{ needs.preflight.outputs.tags }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

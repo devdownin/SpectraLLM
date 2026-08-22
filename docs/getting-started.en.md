@@ -105,6 +105,19 @@ spectra-compose --profile layout-parser --profile reranker up -d
 > Rebuilding after a code change: `./scripts/start.sh --build` (or `spectra-compose up -d --build`).
 > Without it, an already-built image is reused as-is and the **previous** code restarts.
 
+> **Don't want to build at all?** The backend and frontend images are published to Docker
+> Hub for each release. Adding the `docker-compose.hub.yml` overlay pulls them instead of
+> running `mvn package` and the Vite build on your machine — useful on a modest machine, or
+> behind a network that filters Maven Central or the npm registry:
+>
+> ```bash
+> spectra-compose -f deploy/docker/docker-compose.hub.yml pull
+> spectra-compose -f deploy/docker/docker-compose.hub.yml up -d --wait --no-build
+> ```
+>
+> Namespace and version are set with `SPECTRA_IMAGE_NAMESPACE` / `SPECTRA_IMAGE_TAG` —
+> full details in **[Publier Spectra sur Docker Hub (FR)](tech/docker-hub.fr.md)**.
+
 ### 4. Access
 
 | Interface | URL |
