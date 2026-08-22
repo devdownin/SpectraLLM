@@ -4,7 +4,7 @@ setlocal enabledelayedexpansion
 
 REM  ────────────────────────────────────────────────────────
 REM  Spectra — Script de lancement (Windows)
-REM  Usage: start.bat [--first-run] [--detach] [--gpu] [--trainer] [--build]
+REM  Usage: start.bat [--first-run] [--detach] [--gpu] [--trainer] [--build] [--hub]
 REM
 REM    --first-run   Premier lancement tout-en-un : configuration initiale,
 REM                  telechargement des modeles, demarrage en arriere-plan
@@ -17,6 +17,9 @@ REM                  L'image du trainer pese plusieurs Go (torch).
 REM    --build       Reconstruit les images avant de demarrer. Sans cette option,
 REM                  une image deja construite est reutilisee telle quelle : apres
 REM                  une modification du code, c'est l'ANCIENNE qui redemarre.
+REM    --hub         Demarre depuis les images PUBLIEES sur Docker Hub au lieu de les
+REM                  construire : ni « mvn package », ni build Vite sur votre machine.
+REM                  Incompatible avec --build, qui demande l'inverse.
 REM  ────────────────────────────────────────────────────────
 
 REM  Les scripts vivent dans scripts\ mais la stack (docker-compose, data\, .env)
@@ -30,7 +33,11 @@ set DETACH=
 set GPU_FLAG=
 set FIRST_RUN=
 set TRAINER=
-set BUILD=
+set HUB=
+REM  Option de construction passee a « docker compose up » : --build pour reconstruire,
+REM  --no-build en mode --hub (garde-fou : une image manquante doit echouer franchement
+REM  au lieu d'etre reconstruite en douce, ce qui annulerait l'interet du tirage).
+set BUILD_OPT=
 
 :parse_args
 if "%~1"=="" goto done_args
@@ -38,7 +45,8 @@ if "%~1"=="--detach" set DETACH=-d
 if "%~1"=="-d"       set DETACH=-d
 if "%~1"=="--gpu" set GPU_FLAG=--gpu
 if "%~1"=="--trainer" set TRAINER=1
-if "%~1"=="--build" set BUILD=--build
+if "%~1"=="--build" set BUILD_OPT=--build
+if "%~1"=="--hub" set HUB=1
 if "%~1"=="--first-run" (
     set FIRST_RUN=1
     set DETACH=-d
@@ -46,6 +54,13 @@ if "%~1"=="--first-run" (
 shift
 goto parse_args
 :done_args
+
+REM  Les deux options demandent l'inverse l'une de l'autre : les accepter ensemble
+REM  ferait decider le comportement par l'ordre des arguments, que rien n'annonce.
+if defined HUB if "%BUILD_OPT%"=="--build" (
+    echo Erreur : --hub tire les images publiees, --build les reconstruit. Choisissez.
+    exit /b 1
+)
 
 echo ======================================
 echo         Spectra — Demarrage
@@ -85,6 +100,13 @@ if "!GPU_ENABLED!"=="true" (
     echo   [OK] GPU active, docker-compose.gpu.yml inclus
 )
 
+REM  Overlay des images publiees, ajoute EN DERNIER : c'est lui qui doit l'emporter sur
+REM  les precedents pour le champ « image: ». Miroir de start.sh.
+if defined HUB (
+    set COMPOSE=!COMPOSE! -f deploy/docker/docker-compose.hub.yml
+    echo   [OK] Images publiees, docker-compose.hub.yml inclus ^(rien ne sera construit^)
+)
+
 REM  2 bis. Fine-tuning en conteneur. Miroir de start.sh, ou le raisonnement est detaille.
 REM  En resume : le profil compose « trainer » demarre le service qui sait executer
 REM  scripts/train.sh, et SPECTRA_FINE_TUNING_RUNNER=http dit a l'API de s'adresser a lui.
@@ -115,16 +137,25 @@ echo   [OK] service spectra-trainer + SPECTRA_FINE_TUNING_RUNNER=http
 echo        Premiere fois : l'image embarque torch, comptez plusieurs Go et un long build.
 :no_trainer
 
-REM  3. Build si l'image n'existe pas, ou sur demande explicite.
+REM  3. Se procurer les images : les tirer (--hub) ou les construire.
 REM  On interroge COMPOSE plutot qu'un nom d'image code en dur : « spectra-spectra-api »
 REM  supposait un projet nomme « spectra », alors que Compose le derive du repertoire
 REM  (« spectrallm-spectra-api » pour un clone standard). L'inspection echouait donc
 REM  toujours, et chaque start.bat relancait un build complet dont il n'avait pas besoin.
-if defined BUILD goto build_ready
+if defined HUB (
+    echo.
+    echo ^> Tirage des images publiees...
+    REM  Les deux services que l'overlay couvre, nommement : un pull sans argument
+    REM  tenterait aussi les services profiles, qui n'ont pas d'image publiee.
+    !COMPOSE! pull spectra-api frontend
+    set BUILD_OPT=--no-build
+    goto build_ready
+)
+if defined BUILD_OPT goto build_ready
 set "HAVE_IMAGE="
 for /f "delims=" %%I in ('!COMPOSE! images -q spectra-api 2^>nul') do set "HAVE_IMAGE=1"
 if not defined HAVE_IMAGE (
-    set BUILD=--build
+    set BUILD_OPT=--build
     echo.
     echo ^> Image spectra-api non trouvee, elle sera construite au demarrage.
 )
@@ -153,14 +184,14 @@ echo.
 echo ^> Demarrage des services Docker...
 
 if "%DETACH%"=="" (
-    %COMPOSE% up %BUILD%
+    %COMPOSE% up %BUILD_OPT%
     goto eof
 )
 
 set STARTED=1
 REM  Le delai couvre le start_period le plus long de la stack (llm-chat, 120 s) augmente du
 REM  chargement effectif d'un modele 7B.
-%COMPOSE% up -d --wait --wait-timeout 300 %BUILD%
+%COMPOSE% up -d --wait --wait-timeout 300 %BUILD_OPT%
 if !errorlevel! neq 0 set STARTED=0
 
 if "!STARTED!"=="1" (

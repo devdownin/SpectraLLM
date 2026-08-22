@@ -8,6 +8,31 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Ajouté — `start.sh --hub` : démarrer sans rien construire
+
+Les images sont publiées depuis la v0.8.0, mais le chemin pour les utiliser n'existait que
+dans la documentation Docker Hub — or personne n'arrive par Docker Hub, on arrive par
+GitHub. Le README proposait toujours `./scripts/start.sh --first-run`, qui **compile**.
+
+Ajouter trois lignes de `docker compose` au README n'aurait pas suffi : à côté d'une commande
+en une ligne, une invocation à deux `-f` et cinq arguments n'est pas choisie, même
+documentée — le défaut serait resté la compilation. D'où un drapeau, dans les deux scripts
+de lancement : `./scripts/start.sh --hub` (et `start.bat --hub`) tire les images publiées au
+lieu de les construire, et le reste ne change pas — détection matérielle, modèles, `--wait`.
+
+`--hub` et `--build` demandent l'inverse l'un de l'autre : les passer ensemble échoue, plutôt
+que de laisser l'ordre des arguments décider d'un comportement que rien n'annonce. Le mode
+passe `--no-build` à `up` : une image absente doit échouer franchement, sinon Compose la
+reconstruirait en silence et le tirage deviendrait un no-op invisible.
+
+Le test de parité Windows compare les options ANNONCÉES ; il ne dit rien de ce qu'elles
+font. Un second contrôle vérifie donc que `--hub` est réellement CÂBLÉ dans les deux
+scripts — overlay chargé, `--no-build` passé, images tirées. C'est l'écart qui avait laissé
+`stop.bat` ne pas arrêter les services profilés : même interface, comportements différents.
+
+Le README (fr + en) mène désormais par ce chemin, badge Docker Hub à l'appui.
+
+
 ### Corrigé — une release sur deux partait avec le corps générique
 
 `release.yml` avertissait quand `.github/release-notes/<tag>.md` manquait, puis publiait la

@@ -106,12 +106,12 @@ spectra-compose --profile layout-parser --profile reranker up -d
 > Without it, an already-built image is reused as-is and the **previous** code restarts.
 
 > **Don't want to build at all?** The backend and frontend images are published to Docker
-> Hub for each release. Adding the `docker-compose.hub.yml` overlay pulls them instead of
-> running `mvn package` and the Vite build on your machine — useful on a modest machine, or
-> behind a network that filters Maven Central or the npm registry:
+> Hub for each release. The shortest path is `./scripts/start.sh --hub` (Windows:
+> `scripts\start.bat --hub`), which pulls them instead of running `mvn package` and the
+> Vite build on your machine. By hand, that is the `docker-compose.hub.yml` overlay:
 >
 > ```bash
-> spectra-compose -f deploy/docker/docker-compose.hub.yml pull
+> spectra-compose -f deploy/docker/docker-compose.hub.yml pull spectra-api frontend
 > spectra-compose -f deploy/docker/docker-compose.hub.yml up -d --wait --no-build
 > ```
 >

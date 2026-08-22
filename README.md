@@ -9,6 +9,7 @@
 [![Java CI with Maven](https://github.com/devdownin/SpectraLLM/actions/workflows/ci.yml/badge.svg)](https://github.com/devdownin/SpectraLLM/actions/workflows/ci.yml)
 [![Code Coverage](https://codecov.io/gh/devdownin/SpectraLLM/branch/main/graph/badge.svg)](https://codecov.io/gh/devdownin/SpectraLLM)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/devdownin/SpectraLLM/badge)](https://securityscorecards.dev/viewer/?uri=github.com/devdownin/SpectraLLM)
+[![Docker Hub](https://img.shields.io/docker/v/compagnonsdudev/spectrallm?logo=docker&logoColor=white&label=Docker%20Hub&sort=semver)](https://hub.docker.com/r/compagnonsdudev/spectrallm)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 
 [Quick start](#-quick-start) · [Why Spectra](#-why-spectra) · [How it works](#-how-it-works) · [Documentation](#-documentation) · [Français](./README.fr.md)
@@ -33,10 +34,12 @@ One `docker compose up`. One web interface for the whole journey. Your data neve
 
 ```bash
 git clone https://github.com/devdownin/SpectraLLM.git && cd SpectraLLM
-./scripts/start.sh --first-run      # Windows: scripts\start.bat --first-run
+./scripts/start.sh --first-run --hub      # Windows: scripts\start.bat --first-run --hub
 ```
 
 Spectra downloads the default models (~1.2 GB), starts the stack, and opens the web UI at **http://localhost**. Drop a PDF on the Ingestion page and start asking questions.
+
+> **`--hub` pulls the published images** ([`compagnonsdudev/spectrallm`](https://hub.docker.com/r/compagnonsdudev/spectrallm) and [`spectrallm-frontend`](https://hub.docker.com/r/compagnonsdudev/spectrallm-frontend), `amd64` + `arm64`) instead of building them: no Maven build, no Vite build on your machine — and no failure behind a network that filters Maven Central or the npm registry. Drop the flag to build from source, which is what you want when you're modifying the code.
 
 > **Requirements:** Docker Engine 25+ (Compose v2) and 16 GB RAM. GPU optional — NVIDIA, AMD/ROCm and Vulkan supported, auto-detected. Prefer step-by-step control? → **[Getting Started](docs/getting-started.en.md)**
 

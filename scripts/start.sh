@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ────────────────────────────────────────────────────────
 # Spectra — Script de lancement
-# Usage: ./start.sh [--first-run] [--gpu] [--detach] [--trainer] [--build]
+# Usage: ./start.sh [--first-run] [--gpu] [--detach] [--trainer] [--build] [--hub]
 #
 #   --first-run    Premier lancement tout-en-un : configuration initiale,
 #                  téléchargement des modèles (embedding + chat), démarrage
@@ -18,6 +18,12 @@
 #   --build        Reconstruit les images avant de démarrer. Sans cette option,
 #                  une image déjà construite est réutilisée telle quelle : après
 #                  une modification du code, c'est l'ANCIENNE qui redémarre.
+#   --hub          Démarre depuis les images PUBLIÉES sur Docker Hub au lieu de les
+#                  construire : ni « mvn package », ni build Vite sur votre machine.
+#                  Le premier démarrage passe de plusieurs minutes à un téléchargement,
+#                  et cesse d'échouer derrière un réseau qui filtre Maven Central ou le
+#                  registre npm. Incompatible avec --build, qui demande l'inverse.
+#                  Version tirée : cf. SPECTRA_IMAGE_TAG (défaut épinglé dans l'overlay).
 # ────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -37,7 +43,11 @@ DETACH=""
 GPU_FLAG=""
 FIRST_RUN=""
 TRAINER=""
-BUILD=""
+HUB=""
+# Option de construction passée à `docker compose up` : « --build » pour reconstruire,
+# « --no-build » en mode --hub (garde-fou : une image manquante doit échouer franchement
+# au lieu d'être reconstruite en douce, ce qui annulerait tout l'intérêt du tirage).
+BUILD_OPT=""
 
 # Parse des arguments
 for arg in "$@"; do
@@ -46,9 +56,18 @@ for arg in "$@"; do
         --gpu)         GPU_FLAG="--gpu" ;;
         --first-run)   FIRST_RUN=1; DETACH="-d" ;;
         --trainer)     TRAINER=1 ;;
-        --build)       BUILD="--build" ;;
+        --build)       BUILD_OPT="--build" ;;
+        --hub)         HUB=1 ;;
     esac
 done
+
+# Les deux options demandent l'inverse l'une de l'autre. Les accepter ensemble ferait
+# gagner la dernière lue — donc un comportement décidé par l'ordre des arguments, que
+# rien n'annonce.
+if [[ -n "$HUB" && "$BUILD_OPT" == "--build" ]]; then
+    echo "Erreur : --hub tire les images publiées, --build les reconstruit. Choisissez." >&2
+    exit 1
+fi
 
 echo "╔══════════════════════════════════════╗"
 echo "║        Spectra — Démarrage           ║"
@@ -85,6 +104,13 @@ bash "$SCRIPT_DIR/detect-env.sh" $GPU_FLAG
 spectra_compose_init
 [[ "$SPECTRA_GPU_OVERLAY" -eq 1 ]] && echo "  ✓ GPU activé → docker-compose.gpu.yml inclus"
 
+# Overlay des images publiées, ajouté EN DERNIER : c'est lui qui doit l'emporter sur les
+# précédents pour le champ `image:`.
+if [[ -n "$HUB" ]]; then
+    COMPOSE+=(-f "$SPECTRA_COMPOSE_HUB_FILE")
+    echo "  ✓ Images publiées → docker-compose.hub.yml inclus (rien ne sera construit)"
+fi
+
 # 2 bis. Fine-tuning en conteneur.
 #
 # Deux réglages n'ont de sens qu'ENSEMBLE, et c'est exactement là que ça cassait quand on les
@@ -109,11 +135,19 @@ if [[ -n "$TRAINER" || "${SPECTRA_FINE_TUNING_RUNNER:-$ENV_RUNNER}" == "http" ]]
     echo "    Première fois : l'image embarque torch, comptez plusieurs Go et un long build."
 fi
 
-# 3. Build si l'image n'existe pas, ou sur demande explicite.
-# On interroge Compose lui-même plutôt qu'un nom d'image codé en dur (qui dépend du nom
-# de projet dérivé du répertoire, p. ex. « spectrallm-spectra-api »).
-if [[ -z "$BUILD" ]] && ! "${COMPOSE[@]}" images -q spectra-api 2>/dev/null | grep -q .; then
-    BUILD="--build"
+# 3. Se procurer les images : les tirer (--hub) ou les construire.
+if [[ -n "$HUB" ]]; then
+    echo ""
+    echo "► Tirage des images publiées..."
+    # Les deux services que l'overlay couvre, nommément. Un `pull` sans argument
+    # tenterait aussi les services profilés, qui n'ont pas d'image publiée : le message
+    # d'erreur parlerait d'un service que l'utilisateur n'a pas demandé.
+    "${COMPOSE[@]}" pull spectra-api frontend
+    BUILD_OPT="--no-build"
+elif [[ -z "$BUILD_OPT" ]] && ! "${COMPOSE[@]}" images -q spectra-api 2>/dev/null | grep -q .; then
+    # On interroge Compose lui-même plutôt qu'un nom d'image codé en dur (qui dépend du
+    # nom de projet dérivé du répertoire, p. ex. « spectrallm-spectra-api »).
+    BUILD_OPT="--build"
     echo ""
     echo "► Image spectra-api non trouvée, elle sera construite au démarrage."
 fi
@@ -145,9 +179,9 @@ if [[ -n "$DETACH" ]]; then
     # pour autant interrompre le script sous `set -e`, mais afficher l'état et la marche
     # à suivre. Le délai couvre le start_period le plus long de la stack (llm-chat, 120 s)
     # augmenté du chargement effectif d'un modèle 7B.
-    "${COMPOSE[@]}" up -d --wait --wait-timeout 300 $BUILD || STARTED=0
+    "${COMPOSE[@]}" up -d --wait --wait-timeout 300 $BUILD_OPT || STARTED=0
 else
-    exec "${COMPOSE[@]}" up $BUILD
+    exec "${COMPOSE[@]}" up $BUILD_OPT
 fi
 
 if [[ "$STARTED" -eq 1 ]]; then
@@ -180,6 +214,7 @@ else
     echo " Fine-tuning :  indisponible — relancez avec ./scripts/start.sh --trainer"
 fi
 echo ""
+[[ -n "$HUB" ]] && echo " Images      :  publiées (Docker Hub) — aucune construction locale"
 echo " Arrêt       :  ./scripts/stop.sh"
 echo " Logs        :  ${COMPOSE[*]} logs -f"
 echo "══════════════════════════════════════"
