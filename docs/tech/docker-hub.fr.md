@@ -111,6 +111,17 @@ Ce workflow est **indépendant** de `release.yml`, qui crée la release GitHub s
 tag : une publication d'images ratée ne prive pas le dépôt de sa release, et
 réciproquement. Les deux se relancent séparément.
 
+**Après la publication, alignez le défaut de l'overlay** (`SPECTRA_IMAGE_TAG` dans
+`docker-compose.hub.yml`) sur la version qui vient de partir. C'est ce défaut que reçoit
+quiconque ne configure rien : laissé sur une version périmée, il la sert en silence, sans
+que personne s'en aperçoive. `scripts/tests/test_docker_hub_images.py` compare ce défaut à
+la dernière version de `.github/release-notes/` et fait échouer la CI s'il a dérivé — la
+valeur `latest` restant acceptée comme un choix explicite, celui d'une vitrine qui suit
+toujours la dernière version.
+
+*(Le contrôle s'appuie sur les notes de release et non sur le CHANGELOG : les tags d'image
+dérivent du tag git, que ce répertoire indexe. Le CHANGELOG suit une autre numérotation.)*
+
 ### 3.2 Déclenchement manuel
 
 *Actions → Publish images (Docker Hub) → Run workflow* :
