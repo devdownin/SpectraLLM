@@ -42,7 +42,7 @@ cd SpectraLLM
 ./scripts/start.sh --first-run        # Windows: scripts\start.bat --first-run
 ```
 
-This downloads the default models (embedding ~81 MB + chat ~1.1 GB), starts the full stack in the background, waits for every service to be ready, then opens the Web UI at **http://localhost**. Steps 1–4 below do the same thing manually, for when you want control over each stage.
+This downloads the default models (embedding ~81 MB + chat ~4.7 GB — **~4.8 GB in total**), starts the full stack in the background, waits for every service to be ready, then opens the Web UI at **http://localhost**. Steps 1–4 below do the same thing manually, for when you want control over each stage.
 
 ### 1. Clone and prepare
 
@@ -69,7 +69,7 @@ over from a clean file (the previous one is kept as `.env.bak`).
 Two GGUF files are required — one for chat, one for embeddings:
 
 ```bash
-# Chat model (~1.1 GB) — Phi-4-mini by default
+# Chat model (~4.7 GB) — Qwen2.5-7B-Instruct by default
 huggingface-cli download bartowski/Qwen2.5-7B-Instruct-GGUF \
   Qwen2.5-7B-Instruct-Q4_K_M.gguf --local-dir data/models/
 

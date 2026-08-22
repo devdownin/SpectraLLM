@@ -37,7 +37,7 @@ git clone https://github.com/devdownin/SpectraLLM.git && cd SpectraLLM
 ./scripts/start.sh --first-run --hub      # Windows : scripts\start.bat --first-run --hub
 ```
 
-Spectra télécharge les modèles par défaut (~1,2 Go), démarre la stack et ouvre l'interface sur **http://localhost**. Déposez un PDF sur la page Ingestion et posez vos questions.
+Spectra télécharge les modèles par défaut (**~4,8 Go** — 4,7 Go pour le modèle de chat, 81 Mo pour l'embedding), démarre la stack et ouvre l'interface sur **http://localhost**. Déposez un PDF sur la page Ingestion et posez vos questions. Un téléchargement interrompu reprend où il s'est arrêté : relancez la même commande.
 
 > **`--hub` tire les images publiées** ([`compagnonsdudev/spectrallm`](https://hub.docker.com/r/compagnonsdudev/spectrallm) et [`spectrallm-frontend`](https://hub.docker.com/r/compagnonsdudev/spectrallm-frontend), `amd64` + `arm64`) au lieu de les construire : ni `mvn package`, ni build Vite sur votre machine — et plus d'échec derrière un réseau qui filtre Maven Central ou le registre npm. Retirez le drapeau pour construire depuis les sources, ce qu'il faut faire dès que vous modifiez le code.
 

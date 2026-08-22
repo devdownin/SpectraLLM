@@ -33,6 +33,49 @@ green()  { echo -e "\033[32m$*\033[0m"; }
 yellow() { echo -e "\033[33m$*\033[0m"; }
 red()    { echo -e "\033[31m$*\033[0m"; }
 
+# Télécharge une URL vers un fichier, SANS JAMAIS laisser un résultat partiel à
+# l'emplacement final.
+#
+# POURQUOI CETTE FONCTION EXISTE
+# Les téléchargements écrivaient directement sur le nom définitif. Une coupure réseau, un
+# Ctrl-C ou un disque plein laissaient donc un GGUF tronqué à l'emplacement attendu — et le
+# lancement suivant, qui ne teste que la PRÉSENCE du fichier, annonçait « [OK] présent —
+# 2,1G ». La pile démarrait, et la panne se manifestait ailleurs : llama-server refusant le
+# modèle, ou l'entrypoint attendant un fichier qui existe. Silencieux au moment où il est
+# commis, diagnostiqué très loin de sa cause.
+#
+# On télécharge donc vers « .part », et on ne renomme qu'au succès. Le fichier final
+# n'existe que s'il est complet.
+#
+# Ce détour rend en prime la REPRISE possible : « -C - » repart de l'octet où l'on s'était
+# arrêté. Sur 4,7 Go et une connexion domestique, c'est la différence entre reprendre les
+# 10 % manquants et retélécharger les 90 % déjà obtenus. Passé inconditionnellement : curl
+# démarre à zéro si le .part est absent, et ne fait rien s'il est déjà complet.
+#
+# Trois tentatives, parce que « --retry » de curl ne couvre que les erreurs transitoires
+# (5xx, délais) et pas une connexion coupée en cours de transfert — le cas le plus fréquent
+# sur un fichier de plusieurs gigaoctets.
+fetch_file() {
+  url="$1"; dest="$2"; part="$2.part"
+  for attempt in 1 2 3; do
+    if [ -s "$part" ]; then
+      echo "  Reprise : $(du -h "$part" | cut -f1) déjà téléchargés..."
+    fi
+    # --fail : une 404 ou une page d'erreur doit échouer, pas être enregistrée comme si
+    # c'était le modèle.
+    if curl -L --fail --progress-bar --retry 3 --retry-delay 2 -C - "$url" -o "$part"; then
+      mv -f "$part" "$dest"
+      return 0
+    fi
+    if [ "$attempt" -lt 3 ]; then
+      yellow "  Échec du transfert — nouvelle tentative ($((attempt + 1))/3) dans 3 s..."
+      sleep 3
+    fi
+  done
+  # Le .part est CONSERVÉ : la prochaine exécution reprendra où celle-ci s'est arrêtée.
+  return 1
+}
+
 # Lit une variable depuis .env (sans sourcer le fichier), guillemets retirés.
 # Renvoie une chaîne vide — et un succès — si la clé est absente.
 #
@@ -125,6 +168,10 @@ else
 fi
 
 # ── 5. Modèle d'embedding ─────────────────────────────────────────────────
+# URL déclarée UNE fois : elle est reprise telle quelle dans le message qui explique le
+# téléchargement manuel. Deux copies divergeraient, et c'est celle que l'utilisateur lit
+# quand le téléchargement automatique a échoué — donc celle qui doit être juste.
+EMBED_MODEL_URL="https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf"
 echo
 echo "> [5/7] Modèle d'embedding (data/models/embed.gguf)..."
 if [ -f "data/models/embed.gguf" ]; then
@@ -133,18 +180,20 @@ if [ -f "data/models/embed.gguf" ]; then
 else
   if [ "$DOWNLOAD_EMBED" -eq 1 ]; then
     echo "  Téléchargement de nomic-embed-text-v1.5.Q4_K_M.gguf (~81 Mo)..."
-    # --fail : sortir en erreur sur 404/5xx au lieu d'enregistrer une page HTML d'erreur.
-    curl -L --fail --progress-bar \
-      "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf" \
-      -o data/models/embed.gguf
-    green "  [OK] embed.gguf téléchargé"
+    if fetch_file "$EMBED_MODEL_URL" data/models/embed.gguf; then
+      green "  [OK] embed.gguf téléchargé"
+    else
+      red "  [ERREUR] Échec du téléchargement de embed.gguf."
+      echo "  Le transfert partiel est conservé : relancez pour reprendre où il s'est arrêté."
+      ERRORS=$((ERRORS + 1))
+    fi
   else
     yellow "  [MANQUANT] data/models/embed.gguf absent"
     echo
     echo "  Téléchargement automatique :"
     echo "    ./setup.sh --download-embed"
     echo "  Ou manuellement :"
-    echo "    curl -L https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf \\"
+    echo "    curl -L $EMBED_MODEL_URL \\"
     echo "         -o data/models/embed.gguf"
     ERRORS=$((ERRORS + 1))
   fi
@@ -155,6 +204,7 @@ fi
 # (data/models/${LLM_CHAT_MODEL_FILE}), sinon llm-chat ne le trouve pas et attend
 # indéfiniment : la stack démarre, mais le chat ne répond jamais.
 CHAT_DOWNLOAD_NAME="Qwen2.5-7B-Instruct-Q4_K_M.gguf"
+CHAT_MODEL_URL="https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/$CHAT_DOWNLOAD_NAME"
 CHAT_MODEL_FILE="$(read_env_var LLM_CHAT_MODEL_FILE)"
 CHAT_MODEL_FILE="${CHAT_MODEL_FILE:-$CHAT_DOWNLOAD_NAME}"
 CHAT_MODEL_PATH="data/models/$CHAT_MODEL_FILE"
@@ -169,15 +219,20 @@ else
     # Téléchargement dans data/models/ sous le nom attendu par la stack.
     CHAT_MODEL_FILE="$CHAT_DOWNLOAD_NAME"
     CHAT_MODEL_PATH="data/models/$CHAT_MODEL_FILE"
-    echo "  Téléchargement de $CHAT_DOWNLOAD_NAME (~4.7 Go)..."
-    echo "  (cela peut prendre plusieurs minutes selon votre connexion)"
-    curl -L --fail --progress-bar \
-      "https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf" \
-      -o "$CHAT_MODEL_PATH"
-    green "  [OK] $CHAT_MODEL_FILE téléchargé"
-    # Aligner .env pour que la stack Docker charge bien ce fichier.
-    set_env_var LLM_CHAT_MODEL_FILE "$CHAT_MODEL_FILE"
-    echo "  LLM_CHAT_MODEL_FILE=$CHAT_MODEL_FILE écrit dans .env"
+    echo "  Téléchargement de $CHAT_DOWNLOAD_NAME (~4,7 Go)..."
+    echo "  (plusieurs minutes selon votre connexion ; une coupure se reprend au relancement)"
+    if fetch_file "$CHAT_MODEL_URL" "$CHAT_MODEL_PATH"; then
+      green "  [OK] $CHAT_MODEL_FILE téléchargé"
+      # Aligner .env pour que la stack Docker charge bien ce fichier. UNIQUEMENT au succès :
+      # pointer .env vers un fichier qui n'a pas fini d'arriver ferait attendre llm-chat
+      # indéfiniment sur une cible incomplète.
+      set_env_var LLM_CHAT_MODEL_FILE "$CHAT_MODEL_FILE"
+      echo "  LLM_CHAT_MODEL_FILE=$CHAT_MODEL_FILE écrit dans .env"
+    else
+      red "  [ERREUR] Échec du téléchargement de $CHAT_MODEL_FILE."
+      echo "  Le transfert partiel est conservé : relancez pour reprendre où il s'est arrêté."
+      ERRORS=$((ERRORS + 1))
+    fi
     # Aucune réécriture d'alias : ce script télécharge désormais le modèle PAR DÉFAUT
     # du projet, dont l'alias par défaut décrit déjà correctement le fichier obtenu.
     # (Auparavant il fournissait un Phi-3.5 et devait corriger l'étiquette.)
@@ -227,8 +282,7 @@ elif [ "$DOWNLOAD_RERANKER" -eq 1 ] || [ "$RERANKER_ENABLED" = "true" ]; then
     for f in model.onnx tokenizer.json; do
       # --fail : une 404 doit échouer, pas laisser une page HTML nommée model.onnx —
       # ONNX Runtime ne la rejetterait qu'au premier rerank, longtemps après le setup.
-      if ! curl -L --fail --progress-bar "${RERANKER_ONNX_URL%/}/$f" -o "$RERANKER_DIR/$f"; then
-        rm -f "$RERANKER_DIR/$f"
+      if ! fetch_file "${RERANKER_ONNX_URL%/}/$f" "$RERANKER_DIR/$f"; then
         RERANKER_OK=0
       fi
     done

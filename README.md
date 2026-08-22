@@ -37,7 +37,7 @@ git clone https://github.com/devdownin/SpectraLLM.git && cd SpectraLLM
 ./scripts/start.sh --first-run --hub      # Windows: scripts\start.bat --first-run --hub
 ```
 
-Spectra downloads the default models (~1.2 GB), starts the stack, and opens the web UI at **http://localhost**. Drop a PDF on the Ingestion page and start asking questions.
+Spectra downloads the default models (**~4.8 GB** — a 4.7 GB chat model plus an 81 MB embedding model), starts the stack, and opens the web UI at **http://localhost**. Drop a PDF on the Ingestion page and start asking questions. An interrupted download resumes where it stopped: re-run the same command.
 
 > **`--hub` pulls the published images** ([`compagnonsdudev/spectrallm`](https://hub.docker.com/r/compagnonsdudev/spectrallm) and [`spectrallm-frontend`](https://hub.docker.com/r/compagnonsdudev/spectrallm-frontend), `amd64` + `arm64`) instead of building them: no Maven build, no Vite build on your machine — and no failure behind a network that filters Maven Central or the npm registry. Drop the flag to build from source, which is what you want when you're modifying the code.
 

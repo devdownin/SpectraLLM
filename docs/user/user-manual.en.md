@@ -26,7 +26,7 @@ If a file is missing at startup, the stack does not stop: the LLM servers wait f
 ### Download the models
 
 ```bash
-# Chat model (~1.1 GB) — Phi-4-mini by default
+# Chat model (~4.7 GB) — Qwen2.5-7B-Instruct by default
 huggingface-cli download bartowski/Qwen2.5-7B-Instruct-GGUF \
   Qwen2.5-7B-Instruct-Q4_K_M.gguf --local-dir data/models/
 

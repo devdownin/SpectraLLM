@@ -26,7 +26,7 @@ Si un fichier est absent au démarrage, la stack ne s'interrompt pas : les serve
 ### Télécharger les modèles
 
 ```bash
-# Modèle de chat (~1.1 Go) — Phi-4-mini par défaut
+# Modèle de chat (~4,7 Go) — Qwen2.5-7B-Instruct par défaut
 huggingface-cli download bartowski/Qwen2.5-7B-Instruct-GGUF \
   Qwen2.5-7B-Instruct-Q4_K_M.gguf --local-dir data/models/
 

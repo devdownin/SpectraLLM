@@ -91,6 +91,10 @@ if not exist ".env" (
 )
 
 :: ── 4. Modèle d'embedding ─────────────────────────────────────────────────
+:: URL declarees UNE fois : elles sont reprises telles quelles dans les messages qui
+:: expliquent le telechargement manuel. Deux copies divergeraient, et c'est celle que
+:: l'utilisateur lit quand l'automatique a echoue — donc celle qui doit etre juste.
+set "EMBED_MODEL_URL=https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf"
 echo.
 echo ^> [4/6] Modele d'embedding (data\models\embed.gguf)...
 if exist "data\models\embed.gguf" (
@@ -101,11 +105,10 @@ if exist "data\models\embed.gguf" (
 ) else (
     if !DOWNLOAD_EMBED!==1 (
         echo   Telechargement de nomic-embed-text-v1.5.Q4_K_M.gguf (~81 Mo^)...
-        curl -L --progress-bar ^
-            "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf" ^
-            -o "data\models\embed.gguf"
+        call :fetch_file "%EMBED_MODEL_URL%" "data\models\embed.gguf"
         if errorlevel 1 (
             echo   [ERREUR] Echec du telechargement de embed.gguf
+            echo   Le transfert partiel est conserve : relancez pour reprendre.
             set /a ERRORS+=1
         ) else (
             echo   [OK] embed.gguf telecharge
@@ -116,7 +119,7 @@ if exist "data\models\embed.gguf" (
         echo   Telechargez-le avec :
         echo     setup.bat --download-embed
         echo   Ou manuellement :
-        echo     curl -L https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf -o data\models\embed.gguf
+        echo     curl -L %EMBED_MODEL_URL% -o data\models\embed.gguf
         set /a ERRORS+=1
     )
 )
@@ -127,6 +130,7 @@ if exist "data\models\embed.gguf" (
 :: indefiniment : la stack demarre, mais le chat ne repond jamais.
 :: Miroir de la section 6 de setup.sh.
 set "CHAT_DOWNLOAD_NAME=Qwen2.5-7B-Instruct-Q4_K_M.gguf"
+set "CHAT_MODEL_URL=https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/%CHAT_DOWNLOAD_NAME%"
 set "CHAT_MODEL_FILE="
 set "CHAT_MODEL_NAME="
 if exist ".env" (
@@ -146,13 +150,12 @@ if exist "data\models\!CHAT_MODEL_FILE!" (
     call :set_env_var LLM_CHAT_MODEL_FILE "!CHAT_MODEL_FILE!"
 ) else (
     if !DOWNLOAD_CHAT!==1 (
-        echo   Telechargement de %CHAT_DOWNLOAD_NAME% (~4.7 Go^)...
-        echo   (cela peut prendre plusieurs minutes selon votre connexion^)
-        curl -L --progress-bar ^
-            "https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf" ^
-            -o "data\models\%CHAT_DOWNLOAD_NAME%"
+        echo   Telechargement de %CHAT_DOWNLOAD_NAME% (~4,7 Go^)...
+        echo   (plusieurs minutes selon votre connexion ; une coupure se reprend au relancement^)
+        call :fetch_file "%CHAT_MODEL_URL%" "data\models\%CHAT_DOWNLOAD_NAME%"
         if errorlevel 1 (
             echo   [ERREUR] Echec du telechargement de %CHAT_DOWNLOAD_NAME%
+            echo   Le transfert partiel est conserve : relancez pour reprendre.
             set /a ERRORS+=1
         ) else (
             echo   [OK] %CHAT_DOWNLOAD_NAME% telecharge
@@ -169,7 +172,7 @@ if exist "data\models\!CHAT_MODEL_FILE!" (
         echo     setup.bat --download-chat
         echo.
         echo   Option 2 — Telechargement manuel :
-        echo     curl -L https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf ^
+        echo     curl -L %CHAT_MODEL_URL% ^
         echo       -o data\models\%CHAT_DOWNLOAD_NAME%
         echo.
         echo   Option 3 — Tout modele GGUF instruction-tuned fonctionne :
@@ -215,17 +218,13 @@ if not exist "!RERANKER_DIR!\" mkdir "!RERANKER_DIR!"
 echo   Recuperation de l'artefact (~0,5 Go^) depuis :
 echo     !SPECTRA_RERANKER_ONNX_URL!
 set "RERANKER_OK=1"
-rem  --fail : une 404 doit echouer, pas laisser une page HTML nommee model.onnx.
-curl -L --fail --progress-bar "!SPECTRA_RERANKER_ONNX_URL!/model.onnx" -o "!RERANKER_DIR!\model.onnx"
-if errorlevel 1 (
-    del /q "!RERANKER_DIR!\model.onnx" >nul 2>&1
-    set "RERANKER_OK=0"
-)
-curl -L --fail --progress-bar "!SPECTRA_RERANKER_ONNX_URL!/tokenizer.json" -o "!RERANKER_DIR!\tokenizer.json"
-if errorlevel 1 (
-    del /q "!RERANKER_DIR!\tokenizer.json" >nul 2>&1
-    set "RERANKER_OK=0"
-)
+rem  Meme sous-programme que les GGUF, pour la meme raison : un artefact a moitie
+rem  telecharge ne doit pas rester sous son nom definitif. ONNX Runtime ne le rejetterait
+rem  qu'au premier rerank, longtemps apres le setup.
+call :fetch_file "!SPECTRA_RERANKER_ONNX_URL!/model.onnx" "!RERANKER_DIR!\model.onnx"
+if errorlevel 1 set "RERANKER_OK=0"
+call :fetch_file "!SPECTRA_RERANKER_ONNX_URL!/tokenizer.json" "!RERANKER_DIR!\tokenizer.json"
+if errorlevel 1 set "RERANKER_OK=0"
 if "!RERANKER_OK!"=="1" (
     echo   [OK] artefact telecharge
     goto :reranker_done
@@ -267,6 +266,34 @@ exit /b 0
 
 :: ── Sous-routine : insère ou met à jour une variable KEY=VALUE dans .env ────
 :: Miroir de set_env_var de setup.sh. Usage : call :set_env_var CLE "valeur"
+:: Telecharge %1 vers %2, SANS JAMAIS laisser un resultat partiel a l'emplacement final.
+:: Miroir de fetch_file() dans setup.sh, ou le raisonnement est detaille. En resume :
+::   — le fichier definitif n'existe que s'il est COMPLET (telechargement vers .part, puis
+::     move au succes). Sinon un transfert interrompu laissait un GGUF tronque que le
+::     lancement suivant declarait « present », et la panne se manifestait ailleurs ;
+::   — « -C - » reprend a l'octet ou l'on s'etait arrete : sur 4,7 Go, c'est la difference
+::     entre reprendre 10 % et retelecharger 90 % ;
+::   — « --fail » MANQUAIT ici alors que setup.sh l'a : sans lui, une 404 ou une page
+::     d'erreur HTML etait enregistree comme si c'etait le modele, curl sortait en 0, et le
+::     script annoncait « [OK] telecharge ». Un GGUF de 12 Ko contenant du HTML.
+:fetch_file
+set "FF_URL=%~1"
+set "FF_DEST=%~2"
+set "FF_PART=%~2.part"
+for /l %%A in (1,1,3) do (
+    curl -L --fail --progress-bar --retry 3 --retry-delay 2 -C - "!FF_URL!" -o "!FF_PART!"
+    if not errorlevel 1 (
+        move /y "!FF_PART!" "!FF_DEST!" >nul
+        exit /b 0
+    )
+    if %%A lss 3 (
+        echo   Echec du transfert — nouvelle tentative dans 3 s...
+        timeout /t 3 /nobreak >nul
+    )
+)
+:: Le .part est CONSERVE : la prochaine execution reprendra ou celle-ci s'est arretee.
+exit /b 1
+
 :set_env_var
 if not exist ".env" type nul > ".env"
 findstr /v /b /c:"%~1=" ".env" > ".env.setup.tmp"
