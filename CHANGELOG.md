@@ -37,6 +37,16 @@ relie les quatre fichiers : un nom d'image qui divergerait entre le workflow, le
 l'overlay fait échouer la CI, au lieu de produire chez l'utilisateur un `manifest unknown`
 sur une image dont il n'a jamais entendu parler.
 
+Une subtilité d'Actions a coûté la première publication et vaut d'être connue : le service
+refuse de propager une **sortie de job** dont la valeur est celle d'un secret. L'espace de
+noms venait de `DOCKERHUB_USERNAME`, il arrivait donc VIDE dans les jobs de build, et buildx
+rejetait `invalid tag "/spectrallm-frontend:edge-…"` — le seul indice étant un
+`Skip output 'namespace' since it may contain secret` noyé dans le journal. Chaque job de
+publication résout désormais l'espace de noms lui-même depuis `env:`, où le masquage n'existe
+qu'à l'affichage ; un test interdit le retour en arrière. Renseigner `DOCKERHUB_NAMESPACE` en
+**variable** de dépôt garde en prime les tags lisibles dans les journaux — un espace de noms
+est public, il est dans le nom de l'image.
+
 Ce qu'il reste à faire une fois : renseigner `DOCKERHUB_USERNAME` et `DOCKERHUB_TOKEN` dans
 les secrets du dépôt. Sans eux, une publication **échoue** en nommant celui qui manque —
 plutôt que de finir en vert sans avoir rien poussé. Mode d'emploi complet :

@@ -71,7 +71,13 @@ jobs:
     name: Resolve tags and credentials
     runs-on: ubuntu-latest
     outputs:
-      namespace: ${{ steps.resolve.outputs.namespace }}
+      # PAS de sortie « namespace », et c'est un piège qu'il faut expliquer : Actions REFUSE
+      # de propager une sortie de job dont la valeur est celle d'un secret. Quand l'espace de
+      # noms vient de `secrets.DOCKERHUB_USERNAME` — le cas par défaut —, le journal écrit
+      # « Skip output 'namespace' since it may contain secret », la valeur arrive VIDE dans
+      # les jobs de publication, et buildx échoue sur « invalid tag "/spectrallm:…" ». C'est
+      # arrivé, au premier essai. Chaque job de publication résout donc l'espace de noms
+      # lui-même, depuis le secret, sans passer par une sortie.
       version: ${{ steps.resolve.outputs.version }}
       tags: ${{ steps.resolve.outputs.tags }}
       push: ${{ steps.resolve.outputs.push }}
@@ -86,7 +92,6 @@ jobs:
           INCLUDE_PROFILED: ${{ inputs.include_profiled || false }}
           INPUT_VERSION: ${{ inputs.version }}
           HUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          HUB_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE }}
           HAS_TOKEN: ${{ secrets.DOCKERHUB_TOKEN != '' }}
         run: |
           set -euo pipefail
@@ -119,13 +124,14 @@ jobs:
             VERSION="${RAW#v}"
           fi
 
-          # ── Espace de noms et credentials ──────────────────────────────────────
-          NAMESPACE="${HUB_NAMESPACE:-$HUB_USERNAME}"
+          # ── Credentials ────────────────────────────────────────────────────────
+          # L'espace de noms lui-même est résolu dans chaque job de publication (voir le
+          # commentaire sur `outputs:` ci-dessus) ; ici on ne fait que refuser tôt une
+          # publication sans identifiants, avant d'engager de longues minutes de build.
           PUSH="true"
           if [ "$DRY_RUN" = "true" ]; then
             PUSH="false"
             echo "::notice::dry_run — les images sont construites, rien n'est poussé."
-            NAMESPACE="${NAMESPACE:-spectrallm-dry-run}"
           else
             MISSING=""
             [ -z "$HUB_USERNAME" ] && MISSING="$MISSING secrets.DOCKERHUB_USERNAME"
@@ -134,13 +140,6 @@ jobs:
               echo "::error::Secret(s) manquant(s) :$MISSING. Configurez-les dans Settings → Secrets and variables → Actions (voir docs/tech/docker-hub.fr.md), ou relancez avec dry_run pour construire sans publier."
               exit 1
             fi
-          fi
-
-          # Un espace de noms invalide n'est refusé qu'au moment du push, après de longues
-          # minutes de construction. On le valide donc AVANT de construire quoi que ce soit.
-          if ! printf '%s' "$NAMESPACE" | grep -Eq '^[a-z0-9][a-z0-9_-]{1,254}$'; then
-            echo "::error::Espace de noms Docker Hub invalide : « $NAMESPACE » (minuscules, chiffres, « - » et « _ » seulement)."
-            exit 1
           fi
 
           # ── Matrice ────────────────────────────────────────────────────────────
@@ -180,7 +179,6 @@ jobs:
           [ "$LATEST" = "true" ] && TAGS="$TAGS,latest"
 
           {
-            echo "namespace=$NAMESPACE"
             echo "version=$VERSION"
             echo "tags=$TAGS"
             echo "push=$PUSH"
@@ -192,7 +190,6 @@ jobs:
             echo ""
             echo "| Champ | Valeur |"
             echo "|---|---|"
-            echo "| Espace de noms | \`$NAMESPACE\` |"
             echo "| Version | \`$VERSION\` |"
             echo "| Tags posés | \`$TAGS\` |"
             echo "| Poussé | $PUSH |"
@@ -249,14 +246,36 @@ jobs:
       # là où une liste de `type=raw,…,enable=…` fait dépendre le résultat de la façon dont
       # l'action traite une valeur vide, c'est-à-dire d'un détail qu'aucun fichier du dépôt
       # ne documente.
+      #
+      # L'espace de noms est résolu ICI, dans chaque job, et non repris d'une sortie du job
+      # preflight : Actions refuse de propager une sortie dont la valeur est celle d'un
+      # secret (cf. le commentaire sur `outputs:` du job preflight). Le lire depuis `env:`
+      # fonctionne, lui — le masquage n'existe qu'à l'affichage du journal.
+      #
+      # Conséquence pratique : avec `secrets.DOCKERHUB_USERNAME`, les tags apparaissent en
+      # « ***/spectrallm:0.7.1 » dans les journaux. Renseigner plutôt la VARIABLE
+      # `vars.DOCKERHUB_NAMESPACE` les rend lisibles — un espace de noms Docker Hub n'est
+      # pas un secret, il est public, il est dans le nom de l'image que tout le monde tire.
       - name: Compose image references
         id: refs
         env:
-          NAMESPACE: ${{ needs.preflight.outputs.namespace }}
+          NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE || secrets.DOCKERHUB_USERNAME }}
           IMAGE: ${{ matrix.image }}
           TAGS: ${{ needs.preflight.outputs.tags }}
         run: |
           set -euo pipefail
+
+          # dry_run sans aucun identifiant : le nom n'est jamais poussé, il ne sert qu'à
+          # donner une référence valide à buildx.
+          NAMESPACE="${NAMESPACE:-spectrallm-dry-run}"
+
+          # Un espace de noms invalide ne serait refusé qu'au moment du push, après de
+          # longues minutes de construction. On le valide donc AVANT de construire.
+          if ! printf '%s' "$NAMESPACE" | grep -Eq '^[a-z0-9][a-z0-9_-]{1,254}$'; then
+            echo "::error::Espace de noms Docker Hub invalide (minuscules, chiffres, « - » et « _ » seulement) — vérifiez vars.DOCKERHUB_NAMESPACE et secrets.DOCKERHUB_USERNAME."
+            exit 1
+          fi
+
           {
             echo "refs<<REFS_EOF"
             # `printf '%s\n'` et non `printf '%s'` : sans le saut de ligne final, `read`
@@ -303,8 +322,9 @@ jobs:
             echo "### ${{ matrix.image }}"
             echo ""
             if [ "${{ needs.preflight.outputs.push }}" = "true" ]; then
-              echo '```bash'
-              echo "docker pull ${{ needs.preflight.outputs.namespace }}/${{ matrix.image }}:${{ needs.preflight.outputs.version }}"
+              echo "Images poussées :"
+              echo '```'
+              echo "${{ steps.refs.outputs.refs }}"
               echo '```'
             else
               echo "_dry_run — image construite pour ${{ matrix.platforms }}, non poussée._"

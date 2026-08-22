@@ -346,6 +346,31 @@ def test_both_publication_paths_produce_the_same_tags(tmp_path, ref_name, expect
     assert script_tags(ref_name) == expected
 
 
+def test_the_namespace_never_travels_through_a_job_output():
+    """
+    Actions REFUSE de propager une sortie de job dont la valeur est celle d'un secret.
+
+    Ce n'est pas une hypothèse : la première publication a échoué exactement là-dessus.
+    L'espace de noms venait de `secrets.DOCKERHUB_USERNAME`, le journal a écrit « Skip
+    output 'namespace' since it may contain secret », la valeur est arrivée VIDE dans les
+    jobs de build, et buildx a rejeté « invalid tag "/spectrallm-frontend:edge-…" ».
+
+    Le préflight ne l'exporte donc plus : chaque job de publication le lit lui-même depuis
+    `env:`, où le masquage n'existe qu'à l'affichage. Remettre cette sortie remettrait la
+    panne — d'où ce test, qui la rendrait bruyante au lieu de la laisser revenir.
+    """
+    body = read(WORKFLOW)
+    outputs_block = body[body.index("    outputs:"):body.index("    steps:")]
+
+    assert "namespace:" not in outputs_block, (
+        "le job preflight exporte à nouveau une sortie « namespace » : Actions la videra "
+        "dès qu'elle vaudra un secret, et les jobs de publication bâtiront un tag « /image:tag »."
+    )
+    assert "NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE || secrets.DOCKERHUB_USERNAME }}" in body, (
+        "le job de publication ne résout plus l'espace de noms lui-même depuis vars/secrets"
+    )
+
+
 def test_the_documentation_names_the_secrets_the_workflow_reads():
     """
     Le workflow échoue si les secrets manquent — c'est voulu. Encore faut-il que le document

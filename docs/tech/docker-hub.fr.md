@@ -71,11 +71,26 @@ déclenchement manuel sans version produit `edge-<sha>`, également sans `latest
 |---|---|---|
 | `DOCKERHUB_USERNAME` | secret | compte qui pousse |
 | `DOCKERHUB_TOKEN` | secret | le jeton créé ci-dessus |
-| `DOCKERHUB_NAMESPACE` | variable *(optionnel)* | organisation visée si elle diffère du compte |
+| `DOCKERHUB_NAMESPACE` | **variable** *(recommandé)* | espace de noms visé — `compagnonsdudev` |
 
-Sans ces secrets, une exécution en publication **échoue** en nommant celui qui manque —
+Sans les deux secrets, une exécution en publication **échoue** en nommant celui qui manque —
 plutôt que de se terminer en vert sans avoir rien poussé. Le mode `dry_run` (§3.3) exerce
 toute la chaîne sans aucun identifiant.
+
+**Pourquoi renseigner l'espace de noms en `variable` et non le laisser dériver du secret.**
+Les deux fonctionnent : à défaut de variable, l'espace de noms est celui de
+`DOCKERHUB_USERNAME`. Mais un secret est **masqué dans les journaux**, et les tags s'y
+affichent alors en `***/spectrallm:0.7.1` — illisibles au moment précis où l'on veut
+vérifier ce qui a été publié. Un espace de noms Docker Hub n'est pas un secret : il est
+public, il est dans le nom que tirent les utilisateurs.
+
+> **Piège associé, corrigé mais utile à connaître.** Actions refuse de propager une *sortie
+> de job* dont la valeur est celle d'un secret : elle arrive vide dans le job suivant, avec
+> pour seule trace un `Skip output '…' since it may contain secret` au milieu du journal.
+> La première publication a échoué ainsi, sur un `invalid tag "/spectrallm-frontend:edge-…"`.
+> Chaque job de publication résout donc l'espace de noms lui-même depuis `env:`, où le
+> masquage n'existe qu'à l'affichage. `scripts/tests/test_docker_hub_images.py` empêche le
+> retour en arrière.
 
 ---
 
