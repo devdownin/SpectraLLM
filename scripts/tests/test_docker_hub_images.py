@@ -35,6 +35,11 @@ PUBLISH_SH = REPO_ROOT / "scripts/publish-images.sh"
 HUB_OVERLAY = REPO_ROOT / "deploy/docker/docker-compose.hub.yml"
 BASE_COMPOSE = REPO_ROOT / "deploy/docker/docker-compose.yml"
 ENV_EXAMPLE = REPO_ROOT / ".env.example"
+HUB_PAGES = REPO_ROOT / "deploy/docker/hub"
+
+# Limites imposées par Docker Hub sur un dépôt.
+SHORT_DESCRIPTION_MAX = 100
+FULL_DESCRIPTION_MAX = 25_000
 
 # Images publiées à CHAQUE version (les autres sont derrière `--include-profiled`).
 DEFAULT_IMAGES = {"spectrallm", "spectrallm-frontend"}
@@ -292,6 +297,7 @@ def workflow_tags(tmp_path, ref_name: str) -> list[str]:
             "INPUT_VERSION": "",
             "DRY_RUN": "false",
             "INCLUDE_PROFILED": "false",
+            "DESCRIPTIONS_ONLY": "false",
             "HUB_USERNAME": "acme",
             "HUB_NAMESPACE": "",
             "HAS_TOKEN": "true",
@@ -344,6 +350,111 @@ def test_both_publication_paths_produce_the_same_tags(tmp_path, ref_name, expect
 
     assert workflow_tags(tmp_path, ref_name) == expected
     assert script_tags(ref_name) == expected
+
+
+def test_the_namespace_never_travels_through_a_job_output():
+    """
+    Actions REFUSE de propager une sortie de job dont la valeur est celle d'un secret.
+
+    Ce n'est pas une hypothèse : la première publication a échoué exactement là-dessus.
+    L'espace de noms venait de `secrets.DOCKERHUB_USERNAME`, le journal a écrit « Skip
+    output 'namespace' since it may contain secret », la valeur est arrivée VIDE dans les
+    jobs de build, et buildx a rejeté « invalid tag "/spectrallm-frontend:edge-…" ».
+
+    Le préflight ne l'exporte donc plus : chaque job de publication le lit lui-même depuis
+    `env:`, où le masquage n'existe qu'à l'affichage. Remettre cette sortie remettrait la
+    panne — d'où ce test, qui la rendrait bruyante au lieu de la laisser revenir.
+    """
+    body = read(WORKFLOW)
+    outputs_block = body[body.index("    outputs:"):body.index("    steps:")]
+
+    assert "namespace:" not in outputs_block, (
+        "le job preflight exporte à nouveau une sortie « namespace » : Actions la videra "
+        "dès qu'elle vaudra un secret, et les jobs de publication bâtiront un tag « /image:tag »."
+    )
+    assert "NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE || secrets.DOCKERHUB_USERNAME }}" in body, (
+        "le job de publication ne résout plus l'espace de noms lui-même depuis vars/secrets"
+    )
+
+
+# ── Pages de présentation Docker Hub ─────────────────────────────────────────────
+
+def hub_pages() -> dict[str, Path]:
+    """Nom d'image → page de présentation. Le nom de fichier EST le nom du dépôt."""
+    return {path.stem: path for path in sorted(HUB_PAGES.glob("*.md"))}
+
+
+def test_every_image_published_by_default_has_a_hub_page():
+    """
+    Un dépôt Docker Hub sans description longue affiche « No overview available » sous un
+    nom d'image. C'est la première chose que voit quelqu'un qui découvre le projet par le
+    registre — et elle ne répond à aucune des deux questions qu'il se pose.
+    """
+    missing = DEFAULT_IMAGES - set(hub_pages())
+
+    assert not missing, (
+        f"image(s) publiée(s) sans page de présentation : {sorted(missing)}. "
+        f"Ajoutez deploy/docker/hub/<image>.md."
+    )
+
+
+def test_every_hub_page_matches_a_published_image():
+    """
+    Le job « describe » dérive le nom du dépôt du NOM DE FICHIER. Une page dont le nom ne
+    correspond à aucune image publiée viserait un dépôt inexistant : la publication
+    échouerait sur un 404 dont la cause — une faute de frappe dans un nom de fichier — ne
+    se lit nulle part.
+    """
+    published = {e["image"] for e in workflow_matrix_entries()}
+    # La matrice par défaut n'a pas les images profilées ; elles restent publiables.
+    profiled = {f"spectrallm-{s}" for s in ("docparser", "reranker", "trainer")}
+    orphans = set(hub_pages()) - published - profiled
+
+    assert not orphans, (
+        f"page(s) de présentation sans image correspondante : {sorted(orphans)}"
+    )
+
+
+@pytest.mark.parametrize("image", sorted(hub_pages()))
+def test_each_hub_page_declares_a_short_description(image):
+    """La description courte est lue DANS la page, en commentaire HTML : deux textes dans
+    deux fichiers divergeraient, et c'est le plus visible des deux qui deviendrait faux."""
+    body = read(hub_pages()[image])
+    match = re.search(r"^<!-- short: (.+) -->$", body, re.M)
+
+    assert match, f"{image}.md ne déclare pas de « <!-- short: … --> »"
+    assert len(match.group(1)) <= SHORT_DESCRIPTION_MAX, (
+        f"{image}.md : description courte de {len(match.group(1))} caractères, "
+        f"Docker Hub en accepte {SHORT_DESCRIPTION_MAX}"
+    )
+
+
+@pytest.mark.parametrize("image", sorted(hub_pages()))
+def test_each_hub_page_fits_the_docker_hub_limit(image):
+    size = len(read(hub_pages()[image]))
+
+    assert size <= FULL_DESCRIPTION_MAX, (
+        f"{image}.md fait {size} caractères ; Docker Hub tronque au-delà de "
+        f"{FULL_DESCRIPTION_MAX}"
+    )
+
+
+@pytest.mark.parametrize("image", sorted(hub_pages()))
+def test_hub_pages_link_and_embed_absolutely(image):
+    """
+    Docker Hub ne résout AUCUN chemin relatif : un `docs/assets/x.png` copié depuis le
+    README y donne une image cassée, et un lien mort. Le défaut ne se voit pas au moment
+    où on l'écrit — la page s'affiche parfaitement dans l'éditeur et dans GitHub — mais
+    seulement sur la vitrine publique du projet.
+    """
+    body = read(hub_pages()[image])
+    targets = re.findall(r"\]\(([^)]+)\)", body) + re.findall(r'(?:src|href)="([^"]+)"', body)
+    relative = [t for t in targets if not t.startswith(("http://", "https://", "#"))]
+
+    assert not relative, (
+        f"{image}.md contient {len(relative)} lien(s)/image(s) relatif(s), cassé(s) sur "
+        f"Docker Hub : {relative[:5]}"
+    )
 
 
 def test_the_documentation_names_the_secrets_the_workflow_reads():

@@ -71,11 +71,26 @@ déclenchement manuel sans version produit `edge-<sha>`, également sans `latest
 |---|---|---|
 | `DOCKERHUB_USERNAME` | secret | compte qui pousse |
 | `DOCKERHUB_TOKEN` | secret | le jeton créé ci-dessus |
-| `DOCKERHUB_NAMESPACE` | variable *(optionnel)* | organisation visée si elle diffère du compte |
+| `DOCKERHUB_NAMESPACE` | **variable** *(recommandé)* | espace de noms visé — `compagnonsdudev` |
 
-Sans ces secrets, une exécution en publication **échoue** en nommant celui qui manque —
-plutôt que de se terminer en vert sans avoir rien poussé. Le mode `dry_run` (§3.3) exerce
+Sans les deux secrets, une exécution en publication **échoue** en nommant celui qui manque —
+plutôt que de se terminer en vert sans avoir rien poussé. Le mode `dry_run` (§3.2) exerce
 toute la chaîne sans aucun identifiant.
+
+**Pourquoi renseigner l'espace de noms en `variable` et non le laisser dériver du secret.**
+Les deux fonctionnent : à défaut de variable, l'espace de noms est celui de
+`DOCKERHUB_USERNAME`. Mais un secret est **masqué dans les journaux**, et les tags s'y
+affichent alors en `***/spectrallm:0.7.1` — illisibles au moment précis où l'on veut
+vérifier ce qui a été publié. Un espace de noms Docker Hub n'est pas un secret : il est
+public, il est dans le nom que tirent les utilisateurs.
+
+> **Piège associé, corrigé mais utile à connaître.** Actions refuse de propager une *sortie
+> de job* dont la valeur est celle d'un secret : elle arrive vide dans le job suivant, avec
+> pour seule trace un `Skip output '…' since it may contain secret` au milieu du journal.
+> La première publication a échoué ainsi, sur un `invalid tag "/spectrallm-frontend:edge-…"`.
+> Chaque job de publication résout donc l'espace de noms lui-même depuis `env:`, où le
+> masquage n'existe qu'à l'affichage. `scripts/tests/test_docker_hub_images.py` empêche le
+> retour en arrière.
 
 ---
 
@@ -105,6 +120,7 @@ réciproquement. Les deux se relancent séparément.
 | `version` | `v0.7.1` pour republier une version ; vide pour un tag `edge-<sha>` |
 | `dry_run` | construit tout, ne pousse rien, n'exige aucun secret |
 | `include_profiled` | ajoute docparser, reranker et trainer (comptez une heure) |
+| `descriptions_only` | ne met à jour que les pages de présentation (§3.4), sans rien construire |
 
 ### 3.3 Depuis un poste
 
@@ -123,7 +139,48 @@ Le script crée au besoin un constructeur `buildx` dédié : le pilote `docker` 
 sait pas produire de manifeste multi-architecture, et l'échec surviendrait sinon *après* la
 construction, sur un message qui n'oriente pas vers la cause.
 
-### 3.4 Ce qui rend la construction multi-architecture supportable
+### 3.4 La page de présentation Docker Hub
+
+La description longue d'un dépôt Docker Hub est la **vitrine** du projet : c'est ce que voit
+quelqu'un qui le découvre par le registre plutôt que par GitHub. Laissée vide, elle affiche
+« No overview available » sous un nom d'image — et l'image la mieux construite du monde n'y
+répond à aucune des deux questions que se pose ce visiteur : qu'est-ce que c'est, et comment
+je la démarre.
+
+Ces pages vivent donc **dans le dépôt**, versionnées et relues comme le reste :
+
+| Fichier | Dépôt Docker Hub |
+|---|---|
+| `deploy/docker/hub/spectrallm.md` | `<ns>/spectrallm` — la page du projet |
+| `deploy/docker/hub/spectrallm-frontend.md` | `<ns>/spectrallm-frontend` — plus courte : c'est un composant, pas un produit |
+
+Le nom du fichier **est** le nom du dépôt : le job `describe` du workflow en dérive l'URL de
+l'API. La description courte (100 caractères max) est lue dans la page elle-même, en
+commentaire HTML `<!-- short: … -->` — invisible au rendu, et un seul texte au lieu de deux
+qui divergeraient.
+
+**N'éditez jamais la description dans l'interface Docker Hub.** La publication suivante
+l'écraserait, et l'écart ne se verrait qu'après coup. C'est délibéré : deux sources pour un
+même texte, c'est une divergence qu'on découvre trop tard.
+
+Corriger une coquille sans reconstruire trois gigaoctets d'images :
+
+*Actions → Publish images (Docker Hub) → Run workflow*, avec `descriptions_only` coché.
+
+Deux contraintes que `scripts/tests/test_docker_hub_images.py` fait respecter avant la
+publication, parce qu'aucune des deux ne se voit à l'écriture :
+
+- **Aucun lien relatif.** Docker Hub ne résout rien : un `docs/assets/x.png` recopié depuis
+  le README y donne une image cassée. La page s'affiche pourtant parfaitement dans un
+  éditeur et dans GitHub — le défaut n'apparaît que sur la vitrine publique.
+- **Les limites du service** : 100 caractères pour la description courte, 25 000 pour la
+  page, au-delà desquels Docker Hub tronque.
+
+Un dépôt Docker Hub naît de la **première poussée d'image** : tant qu'une image n'a pas été
+publiée, sa page ne peut pas être écrite, et le job le dit explicitement (404) au lieu de
+laisser chercher.
+
+### 3.5 Ce qui rend la construction multi-architecture supportable
 
 Les stages de build des deux Dockerfiles portent `--platform=$BUILDPLATFORM` : ils tournent
 sur l'architecture du **constructeur**, jamais sur celle de la cible. Ils ne produisent
