@@ -114,13 +114,16 @@ réciproquement. Les deux se relancent séparément.
 **Après la publication, alignez le défaut de l'overlay** (`SPECTRA_IMAGE_TAG` dans
 `docker-compose.hub.yml`) sur la version qui vient de partir. C'est ce défaut que reçoit
 quiconque ne configure rien : laissé sur une version périmée, il la sert en silence, sans
-que personne s'en aperçoive. `scripts/tests/test_docker_hub_images.py` compare ce défaut à
-la dernière version de `.github/release-notes/` et fait échouer la CI s'il a dérivé — la
-valeur `latest` restant acceptée comme un choix explicite, celui d'une vitrine qui suit
-toujours la dernière version.
+que personne s'en aperçoive. `scripts/tests/test_docker_hub_images.py` compare ce défaut au
+**dernier tag git** et fait échouer la CI s'il a dérivé — la valeur `latest` restant acceptée
+comme un choix explicite, celui d'une vitrine qui suit toujours la dernière version.
 
-*(Le contrôle s'appuie sur les notes de release et non sur le CHANGELOG : les tags d'image
-dérivent du tag git, que ce répertoire indexe. Le CHANGELOG suit une autre numérotation.)*
+Le même fichier vérifie que ce dernier tag a bien ses **notes de release curées** : sans
+elles, `release.yml` refuse désormais de publier (§3.1 de ce document décrit le pourquoi).
+
+*(Le contrôle interroge les tags git et non le CHANGELOG : ce sont les tags qui décident du
+tag d'image. Le CHANGELOG suit une autre numérotation — il en est à 1.13.0 quand le dernier
+tag est v0.8.0.)*
 
 ### 3.2 Déclenchement manuel
 
@@ -244,10 +247,12 @@ Dans `.env` (ou dans l'environnement du shell, qui l'emporte) :
 
 ```bash
 SPECTRA_IMAGE_NAMESPACE=compagnonsdudev   # votre compte, ou un miroir : registry.interne/equipe
-SPECTRA_IMAGE_TAG=0.7.1                  # « latest » suit la dernière version publiée
+SPECTRA_IMAGE_TAG=0.8.0                   # « 0.8 » = la série ; « latest » = toujours la dernière
 ```
 
-Épinglez une version en production. Le raisonnement est celui qui vaut déjà pour
+Rien à renseigner dans le cas courant : **le défaut de l'overlay est déjà épinglé** sur la
+dernière version publiée. Ces variables servent à s'en écarter — suivre la série, suivre
+`latest`, ou revenir en arrière. Le raisonnement est celui qui vaut déjà pour
 `LLAMA_CPP_IMAGE_TAG` et `CHROMADB_IMAGE_TAG`, avec un précédent concret dans ce dépôt : le
 tag `latest` de ChromaDB a déplacé son chemin de persistance sans un message, et l'index
 vectoriel repartait de zéro à chaque `docker compose down`.

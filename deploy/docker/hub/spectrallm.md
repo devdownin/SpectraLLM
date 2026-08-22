@@ -100,7 +100,7 @@ Everything has a working default. The variables worth knowing:
 
 | Variable | Default | What it does |
 |---|---|---|
-| `SPECTRA_IMAGE_TAG` | `latest` | Version of the two images pulled. Pin it in production. |
+| `SPECTRA_IMAGE_TAG` | pinned in the overlay | Version of the two images pulled. The overlay pins the latest release; set it to any published tag, or to `latest` to always follow. |
 | `SPECTRA_IMAGE_NAMESPACE` | `compagnonsdudev` | Where the images come from — change it for a private mirror. |
 | `SPECTRA_API_KEY` | *(empty)* | Set it and `/api/**` requires the `X-API-Key` header. Empty means **no authentication**. |
 | `SPECTRA_BIND_ADDR` | `127.0.0.1` | Interface the ports are published on. `0.0.0.0` exposes the stack to your network — set an API key first, and put TLS in front. |

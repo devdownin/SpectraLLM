@@ -68,7 +68,14 @@ jobs:
     name: Training scripts (pytest)
     runs-on: ubuntu-latest
     steps:
+    # fetch-depth: 0 — deux contrôles de scripts/tests interrogent les TAGS : le défaut
+    # d'épinglage de l'overlay Docker Hub doit correspondre au dernier tag publié, et ce
+    # tag doit avoir ses notes de release. `actions/checkout` ne récupère aucun tag par
+    # défaut ; sans cette ligne les deux se sautent d'eux-mêmes, et un contrôle sauté ne
+    # vérifie rien.
     - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
