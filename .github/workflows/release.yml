@@ -94,9 +94,19 @@ jobs:
             exit 1
           fi
 
+      # `release-guard.yml` écoute `release: published` et repasse en brouillon toute release
+      # sans notes curées — y compris celles publiées d'ici. Le corps générique demandé
+      # sciemment via `allow_generated_notes` porte donc un MARQUEUR, que le garde reconnaît
+      # pour ne pas défaire un choix délibéré.
+      #
+      # Le marqueur est posé DANS l'appel de création, pas par une édition qui suivrait :
+      # `gh release create` publie immédiatement et déclenche `release: published`, si bien
+      # qu'une édition ultérieure arriverait en course avec le garde. L'API accepte un corps
+      # et `generate_release_notes` ensemble — les notes générées sont ajoutées à la suite.
       - name: Create GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MARKER: '<!-- release-notes: corps generique accepte via allow_generated_notes -->'
         run: |
           TAG="${{ steps.meta.outputs.tag }}"
           if [ -n "${{ steps.notes.outputs.path }}" ]; then
@@ -104,7 +114,10 @@ jobs:
               --title "SpectraLLM $TAG" \
               --notes-file "${{ steps.notes.outputs.path }}"
           else
+            MARKER_FILE="$RUNNER_TEMP/release-marker.md"
+            printf '%s\n' "$MARKER" > "$MARKER_FILE"
             gh release create "$TAG" \
               --title "SpectraLLM $TAG" \
+              --notes-file "$MARKER_FILE" \
               --generate-notes
           fi

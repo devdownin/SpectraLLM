@@ -1,0 +1,83 @@
+# Filet de sécurité pour les releases publiées À LA MAIN depuis l'interface GitHub.
+#
+# POURQUOI CE FICHIER EXISTE
+# `release.yml` porte déjà le garde-fou des notes curées, mais il ne se déclenche que sur
+# `push: tags: v*` — c'est-à-dire APRÈS coup. Publier le brouillon de release-drafter depuis
+# l'interface crée le tag ET publie la release dans le même geste : la page est déjà publique
+# quand le garde-fou s'exécute, et son échec ne retire rien. C'est exactement ce qui s'est
+# produit deux fois :
+#
+#   — v0.8.0, publiée le 22/08 à 10:26 UTC avec la liste brute des PR (~80 lignes, dependabot
+#     compris). Les notes curées .github/release-notes/v0.8.0.md ont été écrites à 11:18 UTC,
+#     52 minutes plus tard : elles existent dans le dépôt, mais n'ont jamais atteint la page.
+#   — v0.9.0, publiée le 22/08 à 12:58:07 UTC. Le run de `release.yml` a démarré à 12:58:09 UTC,
+#     deux secondes trop tard, et a échoué sans effet.
+#
+# CE QUE FAIT CE WORKFLOW
+# Il écoute `release: published`, qui se déclenche au moment exact de la publication, quelle
+# qu'en soit l'origine — interface, API ou workflow. Trois issues :
+#
+#   1. Le corps porte le marqueur d'acceptation explicite → on ne touche à rien.
+#   2. Les notes curées existent sur la branche par défaut → on les applique. La publication
+#      manuelle produit alors le bon corps, au lieu de la liste brute du brouillon.
+#   3. Aucune note curée → la release repasse en BROUILLON et le job échoue.
+#
+# Le cas 3 est le seul moyen de « bloquer » après publication : GitHub ne permet pas d'annuler
+# une publication autrement. La release redevient invisible en quelques secondes ; le tag, lui,
+# est CONSERVÉ (le retirer casserait les clones et les images déjà poussées sous ce tag). Pour
+# repartir : écrire .github/release-notes/<tag>.md, le pousser sur la branche par défaut, puis
+# republier le brouillon — ce workflow appliquera les notes au passage.
+name: Release guard
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      # On récupère la BRANCHE PAR DÉFAUT, pas le tag : les notes curées vivent sur la branche
+      # par défaut, et c'est là que le message d'erreur demande de les pousser. Les chercher
+      # dans l'arbre du tag rendrait le cas 2 inatteignable dès que les notes sont écrites après
+      # la publication — précisément le scénario de la v0.8.0.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Appliquer les notes curées, ou retirer la release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          # Passés par l'environnement, jamais interpolés dans le script : le corps d'une
+          # release est du texte libre, écrit par quiconque peut publier.
+          TAG: ${{ github.event.release.tag_name }}
+          BODY: ${{ github.event.release.body }}
+          MARKER: '<!-- release-notes: corps generique accepte via allow_generated_notes -->'
+        run: |
+          set -euo pipefail
+
+          # Cas 1 — échappatoire explicite posée par release.yml (allow_generated_notes).
+          case "${BODY:-}" in
+            *"$MARKER"*)
+              echo "::notice::Corps générique accepté explicitement (allow_generated_notes) — rien à faire."
+              exit 0
+              ;;
+          esac
+
+          NOTES_FILE=".github/release-notes/${TAG}.md"
+
+          # Cas 2 — les notes curées existent : on les applique.
+          if [ -f "$NOTES_FILE" ]; then
+            gh release edit "$TAG" --notes-file "$NOTES_FILE"
+            echo "::notice::Notes curées appliquées à $TAG depuis $NOTES_FILE."
+            exit 0
+          fi
+
+          # Cas 3 — rien à appliquer : on retire la release de la vue publique.
+          gh release edit "$TAG" --draft=true
+          echo "::error::Aucune note curée $NOTES_FILE : la release $TAG a été repassée en BROUILLON (le tag est conservé). Écrivez les notes (prenez modèle sur .github/release-notes/v0.7.1.md), poussez-les sur la branche par défaut, puis republiez le brouillon — ce workflow appliquera les notes automatiquement."
+          exit 1
