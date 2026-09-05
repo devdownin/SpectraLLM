@@ -50,3 +50,6 @@ coverage.xml
 # répertoire data/ est déjà exclu plus haut, celui-ci l'avait échappé.
 json/
 json.7z
+
+# Local Claude Code settings (machine-specific permission grants)
+.claude/settings.local.json
