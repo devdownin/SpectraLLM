@@ -248,7 +248,7 @@ jobs:
         # posé sur les stages de build des Dockerfiles : leurs artefacts (un .jar, des
         # fichiers statiques) ne dépendent pas de l'architecture.
         if: contains(matrix.platforms, 'arm64')
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
