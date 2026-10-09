@@ -373,8 +373,13 @@ public class GedService {
             result.put("actor", doc.getDeletionActor());
             result.put("chunksDeleted", 0);
             try {
+                Path root = archiveRoot.toAbsolutePath().normalize();
+                Path documentDir = root.resolve(doc.getSha256()).normalize();
+                if (!documentDir.startsWith(root) || documentDir.equals(root)) {
+                    throw new IllegalArgumentException("Identité documentaire invalide pour le répertoire d'archives");
+                }
                 result.put("chunksDeleted", purgeDocumentIndexes(doc));
-                Files.deleteIfExists(archiveRoot.resolve(sha256).resolve("manifest.json"));
+                Files.deleteIfExists(documentDir.resolve("manifest.json"));
                 (self != null ? self : this).deleteDocumentDb(sha256);
                 result.put("deletionPending", false);
                 result.put("status", "DELETED");

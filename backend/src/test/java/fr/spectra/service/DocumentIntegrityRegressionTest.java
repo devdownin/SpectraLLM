@@ -99,4 +99,23 @@ class DocumentIntegrityRegressionTest {
         assertThat(service.deleteDocument("shaA", "alice")).containsEntry("deletionPending", true);
         assertThat(rows).containsKey("shaA");
     }
+
+    @Test void documentIdentityCannotEscapeTheArchiveDirectory() throws Exception {
+        Path external = java.nio.file.Files.createTempDirectory(archive.getParent(), "external-archive-");
+        Path manifest = external.resolve("manifest.json");
+        try {
+            java.nio.file.Files.writeString(manifest, "preuve à conserver");
+            String maliciousSha = external.toAbsolutePath().toString();
+            add(maliciousSha, "col-a");
+            assertThat(ged.deleteDocument(maliciousSha, "alice"))
+                    .containsEntry("deletionPending", true);
+            assertThat(java.nio.file.Files.readString(manifest)).isEqualTo("preuve à conserver");
+            assertThat(rows).containsKey(maliciousSha);
+            verify(chroma, never()).deleteByMetadata(anyString(), anyString(), anyString());
+        } finally {
+            java.nio.file.Files.deleteIfExists(manifest);
+            java.nio.file.Files.deleteIfExists(external);
+        }
+    }
+
 }
