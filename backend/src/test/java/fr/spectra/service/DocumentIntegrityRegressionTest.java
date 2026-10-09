@@ -48,7 +48,7 @@ class DocumentIntegrityRegressionTest {
         assertThat(rows.get("shaA").isDeletionPending()).isTrue();
         assertThat(rows.get("shaA").getDeletionActor()).isEqualTo("alice");
         verify(repo).saveAndFlush(rows.get("shaA"));
-        verify(repo, never()).delete(any());
+        verify(repo, never()).delete(any(IngestedFileEntity.class));
 
         newGed().retryPendingDeletions();
         assertThat(rows).doesNotContainKey("shaA");
