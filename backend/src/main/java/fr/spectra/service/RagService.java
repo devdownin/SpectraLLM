@@ -279,10 +279,10 @@ public class RagService {
         // ── 2. Conversational RAG : contextualisation de la question ──────
         String retrievalQuestion = request.question();
         boolean conversationalApplied = false;
+        boolean conversationalActive = RagOverrides.resolve(ov.conversational(), conversationalRagService.isPresent())
+                && request.conversationHistory() != null && !request.conversationHistory().isEmpty();
 
-        if (RagOverrides.resolve(ov.conversational(), conversationalRagService.isPresent())
-                && request.conversationHistory() != null
-                && !request.conversationHistory().isEmpty()) {
+        if (conversationalActive) {
             String standalone = conversationalRagService.get()
                     .contextualizeQuestion(request.question(), request.conversationHistory());
             if (!standalone.equals(request.question())) {
@@ -341,7 +341,7 @@ public class RagService {
         }
 
         // ── 6. Génération (standard ou Self-RAG) ───────────────────────────
-        String userMessage = buildUserMessage(request, conversationalApplied);
+        String userMessage = buildUserMessage(request, conversationalActive);
         ctx = fitContextToBudget(ctx, profile, userMessage,
                 RagOverrides.resolve(ov.selfRag(), selfRagService.isPresent()));
         String answer;
@@ -535,9 +535,9 @@ public class RagService {
         // ── 2. Conversational RAG : contextualisation de la question ──────
         String retrievalQuestion = request.question();
         boolean conversationalApplied = false;
-        if (RagOverrides.resolve(ov.conversational(), conversationalRagService.isPresent())
-                && request.conversationHistory() != null
-                && !request.conversationHistory().isEmpty()) {
+        boolean conversationalActive = RagOverrides.resolve(ov.conversational(), conversationalRagService.isPresent())
+                && request.conversationHistory() != null && !request.conversationHistory().isEmpty();
+        if (conversationalActive) {
             long t0 = System.currentTimeMillis();
             emitStage(sink, "rewriting", null, null);
             String standalone = conversationalRagService.get()
@@ -623,7 +623,7 @@ public class RagService {
         }
 
         // ── 6. Sources + génération (standard ou Self-RAG) ─────────────────
-        String userMessage = buildUserMessage(request, conversationalApplied);
+        String userMessage = buildUserMessage(request, conversationalActive);
         ctx = fitContextToBudget(ctx, profile, userMessage,
                 RagOverrides.resolve(ov.selfRag(), selfRagService.isPresent()));
         sink.next(sourcesEvent(ctx.sources()));
@@ -1151,8 +1151,8 @@ public class RagService {
      * Construit le message utilisateur pour la génération.
      * Si le Conversational RAG est actif et qu'il y a un historique, préfixe l'historique.
      */
-    private String buildUserMessage(QueryRequest request, boolean conversationalApplied) {
-        if (conversationalApplied
+    private String buildUserMessage(QueryRequest request, boolean conversationalActive) {
+        if (conversationalActive
                 && conversationalRagService.isPresent()
                 && request.conversationHistory() != null
                 && !request.conversationHistory().isEmpty()) {
@@ -1174,11 +1174,28 @@ public class RagService {
     @SuppressWarnings("unchecked")
     private SingleQueryResult executeSingleQuery(String question, String collectionId,
                                                   String collectionName, int retrieveCount, boolean useHybrid) {
-        List<Float> embedding = embeddingService.embed(question);
+        List<Float> embedding;
+        boolean lexicalFallback = false;
+        try {
+            embedding = embeddingService.embed(question);
+            if (embedding == null || embedding.isEmpty()) {
+                throw new IllegalStateException("Embedding de requête absent");
+            }
+        } catch (ChromaDbClient.EmbeddingModelMismatchException mismatch) {
+            throw mismatch;
+        } catch (RuntimeException failure) {
+            if (!useHybrid) throw failure;
+            embedding = null;
+            lexicalFallback = true;
+            meterRegistry.counter("spectra.rag.retrieval.degraded", "mode", "bm25_only",
+                    "reason", "embedding_unavailable").increment();
+            log.warn("Retrieval dégradé BM25-only : embedding indisponible — {}", failure.getMessage());
+        }
 
         if (useHybrid) {
-            List<HybridSearchService.HybridChunk> results =
-                    hybridSearchService.get().search(question, embedding, collectionId, collectionName, retrieveCount);
+            List<HybridSearchService.HybridChunk> results = lexicalFallback
+                    ? hybridSearchService.get().searchLexical(question, collectionName, retrieveCount)
+                    : hybridSearchService.get().search(question, embedding, collectionId, collectionName, retrieveCount);
             List<String>              chunks    = new ArrayList<>(results.size());
             List<Map<String, String>> metadatas = new ArrayList<>(results.size());
             List<Double>              distances = new ArrayList<>(results.size());
@@ -1193,14 +1210,9 @@ public class RagService {
             }
             return new SingleQueryResult(chunks, metadatas, distances, bm25, rrf, !results.isEmpty());
         } else {
-            Map<String, Object> results = chromaDbClient.query(collectionId, embedding, retrieveCount);
-            List<List<String>>              documents = (List<List<String>>) results.get("documents");
-            List<List<Map<String, String>>> metadatas = (List<List<Map<String, String>>>) results.get("metadatas");
-            List<List<Double>>              distances = (List<List<Double>>) results.get("distances");
-            return new SingleQueryResult(
-                    (documents == null || documents.isEmpty()) ? List.of() : documents.getFirst(),
-                    (metadatas == null || metadatas.isEmpty()) ? List.of() : metadatas.getFirst(),
-                    (distances == null || distances.isEmpty()) ? List.of() : distances.getFirst(),
+            ChromaQueryResult result = ChromaQueryResult.from(
+                    chromaDbClient.query(collectionId, embedding, retrieveCount));
+            return new SingleQueryResult(result.documents(), result.metadatas(), result.distances(),
                     null, null, false);
         }
     }
