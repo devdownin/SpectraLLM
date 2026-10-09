@@ -141,7 +141,7 @@ class ProcessTrainingRunnerTest {
     @DisplayName("l'annulation tue aussi le convertisseur enfant qui garde stdout ouvert")
     void cancellationStopsChildProcess() throws Exception {
         Path script = tempDir.resolve("train.sh");
-        Files.writeString(script, "#!/bin/sh\nsleep 60 &\nchild=$!\necho $child\nwait $child\n");
+        Files.writeString(script, "#!/bin/sh\nsleep 60 &\nchild=$!\necho CHILD:$child\nwait $child\n");
         script.toFile().setExecutable(true);
         ProcessTrainingRunner runner = runner(script.toString());
         java.util.concurrent.atomic.AtomicLong childPid = new java.util.concurrent.atomic.AtomicLong();
@@ -150,8 +150,11 @@ class ProcessTrainingRunnerTest {
                     new TrainingSpec("tree-job", tempDir.resolve("d"), tempDir.resolve("a"), "base",
                             8, 16, 1, 1e-4, false, false, false, 0.0),
                     line -> {
-                        childPid.set(Long.parseLong(line));
-                        assertThat(runner.cancel("tree-job")).isTrue();
+                        // The shell may also emit "Killed" after its child exits.
+                        if (line.startsWith("CHILD:")) {
+                            childPid.set(Long.parseLong(line.substring("CHILD:".length())));
+                            assertThat(runner.cancel("tree-job")).isTrue();
+                        }
                     }, () -> false);
         });
         assertThat(childPid.get()).isPositive();

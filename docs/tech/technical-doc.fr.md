@@ -1214,6 +1214,8 @@ ou est annulée. Leur suppression nécessite une action explicite de l'exploitan
 Chaque job publie son propre fichier GGUF, atomiquement, sans remplacer un fichier
 produit par un autre job. Réutiliser un nom logique met à jour l'entrée du registre,
 mais conserve le fichier de la version précédente.
+Le volume des modèles doit accepter les liens physiques utilisés pour la publication
+atomique sans remplacement ; sinon l'export échoue et l'adaptateur reste conservé.
 
 `autoEvaluate: true` exige `exportGguf: true`. Avant le lancement du trainer, environ
 20 % des exemples SFT sont réservés dans `evaluation.jsonl` sous le répertoire du job.
