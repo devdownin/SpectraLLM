@@ -287,7 +287,12 @@ def test_cancellation_stops_conversion_child(tmp_path, monkeypatch, action):
             # In minimal containers PID 1 may not reap orphans immediately. A zombie no
             # longer executes or holds a pipe, and must not be mistaken for a live worker.
             stat = Path(f"/proc/{child_pid}/stat")
-            if not stat.exists() or stat.read_text().split(') ')[1].startswith('Z '):
+            try:
+                state = stat.read_text().split(') ')[1]
+            except (FileNotFoundError, ProcessLookupError):
+                # Reaping can remove the process during the /proc read itself.
+                break
+            if state.startswith('Z '):
                 break
             time.sleep(0.02)
         else:
