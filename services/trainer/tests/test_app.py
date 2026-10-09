@@ -245,3 +245,61 @@ def test_export_runs_are_counted_separately(client, echo_py_script):
     })
 
     assert _metric("spectra_trainer_runs_total", kind="export", outcome="success") == before + 1
+
+
+@pytest.mark.parametrize("action", ["cancel", "disconnect"])
+def test_cancellation_stops_conversion_child(tmp_path, monkeypatch, action):
+    """A real child inherits stdout and ignores TERM, like a stuck converter."""
+    import os
+    import sys
+    import time
+    from pathlib import Path
+    import app as app_module
+
+    if os.name != "posix" or not Path("/proc").is_dir():
+        pytest.skip("Linux process-session regression")
+    monkeypatch.setattr(app_module, "WORK_DIR", tmp_path)
+    ready = tmp_path / "child-ready"
+    child_code = (
+        "import signal,time,pathlib; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+        f"pathlib.Path({str(ready)!r}).touch(); time.sleep(60)"
+    )
+    script = tmp_path / "parent.py"
+    script.write_text(
+        "import subprocess,sys,time,pathlib\n"
+        f"child = subprocess.Popen([sys.executable, '-c', {child_code!r}])\n"
+        f"while not pathlib.Path({str(ready)!r}).exists(): time.sleep(0.01)\n"
+        "print(child.pid, flush=True)\n"
+        "time.sleep(60)\n"
+    )
+    stream = app_module._stream("tree-test", [sys.executable, str(script)])
+    child_pid = int(next(stream))
+    process = app_module._processes["tree-test"]
+    try:
+        if action == "cancel":
+            assert app_module.cancel("tree-test") == {"cancelled": True}
+            assert list(stream)[-1].startswith(EXIT_PREFIX)
+        else:
+            stream.close()
+        assert process.poll() is not None
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            # In minimal containers PID 1 may not reap orphans immediately. A zombie no
+            # longer executes or holds a pipe, and must not be mistaken for a live worker.
+            stat = Path(f"/proc/{child_pid}/stat")
+            try:
+                state = stat.read_text().split(') ')[1]
+            except (FileNotFoundError, ProcessLookupError):
+                # Reaping can remove the process during the /proc read itself.
+                break
+            if state.startswith('Z '):
+                break
+            time.sleep(0.02)
+        else:
+            pytest.fail("conversion child survives cancellation")
+    finally:
+        stream.close()
+        try:
+            os.kill(child_pid, 9)
+        except ProcessLookupError:
+            pass

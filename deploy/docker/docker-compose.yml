@@ -476,9 +476,11 @@ services:
           # l'hôte — donc l'API et le frontend avec. Une limite explicite transforme un
           # incident système en échec de job, lisible et sans dommage collatéral.
           #
-          # 12 Go convient à du QLoRA 4-bit sur un modèle de 3 à 7 milliards de paramètres.
-          # À relever pour un modèle plus grand ou un lot plus large : trop bas, le job est
-          # tué par l'OOM killer sans cause claire ; trop haut, la limite ne protège de rien.
+          # 12 GiB : profil CPU avec --base-model tinyllama. Phi-3 FP32 ne tient
+          # pas dans cette limite ; le preflight refuse avant de charger les poids.
+          # Phi-3 CPU + export : TRAINER_MEMORY_LIMIT=40g, avec autant de RAM libre.
+          # GPU via docker-compose.gpu.yml : QLoRA pour l'entraînement, mais la
+          # fusion/export reste sur CPU et impose aussi son budget RAM.
           memory: ${TRAINER_MEMORY_LIMIT:-12g}
     ports:
       - "${SPECTRA_BIND_ADDR:-127.0.0.1}:8004:8000"

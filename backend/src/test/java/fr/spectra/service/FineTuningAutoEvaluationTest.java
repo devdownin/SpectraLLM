@@ -35,6 +35,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.doReturn;
 
 /**
  * Enchaînement de l'évaluation après un entraînement réussi.
@@ -54,6 +56,8 @@ class FineTuningAutoEvaluationTest {
     private EvaluationService evaluationService;
     private TrainingLogBroadcaster broadcaster;
     private FineTuningService service;
+    private DatasetGeneratorService datasetGenerator;
+    private SuccessfulRunner runner;
     private final AtomicReference<FineTuningJobEntity> stored = new AtomicReference<>();
 
     /** Entraîne, puis produit l'adaptateur ET le GGUF attendus : le chemin nominal complet. */
@@ -86,9 +90,11 @@ class FineTuningAutoEvaluationTest {
         repository = mock(FineTuningJobRepository.class);
         evaluationService = mock(EvaluationService.class);
         broadcaster = mock(TrainingLogBroadcaster.class);
-        DatasetGeneratorService datasetGenerator = mock(DatasetGeneratorService.class);
+        datasetGenerator = mock(DatasetGeneratorService.class);
+        runner = spy(new SuccessfulRunner());
         when(datasetGenerator.getAllPairs()).thenReturn(List.of(
-                TrainingPair.of("Question ?", "Réponse.", "doc.pdf", "qa", "question_answer", 0.9)));
+                TrainingPair.of("Question ?", "Réponse.", "doc.pdf", "qa", "question_answer", 0.9),
+                TrainingPair.of("Autre question ?", "Autre réponse.", "other.pdf", "qa", "question_answer", 0.9)));
 
         when(repository.save(any(FineTuningJobEntity.class))).thenAnswer(inv -> {
             stored.set(inv.getArgument(0));
@@ -102,7 +108,7 @@ class FineTuningAutoEvaluationTest {
                 datasetGenerator, mock(DpoGenerationService.class), repository,
                 broadcaster, mock(JobTelemetryStore.class), mock(ModelRegistryService.class),
                 evaluationService, mock(BaseModelCatalog.class), mock(GedService.class),
-                mock(IngestedFileRepository.class), "phi3", new SuccessfulRunner(),
+                mock(IngestedFileRepository.class), "phi3", runner,
                 workDir.toString(), workDir.resolve("models").toString(), "");
     }
 
@@ -140,7 +146,7 @@ class FineTuningAutoEvaluationTest {
         service.submit(request(true, true));
 
         assertThat(stored.get().toDto().status()).isEqualTo(Status.COMPLETED);
-        assertThat(stored.get().toDto().outputPath()).endsWith("spectra-domain.gguf");
+        assertThat(stored.get().toDto().outputPath()).endsWith(".gguf");
     }
 
     @Test
@@ -194,4 +200,53 @@ class FineTuningAutoEvaluationTest {
         verify(broadcaster).jobWarn(any(), warn.capture());
         assertThat(warn.getValue()).contains("modèle-juge injoignable");
     }
+    @Test
+    void testCorpusIsPersistedBeforeTrainingAndExcludedFromTrainingInput() throws Exception {
+        String jobId = service.submit(request(true, true));
+        Path jobDir = workDir.resolve(jobId);
+        List<String> training = Files.readAllLines(jobDir.resolve("dataset.jsonl"));
+        List<String> heldOut = Files.readAllLines(jobDir.resolve("evaluation.jsonl"));
+        assertThat(training).hasSize(1);
+        assertThat(heldOut).hasSize(1).doesNotContainAnyElementsOf(training);
+        assertThat(Files.readString(jobDir.resolve("trained-adapter.json"))).contains(jobId);
+    }
+
+    @Test
+    void tinyDatasetFailsBeforeInvokingTheTrainingRunner() throws Exception {
+        when(datasetGenerator.getAllPairs()).thenReturn(List.of(
+                TrainingPair.of("one", "answer", "single.pdf", "qa", "qa", 0.9)));
+        service.submit(request(true, true));
+        assertThat(stored.get().toDto().status()).isEqualTo(Status.FAILED);
+        assertThat(stored.get().toDto().failedPhase()).isEqualTo(Status.EXPORTING_DATASET);
+        verify(runner, never()).train(any(), any(), any());
+        verify(evaluationService, never()).submit(any());
+    }
+
+    @Test
+    void collidingDisplayNamesKeepDifferentImmutableModelFiles() throws Exception {
+        FineTuningRequest first = new FineTuningRequest("team/model", "phi3", 64, 128, 1, 2e-4,
+                0.5, false, false, false, true, 0.1, false);
+        FineTuningRequest second = new FineTuningRequest("team:model", "phi3", 64, 128, 1, 2e-4,
+                0.5, false, false, false, true, 0.1, false);
+        service.submit(first);
+        String firstPath = stored.get().toDto().outputPath();
+        service.submit(second);
+        String secondPath = stored.get().toDto().outputPath();
+        assertThat(firstPath).isNotEqualTo(secondPath);
+        assertThat(Files.readString(Path.of(firstPath))).isEqualTo("gguf");
+        assertThat(Files.readString(Path.of(secondPath))).isEqualTo("gguf");
+    }
+
+    @Test
+    void exportFailureKeepsTheTrainedAdapterAndRecoveryMetadata() throws Exception {
+        doReturn(1).when(runner).exportGguf(any(), any(), any());
+        String jobId = service.submit(request(false, true));
+        FineTuningJob job = stored.get().toDto();
+        assertThat(job.status()).isEqualTo(Status.FAILED);
+        assertThat(job.failedPhase()).isEqualTo(Status.IMPORTING_MODEL);
+        assertThat(Files.exists(workDir.resolve(jobId).resolve("adapter/adapter_config.json"))).isTrue();
+        assertThat(Files.readString(workDir.resolve(jobId).resolve("trained-adapter.json")))
+                .contains(jobId, "spectra-domain", "phi3");
+    }
+
 }
