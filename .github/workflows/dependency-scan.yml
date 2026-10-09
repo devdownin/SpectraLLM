@@ -6,64 +6,84 @@ on:
   pull_request:
     branches: [ "main", "master" ]
   schedule:
-    - cron: '0 0 * * 0' # Weekly scan
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-  depcheck:
+  update-nvd:
+    # Only the default branch publishes trusted caches; PRs never receive the API key.
+    if: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
     runs-on: ubuntu-latest
-    # Borne dure. Sans elle, une alimentation NVD qui n'avance plus (voir l'étape OWASP) laisse
-    # le job « en cours » jusqu'au plafond GitHub de SIX HEURES : la PR affiche un check qui
-    # tourne indéfiniment, indiscernable d'un scan lent, et un runner est mobilisé pour rien.
-    # Un échec au bout de 40 minutes est lisible et actionnable ; une attente sans fin ne l'est pas.
+    timeout-minutes: 240
+    concurrency:
+      group: nvd-update-${{ github.repository }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Java and Maven
+        uses: ./.github/actions/setup-java-maven
+      - name: Version du cache NVD
+        id: cache-key
+        run: |
+          prefix=$(python3 scripts/nvd_cache.py prefix)
+          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+      - name: Restaurer la dernière base complète
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.dependency-check-data
+          key: ${{ steps.cache-key.outputs.prefix }}${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: ${{ steps.cache-key.outputs.prefix }}
+      - name: Mettre à jour NVD sans analyser le projet
+        timeout-minutes: 210
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: |
+          if [ -z "$NVD_API_KEY" ]; then
+            echo "::error::NVD_API_KEY absente : configurez ce secret pour alimenter la base NVD."
+            exit 1
+          fi
+          mvn -B -Pdep-check org.owasp:dependency-check-maven:update-only \
+            -DskipTests -DfailOnError=true -DnvdValidForHours=0 \
+            -DnvdApiKey="$NVD_API_KEY" -f backend/pom.xml
+          python3 scripts/nvd_cache.py stamp
+      # Immutable, versioned key per successful update. A failed/partial update is never saved.
+      - name: Publier la base complète
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.dependency-check-data
+          key: ${{ steps.cache-key.outputs.prefix }}${{ github.run_id }}-${{ github.run_attempt }}
+
+  depcheck:
+    needs: update-nvd
+    # PRs scan the existing cache even though update-nvd is intentionally skipped.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - name: Set up Java and Maven
         uses: ./.github/actions/setup-java-maven
-
-      # La base NVD a son propre cache, séparé de celui de Maven.
-      #
-      # Elle vivait sous ~/.m2/repository/org/owasp/…, donc dans le cache Maven partagé par
-      # tous les jobs et keyé sur le hash des pom. Un cache GitHub étant IMMUABLE par clé,
-      # c'est le job le plus rapide qui l'écrit — jamais depcheck. La base était ainsi
-      # restaurée vide à chaque exécution, et une indisponibilité du service NVD devenait
-      # fatale (« NoDataException: No documents exist ») au lieu de dégrader sur les données
-      # locales. Le pom pointe désormais dataDirectory hors de ~/.m2 (profil dep-check).
-      #
-      # Clé tournant chaque semaine : la base est reconstruite au premier passage de la
-      # semaine, puis restaurée telle quelle (un cache n'est écrit qu'au premier miss).
-      # `restore-keys` rattrape les semaines antérieures, de sorte qu'elle n'est jamais vide.
-      - name: Semaine courante (clé de cache)
+      - name: Version du cache NVD
         id: cache-key
-        run: echo "week=$(date -u +%Y-w%V)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache de la base NVD
-        uses: actions/cache@v6
+        run: |
+          prefix=$(python3 scripts/nvd_cache.py prefix)
+          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+      - name: Restaurer la base publiée
+        uses: actions/cache/restore@v6
         with:
           path: ~/.dependency-check-data
-          key: nvd-db-${{ steps.cache-key.outputs.week }}
-          restore-keys: |
-            nvd-db-
-
-      # Sans clé d'API, le NIST limite fortement le débit de l'alimentation NVD : le scan passe
-      # de quelques minutes à plusieurs dizaines, et se bloque parfois jusqu'à la borne du job.
-      # Cette absence était SILENCIEUSE — la branche « sans clé » était prise sans rien dire, et
-      # un scan interminable ressemblait à un scan lent. L'avertissement nomme la cause et le
-      # remède avant que la lenteur ne soit constatée.
-      - name: OWASP Dependency Check
+          key: ${{ steps.cache-key.outputs.prefix }}scan-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: ${{ steps.cache-key.outputs.prefix }}
+      - name: Refuser une base absente, incomplète ou périmée
+        run: python3 scripts/nvd_cache.py validate
+      - name: OWASP Dependency Check sans mise à jour NVD
         timeout-minutes: 30
-        env:
-          NVD_API_KEY: ${{ secrets.NVD_API_KEY || '' }}
         run: |
-          if [ -z "${NVD_API_KEY}" ]; then
-            echo "::warning title=NVD_API_KEY absente::L'alimentation de la base NVD est limitée en débit par le NIST sans clé d'API. Le scan peut dépasser la borne de 30 minutes et échouer sur un dépassement de délai, sans rapport avec les dépendances du projet. Remède : créer une clé (gratuite) sur https://nvd.nist.gov/developers/request-an-api-key et l'ajouter en secret de dépôt NVD_API_KEY."
-            mvn -Pdep-check verify -DskipTests -f backend/pom.xml
-          else
-            mvn -Pdep-check verify -DskipTests -DnvdApiKey="${NVD_API_KEY}" -f backend/pom.xml
-          fi
-
-      # `always()` : un scan qui échoue est justement celui dont on veut lire le rapport. Sans
-      # cela, l'artefact n'était produit que dans le cas où personne n'en a besoin.
+          mvn -B -Pdep-check org.owasp:dependency-check-maven:check \
+            -DskipTests -DautoUpdate=false -DfailOnError=true -f backend/pom.xml
       - name: Upload Report
         if: always()
         uses: actions/upload-artifact@v4
