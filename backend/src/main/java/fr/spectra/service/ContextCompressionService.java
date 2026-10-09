@@ -73,7 +73,12 @@ public class ContextCompressionService {
                 String result = llmClient.chat(COMPRESS_SYSTEM, prompt).trim();
                 if (!result.isBlank() && !result.equalsIgnoreCase("IRRELEVANT")) {
                     keptIndices.add(i);
-                    compressedTexts.add(result);
+                    if (isVerifiedExtraction(chunks.get(i), result)) {
+                        compressedTexts.add(result);
+                    } else {
+                        log.warn("Context compression : sortie non vérifiable pour le chunk {}, original conservé", i);
+                        compressedTexts.add(chunks.get(i));
+                    }
                 }
             } catch (Exception e) {
                 log.warn("Context compression : chunk {} non compressé, texte original conservé — {}", i, e.getMessage());
@@ -85,4 +90,20 @@ public class ContextCompressionService {
         log.info("Context compression : {} → {} chunks", chunks.size(), keptIndices.size());
         return new CompressionResult(keptIndices, compressedTexts);
     }
+
+    /** Chaque ligne doit correspondre à une plage du document, dans l'ordre et sans duplication. */
+    private boolean isVerifiedExtraction(String original, String extracted) {
+        if (extracted.length() > original.length()) return false;
+        int cursor = 0;
+        for (String line : extracted.lines().toList()) {
+            String excerpt = line.strip();
+            if (excerpt.isEmpty()) continue;
+            int start = original.indexOf(excerpt, cursor);
+            if (start < 0) return false;
+            cursor = start + excerpt.length();
+        }
+        return cursor > 0;
+    }
+
 }
+

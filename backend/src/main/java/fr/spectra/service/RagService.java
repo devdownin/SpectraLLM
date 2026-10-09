@@ -311,19 +311,15 @@ public class RagService {
         if (RagOverrides.resolve(ov.compression(), contextCompressionService.isPresent()) && !ctx.contextChunks().isEmpty()) {
             ContextCompressionService.CompressionResult cr =
                     contextCompressionService.get().compress(request.question(), ctx.contextChunks());
-            if (!cr.keptIndices().isEmpty()) {
-                ctx = buildRagContext(
-                        cr.compressedTexts(),
-                        filterByIndices(ctx.chunkMetadatas(), cr.keptIndices()),
-                        filterByIndices(ctx.chunkDistances(), cr.keptIndices()),
-                        ctx.rerankScores()  != null ? filterByIndices(ctx.rerankScores(), cr.keptIndices())  : null,
-                        ctx.bm25Scores()    != null ? filterByIndices(ctx.bm25Scores(), cr.keptIndices())    : null,
-                        ctx.rerankApplied(), ctx.hybridApplied(),
-                        ctx.multiQueryApplied(), ctx.semanticDedupApplied(), ctx.longContextApplied());
-                compressionApplied = true;
-            } else {
-                log.warn("Context compression : aucun passage conservé, contexte original maintenu");
-            }
+            ctx = buildRagContext(
+                    cr.compressedTexts(),
+                    filterByIndices(ctx.chunkMetadatas(), cr.keptIndices()),
+                    filterByIndices(ctx.chunkDistances(), cr.keptIndices()),
+                    ctx.rerankScores()  != null ? filterByIndices(ctx.rerankScores(), cr.keptIndices())  : null,
+                    ctx.bm25Scores()    != null ? filterByIndices(ctx.bm25Scores(), cr.keptIndices())    : null,
+                    ctx.rerankApplied(), ctx.hybridApplied(),
+                    ctx.multiQueryApplied(), ctx.semanticDedupApplied(), ctx.longContextApplied());
+            compressionApplied = true;
         }
 
         // ── 5. Agentic RAG ─────────────────────────────────────────────────
@@ -345,6 +341,9 @@ public class RagService {
         }
 
         // ── 6. Génération (standard ou Self-RAG) ───────────────────────────
+        String userMessage = buildUserMessage(request, conversationalApplied);
+        ctx = fitContextToBudget(ctx, profile, userMessage,
+                RagOverrides.resolve(ov.selfRag(), selfRagService.isPresent()));
         String answer;
         boolean selfRagApplied = false;
 
@@ -353,7 +352,6 @@ public class RagService {
                     + "Veuillez d'abord ingérer des documents via POST /api/ingest.";
         } else {
             String systemPrompt = ragSystemPrompt(profile, ctx.contextBlock());
-            String userMessage  = buildUserMessage(request, conversationalApplied);
 
             if (RagOverrides.resolve(ov.selfRag(), selfRagService.isPresent())) {
                 SelfRagService.SelfRagResult result = selfRagService.get()
@@ -582,17 +580,15 @@ public class RagService {
             emitStage(sink, "compression", null, null);
             ContextCompressionService.CompressionResult cr =
                     contextCompressionService.get().compress(request.question(), ctx.contextChunks());
-            if (!cr.keptIndices().isEmpty()) {
-                ctx = buildRagContext(
-                        cr.compressedTexts(),
-                        filterByIndices(ctx.chunkMetadatas(), cr.keptIndices()),
-                        filterByIndices(ctx.chunkDistances(), cr.keptIndices()),
-                        ctx.rerankScores()  != null ? filterByIndices(ctx.rerankScores(), cr.keptIndices())  : null,
-                        ctx.bm25Scores()    != null ? filterByIndices(ctx.bm25Scores(), cr.keptIndices())    : null,
-                        ctx.rerankApplied(), ctx.hybridApplied(),
-                        ctx.multiQueryApplied(), ctx.semanticDedupApplied(), ctx.longContextApplied());
-                compressionApplied = true;
-            }
+            ctx = buildRagContext(
+                    cr.compressedTexts(),
+                    filterByIndices(ctx.chunkMetadatas(), cr.keptIndices()),
+                    filterByIndices(ctx.chunkDistances(), cr.keptIndices()),
+                    ctx.rerankScores()  != null ? filterByIndices(ctx.rerankScores(), cr.keptIndices())  : null,
+                    ctx.bm25Scores()    != null ? filterByIndices(ctx.bm25Scores(), cr.keptIndices())    : null,
+                    ctx.rerankApplied(), ctx.hybridApplied(),
+                    ctx.multiQueryApplied(), ctx.semanticDedupApplied(), ctx.longContextApplied());
+            compressionApplied = true;
             trace.add(new StageTrace("compression", System.currentTimeMillis() - t0,
                     before, ctx.contextChunks().size(), null));
         }
@@ -627,6 +623,9 @@ public class RagService {
         }
 
         // ── 6. Sources + génération (standard ou Self-RAG) ─────────────────
+        String userMessage = buildUserMessage(request, conversationalApplied);
+        ctx = fitContextToBudget(ctx, profile, userMessage,
+                RagOverrides.resolve(ov.selfRag(), selfRagService.isPresent()));
         sink.next(sourcesEvent(ctx.sources()));
 
         if (ctx.contextChunks().isEmpty()) {
@@ -640,7 +639,6 @@ public class RagService {
             return;
         }
 
-        String userMessage = buildUserMessage(request, conversationalApplied);
         String systemPrompt = ragSystemPrompt(profile, ctx.contextBlock());
         boolean selfRagApplied = false;
         String selfRagScores = null;
@@ -1093,6 +1091,32 @@ public class RagService {
                 rerankApplied, hybridApplied, multiQueryApplied, semanticDedupApplied, longContextApplied);
     }
 
+    /** Budget final partagé JSON/SSE, y compris la passe de raffinement Self-RAG éventuelle. */
+    private RagContext fitContextToBudget(RagContext original, ModelProfile profile,
+                                          String userMessage, boolean selfRagEnabled) {
+        if (original.contextChunks().isEmpty()) return original;
+        List<Integer> selected = RagPromptBudget.selectIndices(original.contextChunks().size(), llmClient,
+                Integer.MAX_VALUE, indices -> {
+                    RagContext candidate = selectContext(original, indices);
+                    String prompt = ragSystemPrompt(profile,
+                            candidate.contextBlock() != null ? candidate.contextBlock() : "");
+                    if (selfRagEnabled) prompt = selfRagService.get().refineSystemPrompt(prompt);
+                    return prompt + "\n" + userMessage;
+                });
+        return selectContext(original, selected);
+    }
+
+    private RagContext selectContext(RagContext original, List<Integer> indices) {
+        return buildRagContext(
+                filterByIndices(original.contextChunks(), indices),
+                filterByIndices(original.chunkMetadatas(), indices),
+                filterByIndices(original.chunkDistances(), indices),
+                original.rerankScores() != null ? filterByIndices(original.rerankScores(), indices) : null,
+                original.bm25Scores() != null ? filterByIndices(original.bm25Scores(), indices) : null,
+                original.rerankApplied(), original.hybridApplied(), original.multiQueryApplied(),
+                original.semanticDedupApplied(), original.longContextApplied());
+    }
+
     private RagContext buildRagContext(List<String> chunks, List<Map<String, String>> metadatas,
                                        List<Double> distances, List<Float> rerankScores,
                                        List<Float> bm25Scores, boolean rerankApplied, boolean hybridApplied,
@@ -1364,3 +1388,4 @@ public class RagService {
         return result;
     }
 }
+
