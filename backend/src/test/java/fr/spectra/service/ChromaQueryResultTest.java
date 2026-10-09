@@ -30,4 +30,16 @@ class ChromaQueryResultTest {
         assertThat(result.metadatas()).hasSize(4).allMatch(Map::isEmpty);
         assertThat(result.ids()).containsExactly("__vec_0", "__vec_1", "__vec_2", "__vec_3");
     }
+
+    @Test void shorterParallelRowsReceiveDefaultsWithoutLosingDocuments() {
+        var result = ChromaQueryResult.from(Map.of(
+                "documents", List.of(List.of("un", "deux", "trois")),
+                "metadatas", List.of(List.of(Map.of("sourceFile", "un.txt"))),
+                "distances", List.of(List.of(.2)),
+                "ids", List.of(List.of("id-un"))));
+        assertThat(result.documents()).containsExactly("un", "deux", "trois");
+        assertThat(result.metadatas()).containsExactly(Map.of("sourceFile", "un.txt"), Map.of(), Map.of());
+        assertThat(result.distances()).containsExactly(.2, 1.0, 1.0);
+        assertThat(result.ids()).containsExactly("id-un", "__vec_1", "__vec_2");
+    }
 }
