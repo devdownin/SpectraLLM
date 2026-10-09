@@ -18,6 +18,8 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -42,8 +44,17 @@ class IngestControllerZipTest {
     }
 
     @Test
+    void postIngest_forceFlagIsForwarded() throws Exception {
+        when(ingestionService.submit(anyList(), eq(true))).thenReturn("forced-task");
+        mockMvc.perform(multipart("/api/ingest").param("force", "true")
+                        .file(new MockMultipartFile("files", "note.txt", "text/plain", "contenu".getBytes())))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.taskId").value("forced-task"));
+        verify(ingestionService).submit(anyList(), eq(true));
+    }
+
+    @Test
     void postIngest_zipFile_returns200WithTaskId() throws Exception {
-        when(ingestionService.submit(anyList())).thenReturn("task-zip-001");
+        when(ingestionService.submit(anyList(), eq(false))).thenReturn("task-zip-001");
 
         mockMvc.perform(multipart("/api/ingest")
                         .file(mockZip("data.zip", "sample.json", "[{\"key\":\"val\"}]")))
@@ -55,7 +66,7 @@ class IngestControllerZipTest {
 
     @Test
     void postIngest_zipWithContentType_returns200() throws Exception {
-        when(ingestionService.submit(anyList())).thenReturn("task-zip-002");
+        when(ingestionService.submit(anyList(), eq(false))).thenReturn("task-zip-002");
 
         MockMultipartFile file = new MockMultipartFile(
                 "files", "archive.zip", "application/zip", buildZip("payload.json", "[{}]"));
@@ -67,7 +78,7 @@ class IngestControllerZipTest {
 
     @Test
     void postIngest_zipWithOctetStream_returns200() throws Exception {
-        when(ingestionService.submit(anyList())).thenReturn("task-zip-003");
+        when(ingestionService.submit(anyList(), eq(false))).thenReturn("task-zip-003");
 
         MockMultipartFile file = new MockMultipartFile(
                 "files", "archive.zip", "application/octet-stream", buildZip("data.xml", "<root/>"));
@@ -85,7 +96,7 @@ class IngestControllerZipTest {
 
     @Test
     void postIngest_multipleFiles_includesZip_returns200() throws Exception {
-        when(ingestionService.submit(anyList())).thenReturn("task-multi-001");
+        when(ingestionService.submit(anyList(), eq(false))).thenReturn("task-multi-001");
 
         MockMultipartFile json = new MockMultipartFile(
                 "files", "extra.json", "application/json", "[{\"a\":1}]".getBytes());
@@ -110,3 +121,4 @@ class IngestControllerZipTest {
         return baos.toByteArray();
     }
 }
+

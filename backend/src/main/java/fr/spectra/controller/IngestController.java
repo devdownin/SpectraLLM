@@ -59,12 +59,13 @@ public class IngestController {
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @Operation(summary = "Upload et ingestion de documents (PDF, DOCX, JSON, XML, ZIP)")
-    public Map<String, String> ingest(@RequestParam("files") List<MultipartFile> files) {
+    public Map<String, String> ingest(@RequestParam("files") List<MultipartFile> files,
+                                     @RequestParam(defaultValue = "false") boolean force) {
         if (files.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Aucun fichier fourni");
         }
 
-        String taskId = ingestionService.submit(files);
+        String taskId = ingestionService.submit(files, force);
         return Map.of("taskId", taskId, "status", "PENDING");
     }
 
@@ -101,3 +102,4 @@ public class IngestController {
         return Map.of("taskId", taskId, "status", "CANCELLED");
     }
 }
+

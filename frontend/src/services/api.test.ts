@@ -198,6 +198,11 @@ describe('routes des familles principales', () => {
     });
   });
 
+  it('transmet force pour une réindexation explicite', () => {
+    ingestApi.uploadFile(new File(['contenu'], 'contrat.txt'), true);
+    expect(last()).toMatchObject({ url: '/ingest', config: { params: { force: true } } });
+  });
+
   it('interroge et annule une tâche d\'ingestion sur la même route', () => {
     ingestApi.getTaskStatus('t-1');
     expect(last()).toMatchObject({ method: 'get', url: '/ingest/t-1' });
@@ -262,3 +267,4 @@ describe('routes des familles principales', () => {
     });
   });
 });
+
