@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Même cache que le job E2E : sans les GGUF, llm-chat attend le modèle en boucle et
       # `up --wait` expire — on mesurerait un échec.
