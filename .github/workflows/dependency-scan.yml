@@ -22,7 +22,7 @@ jobs:
       group: nvd-update-${{ github.repository }}
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Set up Java and Maven
         uses: ./.github/actions/setup-java-maven
       - name: Version du cache NVD
@@ -63,7 +63,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Set up Java and Maven
         uses: ./.github/actions/setup-java-maven
       - name: Version du cache NVD
