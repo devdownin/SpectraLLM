@@ -17,6 +17,10 @@ Les nouvelles clés évitent de conserver indéfiniment une base ancienne dans u
 immuable. Les mises à jour sont sérialisées et bornées à 210 minutes ; ce budget plus long
 couvre l'alimentation initiale, sans mobiliser un runner pour chaque PR.
 
+Cette organisation suit le modèle [un écrivain, plusieurs lecteurs recommandé par OWASP](https://dependency-check.github.io/DependencyCheck/data/cacheh2.html).
+Elle évite aussi que plusieurs scans partagent simultanément la même clé NVD et son quota.
+Le délai de 210 minutes reste une borne, pas une garantie de disponibilité du service NVD.
+
 ## Premier démarrage et incidents
 
 Le nouveau cache doit être initialisé une fois sur la branche par défaut après intégration
