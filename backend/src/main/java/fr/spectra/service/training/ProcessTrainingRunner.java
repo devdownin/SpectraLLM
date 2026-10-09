@@ -7,12 +7,14 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
@@ -50,6 +52,7 @@ public class ProcessTrainingRunner implements TrainingRunner {
 
     /** Processus vivants, par job — c'est ce qui rend l'annulation effective. */
     private final Map<String, Process> activeProcesses = new ConcurrentHashMap<>();
+    private final Set<Process> cancelledProcesses = ConcurrentHashMap.newKeySet();
 
     public ProcessTrainingRunner(
             @Value("${spectra.fine-tuning.work-dir:./data/fine-tuning}") String workDir,
@@ -130,7 +133,11 @@ public class ProcessTrainingRunner implements TrainingRunner {
         if (process == null) {
             return false;
         }
-        stopProcessTree(process);
+        synchronized (process) {
+            if (activeProcesses.get(jobId) != process) return false;
+            cancelledProcesses.add(process);
+            stopProcessTree(process);
+        }
         return true;
     }
 
@@ -157,14 +164,19 @@ public class ProcessTrainingRunner implements TrainingRunner {
             try (BufferedReader reader =
                          new BufferedReader(new InputStreamReader(process.getInputStream()))) {
                 String line;
-                while ((line = reader.readLine()) != null) {
-                    if (cancelled.getAsBoolean()) {
+                while (true) {
+                    if (cancelled.getAsBoolean() || cancelledProcesses.contains(process)) {
                         stopProcessTree(process);
                         break;
                     }
+                    line = reader.readLine();
+                    if (line == null) break;
                     log.info("Job {} [{}]: {}", jobId, label, line);
                     if (onLine != null) onLine.accept(line);
                 }
+            } catch (IOException e) {
+                // destroyForcibly can close stdout during a concurrent read.
+                if (!cancelled.getAsBoolean() && !cancelledProcesses.contains(process)) throw e;
             }
             return process.waitFor();
         } finally {
@@ -172,7 +184,10 @@ public class ProcessTrainingRunner implements TrainingRunner {
                 // Also stop children when a consumer throws or the runner is interrupted.
                 stopProcessTree(process);
             } finally {
-                activeProcesses.remove(jobId, process);
+                synchronized (process) {
+                    activeProcesses.remove(jobId, process);
+                    cancelledProcesses.remove(process);
+                }
             }
         }
     }
