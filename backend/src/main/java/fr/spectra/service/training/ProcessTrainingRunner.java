@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 
@@ -125,11 +126,11 @@ public class ProcessTrainingRunner implements TrainingRunner {
 
     @Override
     public boolean cancel(String jobId) {
-        Process process = activeProcesses.remove(jobId);
+        Process process = activeProcesses.get(jobId);
         if (process == null) {
             return false;
         }
-        process.destroyForcibly();
+        stopProcessTree(process);
         return true;
     }
 
@@ -146,16 +147,19 @@ public class ProcessTrainingRunner implements TrainingRunner {
                 .directory(workDir.toFile())
                 .redirectErrorStream(true);
 
+        if (cancelled.getAsBoolean()) return -1;
         Process process = pb.start();
         activeProcesses.put(jobId, process);
 
         try {
+            // A cancel can arrive between the initial check, start(), and registration.
+            if (cancelled.getAsBoolean()) stopProcessTree(process);
             try (BufferedReader reader =
                          new BufferedReader(new InputStreamReader(process.getInputStream()))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     if (cancelled.getAsBoolean()) {
-                        process.destroyForcibly();
+                        stopProcessTree(process);
                         break;
                     }
                     log.info("Job {} [{}]: {}", jobId, label, line);
@@ -164,7 +168,49 @@ public class ProcessTrainingRunner implements TrainingRunner {
             }
             return process.waitFor();
         } finally {
-            activeProcesses.remove(jobId);
+            try {
+                // Also stop children when a consumer throws or the runner is interrupted.
+                stopProcessTree(process);
+            } finally {
+                activeProcesses.remove(jobId, process);
+            }
+        }
+    }
+
+    /** Kill descendants while their parent can still reap them, then the parent itself. */
+    private void stopProcessTree(Process process) {
+        synchronized (process) {
+            List<ProcessHandle> descendants = process.descendants().toList();
+            // descendants() visits parents before children on common platforms; reverse the
+            // snapshot so a converter's own children are stopped before the converter.
+            for (int i = descendants.size() - 1; i >= 0; i--) {
+                descendants.get(i).destroyForcibly();
+            }
+            boolean interrupted = false;
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
+            for (ProcessHandle child : descendants) {
+                try {
+                    long remaining = deadline - System.nanoTime();
+                    if (remaining > 0 && child.isAlive()) {
+                        child.onExit().get(remaining, TimeUnit.NANOSECONDS);
+                    }
+                } catch (InterruptedException e) {
+                    interrupted = true;
+                    break;
+                } catch (java.util.concurrent.ExecutionException
+                         | java.util.concurrent.TimeoutException e) {
+                    log.debug("Job child {} did not exit before deadline", child.pid());
+                }
+            }
+            if (process.isAlive()) process.destroyForcibly();
+            try {
+                if (!process.waitFor(3, TimeUnit.SECONDS)) {
+                    log.warn("Training process {} still alive after cancellation", process.pid());
+                }
+            } catch (InterruptedException e) {
+                interrupted = true;
+            }
+            if (interrupted) Thread.currentThread().interrupt();
         }
     }
 }

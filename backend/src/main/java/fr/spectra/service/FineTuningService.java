@@ -282,9 +282,9 @@ public class FineTuningService {
      * Purge les jobs <b>échoués</b> de plus d'une heure et <b>supprime leur répertoire de travail</b>
      * (dataset + sorties partielles) pour éviter une fuite disque.
      *
-     * <p>Les jobs {@code COMPLETED} sont conservés : leur répertoire contient l'adaptateur entraîné
-     * (le modèle produit) et leur entrée en base porte le {@code outputPath} référencé ailleurs.
-     * Les supprimer automatiquement détruirait le résultat du fine-tuning.</p>
+     * <p>Les jobs {@code COMPLETED} et les jobs échoués/annulés contenant un adaptateur
+     * entraîné sont conservés avec leur metadata : un échec de conversion GGUF ne doit pas
+     * détruire le résultat récupérable de l'entraînement.</p>
      */
     @Scheduled(fixedDelay = 3_600_000)
     public void cleanupOldJobs() {
@@ -293,7 +293,8 @@ public class FineTuningService {
                 .filter(e -> {
                     FineTuningJob j = e.toDto();
                     return (j.status() == Status.FAILED || j.status() == Status.CANCELLED)
-                            && j.completedAt() != null && j.completedAt().isBefore(cutoff);
+                            && j.completedAt() != null && j.completedAt().isBefore(cutoff)
+                            && !hasTrainedAdapter(j.jobId());
                 })
                 .toList();
         for (FineTuningJobEntity e : toDelete) {
@@ -301,6 +302,15 @@ public class FineTuningService {
         }
         repository.deleteAll(toDelete);
         cancelledJobs.removeIf(id -> repository.findById(id).isEmpty());
+    }
+
+    /** A completed trainer artifact survives export failures and cancellation during export. */
+    private boolean hasTrainedAdapter(String jobId) {
+        Path dir = workDir.resolve(jobId);
+        return Files.isRegularFile(dir.resolve("trained-adapter.json"))
+                || (Files.isRegularFile(dir.resolve("adapter/adapter_config.json"))
+                    && (Files.isRegularFile(dir.resolve("adapter/adapter_model.safetensors"))
+                        || Files.isRegularFile(dir.resolve("adapter/adapter_model.bin"))));
     }
 
     /** Supprime récursivement le répertoire de travail d'un job (best-effort). */
@@ -330,9 +340,21 @@ public class FineTuningService {
             // DPO comme ORPO consomment le même dataset de préférence {prompt, chosen, rejected}.
             boolean preference = request.dpoEnabled() || request.orpoEnabled();
 
-            ExportedDataset dataset = preference
-                    ? exportDpoDataset(jobDir)
-                    : exportFilteredDataset(jobDir, request.minConfidence());
+            ExportedDataset dataset;
+            if (Boolean.TRUE.equals(request.autoEvaluate())) {
+                List<TrainingPair> candidates = filteredPairs(request.minConfidence());
+                TrainingHoldout.Split split = TrainingHoldout.reserve(candidates,
+                        preference ? dpoGenerator.getAllPairs() : List.of(), preference);
+                writePairs(jobDir.resolve("evaluation.jsonl"), split.test());
+                dataset = preference
+                        ? exportDpoPairs(jobDir, split.preferences())
+                        : exportSftPairs(jobDir, split.training());
+                publishAndRecord(jobId, "INFO", "Test réservé avant entraînement : " + split.test().size()
+                        + " exemples, sources et prompts disjoints ; valSplit porte uniquement sur le reste.");
+            } else {
+                dataset = preference ? exportDpoDataset(jobDir)
+                        : exportFilteredDataset(jobDir, request.minConfidence());
+            }
             Path datasetFile = dataset.file();
             int datasetSize = countLines(datasetFile);
             updateJob(jobId, j -> j.withDatasetSize(datasetSize));
@@ -379,6 +401,11 @@ public class FineTuningService {
                 return;
             }
 
+            // Durable proof that training succeeded; cleanup must keep this recovery artifact.
+            Files.writeString(jobDir.resolve("trained-adapter.json"), mapper.writeValueAsString(Map.of(
+                    "jobId", jobId, "adapterPath", adapterPath.toAbsolutePath().toString(),
+                    "modelName", request.modelName(), "baseModel", request.baseModel(),
+                    "trainedAt", Instant.now().toString())), java.nio.file.StandardOpenOption.CREATE_NEW);
             log.info("Job {}: entraînement terminé, adaptateur: {}", jobId, adapterPath);
 
             // ── Étape 3 : Modèle prêt ──
@@ -427,18 +454,27 @@ public class FineTuningService {
      * Exporte les paires avec un score de confiance >= seuil.
      */
     private ExportedDataset exportFilteredDataset(Path dir, double minConfidence) throws Exception {
-        List<TrainingPair> pairs = datasetGenerator.getAllPairs().stream()
-                .filter(p -> p.metadata().confidence() >= minConfidence)
-                .filter(p -> !isExcludedFromSft(p))
-                .toList();
+        return exportSftPairs(dir, filteredPairs(minConfidence));
+    }
 
-        Path file = dir.resolve("dataset.jsonl");
-        try (BufferedWriter writer = Files.newBufferedWriter(file)) {
+    private List<TrainingPair> filteredPairs(double minConfidence) {
+        return datasetGenerator.getAllPairs().stream()
+                .filter(p -> p.metadata() != null && p.metadata().confidence() >= minConfidence)
+                .filter(p -> !isExcludedFromSft(p)).toList();
+    }
+
+    private void writePairs(Path file, List<TrainingPair> pairs) throws Exception {
+        try (BufferedWriter writer = Files.newBufferedWriter(file, java.nio.file.StandardOpenOption.CREATE_NEW)) {
             for (TrainingPair pair : pairs) {
                 writer.write(mapper.writeValueAsString(pair));
                 writer.newLine();
             }
         }
+    }
+
+    private ExportedDataset exportSftPairs(Path dir, List<TrainingPair> pairs) throws Exception {
+        Path file = dir.resolve("dataset.jsonl");
+        writePairs(file, pairs);
         Set<String> sources = pairs.stream()
                 .map(p -> p.metadata() != null ? p.metadata().source() : null)
                 .filter(FineTuningService::isTraceableSource)
@@ -478,8 +514,10 @@ public class FineTuningService {
      * SFT ni celle servie en production.</p>
      */
     private ExportedDataset exportDpoDataset(Path dir) throws Exception {
-        List<DpoPair> pairs = dpoGenerator.getAllPairs();
+        return exportDpoPairs(dir, dpoGenerator.getAllPairs());
+    }
 
+    private ExportedDataset exportDpoPairs(Path dir, List<DpoPair> pairs) throws Exception {
         Path file = dir.resolve("dataset.jsonl");
         try (BufferedWriter writer = Files.newBufferedWriter(file)) {
             for (DpoPair pair : pairs) {
@@ -790,10 +828,7 @@ public class FineTuningService {
         }
 
         // Copie dans le volume partagé pour que llm-chat (monté sur modelsDir) puisse le servir.
-        Path modelsDirPath = Path.of(modelsDir);
-        Files.createDirectories(modelsDirPath);
-        Path target = modelsDirPath.resolve(safeFileName(request.modelName()) + ".gguf");
-        Files.copy(gguf, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        Path target = publishGguf(gguf, Path.of(modelsDir), jobId);
         String registeredPath = target.toAbsolutePath().toString();
 
         // La persona d'enregistrement DOIT correspondre à celle de l'entraînement, sinon le
@@ -847,11 +882,27 @@ public class FineTuningService {
         }
     }
 
-    /** Neutralise un nom de modèle pour l'utiliser comme nom de fichier GGUF. */
-    private static String safeFileName(String modelName) {
-        String cleaned = modelName.replaceAll("[^A-Za-z0-9._-]", "-").replaceAll("-+", "-");
-        cleaned = cleaned.replaceAll("^-+|-+$", "");
-        return cleaned.isEmpty() ? "model" : cleaned;
+    /** Publishes a complete, immutable per-job GGUF at the models volume root. */
+    static Path publishGguf(Path gguf, Path modelsDirectory, String jobId) throws Exception {
+        if (!jobId.matches("[A-Za-z0-9_-]+")) throw new IllegalArgumentException("Invalid job identifier");
+        Files.createDirectories(modelsDirectory);
+        Path publication = modelsDirectory.resolve(".fine-tuning-" + jobId);
+        Files.createDirectory(publication); // persistent exclusive claim: retries cannot replace
+        Path staging = publication.resolve("model.gguf.part");
+        Path target = modelsDirectory.resolve("fine-tuning-" + jobId + ".gguf");
+        try {
+            Files.copy(gguf, staging);
+            // Linking a fully copied file is atomic AND fails when target already exists.
+            // ATOMIC_MOVE alone may replace an existing target even without REPLACE_EXISTING.
+            // Both paths share the same filesystem; unsupported hard links fail closed.
+            Files.createLink(target, staging);
+            Files.delete(staging);
+            return target;
+        } catch (Exception e) {
+            Files.deleteIfExists(staging);
+            Files.deleteIfExists(publication);
+            throw e;
+        }
     }
 
     /**

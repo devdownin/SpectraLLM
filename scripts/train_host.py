@@ -82,7 +82,7 @@ if has_gpu:
 else:
     print("Backend : HuggingFace PEFT (CPU)")
 
-from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments, Trainer, TrainerCallback
+from transformers import AutoConfig, AutoTokenizer, AutoModelForCausalLM, TrainingArguments, Trainer, TrainerCallback
 import json
 
 
@@ -290,6 +290,20 @@ print(f"\nChargement du modèle : {hf_model}")
 print("  (premier lancement = téléchargement depuis HuggingFace, peut prendre quelques minutes)")
 
 from peft import get_peft_model, LoraConfig, TaskType, PeftModel
+from training_resources import check_memory_budget, model_parameter_count
+
+# Read the small config and count meta tensors before loading any model weights.
+parameter_count = model_parameter_count(AutoConfig.from_pretrained(hf_model))
+if USE_UNSLOTH:
+    check_memory_budget(parameter_count, operation="training", model_name=hf_model,
+                        available_bytes=torch.cuda.mem_get_info()[0], device="GPU",
+                        bytes_per_parameter=0.5)
+else:
+    # The HF fallback first loads FP32 weights on CPU, even with a visible GPU.
+    check_memory_budget(parameter_count, operation="training", model_name=hf_model)
+    if has_gpu:
+        check_memory_budget(parameter_count, operation="training", model_name=hf_model,
+                            available_bytes=torch.cuda.mem_get_info()[0], device="GPU")
 
 if args.resume_adapter:
     print(f"Mode incrémental — reprise depuis : {args.resume_adapter}")
@@ -573,14 +587,6 @@ print(f"\nSauvegarde de l'adaptateur LoRA : {args.output}/")
 model.save_pretrained(args.output)
 tokenizer.save_pretrained(args.output)
 
-if USE_UNSLOTH:
-    print(f"Export GGUF : {args.output}.gguf")
-    model.save_pretrained_gguf(args.output, tokenizer, quantization_method="q4_k_m")
-else:
-    print("\nNOTE : Sans GPU/Unsloth, l'export GGUF n'est pas automatique.")
-    print("       L'adaptateur LoRA est sauvegardé au format HuggingFace.")
-    print("       Pour l'utiliser avec Ollama :")
-    print("         1. Fusionnez le modèle de base + l'adaptateur avec llama.cpp")
-    print("         2. Ou utilisez directement avec 'transformers' en Python")
+print("\nAdaptateur sauvegardé. L'export GGUF est une étape séparée (export_gguf.py).")
 
 print("\nFine-tuning terminé avec succès.")

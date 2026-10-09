@@ -8,6 +8,22 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Corrigé — fiabilité du fine-tuning et de son évaluation
+
+- L'export GGUF embarque la toolchain llama.cpp complète à révision immuable,
+  avec des dépendances de conversion isolées et vérifiées à la construction.
+- L'évaluation automatique réserve avant entraînement un jeu de test figé par job,
+  séparé par sources et prompts ; elle ne réutilise plus le corpus courant.
+- Un adaptateur entraîné reste conservé après un échec ou une annulation d'export.
+- Les GGUF publiés portent un identifiant de job unique et sont publiés atomiquement,
+  sans écraser les fichiers d'autres modèles.
+- L'annulation arrête aussi les processus enfants de conversion.
+- Les budgets mémoire CPU/GPU et les limites du conteneur sont vérifiés avant le
+  chargement des poids. Le script d'entraînement n'exporte plus un GGUF implicitement.
+
+Les configurations et limites sont décrites dans la
+[référence technique](docs/tech/technical-doc.fr.md#fine-tuning-et-modèles).
+
 ### Ajouté — les modèles se vérifient, et se prennent ailleurs qu'à la source
 
 Deux compléments au correctif ci-dessous, qui ne traitait que la complétude du transfert.
