@@ -164,12 +164,16 @@ public class FtsService {
                     String id         = (String) ids.get(i);
                     String text       = documents != null ? (String) documents.get(i) : "";
                     String sourceFile = "inconnu";
+                    String sha256 = null;
                     if (metadatas != null) {
                         @SuppressWarnings("unchecked")
                         Map<String, String> meta = (Map<String, String>) metadatas.get(i);
-                        if (meta != null) sourceFile = meta.getOrDefault("sourceFile", "inconnu");
+                        if (meta != null) {
+                            sourceFile = meta.getOrDefault("sourceFile", "inconnu");
+                            sha256 = meta.get("sha256");
+                        }
                     }
-                    index.add(id, text, sourceFile);
+                    index.add(id, text, sourceFile, sha256);
                     total++;
                 }
 
@@ -195,6 +199,7 @@ public class FtsService {
      * la réconciliation périodique corrigera dès que ChromaDB répond).
      */
     private boolean diskIndexMatchesChroma(String collectionName, BM25Index diskIndex) {
+        if (!diskIndex.supportsDocumentIdentity()) return false;
         try {
             String collectionId = chromaDbClient.getOrCreateCollection(collectionName);
             int chromaCount = chromaDbClient.count(collectionId);
@@ -231,7 +236,7 @@ public class FtsService {
         indices.compute(collectionName, (k, existing) -> {
             BM25Index index = existing != null ? existing : new BM25Index();
             for (TextChunk chunk : chunks) {
-                index.add(chunk.id(), chunk.text(), chunk.sourceFile());
+                index.add(chunk.id(), chunk.text(), chunk.sourceFile(), chunk.metadata().get("sha256"));
             }
             return index;
         });
@@ -239,7 +244,7 @@ public class FtsService {
         BM25Index pending = pendingRebuilds.get(collectionName);
         if (pending != null) {
             for (TextChunk chunk : chunks) {
-                pending.add(chunk.id(), chunk.text(), chunk.sourceFile());
+                pending.add(chunk.id(), chunk.text(), chunk.sourceFile(), chunk.metadata().get("sha256"));
             }
         }
         dirtyIndices.add(collectionName);
@@ -266,6 +271,21 @@ public class FtsService {
             dirtyIndices.add(collectionName);
         }
         log.debug("FTS: removed '{}' from index '{}'", sourceFile, collectionName);
+    }
+
+    public void removeByDocument(String sha256, String collectionName) {
+        mutateIndexes(collectionName, index -> index.removeByDocument(sha256));
+    }
+
+    public void removeLegacyBySource(String sourceFile, String collectionName) {
+        mutateIndexes(collectionName, index -> index.removeLegacyBySource(sourceFile));
+    }
+
+    private void mutateIndexes(String collectionName, java.util.function.Consumer<BM25Index> mutation) {
+        indices.computeIfPresent(collectionName, (k, index) -> { mutation.accept(index); return index; });
+        BM25Index pending = pendingRebuilds.get(collectionName);
+        if (pending != null) mutation.accept(pending);
+        if (indices.containsKey(collectionName)) dirtyIndices.add(collectionName);
     }
 
     /**
@@ -364,3 +384,4 @@ public class FtsService {
     /** FTS index status snapshot. */
     public record FtsStatus(boolean ready, int indexedChunks, String collections) {}
 }
+

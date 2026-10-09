@@ -822,6 +822,7 @@
     "lifecycleUpdated": "Lifecycle updated",
     "transitionFailed": "Transition failed",
     "docDeleted": "Document deleted",
+    "deletionPending": "Deletion pending. It will retry automatically when cleanup is possible.",
     "deleteFailed": "Deletion failed",
     "bulkUpdated": "{{count}} document(s) updated",
     "bulkUpdateFailed": "Bulk update failed",
@@ -940,3 +941,4 @@
     "switchLanguage": "Switch language (FR/EN)"
   }
 }
+

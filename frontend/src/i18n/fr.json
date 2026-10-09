@@ -822,6 +822,7 @@
     "lifecycleUpdated": "Cycle de vie mis à jour",
     "transitionFailed": "Échec de la transition",
     "docDeleted": "Document supprimé",
+    "deletionPending": "Suppression en attente. Elle sera reprise automatiquement lorsque le nettoyage sera possible.",
     "deleteFailed": "Échec de la suppression",
     "bulkUpdated": "{{count}} document(s) mis à jour",
     "bulkUpdateFailed": "Échec de la mise à jour groupée",
@@ -940,3 +941,4 @@
     "switchLanguage": "Changer de langue (FR/EN)"
   }
 }
+

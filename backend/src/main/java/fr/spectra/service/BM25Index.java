@@ -37,6 +37,7 @@ public class BM25Index implements Serializable {
     private void readObject(java.io.ObjectInputStream in) throws IOException, ClassNotFoundException {
         in.defaultReadObject();
         this.lock = new ReentrantReadWriteLock();
+        if (docIdentities == null) docIdentities = new HashMap<>();
     }
 
     /**
@@ -62,6 +63,9 @@ public class BM25Index implements Serializable {
     private final Map<String, String> docTexts = new HashMap<>();
     // docId → sourceFile
     private final Map<String, String> docSources = new HashMap<>();
+    // Compatible avec les anciens fichiers sérialisés : reconstruits depuis ChromaDB.
+    private Map<String, String> docIdentities = new HashMap<>();
+    private int identityVersion = 1;
     // token → set of docIds (inverted index for df)
     private final Map<String, Set<String>> invertedIndex = new HashMap<>();
     // running total doc length (for avgdl)
@@ -71,6 +75,10 @@ public class BM25Index implements Serializable {
 
     /** Add or re-index a document. */
     public void add(String id, String text, String sourceFile) {
+        add(id, text, sourceFile, null);
+    }
+
+    public void add(String id, String text, String sourceFile, String sha256) {
         Map<String, Integer> termFreq = buildTermFreq(text);
         int docLen = termFreq.values().stream().mapToInt(i -> i).sum();
 
@@ -83,6 +91,7 @@ public class BM25Index implements Serializable {
             docLengths.put(id, docLen);
             docTexts.put(id, text);
             docSources.put(id, sourceFile);
+            if (sha256 != null) docIdentities.put(id, sha256);
             totalDocLength += docLen;
             for (String token : termFreq.keySet()) {
                 invertedIndex.computeIfAbsent(token, k -> new HashSet<>()).add(id);
@@ -103,12 +112,39 @@ public class BM25Index implements Serializable {
         other.lock.readLock().lock();
         try {
             docs = other.docTexts.entrySet().stream()
-                    .map(e -> new String[]{e.getKey(), e.getValue(), other.docSources.get(e.getKey())})
+                    .map(e -> new String[]{e.getKey(), e.getValue(), other.docSources.get(e.getKey()),
+                            other.docIdentities.get(e.getKey())})
                     .toList();
         } finally {
             other.lock.readLock().unlock();
         }
-        docs.forEach(d -> add(d[0], d[1], d[2]));
+        docs.forEach(d -> add(d[0], d[1], d[2], d[3]));
+    }
+
+    public boolean supportsDocumentIdentity() { return identityVersion == 1; }
+
+    /** Suppression par identité, indépendamment du nom affiché. */
+    public void removeByDocument(String sha256) {
+        lock.writeLock().lock();
+        try {
+            docIdentities.entrySet().stream()
+                    .filter(e -> sha256.equals(e.getValue()))
+                    .map(Map.Entry::getKey).toList().forEach(this::removeById);
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    /** Repli réservé aux chunks historiques sans identité ; jamais aux homonymes modernes. */
+    public void removeLegacyBySource(String sourceFile) {
+        lock.writeLock().lock();
+        try {
+            docSources.entrySet().stream()
+                    .filter(e -> sourceFile.equals(e.getValue()) && !docIdentities.containsKey(e.getKey()))
+                    .map(Map.Entry::getKey).toList().forEach(this::removeById);
+        } finally {
+            lock.writeLock().unlock();
+        }
     }
 
     /** Remove all documents belonging to sourceFile. */
@@ -193,6 +229,7 @@ public class BM25Index implements Serializable {
         }
         docTexts.remove(id);
         docSources.remove(id);
+        docIdentities.remove(id);
     }
 
     /** Tokenize + compute term frequencies.
@@ -241,3 +278,4 @@ public class BM25Index implements Serializable {
         return (start == 0 && end == s.length()) ? s : s.substring(start, end);
     }
 }
+

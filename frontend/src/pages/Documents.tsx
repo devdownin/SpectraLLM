@@ -194,9 +194,13 @@ const Documents: FC = () => {
 
   const deleteMutation = useMutation({
     mutationFn: (sha: string) => gedApi.deleteDocument(sha),
-    onSuccess: () => {
+    onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: ['ged-documents'] });
       queryClient.invalidateQueries({ queryKey: ['ged-stats'] });
+      if (response.data.deletionPending) {
+        toast.warning(t('documents.deletionPending'));
+        return;
+      }
       setSelectedSha(null);
       toast.success(t('documents.docDeleted'));
     },
@@ -222,12 +226,16 @@ const Documents: FC = () => {
 
   const bulkDeleteMutation = useMutation({
     mutationFn: (sha256List: string[]) => Promise.all(sha256List.map(sha => gedApi.deleteDocument(sha))),
-    onSuccess: (_, sha256List) => {
+    onSuccess: (responses, sha256List) => {
       queryClient.invalidateQueries({ queryKey: ['ged-documents'] });
       queryClient.invalidateQueries({ queryKey: ['ged-stats'] });
       setBulkSelected(new Set());
-      if (selectedSha && sha256List.includes(selectedSha)) setSelectedSha(null);
-      toast.success(t('documents.bulkDeleted', { count: sha256List.length }));
+      const deleted = sha256List.filter((_, index) => !responses[index].data.deletionPending);
+      if (responses.some(response => response.data.deletionPending)) {
+        toast.warning(t('documents.deletionPending'));
+      }
+      if (selectedSha && deleted.includes(selectedSha)) setSelectedSha(null);
+      if (deleted.length > 0) toast.success(t('documents.bulkDeleted', { count: deleted.length }));
     },
     onError: () => toast.error(t('documents.bulkDeleteFailed')),
   });
@@ -1469,3 +1477,4 @@ const Documents: FC = () => {
 };
 
 export default Documents;
+

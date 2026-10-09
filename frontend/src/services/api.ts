@@ -40,10 +40,11 @@ export const healthApi = {
 };
 
 export const ingestApi = {
-  uploadFile: (file: File) => {
+  uploadFile: (file: File, force = false) => {
     const formData = new FormData();
     formData.append('files', file);
     return api.post('/ingest', formData, {
+      ...(force ? { params: { force: true } } : {}),
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -409,3 +410,4 @@ export const modelsHubApi = {
 };
 
 export default api;
+

@@ -172,27 +172,26 @@ public class IngestionTaskExecutor {
                 // Ré-ingestion (force) : laisse l'appelant purger l'ancienne version des index
                 // AVANT la ré-indexation — sans cela, chaque force dupliquait tous les chunks
                 // du document dans ChromaDB et BM25.
-                if (hash != null && onIngested != null) {
-                    try {
-                        onIngested.beforeIndex(hash, name);
-                    } catch (Exception e) {
-                        log.warn("Purge pré-réindexation échouée pour {} : {}", name, e.getMessage());
-                    }
-                }
                 final int[] resultHolder = new int[1];
                 final String[] parserHolder = new String[1];
                 final int[] layoutHolder = new int[1];
                 final String[] errorHolder = new String[1];
                 ingestionTimer.record(() -> {
-                    try {
+                    try (GedService.DocumentLock ignored = hash != null && onIngested != null
+                            ? onIngested.lockDocument(hash) : null) {
+                        if (hash != null && onIngested != null) onIngested.beforeIndex(hash, name);
                         IngestOneResult r = ingestOne(name, currentTempFile, collectionId, collectionName,
                                 progress, discovered, hash);
                         resultHolder[0] = r.chunks();
                         parserHolder[0] = r.parserUsed();
                         layoutHolder[0] = r.layoutAwareChunks();
+                        if (!r.complete()) errorHolder[0] = r.error() != null
+                                ? r.error() : "Indexation incomplète : reprise nécessaire";
+                        if ((r.chunks() > 0 || !r.complete()) && onIngested != null) {
+                            onIngested.onIngested(hash, name, r.chunks(), r.complete());
+                        }
                     } catch (Exception e) {
                         log.error("Erreur lors de l'ingestion du fichier {}: {}", name, e.getMessage());
-                        resultHolder[0] = 0;
                         errorHolder[0] = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
                     }
                 });
@@ -211,16 +210,11 @@ public class IngestionTaskExecutor {
                     chunksIngested.increment(chunks);
                     filesIngested.increment();
                 }
-                // On enregistre le document dès qu'au moins un chunk a été indexé (y compris en cas
-                // d'échec partiel d'un lot tardif) : on conserve ce qui a réussi.
-                if (chunks > 0 && onIngested != null) {
-                    onIngested.onIngested(hash, name, chunks);
-                }
             }
             final int finalChunks = totalChunks;
             final String finalParser = lastParserUsed;
             final int finalLayout = totalLayoutAwareChunks;
-            final boolean allFailed = failedFiles > 0 && failedFiles == tempFiles.size();
+            final boolean allFailed = totalChunks == 0 && failedFiles > 0 && failedFiles == tempFiles.size();
             // Ne pas écraser un statut CANCELLED. Tous les fichiers en échec → FAILED
             // (et non plus COMPLETED avec 0 chunk, indiscernable d'un succès).
             tasks.computeIfPresent(taskId, (k, t) -> {
@@ -299,9 +293,12 @@ public class IngestionTaskExecutor {
 
         if (fileName.toLowerCase().endsWith(".zip")) {
             try (InputStream is = Files.newInputStream(tempFile)) {
-                int chunks = ingestZip(is, fileName, fileName, collectionId, collectionName, 0, progress, discovered, sha256);
+                List<String> errors = new java.util.ArrayList<>();
+                int chunks = ingestZip(is, fileName, fileName, collectionId, collectionName, 0,
+                        progress, discovered, sha256, errors);
                 // L'archive est enregistrée comme une unité (dédup au niveau archive).
-                return new IngestOneResult(chunks, null, 0, true);
+                return new IngestOneResult(chunks, null, 0, errors.isEmpty(),
+                        errors.isEmpty() ? null : String.join(" ; ", errors));
             }
         }
 
@@ -351,17 +348,19 @@ public class IngestionTaskExecutor {
         // (embedding/ChromaDB indisponible), le document est tout de même enregistré
         // pour ce qui a réussi, et le compteur final reste cohérent avec la
         // progression live (pas de retour à 0 en fin d'ingestion).
-        int embedded = embedAndStore(chunks, collectionId, collectionName, fileName, progress);
+        StoreResult stored = embedAndStore(chunks, collectionId, collectionName, fileName, progress);
+        int embedded = stored.chunks();
 
         if (embedded == 0) {
             log.warn("Aucun chunk indexé pour: {}", fileName);
-            return new IngestOneResult(0, parserUsed, 0, false);
+            return new IngestOneResult(0, parserUsed, 0, false, stored.error());
         }
 
         boolean complete = embedded == chunks.size();
         log.info("Fichier {} traité: {} chunks{}, parser={}",
                 fileName, embedded, complete ? "" : "/" + chunks.size() + " (partiel)", parserUsed);
-        return new IngestOneResult(embedded, parserUsed, layoutAware ? embedded : 0, complete);
+        return new IngestOneResult(embedded, parserUsed, layoutAware ? embedded : 0,
+                complete && stored.error() == null, stored.error());
     }
 
     /**
@@ -369,9 +368,10 @@ public class IngestionTaskExecutor {
      * fur et à mesure et retourne le nombre de chunks effectivement indexés. Un échec de
      * lot interrompt le traitement du fichier mais conserve les chunks déjà indexés.
      */
-    private int embedAndStore(List<TextChunk> chunks, String collectionId, String collectionName,
+    private StoreResult embedAndStore(List<TextChunk> chunks, String collectionId, String collectionName,
                               String fileName, IntConsumer progress) {
         int embedded = 0;
+        String error = null;
         for (int i = 0; i < chunks.size(); i += embeddingBatchSize) {
             int end = Math.min(i + embeddingBatchSize, chunks.size());
             List<TextChunk> batch = chunks.subList(i, end);
@@ -379,16 +379,18 @@ public class IngestionTaskExecutor {
                 List<List<Float>> batchEmbeddings = embeddingService.embedBatch(
                         batch.stream().map(TextChunk::text).toList());
                 chromaDbClient.addDocuments(collectionId, batch, batchEmbeddings);
-                ftsService.indexChunks(batch, collectionName);
                 embedded += batch.size();
                 progress.accept(batch.size());
+                ftsService.indexChunks(batch, collectionName);
             } catch (Exception e) {
                 log.error("Échec du lot d'embedding [{}-{}] pour '{}' : {}. {} chunk(s) déjà indexé(s) conservé(s).",
                         i, end, fileName, e.getMessage(), embedded);
+                error = "Indexation incomplète (" + embedded + "/" + chunks.size() + " chunks) : "
+                        + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
                 break;
             }
         }
-        return embedded;
+        return new StoreResult(embedded, error);
     }
 
     /** Package-visible for testing. */
@@ -412,8 +414,16 @@ public class IngestionTaskExecutor {
     int ingestZip(InputStream zipStream, String archiveName, String rootSource, String collectionId,
                   String collectionName, int depth, IntConsumer progress, IntConsumer discovered,
                   String sha256) throws Exception {
+        return ingestZip(zipStream, archiveName, rootSource, collectionId, collectionName, depth,
+                progress, discovered, sha256, new java.util.ArrayList<>());
+    }
+
+    private int ingestZip(InputStream zipStream, String archiveName, String rootSource, String collectionId,
+                  String collectionName, int depth, IntConsumer progress, IntConsumer discovered,
+                  String sha256, List<String> errors) throws Exception {
         if (depth >= MAX_ZIP_DEPTH) {
             log.warn("Profondeur ZIP max ({}) atteinte — archive imbriquée ignorée: {}", MAX_ZIP_DEPTH, archiveName);
+            errors.add(archiveName + ": profondeur ZIP maximale atteinte");
             return 0;
         }
         int totalChunks = 0;
@@ -424,6 +434,7 @@ public class IngestionTaskExecutor {
                 if (entry.isDirectory()) continue;
                 if (++entryCount > maxZipEntries) {
                     log.warn("Nombre max d'entrées ZIP ({}) atteint — archive tronquée: {}", maxZipEntries, archiveName);
+                    errors.add(archiveName + ": limite d'entrées ZIP atteinte");
                     break;
                 }
                 String entryName = entry.getName();
@@ -442,6 +453,7 @@ public class IngestionTaskExecutor {
                 if (entry.getSize() > maxEntryUncompressedBytes) {
                     log.warn("Entrée ZIP ignorée (taille décompressée {} > {} octets): {}",
                             entry.getSize(), maxEntryUncompressedBytes, entryName);
+                    errors.add(entryName + ": entrée ZIP trop volumineuse");
                     continue;
                 }
 
@@ -452,7 +464,7 @@ public class IngestionTaskExecutor {
                         @Override public void close() {}
                     }, maxEntryUncompressedBytes);
                     totalChunks += ingestZip(nonClosing, archiveName + "/" + entryName, rootSource,
-                            collectionId, collectionName, depth + 1, progress, discovered, sha256);
+                            collectionId, collectionName, depth + 1, progress, discovered, sha256, errors);
                     continue;
                 }
                 if (!isSupportedFile(fileName)) {
@@ -469,8 +481,12 @@ public class IngestionTaskExecutor {
                     }, maxEntryUncompressedBytes);
                     totalChunks += ingestEntry(qualifiedName, rootSource, entryStream, collectionId,
                             collectionName, progress, discovered, sha256);
+                } catch (PartialIngestionException e) {
+                    totalChunks += e.chunks();
+                    errors.add(qualifiedName + ": " + e.getMessage());
                 } catch (ExtractionException e) {
                     log.warn("Erreur sur entrée ZIP {}: {}", qualifiedName, e.getMessage());
+                    errors.add(qualifiedName + ": " + e.getMessage());
                 }
             }
         }
@@ -506,7 +522,9 @@ public class IngestionTaskExecutor {
         }
         discovered.accept(chunks.size());
 
-        int embedded = embedAndStore(chunks, collectionId, collectionName, fileName, progress);
+        StoreResult stored = embedAndStore(chunks, collectionId, collectionName, fileName, progress);
+        int embedded = stored.chunks();
+        if (stored.error() != null) throw new PartialIngestionException(stored.error(), embedded);
         log.info("Entrée ZIP {} traitée: {} chunks{}", fileName, embedded,
                 embedded < chunks.size() ? "/" + chunks.size() + " (partiel)" : "");
         return embedded;
@@ -524,18 +542,25 @@ public class IngestionTaskExecutor {
         }
     }
 
-    record IngestOneResult(int chunks, String parserUsed, int layoutAwareChunks, boolean complete) {}
+    private record StoreResult(int chunks, String error) {}
+
+    record IngestOneResult(int chunks, String parserUsed, int layoutAwareChunks, boolean complete, String error) {
+        IngestOneResult(int chunks, String parserUsed, int layoutAwareChunks, boolean complete) {
+            this(chunks, parserUsed, layoutAwareChunks, complete,
+                    complete ? null : "Indexation incomplète : reprise nécessaire");
+        }
+    }
 
     public interface IngestionCallback {
         void onIngested(String hash, String fileName, int chunks);
 
-        /**
-         * Appelé juste avant l'indexation d'un fichier dont le hachage est connu. Permet à
-         * l'appelant de purger l'ancienne version des index (ChromaDB + BM25) quand le
-         * document existe déjà en GED (ré-ingestion {@code force=true}) — le remplacement
-         * suit ainsi la même sémantique delete-then-index que le flux streaming, au lieu
-         * d'empiler des chunks dupliqués.
-         */
+        default void onIngested(String hash, String fileName, int chunks, boolean complete) {
+            onIngested(hash, fileName, chunks);
+        }
+
+        default GedService.DocumentLock lockDocument(String hash) { return () -> {}; }
+
+        /** Purge avant remplacement ; une exception empêche l'indexation du fichier. */
         default void beforeIndex(String hash, String fileName) {}
 
         /**
@@ -554,3 +579,4 @@ public class IngestionTaskExecutor {
         default void onFinished() {}
     }
 }
+

@@ -160,6 +160,15 @@ class GedControllerTest {
         assertThat(resp.getStatusCode().value()).isEqualTo(404);
     }
 
+    @Test
+    void deleteDocument_pendingCleanupReturns202() {
+        when(gedService.deleteDocument("sha1", "api"))
+                .thenReturn(Map.of("sha256", "sha1", "deletionPending", true));
+        ResponseEntity<Map<String, Object>> response = controller.deleteDocument("sha1", "api");
+        assertThat(response.getStatusCode().value()).isEqualTo(202);
+        assertThat(response.getBody()).containsEntry("deletionPending", true);
+    }
+
     // ── setLifecycle — machine à états ────────────────────────────────────────
 
     @Test
@@ -507,3 +516,4 @@ class GedControllerTest {
                 Instant.now(), 5, "spectra_documents", 0.6);
     }
 }
+

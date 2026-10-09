@@ -45,6 +45,21 @@ public class GedService {
     private final ChromaDbClient              chromaDbClient;
     private final FtsService                  ftsService;
     private final Path                        archiveRoot;
+    // Verrous bornés : ingestion/remplacement/suppression d'une identité sont sérialisés.
+    private final java.util.concurrent.locks.ReentrantLock[] documentLocks =
+            java.util.stream.IntStream.range(0, 256)
+                    .mapToObj(i -> new java.util.concurrent.locks.ReentrantLock())
+                    .toArray(java.util.concurrent.locks.ReentrantLock[]::new);
+
+    public interface DocumentLock extends AutoCloseable {
+        @Override void close();
+    }
+
+    public DocumentLock lockDocument(String sha256) {
+        var lock = documentLocks[Math.floorMod(sha256.hashCode(), documentLocks.length)];
+        lock.lock();
+        return lock::unlock;
+    }
 
     // Auto-injection pour invoquer les méthodes @Transactional via le proxy Spring.
     @org.springframework.beans.factory.annotation.Autowired
@@ -347,43 +362,75 @@ public class GedService {
 
     // ── Amélioration 3 — Suppression synchronisée ChromaDB + GED ────────────
 
-    /**
-     * Supprime un document : d'abord les données DB autoritatives (transaction qui commit),
-     * puis le nettoyage externe ChromaDB/FTS en best-effort. L'ordre garantit qu'un rollback
-     * DB n'orpheline jamais l'état externe, et le nettoyage synchrone permet de renvoyer le
-     * nombre réel de chunks supprimés (contrairement à l'ancien afterCommit qui renvoyait 0).
-     */
+    /** Conserve un tombstone SQL jusqu'au nettoyage confirmé, puis retire la fiche GED. */
     public Map<String, Object> deleteDocument(String sha256, String actor) {
-        // 1. Suppressions DB autoritatives — la transaction commit au retour de cet appel proxy.
-        //    Fallback sur `this` quand self n'est pas injecté (tests unitaires hors contexte Spring).
-        DeleteInfo info = (self != null ? self : this).deleteDocumentDb(sha256);
-
-        // 2. Nettoyage externe (ChromaDB + FTS) best-effort, APRÈS le commit DB.
-        int chunksDeleted = 0;
-        if (info.collection() != null && !info.collection().isBlank()) {
+        try (DocumentLock ignored = lockDocument(sha256)) {
+            // Le tombstone commit AVANT l'I/O : une panne ou un redémarrage reste relançable.
+            IngestedFileEntity doc = (self != null ? self : this).requestDeletion(sha256, actor);
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("sha256", sha256);
+            result.put("fileName", doc.getFileName());
+            result.put("actor", doc.getDeletionActor());
+            result.put("chunksDeleted", 0);
             try {
-                String collectionId = chromaDbClient.getOrCreateCollection(info.collection());
-                // Suppression par identité de contenu (métadonnée sha256) : deux documents
-                // homonymes ne partagent plus leur sort. Repli sur sourceFile pour les chunks
-                // historiques indexés avant l'ajout de cette métadonnée.
-                chunksDeleted = chromaDbClient.deleteByMetadata(collectionId, "sha256", sha256);
-                if (chunksDeleted == 0 && info.fileName() != null) {
-                    chunksDeleted = chromaDbClient.deleteBySource(collectionId, info.fileName());
-                }
-                ftsService.removeBySource(info.fileName(), info.collection());
-                log.info("Document {} : {} chunks ChromaDB supprimés", sha256, chunksDeleted);
+                result.put("chunksDeleted", purgeDocumentIndexes(doc));
+                Files.deleteIfExists(archiveRoot.resolve(sha256).resolve("manifest.json"));
+                (self != null ? self : this).deleteDocumentDb(sha256);
+                result.put("deletionPending", false);
+                result.put("status", "DELETED");
             } catch (Exception e) {
-                log.warn("Nettoyage ChromaDB/FTS échoué pour {} : {}", sha256, e.getMessage());
+                log.warn("Suppression {} en attente, reprise planifiée : {}", sha256, e.getMessage());
+                result.put("deletionPending", true);
+                result.put("status", "DELETION_PENDING");
+                result.put("error", e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
+            }
+            return result;
+        }
+    }
+
+    @Transactional
+    public IngestedFileEntity requestDeletion(String sha256, String actor) {
+        IngestedFileEntity doc = requireDoc(sha256);
+        if (!doc.isDeletionPending()) {
+            doc.setDeletionPending(true);
+            doc.setDeletionActor(actor != null ? actor : "api");
+            fileRepo.saveAndFlush(doc);
+        }
+        return doc;
+    }
+
+    @org.springframework.scheduling.annotation.Scheduled(fixedDelay = 60_000, initialDelay = 10_000)
+    public void retryPendingDeletions() {
+        for (IngestedFileEntity doc : fileRepo.findByDeletionPendingTrue()) {
+            try { deleteDocument(doc.getSha256(), doc.getDeletionActor()); }
+            catch (Exception e) { log.warn("Reprise suppression {} échouée : {}", doc.getSha256(), e.getMessage()); }
+        }
+    }
+
+    /** Nettoyage commun suppression/remplacement ; aucun repli aveugle sur le nom. */
+    public int purgeDocumentIndexes(IngestedFileEntity doc) {
+        String collection = doc.getCollectionName();
+        if (collection == null || collection.isBlank()) {
+            throw new IllegalStateException("Collection du document inconnue : nettoyage non confirmé");
+        }
+        String collectionId = chromaDbClient.getOrCreateCollection(collection);
+        int removed = chromaDbClient.deleteByMetadata(collectionId, "sha256", doc.getSha256());
+        ftsService.removeByDocument(doc.getSha256(), collection);
+        if (doc.getFileName() != null) {
+            List<String> legacyIds = chromaDbClient.getLegacyChunkIdsBySource(collectionId, doc.getFileName());
+            boolean unambiguous = fileRepo.findByFileNameAndCollectionName(doc.getFileName(), collection)
+                    .stream().noneMatch(other -> !other.getSha256().equals(doc.getSha256())
+                            && !other.isDeletionPending());
+            if (!legacyIds.isEmpty() && !unambiguous) {
+                throw new IllegalStateException("Chunks historiques homonymes sans identité : nettoyage ambigu");
+            }
+            if (unambiguous) {
+                chromaDbClient.deleteChunksByIds(collectionId, legacyIds);
+                ftsService.removeLegacyBySource(doc.getFileName(), collection);
+                removed += legacyIds.size();
             }
         }
-
-        log.info("Document {} supprimé de la GED", sha256);
-        return Map.of(
-                "sha256", sha256,
-                "fileName", info.fileName(),
-                "chunksDeleted", chunksDeleted,
-                "actor", actor != null ? actor : "api"
-        );
+        return removed;
     }
 
     /**
@@ -395,26 +442,26 @@ public class GedService {
      * secondaire), on retombe sur la purge d'index seule.
      */
     public Map<String, Object> deleteBySourceFile(String sourceFile, String collection, String actor) {
-        List<IngestedFileEntity> docs = fileRepo.findByFileName(sourceFile);
+        List<IngestedFileEntity> docs = fileRepo.findByFileNameAndCollectionName(sourceFile, collection);
         int chunksDeleted = 0;
+        int pending = 0;
         if (!docs.isEmpty()) {
             for (IngestedFileEntity doc : docs) {
                 Map<String, Object> result = deleteDocument(doc.getSha256(), actor);
                 chunksDeleted += (int) result.getOrDefault("chunksDeleted", 0);
+                if (Boolean.TRUE.equals(result.get("deletionPending"))) pending++;
             }
         } else {
-            try {
-                String collectionId = chromaDbClient.getOrCreateCollection(collection);
-                chunksDeleted = chromaDbClient.deleteBySource(collectionId, sourceFile);
-                ftsService.removeBySource(sourceFile, collection);
-            } catch (Exception e) {
-                log.warn("Purge d'index échouée pour la source '{}' : {}", sourceFile, e.getMessage());
-            }
+            String collectionId = chromaDbClient.getOrCreateCollection(collection);
+            chunksDeleted = chromaDbClient.deleteBySource(collectionId, sourceFile);
+            ftsService.removeBySource(sourceFile, collection);
         }
         return Map.of(
                 "sourceFile", sourceFile,
                 "collection", collection,
-                "documentsDeleted", docs.size(),
+                "documentsDeleted", docs.size() - pending,
+                "deletionPending", pending > 0,
+                "documentsPending", pending,
                 "chunksDeleted", chunksDeleted
         );
     }
@@ -566,3 +613,4 @@ public class GedService {
                 .orElseThrow(() -> new NoSuchElementException("Document introuvable : " + sha256));
     }
 }
+
