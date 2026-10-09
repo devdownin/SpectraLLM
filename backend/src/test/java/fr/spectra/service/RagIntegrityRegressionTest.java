@@ -53,12 +53,18 @@ class RagIntegrityRegressionTest {
     }
 
     private RagService service(boolean compression, boolean agentic) {
+        return service(compression, agentic, false, false);
+    }
+
+    private RagService service(boolean compression, boolean agentic, boolean conversation, boolean selfRag) {
         AdaptiveRagService router = mock(AdaptiveRagService.class);
         when(router.classifyQuery(anyString())).thenReturn(AdaptiveRagService.RagStrategy.AGENTIC);
         var agent = new AgenticRagService(chroma, embed, llm, Optional.empty(), Optional.empty(), props, new SimpleMeterRegistry());
         return new RagService(chroma, embed, llm, Optional.empty(), Optional.empty(),
-                agentic ? Optional.of(agent) : Optional.empty(), Optional.empty(), Optional.empty(),
-                agentic ? Optional.of(router) : Optional.empty(), Optional.empty(),
+                agentic ? Optional.of(agent) : Optional.empty(),
+                conversation ? Optional.of(new ConversationalRagService(llm)) : Optional.empty(), Optional.empty(),
+                agentic ? Optional.of(router) : Optional.empty(),
+                selfRag ? Optional.of(new SelfRagService(llm, props)) : Optional.empty(),
                 compression ? Optional.of(new ContextCompressionService(llm)) : Optional.empty(),
                 Optional.empty(), profiles, props, mapper, new SimpleMeterRegistry());
     }
@@ -172,6 +178,34 @@ class RagIntegrityRegressionTest {
         assertThat(response.answer()).contains("[2]");
         assertThat(response.sources()).hasSize(2);
         assertThat(response.sources().get(1).sourceFile()).isEqualTo("nouveau.txt");
+    }
+
+
+    @Test void conversationalHistoryIsCountedInTheJsonAndSseBudgets() throws Exception {
+        retrieval(IntStream.range(0, 20).mapToObj(i -> "Passage " + i + ": " + "preuve attestée ".repeat(80)).toList());
+        when(llm.chat(anyString(), anyString())).thenReturn("Quelle valeur dans le projet ALPHA ?");
+        var request = new QueryRequest("Quelle valeur ?", 20, 20, "corpus", .7f, .9f,
+                List.of(new fr.spectra.dto.ConversationMessage("user", "Projet ALPHA : " + "historique ".repeat(100))), true);
+        var service = service(false, false, true, false);
+        var response = service.query(request);
+        var events = stream(service, request);
+        assertBudgetRespected();
+        assertThat(generationUsers).allSatisfy(user -> assertThat(user).contains("Projet ALPHA"));
+        assertThat(sourceCount(events)).isEqualTo(response.sources().size());
+    }
+
+    @Test void selfRagRefinementAlsoFitsTheJsonAndSseBudgets() {
+        retrieval(IntStream.range(0, 20).mapToObj(i -> "Passage " + i + ": " + "preuve attestée ".repeat(60)).toList());
+        when(llm.chat(anyString(), anyString())).thenReturn("ISREL: RELEVANT\nISSUP: NO_SUPPORT\nISUSE: NOT_USEFUL");
+        var service = service(false, false, false, true);
+        var response = service.query(request(20));
+        var events = stream(service, request(20));
+        assertBudgetRespected();
+        assertThat(response.selfRagApplied()).isTrue();
+        assertThat(events).anyMatch(e -> "replace".equals(e.event()));
+        assertThat(generationPrompts).hasSize(4);
+        assertThat(generationPrompts.get(1)).contains("IMPORTANT");
+        assertThat(generationPrompts.get(3)).contains("IMPORTANT");
     }
 
 }

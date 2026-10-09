@@ -72,8 +72,6 @@ public class AgenticRagService {
             %%s
             === FIN DU CONTEXTE ===""";
 
-    /** Tokens réservés pour la réponse du LLM (prompt + tokens d'amorçage). */
-
     // ---------- Regex parseurs ---------------------------------------------
 
     private static final Pattern ACTION_PATTERN =
