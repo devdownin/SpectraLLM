@@ -137,7 +137,55 @@
     "ragCapabilities": "Capacités RAG",
     "pipeline": "Pipeline",
     "rejected": "Rejetés",
-    "pending": "En attente"
+    "pending": "En attente",
+    "work": {
+      "kicker": "Centre de contrôle",
+      "attention": "À traiter",
+      "running": "En cours",
+      "results": "Derniers résultats",
+      "analytics": "Données et analyses détaillées",
+      "technical": "État technique",
+      "updated": "Dernière lecture des statistiques : {{time}}",
+      "noUpdate": "Statistiques pas encore reçues",
+      "partial": "Certaines données sont indisponibles ; la vue peut être incomplète.",
+      "loading": "Chargement des tâches…",
+      "noFailures": "Aucun échec signalé dans les tâches disponibles.",
+      "noActive": "Aucune tâche en cours dans les données disponibles.",
+      "noResults": "Aucun résultat terminé disponible.",
+      "live": "Suivi en temps réel",
+      "polling": "Suivi périodique ; le flux temps réel est en reconnexion.",
+      "resultsHint": "Ouvrez la page concernée pour examiner le résultat. Une tâche terminée ne garantit pas sa qualité.",
+      "progress": "Progression de {{name}}",
+      "unqualified_one": "{{count}} document à qualifier",
+      "unqualified_other": "{{count}} documents à qualifier",
+      "status": {
+        "pending": "En attente",
+        "running": "En cours",
+        "completed": "Terminé",
+        "failed": "Échec ou annulation"
+      },
+      "summary": {
+        "unknown": "La préparation reste à vérifier",
+        "blocked": "Votre index demande une intervention",
+        "services": "Les services ne sont pas prêts",
+        "empty": "Ajoutez vos premiers documents",
+        "ready": "Votre base documentaire est prête à être interrogée"
+      },
+      "hint": {
+        "unknown": "Les données nécessaires sont manquantes ou la cohérence de l’index n’est pas confirmée.",
+        "blocked": "Une incohérence ou une réindexation nécessite votre attention avant de tester le RAG.",
+        "services": "Vérifiez les modèles chargés et le service de stockage dans l’état technique ci-dessous.",
+        "empty": "Importez des documents pour constituer votre base de connaissances.",
+        "ready": "Testez une question, puis examinez les sources et les limites de la réponse."
+      },
+      "action": {
+        "test": "Tester une réponse",
+        "import": "Importer des documents",
+        "reviewIndex": "Examiner l’index",
+        "models": "Vérifier les modèles",
+        "qualify": "Examiner les documents"
+      }
+    }
   },
   "playground": {
     "expertMode": "Mode expert",
@@ -941,4 +989,3 @@
     "switchLanguage": "Changer de langue (FR/EN)"
   }
 }
-
