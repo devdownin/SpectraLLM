@@ -94,6 +94,16 @@ public class GedController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
+    @GetMapping("/documents/{sha256}/preview")
+    @Operation(summary = "Aperçu borné des textes indexés du document, identifié par SHA256")
+    public ResponseEntity<GedService.DocumentPreview> preview(@PathVariable String sha256) {
+        try {
+            return ResponseEntity.ok(gedService.preview(sha256));
+        } catch (NoSuchElementException e) {
+            return ResponseEntity.notFound().build();
+        }
+    }
+
     // ── Amélioration 3 — Suppression synchronisée ChromaDB + GED ─────────────
 
     @DeleteMapping("/documents/{sha256}")

@@ -36,6 +36,8 @@ const STATUS_ICON: Record<GlobalTaskStatus, string> = {
   running: 'progress_activity',
   completed: 'check_circle',
   failed: 'error',
+  cancelled: 'cancel',
+  partial: 'warning',
 };
 
 const STATUS_COLOR: Record<GlobalTaskStatus, string> = {
@@ -43,6 +45,8 @@ const STATUS_COLOR: Record<GlobalTaskStatus, string> = {
   running: 'text-secondary',
   completed: 'text-primary',
   failed: 'text-error',
+  cancelled: 'text-outline',
+  partial: 'text-secondary',
 };
 
 /**
@@ -269,17 +273,22 @@ const TaskCenter: FC = () => {
     for (const task of tasks) {
       const before = prev.get(task.id);
       const wasActive = before === 'running' || before === 'pending';
-      if (!wasActive || (task.status !== 'completed' && task.status !== 'failed')) continue;
+      if (!wasActive || task.status === 'running' || task.status === 'pending') continue;
+      const title = t(`taskCenter.terminal.${task.status}`);
 
-      const description = task.status === 'failed'
+      const description = task.status === 'failed' || task.status === 'partial'
         ? (task.error ?? `${t(`taskCenter.kinds.${task.kind}`)} — ${task.label}`)
         : `${t(`taskCenter.kinds.${task.kind}`)} — ${task.label}`;
 
       if (pathnameRef.current !== task.path) {
         if (task.status === 'completed') {
-          toast.success(t('taskCenter.taskCompleted'), { id: `task-${task.id}`, description });
+          toast.success(title, { id: `task-${task.id}`, description });
+        } else if (task.status === 'cancelled') {
+          toast.info(title, { id: `task-${task.id}`, description });
+        } else if (task.status === 'partial') {
+          toast.warning(title, { id: `task-${task.id}`, description });
         } else {
-          toast.error(t('taskCenter.taskFailed'), { id: `task-${task.id}`, description });
+          toast.error(title, { id: `task-${task.id}`, description });
         }
       }
 
@@ -287,7 +296,7 @@ const TaskCenter: FC = () => {
           && Notification.permission === 'granted' && document.hidden) {
         try {
           new Notification(
-            task.status === 'completed' ? t('taskCenter.taskCompleted') : t('taskCenter.taskFailed'),
+            title,
             { body: description, tag: `spectra-${task.id}` }, // tag : pas de doublon si re-émis
           );
         } catch { /* notification refusée par l'OS : le toast reste */ }
@@ -298,7 +307,7 @@ const TaskCenter: FC = () => {
   // Tâches terminées les plus récentes en tête de section (l'API renvoie
   // l'historique complet ; on n'en montre qu'un extrait, trié par date).
   const recent = tasks
-    .filter((task) => task.status === 'completed' || task.status === 'failed')
+    .filter((task) => task.status !== 'running' && task.status !== 'pending')
     .sort((a, b) => (b.timestamp ?? '').localeCompare(a.timestamp ?? ''))
     .slice(0, 6);
 
@@ -406,6 +415,7 @@ const TaskCenter: FC = () => {
               </>
             )}
           </div>
+          <Link to="/activity" onClick={() => setOpen(false)} className="block border-t border-outline-variant/20 px-4 py-3 text-sm text-primary hover:bg-surface-container-high">{t('activity.viewAll')}</Link>
         </div>
       )}
 

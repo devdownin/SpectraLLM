@@ -8,6 +8,20 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Ajouté — contexte et cockpits de travail
+
+- Le modèle réellement chargé et la collection RAG choisie restent visibles dans
+  le Playground, les comparaisons et l’optimisation. La collection est persistée
+  et conservée pour rejouer une comparaison de modules RAG.
+- La fiche Documents associe un aperçu borné des textes indexés à un panneau de
+  qualification, annotations et historique. Un aperçu indisponible ne bloque
+  pas les actions sur le document.
+- Les réponses du Playground présentent leurs limites et des actions visibles
+  pour consulter les sources, la trace, une comparaison et les évaluations.
+- La page Activité permet de filtrer les tâches, lire leur progression et leurs
+  erreurs et ouvrir leur page de résultats. Annulations et succès partiels sont
+  distingués des échecs, y compris dans le centre de tâches.
+
 ### Modifié — Dashboard orienté travail
 
 - La synthèse et la prochaine action précèdent désormais les éléments à traiter,

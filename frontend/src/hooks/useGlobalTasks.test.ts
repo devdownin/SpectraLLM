@@ -20,7 +20,7 @@ describe('toStatus', () => {
   it('maps the heterogeneous backend statuses onto the 4 normalized states', () => {
     expect(toStatus('COMPLETED')).toBe('completed');
     expect(toStatus('FAILED')).toBe('failed');
-    expect(toStatus('CANCELLED')).toBe('failed');
+    expect(toStatus('CANCELLED')).toBe('cancelled');
     expect(toStatus('PENDING')).toBe('pending');
     // Running states across all task families
     for (const s of ['PROCESSING', 'RUNNING', 'TRAINING', 'EXPORTING_DATASET',
@@ -95,7 +95,7 @@ describe('normalizers', () => {
       taskId: 't1', status: 'COMPLETED', files: ['ok.pdf', 'bad.png'], chunksCreated: 7,
       error: null, fileErrors: ['bad.png: Extension de fichier non supportée: bad.png'],
     }]);
-    expect(task.status).toBe('completed');
+    expect(task.status).toBe('partial');
     expect(task.error).toBe('bad.png: Extension de fichier non supportée: bad.png');
   });
 
@@ -176,7 +176,7 @@ describe('normalizers', () => {
     const [ab] = normalizeAbComparisons([{
       abId: 'ab1', status: 'CANCELLED', modelA: 'm1', modelB: 'm2', processed: 5, testSetSize: 10,
     }]);
-    expect(ab).toMatchObject({ label: 'm1 vs m2', status: 'failed' });
+    expect(ab).toMatchObject({ label: 'm1 vs m2', status: 'cancelled' });
   });
 
   it('normalizes DPO and quality benchmark jobs', () => {

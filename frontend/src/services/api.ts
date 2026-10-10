@@ -59,6 +59,7 @@ export const ingestApi = {
 };
 
 export const gedApi = {
+  getPreview: (sha256: string) => api.get<{ chunks: string[]; truncated: boolean }>(`/ged/documents/${sha256}/preview`),
   listDocuments: (params: any) => api.get('/ged/documents', { params }),
   getDocument: (sha256: string) => api.get(`/ged/documents/${sha256}`),
   deleteDocument: (sha256: string, actor = 'ui') => api.delete(`/ged/documents/${sha256}?actor=${actor}`),
@@ -277,8 +278,10 @@ export const queryApi = {
     temperature?: number,
     topP?: number,
     overrides?: RagOverridesDto,
+    collection?: string,
   ): AsyncGenerator<StreamEvent> {
     const body: Record<string, unknown> = { question, useRag };
+    if (useRag && collection) body.collection = collection;
     if (topCandidates !== undefined) body.topCandidates = topCandidates;
     if (temperature !== undefined) body.temperature = temperature;
     if (topP !== undefined) body.topP = topP;
