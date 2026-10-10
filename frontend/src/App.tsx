@@ -8,6 +8,7 @@ import { StartupOverlay } from './components/StartupOverlay';
 import { LEGACY_ROUTE_REDIRECTS } from './navigation';
 
 // Suggestion 4: Lazy Loading for code splitting
+const Activity = lazy(() => import('./pages/Activity'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Playground = lazy(() => import('./pages/Playground'));
 const Ingestion = lazy(() => import('./pages/Ingestion'));
@@ -52,6 +53,7 @@ function App() {
             <Suspense fallback={<LoadingState />}>
               <Routes>
                 <Route path="/" element={<Dashboard />} />
+                <Route path="/activity" element={<Activity />} />
                 <Route path="/ingestion" element={<Ingestion />} />
                 <Route path="/documents" element={<Documents />} />
                 <Route path="/fine-tuning" element={<FineTuning />} />

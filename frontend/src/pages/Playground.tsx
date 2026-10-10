@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import type { FC } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useWorkspaceCollection } from '../hooks/useWorkspaceCollection';
+import AnswerActions from '../components/playground/AnswerActions';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -160,6 +162,9 @@ const SourceItem: FC<{
 };
 
 const Playground: FC = () => {
+  const navigate = useNavigate();
+  const [collection] = useWorkspaceCollection();
+  const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false);
   const { t } = useTranslation();
   const defaultWelcome: Message = { role: 'assistant', content: 'Welcome to the Spectra Playground. I am ready to answer questions based on your ingested documents. How can I help you today?', status: 'SENT', local: true };
   const [traceMsg, setTraceMsg] = useState<Message | null>(null);
@@ -327,6 +332,7 @@ const Playground: FC = () => {
       d ? { ...d, activeModel: modelName } : d);
     try {
       await configApi.setModelConfig({ model: modelName });
+      void queryClient.invalidateQueries({ queryKey: ['system-status'] });
       toast.info(t('playground.modelUpdated'), {
         description: `llm-chat reloads "${modelName}" automatically within a few seconds.`,
       });
@@ -451,7 +457,7 @@ const Playground: FC = () => {
     // Config effective de CETTE requête, mémorisée sur la réponse pour une comparaison A/B
     // rigoureuse (rejouée depuis cette config, pas les réglages courants de la session).
     const effOverrides = buildOverrides();
-    const reqParams: RequestParams = { temperature: effTemperature, topP, topCandidates, overrides: effOverrides };
+    const reqParams: RequestParams = { collection, useRag: ragEnabled, temperature: effTemperature, topP, topCandidates, overrides: effOverrides };
 
     abortRef.current?.abort();
     const controller = new AbortController();
@@ -517,7 +523,7 @@ const Playground: FC = () => {
 
     try {
       for await (const event of queryApi.queryStream(
-        currentInput, ragEnabled, controller.signal, topCandidates, history, effTemperature, topP, effOverrides
+        currentInput, ragEnabled, controller.signal, topCandidates, history, effTemperature, topP, effOverrides, collection
       )) {
         if (event.type === 'sources') {
           try { sources = JSON.parse(event.data); } catch { /* ignore */ }
@@ -627,7 +633,7 @@ const Playground: FC = () => {
             .map((m, i) => {
               if (i === lastUserIdx) return { ...m, status: 'SENT' as const };
               if (i === lastAsstIdx && !removeEmpty)
-                return { ...m, status: 'SENT' as const, sources, metrics, stopped: true };
+                return { ...m, status: 'SENT' as const, sources, metrics, params: reqParams, stopped: true };
               return m;
             });
         });
@@ -749,8 +755,9 @@ const Playground: FC = () => {
   const lastAssistantIdx = messages.findLastIndex(m => m.role === 'assistant');
 
   return (
-    <div className="h-[calc(100vh-12rem)] flex gap-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
-      <aside className="w-80 bg-surface-container p-6 space-y-8 overflow-y-auto custom-scrollbar">
+    <div className="h-auto lg:h-[calc(100vh-12rem)] flex flex-col lg:flex-row gap-4 lg:gap-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+      <button className="lg:hidden text-sm text-primary text-left rounded-lg border border-outline-variant/40 p-3" aria-expanded={mobileSettingsOpen} aria-controls="playground-settings" onClick={() => setMobileSettingsOpen(open => !open)}>{t('playground.toggleSettings')}</button>
+      <aside id="playground-settings" className={`${mobileSettingsOpen ? 'block' : 'hidden'} lg:block w-full lg:w-80 shrink-0 bg-surface-container p-6 space-y-8 overflow-y-auto custom-scrollbar`}>
         {services && (
           <div>
             <h3 className="font-headline text-sm font-bold tracking-tight mb-4 uppercase">{t('playground.system')}</h3>
@@ -1039,7 +1046,7 @@ const Playground: FC = () => {
         onCancel={() => setConfirmClear(false)}
       />
 
-      <div className="flex-1 flex flex-col bg-surface-container overflow-hidden relative">
+      <div className="min-w-0 min-h-[600px] lg:min-h-0 flex-1 flex flex-col bg-surface-container overflow-hidden relative">
         <div
           ref={scrollContainerRef}
           onScroll={handleScroll}
@@ -1047,11 +1054,11 @@ const Playground: FC = () => {
           aria-live="polite"
           aria-busy={isTyping}
           aria-label={t('playground.conversation')}
-          className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar"
+          className="flex-1 overflow-y-auto p-3 md:p-8 space-y-8 custom-scrollbar"
         >
           {messages.map((msg, i) => (
             <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[80%] p-6 group relative ${
+              <div className={`max-w-full md:max-w-[80%] p-4 md:p-6 group relative ${
                 msg.role === 'user'
                   ? 'bg-surface-container-high border-r-2 border-secondary'
                   : 'bg-surface-container-lowest border-l-2 border-primary'
@@ -1068,6 +1075,7 @@ const Playground: FC = () => {
                 <p className="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-3">
                   {msg.role === 'user' ? 'Architect' : 'Spectra Core'}
                 </p>
+                {msg.role === 'assistant' && !msg.local && <h4 className="text-xs font-semibold text-primary mb-3">{t('answer.title')}</h4>}
                 {msg.role === 'assistant' ? (
                   <div className="text-sm">
                     {msg.content && (
@@ -1113,6 +1121,15 @@ const Playground: FC = () => {
                     </div>
                   );
                 })()}
+
+                {msg.role === 'assistant' && msg.status === 'SENT' && !msg.local && (
+                  <AnswerActions message={msg} onSources={() => {
+                    if (msg.sources?.length) jumpToSource(i, 1);
+                  }} onTrace={() => setTraceMsg(msg)} onCompare={() => {
+                    const mod = appliedModules(msg.ragMeta)[0];
+                    if (mod) openComparison(i, mod);
+                  }} onEvaluate={() => navigate('/comparison')} />
+                )}
 
                 {/* Badges pipeline visibles pour tous (visibilité du fonctionnement RAG) ;
                     le mode expert reste réservé aux distances brutes et métriques. */}
@@ -1325,7 +1342,8 @@ const Playground: FC = () => {
             temperature={comparison.baseline.params?.temperature ?? temperature}
             topP={comparison.baseline.params?.topP ?? topP}
             topCandidates={comparison.baseline.params?.topCandidates ?? topCandidates}
-            ragEnabled={ragEnabled}
+            ragEnabled={comparison.baseline.params?.useRag ?? ragEnabled}
+            collection={comparison.baseline.params ? comparison.baseline.params.collection : collection}
             baseOverrides={comparison.baseline.params?.overrides ?? buildOverrides()}
             onClose={() => setComparison(null)}
           />

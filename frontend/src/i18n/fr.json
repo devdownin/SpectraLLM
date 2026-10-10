@@ -13,7 +13,8 @@
     "newModel": "Nouveau modèle",
     "groupData": "Données",
     "groupModels": "Modèles",
-    "groupEvaluate": "Test & évaluation"
+    "groupEvaluate": "Test & évaluation",
+    "activity": "Activité"
   },
   "header": {
     "switchLanguage": "Changer de langue",
@@ -56,7 +57,13 @@
     "cancelFailed": "Impossible d'annuler la tâche",
     "retry": "Relancer cette ingestion d'URLs",
     "retryRequested": "Ingestion relancée",
-    "retryFailed": "Impossible de relancer l'ingestion"
+    "retryFailed": "Impossible de relancer l'ingestion",
+    "terminal": {
+      "completed": "Tâche terminée",
+      "failed": "Tâche échouée",
+      "cancelled": "Tâche annulée",
+      "partial": "Tâche partiellement réussie"
+    }
   },
   "wizard": {
     "ingestion": "Ingestion",
@@ -162,7 +169,9 @@
         "pending": "En attente",
         "running": "En cours",
         "completed": "Terminé",
-        "failed": "Échec ou annulation"
+        "failed": "Échec",
+        "cancelled": "Annulée",
+        "partial": "Succès partiel"
       },
       "summary": {
         "unknown": "La préparation reste à vérifier",
@@ -237,7 +246,8 @@
     "answerCopied": "Réponse copiée",
     "noQuestion": "Aucune question à comparer",
     "modelOfflineDesc": "Le service du modèle de chat est injoignable. Vérifiez llama-cpp-chat.",
-    "coreUnreachable": "Le cœur de Spectra est injoignable ou a expiré."
+    "coreUnreachable": "Le cœur de Spectra est injoignable ou a expiré.",
+    "toggleSettings": "Réglages du Playground"
   },
   "docs": {
     "searchPlaceholder": "Rechercher dans la documentation…",
@@ -987,5 +997,65 @@
     "uploadDocs": "Téléverser des documents",
     "newEvaluation": "Nouvelle évaluation",
     "switchLanguage": "Changer de langue (FR/EN)"
+  },
+  "workspace": {
+    "title": "Travail en cours",
+    "model": "Modèle chargé",
+    "collection": "Collection du Playground",
+    "default": "Collection par défaut du serveur",
+    "unavailable": "État du modèle indisponible",
+    "unloaded": "Aucun modèle chargé confirmé",
+    "playgroundHint": "Cette collection est utilisée pour les prochaines requêtes RAG.",
+    "evaluationHint": "La collection s’applique au Playground. Les évaluations utilisent leur jeu de test et les modèles indiqués dans leurs rapports.",
+    "collectionsUnavailable": "Liste des collections indisponible.",
+    "missingCollection": "Collection introuvable : choisissez une collection disponible ou le défaut serveur.",
+    "mismatch": "Index incompatible avec le modèle d’embedding actuel."
+  },
+  "answer": {
+    "title": "Réponse",
+    "limitations": "Limites et vérification",
+    "stopped": "Réponse interrompue : le texte peut être incomplet.",
+    "noSources": "Aucune source documentaire retournée pour cette réponse.",
+    "maxIterations": "La recherche agentique a atteint sa limite d’itérations.",
+    "verify": "Vérifiez les affirmations et leur correspondance avec les sources avant réutilisation.",
+    "sources": "Examiner les sources",
+    "trace": "Voir la trace RAG",
+    "compare": "Comparer un module RAG",
+    "evaluate": "Ouvrir les évaluations",
+    "evaluationHint": "L’évaluation porte sur un jeu de test ; cette réponse n’est pas automatiquement notée."
+  },
+  "activity": {
+    "title": "Activité",
+    "description": "Suivez les tâches disponibles, leur progression et leurs résultats.",
+    "live": "Flux temps réel connecté.",
+    "polling": "Actualisation périodique des tâches accessibles. Certaines sources peuvent être indisponibles.",
+    "search": "Rechercher une tâche",
+    "status": "État",
+    "kind": "Type",
+    "all": "Tous",
+    "loading": "Chargement des tâches…",
+    "count": "{{count}} tâches affichées",
+    "empty": "Aucune tâche ne correspond aux filtres.",
+    "progress": "Progression",
+    "indeterminate": "Progression non disponible.",
+    "error": "Détails des erreurs",
+    "result": "Ouvrir les résultats",
+    "manage": "Ouvrir la page de gestion",
+    "viewAll": "Voir toute l’activité"
+  },
+  "cockpit": {
+    "preview": "Aperçu des textes indexés",
+    "previewHint": "Échantillon des extraits stockés, sans restitution de la mise en page originale. Les anciens index sans identité SHA256 peuvent ne pas fournir d’aperçu.",
+    "loading": "Chargement de l’aperçu…",
+    "unavailable": "L’aperçu est indisponible. Les métadonnées restent accessibles.",
+    "retry": "Réessayer",
+    "empty": "Aucun extrait indexé disponible pour cette identité de document.",
+    "truncated": "Aperçu limité à 12 extraits de 2 000 caractères.",
+    "extract": "Extrait {{number}}",
+    "sections": "Sections du document",
+    "qualification": "Qualification",
+    "annotations": "Annotations",
+    "history": "Historique",
+    "indexInfo": "Dernière ingestion : {{count}} chunks dans {{collection}}. L’aperçu vérifie les textes actuellement accessibles."
   }
 }
