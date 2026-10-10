@@ -8,6 +8,15 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Modifié — Dashboard orienté travail
+
+- La synthèse et la prochaine action précèdent désormais les éléments à traiter,
+  les tâches en cours et les derniers résultats, dans l’esprit du cockpit Kex.
+- Les documents à qualifier et les tâches en échec restent visibles avec les
+  incohérences d’index ; les résultats renvoient à leur page de gestion.
+- Les statistiques détaillées et l’état technique restent accessibles dans des
+  sections repliables. La synthèse distingue les données inconnues d’un état prêt.
+
 ### Corrigé — fiabilité du fine-tuning et de son évaluation
 
 - L'export GGUF embarque la toolchain llama.cpp complète à révision immuable,

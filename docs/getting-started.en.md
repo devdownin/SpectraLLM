@@ -138,4 +138,17 @@ spectra-compose --profile layout-parser --profile reranker up -d
 | **llama.cpp embed** | `http://localhost:8082` |
 | **Prometheus metrics** | `http://localhost:8080/actuator/prometheus` |
 
+### 5. Read the Dashboard
+
+The Dashboard starts with a readiness summary and a suggested next action. It
+shows index inconsistencies, documents to qualify and failed tasks under **Needs
+attention**, followed by **In progress** and **Latest results**. Open a task to
+examine its result on the relevant page; completion does not imply quality.
+
+**Detailed data and analytics** and **Technical status** expand to show the
+existing statistics, pipeline guidance and service details. Missing data is
+reported as unknown rather than ready. RAG readiness requires indexed chunks,
+loaded chat and embedding models, an available store and a confirmed consistent
+index; generating training pairs is not a prerequisite for querying documents.
+
 ---

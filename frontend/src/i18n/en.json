@@ -137,7 +137,55 @@
     "ragCapabilities": "RAG Capabilities",
     "pipeline": "Pipeline",
     "rejected": "Rejected",
-    "pending": "Pending"
+    "pending": "Pending",
+    "work": {
+      "kicker": "Control center",
+      "attention": "Needs attention",
+      "running": "In progress",
+      "results": "Latest results",
+      "analytics": "Detailed data and analytics",
+      "technical": "Technical status",
+      "updated": "Statistics last read: {{time}}",
+      "noUpdate": "Statistics not received yet",
+      "partial": "Some data is unavailable; this view may be incomplete.",
+      "loading": "Loading tasks…",
+      "noFailures": "No failures reported in the available tasks.",
+      "noActive": "No tasks in progress in the available data.",
+      "noResults": "No completed results available.",
+      "live": "Live tracking",
+      "polling": "Periodic tracking; the live stream is reconnecting.",
+      "resultsHint": "Open the relevant page to examine the result. A completed task does not guarantee its quality.",
+      "progress": "Progress for {{name}}",
+      "unqualified_one": "{{count}} document to qualify",
+      "unqualified_other": "{{count}} documents to qualify",
+      "status": {
+        "pending": "Pending",
+        "running": "Running",
+        "completed": "Completed",
+        "failed": "Failed or cancelled"
+      },
+      "summary": {
+        "unknown": "Readiness still needs verification",
+        "blocked": "Your index needs attention",
+        "services": "Services are not ready",
+        "empty": "Add your first documents",
+        "ready": "Your knowledge base is ready to query"
+      },
+      "hint": {
+        "unknown": "Required data is missing or index consistency has not been confirmed.",
+        "blocked": "An inconsistency or reindexing needs attention before testing RAG.",
+        "services": "Check loaded models and the storage service in the technical status below.",
+        "empty": "Import documents to build your knowledge base.",
+        "ready": "Test a question, then examine the sources and limitations of the answer."
+      },
+      "action": {
+        "test": "Test an answer",
+        "import": "Import documents",
+        "reviewIndex": "Examine the index",
+        "models": "Check models",
+        "qualify": "Examine documents"
+      }
+    }
   },
   "playground": {
     "expertMode": "Expert mode",
@@ -941,4 +989,3 @@
     "switchLanguage": "Switch language (FR/EN)"
   }
 }
-
