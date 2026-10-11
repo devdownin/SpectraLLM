@@ -81,13 +81,14 @@ public class SpectraMcpTools {
             String collection,
             @McpToolParam(required = false, description = "Passages to return, 1 to 20; default 5")
             Integer maxPassages) {
-        String coll = collectionOrDefault(collection);
-        int max = clamp(maxPassages);
-        RagService.RagContext ctx = ragService.retrieveContext(request(question, coll, max));
-        List<Passage> passages = passages(ctx.sources());
-        String note = passages.isEmpty()
-                ? "No passage matched in collection '%s'.".formatted(coll) : null;
-        return new SearchResult(coll, passages, ctx.rerankApplied(), ctx.hybridApplied(), note);
+        return McpToolFailure.guard("spectra_search", () -> {
+            String coll = collectionOrDefault(collection);
+            RagService.RagContext ctx = ragService.retrieveContext(request(question, coll, clamp(maxPassages)));
+            List<Passage> passages = passages(ctx.sources());
+            String note = passages.isEmpty()
+                    ? "No passage matched in collection '%s'.".formatted(coll) : null;
+            return new SearchResult(coll, passages, ctx.rerankApplied(), ctx.hybridApplied(), note);
+        });
     }
 
     @McpTool(name = "spectra_ask", annotations = @McpTool.McpAnnotations(
@@ -104,10 +105,12 @@ public class SpectraMcpTools {
             String collection,
             @McpToolParam(required = false, description = "Context passages, 1 to 20; default 5")
             Integer maxPassages) {
-        String coll = collectionOrDefault(collection);
-        QueryResponse response = ragService.query(request(question, coll, clamp(maxPassages)));
-        return new AskResult(coll, response.answer(), passages(response.sources()), response.durationMs(),
-                response.rerankApplied(), response.hybridSearchApplied());
+        return McpToolFailure.guard("spectra_ask", () -> {
+            String coll = collectionOrDefault(collection);
+            QueryResponse response = ragService.query(request(question, coll, clamp(maxPassages)));
+            return new AskResult(coll, response.answer(), passages(response.sources()), response.durationMs(),
+                    response.rerankApplied(), response.hybridSearchApplied());
+        });
     }
 
     @McpTool(name = "spectra_list_documents", annotations = @McpTool.McpAnnotations(
@@ -120,16 +123,18 @@ public class SpectraMcpTools {
     public DocumentList listDocuments(
             @McpToolParam(required = false, description = "Collection name; the configured default when omitted")
             String collection) {
-        String coll = collectionOrDefault(collection);
-        // Lister ne doit pas créer : getOrCreateCollection matérialiserait une collection vide
-        // sous un nom mal orthographié, et la réponse dirait « aucun document » au lieu de
-        // « cette collection n'existe pas ».
-        if (!collectionExists(coll)) {
-            return new DocumentList(coll, false, Map.of(), 0, 0);
-        }
-        Map<String, Integer> sources = chromaDbClient.listSources(chromaDbClient.getOrCreateCollection(coll));
-        long chunks = sources.values().stream().mapToLong(Integer::longValue).sum();
-        return new DocumentList(coll, true, sources, sources.size(), chunks);
+        return McpToolFailure.guard("spectra_list_documents", () -> {
+            String coll = collectionOrDefault(collection);
+            // Lister ne doit pas créer : getOrCreateCollection matérialiserait une collection vide
+            // sous un nom mal orthographié, et la réponse dirait « aucun document » au lieu de
+            // « cette collection n'existe pas ».
+            if (!collectionExists(coll)) {
+                return new DocumentList(coll, false, Map.of(), 0, 0);
+            }
+            Map<String, Integer> sources = chromaDbClient.listSources(chromaDbClient.getOrCreateCollection(coll));
+            long chunks = sources.values().stream().mapToLong(Integer::longValue).sum();
+            return new DocumentList(coll, true, sources, sources.size(), chunks);
+        });
     }
 
     @McpTool(name = "spectra_preview_document", annotations = @McpTool.McpAnnotations(
@@ -141,8 +146,10 @@ public class SpectraMcpTools {
     public DocumentPreview previewDocument(
             @McpToolParam(description = "SHA-256 of the document, as listed in the document registry")
             String sha256) {
-        GedService.DocumentPreview preview = gedService.preview(sha256);
-        return new DocumentPreview(sha256, preview.chunks(), preview.truncated());
+        return McpToolFailure.guard("spectra_preview_document", () -> {
+            GedService.DocumentPreview preview = gedService.preview(sha256);
+            return new DocumentPreview(sha256, preview.chunks(), preview.truncated());
+        });
     }
 
     @McpTool(name = "spectra_status", annotations = @McpTool.McpAnnotations(
