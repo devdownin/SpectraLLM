@@ -7,6 +7,8 @@ import WizardProgress from './WizardProgress';
 import WorkspaceContext from './WorkspaceContext';
 import ServiceHealthBanner from './ServiceHealthBanner';
 import CommandPalette from './CommandPalette';
+import ContextBackLink from './ContextBackLink';
+import TaskDetailDestination from './TaskDetailDestination';
 
 interface LayoutProps {
   children: ReactNode;
@@ -90,7 +92,9 @@ const Layout: FC<LayoutProps> = ({ children }) => {
         <WizardProgress />
         <WorkspaceContext />
         <div className="flex-1 p-4 md:p-8 max-w-[1600px] mx-auto w-full">
+          <ContextBackLink />
           {children}
+          <TaskDetailDestination />
         </div>
       </main>
     </div>

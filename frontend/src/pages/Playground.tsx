@@ -1,13 +1,14 @@
 import { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import type { FC } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useWorkspaceCollection } from '../hooks/useWorkspaceCollection';
+import SourceDocumentButton from '../components/playground/SourceDocumentButton';
 import AnswerActions from '../components/playground/AnswerActions';
 import { PageHeader, Button, ActionMenu } from '../components/ui';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { queryApi, configApi, fineTuningApi, ingestApi, healthApi } from '../services/api';
+import { queryApi, configApi, fineTuningApi, healthApi } from '../services/api';
 import type { StreamDoneMeta, StreamStageInfo } from '../services/api';
 import type { ServiceStatus } from '../types/api';
 import Tooltip from '../components/Tooltip';
@@ -83,6 +84,8 @@ const RagBadges: FC<{ meta: RagMeta; onShowTrace?: () => void }> = ({ meta, onSh
 /** Source de réponse dépliable : nom de fichier + pertinence + passage récupéré. */
 const SourceItem: FC<{
   src: Source;
+  collection?: string;
+  focusId?: string;
   expert?: boolean;
   /** Numéro de citation [n] affiché en tête (correspond aux marqueurs [n] de la réponse). */
   citeNumber?: number;
@@ -90,8 +93,8 @@ const SourceItem: FC<{
   cited?: boolean;
   /** Compteur incrémenté à chaque clic sur la citation [n] : déplie et défile jusqu'ici. */
   openSignal?: number;
-}> = ({ src, expert = false, citeNumber, cited = false, openSignal = 0 }) => {
-  const navigate = useNavigate();
+}> = ({ src, collection, focusId, expert = false, citeNumber, cited = false, openSignal = 0 }) => {
+  const location = useLocation();
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -105,20 +108,14 @@ const SourceItem: FC<{
     }
   }, [openSignal]);
 
-  const openInDatabase = async () => {
-    try {
-      const res = await ingestApi.getHistory({ q: src.sourceFile, size: 5 });
-      const items: any[] = res.data?.content ?? res.data ?? [];
-      const match = items.find(d => d.fileName === src.sourceFile) ?? items[0];
-      if (match?.sha256) navigate(`/documents?doc=${encodeURIComponent(match.sha256)}`);
-      else toast.error(t('playground.docNotFound'));
-    } catch {
-      toast.error(t('playground.docOpenFailed'));
+  useEffect(() => {
+    if (focusId && location.state?.sourceFocusId === focusId) {
+      setOpen(true); ref.current?.focus(); ref.current?.scrollIntoView({ block: 'center' });
     }
-  };
+  }, [focusId, location.state]);
 
   return (
-    <div ref={ref} className={`border-b border-outline-variant/10 last:border-0 ${cited ? 'bg-primary/5 -mx-1 px-1 rounded' : ''}`}>
+    <div ref={ref} id={focusId} tabIndex={-1} className={`border-b border-outline-variant/10 last:border-0 ${cited ? 'bg-primary/5 -mx-1 px-1 rounded' : ''}`}>
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
@@ -148,13 +145,7 @@ const SourceItem: FC<{
                 {typeof src.bm25Score === 'number' && src.bm25Score > 0 && ` · bm25: ${src.bm25Score.toFixed(2)}`}
               </span>
             )}
-            <button
-              type="button"
-              onClick={openInDatabase}
-              className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-primary hover:text-primary/70 transition-colors"
-            >
-              <span aria-hidden="true" className="material-symbols-outlined text-[11px]">open_in_new</span>Open in Documents
-            </button>
+            <SourceDocumentButton fileName={src.sourceFile} collection={collection} focusId={focusId} />
           </div>
         </div>
       )}
@@ -1083,6 +1074,8 @@ const Playground: FC = () => {
                         <SourceItem
                           key={j}
                           src={src}
+                          collection={msg.params?.collection}
+                          focusId={`source-${i}-${j}`}
                           expert={expertMode}
                           citeNumber={j + 1}
                           cited={cited.has(j + 1)}

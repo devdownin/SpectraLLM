@@ -1,3 +1,4 @@
+import { MemoryRouter } from 'react-router-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import '../i18n';
@@ -89,7 +90,7 @@ beforeEach(() => {
 
 describe('FineTuning — télémétrie rattachée à son job', () => {
   it('affiche les lignes du job suivi et écarte celles d\'un autre', async () => {
-    render(<FineTuning />);
+    render(<MemoryRouter><FineTuning /></MemoryRouter>);
     await screen.findByRole('heading', { name: 'spectra-domain' });
 
     emit({ level: 'INFO', message: 'ligne du job suivi', timestamp: '10:00:01', jobId: 'job-en-cours' });
@@ -102,7 +103,7 @@ describe('FineTuning — télémétrie rattachée à son job', () => {
   });
 
   it('repart d\'un moniteur vide quand on sélectionne un autre job', async () => {
-    render(<FineTuning />);
+    render(<MemoryRouter><FineTuning /></MemoryRouter>);
     await screen.findByRole('heading', { name: 'spectra-domain' });
     emit({ level: 'INFO', message: 'ligne du job suivi', timestamp: '10:00:01', jobId: 'job-en-cours' });
     expect(await screen.findByText('ligne du job suivi')).toBeInTheDocument();
@@ -119,7 +120,7 @@ describe('FineTuning — télémétrie rattachée à son job', () => {
   it('retrouve la trace persistée du job restauré au chargement', async () => {
     // C'est le cas du rechargement de page : le flux SSE ne rejoue rien, et sans relecture le
     // suivi d'un run de plusieurs heures disparaissait entièrement.
-    render(<FineTuning />);
+    render(<MemoryRouter><FineTuning /></MemoryRouter>);
 
     expect(await screen.findByText('ligne écrite avant le rechargement')).toBeInTheDocument();
     await waitFor(() => expect(getTelemetry).toHaveBeenCalledWith('job-en-cours'));
@@ -128,7 +129,7 @@ describe('FineTuning — télémétrie rattachée à son job', () => {
   });
 
   it('signale que le début du journal n\'est pas affiché', async () => {
-    render(<FineTuning />);
+    render(<MemoryRouter><FineTuning /></MemoryRouter>);
     await screen.findByRole('heading', { name: 'spectra-domain' });
     fireEvent.click(screen.getByRole('cell', { name: 'spectra-ancien' }));
 
@@ -137,7 +138,7 @@ describe('FineTuning — télémétrie rattachée à son job', () => {
   });
 
   it('situe l\'échec d\'un ancien job sur sa phase réelle', async () => {
-    render(<FineTuning />);
+    render(<MemoryRouter><FineTuning /></MemoryRouter>);
     await screen.findByRole('heading', { name: 'spectra-domain' });
     fireEvent.click(screen.getByRole('cell', { name: 'spectra-ancien' }));
 

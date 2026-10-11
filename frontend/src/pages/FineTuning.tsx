@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import type { FC } from 'react';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams, useLocation } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -180,6 +180,10 @@ const FineTuning: FC = () => {
   const [autoScroll, setAutoScroll] = useState(true);
 
   const [jobs, setJobs] = useState<FineTuningJob[]>([]);
+  const [targetParams] = useSearchParams();
+  const location = useLocation();
+  const targetJob = targetParams.get('job');
+  const [targetMissing, setTargetMissing] = useState(false);
   const [activeJob, setActiveJob] = useState<FineTuningJob | null>(null);
   const [showForm, setShowForm] = useState(false);
   const jobRestoredRef = useRef(false);
@@ -452,13 +456,20 @@ const FineTuning: FC = () => {
       // Restore active job once on initial load (page reload while a job is running)
       if (!jobRestoredRef.current && sorted.length > 0) {
         jobRestoredRef.current = true;
-        const inFlight = sorted.find(j => !isTerminal(j.status));
-        if (inFlight) selectJob(inFlight);
+        if (!targetJob) { const inFlight = sorted.find(j => !isTerminal(j.status)); if (inFlight) selectJob(inFlight); }
       }
     } catch { /* ignore */ }
-  }, [selectJob]);
+  }, [selectJob, targetJob]);
 
   useEffect(() => { loadJobs(); }, [loadJobs]);
+
+  useEffect(() => {
+    if (!targetJob) return;
+    let current = true;
+    setTargetMissing(false); setActiveJob(null);
+    fineTuningApi.getJob(targetJob).then(response => { if (current) selectJob(response.data); }).catch(() => { if (current) setTargetMissing(true); });
+    return () => { current = false; };
+  }, [targetJob, selectJob]);
 
   // ── Poll active job ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -576,6 +587,7 @@ const FineTuning: FC = () => {
     <div className="space-y-6 animate-in fade-in duration-700">
 
       {/* Header */}
+      {targetMissing && <p role="alert">{t('detail.missingTarget')}</p>}
       <PageHeader
         kicker={t('fineTuning.kicker')}
         title={t('fineTuning.title')}
@@ -944,7 +956,8 @@ const FineTuning: FC = () => {
                         évaluation a été enchaînée, c'est ici qu'on va la lire. */}
                     {activeJob.evaluationId && (
                       <Link
-                        to="/comparison"
+                        to={`/comparison?eval=${encodeURIComponent(activeJob.evaluationId)}`}
+                        state={{ origin: { path: `/fine-tuning?job=${encodeURIComponent(activeJob.jobId)}`, label: t('nav.fineTuning'), state: location.state } }}
                         className="flex items-center gap-1 text-[10px] font-label uppercase tracking-widest
                                    text-secondary hover:underline"
                       >

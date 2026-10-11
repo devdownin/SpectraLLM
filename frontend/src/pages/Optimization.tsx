@@ -1,3 +1,4 @@
+import { useSearchParams } from 'react-router-dom';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FC } from 'react';
 import type { TFunction } from 'i18next';
@@ -205,18 +206,23 @@ const Optimization: FC = () => {
   const [tunedModel, setTunedModel] = useState<string>('');
   const [maxChunks, setMaxChunks] = useState<number>(5);
   const [runs, setRuns] = useState<number>(1);
-  const [jobId, setJobId] = useState<string | null>(null);
+  const [params] = useSearchParams();
+  const targetJob = params.get('job');
+  const [jobId, setJobId] = useState<string | null>(targetJob);
 
   // Restauration au montage : reprend le passage le plus récent (rechargement / navigation
   // pendant un run — le job et son rapport sont persistés côté serveur).
   useEffect(() => {
+    if (targetJob) { setJobId(targetJob); return; }
+    let current = true;
     ablationApi.listJobs()
       .then(res => {
         const last = (res.data ?? [])[0] as AblationJobDto | undefined;
-        if (last?.jobId) setJobId(last.jobId);
+        if (current && last?.jobId) setJobId(last.jobId);
       })
       .catch(() => { /* historique optionnel */ });
-  }, []);
+    return () => { current = false; };
+  }, [targetJob]);
 
   useEffect(() => {
     fineTuningApi.getModels()
@@ -245,7 +251,7 @@ const Optimization: FC = () => {
   }, [preset, baseModel, tunedModel, t]);
 
   // Suivi du job asynchrone : polling 2 s tant qu'il tourne, arrêt une fois terminal.
-  const { data: job } = useQuery<AblationJobDto>({
+  const { data: job, isError: jobUnavailable } = useQuery<AblationJobDto>({
     queryKey: ['ablation-job', jobId],
     queryFn: async () => (await ablationApi.getJob(jobId!)).data,
     enabled: !!jobId,
@@ -304,6 +310,7 @@ const Optimization: FC = () => {
   return (
     <div className="space-y-6 animate-in fade-in duration-700">
       {/* Header */}
+      {targetJob && jobUnavailable && <p role="alert">{t('detail.missingTarget')}</p>}
       <PageHeader
         kicker={t('optimization.kicker')}
         title={t('optimization.title')}

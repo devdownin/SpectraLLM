@@ -1098,5 +1098,34 @@
         "unverified": "Unverified"
       }
     }
+  },
+  "detail": {
+    "summary": "Summary",
+    "details": "Details",
+    "history": "History",
+    "actions": "Actions",
+    "close": "Close detail panel",
+    "sections": "Detail sections",
+    "unavailable": "No information available.",
+    "returnTo": "Back to {{screen}}",
+    "ambiguousSource": "Several documents match this source. Select the document in Documents.",
+    "opening": "Opening…",
+    "openDocument": "Open document",
+    "missingTarget": "This task or report is unavailable. No other result has been selected.",
+    "taskId": "Identifier",
+    "started": "Started",
+    "finished": "Finished",
+    "export": "Export result",
+    "taskTitle": "Task details",
+    "traceTitle": "Algorithm Trace",
+    "closeTrace": "Close trace panel",
+    "chunksCreated": "Indexed chunks",
+    "pairsGenerated": "Generated pairs",
+    "pairsAccepted": "Accepted pairs",
+    "processed": "Processed",
+    "total": "Total",
+    "quality": "Quality score",
+    "baseline": "Baseline",
+    "candidate": "Candidate"
   }
 }

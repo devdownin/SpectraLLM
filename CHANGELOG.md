@@ -8,6 +8,16 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Modifié — navigation contextuelle et panneaux de détail
+
+- Activité ouvre le rapport ou le job exact, avec retour vers ses filtres ; les liens
+  restent rechargeables et une cible absente ne sélectionne aucun autre résultat.
+- Les sources du Playground ouvrent un document correspondant exactement au nom et
+  à la collection, refusent les correspondances ambiguës et proposent un retour à la source.
+- Documents, traces RAG et résultats d’évaluation partagent les sections Résumé,
+  Détails, Historique et Actions, le comportement mobile et la navigation clavier.
+- Échap ferme seulement le dialogue supérieur lorsqu’une confirmation recouvre un panneau.
+
 ### Modifié — cohérence des surfaces de travail
 
 - Les en-têtes partagent une hiérarchie, des espacements et un emplacement communs
