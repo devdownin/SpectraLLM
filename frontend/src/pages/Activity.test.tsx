@@ -9,6 +9,7 @@ import type { GlobalTask } from '../hooks/useGlobalTasks';
 const state = vi.hoisted(() => ({ tasks: [] as GlobalTask[], loading: false, live: 'open' }));
 vi.mock('../hooks/useGlobalTasks', async importOriginal => ({ ...(await importOriginal<object>()), useGlobalTasks: () => ({ tasks: state.tasks, isLoading: state.loading, liveStatus: state.live }) }));
 beforeEach(async () => {
+ sessionStorage.clear();
  await i18n.changeLanguage('en'); state.loading = false; state.live = 'open';
  state.tasks = ['running', 'completed', 'failed', 'partial', 'cancelled'].map((status, i) => ({ id: `ingestion:${i}`, kind: 'ingestion', icon: 'cloud_upload', label: `${status}.pdf`, status, detail: '5 chunks', progress: status === 'running' ? 0.5 : null, path: '/ingestion', error: status === 'partial' || status === 'failed' ? 'PDF extraction failed' : null, timestamp: '2026-10-10T12:00:00Z', startedAt: null })) as GlobalTask[];
 });
@@ -19,7 +20,7 @@ it('shows progress, errors, distinct outcomes and result links', () => {
  expect(screen.getByText('Cancelled', {selector:'span'})).toBeInTheDocument();
  const partial = within(screen.getByText('partial.pdf').closest('li')!);
  expect(partial.getByText('PDF extraction failed')).toBeVisible();
- expect(partial.getByRole('link', { name: 'Open results' })).toHaveAttribute('href','/ingestion?task=ingestion%3A3');
+ expect(partial.getByRole('link', { name: 'Open result' })).toHaveAttribute('href','/ingestion?task=ingestion%3A3');
  expect(screen.getByText('running.pdf').closest('li')).toBe(screen.getAllByRole('listitem')[0]);
 });
 it('filters by status, family and search, then exposes empty results', async () => {
@@ -28,10 +29,10 @@ it('filters by status, family and search, then exposes empty results', async () 
  expect(screen.getByText('cancelled.pdf')).toBeInTheDocument();
  expect(screen.queryByText('failed.pdf')).not.toBeInTheDocument();
  await user.selectOptions(screen.getByLabelText('Type'), 'evaluation');
- expect(screen.getByText('No tasks match these filters.')).toBeInTheDocument();
+ expect(screen.getByText('No items to display')).toBeInTheDocument();
  await user.selectOptions(screen.getByLabelText('Type'), 'all');
  await user.selectOptions(screen.getByLabelText('Status'), 'all');
- await user.type(screen.getByLabelText('Search tasks'), 'extraction');
+ await user.type(screen.getByLabelText('Search'), 'extraction');
  expect(screen.getAllByRole('listitem')).toHaveLength(2);
 });
 it('shows fallback, loading and indeterminate progress without inventing a percentage', () => {
@@ -41,5 +42,5 @@ it('shows fallback, loading and indeterminate progress without inventing a perce
  expect(screen.getByText('Progress unavailable.')).toBeInTheDocument();
  view.unmount(); state.loading = true;
  render(<MemoryRouter><Activity /></MemoryRouter>);
- expect(screen.getByText('Loading tasks…')).toBeInTheDocument();
+ expect(screen.getByText('Loading list…')).toBeInTheDocument();
 });

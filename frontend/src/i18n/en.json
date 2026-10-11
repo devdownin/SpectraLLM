@@ -1127,5 +1127,37 @@
     "quality": "Quality score",
     "baseline": "Baseline",
     "candidate": "Candidate"
+  },
+  "workList": {
+    "loading": "Loading list…",
+    "loadFailed": "The list could not be refreshed",
+    "loadFailedHint": "Previously loaded items remain visible. Retry to get an up-to-date view.",
+    "retry": "Retry",
+    "empty": "No items to display",
+    "emptyHint": "Change the filters or start a new task.",
+    "identity": "Identity",
+    "status": "Status",
+    "context": "Context",
+    "updated": "Last update",
+    "actions": "Actions",
+    "search": "Search",
+    "reset": "Reset view",
+    "follow": "Follow",
+    "result": "Open result",
+    "inspect": "Inspect failure",
+    "restart": "Prepare a new run",
+    "restartHint": "Parameters are copied to the form; review them before starting.",
+    "open": "Open",
+    "history": "Job history",
+    "partial": "Some sources are unavailable. The list may be incomplete.",
+    "sortLabel": "Sort",
+    "sort": {
+      "recent": "Most recent",
+      "name": "Name"
+    },
+    "pagination": "Pagination",
+    "previous": "Previous",
+    "next": "Next",
+    "configure": "Configure a new task"
   }
 }

@@ -1,5 +1,7 @@
-import { useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import type { FC } from 'react';
+import { useViewState } from '../hooks/useViewState';
+import { useScrollMemory } from '../hooks/useScrollMemory';
 import { useContextSearchParams } from '../hooks/useContextSearchParams';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -8,7 +10,7 @@ import Skeleton from '../components/Skeleton';
 import DocumentPreview from '../components/DocumentPreview';
 import Tooltip from '../components/Tooltip';
 import ConfirmDialog from '../components/ConfirmDialog';
-import { Badge, EmptyState, PageHeader, Button, StatusBadge } from '../components/ui';
+import { Badge, PageHeader, Button, StatusBadge, WorkListRow, ListFeedback } from '../components/ui';
 import { gedApi, commentApi } from '../services/api';
 import { DetailPanel } from '../components/ui/DetailPanel';
 import {
@@ -44,27 +46,31 @@ const Documents: FC = () => {
   const formatDate = (value: string): string =>
     new Date(value).toLocaleString(i18n.language, { dateStyle: 'medium', timeStyle: 'short' });
 
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useViewState('documents.search', '');
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
-  const [selectedLifecycle, setSelectedLifecycle] = useState<string>('all');
-  const [sortMode, setSortMode] = useState<SortMode>('recent');
+  const [selectedLifecycle, setSelectedLifecycle] = useViewState<string>('documents.selectedLifecycle', 'all');
+  const [sortMode, setSortMode] = useViewState<SortMode>('documents.sortMode', 'recent');
   const [selectedSha, setSelectedSha] = useState<string | null>(null);
-  const [groupBy, setGroupBy] = useState<GroupBy>('none');
-  const [selectedFormats, setSelectedFormats] = useState<Set<DocumentTypeKey>>(new Set());
-  const [qualityMin, setQualityMin] = useState(0);
+  const [groupBy, setGroupBy] = useViewState<GroupBy>('documents.groupBy', 'none');
+  const [selectedFormats, setSelectedFormats] = useViewState<Set<DocumentTypeKey>>('documents.selectedFormats', new Set());
+  const [qualityMin, setQualityMin] = useViewState('documents.qualityMin', 0);
   const [bulkSelected, setBulkSelected] = useState<Set<string>>(new Set());
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
-  const [page, setPage] = useState(0);
+  const [collapsedGroups, setCollapsedGroups] = useViewState<Set<string>>('documents.collapsedGroups', new Set());
+  const [page, setPage] = useViewState('documents.page', 0, n => Number.isInteger(n) && n >= 0);
   const [newTagInput, setNewTagInput] = useState('');
   // R8 — classification : filtre par catégorie et suivi du lot en cours.
-  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [selectedCategory, setSelectedCategory] = useViewState<string>('documents.selectedCategory', 'all');
   const [classifyTaskId, setClassifyTaskId] = useState<string | null>(null);
   const [commentInput, setCommentInput] = useState('');
   const [focusInput, setFocusInput] = useState('');
   const [commentTab, setCommentTab] = useState<'list' | 'add' | 'generate'>('list');
   const deferredSearch = useDeferredValue(search);
 
-  useEffect(() => { setPage(0); }, [deferredSearch, selectedLifecycle, selectedFormats, qualityMin, groupBy, sortMode, selectedCategory]);
+  const filterSignature = JSON.stringify([deferredSearch, selectedLifecycle, [...selectedFormats], qualityMin, groupBy, sortMode, selectedCategory]);
+  const lastFilters = useRef(filterSignature);
+  useEffect(() => { if (lastFilters.current !== filterSignature) { setPage(0); lastFilters.current = filterSignature; } }, [filterSignature, setPage]);
+  const listScrollRef = useRef<HTMLDivElement>(null);
+  useScrollMemory('documents.list', listScrollRef);
 
   // Deep-link : ?doc=<sha256> (ex. depuis une source du Playground) ouvre la fiche.
   const [searchParams, setSearchParams] = useContextSearchParams();
@@ -97,6 +103,7 @@ const Documents: FC = () => {
   const {
     data: docPages,
     isLoading,
+    isError,
     isFetching,
     refetch,
     fetchNextPage,
@@ -124,6 +131,8 @@ const Documents: FC = () => {
     () => docPages?.pages.flatMap((p) => p.content) ?? [],
     [docPages],
   );
+  // Rehydrate enough server batches for the remembered client page after a reload.
+  const resetView = () => { setSearch(''); setSelectedLifecycle('all'); setSortMode('recent'); setGroupBy('none'); setSelectedFormats(new Set()); setQualityMin(0); setSelectedCategory('all'); setPage(0); };
   const totalDocuments = docPages?.pages[0]?.totalElements ?? documents.length;
 
   const { data: sheet, isLoading: isLoadingSheet } = useQuery<IngestedFileSheet>({
@@ -421,6 +430,11 @@ const Documents: FC = () => {
 
   const groups = useMemo(() => groupDocuments(filtered, groupBy), [filtered, groupBy]);
 
+  useEffect(() => {
+    if (page > 0 && !isLoading && !isFetching && !isError && hasNextPage && filtered.length < (page + 1) * PAGE_SIZE) void fetchNextPage();
+    if (!isLoading && !isFetching && !isError && !hasNextPage) setPage(p => Math.min(p, Math.max(0, Math.ceil(filtered.length / PAGE_SIZE) - 1)));
+  }, [page, filtered.length, isLoading, isFetching, isError, hasNextPage, fetchNextPage, setPage]);
+  const restoringPage = page > 0 && !!hasNextPage && filtered.length < (page + 1) * PAGE_SIZE;
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const paginatedItems = groupBy === 'none' ? filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE) : [];
 
@@ -470,13 +484,8 @@ const Documents: FC = () => {
     const score = doc.qualityScore ?? 0;
     const isChecked = bulkSelected.has(doc.sha256);
     const isActive = selectedSha === doc.sha256;
-    return (
-      <div
-        key={doc.sha256}
-        onClick={() => setSelectedSha(doc.sha256)}
-        className={`cv-auto group grid grid-cols-1 lg:grid-cols-[32px_minmax(0,1.5fr)_100px_140px_120px_100px_80px] gap-4 items-center px-4 py-4 transition-colors cursor-pointer border-l-2 ${isActive ? 'border-primary bg-surface-container-high/70' : 'border-transparent hover:bg-surface-container-high/40'}`}
-      >
-        <button
+    return <WorkListRow key={doc.sha256} selected={isActive}
+      identity={<div className="flex gap-3 items-center">        <button
           type="button"
           role="checkbox"
           aria-checked={isChecked}
@@ -494,7 +503,7 @@ const Documents: FC = () => {
             <span className="material-symbols-outlined text-base">{type.icon}</span>
           </div>
           <div className="min-w-0">
-            <p className="font-headline text-sm font-bold tracking-tight truncate">{doc.fileName}</p>
+            <button onClick={() => setSelectedSha(doc.sha256)} className="font-headline text-sm font-bold text-left break-all hover:text-primary">{doc.fileName}</button>
             <div className="flex items-center gap-2 mt-1 flex-wrap">
               <span className="text-[10px] font-mono text-outline">{doc.sha256.slice(0, 8)}</span>
               {doc.collectionName && (
@@ -518,11 +527,9 @@ const Documents: FC = () => {
           </div>
         </div>
 
-        <div className="flex justify-center">
-          <StatusBadge status={doc.lifecycle} domain="document" />
-        </div>
-
-        <div className="flex items-center gap-2">
+</div>}
+      status={<StatusBadge status={doc.lifecycle} domain="document" />}
+      context={<div className="space-y-2">        <div className="flex items-center gap-2">
           <div
             role="progressbar"
             aria-valuenow={Math.round(score * 100)}
@@ -542,10 +549,9 @@ const Documents: FC = () => {
           <span className="text-[11px] font-mono text-on-surface-variant w-8 text-right">{(score * 100).toFixed(0)}%</span>
         </div>
 
-        <div className="text-[11px] text-on-surface-variant font-label uppercase">{formatDate(doc.ingestedAt)}</div>
-        <div className="text-right font-headline font-bold text-lg">{doc.chunksCreated}</div>
-
-        <div className="flex justify-end">
+<p className="text-xs">{t('documents.colChunks')}: {doc.chunksCreated}</p></div>}
+      updated={<time dateTime={doc.ingestedAt}>{formatDate(doc.ingestedAt)}</time>}
+      actions={<div className="flex gap-2 items-center"><Button size="sm" variant="outline" onClick={() => setSelectedSha(doc.sha256)}>{t('workList.open')}</Button>        <div className="flex justify-end">
           <button
             onClick={e => {
               e.stopPropagation();
@@ -556,12 +562,11 @@ const Documents: FC = () => {
           >
             <span aria-hidden="true" className="material-symbols-outlined text-sm">delete</span>
           </button>
-        </div>
-      </div>
-    );
+        </div></div>}
+    />;
   };
 
-  if (isLoading) return <div className="p-8 space-y-4"><Skeleton className="h-10 w-1/4" /><Skeleton className="h-64 w-full" /></div>;
+
 
   const total = stats?.total ?? 0;
   // R8 — documents restant à classifier, tirés des stats serveur (et non de la page
@@ -577,7 +582,7 @@ const Documents: FC = () => {
         title={t('documents.title')}
         description={t('documents.subtitle')}
         context={<>{t('documents.shownCount', { shown: filtered.length, loaded: documents.length })}{totalDocuments > documents.length ? t('documents.ofTotal', { total: totalDocuments }) : ''}</>}
-        secondaryActions={[{ id: 'sync', label: t('documents.sync'), icon: 'refresh', onSelect: () => { void refetch(); }, disabled: isFetching }]}
+        secondaryActions={[{ id: 'reset', label: t('workList.reset'), icon: 'filter_alt_off', onSelect: resetView }, { id: 'sync', label: t('documents.sync'), icon: 'refresh', onSelect: () => { void refetch(); }, disabled: isFetching }]}
         primaryAction={classificationConfig?.enabled && <Button
           disabled={bulkClassifyMutation.isPending || !!classifyTaskId || pendingClassification === 0}
           title={t('documents.classifyHint', { model: classificationConfig.model })}
@@ -632,6 +637,7 @@ const Documents: FC = () => {
               <span className="material-symbols-outlined text-base text-outline">search</span>
               <input
                 type="text"
+                aria-label={t('documents.search')}
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder={t('documents.searchPlaceholder')}
@@ -825,8 +831,8 @@ const Documents: FC = () => {
       {/* Document List — aligné sur le style ui/Table (carte + en-tête + lignes divisées) */}
       <section className="bg-surface-container rounded-xl ring-1 ring-white/[0.045] overflow-hidden">
         {/* Column headers */}
-        <div className="hidden lg:grid lg:grid-cols-[32px_minmax(0,1.5fr)_100px_140px_120px_100px_80px] gap-4 px-4 py-2.5 bg-surface-container-high/60 border-b border-outline-variant/60 text-[11px] font-medium uppercase tracking-[0.05em] text-on-surface-variant">
-          <div className="flex justify-center">
+        <div className="hidden lg:grid lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,2fr)_minmax(0,1fr)_auto] gap-4 px-4 py-2.5 bg-surface-container-high/60 border-b border-outline-variant/60 text-[11px] font-medium uppercase tracking-[0.05em] text-on-surface-variant">
+          <div className="flex gap-3">          <div className="flex justify-center">
             <button
               type="button"
               role="checkbox"
@@ -838,22 +844,16 @@ const Documents: FC = () => {
               {allSelected && <span aria-hidden="true" className="material-symbols-outlined text-white text-[11px]">check</span>}
               {!allSelected && someSelected && <span aria-hidden="true" className="material-symbols-outlined text-primary text-[11px]">remove</span>}
             </button>
-          </div>
-          <span>{t('documents.colDocument')}</span>
-          <span className="text-center">{t('documents.colLifecycle')}</span>
-          <span>{t('documents.colQuality')}</span>
-          <span>{t('documents.colIngestedOn')}</span>
-          <span className="text-right">{t('documents.colChunks')}</span>
-          <span className="text-right">{t('documents.colActions')}</span>
+          </div><span>{t('workList.identity')}</span></div>
+          {['status', 'context', 'updated', 'actions'].map(field => <span key={field}>{t(`workList.${field}`)}</span>)}
         </div>
 
-        <div className="max-h-[70vh] overflow-y-auto custom-scrollbar divide-y divide-outline-variant/40">
+        <div ref={listScrollRef} className="max-h-[70vh] overflow-y-auto custom-scrollbar divide-y divide-outline-variant/40">
+          <ListFeedback loading={isLoading || restoringPage} error={isError} empty={!isLoading && !filtered.length} retry={() => { void refetch(); }} action={<Button variant="outline" onClick={resetView}>{t('workList.reset')}</Button>}>
           {groupBy === 'none' ? (
             <>
-              {paginatedItems.map(renderRow)}
-              {filtered.length === 0 && (
-                <EmptyState icon="search_off" title={t('documents.noMatch')} className="py-16" />
-              )}
+              <ul>{paginatedItems.map(renderRow)}</ul>
+
             </>
           ) : (
             Object.entries(groups)
@@ -902,13 +902,14 @@ const Documents: FC = () => {
                     </div>
                     {!isCollapsed && (
                       <div className="divide-y divide-outline-variant/40">
-                        {docs.map(renderRow)}
+                        <ul>{docs.map(renderRow)}</ul>
                       </div>
                     )}
                   </div>
                 );
               })
           )}
+          </ListFeedback>
         </div>
       </section>
 
@@ -920,7 +921,7 @@ const Documents: FC = () => {
           </span>
           <div className="flex gap-1.5">
             <Button variant="outline" size="sm" onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}>
-              {t('documents.prev')}
+              {t('workList.previous')}
             </Button>
             {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
               const p = totalPages <= 7 ? i : (page < 4 ? i : page + i - 3);
@@ -937,7 +938,7 @@ const Documents: FC = () => {
               );
             })}
             <Button variant="outline" size="sm" onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1}>
-              {t('documents.next')}
+              {t('workList.next')}
             </Button>
           </div>
         </div>
@@ -959,8 +960,8 @@ const Documents: FC = () => {
 
       {/* Bulk Action Bar */}
       {someSelected && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom duration-300">
-          <div className="flex items-center gap-4 bg-surface-container-high border border-primary/30 px-6 py-4 shadow-2xl">
+        <div className="fixed bottom-6 inset-x-4 md:left-1/2 md:right-auto md:-translate-x-1/2 z-50 animate-in slide-in-from-bottom duration-300">
+          <div className="flex flex-wrap items-center gap-3 bg-surface-container-high border border-primary/30 px-4 py-4 shadow-2xl">
             <span className="text-[11px] font-label uppercase tracking-widest text-primary font-bold">
               {t('documents.selectedCount', { count: bulkSelected.size })}
             </span>

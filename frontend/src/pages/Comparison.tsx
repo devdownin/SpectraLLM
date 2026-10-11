@@ -1,3 +1,4 @@
+import { useViewState } from '../hooks/useViewState';
 import { useState, useEffect } from 'react';
 import { useContextSearchParams } from '../hooks/useContextSearchParams';
 import { DetailPanel } from '../components/ui/DetailPanel';
@@ -12,7 +13,7 @@ import ModelComparisonPanel from '../components/ModelComparisonPanel';
 import BatchEvaluateDialog from '../components/BatchEvaluateDialog';
 import AbComparisonView from '../components/AbComparisonView';
 import Skeleton from '../components/Skeleton';
-import { EmptyState, Button, PageHeader, Input, CountUp, StatusBadge } from '../components/ui';
+import { EmptyState, Button, PageHeader, CountUp, StatusBadge, WorkList, WorkListRow, ListFeedback, ListTools } from '../components/ui';
 import { apiErrorMessage } from '../lib/apiError';
 
 
@@ -100,7 +101,7 @@ const Comparison: FC = () => {
   const formatDate = (iso: string) =>
     new Date(iso).toLocaleString(i18n.language, { dateStyle: 'short', timeStyle: 'short' });
 
-  const { data: reports = [], isLoading } = useQuery({
+  const { data: reports = [], isLoading, isError: listError, refetch: reloadReports } = useQuery({
     queryKey: ['evaluation-reports'],
     queryFn: async (): Promise<EvaluationReport[]> =>
       (((await evaluationApi.getAll()).data ?? []) as EvaluationReport[])
@@ -112,15 +113,17 @@ const Comparison: FC = () => {
     },
   });
 
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useViewState('comparison.search', '');
+  const [listStatus, setListStatus] = useViewState('comparison.status', 'all');
+  const [listSort, setListSort] = useViewState('comparison.sort', 'recent');
 
   // ── Mode comparaison multi-modèles ──────────────────────────────────────────
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [compareMode, setCompareMode] = useState(false);
   const [baselineId, setBaselineId] = useState<string | undefined>(undefined);
   const [batchOpen, setBatchOpen] = useState(false);
-  const [abMode, setAbMode] = useState(Boolean(targetAb));
-  useEffect(() => { if (targetAb) setAbMode(true); }, [targetAb]);
+  const [abMode, setAbMode] = useViewState('comparison.abMode', Boolean(targetAb));
+  useEffect(() => { if (targetAb) setAbMode(true); else if (targetEval) setAbMode(false); }, [targetAb, targetEval, setAbMode]);
 
   // Pré-sélectionne les évaluations issues d'un batch dès qu'elles sont complétées.
   const handleBatchSubmitted = (evalIds: string[]) => {
@@ -203,7 +206,8 @@ const Comparison: FC = () => {
   // scoresByCategory qui ventile par type d'exercice (q/r, résumé, refus).
   const documentCategories = selected ? Object.entries(selected.scoresByDocumentCategory ?? {}) : [];
 
-  const filteredReports = reports.filter(r => r.modelName.toLowerCase().includes(searchTerm.toLowerCase()));
+  const openReport = (report: EvaluationReport) => { setSelected(report); const next = new URLSearchParams(params); next.set('eval', report.evalId); setParams(next); };
+  const filteredReports = reports.filter(r => (listStatus === 'all' || r.status === listStatus) && `${r.modelName} ${r.evalId}`.toLowerCase().includes(searchTerm.toLowerCase())).sort((a, b) => listSort === 'name' ? a.modelName.localeCompare(b.modelName) : b.startedAt.localeCompare(a.startedAt));
 
   const handleExportSelected = () => {
     if (!selected) return;
@@ -231,7 +235,7 @@ const Comparison: FC = () => {
           { id: 'ab', label: abMode ? t('comparison.abExit') : t('comparison.abEnter'), icon: 'compare_arrows', pressed: abMode, onSelect: () => setAbMode(value => !value) },
           ...(!abMode ? [
             { id: 'batch', label: t('comparison.batchTitle'), icon: 'playlist_add', onSelect: () => setBatchOpen(true) },
-            { id: 'compare', label: compareMode ? t('comparison.compareExit') : t('comparison.compareEnter', { count: compareIds.length }), icon: 'compare', pressed: compareMode, disabled: compareIds.length < 2, onSelect: () => setCompareMode(value => !value) },
+            { id: 'compare', label: compareMode ? t('comparison.compareExit') : t('comparison.compareEnter', { count: compareIds.length }), icon: 'compare', pressed: compareMode, disabled: compareIds.length < 2, disabledReason: t('comparison.needTwo'), onSelect: () => setCompareMode(value => !value) },
           ] : []),
         ]}
         primaryAction={!abMode && <Button onClick={handleNewEvaluation} disabled={isTriggering} loading={isTriggering} icon="add">{isTriggering ? t('comparison.launching') : t('comparison.newEval')}</Button>}
@@ -242,11 +246,8 @@ const Comparison: FC = () => {
       {abMode && <AbComparisonView />}
 
       {!abMode && (isLoading ? (
-        <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-6 items-start">
-          <Skeleton className="h-64" />
-          <Skeleton className="h-80" />
-        </div>
-      ) : reports.length === 0 && !selected ? (
+        <ListFeedback loading><span /></ListFeedback>
+      ) : listError && !reports.length ? (<ListFeedback error retry={() => { void reloadReports(); }}><span /></ListFeedback>) : reports.length === 0 && !selected ? (
         <div className="bg-surface-container rounded-xl ring-1 ring-white/[0.045]">
           <EmptyState
             icon="analytics"
@@ -260,62 +261,17 @@ const Comparison: FC = () => {
           />
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-6 items-start">
-          {/* Evaluation list */}
-          <div className="bg-surface-container divide-y divide-outline-variant/10">
-            <div className="px-4 py-3 bg-surface-container-high flex flex-col gap-2">
-               <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">{t('comparison.history')}</p>
-               <Input
-                 type="search"
-                 placeholder={t('comparison.filterPlaceholder')}
-                 value={searchTerm}
-                 onChange={e => setSearchTerm(e.target.value)}
-                 aria-label={t('comparison.filterPlaceholder')}
-                 className="h-8 text-[12px]"
-               />
-            </div>
-            {filteredReports.map(r => (
-              <div key={r.evalId} className="flex items-stretch">
-              {r.status === 'COMPLETED' && (
-                <label
-                  className="flex items-center px-3 cursor-pointer hover:bg-surface-container-high/60"
-                  title={t('comparison.selectForCompare')}
-                >
-                  <input
-                    type="checkbox"
-                    checked={compareIds.includes(r.evalId)}
-                    onChange={() => toggleCompare(r.evalId)}
-                    className="accent-secondary"
-                    aria-label={t('comparison.selectModelAria', { name: r.modelName })}
-                  />
-                </label>
-              )}
-              <button
-                onClick={() => { setSelected(r); if (targetEval) { const next = new URLSearchParams(params); next.set('eval', r.evalId); setParams(next); } }}
-                className={`flex-1 min-w-0 text-left px-4 py-3 transition-colors hover:bg-surface-container-high/60
-                  ${selected?.evalId === r.evalId ? 'bg-surface-container-high' : ''}`}
-                aria-label={t('comparison.reportAria', { name: r.modelName, date: formatDate(r.startedAt) })}
-                aria-current={selected?.evalId === r.evalId ? 'true' : 'false'}
-              >
-                <div className="flex items-center justify-between mb-0.5">
-                  <span className="font-headline font-bold text-xs truncate pr-2">{r.modelName}</span>
-                  <StatusBadge status={r.status} />
-                </div>
-                <p className="font-label text-[10px] text-on-surface-variant">
-                  {formatDate(r.startedAt)}
-                </p>
-                {r.status === 'COMPLETED' && (
-                  <p className="font-headline text-sm font-bold mt-1">
-                    {r.averageScore.toFixed(2)}<span className="text-[11px] font-normal text-on-surface-variant">/10</span>
-                  </p>
-                )}
-                {r.status === 'RUNNING' && (
-                  <ProgressBar value={r.processed} max={r.testSetSize} />
-                )}
-              </button>
-              </div>
-            ))}
-          </div>
+        <div className="space-y-6">
+          <ListTools search={searchTerm} onSearch={setSearchTerm} status={listStatus} onStatus={setListStatus} statuses={['PENDING', 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED']} sort={listSort} onSort={setListSort} onReset={() => { setSearchTerm(''); setListStatus('all'); setListSort('recent'); }} />
+          <ListFeedback error={listError} empty={!filteredReports.length} retry={() => { void reloadReports(); }} action={<Button variant="outline" onClick={() => { setSearchTerm(''); setListStatus('all'); }}>{t('workList.reset')}</Button>}>
+            {!!filteredReports.length && <WorkList viewKey="comparison" filters={JSON.stringify([searchTerm, listStatus, listSort])} label={t('comparison.history')}>{filteredReports.map(r => <WorkListRow key={r.evalId} selected={selected?.evalId === r.evalId}
+              identity={<div className="flex gap-3 items-center">{r.status === 'COMPLETED' && <input type="checkbox" checked={compareIds.includes(r.evalId)} onChange={() => toggleCompare(r.evalId)} aria-label={t('comparison.selectModelAria', { name: r.modelName })} className="accent-secondary" />}<div><button onClick={() => openReport(r)} className="font-medium text-left hover:text-primary" aria-label={t('comparison.reportAria', { name: r.modelName, date: formatDate(r.startedAt) })}>{r.modelName}</button><p className="text-xs break-all text-on-surface-variant">{r.evalId}</p></div></div>}
+              status={<StatusBadge status={r.status} />}
+              context={<div className="text-xs space-y-1"><p>{t('comparison.judge')}: {r.judgeModel || '—'}</p>{r.status === 'COMPLETED' ? <p>{r.averageScore.toFixed(2)}/10</p> : <ProgressBar value={r.processed} max={r.testSetSize} />}{r.error && <p className="text-error break-all">{r.error}</p>}</div>}
+              updated={<time dateTime={r.completedAt ?? r.startedAt}>{formatDate(r.completedAt ?? r.startedAt)}</time>}
+              actions={<Button variant="outline" size="sm" onClick={() => openReport(r)}>{t(['PENDING', 'RUNNING'].includes(r.status) ? 'workList.follow' : r.status === 'COMPLETED' ? 'workList.result' : r.status === 'FAILED' ? 'workList.inspect' : 'workList.open')}</Button>}
+            />)}</WorkList>}
+          </ListFeedback>
 
           {/* Comparison panel (multi-model) */}
           {compareMode && (

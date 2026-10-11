@@ -33,3 +33,7 @@ export { StatusBadge } from './StatusBadge';
 export { ActionMenu } from './ActionMenu';
 export type { ActionMenuItem } from './ActionMenu';
 export { DetailPanel } from './DetailPanel';
+
+export { WorkList, WorkListRow } from './WorkList';
+export { ListFeedback } from './ListFeedback';
+export { ListTools } from './ListTools';

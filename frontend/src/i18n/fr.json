@@ -1127,5 +1127,37 @@
     "quality": "Score qualité",
     "baseline": "Référence",
     "candidate": "Candidat"
+  },
+  "workList": {
+    "loading": "Chargement de la liste…",
+    "loadFailed": "La liste n’a pas pu être actualisée",
+    "loadFailedHint": "Les éléments déjà chargés restent visibles. Réessayez pour obtenir un état à jour.",
+    "retry": "Réessayer",
+    "empty": "Aucun élément à afficher",
+    "emptyHint": "Modifiez les filtres ou lancez une nouvelle tâche.",
+    "identity": "Identité",
+    "status": "Statut",
+    "context": "Contexte",
+    "updated": "Dernière mise à jour",
+    "actions": "Actions",
+    "search": "Rechercher",
+    "reset": "Réinitialiser la vue",
+    "follow": "Suivre",
+    "result": "Ouvrir le résultat",
+    "inspect": "Examiner l’échec",
+    "restart": "Préparer une relance",
+    "restartHint": "Les paramètres sont repris dans le formulaire ; vérifiez-les avant de lancer.",
+    "open": "Ouvrir",
+    "history": "Historique des jobs",
+    "partial": "Certaines sources sont indisponibles. La liste peut être incomplète.",
+    "sortLabel": "Trier",
+    "sort": {
+      "recent": "Plus récents",
+      "name": "Nom"
+    },
+    "pagination": "Pagination",
+    "previous": "Précédent",
+    "next": "Suivant",
+    "configure": "Configurer une nouvelle tâche"
   }
 }
