@@ -49,6 +49,11 @@ spectra:
   # ApiKeyFilter laisse tout passer, et /mcp répond alors 503 plutôt que d'exposer le corpus.
   mcp:
     enabled: ${SPECTRA_MCP_ENABLED:false}
+    # Seau à jetons unique pour l'instance (Spectra n'a qu'une clé : rien ne distingue deux
+    # agents). Le refus dit combien attendre. 0 appel/minute désactive la limite.
+    rate-limit:
+      calls-per-minute: ${SPECTRA_MCP_RATE_LIMIT_PER_MINUTE:60}
+      burst: ${SPECTRA_MCP_RATE_LIMIT_BURST:10}
   llm:
     base-url: ${SPECTRA_LLM_BASE_URL:http://llm-chat:8081}
     model: ${SPECTRA_LLM_MODEL:qwen2.5-7b-instruct}
