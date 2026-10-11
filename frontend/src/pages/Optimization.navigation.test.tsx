@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -13,7 +13,7 @@ const time = '2026-10-10T12:00:00Z';
 const report = { benchmarkSize: 1, startedAt: time, completedAt: time, arms: [{ label: 'Exact arm', model: 'Target model', useRag: true, quality: { avgScore: 8, hallucinationRate: 0, refusalAccuracy: 1, scoresByCategory: {} }, retrieval: { evaluatedQuestions: 1, hitRate: 1, mrr: 1, recallAtK: 1 }, avgLatencyMs: 100, p50LatencyMs: 100, avgContextTokens: 100, runs: 1, stdDev: {}, appliedCounts: {} }] };
 const job = { jobId: 'exact', label: 'Exact experiment', status: 'COMPLETED', report, createdAt: time, completedAt: time };
 beforeEach(() => { sessionStorage.clear(); vi.mocked(ablationApi.listJobs).mockResolvedValue({ data: [] } as never); vi.clearAllMocks(); void i18n.changeLanguage('en'); vi.mocked(ablationApi.getJob).mockResolvedValue({ data: job } as never); });
-function show(path: string) { render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><MemoryRouter initialEntries={[path]}><Optimization /></MemoryRouter></QueryClientProvider>); }
+function show(path: string) { const client = new QueryClient({ defaultOptions: { queries: { retry: false } } }); render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><Optimization /></MemoryRouter></QueryClientProvider>); return client; }
 it('opens the exact ablation result in the shared panel and can close/reopen it', async () => {
   show('/optimization?job=exact');
   const dialog = await screen.findByRole('dialog'); expect(dialog).toHaveTextContent('Exact arm'); expect(dialog).toHaveTextContent('Charts'); expect(ablationApi.getJob).toHaveBeenCalledWith('exact'); expect(ablationApi.listJobs).toHaveBeenCalled();
@@ -28,4 +28,12 @@ it('reports a missing target without restoring another experiment', async () => 
 it('keeps a restored historical result available without opening a panel automatically', async () => {
   vi.mocked(ablationApi.listJobs).mockResolvedValue({ data: [job] } as never); show('/optimization');
   const open = await screen.findByRole('button', { name: 'Open results' }); expect(screen.queryByRole('dialog')).not.toBeInTheDocument(); await userEvent.click(open); expect(screen.getByRole('dialog')).toBeInTheDocument();
+});
+
+it('keeps a result panel closed when background history changes', async () => {
+  const client = show('/optimization?job=exact');
+  await screen.findByRole('dialog'); await userEvent.keyboard('{Escape}');
+  await act(async () => { client.setQueryData(['ablation-history'], [{ ...job, label: 'Updated history' }]); });
+  await screen.findByRole('button', { name: 'Updated history' });
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 });

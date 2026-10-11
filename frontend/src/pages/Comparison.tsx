@@ -123,7 +123,7 @@ const Comparison: FC = () => {
   const [baselineId, setBaselineId] = useState<string | undefined>(undefined);
   const [batchOpen, setBatchOpen] = useState(false);
   const [abMode, setAbMode] = useViewState('comparison.abMode', Boolean(targetAb));
-  useEffect(() => { if (targetAb) setAbMode(true); }, [targetAb]);
+  useEffect(() => { if (targetAb) setAbMode(true); else if (targetEval) setAbMode(false); }, [targetAb, targetEval, setAbMode]);
 
   // Pré-sélectionne les évaluations issues d'un batch dès qu'elles sont complétées.
   const handleBatchSubmitted = (evalIds: string[]) => {

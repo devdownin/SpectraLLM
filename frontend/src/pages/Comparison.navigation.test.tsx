@@ -41,3 +41,10 @@ it('opens the exact A/B report independently from the evaluation history', async
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   expect(screen.getByText(i18n.t('ab.newRun'))).toBeInTheDocument();
 });
+
+it('lets an explicit evaluation link override the saved A/B view mode', async () => {
+  sessionStorage.setItem('spectra.view.comparison.abMode', 'true');
+  vi.mocked(evaluationApi.get).mockResolvedValue({ data: report } as never);
+  show('/comparison?eval=requested');
+  expect(await screen.findByRole('dialog', { name: 'Target model' })).toBeInTheDocument();
+});

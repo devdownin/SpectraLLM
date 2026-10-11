@@ -218,7 +218,9 @@ const Optimization: FC = () => {
   const history = useQuery<AblationJobDto[]>({ queryKey: ['ablation-history'], queryFn: async () => (await ablationApi.listJobs()).data ?? [], refetchInterval: q => q.state.data?.some(j => ['PENDING', 'RUNNING'].includes(j.status)) ? 5000 : false });
   useEffect(() => {
     if (targetJob) { setJobId(targetJob); setReportOpen(true); }
-    else if (!jobId && history.data?.[0]?.jobId) setJobId(history.data[0].jobId);
+  }, [targetJob]);
+  useEffect(() => {
+    if (!targetJob && !jobId && history.data?.[0]?.jobId) setJobId(history.data[0].jobId);
   }, [targetJob, jobId, history.data]);
   const openHistoryJob = (id: string) => { setJobId(id); setReportOpen(true); const next = new URLSearchParams(params); next.set('job', id); setParams(next); };
   const visibleJobs = (history.data ?? []).filter(j => (historyStatus === 'all' || j.status === historyStatus) && `${j.label} ${j.jobId}`.toLowerCase().includes(historySearch.toLowerCase())).sort((a, b) => historySort === 'name' ? (a.label ?? a.jobId).localeCompare(b.label ?? b.jobId) : b.createdAt.localeCompare(a.createdAt));
