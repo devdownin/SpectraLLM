@@ -8,15 +8,15 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
-### Modifié — navigation contextuelle et panneaux de détail
+### Ajouté — journal des appels MCP
 
-- Activité ouvre le rapport ou le job exact, avec retour vers ses filtres ; les liens
-  restent rechargeables et une cible absente ne sélectionne aucun autre résultat.
-- Les sources du Playground ouvrent un document correspondant exactement au nom et
-  à la collection, refusent les correspondances ambiguës et proposent un retour à la source.
-- Documents, traces RAG et résultats d’évaluation ou d’ablation partagent les sections Résumé,
-  Détails, Historique et Actions, le comportement mobile et la navigation clavier.
-- Échap ferme seulement le dialogue supérieur lorsqu’une confirmation recouvre un panneau.
+- `GET /api/mcp/calls` liste les derniers appels d'outils MCP (outil, arguments tronqués à
+  200 caractères, issue, durée), le plus récent d'abord. L'issue dit à qui revient l'échec :
+  `CALLER_ERROR` (appel invalide), `SERVICE_ERROR` (service injoignable, rien lu), `FAILURE`
+  (défaut à examiner). Timer Prometheus `spectra_mcp_calls_seconds{tool,outcome}`.
+- En mémoire et borné à 500 appels, perdu au redémarrage : un outil de diagnostic, pas une
+  piste d'audit — les arguments sont des questions d'utilisateurs, que rien ne doit conserver
+  sans politique de rétention.
 
 ### Corrigé — erreurs des outils MCP
 
@@ -38,6 +38,16 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
   de travail et le Model Hub. Un état inconnu ne vaut pas confirmation de chargement.
 - Le menu commun des actions secondaires prend en charge le clavier et la fermeture
   par Échap ou clic extérieur. Les actions des réponses ne dépendent plus du survol.
+
+### Modifié — navigation contextuelle et panneaux de détail
+
+- Activité ouvre le rapport ou le job exact, avec retour vers ses filtres ; les liens
+  restent rechargeables et une cible absente ne sélectionne aucun autre résultat.
+- Les sources du Playground ouvrent un document correspondant exactement au nom et
+  à la collection, refusent les correspondances ambiguës et proposent un retour à la source.
+- Documents, traces RAG et résultats d’évaluation ou d’ablation partagent les sections Résumé,
+  Détails, Historique et Actions, le comportement mobile et la navigation clavier.
+- Échap ferme seulement le dialogue supérieur lorsqu’une confirmation recouvre un panneau.
 
 ### Ajouté — serveur MCP en lecture seule
 

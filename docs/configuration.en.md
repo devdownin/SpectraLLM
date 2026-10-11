@@ -203,7 +203,7 @@ together and is the recommended way in.
 |---|---|---|
 | `SPECTRA_BIND_ADDR` | `127.0.0.1` | Host address the stack's ports are published on. The default reaches this machine only. Set to `0.0.0.0` for a deliberate multi-host deployment |
 | `SPECTRA_API_KEY` | *(empty)* | Required in the `X-API-Key` header on every `/api/**` route when set. Empty = no authentication. `/actuator` is always exempt so health checks work without a key |
-| `SPECTRA_MCP_ENABLED` | `false` | Serves a read-only MCP server on `/mcp` (Streamable HTTP, port 8080): `spectra_search`, `spectra_ask`, `spectra_list_documents`, `spectra_preview_document`, `spectra_status`. Requires `SPECTRA_API_KEY` — without a key `/mcp` answers 503 rather than exposing the corpus unauthenticated |
+| `SPECTRA_MCP_ENABLED` | `false` | Serves a read-only MCP server on `/mcp` (Streamable HTTP, port 8080): `spectra_search`, `spectra_ask`, `spectra_list_documents`, `spectra_preview_document`, `spectra_status`. Requires `SPECTRA_API_KEY` — without a key `/mcp` answers 503 rather than exposing the corpus unauthenticated. The last 500 tool calls (tool, truncated arguments, outcome, duration) are readable on `GET /api/mcp/calls?limit=50` and timed as `spectra_mcp_calls_seconds{tool,outcome}`; they are kept in memory and lost on restart |
 
 Containers do **not** need the published ports to reach each other — they talk over the
 Compose network using service names. Publishing exists only for host access: the browser on
