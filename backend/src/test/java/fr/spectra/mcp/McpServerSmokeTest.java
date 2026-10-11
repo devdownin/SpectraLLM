@@ -62,6 +62,26 @@ class McpServerSmokeTest {
     }
 
     @Test
+    void aToolCallIsReadableInTheJournal() throws Exception {
+        HttpResponse<String> init = post("""
+                {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18",
+                "capabilities":{},"clientInfo":{"name":"smoke","version":"1"}}}""", null, "test-key");
+        String session = init.headers().firstValue("Mcp-Session-Id").orElse(null);
+        post("""
+                {"jsonrpc":"2.0","method":"notifications/initialized"}""", session, "test-key");
+        post("""
+                {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"spectra_status","arguments":{}}}""",
+                session, "test-key");
+
+        HttpResponse<String> journal = http.send(HttpRequest.newBuilder(
+                        URI.create("http://localhost:" + port + "/api/mcp/calls"))
+                .header("X-API-Key", "test-key").GET().build(), HttpResponse.BodyHandlers.ofString());
+
+        assertThat(journal.statusCode()).isEqualTo(200);
+        assertThat(journal.body()).contains("\"tool\":\"spectra_status\"", "\"outcome\":\"OK\"");
+    }
+
+    @Test
     void withoutTheKeyMcpIsRefused() throws Exception {
         assertThat(post("""
                 {"jsonrpc":"2.0","id":1,"method":"tools/list"}""", null, null).statusCode()).isEqualTo(401);
