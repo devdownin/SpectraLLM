@@ -1107,7 +1107,7 @@ const FineTuning: FC = () => {
           </button>
         </div>
 
-        <ListTools search={historySearch} onSearch={setHistorySearch} status={historyStatus} onStatus={setHistoryStatus} statuses={['PENDING', 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED']} sort={historySort} onSort={setHistorySort} onReset={() => { setHistorySearch(''); setHistoryStatus('all'); setHistorySort('recent'); }} />
+        <ListTools resultCount={visibleJobs.length} search={historySearch} onSearch={setHistorySearch} status={historyStatus} onStatus={setHistoryStatus} statuses={['PENDING', 'RUNNING', 'EXPORTING_DATASET', 'TRAINING', 'IMPORTING_MODEL', 'COMPLETED', 'FAILED', 'CANCELLED']} phaseLabels={Object.fromEntries(['EXPORTING_DATASET', 'TRAINING', 'IMPORTING_MODEL'].map(phase => [phase, t(`fineTuning.steps.${phase}`)]))} sort={historySort} onSort={setHistorySort} onReset={() => { setHistorySearch(''); setHistoryStatus('all'); setHistorySort('recent'); }} />
         <ListFeedback loading={jobsLoading} error={jobsError} retry={() => { void loadJobs(); }} empty={!visibleJobs.length} action={<Button variant="outline" onClick={() => { setHistorySearch(''); setHistoryStatus('all'); setShowForm(true); }}>{t('workList.configure')}</Button>}>
           {!!visibleJobs.length && <WorkList viewKey="training" filters={JSON.stringify([historySearch, historyStatus, historySort])} label={t('fineTuning.history')}>{visibleJobs.map(job => <WorkListRow key={job.jobId} selected={activeJob?.jobId === job.jobId}
             identity={<><button className="font-medium text-left hover:text-primary" onClick={() => openJob(job)}>{job.modelName}</button><p className="text-xs font-mono break-all text-on-surface-variant">{job.jobId}</p></>}

@@ -86,3 +86,19 @@ une relance » pour un job échoué ou annulé : ses paramètres remplissent le 
 que l’utilisateur vérifie avant de lancer. Les sélections d’historique ouvrent des liens
 rechargeables vers le job ou le rapport exact. Une comparaison indisponible faute de
 sélection explique qu’il faut au moins deux évaluations.
+
+Les filtres de statut reprennent les libellés des badges, y compris « Succès partiel ».
+L’historique du fine-tuning propose « En cours » pour toutes les phases actives et des
+filtres précis pour l’export, l’entraînement et l’import. La barre de recherche, de tri
+et de statut affiche le nombre de résultats filtrés et reste visible sous l’en-tête.
+Les longues listes défilent dans leur propre zone, accessible au clavier ; leurs
+en-têtes de colonnes restent visibles sur ordinateur.
+
+Dans Documents, la sélection de page ne porte que sur les lignes affichées et conserve
+les choix effectués sur d’autres pages. En vue groupée, elle porte sur les groupes
+ouverts. Deux compteurs distinguent la sélection visible du total sélectionné.
+« Sélectionner tous les résultats filtrés » charge tous les lots serveur avant
+d’appliquer la sélection ; un échec conserve les choix précédents. Tant que tous les
+lots ne sont pas chargés, le compteur de résultats porte sur les documents chargés.
+Changer la recherche ou un filtre de contenu efface la sélection ; changer le tri ou
+le groupement la conserve. La suppression demande toujours confirmation du nombre exact.

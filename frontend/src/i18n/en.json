@@ -932,7 +932,22 @@
     "cancel": "Cancel",
     "classifyPending": "Classify ({{count}})",
     "allClassified": "All classified",
-    "classifyHint": "Classify the pending documents with {{model}}"
+    "classifyHint": "Classify the pending documents with {{model}}",
+    "moreFilters": "More filters",
+    "selectionScope": "Selection scope",
+    "selectPage": "Select this page",
+    "selectView": "Select visible documents",
+    "selectedOnPage_one": "{{count}} selected on this page",
+    "selectedOnPage_other": "{{count}} selected on this page",
+    "selectedInView_one": "{{count}} selected in this view",
+    "selectedInView_other": "{{count}} selected in this view",
+    "selectedTotal_one": "{{count}} selected in total",
+    "selectedTotal_other": "{{count}} selected in total",
+    "selectFiltered": "Select all filtered results",
+    "selectingAll": "Loading all filtered results…",
+    "filteredLoaded": "Count covers loaded results; global selection loads every batch.",
+    "clearSelection": "Clear selection",
+    "selectionFailed": "Could not load all results. Your selection was kept."
   },
   "batchEval": {
     "kicker": "Compare models",
@@ -1153,11 +1168,15 @@
     "sortLabel": "Sort",
     "sort": {
       "recent": "Most recent",
-      "name": "Name"
+      "name": "Name",
+      "chunks": "Chunks",
+      "quality": "Quality"
     },
     "pagination": "Pagination",
     "previous": "Previous",
     "next": "Next",
-    "configure": "Configure a new task"
+    "configure": "Configure a new task",
+    "resultCount_one": "{{count}} filtered result",
+    "resultCount_other": "{{count}} filtered results"
   }
 }

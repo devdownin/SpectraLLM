@@ -173,7 +173,7 @@ const AbComparisonView: FC = () => {
         </div>
       ) : (
         <div className="space-y-6">
-          <ListTools search={search} onSearch={setSearch} status={status} onStatus={setStatus} statuses={['PENDING', 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED']} sort={sort} onSort={setSort} onReset={() => { setSearch(''); setStatus('all'); setSort('recent'); }} />
+          <ListTools resultCount={filtered.length} search={search} onSearch={setSearch} status={status} onStatus={setStatus} statuses={['PENDING', 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED']} sort={sort} onSort={setSort} onReset={() => { setSearch(''); setStatus('all'); setSort('recent'); }} />
           <ListFeedback error={isError} empty={!filtered.length} retry={() => { void refetch(); }} action={<Button variant="outline" onClick={() => { setSearch(''); setStatus('all'); }}>{t('workList.reset')}</Button>}>
             {!!filtered.length && <WorkList viewKey="ab" filters={JSON.stringify([search, status, sort])} label={t('ab.history')}>{filtered.map(r => <WorkListRow key={r.abId}
               identity={<><p className="font-medium">{r.modelA} {t('ab.vs')} {r.modelB}</p><p className="text-xs text-on-surface-variant break-all">{r.abId}</p></>}

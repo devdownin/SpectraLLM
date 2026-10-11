@@ -49,6 +49,16 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 - Le menu commun des actions secondaires prend en charge le clavier et la fermeture
   par Échap ou clic extérieur. Les actions des réponses ne dépendent plus du survol.
 
+### Modifié — filtres, repères et sélection des listes
+
+- Les filtres partagent les libellés des badges, dont Succès partiel ; le fine-tuning
+  propose les phases d’export, d’entraînement et d’import en plus du filtre En cours.
+- Les barres de filtres et leurs compteurs restent visibles ; les en-têtes des listes
+  longues restent fixes dans une zone de défilement accessible au clavier.
+- Documents distingue sélection de page et sélection de tous les résultats filtrés.
+  La sélection globale charge tous les lots avant de s’appliquer, conserve les choix
+  en cas d’échec et est annulée si les filtres changent. Le total sélectionné est explicite.
+
 ### Modifié — listes et continuité des parcours
 
 - Activité, Documents et les historiques d’entraînements, d’ablations et de rapports

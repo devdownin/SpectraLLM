@@ -10,7 +10,7 @@ import Skeleton from '../components/Skeleton';
 import DocumentPreview from '../components/DocumentPreview';
 import Tooltip from '../components/Tooltip';
 import ConfirmDialog from '../components/ConfirmDialog';
-import { Badge, PageHeader, Button, StatusBadge, WorkListRow, ListFeedback } from '../components/ui';
+import { Badge, PageHeader, Button, StatusBadge, WorkListRow, ListFeedback, ListTools } from '../components/ui';
 import { gedApi, commentApi } from '../services/api';
 import { DetailPanel } from '../components/ui/DetailPanel';
 import {
@@ -67,6 +67,19 @@ const Documents: FC = () => {
   const deferredSearch = useDeferredValue(search);
 
   const filterSignature = JSON.stringify([deferredSearch, selectedLifecycle, [...selectedFormats], qualityMin, groupBy, sortMode, selectedCategory]);
+  const [selectingAll, setSelectingAll] = useState(false);
+  const selectionGeneration = useRef(0);
+  const selectionFilters = JSON.stringify([search, selectedLifecycle, [...selectedFormats], qualityMin, selectedCategory]);
+  const previousSelectionFilters = useRef(selectionFilters);
+  useEffect(() => {
+    if (previousSelectionFilters.current !== selectionFilters) {
+      previousSelectionFilters.current = selectionFilters;
+      selectionGeneration.current++;
+      setSelectingAll(false);
+      setBulkSelected(new Set());
+    }
+  }, [selectionFilters]);
+  useEffect(() => () => { selectionGeneration.current++; }, []);
   const lastFilters = useRef(filterSignature);
   useEffect(() => { if (lastFilters.current !== filterSignature) { setPage(0); lastFilters.current = filterSignature; } }, [filterSignature, setPage]);
   const listScrollRef = useRef<HTMLDivElement>(null);
@@ -440,17 +453,50 @@ const Documents: FC = () => {
 
   // ── Selection helpers ──────────────────────────────────────────────────────
 
-  const allFilteredSha = filtered.map(d => d.sha256);
-  const allSelected = allFilteredSha.length > 0 && allFilteredSha.every(sha => bulkSelected.has(sha));
+  const visibleSha = (groupBy === 'none' ? paginatedItems : Object.entries(groups).filter(([key]) => !collapsedGroups.has(key)).flatMap(([, docs]) => docs)).map(d => d.sha256);
+  const selectedOnPage = visibleSha.filter(sha => bulkSelected.has(sha)).length;
+  const allSelected = visibleSha.length > 0 && selectedOnPage === visibleSha.length;
   const someSelected = bulkSelected.size > 0;
-
-  const toggleSelectAll = () => {
-    if (allSelected) setBulkSelected(new Set());
-    else setBulkSelected(new Set(allFilteredSha));
+  const toggleSelectPage = () => {
+    selectionGeneration.current++;
+    setSelectingAll(false);
+    setBulkSelected(previous => {
+      const next = new Set(previous);
+      visibleSha.forEach(sha => allSelected ? next.delete(sha) : next.add(sha));
+      return next;
+    });
+  };
+  // Apply the global selection only once every server batch was successfully read.
+  const selectAllFiltered = async () => {
+    const generation = ++selectionGeneration.current;
+    setSelectingAll(true);
+    try {
+      let pages = docPages?.pages ?? [];
+      while (pages.length && pages.at(-1)!.page + 1 < pages.at(-1)!.totalPages) {
+        const result = await fetchNextPage({ cancelRefetch: false });
+        if (generation !== selectionGeneration.current) return;
+        if (result.isError || !result.data || result.data.pages.length <= pages.length) throw result.error ?? new Error('Incomplete document list');
+        pages = result.data.pages;
+      }
+      if (generation !== selectionGeneration.current) return;
+      const matches = filterDocuments(pages.flatMap(batch => batch.content), { search: deferredSearch, formats: selectedFormats, qualityMin, category: selectedCategory });
+      setBulkSelected(new Set(matches.map(doc => doc.sha256)));
+    } catch (error) {
+      if (generation === selectionGeneration.current) toast.error(t('documents.selectionFailed'), { description: apiErrorMessage(error) });
+    } finally {
+      if (generation === selectionGeneration.current) setSelectingAll(false);
+    }
+  };
+  const clearSelection = () => {
+    selectionGeneration.current++;
+    setSelectingAll(false);
+    setBulkSelected(new Set());
   };
 
   const toggleSelect = (sha: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    selectionGeneration.current++;
+    setSelectingAll(false);
     setBulkSelected(prev => {
       const next = new Set(prev);
       if (next.has(sha)) next.delete(sha);
@@ -628,58 +674,7 @@ const Documents: FC = () => {
       </section>
 
       {/* Filters */}
-      <section className="bg-surface-container p-5 space-y-5 border border-outline-variant/10">
-        {/* Row 1 */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="space-y-2">
-            <label className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">{t('documents.search')}</label>
-            <div className="flex items-center gap-3 border border-outline-variant/20 bg-surface-container-lowest px-4 py-2.5">
-              <span className="material-symbols-outlined text-base text-outline">search</span>
-              <input
-                type="text"
-                aria-label={t('documents.search')}
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder={t('documents.searchPlaceholder')}
-                className="w-full bg-transparent outline-none text-sm font-body placeholder:text-outline"
-              />
-              {search && (
-                <button onClick={() => setSearch('')} className="text-outline hover:text-on-surface">
-                  <span className="material-symbols-outlined text-sm">close</span>
-                </button>
-              )}
-            </div>
-          </div>
-          <div className="space-y-2">
-            <label className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">{t('documents.lifecycle')}</label>
-            <div className="flex flex-wrap gap-2">
-              {['all', 'INGESTED', 'QUALIFIED', 'TRAINED', 'ARCHIVED'].map(lc => (
-                <button
-                  key={lc}
-                  onClick={() => setSelectedLifecycle(lc)}
-                  className={`flex-1 py-2 border text-[10px] font-label uppercase tracking-widest transition-all ${selectedLifecycle === lc ? 'border-primary bg-primary/10 text-primary' : 'border-outline-variant/20 text-on-surface-variant hover:border-primary/30'}`}
-                >
-                  {lc === 'all' ? t('documents.qualityAll') : t(`ui.status.document.${lc}`)}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="space-y-2">
-            <label className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">{t('documents.sort')}</label>
-            <div className="flex gap-2">
-              {(['recent', 'name', 'chunks', 'quality'] as SortMode[]).map(m => (
-                <button
-                  key={m}
-                  onClick={() => setSortMode(m)}
-                  className={`flex-1 py-2 border text-[10px] font-label uppercase tracking-widest transition-all ${sortMode === m ? 'border-primary bg-primary/10 text-primary' : 'border-outline-variant/20 text-on-surface-variant hover:border-primary/30'}`}
-                >
-                  {m === 'recent' ? t('documents.sortDate') : m === 'chunks' ? t('documents.sortChunks') : m === 'quality' ? t('documents.sortQuality') : t('documents.sortName')}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
+      <section id="document-extra-filters" tabIndex={-1} className="scroll-mt-56 bg-surface-container p-5 space-y-5 border border-outline-variant/10">
         {/* Row 2 */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="space-y-2">
@@ -828,27 +823,33 @@ const Documents: FC = () => {
         )}
       </section>
 
-      {/* Document List — aligné sur le style ui/Table (carte + en-tête + lignes divisées) */}
-      <section className="bg-surface-container rounded-xl ring-1 ring-white/[0.045] overflow-hidden">
-        {/* Column headers */}
-        <div className="hidden lg:grid lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,2fr)_minmax(0,1fr)_auto] gap-4 px-4 py-2.5 bg-surface-container-high/60 border-b border-outline-variant/60 text-[11px] font-medium uppercase tracking-[0.05em] text-on-surface-variant">
-          <div className="flex gap-3">          <div className="flex justify-center">
-            <button
-              type="button"
-              role="checkbox"
-              aria-checked={allSelected ? true : someSelected ? 'mixed' : false}
-              aria-label={t('documents.selectAll')}
-              onClick={toggleSelectAll}
-              className={`w-4 h-4 rounded border flex items-center justify-center cursor-pointer transition-all ${allSelected ? 'bg-primary border-primary' : 'border-outline-variant/40 hover:border-primary/50'}`}
-            >
-              {allSelected && <span aria-hidden="true" className="material-symbols-outlined text-white text-[11px]">check</span>}
-              {!allSelected && someSelected && <span aria-hidden="true" className="material-symbols-outlined text-primary text-[11px]">remove</span>}
+      <ListTools search={search} onSearch={setSearch} status={selectedLifecycle} onStatus={setSelectedLifecycle}
+        statuses={['INGESTED', 'QUALIFIED', 'TRAINED', 'ARCHIVED']} statusDomain="document"
+        sort={sortMode} onSort={value => setSortMode(value as SortMode)} sortChoices={['recent', 'name', 'chunks', 'quality']}
+        onReset={resetView} resultCount={filtered.length}
+        extraControls={<>
+          <Button variant="ghost" onClick={() => { const filters = document.getElementById('document-extra-filters'); filters?.focus(); filters?.scrollIntoView({ block: 'start' }); }}>{t('documents.moreFilters')}</Button>
+          <div className="basis-full grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 text-xs" role="group" aria-label={t('documents.selectionScope')}>
+            <button type="button" role="checkbox" aria-checked={allSelected ? true : selectedOnPage ? 'mixed' : false}
+              aria-label={t(groupBy === 'none' ? 'documents.selectPage' : 'documents.selectView')}
+              disabled={!visibleSha.length} onClick={toggleSelectPage} className="flex items-center gap-2 min-h-9 disabled:opacity-50">
+              <span aria-hidden="true" className="material-symbols-outlined text-base">{allSelected ? 'check_box' : selectedOnPage ? 'indeterminate_check_box' : 'check_box_outline_blank'}</span>
+              {t(groupBy === 'none' ? 'documents.selectedOnPage' : 'documents.selectedInView', { count: selectedOnPage })}
             </button>
-          </div><span>{t('workList.identity')}</span></div>
-          {['status', 'context', 'updated', 'actions'].map(field => <span key={field}>{t(`workList.${field}`)}</span>)}
-        </div>
+            <span>{t('documents.selectedTotal', { count: bulkSelected.size })}</span>
+            <Button variant="ghost" className="col-span-2 text-xs max-w-full" disabled={isLoading || isError || selectingAll || isFetching || search !== deferredSearch || (!filtered.length && !hasNextPage)} onClick={() => { void selectAllFiltered(); }}>
+              {t(selectingAll ? 'documents.selectingAll' : 'documents.selectFiltered')}
+            </Button>
+            {hasNextPage && <span className="col-span-2">{t('documents.filteredLoaded')}</span>}
+          </div>
+        </>} />
 
-        <div ref={listScrollRef} className="max-h-[70vh] overflow-y-auto custom-scrollbar divide-y divide-outline-variant/40">
+      {/* Document list: the heading shares the list scroll container. */}
+      <section className="bg-surface-container rounded-xl ring-1 ring-white/[0.045] overflow-hidden">
+        <div ref={listScrollRef} data-work-list-scroll role="region" tabIndex={0} aria-label={t('documents.title')} className="max-h-[65vh] overflow-y-auto custom-scrollbar divide-y divide-outline-variant/40">
+          <div data-work-list-heading aria-hidden="true" className="sticky top-0 z-10 hidden lg:grid lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,2fr)_minmax(0,1fr)_auto] gap-4 px-4 py-2.5 bg-surface-container-high border-b border-outline-variant/60 text-[11px] font-medium uppercase tracking-[0.05em] text-on-surface-variant">
+            {['identity', 'status', 'context', 'updated', 'actions'].map(field => <span key={field}>{t(`workList.${field}`)}</span>)}
+          </div>
           <ListFeedback loading={isLoading || restoringPage} error={isError} empty={!isLoading && !filtered.length} retry={() => { void refetch(); }} action={<Button variant="outline" onClick={resetView}>{t('workList.reset')}</Button>}>
           {groupBy === 'none' ? (
             <>
@@ -866,6 +867,8 @@ const Documents: FC = () => {
                 const allGroupSelected = groupSelected === docs.length;
                 const toggleGroupSelect = (e: React.MouseEvent) => {
                   e.stopPropagation();
+                  selectionGeneration.current++;
+                  setSelectingAll(false);
                   setBulkSelected(prev => {
                     const next = new Set(prev);
                     if (allGroupSelected) groupSha.forEach(sha => next.delete(sha));
@@ -971,7 +974,7 @@ const Documents: FC = () => {
               <button
                 key={lc}
                 onClick={() => bulkLifecycleMutation.mutate({ sha256List: Array.from(bulkSelected), lifecycle: lc })}
-                disabled={bulkLifecycleMutation.isPending}
+                disabled={bulkLifecycleMutation.isPending || selectingAll}
                 className={`px-3 py-2 border text-[10px] font-bold tracking-widest uppercase transition-all disabled:opacity-50 ${LIFECYCLE_COLORS[lc]} hover:bg-primary/10`}
               >
                 {t(`ui.status.document.${lc}`)}
@@ -987,7 +990,7 @@ const Documents: FC = () => {
                     // documents-là, y compris ceux déjà étiquetés.
                     force: true,
                   })}
-                  disabled={bulkClassifyMutation.isPending || !!classifyTaskId}
+                  disabled={bulkClassifyMutation.isPending || !!classifyTaskId || selectingAll}
                   className="flex items-center gap-1.5 px-3 py-2 border border-secondary/40 text-secondary text-[10px] font-bold tracking-widest uppercase hover:bg-secondary/10 transition-all disabled:opacity-50"
                 >
                   <span aria-hidden="true" className="material-symbols-outlined text-[13px]">auto_awesome</span>
@@ -1001,11 +1004,11 @@ const Documents: FC = () => {
               size="sm"
               icon="delete"
               onClick={() => setPendingDelete({ kind: 'bulk', shaList: Array.from(bulkSelected) })}
-              disabled={bulkDeleteMutation.isPending}
+              disabled={bulkDeleteMutation.isPending || selectingAll}
             >
               {t('documents.delete')}
             </Button>
-            <button onClick={() => setBulkSelected(new Set())} className="w-8 h-8 flex items-center justify-center text-outline hover:text-on-surface transition-colors">
+            <button aria-label={t('documents.clearSelection')} onClick={clearSelection} className="w-8 h-8 flex items-center justify-center text-outline hover:text-on-surface transition-colors">
               <span className="material-symbols-outlined text-sm">close</span>
             </button>
           </div>
