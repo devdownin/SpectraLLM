@@ -41,7 +41,7 @@ export function ActionMenu({ items, label, side = 'down' }: { items: ActionMenuI
     {open && <div id={id} role="menu" aria-label={label ?? t('ui.moreActions')} className={`absolute right-0 ${side === 'up' ? 'bottom-full mb-2' : 'top-full mt-2'} z-40 w-64 max-w-[calc(100vw-2rem)] rounded-xl border border-outline-variant/40 bg-surface-container-high shadow-xl p-1`}
       onKeyDown={event => {
         const buttons = enabledItems(); const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
-        if (event.key === 'Escape') { event.preventDefault(); setOpen(false); trigger.current?.focus(); }
+        if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setOpen(false); trigger.current?.focus(); }
         else if (event.key === 'Tab') { setOpen(false); trigger.current?.focus(); }
         else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
           event.preventDefault();

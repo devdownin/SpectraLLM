@@ -1,5 +1,8 @@
+import { DetailPanel } from './ui/DetailPanel';
+import { Button } from './ui';
+import { useContextSearchParams } from '../hooks/useContextSearchParams';
 import { StatusBadge } from './ui';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -68,7 +71,10 @@ const AbComparisonView: FC = () => {
   const [modelA, setModelA] = useState('');
   const [modelB, setModelB] = useState('');
   const [size, setSize] = useState('');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [params, setParams] = useContextSearchParams();
+  const targetAb = params.get('ab');
+  const [selectedId, setSelectedId] = useState<string | null>(targetAb);
+  const requested = useQuery<AbComparisonReport>({ queryKey: ['ab-target', targetAb], queryFn: async () => (await evaluationApi.getAb(targetAb!)).data, enabled: !!targetAb, refetchInterval: q => ['PENDING','RUNNING'].includes(q.state.data?.status ?? '') ? 4000 : false });
   const [submitting, setSubmitting] = useState(false);
 
   const { data: models = [] } = useQuery({
@@ -90,7 +96,12 @@ const AbComparisonView: FC = () => {
     },
   });
 
-  const selected = reports.find(r => r.abId === selectedId) ?? reports[0] ?? null;
+  const selected = targetAb ? requested.data ?? null : reports.find(r => r.abId === selectedId) ?? null;
+  useEffect(() => { if (targetAb) setSelectedId(targetAb); }, [targetAb]);
+  const closeReport = () => {
+    setSelectedId(null);
+    if (targetAb) { const next = new URLSearchParams(params); next.delete('ab'); setParams(next, { replace: true }); }
+  };
   const nameOf = (m: RegisteredModel) => m.name ?? m.id ?? '';
 
   const run = async () => {
@@ -100,6 +111,7 @@ const AbComparisonView: FC = () => {
       const parsed = size.trim() ? parseInt(size, 10) : undefined;
       const res = await evaluationApi.submitAb(modelA, modelB, Number.isFinite(parsed) ? parsed : undefined);
       setSelectedId(res.data?.abId ?? null);
+      if (targetAb && res.data?.abId) { const next = new URLSearchParams(params); next.set('ab', res.data.abId); setParams(next); }
       await queryClient.invalidateQueries({ queryKey: ['ab-reports'] });
       toast.success(t('ab.started'), { description: t('ab.startedDesc') });
     } catch (err) {
@@ -111,6 +123,7 @@ const AbComparisonView: FC = () => {
 
   return (
     <div className="space-y-6">
+      {targetAb && requested.isError && <p role="alert">{t('detail.missingTarget')}</p>}
       {/* Setup */}
       <div className="bg-surface-container p-6 space-y-4">
         <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">{t('ab.newRun')}</p>
@@ -149,7 +162,7 @@ const AbComparisonView: FC = () => {
 
       {isLoading ? (
         <Skeleton className="h-64" />
-      ) : reports.length === 0 ? (
+      ) : reports.length === 0 && !selected ? (
         <div className="bg-surface-container p-8 text-center text-sm text-on-surface-variant">
           {t('ab.empty')}
         </div>
@@ -159,7 +172,7 @@ const AbComparisonView: FC = () => {
           <div className="bg-surface-container divide-y divide-outline-variant/10">
             <p className="px-4 py-3 bg-surface-container-high font-label text-[11px] uppercase tracking-widest text-on-surface-variant">{t('ab.history')}</p>
             {reports.map(r => (
-              <button key={r.abId} onClick={() => setSelectedId(r.abId)}
+              <button key={r.abId} onClick={() => { setSelectedId(r.abId); if (targetAb) { const next = new URLSearchParams(params); next.set('ab', r.abId); setParams(next); } }}
                 className={`w-full text-left px-4 py-3 transition-colors hover:bg-surface-container-high/60 ${selected?.abId === r.abId ? 'bg-surface-container-high' : ''}`}>
                 <p className="font-headline font-bold text-xs truncate">{r.modelA} <span className="text-on-surface-variant">{t('ab.vs')}</span> {r.modelB}</p>
                 <p className="font-label text-[10px] text-on-surface-variant mt-0.5">
@@ -174,7 +187,11 @@ const AbComparisonView: FC = () => {
 
           {/* Detail */}
           {selected && (
-            <div className="space-y-6">
+            <DetailPanel title={`${selected.modelA} vs ${selected.modelB}`} onClose={closeReport}
+              summary={<div className="flex flex-wrap gap-3"><StatusBadge status={selected.status} /><span className="text-sm break-all">{selected.abId}</span></div>}
+              history={<dl className="text-sm space-y-2"><dt>{t('detail.started')}</dt><dd>{new Date(selected.startedAt).toLocaleString(i18n.language)}</dd><dt>{t('detail.finished')}</dt><dd>{selected.completedAt ? new Date(selected.completedAt).toLocaleString(i18n.language) : '—'}</dd></dl>}
+              actions={<Button variant="outline" onClick={closeReport}>{t('detail.close')}</Button>}
+              details={<div className="space-y-6">
               <div className="bg-surface-container p-6 space-y-4">
                 <div className="flex items-center justify-between">
                   <p className="font-headline font-bold text-lg">
@@ -218,7 +235,7 @@ const AbComparisonView: FC = () => {
                   ))}
                 </div>
               )}
-            </div>
+            </div>} />
           )}
         </div>
       )}

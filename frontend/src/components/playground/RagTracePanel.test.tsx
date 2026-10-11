@@ -1,3 +1,8 @@
+import { MemoryRouter } from 'react-router-dom';
+import '../../i18n';
+import i18n from '../../i18n';
+import { beforeEach } from 'vitest';
+beforeEach(() => { void i18n.changeLanguage('en'); });
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -27,7 +32,7 @@ const baseMsg: Message = {
 
 describe('RagTracePanel', () => {
   it('renders the strategy, timeline, funnel, token budget and final sources', () => {
-    render(<RagTracePanel traceMsg={baseMsg} onClose={() => {}} />);
+    render(<MemoryRouter><RagTracePanel traceMsg={baseMsg} onClose={() => {}} /></MemoryRouter>);
     expect(screen.getByText('Algorithm Trace')).toBeInTheDocument();
     expect(screen.getByText('STANDARD')).toBeInTheDocument();
     expect(screen.getByText('Pipeline Timeline')).toBeInTheDocument();
@@ -44,7 +49,7 @@ describe('RagTracePanel', () => {
 
   it('calls onClose when the close button is clicked', async () => {
     const onClose = vi.fn();
-    render(<RagTracePanel traceMsg={baseMsg} onClose={onClose} />);
+    render(<MemoryRouter><RagTracePanel traceMsg={baseMsg} onClose={onClose} /></MemoryRouter>);
     await userEvent.click(screen.getByLabelText('Close trace panel'));
     expect(onClose).toHaveBeenCalledOnce();
   });
@@ -57,7 +62,7 @@ describe('RagTracePanel', () => {
         { stage: 'generation', durationMs: 200, inCount: undefined, outCount: undefined, detail: undefined },
       ] },
     };
-    render(<RagTracePanel traceMsg={noFunnel} onClose={() => {}} />);
+    render(<MemoryRouter><RagTracePanel traceMsg={noFunnel} onClose={() => {}} /></MemoryRouter>);
     expect(screen.queryByText('Retrieval Funnel')).toBeNull();
   });
 });

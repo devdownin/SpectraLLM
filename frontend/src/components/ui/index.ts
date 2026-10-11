@@ -32,3 +32,4 @@ export { cn } from './cn';
 export { StatusBadge } from './StatusBadge';
 export { ActionMenu } from './ActionMenu';
 export type { ActionMenuItem } from './ActionMenu';
+export { DetailPanel } from './DetailPanel';

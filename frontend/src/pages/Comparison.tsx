@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import { useContextSearchParams } from '../hooks/useContextSearchParams';
+import { DetailPanel } from '../components/ui/DetailPanel';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -87,7 +89,12 @@ function ScoreDetail({ score }: { score: EvaluationScore }) {
 const Comparison: FC = () => {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
-  const [selected, setSelected] = useState<EvaluationReport | null>(null);
+  const [params, setParams] = useContextSearchParams();
+  const targetEval = params.get('eval');
+  const targetAb = params.get('ab');
+  const requested = useQuery<EvaluationReport>({ queryKey: ['evaluation-target', targetEval], queryFn: async () => (await evaluationApi.get(targetEval!)).data, enabled: !!targetEval, refetchInterval: q => ['PENDING','RUNNING'].includes(q.state.data?.status ?? '') ? 5000 : false });
+  const [localSelected, setSelected] = useState<EvaluationReport | null>(null);
+  const selected = targetEval ? requested.data ?? null : localSelected;
   const [isTriggering, setIsTriggering] = useState(false);
 
   const formatDate = (iso: string) =>
@@ -112,7 +119,8 @@ const Comparison: FC = () => {
   const [compareMode, setCompareMode] = useState(false);
   const [baselineId, setBaselineId] = useState<string | undefined>(undefined);
   const [batchOpen, setBatchOpen] = useState(false);
-  const [abMode, setAbMode] = useState(false);
+  const [abMode, setAbMode] = useState(Boolean(targetAb));
+  useEffect(() => { if (targetAb) setAbMode(true); }, [targetAb]);
 
   // Pré-sélectionne les évaluations issues d'un batch dès qu'elles sont complétées.
   const handleBatchSubmitted = (evalIds: string[]) => {
@@ -144,12 +152,15 @@ const Comparison: FC = () => {
       refetchInterval: comparingRunning ? 5000 : false,
     });
 
-  // Synchronise la sélection quand la liste change (préserve le rapport choisi).
+  // A requested report never falls back to a different run.
   useEffect(() => {
-    setSelected(prev =>
-      prev ? (reports.find(r => r.evalId === prev.evalId) ?? reports[0] ?? null) : (reports[0] ?? null)
-    );
-  }, [reports]);
+    if (targetEval) return;
+    setSelected(prev => prev ? reports.find(r => r.evalId === prev.evalId) ?? null : null);
+  }, [reports, targetEval]);
+  const closeReport = () => {
+    setSelected(null);
+    if (targetEval) { const next = new URLSearchParams(params); next.delete('eval'); setParams(next, { replace: true }); }
+  };
 
   // Purge uniquement les sélections de comparaison qui n'existent plus (supprimées).
   // Les évaluations en cours sont conservées : la comparaison se met à jour à leur achèvement.
@@ -226,6 +237,8 @@ const Comparison: FC = () => {
         primaryAction={!abMode && <Button onClick={handleNewEvaluation} disabled={isTriggering} loading={isTriggering} icon="add">{isTriggering ? t('comparison.launching') : t('comparison.newEval')}</Button>}
       />
 
+      {targetEval && requested.isError && <p role="alert">{t('detail.missingTarget')}</p>}
+      {targetEval && requested.isLoading && <p role="status">{t('activity.loading')}</p>}
       {abMode && <AbComparisonView />}
 
       {!abMode && (isLoading ? (
@@ -233,7 +246,7 @@ const Comparison: FC = () => {
           <Skeleton className="h-64" />
           <Skeleton className="h-80" />
         </div>
-      ) : reports.length === 0 ? (
+      ) : reports.length === 0 && !selected ? (
         <div className="bg-surface-container rounded-xl ring-1 ring-white/[0.045]">
           <EmptyState
             icon="analytics"
@@ -278,7 +291,7 @@ const Comparison: FC = () => {
                 </label>
               )}
               <button
-                onClick={() => setSelected(r)}
+                onClick={() => { setSelected(r); if (targetEval) { const next = new URLSearchParams(params); next.set('eval', r.evalId); setParams(next); } }}
                 className={`flex-1 min-w-0 text-left px-4 py-3 transition-colors hover:bg-surface-container-high/60
                   ${selected?.evalId === r.evalId ? 'bg-surface-container-high' : ''}`}
                 aria-label={t('comparison.reportAria', { name: r.modelName, date: formatDate(r.startedAt) })}
@@ -328,7 +341,11 @@ const Comparison: FC = () => {
 
           {/* Detail panel */}
           {!compareMode && selected && (
-            <div className="space-y-6">
+            <DetailPanel title={selected.modelName} onClose={closeReport}
+              summary={<div className="flex flex-wrap gap-3"><StatusBadge status={selected.status} /><span className="text-sm break-all">{selected.evalId}</span></div>}
+              history={<dl className="text-sm space-y-2"><dt>{t('detail.started')}</dt><dd>{formatDate(selected.startedAt)}</dd><dt>{t('detail.finished')}</dt><dd>{selected.completedAt ? formatDate(selected.completedAt) : '—'}</dd></dl>}
+              actions={<div className="flex gap-2"><Button variant="outline" onClick={handleExportSelected} icon="download">{t('detail.export')}</Button><Button variant="outline" onClick={closeReport}>{t('detail.close')}</Button></div>}
+              details={<div className="space-y-6">
               {/* Overview */}
               <div className="bg-surface-container p-6 space-y-4">
                 <div className="flex items-center justify-between">
@@ -343,14 +360,6 @@ const Comparison: FC = () => {
                     )}
                   </div>
                   <div className="flex items-center gap-3">
-                    {selected.status === 'COMPLETED' && (
-                      <button
-                        onClick={handleExportSelected}
-                        className="px-3 py-1 text-[11px] font-label uppercase tracking-widest border border-outline-variant/30 text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors"
-                      >
-                        {t('comparison.exportJson')}
-                      </button>
-                    )}
                     <StatusBadge status={selected.status} />
                   </div>
                 </div>
@@ -480,7 +489,7 @@ const Comparison: FC = () => {
                   ))}
                 </div>
               )}
-            </div>
+            </div>} />
           )}
         </div>
       ))}

@@ -1,6 +1,6 @@
 import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import type { FC } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useContextSearchParams } from '../hooks/useContextSearchParams';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -10,7 +10,7 @@ import Tooltip from '../components/Tooltip';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { Badge, EmptyState, PageHeader, Button, StatusBadge } from '../components/ui';
 import { gedApi, commentApi } from '../services/api';
-import { useFocusTrap } from '../hooks/useFocusTrap';
+import { DetailPanel } from '../components/ui/DetailPanel';
 import {
   DOCUMENT_TYPES, LIFECYCLE_BAR_COLORS, LIFECYCLE_COLORS,
   QUALITY_THRESHOLDS, getDocumentType, getGroupLabel,
@@ -67,18 +67,20 @@ const Documents: FC = () => {
   useEffect(() => { setPage(0); }, [deferredSearch, selectedLifecycle, selectedFormats, qualityMin, groupBy, sortMode, selectedCategory]);
 
   // Deep-link : ?doc=<sha256> (ex. depuis une source du Playground) ouvre la fiche.
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useContextSearchParams();
   useEffect(() => {
     const doc = searchParams.get('doc');
     if (doc) {
       setSelectedSha(doc);
-      searchParams.delete('doc');
-      setSearchParams(searchParams, { replace: true });
     }
   }, [searchParams, setSearchParams]);
 
-  // Piège de focus + fermeture Échap + restauration du focus sur la fiche document.
-  const sheetRef = useFocusTrap<HTMLDivElement>(Boolean(selectedSha), () => setSelectedSha(null));
+
+  const closeSheet = () => {
+    setSelectedSha(null);
+    const next = new URLSearchParams(searchParams); next.delete('doc');
+    setSearchParams(next, { replace: true });
+  };
 
   // ── Queries ────────────────────────────────────────────────────────────────
 
@@ -202,7 +204,7 @@ const Documents: FC = () => {
         toast.warning(t('documents.deletionPending'));
         return;
       }
-      setSelectedSha(null);
+      closeSheet();
       toast.success(t('documents.docDeleted'));
     },
     onError: (err) => toast.error(t('documents.deleteFailed'), { description: apiErrorMessage(err) }),
@@ -235,7 +237,7 @@ const Documents: FC = () => {
       if (responses.some(response => response.data.deletionPending)) {
         toast.warning(t('documents.deletionPending'));
       }
-      if (selectedSha && deleted.includes(selectedSha)) setSelectedSha(null);
+      if (selectedSha && deleted.includes(selectedSha)) closeSheet();
       if (deleted.length > 0) toast.success(t('documents.bulkDeleted', { count: deleted.length }));
     },
     onError: () => toast.error(t('documents.bulkDeleteFailed')),
@@ -1010,39 +1012,11 @@ const Documents: FC = () => {
       )}
 
       {/* Document Detail Sheet */}
-      {selectedSha && (
-        <div
-          ref={sheetRef}
-          tabIndex={-1}
-          role="dialog"
-          aria-modal="true"
-          aria-label={t('documents.sheetAria')}
-          className="fixed inset-y-0 right-0 w-full lg:w-[min(1100px,calc(100vw-80px))] bg-surface-container-high shadow-[-20px_0_40px_rgba(0,0,0,0.5)] z-50 animate-in slide-in-from-right duration-300 border-l border-outline-variant/20 flex flex-col outline-none">
-          <header className="p-6 border-b border-outline-variant/20 flex justify-between items-center">
-            <div className="min-w-0">
-              <p className="text-[10px] font-label uppercase tracking-widest text-outline">{t('documents.sheetTitle')}</p>
-              <h3 className="font-headline text-lg font-bold truncate max-w-[380px]">{sheet?.fileName ?? '—'}</h3>
-            </div>
-            <button onClick={() => setSelectedSha(null)} aria-label={t('documents.closeSheet')} className="w-10 h-10 flex items-center justify-center hover:bg-surface-variant transition-colors shrink-0">
-              <span aria-hidden="true" className="material-symbols-outlined">close</span>
-            </button>
-          </header>
-
-          {isLoadingSheet ? (
-            <div className="p-8 space-y-6">
-              <Skeleton className="h-20" /><Skeleton className="h-40" /><Skeleton className="h-40" />
-            </div>
-          ) : sheet && (
-            <div className="flex-1 min-h-0 overflow-y-auto lg:overflow-hidden lg:grid lg:grid-cols-[minmax(0,1fr)_440px]">
-              <DocumentPreview sha={sheet.sha256} />
-              <div className="lg:overflow-y-auto p-6 space-y-8 custom-scrollbar border-l border-outline-variant/20">
-              <nav aria-label={t('cockpit.sections')} className="flex flex-wrap gap-2 text-xs">
-                <a href="#doc-qualification" className="rounded-lg border border-outline-variant/40 px-3 py-2">{t('cockpit.qualification')}</a>
-                <a href="#doc-annotations" className="rounded-lg border border-outline-variant/40 px-3 py-2">{t('cockpit.annotations')}</a>
-                <a href="#doc-history" className="rounded-lg border border-outline-variant/40 px-3 py-2">{t('cockpit.history')}</a>
-              </nav>
-              <p className="text-xs text-on-surface-variant">{t('cockpit.indexInfo', { count: sheet.chunksCreated, collection: sheet.collectionName ?? '—' })}</p>
-
+      {selectedSha && <DetailPanel title={sheet?.fileName ?? t('documents.sheetTitle')} onClose={closeSheet} closeLabel={t('documents.closeSheet')}
+        summary={isLoadingSheet ? <Skeleton className="h-20" /> : sheet ? <div className="space-y-2"><StatusBadge status={sheet.lifecycle} domain="document" /><p className="text-xs text-on-surface-variant">{t('cockpit.indexInfo', { count: sheet.chunksCreated, collection: sheet.collectionName ?? '—' })}</p></div> : <p role="alert">{t('detail.missingTarget')}</p>}
+        details={sheet && <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_440px] gap-6 min-w-0">
+          <DocumentPreview sha={sheet.sha256} />
+          <div className="space-y-8 min-w-0">
               {/* Metadata grid */}
               <div id="doc-qualification" className="grid grid-cols-2 gap-3">
                 <div className="p-4 bg-surface-container-lowest border-l-2 border-primary">
@@ -1393,6 +1367,9 @@ const Documents: FC = () => {
                 )}
               </div>
 
+          </div>
+        </div>}
+        history={sheet && <div>
               {/* Audit Trail */}
               <div id="doc-history" className="space-y-3">
                 <h4 className="text-[11px] font-bold uppercase tracking-widest text-outline">{t('documents.auditTrail')}</h4>
@@ -1410,11 +1387,8 @@ const Documents: FC = () => {
                   ))}
                 </div>
               </div>
-              </div>
-            </div>
-          )}
-
-          <footer className="p-6 border-t border-outline-variant/20">
+        </div>}
+        actions={
             <button
               onClick={() => {
                 if (sheet) setPendingDelete({ kind: 'single', sha: sheet.sha256, name: sheet.fileName, chunks: sheet.chunksCreated });
@@ -1423,18 +1397,7 @@ const Documents: FC = () => {
               className="w-full py-3 bg-error/10 border border-error/30 text-error font-bold text-[11px] tracking-widest uppercase hover:bg-error hover:text-white transition-all disabled:opacity-50"
             >
               {t('documents.deletePermanently')}
-            </button>
-          </footer>
-        </div>
-      )}
-
-      {/* Backdrop */}
-      {selectedSha && (
-        <div
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 animate-in fade-in duration-300"
-          onClick={() => setSelectedSha(null)}
-        />
-      )}
+            </button>        } />}
 
       {/* Confirmation de suppression (ligne, fiche ou sélection multiple) */}
       <ConfirmDialog

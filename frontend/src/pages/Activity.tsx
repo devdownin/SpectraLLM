@@ -1,18 +1,22 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useGlobalTasks, isActiveTask } from '../hooks/useGlobalTasks';
 import type { GlobalTaskStatus, GlobalTaskKind } from '../hooks/useGlobalTasks';
 import { PageHeader, Card, StatusBadge } from '../components/ui';
+
+import { taskDestination } from '../lib/contextualNavigation';
 
 const statuses: GlobalTaskStatus[] = ['pending', 'running', 'completed', 'partial', 'failed', 'cancelled'];
 const kinds: GlobalTaskKind[] = ['ingestion', 'dataset', 'dpo', 'training', 'evaluation', 'ab', 'install', 'benchmark', 'ablation'];
 export default function Activity() {
   const { t, i18n } = useTranslation();
   const { tasks, isLoading, liveStatus } = useGlobalTasks();
-  const [status, setStatus] = useState('all');
-  const [kind, setKind] = useState('all');
-  const [search, setSearch] = useState('');
+  const location = useLocation();
+  const restored = location.state?.activityFilters;
+  const [status, setStatus] = useState(restored?.status ?? 'all');
+  const [kind, setKind] = useState(restored?.kind ?? 'all');
+  const [search, setSearch] = useState(restored?.search ?? '');
   const filtered = useMemo(() => tasks.filter(task =>
     (status === 'all' || task.status === status) && (kind === 'all' || task.kind === kind)
     && `${task.label} ${task.id} ${task.error ?? ''}`.toLocaleLowerCase().includes(search.toLocaleLowerCase())
@@ -23,8 +27,8 @@ export default function Activity() {
     <p className="text-xs text-on-surface-variant" role="status">{t(liveStatus === 'open' ? 'activity.live' : 'activity.polling')}</p>
     <div className="flex flex-wrap gap-3">
       <label className="flex flex-col gap-1 text-xs">{t('activity.search')}<input className={control} value={search} onChange={e => setSearch(e.target.value)} /></label>
-      <label className="flex flex-col gap-1 text-xs">{t('activity.status')}<select className={control} value={status} onChange={e => setStatus(e.target.value)}><option value="all">{t('activity.all')}</option>{statuses.map(s => <option key={s} value={s}>{t(`ui.status.task.${s}`)}</option>)}</select></label>
-      <label className="flex flex-col gap-1 text-xs">{t('activity.kind')}<select className={control} value={kind} onChange={e => setKind(e.target.value)}><option value="all">{t('activity.all')}</option>{kinds.map(k => <option key={k} value={k}>{t(`taskCenter.kinds.${k}`)}</option>)}</select></label>
+      <label className="flex flex-col gap-1 text-xs">{t('activity.status')}<select aria-label={t('activity.status')} className={control} value={status} onChange={e => setStatus(e.target.value)}><option value="all">{t('activity.all')}</option>{statuses.map(s => <option key={s} value={s}>{t(`ui.status.task.${s}`)}</option>)}</select></label>
+      <label className="flex flex-col gap-1 text-xs">{t('activity.kind')}<select aria-label={t('activity.kind')} className={control} value={kind} onChange={e => setKind(e.target.value)}><option value="all">{t('activity.all')}</option>{kinds.map(k => <option key={k} value={k}>{t(`taskCenter.kinds.${k}`)}</option>)}</select></label>
     </div>
     {isLoading ? <p role="status">{t('activity.loading')}</p> : <>
       <p className="text-sm text-on-surface-variant">{t('activity.count', { count: filtered.length })}</p>
@@ -39,7 +43,7 @@ export default function Activity() {
         {task.error && <details open={task.status === 'failed' || task.status === 'partial'}><summary className="text-sm text-error cursor-pointer">{t('activity.error')}</summary><p className="mt-2 text-xs whitespace-pre-wrap break-all text-error">{task.error}</p></details>}
         <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
           <span className="text-on-surface-variant break-all">{task.id}{task.timestamp && Number.isFinite(Date.parse(task.timestamp)) && <> · <time dateTime={task.timestamp}>{new Date(task.timestamp).toLocaleString(i18n.language)}</time></>}</span>
-          <Link className="rounded-lg border border-primary/30 px-3 py-2 text-primary hover:bg-primary/10" to={task.path}>{t(task.status === 'completed' || task.status === 'partial' ? 'activity.result' : 'activity.manage')}</Link>
+          <Link className="rounded-lg border border-primary/30 px-3 py-2 text-primary hover:bg-primary/10" to={taskDestination(task)} state={{ origin: { path: location.pathname + location.search, label: t('activity.title'), state: { activityFilters: { status, kind, search } } } }}>{t(task.status === 'completed' || task.status === 'partial' ? 'activity.result' : 'activity.manage')}</Link>
         </div>
       </Card></li>)}</ul>
     </>}

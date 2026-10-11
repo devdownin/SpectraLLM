@@ -19,7 +19,7 @@ it('shows progress, errors, distinct outcomes and result links', () => {
  expect(screen.getByText('Cancelled', {selector:'span'})).toBeInTheDocument();
  const partial = within(screen.getByText('partial.pdf').closest('li')!);
  expect(partial.getByText('PDF extraction failed')).toBeVisible();
- expect(partial.getByRole('link', { name: 'Open results' })).toHaveAttribute('href','/ingestion');
+ expect(partial.getByRole('link', { name: 'Open results' })).toHaveAttribute('href','/ingestion?task=ingestion%3A3');
  expect(screen.getByText('running.pdf').closest('li')).toBe(screen.getAllByRole('listitem')[0]);
 });
 it('filters by status, family and search, then exposes empty results', async () => {
