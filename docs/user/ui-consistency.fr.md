@@ -57,3 +57,32 @@ Le panneau occupe la hauteur disponible, avec une seule surface de défilement p
 et la même disposition sur mobile. Le bouton de fermeture, Échap et le clic sur le fond
 ferment le panneau ; Tab reste dans le dialogue et le focus revient à l’élément d’ouverture.
 Une confirmation de suppression se ferme avant le panneau situé dessous.
+
+## Listes et continuité des parcours
+
+Activité, Documents, les jobs de fine-tuning et d’ablation, les évaluations et les
+comparaisons A/B utilisent les mêmes repères : **Identité**, **Statut**, **Contexte**,
+**Dernière mise à jour** et **Actions**. Sur mobile, chaque ligne présente ces repères
+sous forme de carte. Les métadonnées propres à chaque travail restent disponibles :
+collection et qualité des documents, base et loss des entraînements, scores des rapports.
+
+La recherche, les filtres, le tri et la page restent mémorisés pour chaque liste pendant
+la session de l’onglet. La position de défilement de l’écran et de la liste Documents
+est reprise lorsque le contenu est disponible. Une action de défilement de l’utilisateur
+interrompt cette restauration. Documents recharge les lots serveur nécessaires à la page
+mémorisée ; un changement de filtre remet la pagination au début. « Réinitialiser la vue »
+retire les filtres et rétablit le tri par défaut. Fermer la session de l’onglet efface ces
+préférences ; les résultats et les sélections de suppression ne sont pas conservés dans
+cette mémoire de vue.
+
+Une liste en cours de chargement montre des blocs structurés. Une liste vide propose
+une prochaine action ; une panne montre « Réessayer », au lieu de suggérer un corpus
+vide. Les éléments déjà chargés restent consultables après une erreur d’actualisation.
+En repli REST, Activité signale aussi une indisponibilité partielle de ses sources.
+
+Les tâches actives proposent « Suivre », les tâches terminées « Ouvrir le résultat »
+et les tâches échouées « Examiner l’échec ». Le fine-tuning propose aussi « Préparer
+une relance » pour un job échoué ou annulé : ses paramètres remplissent le formulaire,
+que l’utilisateur vérifie avant de lancer. Les sélections d’historique ouvrent des liens
+rechargeables vers le job ou le rapport exact. Une comparaison indisponible faute de
+sélection explique qu’il faut au moins deux évaluations.

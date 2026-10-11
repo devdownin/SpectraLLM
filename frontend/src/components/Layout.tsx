@@ -1,3 +1,5 @@
+import { useLocation } from 'react-router-dom';
+import { useScrollMemory } from '../hooks/useScrollMemory';
 import { useEffect, useState } from 'react';
 import type { FC, ReactNode } from 'react';
 import { Toaster } from 'sonner';
@@ -17,6 +19,8 @@ interface LayoutProps {
 const DESKTOP_QUERY = '(min-width: 768px)';
 
 const Layout: FC<LayoutProps> = ({ children }) => {
+  const location = useLocation();
+  useScrollMemory(location.pathname);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);

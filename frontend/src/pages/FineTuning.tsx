@@ -1,8 +1,10 @@
+import { useContextSearchParams } from '../hooks/useContextSearchParams';
+import { useViewState } from '../hooks/useViewState';
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import type { FC } from 'react';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
-import { Link, useSearchParams, useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -21,7 +23,7 @@ import { apiErrorMessage } from '../lib/apiError';
 import { etaMs, formatEta } from '../hooks/useGlobalTasks';
 import LossChart from '../components/charts/LossChart';
 import ConfirmDialog from '../components/ConfirmDialog';
-import { PageHeader, Button, StatusBadge, Table, TableHead, TableBody, TableRow, Th, Td, CountUp } from '../components/ui';
+import { PageHeader, Button, StatusBadge, WorkList, WorkListRow, ListFeedback, ListTools, CountUp } from '../components/ui';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -54,6 +56,11 @@ interface FineTuningJob {
     learningRate: number;
     minConfidence: number;
     valSplit: number;
+    packingEnabled?: boolean;
+    dpoEnabled?: boolean;
+    orpoEnabled?: boolean;
+    exportGguf?: boolean;
+    autoEvaluate?: boolean;
   };
 }
 
@@ -179,8 +186,13 @@ const FineTuning: FC = () => {
   const listRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
 
+  const [jobsLoading, setJobsLoading] = useState(true);
+  const [jobsError, setJobsError] = useState(false);
+  const [historySearch, setHistorySearch] = useViewState('training.search', '');
+  const [historyStatus, setHistoryStatus] = useViewState('training.status', 'all');
+  const [historySort, setHistorySort] = useViewState('training.sort', 'recent');
   const [jobs, setJobs] = useState<FineTuningJob[]>([]);
-  const [targetParams] = useSearchParams();
+  const [targetParams, setTargetParams] = useContextSearchParams();
   const location = useLocation();
   const targetJob = targetParams.get('job');
   const [targetMissing, setTargetMissing] = useState(false);
@@ -448,6 +460,7 @@ const FineTuning: FC = () => {
 
   // ── Load job history ──────────────────────────────────────────────────────
   const loadJobs = useCallback(async () => {
+    setJobsError(false);
     try {
       const res = await fineTuningApi.getJobs();
       const list: FineTuningJob[] = res.data;
@@ -458,7 +471,7 @@ const FineTuning: FC = () => {
         jobRestoredRef.current = true;
         if (!targetJob) { const inFlight = sorted.find(j => !isTerminal(j.status)); if (inFlight) selectJob(inFlight); }
       }
-    } catch { /* ignore */ }
+    } catch { setJobsError(true); } finally { setJobsLoading(false); }
   }, [selectJob, targetJob]);
 
   useEffect(() => { loadJobs(); }, [loadJobs]);
@@ -582,6 +595,15 @@ const FineTuning: FC = () => {
         startedAt: activeJob.createdAt,
       }, now)
     : null;
+
+  const openJob = (job: FineTuningJob) => { selectJob(job); const next = new URLSearchParams(targetParams); next.set('job', job.jobId); setTargetParams(next); };
+  const visibleJobs = jobs.filter(job => (historyStatus === 'all' || (historyStatus === 'RUNNING' ? !isTerminal(job.status) && job.status !== 'PENDING' : job.status === historyStatus)) && `${job.modelName} ${job.jobId} ${job.baseModel}`.toLowerCase().includes(historySearch.toLowerCase())).sort((a, b) => historySort === 'name' ? a.modelName.localeCompare(b.modelName) : b.createdAt.localeCompare(a.createdAt));
+  const prepareRestart = (job: FineTuningJob) => {
+    reset({ ...getValues(), ...job.parameters, modelName: job.modelName, baseModel: job.baseModel, packingEnabled: job.parameters?.packingEnabled ?? false, dpoEnabled: job.parameters?.dpoEnabled ?? false, orpoEnabled: job.parameters?.orpoEnabled ?? false, exportGguf: job.parameters?.exportGguf ?? false, autoEvaluate: job.parameters?.autoEvaluate ?? false });
+    setShowForm(true);
+    toast.info(t('workList.restartHint'));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   return (
     <div className="space-y-6 animate-in fade-in duration-700">
@@ -1085,57 +1107,16 @@ const FineTuning: FC = () => {
           </button>
         </div>
 
-        <Table className="min-w-[640px]">
-          <TableHead>
-            <tr>
-              {['colJobId', 'colModel', 'colBase', 'colDataset', 'colEpochs', 'colLoss',
-                'colDuration', 'colStatus', 'colDate'].map(h => (
-                <Th key={h}>{t(`fineTuning.${h}`)}</Th>
-              ))}
-            </tr>
-          </TableHead>
-          <TableBody>
-            {jobs.length === 0 ? (
-              <tr>
-                <Td colSpan={9} className="py-8 text-center text-on-surface-variant">
-                  {t('fineTuning.noJobs')}
-                </Td>
-              </tr>
-            ) : jobs.map(job => (
-              <TableRow
-                key={job.jobId}
-                onClick={() => selectJob(job)}
-                className="cursor-pointer"
-              >
-                <Td className="font-mono text-[11px]">{job.jobId.slice(0, 8)}</Td>
-                <Td className="font-medium">{job.modelName}</Td>
-                <Td className="text-on-surface-variant">{job.baseModel}</Td>
-                <Td>{t('fineTuning.pairsCount', { count: job.datasetSize })}</Td>
-                <Td>{job.parameters?.epochs ?? '—'}</Td>
-                {/* Loss finale et durée : deux chiffres qu'on venait chercher en cliquant, faute
-                    de les voir — et rien n'indiquait qu'il fallait cliquer. */}
-                <Td className="tabular-nums">{job.loss != null ? job.loss.toFixed(4) : '—'}</Td>
-                <Td className="tabular-nums text-on-surface-variant">
-                  {(() => {
-                    const ms = jobDurationMs(job, now);
-                    return ms != null ? formatEta(ms) : '—';
-                  })()}
-                </Td>
-                <Td>
-                  <StatusBadge status={job.status} />
-                  {!isTerminal(job.status) && job.status !== 'PENDING' && <p className="text-xs text-on-surface-variant">{t(`fineTuning.steps.${job.status}`, { defaultValue: job.status })}</p>}
-                  {/* Le motif n'était visible qu'en sélectionnant la ligne. */}
-                  {job.error && (
-                    <p className="text-[10px] text-error truncate max-w-[220px]" title={job.error}>{job.error}</p>
-                  )}
-                </Td>
-                <Td className="text-on-surface-variant whitespace-nowrap">
-                  {job.createdAt ? new Date(job.createdAt).toLocaleString(i18n.language) : '—'}
-                </Td>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+        <ListTools search={historySearch} onSearch={setHistorySearch} status={historyStatus} onStatus={setHistoryStatus} statuses={['PENDING', 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED']} sort={historySort} onSort={setHistorySort} onReset={() => { setHistorySearch(''); setHistoryStatus('all'); setHistorySort('recent'); }} />
+        <ListFeedback loading={jobsLoading} error={jobsError} retry={() => { void loadJobs(); }} empty={!visibleJobs.length} action={<Button variant="outline" onClick={() => { setHistorySearch(''); setHistoryStatus('all'); setShowForm(true); }}>{t('workList.configure')}</Button>}>
+          {!!visibleJobs.length && <WorkList viewKey="training" filters={JSON.stringify([historySearch, historyStatus, historySort])} label={t('fineTuning.history')}>{visibleJobs.map(job => <WorkListRow key={job.jobId} selected={activeJob?.jobId === job.jobId}
+            identity={<><button className="font-medium text-left hover:text-primary" onClick={() => openJob(job)}>{job.modelName}</button><p className="text-xs font-mono break-all text-on-surface-variant">{job.jobId}</p></>}
+            status={<><StatusBadge status={job.status} />{!isTerminal(job.status) && job.status !== 'PENDING' && <p className="text-xs">{t(`fineTuning.steps.${job.status}`, { defaultValue: job.status })}</p>}</>}
+            context={<div className="text-xs space-y-1"><p>{job.baseModel} · {t('fineTuning.pairsCount', { count: job.datasetSize })} · {job.parameters?.epochs ?? '—'} {t('fineTuning.colEpochs')}</p><p>{t('fineTuning.colLoss')}: {job.loss != null ? job.loss.toFixed(4) : '—'} · {t('fineTuning.colDuration')}: {jobDurationMs(job, now) != null ? formatEta(jobDurationMs(job, now)!) : '—'}</p>{job.error && <p className="text-error break-all">{job.error}</p>}</div>}
+            updated={<time dateTime={job.completedAt ?? job.createdAt}>{new Date(job.completedAt ?? job.createdAt).toLocaleString(i18n.language)}</time>}
+            actions={<div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => openJob(job)}>{t(!isTerminal(job.status) ? 'workList.follow' : job.status === 'COMPLETED' ? 'workList.result' : job.status === 'FAILED' ? 'workList.inspect' : 'workList.open')}</Button>{(job.status === 'FAILED' || job.status === 'CANCELLED') && <Button size="sm" variant="ghost" onClick={() => prepareRestart(job)}>{t('workList.restart')}</Button>}</div>}
+          />)}</WorkList>}
+        </ListFeedback>
       </section>
 
       {/* Confirmation : un entraînement interrompu est perdu (aucune reprise d'adaptateur). */}

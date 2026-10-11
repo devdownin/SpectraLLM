@@ -46,7 +46,7 @@ const getTelemetry = vi.fn((jobId: string) =>
 vi.mock('../services/api', () => ({
   fineTuningApi: {
     getJobs: vi.fn(() => Promise.resolve({ data: [RUNNING, OLD_FAILED] })),
-    getJob: vi.fn(() => Promise.resolve({ data: RUNNING })),
+    getJob: vi.fn((id: string) => Promise.resolve({ data: id === OLD_FAILED.jobId ? OLD_FAILED : RUNNING })),
     getTelemetry: (jobId: string) => getTelemetry(jobId),
     createJob: vi.fn(),
     cancelJob: vi.fn(),
@@ -81,6 +81,7 @@ const emit = (log: Record<string, unknown>) =>
   act(() => { sse?.onmessage?.({ data: JSON.stringify(log) }); });
 
 import FineTuning from './FineTuning';
+import { fineTuningApi } from '../services/api';
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -89,6 +90,14 @@ beforeEach(() => {
 });
 
 describe('FineTuning — télémétrie rattachée à son job', () => {
+  it('prépare les paramètres du job échoué sans lancer un entraînement', async () => {
+    render(<MemoryRouter><FineTuning /></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('button', { name: 'Prepare a new run' }));
+    expect(screen.getByDisplayValue('spectra-ancien')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /Multipacking/ })).not.toBeChecked();
+    expect(screen.getByRole('button', { name: /Launch training/i })).toBeVisible();
+    expect(fineTuningApi.createJob).not.toHaveBeenCalled();
+  });
   it('affiche les lignes du job suivi et écarte celles d\'un autre', async () => {
     render(<MemoryRouter><FineTuning /></MemoryRouter>);
     await screen.findByRole('heading', { name: 'spectra-domain' });
@@ -109,7 +118,7 @@ describe('FineTuning — télémétrie rattachée à son job', () => {
     expect(await screen.findByText('ligne du job suivi')).toBeInTheDocument();
 
     // Clic sur le job échoué de la veille, dans l'historique.
-    fireEvent.click(screen.getByRole('cell', { name: 'spectra-ancien' }));
+    fireEvent.click(screen.getByRole('button', { name: 'spectra-ancien' }));
 
     await waitFor(() =>
       expect(screen.queryByText('ligne du job suivi')).not.toBeInTheDocument());
@@ -131,7 +140,7 @@ describe('FineTuning — télémétrie rattachée à son job', () => {
   it('signale que le début du journal n\'est pas affiché', async () => {
     render(<MemoryRouter><FineTuning /></MemoryRouter>);
     await screen.findByRole('heading', { name: 'spectra-domain' });
-    fireEvent.click(screen.getByRole('cell', { name: 'spectra-ancien' }));
+    fireEvent.click(screen.getByRole('button', { name: 'spectra-ancien' }));
 
     // 42 lignes sur disque, 1 rendue : le dire évite de laisser croire que le run a commencé là.
     expect(await screen.findByText(/beginning truncated/i)).toBeInTheDocument();
@@ -140,7 +149,7 @@ describe('FineTuning — télémétrie rattachée à son job', () => {
   it('situe l\'échec d\'un ancien job sur sa phase réelle', async () => {
     render(<MemoryRouter><FineTuning /></MemoryRouter>);
     await screen.findByRole('heading', { name: 'spectra-domain' });
-    fireEvent.click(screen.getByRole('cell', { name: 'spectra-ancien' }));
+    fireEvent.click(screen.getByRole('button', { name: 'spectra-ancien' }));
 
     // failedPhase = EXPORTING_DATASET : c'est l'étape « Export » qui porte l'erreur, et non
     // « Import » comme le faisait l'index constant d'avant.

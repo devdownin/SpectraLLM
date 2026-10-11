@@ -115,7 +115,7 @@ describe('FineTuning — évaluation enchaînée', () => {
     // chose qui relie les deux moitiés de la chaîne côté interface.
     renderPage();
     // Un job terminal n'est pas restauré automatiquement : on le sélectionne dans l'historique.
-    fireEvent.click(await screen.findByRole('cell', { name: 'spectra-domain' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'spectra-domain' }));
 
     expect(await screen.findByRole('link', { name: /view evaluation/i })).toHaveAttribute('href', '/comparison?eval=eval-7');
   });

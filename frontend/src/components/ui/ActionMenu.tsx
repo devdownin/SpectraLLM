@@ -8,6 +8,7 @@ export interface ActionMenuItem {
   icon?: string;
   onSelect: () => void;
   disabled?: boolean;
+  disabledReason?: string;
   pressed?: boolean;
   danger?: boolean;
 }
@@ -53,7 +54,7 @@ export function ActionMenu({ items, label, side = 'down' }: { items: ActionMenuI
         className={`w-full flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm disabled:opacity-40 hover:bg-surface-container-highest ${item.danger ? 'text-error' : 'text-on-surface'}`}
         onClick={() => { setOpen(false); trigger.current?.focus(); item.onSelect(); }}>
         {item.icon && <span aria-hidden="true" className="material-symbols-outlined text-base">{item.icon}</span>}
-        <span className="flex-1">{item.label}</span>{item.pressed && <span aria-hidden="true">✓</span>}
+        <span className="flex-1">{item.label}{item.disabled && item.disabledReason && <span className="block mt-1 text-xs font-normal">{item.disabledReason}</span>}</span>{item.pressed && <span aria-hidden="true">✓</span>}
       </button>)}
     </div>}
   </div>;

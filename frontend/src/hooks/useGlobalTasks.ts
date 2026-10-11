@@ -353,7 +353,7 @@ export function normalizeSnapshot(snap: TasksSnapshot | null | undefined): Globa
  * Interroge toutes les sources en parallèle ; une source en panne est ignorée
  * (les autres tâches restent visibles), cohérent avec le suivi par page.
  */
-async function fetchGlobalTasks(): Promise<GlobalTask[]> {
+async function fetchGlobalTasks(): Promise<{ tasks: GlobalTask[]; unavailable: number }> {
   const sources: [() => Promise<{ data: unknown }>, (raw: unknown) => GlobalTask[]][] = [
     [() => ingestApi.getAllTasks(), normalizeIngestTasks],
     [() => datasetApi.getAllTasks(), normalizeDatasetTasks],
@@ -366,9 +366,9 @@ async function fetchGlobalTasks(): Promise<GlobalTask[]> {
     [() => ablationApi.listJobs(), normalizeAblationJobs],
   ];
   const results = await Promise.allSettled(sources.map(([fetch]) => fetch()));
-  return results.flatMap((r, i) =>
-    r.status === 'fulfilled' ? sources[i][1](r.value.data) : []
-  );
+  const unavailable = results.filter(r => r.status === 'rejected').length;
+  if (unavailable === sources.length) throw new Error('Task sources unavailable');
+  return { unavailable, tasks: results.flatMap((r, i) => r.status === 'fulfilled' ? sources[i][1](r.value.data) : []) };
 }
 
 // ── Hook ─────────────────────────────────────────────────────────────────────
@@ -390,12 +390,12 @@ export function useGlobalTasks() {
   // abandon après épuisement des tentatives). Poll rapide seulement quand quelque
   // chose tourne : l'UI réagit vite sans marteler l'API au repos.
   const pollingEnabled = sseStatus !== 'open';
-  const { data: polledTasks, isLoading: pollLoading } = useQuery({
+  const { data: polled, isLoading: pollLoading, isError, refetch } = useQuery({
     queryKey: ['global-tasks'],
     queryFn: fetchGlobalTasks,
     enabled: pollingEnabled,
     refetchInterval: (query) =>
-      (query.state.data ?? []).some(isActiveTask) ? ACTIVE_POLL_MS : IDLE_POLL_MS,
+      (query.state.data?.tasks ?? []).some(isActiveTask) ? ACTIVE_POLL_MS : IDLE_POLL_MS,
     retry: false,
   });
 
@@ -403,8 +403,8 @@ export function useGlobalTasks() {
     if (sseStatus === 'open' && sseTasks) return sseTasks;
     // Flux coupé : le polling reprend ; en attendant sa 1re réponse, on garde le
     // dernier instantané SSE plutôt que de vider le panneau.
-    return polledTasks ?? sseTasks ?? [];
-  }, [sseStatus, sseTasks, polledTasks]);
+    return polled?.tasks ?? sseTasks ?? [];
+  }, [sseStatus, sseTasks, polled]);
 
   const activeTasks = useMemo(() => tasks.filter(isActiveTask), [tasks]);
 
@@ -412,7 +412,10 @@ export function useGlobalTasks() {
     tasks,
     activeTasks,
     activeCount: activeTasks.length,
-    isLoading: !sseSnapshot && pollLoading,
+    isError: pollingEnabled && isError,
+    unavailable: pollingEnabled ? polled?.unavailable ?? 0 : 0,
+    refetch,
+    isLoading: !sseSnapshot && !polled && (pollLoading || sseStatus === 'open'),
     /** 'open' = flux temps réel actif ; sinon repli sur le polling REST. */
     liveStatus: sseStatus,
   };

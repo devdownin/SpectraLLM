@@ -49,6 +49,18 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 - Le menu commun des actions secondaires prend en charge le clavier et la fermeture
   par Échap ou clic extérieur. Les actions des réponses ne dépendent plus du survol.
 
+### Modifié — listes et continuité des parcours
+
+- Activité, Documents et les historiques d’entraînements, d’ablations et de rapports
+  partagent les repères Identité, Statut, Contexte, Dernière mise à jour et Actions ;
+  leurs lignes deviennent des cartes lisibles sur mobile.
+- Recherche, filtres, tri, pagination et défilement sont restaurés pendant la session,
+  y compris après rechargement ; Documents recharge les lots nécessaires à la page mémorisée.
+- Les listes distinguent chargement, absence de résultats et erreur avec Réessayer ;
+  une actualisation en échec conserve les éléments connus, et Activité signale les sources REST indisponibles.
+- Les actions suivent le statut du travail. Un entraînement échoué ou annulé peut préparer
+  une nouvelle exécution dans le formulaire, sans démarrage automatique.
+
 ### Modifié — navigation contextuelle et panneaux de détail
 
 - Activité ouvre le rapport ou le job exact, avec retour vers ses filtres ; les liens
