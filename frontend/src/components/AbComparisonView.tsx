@@ -189,7 +189,7 @@ const AbComparisonView: FC = () => {
           {selected && (
             <DetailPanel title={`${selected.modelA} vs ${selected.modelB}`} onClose={closeReport}
               summary={<div className="flex flex-wrap gap-3"><StatusBadge status={selected.status} /><span className="text-sm break-all">{selected.abId}</span></div>}
-              history={<p className="text-sm">{t('detail.started')} : {new Date(selected.startedAt).toLocaleString()}</p>}
+              history={<dl className="text-sm space-y-2"><dt>{t('detail.started')}</dt><dd>{new Date(selected.startedAt).toLocaleString(i18n.language)}</dd><dt>{t('detail.finished')}</dt><dd>{selected.completedAt ? new Date(selected.completedAt).toLocaleString(i18n.language) : '—'}</dd></dl>}
               actions={<Button variant="outline" onClick={closeReport}>{t('detail.close')}</Button>}
               details={<div className="space-y-6">
               <div className="bg-surface-container p-6 space-y-4">

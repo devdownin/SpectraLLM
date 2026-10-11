@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import { ablationApi, fineTuningApi } from '../services/api';
 import { etaMs, formatEta } from '../hooks/useGlobalTasks';
 import AblationCharts from '../components/charts/AblationCharts';
-import { PageHeader, Button, SpotlightCard, StatusBadge } from '../components/ui';
+import { PageHeader, Button, SpotlightCard, StatusBadge, DetailPanel } from '../components/ui';
 import type {
   AblationArmConfig,
   AblationArmReport,
@@ -199,7 +199,7 @@ function downloadCsv(report: AblationReport, t: TFunction): void {
 }
 
 const Optimization: FC = () => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [preset, setPreset] = useState<PresetKey>('rag');
   const [models, setModels] = useState<string[]>([]);
   const [baseModel, setBaseModel] = useState<string>('');
@@ -208,12 +208,13 @@ const Optimization: FC = () => {
   const [runs, setRuns] = useState<number>(1);
   const [params] = useSearchParams();
   const targetJob = params.get('job');
+  const [reportOpen, setReportOpen] = useState(Boolean(targetJob));
   const [jobId, setJobId] = useState<string | null>(targetJob);
 
   // Restauration au montage : reprend le passage le plus récent (rechargement / navigation
   // pendant un run — le job et son rapport sont persistés côté serveur).
   useEffect(() => {
-    if (targetJob) { setJobId(targetJob); return; }
+    if (targetJob) { setJobId(targetJob); setReportOpen(true); return; }
     let current = true;
     ablationApi.listJobs()
       .then(res => {
@@ -289,7 +290,7 @@ const Optimization: FC = () => {
     const prev = prevStatusRef.current;
     prevStatusRef.current = job?.status ?? null;
     if (!job || prev === null || prev === job.status) return;
-    if (job.status === 'COMPLETED') toast.success(t('optimization.done'));
+    if (job.status === 'COMPLETED') { setReportOpen(true); toast.success(t('optimization.done')); }
     else if (job.status === 'FAILED') {
       toast.error(t('optimization.failed'), { description: job.error ?? undefined });
     } else if (job.status === 'CANCELLED') toast.info(t('optimization.cancelledToast'));
@@ -464,20 +465,14 @@ const Optimization: FC = () => {
         </p>
       )}
 
-      {report && baseArm && !running && (
-        <section className="space-y-4">
-          <div className="flex items-end justify-between flex-wrap gap-2">
-            <h3 className="font-headline text-xs uppercase tracking-widest text-on-surface-variant">
-              {t('optimization.resultsTitle', { count: report.benchmarkSize, base: baseArm.label })}
-            </h3>
-            <button
-              onClick={() => downloadCsv(report, t)}
-              className="px-3 py-1.5 border border-outline-variant/30 text-on-surface-variant font-headline text-[11px] uppercase tracking-widest hover:border-primary hover:text-on-surface transition-colors"
-            >
-              {t('optimization.exportCsv')}
-            </button>
-          </div>
-
+      {report && baseArm && !running && <Button variant="outline" onClick={() => setReportOpen(true)} icon="analytics">{t('activity.result')}</Button>}
+      {report && baseArm && !running && reportOpen && <DetailPanel
+        title={t('optimization.resultsTitle', { count: report.benchmarkSize, base: baseArm.label })}
+        onClose={() => setReportOpen(false)}
+        summary={<div className="flex flex-wrap gap-3"><StatusBadge status={job?.status} /><span className="text-sm break-all">{job?.jobId}</span></div>}
+        history={<dl className="text-sm space-y-2"><dt>{t('detail.started')}</dt><dd>{new Date(report.startedAt).toLocaleString(i18n.language)}</dd><dt>{t('detail.finished')}</dt><dd>{new Date(report.completedAt).toLocaleString(i18n.language)}</dd></dl>}
+        actions={<div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => downloadCsv(report, t)} icon="download">{t('optimization.exportCsv')}</Button><Button variant="outline" onClick={() => setReportOpen(false)}>{t('detail.close')}</Button></div>}
+        details={<section className="space-y-4">
           {noRetrieval && (
             <p className="text-[11px] text-secondary bg-secondary/10 border border-secondary/20 px-3 py-2">
               <Trans i18nKey="optimization.noRetrieval">
@@ -596,8 +591,8 @@ const Optimization: FC = () => {
               </li>
             </ul>
           </details>
-        </section>
-      )}
+        </section>} />}
+
     </div>
   );
 };

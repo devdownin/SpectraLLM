@@ -46,7 +46,7 @@ collection ne permettent l’ouverture que si le nom désigne un document unique
 le focus sur la source consultée. Le retour contextuel utilise l’historique du navigateur ;
 un lien ouvert directement ne prétend pas avoir un écran d’origine.
 
-Documents, traces RAG et rapports d’évaluation partagent `DetailPanel` : Résumé,
+Documents, traces RAG et rapports d’évaluation ou d’ablation partagent `DetailPanel` : Résumé,
 Détails, Historique et Actions. La chronologie d’exécution sert d’historique à une
 trace ; les rapports affichent leurs dates ; les documents conservent leur audit.
 L’aperçu, la qualification, les annotations, les scores et les actions restent accessibles.
