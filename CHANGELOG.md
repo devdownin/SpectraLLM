@@ -8,6 +8,16 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Ajouté — limite de débit MCP
+
+- Les appels d'outils MCP passent par un seau à jetons (60 par minute, rafale de 10 par
+  défaut ; `SPECTRA_MCP_RATE_LIMIT_PER_MINUTE`, `SPECTRA_MCP_RATE_LIMIT_BURST`, 0 désactive).
+  Au-delà, l'outil refuse en indiquant combien attendre, et l'appel est journalisé
+  `RATE_LIMITED`. Un agent qui boucle ne peut plus monopoliser le LLM au détriment du
+  Playground.
+- Un seul seau pour l'instance : Spectra n'a qu'une clé API, rien ne distingue deux agents, et
+  indexer sur la session MCP ne tiendrait pas à une reconnexion.
+
 ### Ajouté — journal des appels MCP
 
 - `GET /api/mcp/calls` liste les derniers appels d'outils MCP (outil, arguments tronqués à

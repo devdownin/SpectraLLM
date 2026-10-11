@@ -39,7 +39,7 @@ class SpectraMcpToolsTest {
         SpectraProperties properties = mock(SpectraProperties.class);
         when(properties.chromadb()).thenReturn(new SpectraProperties.ChromaDbProperties("http://chroma", "docs"));
         when(chroma.listCollections()).thenReturn(List.of(Map.of("name", "docs")));
-        journal = new McpCallJournal(new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
+        journal = new McpCallJournal(new io.micrometer.core.instrument.simple.SimpleMeterRegistry(), new McpRateLimiter(0, 1));
         tools = new SpectraMcpTools(ragService, chroma, ged, mock(StatusController.class), journal, properties);
     }
 

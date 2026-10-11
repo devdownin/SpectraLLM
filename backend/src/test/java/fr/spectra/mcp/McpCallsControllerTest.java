@@ -11,7 +11,7 @@ class McpCallsControllerTest {
 
     @Test
     void theControllerReturnsTheMostRecentCallsAndTheCapacity() {
-        McpCallJournal journal = new McpCallJournal(new SimpleMeterRegistry());
+        McpCallJournal journal = new McpCallJournal(new SimpleMeterRegistry(), new McpRateLimiter(0, 1));
         journal.record("spectra_status", Map.of(), () -> null);
         journal.record("spectra_search", Map.of("question", "q"), () -> null);
 

@@ -18,7 +18,7 @@ class McpCallJournalTest {
     @BeforeEach
     void setUp() {
         registry = new SimpleMeterRegistry();
-        journal = new McpCallJournal(registry);
+        journal = new McpCallJournal(registry, new McpRateLimiter(0, 1));
     }
 
     @Test

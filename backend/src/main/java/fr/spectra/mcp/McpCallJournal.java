@@ -44,6 +44,8 @@ public class McpCallJournal {
         OK,
         /** L'appel était invalide (question vide, collection inconnue) : à corriger côté agent. */
         CALLER_ERROR,
+        /** Refusé par la limite de débit avant d'être exécuté : l'agent appelle trop vite. */
+        RATE_LIMITED,
         /** Un service dont Spectra dépend n'a pas répondu : rien n'a été lu. */
         SERVICE_ERROR,
         /** Toute autre exception : un défaut à examiner dans le journal applicatif. */
@@ -54,22 +56,32 @@ public class McpCallJournal {
                           long durationMs, String detail) {}
 
     private final MeterRegistry registry;
+    private final McpRateLimiter rateLimiter;
     private final Deque<McpCall> calls = new ArrayDeque<>(CAPACITY);
 
-    public McpCallJournal(MeterRegistry registry) {
+    public McpCallJournal(MeterRegistry registry, McpRateLimiter rateLimiter) {
         this.registry = registry;
+        this.rateLimiter = rateLimiter;
     }
 
-    /** Exécute {@code work} et consigne l'appel, que l'outil réponde ou lève. */
+    /**
+     * Passe la limite de débit, exécute {@code work} et consigne l'appel, que l'outil réponde,
+     * lève ou soit refusé. Le point d'entrée unique de chaque outil : c'est ce qui garantit
+     * qu'aucun appel n'échappe ni à la limite ni au journal.
+     */
     public <T> T record(String tool, Map<String, ?> arguments, Supplier<T> work) {
         Instant at = Instant.now();
         long start = System.nanoTime();
         try {
+            rateLimiter.acquire(tool);
             T result = work.get();
             add(at, tool, arguments, Outcome.OK, start, null);
             return result;
         } catch (IllegalArgumentException e) {
             add(at, tool, arguments, Outcome.CALLER_ERROR, start, e.getMessage());
+            throw e;
+        } catch (McpRateLimiter.McpRateLimited e) {
+            add(at, tool, arguments, Outcome.RATE_LIMITED, start, e.getMessage());
             throw e;
         } catch (McpToolFailure e) {
             add(at, tool, arguments, Outcome.SERVICE_ERROR, start, e.getMessage());
