@@ -349,6 +349,8 @@ services:
       # « authentification API désactivée » et laissait passer toutes les requêtes, pendant
       # que scripts/pipeline.sh envoyait consciencieusement un en-tête X-API-Key ignoré.
       - SPECTRA_API_KEY=${SPECTRA_API_KEY:-}
+      # Serveur MCP en lecture seule sur /mcp (port 8080) ; exige SPECTRA_API_KEY.
+      - SPECTRA_MCP_ENABLED=${SPECTRA_MCP_ENABLED:-false}
       - SPECTRA_CHROMADB_BASE_URL=http://chromadb:8000
       - SPECTRA_PIPELINE_CHUNK_MAX_TOKENS=${SPECTRA_CHUNK_MAX_TOKENS:-256}
       - SPECTRA_PIPELINE_CHUNK_OVERLAP_TOKENS=${SPECTRA_CHUNK_OVERLAP_TOKENS:-64}

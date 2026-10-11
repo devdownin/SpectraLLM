@@ -8,6 +8,15 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Ajouté — serveur MCP en lecture seule
+
+- `SPECTRA_MCP_ENABLED=true` expose un serveur MCP sur `/mcp` (Streamable HTTP) : un agent
+  peut chercher des passages (`spectra_search`, sans appel au LLM), poser une question RAG
+  (`spectra_ask`), lister les documents d'une collection, prévisualiser un document et lire
+  l'état des services. Aucun outil n'écrit.
+- Désactivé par défaut, et refusé sans `SPECTRA_API_KEY` : `/mcp` répond alors 503 au lieu
+  d'ouvrir le corpus. Une collection inconnue est signalée comme telle plutôt que créée vide.
+
 ### Ajouté — contexte et cockpits de travail
 
 - Le modèle réellement chargé et la collection RAG choisie restent visibles dans
