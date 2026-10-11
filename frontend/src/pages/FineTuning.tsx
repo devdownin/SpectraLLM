@@ -21,7 +21,7 @@ import { apiErrorMessage } from '../lib/apiError';
 import { etaMs, formatEta } from '../hooks/useGlobalTasks';
 import LossChart from '../components/charts/LossChart';
 import ConfirmDialog from '../components/ConfirmDialog';
-import { PageHeader, Button, Badge, Table, TableHead, TableBody, TableRow, Th, Td, CountUp } from '../components/ui';
+import { PageHeader, Button, StatusBadge, Table, TableHead, TableBody, TableRow, Th, Td, CountUp } from '../components/ui';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -135,14 +135,6 @@ const StepBar: FC<StepBarProps> = ({ job }) => {
 };
 
 // ── Job status color ─────────────────────────────────────────────────────────
-
-const jobStatusColor = (s: JobStatus) => {
-  if (s === 'COMPLETED')  return 'text-primary border-primary';
-  if (s === 'FAILED')     return 'text-error border-error';
-  if (s === 'TRAINING')   return 'text-secondary border-secondary';
-  // CANCELLED reste neutre : un arrêt décidé par l'utilisateur n'a pas à s'afficher en rouge.
-  return 'text-on-surface-variant border-outline-variant';
-};
 
 /** Durée écoulée d'un job, en millisecondes (jusqu'à sa fin s'il est terminé). */
 const jobDurationMs = (job: { createdAt: string; completedAt: string | null }, now: number) => {
@@ -581,13 +573,13 @@ const FineTuning: FC = () => {
     : null;
 
   return (
-    <div className="space-y-12 animate-in fade-in duration-700">
+    <div className="space-y-6 animate-in fade-in duration-700">
 
       {/* Header */}
       <PageHeader
         kicker={t('fineTuning.kicker')}
         title={t('fineTuning.title')}
-        actions={
+        primaryAction={
           <Button
             variant={showForm ? 'secondary' : 'primary'}
             icon={showForm ? 'close' : 'add'}
@@ -858,9 +850,7 @@ const FineTuning: FC = () => {
                   <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">{t('fineTuning.status')}</p>
                   {/* Libellé traduit, et non l'énumération brute : on lisait « EXPORTING_DATASET »
                       à côté d'une étape traduite « Export », dans les deux langues. */}
-                  <span className={`font-label text-[11px] font-bold uppercase tracking-widest px-2 py-0.5 border ${jobStatusColor(activeJob.status)}`}>
-                    {t(`fineTuning.steps.${activeJob.status}`, { defaultValue: activeJob.status })}
-                  </span>
+                  <StatusBadge status={activeJob.status} />
                 </div>
 
                 <div>
@@ -1119,12 +1109,8 @@ const FineTuning: FC = () => {
                   })()}
                 </Td>
                 <Td>
-                  <Badge tone={
-                    job.status === 'COMPLETED' ? 'success' :
-                    job.status === 'FAILED'    ? 'error' :
-                    job.status === 'CANCELLED' ? 'neutral' :
-                                                 'secondary'
-                  } dot>{t(`fineTuning.steps.${job.status}`, { defaultValue: job.status })}</Badge>
+                  <StatusBadge status={job.status} />
+                  {!isTerminal(job.status) && job.status !== 'PENDING' && <p className="text-xs text-on-surface-variant">{t(`fineTuning.steps.${job.status}`, { defaultValue: job.status })}</p>}
                   {/* Le motif n'était visible qu'en sélectionnant la ligne. */}
                   {job.error && (
                     <p className="text-[10px] text-error truncate max-w-[220px]" title={job.error}>{job.error}</p>

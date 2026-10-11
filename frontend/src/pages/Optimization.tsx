@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import { ablationApi, fineTuningApi } from '../services/api';
 import { etaMs, formatEta } from '../hooks/useGlobalTasks';
 import AblationCharts from '../components/charts/AblationCharts';
-import { PageHeader, Button, SpotlightCard } from '../components/ui';
+import { PageHeader, Button, SpotlightCard, StatusBadge } from '../components/ui';
 import type {
   AblationArmConfig,
   AblationArmReport,
@@ -302,7 +302,7 @@ const Optimization: FC = () => {
   const noRetrieval = report?.arms?.every(a => !a.retrieval.evaluatedQuestions);
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-700">
+    <div className="space-y-6 animate-in fade-in duration-700">
       {/* Header */}
       <PageHeader
         kicker={t('optimization.kicker')}
@@ -442,6 +442,8 @@ const Optimization: FC = () => {
           </div>
         </section>
       )}
+
+      {job && <StatusBadge status={job.status} />}
 
       {/* Passage interrompu : cause affichée plutôt qu'un écran qui redevient muet. */}
       {!running && job?.status === 'FAILED' && (

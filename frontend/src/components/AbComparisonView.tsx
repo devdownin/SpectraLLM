@@ -1,3 +1,4 @@
+import { StatusBadge } from './ui';
 import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -162,7 +163,7 @@ const AbComparisonView: FC = () => {
                 className={`w-full text-left px-4 py-3 transition-colors hover:bg-surface-container-high/60 ${selected?.abId === r.abId ? 'bg-surface-container-high' : ''}`}>
                 <p className="font-headline font-bold text-xs truncate">{r.modelA} <span className="text-on-surface-variant">{t('ab.vs')}</span> {r.modelB}</p>
                 <p className="font-label text-[10px] text-on-surface-variant mt-0.5">
-                  {new Date(r.startedAt).toLocaleString(i18n.language, { dateStyle: 'short', timeStyle: 'short' })} · {r.status}
+                  {new Date(r.startedAt).toLocaleString(i18n.language, { dateStyle: 'short', timeStyle: 'short' })} · <StatusBadge status={r.status} />
                 </p>
                 {r.status === 'COMPLETED' && (
                   <p className="font-headline text-xs font-bold mt-1">{r.aWins}–{r.ties}–{r.bWins}</p>

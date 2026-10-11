@@ -3,6 +3,7 @@ import type { FC } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWorkspaceCollection } from '../hooks/useWorkspaceCollection';
 import AnswerActions from '../components/playground/AnswerActions';
+import { PageHeader, Button, ActionMenu } from '../components/ui';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -203,8 +204,6 @@ const Playground: FC = () => {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [advisorOpen, setAdvisorOpen] = useState(false);
   const [atBottom, setAtBottom] = useState(true);
-  const [regenMenuOpen, setRegenMenuOpen] = useState(false);
-  const [exportMenuOpen, setExportMenuOpen] = useState(false);
   /** Modules RAG désactivés par l'utilisateur (surcharges par requête → override `false`). */
   const [disabledModules, setDisabledModules] = useState<Set<OverrideKey>>(() => {
     try {
@@ -216,7 +215,6 @@ const Playground: FC = () => {
   const [comparison, setComparison] = useState<{
     baseline: Message; question: string; module: ModuleDef; history: { role: string; content: string }[];
   } | null>(null);
-  const [compareMenuIdx, setCompareMenuIdx] = useState<number | null>(null);
   // Cible de citation : clé `${messageIdx}-${sourceNumber}` + compteur de clics. Un changement
   // déclenche l'ouverture + le défilement de la source correspondante (cf. SourceItem.openSignal).
   const [citeTarget, setCiteTarget] = useState<{ key: string; tick: number } | null>(null);
@@ -333,6 +331,7 @@ const Playground: FC = () => {
     try {
       await configApi.setModelConfig({ model: modelName });
       void queryClient.invalidateQueries({ queryKey: ['system-status'] });
+      void queryClient.invalidateQueries({ queryKey: ['configured-model'] });
       toast.info(t('playground.modelUpdated'), {
         description: `llm-chat reloads "${modelName}" automatically within a few seconds.`,
       });
@@ -410,7 +409,6 @@ const Playground: FC = () => {
 
   /** Exporte la conversation courante (Markdown ou JSON). */
   const exportConversation = (format: 'md' | 'json') => {
-    setExportMenuOpen(false);
     const real = messages.filter(m => m.content?.trim());
     if (real.length <= 1) { toast.info(t('playground.nothingToExport')); return; }
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
@@ -691,7 +689,6 @@ const Playground: FC = () => {
    * @param tempOverride température pour cette régénération (cf. menu « plus factuel/créatif »).
    */
   const regenerateLast = (tempOverride?: number) => {
-    setRegenMenuOpen(false);
     const lastUser = [...messages].reverse().find(m => m.role === 'user');
     if (lastUser) submitQuery(lastUser.content, true, tempOverride);
   };
@@ -721,7 +718,6 @@ const Playground: FC = () => {
 
   /** Lance une comparaison A/B : rejoue la question de ce tour avec {@code mod} désactivé. */
   const openComparison = (msgIndex: number, mod: ModuleDef) => {
-    setCompareMenuIdx(null);
     const before = messages.slice(0, msgIndex);
     const userIdx = before.map(m => m.role).lastIndexOf('user');
     const question = userIdx >= 0 ? before[userIdx].content : '';
@@ -755,7 +751,15 @@ const Playground: FC = () => {
   const lastAssistantIdx = messages.findLastIndex(m => m.role === 'assistant');
 
   return (
-    <div className="h-auto lg:h-[calc(100vh-12rem)] flex flex-col lg:flex-row gap-4 lg:gap-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+    <>
+    <PageHeader title={t('nav.playground')} description={t('playground.description')}
+      primaryAction={<Button icon="chat" onClick={() => { textareaRef.current?.scrollIntoView({ block: 'center' }); textareaRef.current?.focus(); }}>{t('playground.askQuestion')}</Button>}
+      secondaryActions={[
+        { id: 'markdown', label: t('playground.exportMarkdown'), icon: 'download', onSelect: () => exportConversation('md') },
+        { id: 'json', label: t('playground.exportJson'), icon: 'download', onSelect: () => exportConversation('json') },
+        { id: 'clear', label: t('playground.clearHistory'), icon: 'delete_sweep', danger: true, onSelect: requestClearChat },
+      ]} />
+    <div className="mt-6 h-auto lg:h-[calc(100vh-24rem)] lg:min-h-[480px] flex flex-col lg:flex-row gap-4 lg:gap-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
       <button className="lg:hidden text-sm text-primary text-left rounded-lg border border-outline-variant/40 p-3" aria-expanded={mobileSettingsOpen} aria-controls="playground-settings" onClick={() => setMobileSettingsOpen(open => !open)}>{t('playground.toggleSettings')}</button>
       <aside id="playground-settings" className={`${mobileSettingsOpen ? 'block' : 'hidden'} lg:block w-full lg:w-80 shrink-0 bg-surface-container p-6 space-y-8 overflow-y-auto custom-scrollbar`}>
         {services && (
@@ -846,7 +850,7 @@ const Playground: FC = () => {
               ))}
               {availableModels.length > 1 && (
                 <p className="text-[10px] text-outline uppercase tracking-widest leading-relaxed">
-                  Effective on the next chat service restart.
+                  {t('playground.modelReloadHint')}
                 </p>
               )}
             </div>
@@ -1000,40 +1004,7 @@ const Playground: FC = () => {
             <span className="material-symbols-outlined text-sm">psychology</span>
             RAG Advisor
           </button>
-          <div className="relative">
-            <button
-              onClick={() => setExportMenuOpen(o => !o)}
-              aria-haspopup="menu" aria-expanded={exportMenuOpen}
-              className="w-full py-3 px-4 border border-outline-variant/40 text-on-surface-variant text-[11px] font-headline uppercase tracking-widest hover:border-primary/40 hover:text-primary transition-colors flex items-center justify-center gap-2"
-            >
-              <span className="material-symbols-outlined text-sm">download</span>
-              Export Conversation
-            </button>
-            {exportMenuOpen && (
-              <>
-                <button type="button" aria-hidden="true" tabIndex={-1}
-                  className="fixed inset-0 z-10 cursor-default" onClick={() => setExportMenuOpen(false)} />
-                <div role="menu"
-                  className="absolute left-0 right-0 bottom-full mb-1 z-20 bg-surface-container-high border border-outline-variant/30 shadow-lg py-1 animate-in fade-in slide-in-from-bottom-1">
-                  <button type="button" role="menuitem" onClick={() => exportConversation('md')}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-left text-[11px] uppercase tracking-widest text-on-surface-variant hover:bg-primary/10 hover:text-primary transition-colors">
-                    <span aria-hidden="true" className="material-symbols-outlined text-[14px]">description</span>As Markdown
-                  </button>
-                  <button type="button" role="menuitem" onClick={() => exportConversation('json')}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-left text-[11px] uppercase tracking-widest text-on-surface-variant hover:bg-primary/10 hover:text-primary transition-colors">
-                    <span aria-hidden="true" className="material-symbols-outlined text-[14px]">data_object</span>As JSON
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-          <button
-            onClick={requestClearChat}
-            className="w-full h-10 px-4 rounded-lg border border-error/30 text-error text-[13px] font-medium hover:bg-error/10 transition-colors flex items-center justify-center gap-2"
-          >
-            <span aria-hidden="true" className="material-symbols-outlined text-[16px]">delete_sweep</span>
-            Clear Chat History
-          </button>
+
         </div>
       </aside>
 
@@ -1165,75 +1136,16 @@ const Playground: FC = () => {
                         aria-label={t('playground.badAnswer')} aria-pressed={msg.feedback === 'DOWN'}
                         className={`material-symbols-outlined text-[14px] px-1 transition-colors ${msg.feedback === 'DOWN' ? 'text-error' : 'text-outline hover:text-error'}`}>thumb_down</button>
 
-                      <span className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-                        <button type="button" onClick={() => copyAnswer(msg.content)} aria-label={t('playground.copyAnswer')}
-                          className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-outline hover:text-primary transition-colors px-1.5 py-0.5">
-                          <span aria-hidden="true" className="material-symbols-outlined text-[13px]">content_copy</span>Copy
-                        </button>
-                        {i === lastAssistantIdx && (
-                          <div className="relative">
-                            <button type="button" onClick={() => setRegenMenuOpen(o => !o)} disabled={isTyping}
-                              aria-label={t('playground.regenerate')} aria-haspopup="menu" aria-expanded={regenMenuOpen}
-                              className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-outline hover:text-primary transition-colors px-1.5 py-0.5 disabled:opacity-40">
-                              <span aria-hidden="true" className="material-symbols-outlined text-[13px]">refresh</span>Regenerate
-                              <span aria-hidden="true" className={`material-symbols-outlined text-[12px] transition-transform ${regenMenuOpen ? 'rotate-180' : ''}`}>expand_more</span>
-                            </button>
-                            {regenMenuOpen && (
-                              <>
-                                {/* Couche de fermeture au clic extérieur. */}
-                                <button type="button" aria-hidden="true" tabIndex={-1}
-                                  className="fixed inset-0 z-10 cursor-default" onClick={() => setRegenMenuOpen(false)} />
-                                <div role="menu"
-                                  className="absolute right-0 bottom-full mb-1 z-20 w-44 bg-surface-container-high border border-outline-variant/30 shadow-lg py-1 animate-in fade-in slide-in-from-bottom-1">
-                                  {regenVariants.map(v => (
-                                    <button key={v.label} type="button" role="menuitem"
-                                      onClick={() => regenerateLast(v.temp)}
-                                      className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-[11px] uppercase tracking-widest text-on-surface-variant hover:bg-primary/10 hover:text-primary transition-colors">
-                                      <span aria-hidden="true" className="material-symbols-outlined text-[13px]">{v.icon}</span>
-                                      <span className="flex-1">{v.label}</span>
-                                      {v.temp !== undefined && <span className="font-mono text-[10px] text-outline">{v.temp.toFixed(1)}</span>}
-                                    </button>
-                                  ))}
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        )}
-                        {/* Comparaison A/B : rejouer sans un module qui a réellement agi (chantier 4) */}
-                        {appliedModules(msg.ragMeta).length > 0 && (
-                          <div className="relative">
-                            <button type="button" onClick={() => setCompareMenuIdx(idx => idx === i ? null : i)} disabled={isTyping}
-                              aria-label={t('playground.compareWithout')} aria-haspopup="menu" aria-expanded={compareMenuIdx === i}
-                              className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-outline hover:text-primary transition-colors px-1.5 py-0.5 disabled:opacity-40">
-                              <span aria-hidden="true" className="material-symbols-outlined text-[13px]">compare_arrows</span>Compare
-                              <span aria-hidden="true" className={`material-symbols-outlined text-[12px] transition-transform ${compareMenuIdx === i ? 'rotate-180' : ''}`}>expand_more</span>
-                            </button>
-                            {compareMenuIdx === i && (
-                              <>
-                                <button type="button" aria-hidden="true" tabIndex={-1}
-                                  className="fixed inset-0 z-10 cursor-default" onClick={() => setCompareMenuIdx(null)} />
-                                <div role="menu"
-                                  className="absolute right-0 bottom-full mb-1 z-20 w-52 bg-surface-container-high border border-outline-variant/30 shadow-lg py-1 animate-in fade-in slide-in-from-bottom-1">
-                                  <p className="px-3 py-1 text-[9px] uppercase tracking-widest text-outline">Re-run without…</p>
-                                  {appliedModules(msg.ragMeta).map(mod => (
-                                    <button key={mod.key} type="button" role="menuitem"
-                                      onClick={() => openComparison(i, mod)}
-                                      className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-[11px] uppercase tracking-widest text-on-surface-variant hover:bg-primary/10 hover:text-primary transition-colors">
-                                      <span aria-hidden="true" className="material-symbols-outlined text-[13px]">block</span>
-                                      <span className="flex-1">{mod.label}</span>
-                                    </button>
-                                  ))}
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        )}
-                      </span>
+                      <ActionMenu label={t('playground.answerActions')} side="up" items={[
+                        { id: 'copy', label: t('playground.copyAnswer'), icon: 'content_copy', onSelect: () => copyAnswer(msg.content) },
+                        ...(i === lastAssistantIdx ? regenVariants.map((variant, index) => ({ id: `regenerate-${index}`, label: t(`playground.regenVariants.${index}`), icon: variant.icon, disabled: isTyping, onSelect: () => regenerateLast(variant.temp) })) : []),
+                        ...appliedModules(msg.ragMeta).map(mod => ({ id: `compare-${mod.key}`, label: t('playground.compareModule', { module: mod.label }), icon: 'compare_arrows', disabled: isTyping || Boolean(msg.stopped), onSelect: () => openComparison(i, mod) })),
+                      ]} />
                     </div>
                   </div>
                 )}
                 {msg.role === 'user' && (
-                  <div className="mt-2 flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                  <div className="mt-2 flex items-center justify-end gap-1 ">
                     <button type="button" onClick={() => editMessage(i)} disabled={isTyping} aria-label={t('playground.editMessage')}
                       className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-outline hover:text-secondary transition-colors px-1.5 py-0.5 disabled:opacity-40">
                       <span aria-hidden="true" className="material-symbols-outlined text-[13px]">edit</span>Edit
@@ -1355,6 +1267,7 @@ const Playground: FC = () => {
         </Suspense>
       )}
     </div>
+    </>
   );
 };
 

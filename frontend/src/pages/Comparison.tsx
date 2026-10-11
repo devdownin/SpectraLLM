@@ -10,16 +10,9 @@ import ModelComparisonPanel from '../components/ModelComparisonPanel';
 import BatchEvaluateDialog from '../components/BatchEvaluateDialog';
 import AbComparisonView from '../components/AbComparisonView';
 import Skeleton from '../components/Skeleton';
-import { EmptyState, Button, PageHeader, Input, CountUp } from '../components/ui';
+import { EmptyState, Button, PageHeader, Input, CountUp, StatusBadge } from '../components/ui';
 import { apiErrorMessage } from '../lib/apiError';
 
-const STATUS_COLOR: Record<string, string> = {
-  PENDING:   'text-on-surface-variant',
-  RUNNING:   'text-secondary',
-  COMPLETED: 'text-primary',
-  FAILED:    'text-error',
-  CANCELLED: 'text-on-surface-variant',
-};
 
 function ScoreBar({ score, color = 'bg-primary' }: { score: number; color?: string }) {
   const pct = Math.round((score / 10) * 100);
@@ -213,7 +206,7 @@ const Comparison: FC = () => {
   };
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-700">
+    <div className="space-y-6 animate-in fade-in duration-700">
       <BatchEvaluateDialog
         open={batchOpen}
         onClose={() => setBatchOpen(false)}
@@ -223,47 +216,14 @@ const Comparison: FC = () => {
       <PageHeader
         kicker={t('comparison.kicker')}
         title={t('comparison.title')}
-        actions={
-          <>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setAbMode(m => !m)}
-              aria-pressed={abMode}
-              title={t('comparison.abTitle')}
-              className={abMode ? 'bg-secondary text-on-secondary border-secondary hover:bg-secondary' : undefined}
-            >
-              {abMode ? t('comparison.abExit') : t('comparison.abEnter')}
-            </Button>
-            {!abMode && (
-              <>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setBatchOpen(true)}
-                  aria-label={t('comparison.batchTitle')}
-                  title={t('comparison.batchTitle')}
-                >
-                  {t('comparison.batch')}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCompareMode(m => !m)}
-                  disabled={compareIds.length < 2}
-                  aria-pressed={compareMode}
-                  title={compareIds.length < 2 ? t('comparison.compareHintDisabled') : t('comparison.compareHintEnabled')}
-                  className={compareMode ? 'bg-secondary text-on-secondary border-secondary hover:bg-secondary' : undefined}
-                >
-                  {compareMode ? t('comparison.compareExit') : t('comparison.compareEnter', { count: compareIds.length })}
-                </Button>
-                <Button size="sm" onClick={handleNewEvaluation} disabled={isTriggering}>
-                  {isTriggering ? t('comparison.launching') : t('comparison.newEval')}
-                </Button>
-              </>
-            )}
-          </>
-        }
+        secondaryActions={[
+          { id: 'ab', label: abMode ? t('comparison.abExit') : t('comparison.abEnter'), icon: 'compare_arrows', pressed: abMode, onSelect: () => setAbMode(value => !value) },
+          ...(!abMode ? [
+            { id: 'batch', label: t('comparison.batchTitle'), icon: 'playlist_add', onSelect: () => setBatchOpen(true) },
+            { id: 'compare', label: compareMode ? t('comparison.compareExit') : t('comparison.compareEnter', { count: compareIds.length }), icon: 'compare', pressed: compareMode, disabled: compareIds.length < 2, onSelect: () => setCompareMode(value => !value) },
+          ] : []),
+        ]}
+        primaryAction={!abMode && <Button onClick={handleNewEvaluation} disabled={isTriggering} loading={isTriggering} icon="add">{isTriggering ? t('comparison.launching') : t('comparison.newEval')}</Button>}
       />
 
       {abMode && <AbComparisonView />}
@@ -326,9 +286,7 @@ const Comparison: FC = () => {
               >
                 <div className="flex items-center justify-between mb-0.5">
                   <span className="font-headline font-bold text-xs truncate pr-2">{r.modelName}</span>
-                  <span className={`font-label text-[10px] uppercase tracking-widest shrink-0 ${STATUS_COLOR[r.status]}`}>
-                    {t(`comparison.status.${r.status}`, r.status)}
-                  </span>
+                  <StatusBadge status={r.status} />
                 </div>
                 <p className="font-label text-[10px] text-on-surface-variant">
                   {formatDate(r.startedAt)}
@@ -393,10 +351,7 @@ const Comparison: FC = () => {
                         {t('comparison.exportJson')}
                       </button>
                     )}
-                    <span className={`font-label text-[11px] uppercase tracking-widest px-3 py-1 border ${STATUS_COLOR[selected.status]}
-                      ${selected.status === 'COMPLETED' ? 'border-primary/30' : 'border-outline-variant/30'}`}>
-                      {t(`comparison.status.${selected.status}`, selected.status)}
-                    </span>
+                    <StatusBadge status={selected.status} />
                   </div>
                 </div>
 

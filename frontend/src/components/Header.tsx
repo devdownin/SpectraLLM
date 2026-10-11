@@ -4,6 +4,8 @@ import { useTranslation } from 'react-i18next';
 import { NAV_BY_PATH } from '../navigation';
 import TaskCenter from './TaskCenter';
 import { useStatus } from '../hooks/useStatus';
+import { modelPhase } from '../lib/uiStatus';
+import { StatusBadge } from './ui';
 
 interface HeaderProps {
   onMenuClick?: () => void;
@@ -32,15 +34,8 @@ const Header: FC<HeaderProps> = ({ onMenuClick, onSearchClick }) => {
   const chatStatus = services.find((s) => s.name === 'llama-cpp');
   const embedStatus = services.find((s) => s.name === 'llama-cpp-embed');
 
-  const getStatusColor = (s?: ServiceInfo) => {
-    if (!s) return 'bg-outline';
-    if (!s.available) return 'bg-error';
-    if (s.details?.activeModelLoaded === false) return 'bg-warning animate-pulse';
-    return 'bg-success';
-  };
-
-  const statusTitle = (label: string, s?: ServiceInfo) =>
-    `${label}\nStatus: ${s?.available ? (s.details?.activeModelLoaded === false ? 'Loading model' : 'Ready') : 'Offline'}\nModel: ${s?.details?.activeModel || 'None'}`;
+  const statusTitle = (label: string, service?: ServiceInfo) =>
+    `${label} · ${t(`ui.status.model.${modelPhase(service)}`)} · ${service?.details?.activeModel || t('ui.unknown')}`;
 
   return (
     <header className="header-border flex justify-between items-center px-4 md:px-6 h-14 sticky top-0 z-30 bg-surface/80 backdrop-blur-md">
@@ -66,11 +61,11 @@ const Header: FC<HeaderProps> = ({ onMenuClick, onSearchClick }) => {
 
       <div className="flex items-center gap-1">
         {/* État des services (desktop) */}
-        <div className="hidden md:flex items-center gap-3 mr-3 pr-3 border-r border-outline-variant/60">
+        <div className="hidden xl:flex items-center gap-3 mr-3 pr-3 border-r border-outline-variant/60">
           <div className="flex items-center gap-1.5" title={statusTitle('Chat server', chatStatus)}>
-            <div className={`w-1.5 h-1.5 rounded-full ${getStatusColor(chatStatus)}`} />
+            <StatusBadge domain="model" status={modelPhase(chatStatus)} />
             <span className="text-[12px] text-on-surface-variant">Chat</span>
-            {chatStatus?.details?.activeModel && (
+            {modelPhase(chatStatus) === 'loaded' && chatStatus?.details?.activeModel && (
               // Raccourci vers le Playground, où l'on change de modèle actif.
               <button
                 type="button"
@@ -84,7 +79,7 @@ const Header: FC<HeaderProps> = ({ onMenuClick, onSearchClick }) => {
             )}
           </div>
           <div className="flex items-center gap-1.5" title={statusTitle('Embedding server', embedStatus)}>
-            <div className={`w-1.5 h-1.5 rounded-full ${getStatusColor(embedStatus)}`} />
+            <StatusBadge domain="model" status={modelPhase(embedStatus)} />
             <span className="text-[12px] text-on-surface-variant">Embed</span>
           </div>
         </div>

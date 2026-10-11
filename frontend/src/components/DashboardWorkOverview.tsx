@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { configApi } from '../services/api';
 import { useGlobalTasks } from '../hooks/useGlobalTasks';
 import type { GlobalTask } from '../hooks/useGlobalTasks';
-import { Card } from './ui';
+import { Card, StatusBadge } from './ui';
 
 interface Service {
   available?: boolean;
@@ -37,7 +37,7 @@ function TaskList({ tasks }: { tasks: GlobalTask[] }) {
               <span aria-hidden="true" className="material-symbols-outlined text-primary text-xl mt-0.5">{task.icon}</span>
               <div className="min-w-0 flex-1 space-y-1">
                 <p className="text-sm font-medium break-words">{task.label}</p>
-                <p className="text-xs text-on-surface-variant">{t(`taskCenter.kinds.${task.kind}`)} · {t(`dashboard.work.status.${task.status}`)}</p>
+                <p className="text-xs text-on-surface-variant">{t(`taskCenter.kinds.${task.kind}`)} · <StatusBadge status={task.status} /></p>
                 {task.detail && <p className="text-xs text-on-surface-variant">{task.detail}</p>}
                 {task.error && <p className="text-xs text-error break-words">{task.error}</p>}
                 {task.timestamp && Number.isFinite(Date.parse(task.timestamp)) && (
