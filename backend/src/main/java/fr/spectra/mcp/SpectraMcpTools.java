@@ -42,14 +42,17 @@ public class SpectraMcpTools {
     private final ChromaDbClient chromaDbClient;
     private final GedService gedService;
     private final StatusController statusController;
+    private final McpCallJournal journal;
     private final String defaultCollection;
 
     public SpectraMcpTools(RagService ragService, ChromaDbClient chromaDbClient, GedService gedService,
-                           StatusController statusController, SpectraProperties properties) {
+                           StatusController statusController, McpCallJournal journal,
+                           SpectraProperties properties) {
         this.ragService = ragService;
         this.chromaDbClient = chromaDbClient;
         this.gedService = gedService;
         this.statusController = statusController;
+        this.journal = journal;
         this.defaultCollection = properties.chromadb().effectiveCollection();
     }
 
@@ -81,14 +84,15 @@ public class SpectraMcpTools {
             String collection,
             @McpToolParam(required = false, description = "Passages to return, 1 to 20; default 5")
             Integer maxPassages) {
-        return McpToolFailure.guard("spectra_search", () -> {
+        return journal.record("spectra_search", arguments("question", question, "collection", collection, "maxPassages", maxPassages),
+                () -> McpToolFailure.guard("spectra_search", () -> {
             String coll = collectionOrDefault(collection);
             RagService.RagContext ctx = ragService.retrieveContext(request(question, coll, clamp(maxPassages)));
             List<Passage> passages = passages(ctx.sources());
             String note = passages.isEmpty()
                     ? "No passage matched in collection '%s'.".formatted(coll) : null;
             return new SearchResult(coll, passages, ctx.rerankApplied(), ctx.hybridApplied(), note);
-        });
+        }));
     }
 
     @McpTool(name = "spectra_ask", annotations = @McpTool.McpAnnotations(
@@ -105,12 +109,13 @@ public class SpectraMcpTools {
             String collection,
             @McpToolParam(required = false, description = "Context passages, 1 to 20; default 5")
             Integer maxPassages) {
-        return McpToolFailure.guard("spectra_ask", () -> {
+        return journal.record("spectra_ask", arguments("question", question, "collection", collection, "maxPassages", maxPassages),
+                () -> McpToolFailure.guard("spectra_ask", () -> {
             String coll = collectionOrDefault(collection);
             QueryResponse response = ragService.query(request(question, coll, clamp(maxPassages)));
             return new AskResult(coll, response.answer(), passages(response.sources()), response.durationMs(),
                     response.rerankApplied(), response.hybridSearchApplied());
-        });
+        }));
     }
 
     @McpTool(name = "spectra_list_documents", annotations = @McpTool.McpAnnotations(
@@ -123,7 +128,8 @@ public class SpectraMcpTools {
     public DocumentList listDocuments(
             @McpToolParam(required = false, description = "Collection name; the configured default when omitted")
             String collection) {
-        return McpToolFailure.guard("spectra_list_documents", () -> {
+        return journal.record("spectra_list_documents", arguments("collection", collection),
+                () -> McpToolFailure.guard("spectra_list_documents", () -> {
             String coll = collectionOrDefault(collection);
             // Lister ne doit pas créer : getOrCreateCollection matérialiserait une collection vide
             // sous un nom mal orthographié, et la réponse dirait « aucun document » au lieu de
@@ -134,7 +140,7 @@ public class SpectraMcpTools {
             Map<String, Integer> sources = chromaDbClient.listSources(chromaDbClient.getOrCreateCollection(coll));
             long chunks = sources.values().stream().mapToLong(Integer::longValue).sum();
             return new DocumentList(coll, true, sources, sources.size(), chunks);
-        });
+        }));
     }
 
     @McpTool(name = "spectra_preview_document", annotations = @McpTool.McpAnnotations(
@@ -146,10 +152,11 @@ public class SpectraMcpTools {
     public DocumentPreview previewDocument(
             @McpToolParam(description = "SHA-256 of the document, as listed in the document registry")
             String sha256) {
-        return McpToolFailure.guard("spectra_preview_document", () -> {
+        return journal.record("spectra_preview_document", arguments("sha256", sha256),
+                () -> McpToolFailure.guard("spectra_preview_document", () -> {
             GedService.DocumentPreview preview = gedService.preview(sha256);
             return new DocumentPreview(sha256, preview.chunks(), preview.truncated());
-        });
+        }));
     }
 
     @McpTool(name = "spectra_status", annotations = @McpTool.McpAnnotations(
@@ -160,7 +167,16 @@ public class SpectraMcpTools {
             concluding that an empty answer means the corpus holds nothing.
             """)
     public SystemStatusResponse status() {
-        return statusController.getStatus();
+        return journal.record("spectra_status", Map.of(), statusController::getStatus);
+    }
+
+    /** Paires nom/valeur, nulles comprises : le journal écarte lui-même les absentes. */
+    private static Map<String, Object> arguments(Object... pairs) {
+        Map<String, Object> map = new java.util.LinkedHashMap<>();
+        for (int i = 0; i < pairs.length; i += 2) {
+            map.put((String) pairs[i], pairs[i + 1]);
+        }
+        return map;
     }
 
     private QueryRequest request(String question, String collection, int max) {

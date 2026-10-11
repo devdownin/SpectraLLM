@@ -8,6 +8,16 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Ajouté — journal des appels MCP
+
+- `GET /api/mcp/calls` liste les derniers appels d'outils MCP (outil, arguments tronqués à
+  200 caractères, issue, durée), le plus récent d'abord. L'issue dit à qui revient l'échec :
+  `CALLER_ERROR` (appel invalide), `SERVICE_ERROR` (service injoignable, rien lu), `FAILURE`
+  (défaut à examiner). Timer Prometheus `spectra_mcp_calls_seconds{tool,outcome}`.
+- En mémoire et borné à 500 appels, perdu au redémarrage : un outil de diagnostic, pas une
+  piste d'audit — les arguments sont des questions d'utilisateurs, que rien ne doit conserver
+  sans politique de rétention.
+
 ### Corrigé — erreurs des outils MCP
 
 - Un service injoignable n'est plus renvoyé à l'agent comme une trace netty

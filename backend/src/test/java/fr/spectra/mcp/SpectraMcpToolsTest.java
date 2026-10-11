@@ -28,6 +28,7 @@ class SpectraMcpToolsTest {
     private RagService ragService;
     private ChromaDbClient chroma;
     private GedService ged;
+    private McpCallJournal journal;
     private SpectraMcpTools tools;
 
     @BeforeEach
@@ -38,7 +39,8 @@ class SpectraMcpToolsTest {
         SpectraProperties properties = mock(SpectraProperties.class);
         when(properties.chromadb()).thenReturn(new SpectraProperties.ChromaDbProperties("http://chroma", "docs"));
         when(chroma.listCollections()).thenReturn(List.of(Map.of("name", "docs")));
-        tools = new SpectraMcpTools(ragService, chroma, ged, mock(StatusController.class), properties);
+        journal = new McpCallJournal(new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
+        tools = new SpectraMcpTools(ragService, chroma, ged, mock(StatusController.class), journal, properties);
     }
 
     private static RagService.RagContext context(List<QueryResponse.Source> sources) {
@@ -142,6 +144,20 @@ class SpectraMcpToolsTest {
         assertThatThrownBy(() -> tools.listDocuments("docs"))
                 .isInstanceOf(McpToolFailure.class)
                 .hasMessageContaining("http://chromadb:8000 did not answer (connection refused)");
+    }
+
+    @Test
+    void everyCallIsJournaledWithItsOutcome() {
+        when(ragService.retrieveContext(any(QueryRequest.class))).thenReturn(context(List.of()));
+        when(chroma.listCollections()).thenReturn(List.of(Map.of("name", "docs")));
+
+        tools.search("q", null, null);
+        assertThatThrownBy(() -> tools.search("q", "doc", null)).isInstanceOf(IllegalArgumentException.class);
+
+        assertThat(journal.recent(10)).extracting(McpCallJournal.McpCall::tool, McpCallJournal.McpCall::outcome)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple("spectra_search", McpCallJournal.Outcome.CALLER_ERROR),
+                        org.assertj.core.groups.Tuple.tuple("spectra_search", McpCallJournal.Outcome.OK));
     }
 
     @Test
