@@ -90,6 +90,18 @@ beforeEach(() => {
 });
 
 describe('FineTuning — télémétrie rattachée à son job', () => {
+  it('filters exact phases while keeping an aggregate running filter', async () => {
+    render(<MemoryRouter><FineTuning /></MemoryRouter>);
+    await screen.findByRole('button', { name: 'Prepare a new run' });
+    const status = screen.getByRole('combobox', { name: 'Status' });
+    fireEvent.change(status, { target: { value: 'EXPORTING_DATASET' } });
+    expect(await screen.findByText('No items to display')).toBeVisible();
+    fireEvent.change(status, { target: { value: 'TRAINING' } });
+    expect(await screen.findByRole('button', { name: 'Follow' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Prepare a new run' })).not.toBeInTheDocument();
+    fireEvent.change(status, { target: { value: 'RUNNING' } });
+    expect(await screen.findByRole('button', { name: 'Follow' })).toBeVisible();
+  });
   it('prépare les paramètres du job échoué sans lancer un entraînement', async () => {
     render(<MemoryRouter><FineTuning /></MemoryRouter>);
     fireEvent.click(await screen.findByRole('button', { name: 'Prepare a new run' }));

@@ -467,7 +467,7 @@ const Optimization: FC = () => {
 
       <section className="space-y-4">
         <h2 className="font-headline text-xl font-bold">{t('workList.history')}</h2>
-        <ListTools search={historySearch} onSearch={setHistorySearch} status={historyStatus} onStatus={setHistoryStatus} statuses={['PENDING', 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED']} sort={historySort} onSort={setHistorySort} onReset={() => { setHistorySearch(''); setHistoryStatus('all'); setHistorySort('recent'); }} />
+        <ListTools resultCount={visibleJobs.length} search={historySearch} onSearch={setHistorySearch} status={historyStatus} onStatus={setHistoryStatus} statuses={['PENDING', 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED']} sort={historySort} onSort={setHistorySort} onReset={() => { setHistorySearch(''); setHistoryStatus('all'); setHistorySort('recent'); }} />
         <ListFeedback loading={history.isLoading} error={history.isError} empty={!visibleJobs.length} retry={() => { void history.refetch(); }} action={<Button variant="outline" onClick={() => { setHistorySearch(''); setHistoryStatus('all'); }}>{t('workList.reset')}</Button>}>
           {!!visibleJobs.length && <WorkList viewKey="ablation" filters={JSON.stringify([historySearch, historyStatus, historySort])} label={t('workList.history')}>{visibleJobs.map(j => <WorkListRow key={j.jobId} selected={jobId === j.jobId}
             identity={<><button className="font-medium text-left hover:text-primary" onClick={() => openHistoryJob(j.jobId)}>{j.label ?? j.jobId}</button><p className="text-xs text-on-surface-variant break-all">{j.jobId}</p></>}

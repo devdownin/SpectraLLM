@@ -932,7 +932,22 @@
     "cancel": "Annuler",
     "classifyPending": "Classifier ({{count}})",
     "allClassified": "Tout est classifié",
-    "classifyHint": "Classer les documents en attente avec {{model}}"
+    "classifyHint": "Classer les documents en attente avec {{model}}",
+    "moreFilters": "Autres filtres",
+    "selectionScope": "Périmètre de sélection",
+    "selectPage": "Sélectionner cette page",
+    "selectView": "Sélectionner les documents visibles",
+    "selectedOnPage_one": "{{count}} sélectionné sur cette page",
+    "selectedOnPage_other": "{{count}} sélectionnés sur cette page",
+    "selectedInView_one": "{{count}} sélectionné dans cette vue",
+    "selectedInView_other": "{{count}} sélectionnés dans cette vue",
+    "selectedTotal_one": "{{count}} sélectionné au total",
+    "selectedTotal_other": "{{count}} sélectionnés au total",
+    "selectFiltered": "Sélectionner tous les résultats filtrés",
+    "selectingAll": "Chargement de tous les résultats filtrés…",
+    "filteredLoaded": "Le compteur porte sur les résultats chargés ; la sélection globale charge tous les lots.",
+    "clearSelection": "Effacer la sélection",
+    "selectionFailed": "Impossible de charger tous les résultats. Votre sélection est conservée."
   },
   "batchEval": {
     "kicker": "Comparer des modèles",
@@ -1153,11 +1168,15 @@
     "sortLabel": "Trier",
     "sort": {
       "recent": "Plus récents",
-      "name": "Nom"
+      "name": "Nom",
+      "chunks": "Chunks",
+      "quality": "Qualité"
     },
     "pagination": "Pagination",
     "previous": "Précédent",
     "next": "Suivant",
-    "configure": "Configurer une nouvelle tâche"
+    "configure": "Configurer une nouvelle tâche",
+    "resultCount_one": "{{count}} résultat filtré",
+    "resultCount_other": "{{count}} résultats filtrés"
   }
 }

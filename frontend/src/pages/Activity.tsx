@@ -28,12 +28,8 @@ export default function Activity() {
   return <div className="space-y-6">
     <PageHeader title={t('activity.title')} description={t('activity.description')} />
     <p className="text-xs text-on-surface-variant" role="status">{t(liveStatus === 'open' ? 'activity.live' : 'activity.polling')}</p>
-    <ListTools search={search} onSearch={setSearch} status={status} onStatus={setStatus} statuses={statuses} sort={sort} onSort={setSort} onReset={reset} />
-    <div className="flex flex-wrap gap-3">
-      <label className="flex flex-col gap-1 text-xs">{t('activity.kind')}<select aria-label={t('activity.kind')} className={control} value={kind} onChange={e => setKind(e.target.value)}><option value="all">{t('activity.all')}</option>{kinds.map(k => <option key={k} value={k}>{t(`taskCenter.kinds.${k}`)}</option>)}</select></label>
-    </div>
+    <ListTools resultCount={filtered.length} search={search} onSearch={setSearch} status={status} onStatus={setStatus} statuses={statuses} sort={sort} onSort={setSort} onReset={reset} extraControls={<label className="flex flex-col gap-1 text-xs">{t('activity.kind')}<select aria-label={t('activity.kind')} className={control} value={kind} onChange={e => setKind(e.target.value)}><option value="all">{t('activity.all')}</option>{kinds.map(k => <option key={k} value={k}>{t(`taskCenter.kinds.${k}`)}</option>)}</select></label>} />
     {!!unavailable && <p role="alert" className="text-sm text-secondary">{t('workList.partial')} <Button variant="ghost" onClick={() => { void refetch?.(); }}>{t('workList.retry')}</Button></p>}
-    <p className="text-sm text-on-surface-variant">{t('activity.count', { count: filtered.length })}</p>
     <ListFeedback loading={isLoading} error={isError} empty={!filtered.length} retry={() => { void refetch?.(); }} action={<Button onClick={reset} variant="outline">{t('workList.reset')}</Button>}>
       {!!filtered.length && <WorkList viewKey="activity" filters={JSON.stringify([search, status, kind, sort])} label={t('activity.title')}>{filtered.map(task => <WorkListRow key={task.id}
         identity={<><p className="font-medium break-all">{task.label}</p><p className="text-xs text-on-surface-variant break-all">{task.id}</p></>}
