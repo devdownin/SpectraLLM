@@ -8,7 +8,7 @@ import i18n from '../i18n';
 import WorkspaceContext from './WorkspaceContext';
 import { useWorkspaceCollection } from '../hooks/useWorkspaceCollection';
 const mocks=vi.hoisted(() => ({ consistency:vi.fn(), status:{services:[{name:'llama-cpp',available:true,details:{activeModelLoaded:true,activeModel:'Loaded Qwen'}}]}, error:null as Error|null }));
-vi.mock('../services/api',()=>({configApi:{getEmbeddingConsistency:mocks.consistency}}));
+vi.mock('../services/api',()=>({configApi:{getEmbeddingConsistency:mocks.consistency,getModelConfig:()=>Promise.resolve({data:{model:"Configured Qwen"}})}}));
 vi.mock('../hooks/useStatus',()=>({useStatus:()=>({status:mocks.status,error:mocks.error})}));
 function Consumer(){const [collection]=useWorkspaceCollection();return <span data-testid="collection">{collection}</span>;}
 const show=(path='/playground') => render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><MemoryRouter initialEntries={[path]}><WorkspaceContext/><Consumer/></MemoryRouter></QueryClientProvider>);
@@ -28,7 +28,7 @@ it('does not claim a model is loaded while it is loading',()=>{
 });
 it('reports missing collections and unavailable status',async()=>{
  localStorage.setItem('spectra_workspace_collection','missing');mocks.error=new Error('offline');show();
- expect(screen.getByText('Model status unavailable')).toBeInTheDocument();await screen.findByText(/Collection missing/);
+ expect(screen.getByText('Unavailable')).toBeInTheDocument();await screen.findByText(/Collection missing/);
 });
 it('reports a failed collection lookup',async()=>{
  mocks.consistency.mockRejectedValue(new Error('offline'));show('/optimization');expect(await screen.findByText('Collection list unavailable.')).toBeInTheDocument();

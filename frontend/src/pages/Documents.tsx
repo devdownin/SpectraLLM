@@ -8,11 +8,11 @@ import Skeleton from '../components/Skeleton';
 import DocumentPreview from '../components/DocumentPreview';
 import Tooltip from '../components/Tooltip';
 import ConfirmDialog from '../components/ConfirmDialog';
-import { Badge, EmptyState, PageHeader, Button } from '../components/ui';
+import { Badge, EmptyState, PageHeader, Button, StatusBadge } from '../components/ui';
 import { gedApi, commentApi } from '../services/api';
 import { useFocusTrap } from '../hooks/useFocusTrap';
 import {
-  DOCUMENT_TYPES, LIFECYCLE_BAR_COLORS, LIFECYCLE_COLORS, LIFECYCLE_TONES,
+  DOCUMENT_TYPES, LIFECYCLE_BAR_COLORS, LIFECYCLE_COLORS,
   QUALITY_THRESHOLDS, getDocumentType, getGroupLabel,
 } from '../lib/documentTaxonomy';
 import type { DocumentTypeKey, GroupBy, SortMode } from '../lib/documentTaxonomy';
@@ -517,9 +517,7 @@ const Documents: FC = () => {
         </div>
 
         <div className="flex justify-center">
-          <Badge tone={LIFECYCLE_TONES[doc.lifecycle]} className={doc.lifecycle === 'ARCHIVED' ? 'opacity-60' : undefined}>
-            {doc.lifecycle}
-          </Badge>
+          <StatusBadge status={doc.lifecycle} domain="document" />
         </div>
 
         <div className="flex items-center gap-2">
@@ -576,38 +574,15 @@ const Documents: FC = () => {
         kicker={t('documents.kicker')}
         title={t('documents.title')}
         description={t('documents.subtitle')}
-        actions={
-          <>
-            <span className="text-[12px] text-on-surface-variant">
-              {t('documents.shownCount', { shown: filtered.length, loaded: documents.length })}
-              {totalDocuments > documents.length ? t('documents.ofTotal', { total: totalDocuments }) : ''}
-            </span>
-            {/* R8 — action principale de l'écran : lancer la classification du fonds. Elle vit
-                dans l'en-tête et non dans le panneau de filtres, où elle était invisible.
-                Le libellé porte le reste à faire : « Classifier (23) » dit à la fois quoi
-                et combien, et disparaît quand tout est déjà classifié. */}
-            {classificationConfig?.enabled && (
-              <Button
-                variant={pendingClassification > 0 ? 'primary' : 'outline'}
-                size="sm"
-                disabled={bulkClassifyMutation.isPending || !!classifyTaskId || pendingClassification === 0}
-                title={t('documents.classifyHint', { model: classificationConfig.model })}
-                onClick={() => bulkClassifyMutation.mutate({ sha256List: null, force: false })}
-              >
-                <span aria-hidden="true" className={`material-symbols-outlined text-[16px] ${classifyTaskId ? 'animate-spin' : ''}`}>
-                  {classifyTaskId ? 'progress_activity' : 'auto_awesome'}
-                </span>
-                {pendingClassification > 0
-                  ? t('documents.classifyPending', { count: pendingClassification })
-                  : t('documents.allClassified')}
-              </Button>
-            )}
-            <Button variant="outline" size="sm" onClick={() => refetch()}>
-              <span aria-hidden="true" className={`material-symbols-outlined text-[16px] ${isFetching ? 'animate-spin' : ''}`}>refresh</span>
-              {t('documents.sync')}
-            </Button>
-          </>
-        }
+        context={<>{t('documents.shownCount', { shown: filtered.length, loaded: documents.length })}{totalDocuments > documents.length ? t('documents.ofTotal', { total: totalDocuments }) : ''}</>}
+        secondaryActions={[{ id: 'sync', label: t('documents.sync'), icon: 'refresh', onSelect: () => { void refetch(); }, disabled: isFetching }]}
+        primaryAction={classificationConfig?.enabled && <Button
+          disabled={bulkClassifyMutation.isPending || !!classifyTaskId || pendingClassification === 0}
+          title={t('documents.classifyHint', { model: classificationConfig.model })}
+          icon={classifyTaskId ? 'progress_activity' : 'auto_awesome'}
+          onClick={() => bulkClassifyMutation.mutate({ sha256List: null, force: false })}>
+          {pendingClassification > 0 ? t('documents.classifyPending', { count: pendingClassification }) : t('documents.allClassified')}
+        </Button>}
       />
 
       {/* Stats Cards */}
@@ -631,7 +606,7 @@ const Documents: FC = () => {
               const count = stats?.byLifecycle?.[lc] ?? 0;
               const pct = total > 0 ? (count / total) * 100 : 0;
               return pct > 0 ? (
-                <Tooltip key={lc} content={`${lc}: ${count}`}>
+                <Tooltip key={lc} content={`${t(`ui.status.document.${lc}`)}: ${count}`}>
                   <div style={{ width: `${pct}%` }} className={`h-2 min-w-[4px] ${LIFECYCLE_BAR_COLORS[lc]}`} />
                 </Tooltip>
               ) : null;
@@ -669,14 +644,14 @@ const Documents: FC = () => {
           </div>
           <div className="space-y-2">
             <label className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">{t('documents.lifecycle')}</label>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               {['all', 'INGESTED', 'QUALIFIED', 'TRAINED', 'ARCHIVED'].map(lc => (
                 <button
                   key={lc}
                   onClick={() => setSelectedLifecycle(lc)}
                   className={`flex-1 py-2 border text-[10px] font-label uppercase tracking-widest transition-all ${selectedLifecycle === lc ? 'border-primary bg-primary/10 text-primary' : 'border-outline-variant/20 text-on-surface-variant hover:border-primary/30'}`}
                 >
-                  {lc === 'all' ? t('documents.qualityAll') : lc.slice(0, 1)}
+                  {lc === 'all' ? t('documents.qualityAll') : t(`ui.status.document.${lc}`)}
                 </button>
               ))}
             </div>
@@ -883,7 +858,7 @@ const Documents: FC = () => {
               .sort(([a], [b]) => a.localeCompare(b))
               .map(([key, docs]) => {
                 const isCollapsed = collapsedGroups.has(key);
-                const label = getGroupLabel(key, groupBy);
+                const label = groupBy === 'lifecycle' ? t(`ui.status.document.${key}`, { defaultValue: key }) : getGroupLabel(key, groupBy);
                 const groupSha = docs.map(d => d.sha256);
                 const groupSelected = groupSha.filter(sha => bulkSelected.has(sha)).length;
                 const allGroupSelected = groupSelected === docs.length;
@@ -996,7 +971,7 @@ const Documents: FC = () => {
                 disabled={bulkLifecycleMutation.isPending}
                 className={`px-3 py-2 border text-[10px] font-bold tracking-widest uppercase transition-all disabled:opacity-50 ${LIFECYCLE_COLORS[lc]} hover:bg-primary/10`}
               >
-                {lc}
+                {t(`ui.status.document.${lc}`)}
               </button>
             ))}
             {classificationConfig?.enabled && (
@@ -1072,7 +1047,7 @@ const Documents: FC = () => {
               <div id="doc-qualification" className="grid grid-cols-2 gap-3">
                 <div className="p-4 bg-surface-container-lowest border-l-2 border-primary">
                   <p className="text-[10px] uppercase tracking-widest text-outline mb-1">{t('documents.status')}</p>
-                  <p className="font-headline font-bold text-sm text-primary uppercase">{sheet.lifecycle}</p>
+                  <StatusBadge status={sheet.lifecycle} domain="document" />
                 </div>
                 <div className="p-4 bg-surface-container-lowest border-l-2 border-secondary">
                   <p className="text-[10px] uppercase tracking-widest text-outline mb-1">{t('documents.quality')}</p>
@@ -1125,7 +1100,7 @@ const Documents: FC = () => {
                       onClick={() => transitionMutation.mutate({ sha: sheet.sha256, lc })}
                       className={`px-3 py-2 border text-[10px] font-bold tracking-widest uppercase transition-all ${lc === sheet.lifecycle ? 'opacity-30 cursor-not-allowed border-outline' : 'border-primary/30 text-primary hover:bg-primary/10'}`}
                     >
-                      {lc === sheet.lifecycle ? '✓ ' : ''}{lc}
+                      {lc === sheet.lifecycle ? '✓ ' : ''}{t(`ui.status.document.${lc}`)}
                     </button>
                   ))}
                 </div>

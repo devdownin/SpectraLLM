@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import Tooltip from '../components/Tooltip';
 import Skeleton from '../components/Skeleton';
 import ConfirmDialog from '../components/ConfirmDialog';
-import { PageHeader, Button } from '../components/ui';
+import { PageHeader, Button, StatusBadge } from '../components/ui';
 import { ingestApi, datasetApi } from '../services/api';
 import { etaMs, formatEta } from '../hooks/useGlobalTasks';
 import { apiErrorMessage, apiErrorStatus } from '../lib/apiError';
@@ -466,27 +466,21 @@ const Ingestion: FC = () => {
   };
 
   return (
-    <div className="space-y-12 animate-in fade-in duration-700">
+    <div className="space-y-6 animate-in fade-in duration-700">
 
       {/* Header */}
       <PageHeader
         kicker={t('ingestion.kicker')}
         title={t('ingestion.title')}
-        actions={
-          <>
-            <Button variant="ghost" size="sm" icon="refresh" onClick={loadStats}>
-              {t('ingestion.refresh')}
-            </Button>
-            <div className="flex items-center gap-3">
+        secondaryActions={[{ id: 'refresh', label: t('ingestion.refresh'), icon: 'refresh', onSelect: loadStats }]}
+        context={            <div className="flex items-center gap-3">
               {PIPELINE_STEPS.map((s, i) => (
                 <PipelineStep key={s.key} icon={s.icon} label={t(s.labelKey)}
                   state={pipelineState(s.key)}
                   nextState={i < PIPELINE_STEPS.length - 1 ? pipelineState(PIPELINE_STEPS[i + 1].key) : undefined}
                   isLast={i === PIPELINE_STEPS.length - 1} />
               ))}
-            </div>
-          </>
-        }
+            </div>}
       />
 
       {/* ── System State Banner ── */}
@@ -735,15 +729,16 @@ const Ingestion: FC = () => {
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 min-w-0">
                         {/* Icon: spin for PROCESSING, static otherwise */}
-                        <span className={`material-symbols-outlined text-sm ${partial ? 'text-error' : statusColor[entry.status]}`}
+                        <span className={`material-symbols-outlined text-sm ${partial ? 'text-warning' : statusColor[entry.status]}`}
                           style={entry.status === 'PROCESSING' ? { animation: 'rotate-slow 1.2s linear infinite' } : undefined}>
                           {partial ? 'warning' : statusIcon[entry.status]}
                         </span>
                         <span className="text-[11px] font-label truncate">{entry.fileName}</span>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
+                        <StatusBadge status={partial ? 'partial' : entry.status} />
                         <span key={`${entry.status}-${entry.chunksCreated}`}
-                          className={`text-[10px] font-bold uppercase tracking-widest ${partial ? 'text-error' : statusColor[entry.status]} ${entry.status === 'COMPLETED' ? 'count-flash' : ''}`}>
+                          className={`text-[10px] font-bold uppercase tracking-widest ${partial ? 'text-warning' : statusColor[entry.status]} ${entry.status === 'COMPLETED' ? 'count-flash' : ''}`}>
                           {entry.status === 'COMPLETED'
                             ? (partial
                                 ? t('ingestion.chunksPartial', { count: entry.chunksCreated })
@@ -769,7 +764,7 @@ const Ingestion: FC = () => {
                         {/* Barre déterminée dès que le total de chunks est connu (chunking fait),
                             sinon balayage indéterminé le temps de l'extraction. */}
                         <div className={`h-full transition-all duration-700 ${
-                          entry.status === 'COMPLETED' ? (partial ? 'bg-error/60 w-full' : 'bg-primary w-full') : 'bg-secondary/50'
+                          entry.status === 'COMPLETED' ? (partial ? 'bg-warning/60 w-full' : 'bg-primary w-full') : 'bg-secondary/50'
                         }`}
                           style={entry.status === 'PROCESSING' ? {
                             width: entry.chunksExpected > 0
@@ -880,14 +875,7 @@ const Ingestion: FC = () => {
                     <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant mb-1">{t('ingestion.taskId')}</p>
                     <p className="font-headline font-bold text-sm">{genTask.taskId.slice(0, 8).toUpperCase()}…</p>
                   </div>
-                  <span className={`font-label text-[11px] font-bold uppercase tracking-widest px-3 py-1 border ${
-                    genTask.status === 'COMPLETED' ? 'border-primary text-primary' :
-                    genTask.status === 'FAILED'    ? 'border-error text-error' :
-                    genTask.status === 'PROCESSING'? 'border-secondary text-secondary' :
-                                                     'border-outline text-outline'
-                  }`}>
-                    {genTask.status}
-                  </span>
+                  <StatusBadge status={genTask.status} />
                 </div>
 
                 {/* Chunks progress */}

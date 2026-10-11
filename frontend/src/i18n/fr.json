@@ -210,7 +210,7 @@
     "modelParameters": "Paramètres du modèle",
     "temperature": "Température",
     "topP": "Top P",
-    "activeModel": "Modèle actif",
+    "activeModel": "Modèle configuré",
     "ragConfiguration": "Configuration du RAG",
     "enableKb": "Activer la base de connaissances",
     "history": "Historique de conversation",
@@ -247,7 +247,20 @@
     "noQuestion": "Aucune question à comparer",
     "modelOfflineDesc": "Le service du modèle de chat est injoignable. Vérifiez llama-cpp-chat.",
     "coreUnreachable": "Le cœur de Spectra est injoignable ou a expiré.",
-    "toggleSettings": "Réglages du Playground"
+    "toggleSettings": "Réglages du Playground",
+    "modelReloadHint": "La configuration demande un rechargement du service. Le bandeau confirme séparément le modèle réellement chargé.",
+    "description": "Interrogez vos documents et examinez les sources et la trace de chaque réponse.",
+    "exportMarkdown": "Exporter en Markdown",
+    "exportJson": "Exporter en JSON",
+    "clearHistory": "Effacer la conversation",
+    "askQuestion": "Poser une question",
+    "answerActions": "Actions de la réponse",
+    "compareModule": "Comparer sans {{module}}",
+    "regenVariants": {
+      "0": "Régénérer à température identique",
+      "1": "Régénérer plus factuellement",
+      "2": "Régénérer plus créativement"
+    }
   },
   "docs": {
     "searchPlaceholder": "Rechercher dans la documentation…",
@@ -1057,5 +1070,33 @@
     "annotations": "Annotations",
     "history": "Historique",
     "indexInfo": "Dernière ingestion : {{count}} chunks dans {{collection}}. L’aperçu vérifie les textes actuellement accessibles."
+  },
+  "ui": {
+    "moreActions": "Autres actions",
+    "modelContext": "État du modèle",
+    "unknown": "Inconnu",
+    "status": {
+      "task": {
+        "pending": "En attente",
+        "running": "En cours",
+        "completed": "Terminé",
+        "partial": "Succès partiel",
+        "failed": "Échec",
+        "cancelled": "Annulé"
+      },
+      "document": {
+        "INGESTED": "Ingéré",
+        "QUALIFIED": "Qualifié",
+        "TRAINED": "Utilisé pour l’entraînement",
+        "ARCHIVED": "Archivé"
+      },
+      "model": {
+        "configured": "Configuré",
+        "loading": "Chargement",
+        "loaded": "Chargé",
+        "unavailable": "Indisponible",
+        "unverified": "Non vérifié"
+      }
+    }
   }
 }

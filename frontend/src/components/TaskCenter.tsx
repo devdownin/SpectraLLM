@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FC } from 'react';
+import { StatusBadge } from './ui';
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -130,6 +131,7 @@ const TaskRow: FC<{ task: GlobalTask; now: number; onNavigate: () => void; onCan
             <span className="font-label text-[9px] uppercase tracking-widest">
               {t(`taskCenter.kinds.${task.kind}`)}
             </span>
+            <StatusBadge status={task.status} />
           </div>
           {task.error && (
             <p className="text-[10px] text-error truncate mt-0.5" title={task.error}>{task.error}</p>

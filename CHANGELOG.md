@@ -8,6 +8,19 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Modifié — cohérence des surfaces de travail
+
+- Les en-têtes partagent une hiérarchie, des espacements et un emplacement communs
+  pour l’action principale et les options secondaires ; le Playground utilise
+  désormais cet en-tête et le Model Hub évite une double marge de contenu.
+- Les badges des tâches, évaluations, installations et documents reposent sur une
+  définition partagée des libellés et couleurs, avec annulation neutre et succès
+  partiel en avertissement. Les phases détaillées du fine-tuning restent visibles.
+- Le modèle configuré est distingué du modèle réellement chargé dans le contexte
+  de travail et le Model Hub. Un état inconnu ne vaut pas confirmation de chargement.
+- Le menu commun des actions secondaires prend en charge le clavier et la fermeture
+  par Échap ou clic extérieur. Les actions des réponses ne dépendent plus du survol.
+
 ### Ajouté — serveur MCP en lecture seule
 
 - `SPECTRA_MCP_ENABLED=true` expose un serveur MCP sur `/mcp` (Streamable HTTP) : un agent

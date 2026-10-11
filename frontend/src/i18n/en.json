@@ -210,7 +210,7 @@
     "modelParameters": "Model Parameters",
     "temperature": "Temperature",
     "topP": "Top P",
-    "activeModel": "Active Model",
+    "activeModel": "Configured model",
     "ragConfiguration": "RAG Configuration",
     "enableKb": "Enable Knowledge Base",
     "history": "Conversational History",
@@ -247,7 +247,20 @@
     "noQuestion": "No question found to compare",
     "modelOfflineDesc": "The chat model service is unreachable. Check llama-cpp-chat.",
     "coreUnreachable": "Spectra core is currently unreachable or timed out.",
-    "toggleSettings": "Playground settings"
+    "toggleSettings": "Playground settings",
+    "modelReloadHint": "Configuration requests a service reload. The context bar separately confirms the model actually loaded.",
+    "description": "Query your documents and inspect the sources and trace of each answer.",
+    "exportMarkdown": "Export as Markdown",
+    "exportJson": "Export as JSON",
+    "clearHistory": "Clear conversation",
+    "askQuestion": "Ask a question",
+    "answerActions": "Answer actions",
+    "compareModule": "Compare without {{module}}",
+    "regenVariants": {
+      "0": "Regenerate at the same temperature",
+      "1": "Regenerate more factually",
+      "2": "Regenerate more creatively"
+    }
   },
   "docs": {
     "searchPlaceholder": "Search the documentation…",
@@ -1057,5 +1070,33 @@
     "annotations": "Annotations",
     "history": "History",
     "indexInfo": "Last ingestion: {{count}} chunks in {{collection}}. The preview checks the text currently accessible."
+  },
+  "ui": {
+    "moreActions": "More actions",
+    "modelContext": "Model state",
+    "unknown": "Unknown",
+    "status": {
+      "task": {
+        "pending": "Pending",
+        "running": "Running",
+        "completed": "Completed",
+        "partial": "Partial success",
+        "failed": "Failed",
+        "cancelled": "Cancelled"
+      },
+      "document": {
+        "INGESTED": "Ingested",
+        "QUALIFIED": "Qualified",
+        "TRAINED": "Used for training",
+        "ARCHIVED": "Archived"
+      },
+      "model": {
+        "configured": "Configured",
+        "loading": "Loading",
+        "loaded": "Loaded",
+        "unavailable": "Unavailable",
+        "unverified": "Unverified"
+      }
+    }
   }
 }
