@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import Skeleton from '../components/Skeleton';
+import DocumentPreview from '../components/DocumentPreview';
 import Tooltip from '../components/Tooltip';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { Badge, EmptyState, PageHeader, Button } from '../components/ui';
@@ -1041,7 +1042,7 @@ const Documents: FC = () => {
           role="dialog"
           aria-modal="true"
           aria-label={t('documents.sheetAria')}
-          className="fixed inset-y-0 right-0 w-full lg:w-[520px] bg-surface-container-high shadow-[-20px_0_40px_rgba(0,0,0,0.5)] z-50 animate-in slide-in-from-right duration-300 border-l border-outline-variant/20 flex flex-col outline-none">
+          className="fixed inset-y-0 right-0 w-full lg:w-[min(1100px,calc(100vw-80px))] bg-surface-container-high shadow-[-20px_0_40px_rgba(0,0,0,0.5)] z-50 animate-in slide-in-from-right duration-300 border-l border-outline-variant/20 flex flex-col outline-none">
           <header className="p-6 border-b border-outline-variant/20 flex justify-between items-center">
             <div className="min-w-0">
               <p className="text-[10px] font-label uppercase tracking-widest text-outline">{t('documents.sheetTitle')}</p>
@@ -1057,10 +1058,18 @@ const Documents: FC = () => {
               <Skeleton className="h-20" /><Skeleton className="h-40" /><Skeleton className="h-40" />
             </div>
           ) : sheet && (
-            <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
+            <div className="flex-1 min-h-0 overflow-y-auto lg:overflow-hidden lg:grid lg:grid-cols-[minmax(0,1fr)_440px]">
+              <DocumentPreview sha={sheet.sha256} />
+              <div className="lg:overflow-y-auto p-6 space-y-8 custom-scrollbar border-l border-outline-variant/20">
+              <nav aria-label={t('cockpit.sections')} className="flex flex-wrap gap-2 text-xs">
+                <a href="#doc-qualification" className="rounded-lg border border-outline-variant/40 px-3 py-2">{t('cockpit.qualification')}</a>
+                <a href="#doc-annotations" className="rounded-lg border border-outline-variant/40 px-3 py-2">{t('cockpit.annotations')}</a>
+                <a href="#doc-history" className="rounded-lg border border-outline-variant/40 px-3 py-2">{t('cockpit.history')}</a>
+              </nav>
+              <p className="text-xs text-on-surface-variant">{t('cockpit.indexInfo', { count: sheet.chunksCreated, collection: sheet.collectionName ?? '—' })}</p>
 
               {/* Metadata grid */}
-              <div className="grid grid-cols-2 gap-3">
+              <div id="doc-qualification" className="grid grid-cols-2 gap-3">
                 <div className="p-4 bg-surface-container-lowest border-l-2 border-primary">
                   <p className="text-[10px] uppercase tracking-widest text-outline mb-1">{t('documents.status')}</p>
                   <p className="font-headline font-bold text-sm text-primary uppercase">{sheet.lifecycle}</p>
@@ -1246,7 +1255,7 @@ const Documents: FC = () => {
               </div>
 
               {/* Comments — RAG generation + DPO rating */}
-              <div className="space-y-3">
+              <div id="doc-annotations" className="space-y-3">
                 <div className="flex items-center justify-between">
                   <h4 className="text-[11px] font-bold uppercase tracking-widest text-outline">{t('documents.comments')}</h4>
                   <div className="flex gap-1">
@@ -1410,7 +1419,7 @@ const Documents: FC = () => {
               </div>
 
               {/* Audit Trail */}
-              <div className="space-y-3">
+              <div id="doc-history" className="space-y-3">
                 <h4 className="text-[11px] font-bold uppercase tracking-widest text-outline">{t('documents.auditTrail')}</h4>
                 <div className="space-y-1 relative before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-px before:bg-outline-variant/20">
                   {sheet.auditTrail.map((a, i) => (
@@ -1425,6 +1434,7 @@ const Documents: FC = () => {
                     </div>
                   ))}
                 </div>
+              </div>
               </div>
             </div>
           )}

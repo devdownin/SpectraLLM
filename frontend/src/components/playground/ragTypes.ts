@@ -55,6 +55,8 @@ export interface MessageMetrics {
  * égales par ailleurs »), et non des réglages courants de la session qui ont pu changer depuis.
  */
 export interface RequestParams {
+  collection?: string;
+  useRag?: boolean;
   temperature: number;
   topP: number;
   topCandidates: number;

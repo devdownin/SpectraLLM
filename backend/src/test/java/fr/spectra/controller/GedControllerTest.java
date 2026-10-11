@@ -41,6 +41,19 @@ class GedControllerTest {
         controller            = new GedController(gedService, classificationService);
     }
 
+    @Test
+    void preview_returnsIndexedText() {
+        var preview = new GedService.DocumentPreview(List.of("Text"), false);
+        when(gedService.preview("sha")).thenReturn(preview);
+        assertThat(controller.preview("sha").getBody()).isEqualTo(preview);
+    }
+
+    @Test
+    void preview_unknownDocumentReturns404() {
+        when(gedService.preview("missing")).thenThrow(new NoSuchElementException());
+        assertThat(controller.preview("missing").getStatusCode().value()).isEqualTo(404);
+    }
+
     // ── listAll — filtrage paginé (amélioration 2) ────────────────────────────
 
     @Test

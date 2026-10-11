@@ -13,7 +13,8 @@
     "newModel": "New Model",
     "groupData": "Data",
     "groupModels": "Models",
-    "groupEvaluate": "Test & evaluate"
+    "groupEvaluate": "Test & evaluate",
+    "activity": "Activity"
   },
   "header": {
     "switchLanguage": "Switch language",
@@ -56,7 +57,13 @@
     "cancelFailed": "Could not cancel the task",
     "retry": "Retry this URL ingestion",
     "retryRequested": "Ingestion restarted",
-    "retryFailed": "Could not restart the ingestion"
+    "retryFailed": "Could not restart the ingestion",
+    "terminal": {
+      "completed": "Task completed",
+      "failed": "Task failed",
+      "cancelled": "Task cancelled",
+      "partial": "Task partially completed"
+    }
   },
   "wizard": {
     "ingestion": "Ingestion",
@@ -162,7 +169,9 @@
         "pending": "Pending",
         "running": "Running",
         "completed": "Completed",
-        "failed": "Failed or cancelled"
+        "failed": "Failed",
+        "cancelled": "Cancelled",
+        "partial": "Partial success"
       },
       "summary": {
         "unknown": "Readiness still needs verification",
@@ -237,7 +246,8 @@
     "answerCopied": "Answer copied",
     "noQuestion": "No question found to compare",
     "modelOfflineDesc": "The chat model service is unreachable. Check llama-cpp-chat.",
-    "coreUnreachable": "Spectra core is currently unreachable or timed out."
+    "coreUnreachable": "Spectra core is currently unreachable or timed out.",
+    "toggleSettings": "Playground settings"
   },
   "docs": {
     "searchPlaceholder": "Search the documentation…",
@@ -987,5 +997,65 @@
     "uploadDocs": "Upload documents",
     "newEvaluation": "New evaluation",
     "switchLanguage": "Switch language (FR/EN)"
+  },
+  "workspace": {
+    "title": "Work context",
+    "model": "Loaded model",
+    "collection": "Playground collection",
+    "default": "Server default collection",
+    "unavailable": "Model status unavailable",
+    "unloaded": "No loaded model confirmed",
+    "playgroundHint": "This collection is used for the next RAG requests.",
+    "evaluationHint": "The collection applies to the Playground. Evaluations use their test set and the models shown in their reports.",
+    "collectionsUnavailable": "Collection list unavailable.",
+    "missingCollection": "Collection missing: select an available collection or the server default.",
+    "mismatch": "Index incompatible with the current embedding model."
+  },
+  "answer": {
+    "title": "Answer",
+    "limitations": "Limitations and verification",
+    "stopped": "Generation stopped: the answer may be incomplete.",
+    "noSources": "No document sources returned for this answer.",
+    "maxIterations": "Agentic search reached its iteration limit.",
+    "verify": "Check claims and their supporting sources before reuse.",
+    "sources": "Inspect sources",
+    "trace": "View RAG trace",
+    "compare": "Compare a RAG module",
+    "evaluate": "Open evaluations",
+    "evaluationHint": "Evaluation uses a test set; this answer is not automatically scored."
+  },
+  "activity": {
+    "title": "Activity",
+    "description": "Follow available tasks, their progress and results.",
+    "live": "Live task stream connected.",
+    "polling": "Polling accessible tasks. Some sources may be unavailable.",
+    "search": "Search tasks",
+    "status": "Status",
+    "kind": "Type",
+    "all": "All",
+    "loading": "Loading tasks…",
+    "count": "{{count}} tasks shown",
+    "empty": "No tasks match these filters.",
+    "progress": "Progress",
+    "indeterminate": "Progress unavailable.",
+    "error": "Error details",
+    "result": "Open results",
+    "manage": "Open management page",
+    "viewAll": "View all activity"
+  },
+  "cockpit": {
+    "preview": "Indexed text preview",
+    "previewHint": "Sample of stored extracts, without the original layout. Older indexes without SHA256 identity may not provide a preview.",
+    "loading": "Loading preview…",
+    "unavailable": "Preview unavailable. Document metadata remains accessible.",
+    "retry": "Retry",
+    "empty": "No indexed extracts available for this document identity.",
+    "truncated": "Preview limited to 12 extracts of 2,000 characters.",
+    "extract": "Extract {{number}}",
+    "sections": "Document sections",
+    "qualification": "Qualification",
+    "annotations": "Annotations",
+    "history": "History",
+    "indexInfo": "Last ingestion: {{count}} chunks in {{collection}}. The preview checks the text currently accessible."
   }
 }

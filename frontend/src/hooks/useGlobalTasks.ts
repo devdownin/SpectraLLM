@@ -38,7 +38,7 @@ export type GlobalTaskKind =
   | 'benchmark'
   | 'ablation';
 
-export type GlobalTaskStatus = 'pending' | 'running' | 'completed' | 'failed';
+export type GlobalTaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'partial';
 
 export interface GlobalTask {
   /** Unique inter-sources : `${kind}:${id brut}`. */
@@ -75,11 +75,12 @@ const RUNNING_STATES = new Set([
   'DOWNLOADING', 'REGISTERING', 'UPLOADING',
 ]);
 
-/** Mappe les statuts hétérogènes du backend vers les 4 états normalisés. */
+/** Mappe les statuts hétérogènes du backend vers les états normalisés. */
 export function toStatus(raw: string | null | undefined): GlobalTaskStatus {
   const s = (raw ?? '').toUpperCase();
   if (s === 'COMPLETED') return 'completed';
-  if (s === 'FAILED' || s === 'CANCELLED') return 'failed';
+  if (s === 'CANCELLED') return 'cancelled';
+  if (s === 'FAILED') return 'failed';
   if (RUNNING_STATES.has(s)) return 'running';
   return 'pending';
 }
@@ -124,7 +125,7 @@ export function normalizeIngestTasks(raw: unknown): GlobalTask[] {
       detail: typeof t.chunksExpected === 'number' && t.chunksExpected > 0
         ? `${t.chunksCreated ?? 0}/${t.chunksExpected} chunks`
         : typeof t.chunksCreated === 'number' && t.chunksCreated > 0 ? `${t.chunksCreated} chunks` : null,
-      status: toStatus(t.status),
+      status: toStatus(t.status) === 'completed' && fileErrors.length > 0 ? 'partial' : toStatus(t.status),
       // Dénominateur découvert au fil du chunking (0 tant qu'inconnu → barre indéterminée).
       progress: ratio(t.chunksCreated, t.chunksExpected),
       path: '/ingestion',

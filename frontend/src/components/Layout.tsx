@@ -4,6 +4,7 @@ import { Toaster } from 'sonner';
 import Sidebar from './Sidebar';
 import Header from './Header';
 import WizardProgress from './WizardProgress';
+import WorkspaceContext from './WorkspaceContext';
 import ServiceHealthBanner from './ServiceHealthBanner';
 import CommandPalette from './CommandPalette';
 
@@ -87,6 +88,7 @@ const Layout: FC<LayoutProps> = ({ children }) => {
         <Header onMenuClick={() => setMobileOpen(true)} onSearchClick={() => setPaletteOpen(true)} />
         <ServiceHealthBanner />
         <WizardProgress />
+        <WorkspaceContext />
         <div className="flex-1 p-4 md:p-8 max-w-[1600px] mx-auto w-full">
           {children}
         </div>

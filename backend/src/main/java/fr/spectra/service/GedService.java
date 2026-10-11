@@ -80,6 +80,21 @@ public class GedService {
         this.archiveRoot    = Path.of(archiveDir);
     }
 
+    /** Bounded sample of stored text, never a reconstruction of the original file. */
+    public record DocumentPreview(List<String> chunks, boolean truncated) {}
+
+    public DocumentPreview preview(String sha256) {
+        IngestedFileEntity doc = requireDoc(sha256);
+        if (doc.getCollectionName() == null || doc.getCollectionName().isBlank()) {
+            return new DocumentPreview(List.of(), false);
+        }
+        String collectionId = chromaDbClient.resolveCollectionIdUnchecked(doc.getCollectionName());
+        List<String> chunks = chromaDbClient.getDocumentTextsByMetadata(collectionId, "sha256", sha256, 13);
+        boolean truncated = chunks.size() > 12 || chunks.stream().anyMatch(c -> c.length() > 2000);
+        return new DocumentPreview(chunks.stream().limit(12)
+                .map(c -> c.substring(0, Math.min(c.length(), 2000))).toList(), truncated);
+    }
+
     // ── R2 — Cycle de vie ────────────────────────────────────────────────────
 
     @Transactional

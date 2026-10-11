@@ -44,12 +44,13 @@ export interface ComparisonProps {
   topP: number;
   topCandidates: number;
   ragEnabled: boolean;
+  collection?: string;
   baseOverrides?: RagOverridesDto;
   onClose: () => void;
 }
 
 const RagComparisonDialog: FC<ComparisonProps> = ({
-  baseline, question, module, history, temperature, topP, topCandidates, ragEnabled, baseOverrides, onClose,
+  baseline, question, module, history, temperature, topP, topCandidates, ragEnabled, collection, baseOverrides, onClose,
 }) => {
   const [content, setContent] = useState('');
   const [sources, setSources] = useState<Source[]>([]);
@@ -89,7 +90,7 @@ const RagComparisonDialog: FC<ComparisonProps> = ({
     (async () => {
       try {
         for await (const ev of queryApi.queryStream(
-          question, ragEnabled, controller.signal, topCandidates, history, temperature, topP, overrides
+          question, ragEnabled, controller.signal, topCandidates, history, temperature, topP, overrides, collection
         )) {
           if (ev.type === 'sources') { try { setSources(JSON.parse(ev.data)); } catch { /* ignore */ } }
           else if (ev.type === 'token') { setStage(null); buf += ev.data; if (!timer) timer = setTimeout(flush, 80); }
