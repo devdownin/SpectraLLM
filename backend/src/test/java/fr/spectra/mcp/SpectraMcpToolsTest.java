@@ -136,6 +136,15 @@ class SpectraMcpToolsTest {
     }
 
     @Test
+    void aVectorStoreThatDoesNotAnswerIsNamedRatherThanEchoedRaw() {
+        when(chroma.listCollections()).thenThrow(McpToolFailureTest.refused("http://chromadb:8000/api/v2/collections"));
+
+        assertThatThrownBy(() -> tools.listDocuments("docs"))
+                .isInstanceOf(McpToolFailure.class)
+                .hasMessageContaining("http://chromadb:8000 did not answer (connection refused)");
+    }
+
+    @Test
     void aBlankQuestionIsRefused() {
         assertThatThrownBy(() -> tools.ask(" ", null, null)).isInstanceOf(IllegalArgumentException.class);
     }

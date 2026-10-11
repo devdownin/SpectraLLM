@@ -18,6 +18,14 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
   Détails, Historique et Actions, le comportement mobile et la navigation clavier.
 - Échap ferme seulement le dialogue supérieur lorsqu’une confirmation recouvre un panneau.
 
+### Corrigé — erreurs des outils MCP
+
+- Un service injoignable n'est plus renvoyé à l'agent comme une trace netty
+  (« finishConnect(..) failed… Connection refused ») mais nommé : quelle adresse n'a pas
+  répondu, pourquoi, et que le corpus n'a pas été lu — pour qu'un agent ne conclue pas à une
+  collection vide. Un document inconnu est signalé comme introuvable. Le message n'est plus
+  écrit deux fois.
+
 ### Modifié — cohérence des surfaces de travail
 
 - Les en-têtes partagent une hiérarchie, des espacements et un emplacement communs
