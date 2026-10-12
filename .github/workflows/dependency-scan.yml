@@ -36,18 +36,22 @@ jobs:
           path: ~/.dependency-check-data
           key: ${{ steps.cache-key.outputs.prefix }}${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: ${{ steps.cache-key.outputs.prefix }}
+      # Depuis les flux JSON annuels que publie le NVD, pas depuis son API. Une mise à jour par
+      # l'API qui n'aboutit pas n'enregistre pas sa date de dernière modification : la suivante
+      # repart de zéro (« NVD cache last checked not present; updating the entire database »).
+      # Or une alimentation complète par l'API se mesurait à ~10 000 enregistrements par quart
+      # d'heure, soit ~8 h pour 404 000 — au-delà des 6 h d'un runner hébergé. Le cache évincé
+      # ne pouvait donc plus jamais être reconstruit, et chaque `depcheck` de PR échouait sur
+      # « Base NVD absente ou vide ». Les flux annuels se téléchargent en quelques minutes, sans
+      # clé ; ensuite seuls les fichiers modifiés sont relus. Un seul mode, toujours le même :
+      # basculer entre API et flux force le plugin à tout retélécharger.
       - name: Mettre à jour NVD sans analyser le projet
         timeout-minutes: 210
-        env:
-          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
-          if [ -z "$NVD_API_KEY" ]; then
-            echo "::error::NVD_API_KEY absente : configurez ce secret pour alimenter la base NVD."
-            exit 1
-          fi
           mvn -B -Pdep-check org.owasp:dependency-check-maven:update-only \
             -DskipTests -DfailOnError=true -DnvdValidForHours=0 \
-            -DnvdApiKey="$NVD_API_KEY" -f backend/pom.xml
+            '-DnvdDatafeedUrl=https://nvd.nist.gov/feeds/json/cve/2.0/nvdcve-2.0-{0}.json.gz' \
+            -f backend/pom.xml
           python3 scripts/nvd_cache.py stamp
       # Immutable, versioned key per successful update. A failed/partial update is never saved.
       - name: Publier la base complète
