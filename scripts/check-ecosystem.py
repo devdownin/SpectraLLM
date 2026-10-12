@@ -11,8 +11,16 @@ THIS FILE IS IDENTICAL IN THE THREE REPOSITORIES (docs/ in Kafka SQL Explorer, s
 other two). Change it in one, copy it to the other two in the same round of pull requests, and
 run it with --write in each: the projects, ports and command below are the single definition.
 
-    python3 check-ecosystem.py          # exit 1 and a diff when a section has drifted
-    python3 check-ecosystem.py --write  # regenerate every section in place
+    python3 check-ecosystem.py            # exit 1 and a diff when a section has drifted
+    python3 check-ecosystem.py --write    # regenerate every section in place
+    python3 check-ecosystem.py --siblings # exit 1 when this file differs from the other two
+
+`--siblings` compares this file with the copies on the other two repositories' `main`. It runs on
+a schedule, never on a pull request: a change to this file lands in three pull requests, and the
+first one merged would otherwise fail the other two for the very change they carry. A copy that
+stays different once the round is over is what the schedule reports. A repository that cannot be
+reached is reported and not counted: "we compared and it differs" and "we could not compare" are
+different answers.
 
 A section lives between `<!-- ecosystem:start -->` and `<!-- ecosystem:end -->`. Which files
 carry one depends on the repository this copy sits in, recognised by a file only it has.
@@ -20,7 +28,10 @@ carry one depends on the repository this copy sits in, recognised by a file only
 from __future__ import annotations
 
 import difflib
+import hashlib
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 START, END = "<!-- ecosystem:start -->", "<!-- ecosystem:end -->"
@@ -90,6 +101,41 @@ REPOSITORIES = [
 ]
 
 
+# Where each repository keeps its copy of this file, on its default branch.
+COPIES = {
+    "kafka": "https://raw.githubusercontent.com/devdownin/Kafkaexplorer/main/docs/check-ecosystem.py",
+    "spectra": "https://raw.githubusercontent.com/devdownin/SpectraLLM/main/scripts/check-ecosystem.py",
+    "kex": "https://raw.githubusercontent.com/devdownin/Kex-anHarness/main/scripts/check-ecosystem.py",
+}
+
+
+def siblings(current: str) -> int:
+    own = Path(__file__).read_bytes()
+    differing = 0
+    for key, url in COPIES.items():
+        if key == current:
+            continue
+        try:
+            with urllib.request.urlopen(url, timeout=20) as response:
+                theirs = response.read()
+        except (urllib.error.URLError, TimeoutError, OSError) as error:
+            print(f"::warning::could not read {url} ({type(error).__name__}: {error}) — not compared")
+            continue
+        if theirs == own:
+            print(f"  ✓ identical to {url}")
+            continue
+        differing += 1
+        print(f"  ✗ differs from {url}")
+        print(f"    here {hashlib.sha256(own).hexdigest()[:12]}, there {hashlib.sha256(theirs).hexdigest()[:12]}")
+        sys.stdout.writelines(difflib.unified_diff(
+            theirs.decode("utf-8", "replace").splitlines(True), own.decode("utf-8", "replace").splitlines(True),
+            "there", "here", n=1))
+    if differing:
+        print(f"{differing} sibling copy(ies) differ — finish the round of pull requests, or copy this file across.")
+        return 1
+    return 0
+
+
 def render(lang: str, current: str) -> str:
     t = TEXT[lang]
     rows = []
@@ -117,6 +163,8 @@ def main(argv: list[str]) -> int:
         print("check-ecosystem: this repository is none of the three this file knows")
         return 1
     current, targets = found
+    if "--siblings" in argv:
+        return siblings(current)
     write = "--write" in argv
     problems = 0
     for rel, lang in targets:

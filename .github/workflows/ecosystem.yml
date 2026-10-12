@@ -1,0 +1,28 @@
+name: Ecosystem
+
+# scripts/check-ecosystem.py est le même fichier dans les trois dépôts (Kafka SQL Explorer,
+# SpectraLLM, Kex-anHarness). Retouché dans un seul, il dérive des deux autres sans qu'aucune
+# pull request ne le voie — volontairement : un changement du script arrive en trois PR, et la
+# première fusionnée ferait sinon échouer les deux autres. La question se pose donc sur une
+# minuterie. Un dépôt injoignable est un ::warning::, pas un échec.
+on:
+  schedule:
+    # Hebdomadaire, vendredi 06:43 UTC : hors de l'heure pile.
+    - cron: '43 6 * * 5'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Is the shared ecosystem script identical across the three repositories?
+        run: python3 scripts/check-ecosystem.py --siblings
