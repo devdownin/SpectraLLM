@@ -1,4 +1,4 @@
-<!-- short: Spectra LLM web interface — React UI for the local RAG and fine-tuning stack -->
+<!-- short: SpectraLLM web interface — React UI for the local RAG and fine-tuning stack -->
 <!--
   Page de présentation Docker Hub de compagnonsdudev/spectrallm-frontend.
   Poussée par .github/workflows/docker-publish.yml (job « describe »).
