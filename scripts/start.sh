@@ -205,7 +205,7 @@ green " Interface Web :  http://localhost"
 echo ""
 echo " API REST    :  http://localhost:8080/api/status"
 echo " Swagger     :  http://localhost:8080/swagger-ui.html"
-echo " LLM server  :  http://localhost:8081"
+echo " LLM server  :  http://localhost:8091"
 echo " ChromaDB    :  http://localhost:8000"
 if [[ "${SPECTRA_FINE_TUNING_RUNNER:-}" == "http" ]]; then
     echo " Trainer     :  http://localhost:8004/health"

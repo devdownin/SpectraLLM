@@ -13,7 +13,7 @@
 [![Java 25](https://img.shields.io/badge/Java-25-orange?logo=openjdk&logoColor=white)](backend/pom.xml)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 
-[Démarrage rapide](#-démarrage-rapide) · [Pourquoi Spectra](#-pourquoi-spectra) · [Comment ça marche](#-comment-ça-marche) · [Documentation](#-documentation) · [Écosystème](#-écosystème) · [English](./README.md)
+[Site web](https://devdownin.github.io/SpectraLLM/) · [Démarrage rapide](#-démarrage-rapide) · [Pourquoi Spectra](#-pourquoi-spectra) · [Comment ça marche](#-comment-ça-marche) · [Documentation](#-documentation) · [Écosystème](#-écosystème) · [English](./README.md)
 
 <img src="docs/assets/dashboard.png" alt="Spectra — l'atelier local pour transformer vos documents en modèle" width="100%">
 
@@ -97,6 +97,7 @@ Tout est accessible depuis l'**[index de la documentation](docs/README.md)**, ou
 
 **Stack :** Java 25 / Spring Boot 4 · React 19 · llama.cpp · ChromaDB · Python (fine-tuning, parsing, re-ranking) — détaillée dans [Architecture](docs/architecture.en.md#technology-stack).
 
+<!-- ecosystem:start -->
 ## 🧩 Écosystème
 
 Trois projets open source, publiés sous le même espace Docker Hub, utilisables seuls et branchés entre eux par MCP :
@@ -108,6 +109,17 @@ Trois projets open source, publiés sous le même espace Docker Hub, utilisables
 | [Kex-anHarness](https://github.com/devdownin/Kex-anHarness) | Un agent IA gouverné qui agit par des outils MCP — supervision, validations humaines, piste d'audit | [`compagnonsdudev/kex-agent-ai`](https://hub.docker.com/r/compagnonsdudev/kex-agent-ai) | GPL-3.0-or-later |
 
 Comment ils s'emboîtent : Kex-anHarness lit Kafka par le serveur MCP de Kafka SQL Explorer et cherche dans les documents par celui de SpectraLLM ; Kafka SQL Explorer peut prendre SpectraLLM comme fournisseur de LLM privé.
+
+**Les trois ensemble**, depuis les images publiées — rien n'est construit :
+
+```bash
+git clone https://github.com/devdownin/Kafkaexplorer.git && cd Kafkaexplorer
+docker compose -f compose/spectra-hub.yml -f compose/spectra-hub.mcp.yml \
+  -f compose/ecosystem.yml up -d
+```
+
+Les ports, un seul plan pour les trois : **8080** Kafka SQL Explorer · **8081** Kex-anHarness · **8088** / **8089** interface / API SpectraLLM · **9092** Kafka. La stack propre de SpectraLLM garde 80 / 8080 quand elle tourne seule ; `SPECTRA_UI_PORT=8088 SPECTRA_API_PORT=8089` la place à côté des deux autres.
+<!-- ecosystem:end -->
 
 ## 🤝 Contribuer
 

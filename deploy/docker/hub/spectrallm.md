@@ -112,7 +112,7 @@ Full list: [Configuration guide](https://github.com/devdownin/SpectraLLM/blob/ma
 
 **Volume.** This image reads and writes `/app/data` — the document store, the H2 database, the GGUF models, the fine-tuning jobs and the logs. In the stack it is bind-mounted to `./data`, alongside the vector index: one directory, one backup, one reset. The container runs as the non-root user `spectra`, so that directory must be writable by others.
 
-**Ports.** By default every port is published on the loopback only. The web UI (80) and the API (8080) are the two you need; 8000/8081/8082 are there for diagnostics.
+**Ports.** By default every port is published on the loopback only. The web UI (80) and the API (8080) are the two you need; 8000/8091/8092 are there for diagnostics. `SPECTRA_UI_PORT`, `SPECTRA_API_PORT`, `SPECTRA_LLM_CHAT_PORT` and `SPECTRA_LLM_EMBED_PORT` move them — `SPECTRA_UI_PORT=8088 SPECTRA_API_PORT=8089` runs Spectra beside Kafka SQL Explorer and Kex-anHarness.
 
 ---
 
@@ -153,6 +153,7 @@ docker compose --project-directory . -f deploy/docker/docker-compose.yml \
 | [Configuration](https://github.com/devdownin/SpectraLLM/blob/main/docs/configuration.en.md) | All environment variables, health endpoints, metrics |
 | [User Manual](https://github.com/devdownin/SpectraLLM/blob/main/docs/user/user-manual.en.md) | Complete walkthrough of the web interface |
 
+<!-- ecosystem:start -->
 ## 🧩 Ecosystem
 
 Three open-source projects, published under the same Docker Hub namespace, each usable on its own and wired to the others through MCP:
@@ -164,6 +165,17 @@ Three open-source projects, published under the same Docker Hub namespace, each 
 | [Kex-anHarness](https://github.com/devdownin/Kex-anHarness) | A governed AI agent that works through MCP tools — supervision, human approvals, audit trail | [`compagnonsdudev/kex-agent-ai`](https://hub.docker.com/r/compagnonsdudev/kex-agent-ai) | GPL-3.0-or-later |
 
 How they fit: Kex-anHarness reads Kafka through Kafka SQL Explorer's MCP server and searches documents through SpectraLLM's; Kafka SQL Explorer can use SpectraLLM as its private LLM provider.
+
+**All three together**, from published images — nothing is built:
+
+```bash
+git clone https://github.com/devdownin/Kafkaexplorer.git && cd Kafkaexplorer
+docker compose -f compose/spectra-hub.yml -f compose/spectra-hub.mcp.yml \
+  -f compose/ecosystem.yml up -d
+```
+
+Ports, one plan for the three: **8080** Kafka SQL Explorer · **8081** Kex-anHarness · **8088** / **8089** SpectraLLM UI / API · **9092** Kafka. SpectraLLM's own stack keeps 80 / 8080 when it runs alone; `SPECTRA_UI_PORT=8088 SPECTRA_API_PORT=8089` puts it beside the other two.
+<!-- ecosystem:end -->
 
 ---
 
