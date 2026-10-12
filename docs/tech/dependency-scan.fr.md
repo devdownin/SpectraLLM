@@ -8,8 +8,12 @@ du scanner ne sont pas ignorées et le rapport HTML est conservé même en cas d
 
 Sur la branche par défaut, le workflow `Dependency Check` met la base à jour avant le
 scan. Il s'exécute chaque jour à 03:00 UTC, après un push et sur déclenchement manuel.
-Le job `update-nvd` utilise le secret `NVD_API_KEY` et le goal `update-only`, puis publie
-un cache uniquement si la commande réussit et que la base existe. Une mise à jour partielle
+Le job `update-nvd` alimente la base depuis les flux JSON annuels publiés par le NVD
+(`nvdDatafeedUrl`, goal `update-only`), puis publie un cache uniquement si la commande
+réussit et que la base existe. Il n'interroge plus l'API du NVD : une mise à jour par l'API
+interrompue repart de zéro au passage suivant, et une alimentation complète par l'API
+(~8 h mesurées) dépasse les 6 h d'un runner hébergé — un cache évincé ne pouvait donc plus
+être reconstruit. Les flux se téléchargent en quelques minutes et ne demandent aucune clé. Une mise à jour partielle
 ou interrompue ne remplace jamais le cache complet précédent.
 
 La clé inclut la version du plugin OWASP lue dans le pom et l'identifiant de l'exécution.
@@ -18,7 +22,7 @@ immuable. Les mises à jour sont sérialisées et bornées à 210 minutes ; ce b
 couvre l'alimentation initiale, sans mobiliser un runner pour chaque PR.
 
 Cette organisation suit le modèle [un écrivain, plusieurs lecteurs recommandé par OWASP](https://dependency-check.github.io/DependencyCheck/data/cacheh2.html).
-Elle évite aussi que plusieurs scans partagent simultanément la même clé NVD et son quota.
+Elle évite aussi que chaque scan de PR télécharge de nouveau les données du NVD.
 Le délai de 210 minutes reste une borne, pas une garantie de disponibilité du service NVD.
 
 ## Premier démarrage et incidents
@@ -34,7 +38,7 @@ ou l'absence du marqueur de mise à jour complète provoquent un échec avant l'
 La base datant de moins de 48 heures permet aux PR de continuer pendant un incident NVD
 bref ; au-delà de cette limite, une erreur ne vaut pas un certificat d'absence de CVE.
 
-En cas d'échec : consulter le job `update-nvd`, vérifier le secret `NVD_API_KEY`, relancer
+En cas d'échec : consulter le job `update-nvd`, vérifier que les flux du NVD répondent, relancer
 le workflow sur la branche par défaut, puis relancer les checks des PR concernées. Ne pas
 désactiver `autoUpdate=false` côté PR ni créer manuellement le marqueur de fraîcheur.
 

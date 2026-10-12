@@ -8,6 +8,15 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Corrigé — base NVD du scan de dépendances
+
+- `update-nvd` alimente la base depuis les flux JSON annuels du NVD (`nvdDatafeedUrl`) et non
+  plus depuis son API. Le cache NVD évincé, la reconstruction complète par l'API (~10 000
+  enregistrements par quart d'heure, ~8 h pour 404 000) dépassait les 6 h d'un runner, et une
+  mise à jour par l'API interrompue repart de zéro au passage suivant : la base ne se
+  reconstruisait plus jamais, et chaque `depcheck` de PR échouait sur « Base NVD absente ou
+  vide ». Les flux se téléchargent en quelques minutes et ne demandent aucune clé.
+
 ### Ajouté — limite de débit MCP
 
 - Les appels d'outils MCP passent par un seau à jetons (60 par minute, rafale de 10 par

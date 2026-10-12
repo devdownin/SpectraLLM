@@ -93,6 +93,15 @@ class NvdWorkflowTest(unittest.TestCase):
         self.assertLess(update.index("nvd_cache.py stamp"), update.index("actions/cache/save"))
         self.assertNotIn("continue-on-error", workflow)
 
+    def test_update_rebuilds_from_the_yearly_feeds_not_the_api(self):
+        # Interrompue, une mise à jour par l'API repart de zéro au passage suivant, et une
+        # alimentation complète par l'API dépasse les 6 h d'un runner : un cache évincé ne se
+        # reconstruisait jamais. Les flux annuels tiennent dans le budget, sans clé.
+        workflow = (ROOT / ".github/workflows/dependency-scan.yml").read_text()
+        update = workflow.split("  depcheck:\n", 1)[0]
+        self.assertIn("-DnvdDatafeedUrl=https://nvd.nist.gov/feeds/json/cve/2.0/nvdcve-2.0-{0}.json.gz", update)
+        self.assertNotIn("-DnvdApiKey", update)
+
 
 if __name__ == "__main__":
     unittest.main()
