@@ -318,7 +318,7 @@ jobs:
           tags: ${{ steps.refs.outputs.refs }}
           labels: |
             org.opencontainers.image.title=${{ matrix.title }}
-            org.opencontainers.image.description=Spectra — turn your documents into a private, fine-tuned AI. 100% local.
+            org.opencontainers.image.description=SpectraLLM — turn your documents into a private, fine-tuned AI. 100% local.
             org.opencontainers.image.vendor=SpectraLLM
             org.opencontainers.image.licenses=AGPL-3.0-or-later
             org.opencontainers.image.source=https://github.com/devdownin/SpectraLLM

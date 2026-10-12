@@ -1,4 +1,4 @@
-<!-- short: Domain LLM Builder, Fine Tuning and RAG -->
+<!-- short: SpectraLLM — turn your documents into a private, fine-tuned AI. 100% local. -->
 <!--
   Page de présentation Docker Hub de compagnonsdudev/spectrallm.
   Poussée par .github/workflows/docker-publish.yml (job « describe »).
