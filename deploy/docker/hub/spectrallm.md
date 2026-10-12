@@ -44,7 +44,7 @@ Neither runs alone. A working Spectra stack is five containers: these two, a **C
 ```bash
 git clone https://github.com/devdownin/SpectraLLM.git && cd SpectraLLM
 
-# GGUF weights (~1.2 GB for the defaults) — data, not image layers
+# GGUF weights (~4.8 GB for the defaults: 4.7 GB chat + 81 MB embedding) — data, not image layers
 ./scripts/setup.sh --download-embed --download-chat
 
 # Pull the published images and start the stack
@@ -62,7 +62,7 @@ Then open **http://localhost**, drop a PDF on the Ingestion page, and start aski
 
 **Why a `git clone` and not a Compose file to paste here.** The two llama.cpp servers mount supervisor entrypoints from `scripts/`, and the GGUF weights live in `data/models` — several gigabytes you have to download anyway. The clone carries those; the images carry the code. Nothing is compiled locally: no Maven build, no Vite build. That is exactly what these images are for.
 
-Prefer the guided path? `./scripts/start.sh --first-run` does the download, the start and opens the browser — but it *builds* the images rather than pulling them.
+Prefer the guided path? `./scripts/start.sh --first-run --hub` does the download, pulls these images, starts the stack and opens the browser — without `--hub` it *builds* the images instead.
 
 ---
 
@@ -71,8 +71,8 @@ Prefer the guided path? `./scripts/start.sh --first-run` does the download, the 
 | Tag | Meaning |
 |---|---|
 | `latest` | The most recent release. |
-| `0.7` | The 0.7 series — patches, without the surprises of a version bump. |
-| `0.7.1` | An exact version. **Pin this in production.** |
+| `0.10` | The 0.10 series — patches, without the surprises of a version bump. |
+| `0.10.0` | An exact version. **Pin this in production.** |
 
 Release candidates (`1.0.0-rc1`) are published as-is and never carry `latest`.
 
@@ -105,6 +105,7 @@ Everything has a working default. The variables worth knowing:
 | `SPECTRA_API_KEY` | *(empty)* | Set it and `/api/**` requires the `X-API-Key` header. Empty means **no authentication**. |
 | `SPECTRA_BIND_ADDR` | `127.0.0.1` | Interface the ports are published on. `0.0.0.0` exposes the stack to your network — set an API key first, and put TLS in front. |
 | `LLM_CHAT_MODEL_FILE` | `Qwen2.5-7B-Instruct-Q4_K_M.gguf` | The chat GGUF served from `data/models/`. |
+| `SPECTRA_MCP_ENABLED` | `false` | Serves a read-only MCP server on `/mcp` (port 8080, streamable HTTP): `spectra_search`, `spectra_ask`, `spectra_list_documents`, `spectra_preview_document`, `spectra_status`. Requires `SPECTRA_API_KEY`, sent as `X-API-Key`. |
 | `JAVA_OPTS` | `-Xms256m -Xmx1024m -XX:+UseZGC` | JVM heap for this container. |
 
 Full list: [Configuration guide](https://github.com/devdownin/SpectraLLM/blob/main/docs/configuration.en.md).
@@ -151,6 +152,18 @@ docker compose --project-directory . -f deploy/docker/docker-compose.yml \
 | [Architecture & Services](https://github.com/devdownin/SpectraLLM/blob/main/docs/architecture.en.md) | Every service in depth |
 | [Configuration](https://github.com/devdownin/SpectraLLM/blob/main/docs/configuration.en.md) | All environment variables, health endpoints, metrics |
 | [User Manual](https://github.com/devdownin/SpectraLLM/blob/main/docs/user/user-manual.en.md) | Complete walkthrough of the web interface |
+
+## 🧩 Ecosystem
+
+Three open-source projects, published under the same Docker Hub namespace, each usable on its own and wired to the others through MCP:
+
+| Project | What it does | Image | License |
+|---|---|---|---|
+| [Kafka SQL Explorer](https://github.com/devdownin/Kafkaexplorer) | Explore Kafka, query it in Flink SQL, audit it with AI — and serve it to agents as a read-only MCP server | [`compagnonsdudev/kafkaexplorer`](https://hub.docker.com/r/compagnonsdudev/kafkaexplorer) | AGPL-3.0-or-later |
+| **SpectraLLM** *(this project)* | Turn your documents into a private, fine-tuned AI — local RAG, fine-tuning, and an MCP server over the corpus | [`compagnonsdudev/spectrallm`](https://hub.docker.com/r/compagnonsdudev/spectrallm) | AGPL-3.0-or-later |
+| [Kex-anHarness](https://github.com/devdownin/Kex-anHarness) | A governed AI agent that works through MCP tools — supervision, human approvals, audit trail | [`compagnonsdudev/kex-agent-ai`](https://hub.docker.com/r/compagnonsdudev/kex-agent-ai) | GPL-3.0-or-later |
+
+How they fit: Kex-anHarness reads Kafka through Kafka SQL Explorer's MCP server and searches documents through SpectraLLM's; Kafka SQL Explorer can use SpectraLLM as its private LLM provider.
 
 ---
 

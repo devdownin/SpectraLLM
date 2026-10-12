@@ -5,7 +5,7 @@ colorFrom: blue
 colorTo: indigo
 sdk: static
 pinned: false
-license: mit
+license: agpl-3.0
 ---
 
 # Spectra — Domain LLM Builder
