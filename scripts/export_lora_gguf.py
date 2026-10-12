@@ -75,7 +75,7 @@ print("=== Servir l'adaptateur à chaud (sans fusion) ===")
 print("  Option A — au démarrage de llama-server (par-dessus le GGUF de base) :")
 print(f"    llama-server -m base-model.gguf --lora-scaled {lora_abs} 1.0\n")
 print("  Option B — permutation à chaud sans redémarrage (API llama-server) :")
-print(f"    curl -X POST http://localhost:8081/lora-adapters \\")
+print(f"    curl -X POST http://localhost:8091/lora-adapters \\")
 print(f"      -H 'Content-Type: application/json' \\")
 print(f"      -d '[{{\"id\": 0, \"scale\": 1.0}}]'   # 0.0 pour désactiver l'adaptateur")
 print("\n  (l'adaptateur doit avoir été déclaré au lancement via --lora "

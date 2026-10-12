@@ -1,14 +1,19 @@
-name: Deploy Spectra UI to GitHub Pages
+name: Deploy the Spectra landing page to GitHub Pages
 
+# Pages publie la page de présentation (deploy/huggingface/, la même que le Space Hugging
+# Face), et non plus l'application React : servie sans backend, celle-ci affichait une
+# interface dont chaque appel /api échouait — la première impression du projet était une
+# erreur. L'application se lance en local (README, démarrage rapide).
 on:
   push:
     branches: ["main"]
+    paths:
+      - "deploy/huggingface/**"
+      - ".github/workflows/static.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: "pages"
@@ -19,32 +24,29 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
+      - name: Configure Pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
 
-      - name: Install dependencies
-        working-directory: frontend
-        run: npm ci
-
-      - name: Build Vite app
-        working-directory: frontend
-        env:
-          VITE_BASE_PATH: /SpectraLLM/
-        run: npm run build
+      # Le README du Space porte un en-tête YAML propre à Hugging Face : rien à faire sur Pages.
+      - name: Assemble the site
+        run: |
+          mkdir -p _site
+          cp deploy/huggingface/index.html _site/
+          cp -r deploy/huggingface/assets _site/
+          touch _site/.nojekyll
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
         with:
-          path: frontend/dist
+          path: _site
 
   deploy:
     needs: build
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -52,4 +54,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5

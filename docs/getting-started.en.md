@@ -134,8 +134,8 @@ spectra-compose --profile layout-parser --profile reranker up -d
 | **Web UI** | `http://localhost:80` |
 | **API Docs** (Swagger) | `http://localhost:8080/swagger-ui.html` |
 | **System status** | `http://localhost:8080/api/status` |
-| **llama.cpp chat** | `http://localhost:8081` |
-| **llama.cpp embed** | `http://localhost:8082` |
+| **llama.cpp chat** | `http://localhost:8091` |
+| **llama.cpp embed** | `http://localhost:8092` |
 | **Prometheus metrics** | `http://localhost:8080/actuator/prometheus` |
 
 ### 5. Read the Dashboard
