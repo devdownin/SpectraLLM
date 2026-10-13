@@ -11,7 +11,7 @@ jobs:
     name: Backend (Maven)
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
     - name: Set up Java and Maven
       uses: ./.github/actions/setup-java-maven
     - name: Build and Test with Maven
@@ -36,7 +36,7 @@ jobs:
     name: Model defaults consistency
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
     - name: Check default GGUF models are consistent across environments
       run: ./scripts/check-model-defaults.sh
 
@@ -44,7 +44,7 @@ jobs:
     name: Static analysis (SpotBugs)
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
     - name: Set up Java and Maven
       uses: ./.github/actions/setup-java-maven
     # SpotBugs + find-sec-bugs, restricted to a curated high-confidence rule set
@@ -73,7 +73,7 @@ jobs:
     # tag doit avoir ses notes de release. `actions/checkout` ne récupère aucun tag par
     # défaut ; sans cette ligne les deux se sautent d'eux-mêmes, et un contrôle sauté ne
     # vérifie rien.
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
       with:
         fetch-depth: 0
     - name: Set up Python
@@ -92,7 +92,7 @@ jobs:
       run:
         working-directory: frontend
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
@@ -123,7 +123,7 @@ jobs:
       COMPOSE_FILE: deploy/docker/docker-compose.yml:deploy/docker/docker-compose.ci.yml
       COMPOSE_PROJECT_NAME: spectra-e2e
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
     # Sans les GGUF, llm-chat et llm-embed attendent le modèle en boucle au lieu
     # d'échouer : la stack monte, mais le chat ne répond jamais et l'E2E teste une
     # UI vide. On télécharge donc les modèles PAR DÉFAUT du projet, mis en cache
@@ -216,7 +216,7 @@ jobs:
       matrix:
         service: [docparser, reranker, trainer]
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
@@ -241,7 +241,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Download Jacoco report
         uses: actions/download-artifact@v8
