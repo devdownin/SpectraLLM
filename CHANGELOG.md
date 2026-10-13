@@ -8,6 +8,12 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Ajouté — PR de rattrapage qui lancent la CI
+
+- `release-followup.yml` lit le secret facultatif `AUTOMATION_PR_TOKEN` (jeton à portée restreinte ou
+  jeton d'App : contents et pull-requests en écriture). Une PR ouverte avec `GITHUB_TOKEN` ne lance
+  aucun workflow ; avec ce secret, elle lance la CI d'elle-même. Sans lui, rien ne change.
+
 ### Corrigé — base NVD du scan de dépendances
 
 - `update-nvd` alimente la base depuis les flux JSON annuels du NVD (`nvdDatafeedUrl`) et non
