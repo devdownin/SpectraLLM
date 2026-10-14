@@ -13,8 +13,7 @@
     "newModel": "New Model",
     "groupData": "Data",
     "groupModels": "Models",
-    "groupEvaluate": "Test & evaluate",
-    "activity": "Activity"
+    "groupEvaluate": "Test & evaluate"
   },
   "header": {
     "switchLanguage": "Switch language",
@@ -57,13 +56,7 @@
     "cancelFailed": "Could not cancel the task",
     "retry": "Retry this URL ingestion",
     "retryRequested": "Ingestion restarted",
-    "retryFailed": "Could not restart the ingestion",
-    "terminal": {
-      "completed": "Task completed",
-      "failed": "Task failed",
-      "cancelled": "Task cancelled",
-      "partial": "Task partially completed"
-    }
+    "retryFailed": "Could not restart the ingestion"
   },
   "wizard": {
     "ingestion": "Ingestion",
@@ -144,57 +137,7 @@
     "ragCapabilities": "RAG Capabilities",
     "pipeline": "Pipeline",
     "rejected": "Rejected",
-    "pending": "Pending",
-    "work": {
-      "kicker": "Control center",
-      "attention": "Needs attention",
-      "running": "In progress",
-      "results": "Latest results",
-      "analytics": "Detailed data and analytics",
-      "technical": "Technical status",
-      "updated": "Statistics last read: {{time}}",
-      "noUpdate": "Statistics not received yet",
-      "partial": "Some data is unavailable; this view may be incomplete.",
-      "loading": "Loading tasks…",
-      "noFailures": "No failures reported in the available tasks.",
-      "noActive": "No tasks in progress in the available data.",
-      "noResults": "No completed results available.",
-      "live": "Live tracking",
-      "polling": "Periodic tracking; the live stream is reconnecting.",
-      "resultsHint": "Open the relevant page to examine the result. A completed task does not guarantee its quality.",
-      "progress": "Progress for {{name}}",
-      "unqualified_one": "{{count}} document to qualify",
-      "unqualified_other": "{{count}} documents to qualify",
-      "status": {
-        "pending": "Pending",
-        "running": "Running",
-        "completed": "Completed",
-        "failed": "Failed",
-        "cancelled": "Cancelled",
-        "partial": "Partial success"
-      },
-      "summary": {
-        "unknown": "Readiness still needs verification",
-        "blocked": "Your index needs attention",
-        "services": "Services are not ready",
-        "empty": "Add your first documents",
-        "ready": "Your knowledge base is ready to query"
-      },
-      "hint": {
-        "unknown": "Required data is missing or index consistency has not been confirmed.",
-        "blocked": "An inconsistency or reindexing needs attention before testing RAG.",
-        "services": "Check loaded models and the storage service in the technical status below.",
-        "empty": "Import documents to build your knowledge base.",
-        "ready": "Test a question, then examine the sources and limitations of the answer."
-      },
-      "action": {
-        "test": "Test an answer",
-        "import": "Import documents",
-        "reviewIndex": "Examine the index",
-        "models": "Check models",
-        "qualify": "Examine documents"
-      }
-    }
+    "pending": "Pending"
   },
   "playground": {
     "expertMode": "Expert mode",
@@ -210,7 +153,7 @@
     "modelParameters": "Model Parameters",
     "temperature": "Temperature",
     "topP": "Top P",
-    "activeModel": "Configured model",
+    "activeModel": "Active Model",
     "ragConfiguration": "RAG Configuration",
     "enableKb": "Enable Knowledge Base",
     "history": "Conversational History",
@@ -246,21 +189,7 @@
     "answerCopied": "Answer copied",
     "noQuestion": "No question found to compare",
     "modelOfflineDesc": "The chat model service is unreachable. Check llama-cpp-chat.",
-    "coreUnreachable": "Spectra core is currently unreachable or timed out.",
-    "toggleSettings": "Playground settings",
-    "modelReloadHint": "Configuration requests a service reload. The context bar separately confirms the model actually loaded.",
-    "description": "Query your documents and inspect the sources and trace of each answer.",
-    "exportMarkdown": "Export as Markdown",
-    "exportJson": "Export as JSON",
-    "clearHistory": "Clear conversation",
-    "askQuestion": "Ask a question",
-    "answerActions": "Answer actions",
-    "compareModule": "Compare without {{module}}",
-    "regenVariants": {
-      "0": "Regenerate at the same temperature",
-      "1": "Regenerate more factually",
-      "2": "Regenerate more creatively"
-    }
+    "coreUnreachable": "Spectra core is currently unreachable or timed out."
   },
   "docs": {
     "searchPlaceholder": "Search the documentation…",
@@ -893,7 +822,6 @@
     "lifecycleUpdated": "Lifecycle updated",
     "transitionFailed": "Transition failed",
     "docDeleted": "Document deleted",
-    "deletionPending": "Deletion pending. It will retry automatically when cleanup is possible.",
     "deleteFailed": "Deletion failed",
     "bulkUpdated": "{{count}} document(s) updated",
     "bulkUpdateFailed": "Bulk update failed",
@@ -932,22 +860,7 @@
     "cancel": "Cancel",
     "classifyPending": "Classify ({{count}})",
     "allClassified": "All classified",
-    "classifyHint": "Classify the pending documents with {{model}}",
-    "moreFilters": "More filters",
-    "selectionScope": "Selection scope",
-    "selectPage": "Select this page",
-    "selectView": "Select visible documents",
-    "selectedOnPage_one": "{{count}} selected on this page",
-    "selectedOnPage_other": "{{count}} selected on this page",
-    "selectedInView_one": "{{count}} selected in this view",
-    "selectedInView_other": "{{count}} selected in this view",
-    "selectedTotal_one": "{{count}} selected in total",
-    "selectedTotal_other": "{{count}} selected in total",
-    "selectFiltered": "Select all filtered results",
-    "selectingAll": "Loading all filtered results…",
-    "filteredLoaded": "Count covers loaded results; global selection loads every batch.",
-    "clearSelection": "Clear selection",
-    "selectionFailed": "Could not load all results. Your selection was kept."
+    "classifyHint": "Classify the pending documents with {{model}}"
   },
   "batchEval": {
     "kicker": "Compare models",
@@ -1025,158 +938,5 @@
     "uploadDocs": "Upload documents",
     "newEvaluation": "New evaluation",
     "switchLanguage": "Switch language (FR/EN)"
-  },
-  "workspace": {
-    "title": "Work context",
-    "model": "Loaded model",
-    "collection": "Playground collection",
-    "default": "Server default collection",
-    "unavailable": "Model status unavailable",
-    "unloaded": "No loaded model confirmed",
-    "playgroundHint": "This collection is used for the next RAG requests.",
-    "evaluationHint": "The collection applies to the Playground. Evaluations use their test set and the models shown in their reports.",
-    "collectionsUnavailable": "Collection list unavailable.",
-    "missingCollection": "Collection missing: select an available collection or the server default.",
-    "mismatch": "Index incompatible with the current embedding model."
-  },
-  "answer": {
-    "title": "Answer",
-    "limitations": "Limitations and verification",
-    "stopped": "Generation stopped: the answer may be incomplete.",
-    "noSources": "No document sources returned for this answer.",
-    "maxIterations": "Agentic search reached its iteration limit.",
-    "verify": "Check claims and their supporting sources before reuse.",
-    "sources": "Inspect sources",
-    "trace": "View RAG trace",
-    "compare": "Compare a RAG module",
-    "evaluate": "Open evaluations",
-    "evaluationHint": "Evaluation uses a test set; this answer is not automatically scored."
-  },
-  "activity": {
-    "title": "Activity",
-    "description": "Follow available tasks, their progress and results.",
-    "live": "Live task stream connected.",
-    "polling": "Polling accessible tasks. Some sources may be unavailable.",
-    "search": "Search tasks",
-    "status": "Status",
-    "kind": "Type",
-    "all": "All",
-    "loading": "Loading tasks…",
-    "count": "{{count}} tasks shown",
-    "empty": "No tasks match these filters.",
-    "progress": "Progress",
-    "indeterminate": "Progress unavailable.",
-    "error": "Error details",
-    "result": "Open results",
-    "manage": "Open management page",
-    "viewAll": "View all activity"
-  },
-  "cockpit": {
-    "preview": "Indexed text preview",
-    "previewHint": "Sample of stored extracts, without the original layout. Older indexes without SHA256 identity may not provide a preview.",
-    "loading": "Loading preview…",
-    "unavailable": "Preview unavailable. Document metadata remains accessible.",
-    "retry": "Retry",
-    "empty": "No indexed extracts available for this document identity.",
-    "truncated": "Preview limited to 12 extracts of 2,000 characters.",
-    "extract": "Extract {{number}}",
-    "sections": "Document sections",
-    "qualification": "Qualification",
-    "annotations": "Annotations",
-    "history": "History",
-    "indexInfo": "Last ingestion: {{count}} chunks in {{collection}}. The preview checks the text currently accessible."
-  },
-  "ui": {
-    "moreActions": "More actions",
-    "modelContext": "Model state",
-    "unknown": "Unknown",
-    "status": {
-      "task": {
-        "pending": "Pending",
-        "running": "Running",
-        "completed": "Completed",
-        "partial": "Partial success",
-        "failed": "Failed",
-        "cancelled": "Cancelled"
-      },
-      "document": {
-        "INGESTED": "Ingested",
-        "QUALIFIED": "Qualified",
-        "TRAINED": "Used for training",
-        "ARCHIVED": "Archived"
-      },
-      "model": {
-        "configured": "Configured",
-        "loading": "Loading",
-        "loaded": "Loaded",
-        "unavailable": "Unavailable",
-        "unverified": "Unverified"
-      }
-    }
-  },
-  "detail": {
-    "summary": "Summary",
-    "details": "Details",
-    "history": "History",
-    "actions": "Actions",
-    "close": "Close detail panel",
-    "sections": "Detail sections",
-    "unavailable": "No information available.",
-    "returnTo": "Back to {{screen}}",
-    "ambiguousSource": "Several documents match this source. Select the document in Documents.",
-    "opening": "Opening…",
-    "openDocument": "Open document",
-    "missingTarget": "This task or report is unavailable. No other result has been selected.",
-    "taskId": "Identifier",
-    "started": "Started",
-    "finished": "Finished",
-    "export": "Export result",
-    "taskTitle": "Task details",
-    "traceTitle": "Algorithm Trace",
-    "closeTrace": "Close trace panel",
-    "chunksCreated": "Indexed chunks",
-    "pairsGenerated": "Generated pairs",
-    "pairsAccepted": "Accepted pairs",
-    "processed": "Processed",
-    "total": "Total",
-    "quality": "Quality score",
-    "baseline": "Baseline",
-    "candidate": "Candidate"
-  },
-  "workList": {
-    "loading": "Loading list…",
-    "loadFailed": "The list could not be refreshed",
-    "loadFailedHint": "Previously loaded items remain visible. Retry to get an up-to-date view.",
-    "retry": "Retry",
-    "empty": "No items to display",
-    "emptyHint": "Change the filters or start a new task.",
-    "identity": "Identity",
-    "status": "Status",
-    "context": "Context",
-    "updated": "Last update",
-    "actions": "Actions",
-    "search": "Search",
-    "reset": "Reset view",
-    "follow": "Follow",
-    "result": "Open result",
-    "inspect": "Inspect failure",
-    "restart": "Prepare a new run",
-    "restartHint": "Parameters are copied to the form; review them before starting.",
-    "open": "Open",
-    "history": "Job history",
-    "partial": "Some sources are unavailable. The list may be incomplete.",
-    "sortLabel": "Sort",
-    "sort": {
-      "recent": "Most recent",
-      "name": "Name",
-      "chunks": "Chunks",
-      "quality": "Quality"
-    },
-    "pagination": "Pagination",
-    "previous": "Previous",
-    "next": "Next",
-    "configure": "Configure a new task",
-    "resultCount_one": "{{count}} filtered result",
-    "resultCount_other": "{{count}} filtered results"
   }
 }

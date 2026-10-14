@@ -1,7 +1,4 @@
-import { useViewState } from '../hooks/useViewState';
 import { useState, useEffect } from 'react';
-import { useContextSearchParams } from '../hooks/useContextSearchParams';
-import { DetailPanel } from '../components/ui/DetailPanel';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -13,9 +10,16 @@ import ModelComparisonPanel from '../components/ModelComparisonPanel';
 import BatchEvaluateDialog from '../components/BatchEvaluateDialog';
 import AbComparisonView from '../components/AbComparisonView';
 import Skeleton from '../components/Skeleton';
-import { EmptyState, Button, PageHeader, CountUp, StatusBadge, WorkList, WorkListRow, ListFeedback, ListTools } from '../components/ui';
+import { EmptyState, Button, PageHeader, Input, CountUp } from '../components/ui';
 import { apiErrorMessage } from '../lib/apiError';
 
+const STATUS_COLOR: Record<string, string> = {
+  PENDING:   'text-on-surface-variant',
+  RUNNING:   'text-secondary',
+  COMPLETED: 'text-primary',
+  FAILED:    'text-error',
+  CANCELLED: 'text-on-surface-variant',
+};
 
 function ScoreBar({ score, color = 'bg-primary' }: { score: number; color?: string }) {
   const pct = Math.round((score / 10) * 100);
@@ -90,18 +94,13 @@ function ScoreDetail({ score }: { score: EvaluationScore }) {
 const Comparison: FC = () => {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
-  const [params, setParams] = useContextSearchParams();
-  const targetEval = params.get('eval');
-  const targetAb = params.get('ab');
-  const requested = useQuery<EvaluationReport>({ queryKey: ['evaluation-target', targetEval], queryFn: async () => (await evaluationApi.get(targetEval!)).data, enabled: !!targetEval, refetchInterval: q => ['PENDING','RUNNING'].includes(q.state.data?.status ?? '') ? 5000 : false });
-  const [localSelected, setSelected] = useState<EvaluationReport | null>(null);
-  const selected = targetEval ? requested.data ?? null : localSelected;
+  const [selected, setSelected] = useState<EvaluationReport | null>(null);
   const [isTriggering, setIsTriggering] = useState(false);
 
   const formatDate = (iso: string) =>
     new Date(iso).toLocaleString(i18n.language, { dateStyle: 'short', timeStyle: 'short' });
 
-  const { data: reports = [], isLoading, isError: listError, refetch: reloadReports } = useQuery({
+  const { data: reports = [], isLoading } = useQuery({
     queryKey: ['evaluation-reports'],
     queryFn: async (): Promise<EvaluationReport[]> =>
       (((await evaluationApi.getAll()).data ?? []) as EvaluationReport[])
@@ -113,17 +112,14 @@ const Comparison: FC = () => {
     },
   });
 
-  const [searchTerm, setSearchTerm] = useViewState('comparison.search', '');
-  const [listStatus, setListStatus] = useViewState('comparison.status', 'all');
-  const [listSort, setListSort] = useViewState('comparison.sort', 'recent');
+  const [searchTerm, setSearchTerm] = useState('');
 
   // ── Mode comparaison multi-modèles ──────────────────────────────────────────
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [compareMode, setCompareMode] = useState(false);
   const [baselineId, setBaselineId] = useState<string | undefined>(undefined);
   const [batchOpen, setBatchOpen] = useState(false);
-  const [abMode, setAbMode] = useViewState('comparison.abMode', Boolean(targetAb));
-  useEffect(() => { if (targetAb) setAbMode(true); else if (targetEval) setAbMode(false); }, [targetAb, targetEval, setAbMode]);
+  const [abMode, setAbMode] = useState(false);
 
   // Pré-sélectionne les évaluations issues d'un batch dès qu'elles sont complétées.
   const handleBatchSubmitted = (evalIds: string[]) => {
@@ -155,15 +151,12 @@ const Comparison: FC = () => {
       refetchInterval: comparingRunning ? 5000 : false,
     });
 
-  // A requested report never falls back to a different run.
+  // Synchronise la sélection quand la liste change (préserve le rapport choisi).
   useEffect(() => {
-    if (targetEval) return;
-    setSelected(prev => prev ? reports.find(r => r.evalId === prev.evalId) ?? null : null);
-  }, [reports, targetEval]);
-  const closeReport = () => {
-    setSelected(null);
-    if (targetEval) { const next = new URLSearchParams(params); next.delete('eval'); setParams(next, { replace: true }); }
-  };
+    setSelected(prev =>
+      prev ? (reports.find(r => r.evalId === prev.evalId) ?? reports[0] ?? null) : (reports[0] ?? null)
+    );
+  }, [reports]);
 
   // Purge uniquement les sélections de comparaison qui n'existent plus (supprimées).
   // Les évaluations en cours sont conservées : la comparaison se met à jour à leur achèvement.
@@ -206,8 +199,7 @@ const Comparison: FC = () => {
   // scoresByCategory qui ventile par type d'exercice (q/r, résumé, refus).
   const documentCategories = selected ? Object.entries(selected.scoresByDocumentCategory ?? {}) : [];
 
-  const openReport = (report: EvaluationReport) => { setSelected(report); const next = new URLSearchParams(params); next.set('eval', report.evalId); setParams(next); };
-  const filteredReports = reports.filter(r => (listStatus === 'all' || r.status === listStatus) && `${r.modelName} ${r.evalId}`.toLowerCase().includes(searchTerm.toLowerCase())).sort((a, b) => listSort === 'name' ? a.modelName.localeCompare(b.modelName) : b.startedAt.localeCompare(a.startedAt));
+  const filteredReports = reports.filter(r => r.modelName.toLowerCase().includes(searchTerm.toLowerCase()));
 
   const handleExportSelected = () => {
     if (!selected) return;
@@ -221,7 +213,7 @@ const Comparison: FC = () => {
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-700">
+    <div className="space-y-8 animate-in fade-in duration-700">
       <BatchEvaluateDialog
         open={batchOpen}
         onClose={() => setBatchOpen(false)}
@@ -231,23 +223,57 @@ const Comparison: FC = () => {
       <PageHeader
         kicker={t('comparison.kicker')}
         title={t('comparison.title')}
-        secondaryActions={[
-          { id: 'ab', label: abMode ? t('comparison.abExit') : t('comparison.abEnter'), icon: 'compare_arrows', pressed: abMode, onSelect: () => setAbMode(value => !value) },
-          ...(!abMode ? [
-            { id: 'batch', label: t('comparison.batchTitle'), icon: 'playlist_add', onSelect: () => setBatchOpen(true) },
-            { id: 'compare', label: compareMode ? t('comparison.compareExit') : t('comparison.compareEnter', { count: compareIds.length }), icon: 'compare', pressed: compareMode, disabled: compareIds.length < 2, disabledReason: t('comparison.needTwo'), onSelect: () => setCompareMode(value => !value) },
-          ] : []),
-        ]}
-        primaryAction={!abMode && <Button onClick={handleNewEvaluation} disabled={isTriggering} loading={isTriggering} icon="add">{isTriggering ? t('comparison.launching') : t('comparison.newEval')}</Button>}
+        actions={
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setAbMode(m => !m)}
+              aria-pressed={abMode}
+              title={t('comparison.abTitle')}
+              className={abMode ? 'bg-secondary text-on-secondary border-secondary hover:bg-secondary' : undefined}
+            >
+              {abMode ? t('comparison.abExit') : t('comparison.abEnter')}
+            </Button>
+            {!abMode && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setBatchOpen(true)}
+                  aria-label={t('comparison.batchTitle')}
+                  title={t('comparison.batchTitle')}
+                >
+                  {t('comparison.batch')}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCompareMode(m => !m)}
+                  disabled={compareIds.length < 2}
+                  aria-pressed={compareMode}
+                  title={compareIds.length < 2 ? t('comparison.compareHintDisabled') : t('comparison.compareHintEnabled')}
+                  className={compareMode ? 'bg-secondary text-on-secondary border-secondary hover:bg-secondary' : undefined}
+                >
+                  {compareMode ? t('comparison.compareExit') : t('comparison.compareEnter', { count: compareIds.length })}
+                </Button>
+                <Button size="sm" onClick={handleNewEvaluation} disabled={isTriggering}>
+                  {isTriggering ? t('comparison.launching') : t('comparison.newEval')}
+                </Button>
+              </>
+            )}
+          </>
+        }
       />
 
-      {targetEval && requested.isError && <p role="alert">{t('detail.missingTarget')}</p>}
-      {targetEval && requested.isLoading && <p role="status">{t('activity.loading')}</p>}
       {abMode && <AbComparisonView />}
 
       {!abMode && (isLoading ? (
-        <ListFeedback loading><span /></ListFeedback>
-      ) : listError && !reports.length ? (<ListFeedback error retry={() => { void reloadReports(); }}><span /></ListFeedback>) : reports.length === 0 && !selected ? (
+        <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-6 items-start">
+          <Skeleton className="h-64" />
+          <Skeleton className="h-80" />
+        </div>
+      ) : reports.length === 0 ? (
         <div className="bg-surface-container rounded-xl ring-1 ring-white/[0.045]">
           <EmptyState
             icon="analytics"
@@ -261,17 +287,64 @@ const Comparison: FC = () => {
           />
         </div>
       ) : (
-        <div className="space-y-6">
-          <ListTools resultCount={filteredReports.length} search={searchTerm} onSearch={setSearchTerm} status={listStatus} onStatus={setListStatus} statuses={['PENDING', 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED']} sort={listSort} onSort={setListSort} onReset={() => { setSearchTerm(''); setListStatus('all'); setListSort('recent'); }} />
-          <ListFeedback error={listError} empty={!filteredReports.length} retry={() => { void reloadReports(); }} action={<Button variant="outline" onClick={() => { setSearchTerm(''); setListStatus('all'); }}>{t('workList.reset')}</Button>}>
-            {!!filteredReports.length && <WorkList viewKey="comparison" filters={JSON.stringify([searchTerm, listStatus, listSort])} label={t('comparison.history')}>{filteredReports.map(r => <WorkListRow key={r.evalId} selected={selected?.evalId === r.evalId}
-              identity={<div className="flex gap-3 items-center">{r.status === 'COMPLETED' && <input type="checkbox" checked={compareIds.includes(r.evalId)} onChange={() => toggleCompare(r.evalId)} aria-label={t('comparison.selectModelAria', { name: r.modelName })} className="accent-secondary" />}<div><button onClick={() => openReport(r)} className="font-medium text-left hover:text-primary" aria-label={t('comparison.reportAria', { name: r.modelName, date: formatDate(r.startedAt) })}>{r.modelName}</button><p className="text-xs break-all text-on-surface-variant">{r.evalId}</p></div></div>}
-              status={<StatusBadge status={r.status} />}
-              context={<div className="text-xs space-y-1"><p>{t('comparison.judge')}: {r.judgeModel || '—'}</p>{r.status === 'COMPLETED' ? <p>{r.averageScore.toFixed(2)}/10</p> : <ProgressBar value={r.processed} max={r.testSetSize} />}{r.error && <p className="text-error break-all">{r.error}</p>}</div>}
-              updated={<time dateTime={r.completedAt ?? r.startedAt}>{formatDate(r.completedAt ?? r.startedAt)}</time>}
-              actions={<Button variant="outline" size="sm" onClick={() => openReport(r)}>{t(['PENDING', 'RUNNING'].includes(r.status) ? 'workList.follow' : r.status === 'COMPLETED' ? 'workList.result' : r.status === 'FAILED' ? 'workList.inspect' : 'workList.open')}</Button>}
-            />)}</WorkList>}
-          </ListFeedback>
+        <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-6 items-start">
+          {/* Evaluation list */}
+          <div className="bg-surface-container divide-y divide-outline-variant/10">
+            <div className="px-4 py-3 bg-surface-container-high flex flex-col gap-2">
+               <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">{t('comparison.history')}</p>
+               <Input
+                 type="search"
+                 placeholder={t('comparison.filterPlaceholder')}
+                 value={searchTerm}
+                 onChange={e => setSearchTerm(e.target.value)}
+                 aria-label={t('comparison.filterPlaceholder')}
+                 className="h-8 text-[12px]"
+               />
+            </div>
+            {filteredReports.map(r => (
+              <div key={r.evalId} className="flex items-stretch">
+              {r.status === 'COMPLETED' && (
+                <label
+                  className="flex items-center px-3 cursor-pointer hover:bg-surface-container-high/60"
+                  title={t('comparison.selectForCompare')}
+                >
+                  <input
+                    type="checkbox"
+                    checked={compareIds.includes(r.evalId)}
+                    onChange={() => toggleCompare(r.evalId)}
+                    className="accent-secondary"
+                    aria-label={t('comparison.selectModelAria', { name: r.modelName })}
+                  />
+                </label>
+              )}
+              <button
+                onClick={() => setSelected(r)}
+                className={`flex-1 min-w-0 text-left px-4 py-3 transition-colors hover:bg-surface-container-high/60
+                  ${selected?.evalId === r.evalId ? 'bg-surface-container-high' : ''}`}
+                aria-label={t('comparison.reportAria', { name: r.modelName, date: formatDate(r.startedAt) })}
+                aria-current={selected?.evalId === r.evalId ? 'true' : 'false'}
+              >
+                <div className="flex items-center justify-between mb-0.5">
+                  <span className="font-headline font-bold text-xs truncate pr-2">{r.modelName}</span>
+                  <span className={`font-label text-[10px] uppercase tracking-widest shrink-0 ${STATUS_COLOR[r.status]}`}>
+                    {t(`comparison.status.${r.status}`, r.status)}
+                  </span>
+                </div>
+                <p className="font-label text-[10px] text-on-surface-variant">
+                  {formatDate(r.startedAt)}
+                </p>
+                {r.status === 'COMPLETED' && (
+                  <p className="font-headline text-sm font-bold mt-1">
+                    {r.averageScore.toFixed(2)}<span className="text-[11px] font-normal text-on-surface-variant">/10</span>
+                  </p>
+                )}
+                {r.status === 'RUNNING' && (
+                  <ProgressBar value={r.processed} max={r.testSetSize} />
+                )}
+              </button>
+              </div>
+            ))}
+          </div>
 
           {/* Comparison panel (multi-model) */}
           {compareMode && (
@@ -297,11 +370,7 @@ const Comparison: FC = () => {
 
           {/* Detail panel */}
           {!compareMode && selected && (
-            <DetailPanel title={selected.modelName} onClose={closeReport}
-              summary={<div className="flex flex-wrap gap-3"><StatusBadge status={selected.status} /><span className="text-sm break-all">{selected.evalId}</span></div>}
-              history={<dl className="text-sm space-y-2"><dt>{t('detail.started')}</dt><dd>{formatDate(selected.startedAt)}</dd><dt>{t('detail.finished')}</dt><dd>{selected.completedAt ? formatDate(selected.completedAt) : '—'}</dd></dl>}
-              actions={<div className="flex gap-2"><Button variant="outline" onClick={handleExportSelected} icon="download">{t('detail.export')}</Button><Button variant="outline" onClick={closeReport}>{t('detail.close')}</Button></div>}
-              details={<div className="space-y-6">
+            <div className="space-y-6">
               {/* Overview */}
               <div className="bg-surface-container p-6 space-y-4">
                 <div className="flex items-center justify-between">
@@ -316,7 +385,18 @@ const Comparison: FC = () => {
                     )}
                   </div>
                   <div className="flex items-center gap-3">
-                    <StatusBadge status={selected.status} />
+                    {selected.status === 'COMPLETED' && (
+                      <button
+                        onClick={handleExportSelected}
+                        className="px-3 py-1 text-[11px] font-label uppercase tracking-widest border border-outline-variant/30 text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors"
+                      >
+                        {t('comparison.exportJson')}
+                      </button>
+                    )}
+                    <span className={`font-label text-[11px] uppercase tracking-widest px-3 py-1 border ${STATUS_COLOR[selected.status]}
+                      ${selected.status === 'COMPLETED' ? 'border-primary/30' : 'border-outline-variant/30'}`}>
+                      {t(`comparison.status.${selected.status}`, selected.status)}
+                    </span>
                   </div>
                 </div>
 
@@ -445,7 +525,7 @@ const Comparison: FC = () => {
                   ))}
                 </div>
               )}
-            </div>} />
+            </div>
           )}
         </div>
       ))}

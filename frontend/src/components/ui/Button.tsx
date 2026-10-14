@@ -1,11 +1,10 @@
-import type { ButtonHTMLAttributes, FC, ReactNode, Ref } from 'react';
+import type { ButtonHTMLAttributes, FC, ReactNode } from 'react';
 import { cn } from './cn';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger';
 export type ButtonSize = 'sm' | 'md' | 'lg';
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  ref?: Ref<HTMLButtonElement>;
   variant?: ButtonVariant;
   size?: ButtonSize;
   /** Nom d'icône Material Symbols affiché avant le libellé. */

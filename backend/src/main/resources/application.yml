@@ -24,17 +24,6 @@ spring:
   h2:
     console:
       enabled: false
-  # Serveur MCP — un seul interrupteur : l'autoconfiguration Spring AI est active par défaut,
-  # elle lit donc spectra.mcp.enabled plutôt que de rester allumée sur un déploiement qui ne
-  # l'a jamais demandée. STREAMABLE est nommé : sans lui, le transport SSE est lié et /mcp
-  # n'existe pas.
-  ai:
-    mcp:
-      server:
-        enabled: ${spectra.mcp.enabled:false}
-        protocol: STREAMABLE
-        name: spectra-mcp
-        version: 0.1.0
   # Arrêt gracieux : laisse les requêtes/ingestions en cours se terminer au SIGTERM
   lifecycle:
     timeout-per-shutdown-phase: 30s
@@ -45,15 +34,6 @@ server:
 
 # Services externes
 spectra:
-  # Serveur MCP en lecture seule (outils spectra_*) sur /mcp. Exige SPECTRA_API_KEY : sans clé,
-  # ApiKeyFilter laisse tout passer, et /mcp répond alors 503 plutôt que d'exposer le corpus.
-  mcp:
-    enabled: ${SPECTRA_MCP_ENABLED:false}
-    # Seau à jetons unique pour l'instance (Spectra n'a qu'une clé : rien ne distingue deux
-    # agents). Le refus dit combien attendre. 0 appel/minute désactive la limite.
-    rate-limit:
-      calls-per-minute: ${SPECTRA_MCP_RATE_LIMIT_PER_MINUTE:60}
-      burst: ${SPECTRA_MCP_RATE_LIMIT_BURST:10}
   llm:
     base-url: ${SPECTRA_LLM_BASE_URL:http://llm-chat:8081}
     model: ${SPECTRA_LLM_MODEL:qwen2.5-7b-instruct}

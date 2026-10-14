@@ -371,14 +371,6 @@ class ChromaDbConsistencyIntegrationTest {
         });
         when(repo.findByFileName(anyString())).thenAnswer(inv -> db.values().stream()
                 .filter(e -> inv.getArgument(0, String.class).equals(e.getFileName())).toList());
-        when(repo.findByFileNameAndCollectionName(anyString(), anyString())).thenAnswer(inv -> db.values().stream()
-                .filter(e -> inv.getArgument(0, String.class).equals(e.getFileName())
-                        && inv.getArgument(1, String.class).equals(e.getCollectionName())).toList());
-        when(repo.saveAndFlush(any(IngestedFileEntity.class))).thenAnswer(inv -> {
-            IngestedFileEntity e = inv.getArgument(0);
-            db.put(e.getSha256(), e);
-            return e;
-        });
         when(repo.save(any(IngestedFileEntity.class))).thenAnswer(inv -> {
             IngestedFileEntity e = inv.getArgument(0);
             db.put(e.getSha256(), e);
@@ -389,4 +381,3 @@ class ChromaDbConsistencyIntegrationTest {
         return repo;
     }
 }
-

@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom';
-import { afterEach, beforeEach } from 'vitest';
+import { afterEach } from 'vitest';
 import { cleanup } from '@testing-library/react';
 
 // jsdom has no layout engine, so `offsetParent` is always null — which makes any
@@ -17,5 +17,3 @@ Object.defineProperty(HTMLElement.prototype, 'offsetParent', {
 afterEach(() => {
   cleanup();
 });
-
-beforeEach(() => { sessionStorage.clear(); });

@@ -31,8 +31,6 @@ un échec tardif, exactement ce que ce service est censé supprimer.
 """
 import logging
 import os
-import signal
-import threading
 import subprocess
 import time
 from pathlib import Path
@@ -90,8 +88,6 @@ ACTIVE = Gauge(
 
 #: Processus vivants, par job. C'est ce qui rend l'annulation effective.
 _processes: Dict[str, subprocess.Popen] = {}
-_process_lock = threading.RLock()
-STOP_TIMEOUT_SECONDS = 3
 
 
 class TrainRequest(BaseModel):
@@ -133,19 +129,15 @@ def _stream(job_id: str, command: List[str], kind: str = "train") -> Iterator[st
     log.info("Job %s : %s", job_id, " ".join(command))
     started_at = time.monotonic()
     outcome = "interrupted"
-    # A private session makes killpg safe: this group belongs only to this job.
-    with _process_lock:
-        process = subprocess.Popen(  # noqa: S603 - commande construite ici
-            command,
-            cwd=str(WORK_DIR),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            start_new_session=os.name == "posix",
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
-        )
-        _processes[job_id] = process
+    process = subprocess.Popen(  # noqa: S603 - commande construite ici, pas reçue du client
+        command,
+        cwd=str(WORK_DIR),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+    _processes[job_id] = process
     ACTIVE.inc()
     try:
         for line in process.stdout:  # type: ignore[union-attr]
@@ -157,53 +149,14 @@ def _stream(job_id: str, command: List[str], kind: str = "train") -> Iterator[st
         outcome = "success" if exit_code == 0 else "failure"
         yield f"{EXIT_PREFIX}{exit_code}\n"
     finally:
-        with _process_lock:
-            if _processes.get(job_id) is process:
-                _processes.pop(job_id, None)
+        _processes.pop(job_id, None)
         ACTIVE.dec()
         RUNS.labels(kind=kind, outcome=outcome).inc()
         DURATION.labels(kind=kind).observe(time.monotonic() - started_at)
-        if outcome == "interrupted":
-            log.warning("Job %s : flux interrompu — arrêt de l'arbre de processus.", job_id)
-            _stop_process_tree(process)
-        if process.stdout is not None:
-            process.stdout.close()
-
-
-def _stop_process_tree(process: subprocess.Popen) -> None:
-    """Stop only the session created for this job, including conversion children."""
-    if os.name == "posix":
-        # Even an exited parent may have left children holding stdout open.
-        try:
-            os.killpg(process.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-        try:
-            process.wait(timeout=STOP_TIMEOUT_SECONDS)
-        except subprocess.TimeoutExpired:
-            pass
-        # The parent can exit before a child that ignores TERM; kill its private group too.
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-    elif os.name == "nt":
-        # Windows has no killpg; taskkill /T restricts termination to this PID's tree.
-        try:
-            subprocess.run(
-                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                timeout=STOP_TIMEOUT_SECONDS, check=False,
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            if process.poll() is None:
-                process.kill()
-    elif process.poll() is None:
-        process.kill()
-    try:
-        process.wait(timeout=STOP_TIMEOUT_SECONDS)
-    except subprocess.TimeoutExpired:
-        log.error("Processus %s toujours vivant après l'annulation", process.pid)
+        if process.poll() is None:
+            log.warning("Job %s : flux interrompu — arrêt du processus.", job_id)
+            process.kill()
+            process.wait()
 
 
 def _require(script: Path, label: str) -> None:
@@ -254,11 +207,10 @@ def export(req: ExportRequest) -> StreamingResponse:
 @app.post("/cancel/{job_id}")
 def cancel(job_id: str) -> dict:
     """Interrompt le travail en cours. Idempotent : annuler un job inconnu n'est pas une erreur."""
-    with _process_lock:
-        process = _processes.get(job_id)
-        if process is None:
-            return {"cancelled": False}
-        _stop_process_tree(process)
+    process = _processes.get(job_id)
+    if process is None or process.poll() is not None:
+        return {"cancelled": False}
+    process.kill()
     log.info("Job %s : interrompu à la demande.", job_id)
     return {"cancelled": True}
 

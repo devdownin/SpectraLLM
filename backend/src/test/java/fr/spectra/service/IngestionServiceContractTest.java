@@ -17,13 +17,10 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.spy;
-import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -85,9 +82,7 @@ class IngestionServiceContractTest {
 
         ftsService = mock(FtsService.class);
         repository = mock(IngestedFileRepository.class);       // existsById → false par défaut
-        gedService = spy(new GedService(repository,
-                mock(fr.spectra.persistence.DocumentModelLinkRepository.class),
-                mock(fr.spectra.persistence.AuditLogRepository.class), chromaDbClient, ftsService, tempDir.toString()));
+        gedService = mock(GedService.class);
     }
 
     /** Construit l'IngestionService avec l'exécuteur fourni (réel ou simulé). */
@@ -144,12 +139,11 @@ class IngestionServiceContractTest {
                 .thenReturn(new IngestionTaskExecutor.IngestOneResult(3, "txt", 0, false));
 
         IngestionService service = serviceWith(executor);
-        assertThatThrownBy(() -> service.ingest("partial.txt",
-                new ByteArrayInputStream("contenu partiel".getBytes()), "test-collection-id"))
-                .isInstanceOf(PartialIngestionException.class)
-                .satisfies(error -> assertThat(((PartialIngestionException) error).chunks()).isEqualTo(3));
+        int chunks = service.ingest("partial.txt",
+                new ByteArrayInputStream("contenu partiel".getBytes()), "test-collection-id");
 
         // Le critère d'enregistrement est chunks>0, indépendamment de complete.
+        assertThat(chunks).isEqualTo(3);
         verify(repository).save(any(IngestedFileEntity.class));
     }
 
@@ -178,10 +172,10 @@ class IngestionServiceContractTest {
         inOrder.verify(chromaDbClient).deleteByMetadata("test-collection-id", "sha256", hash);
         inOrder.verify(chromaDbClient).addDocuments(
                 org.mockito.ArgumentMatchers.eq("test-collection-id"), anyList(), anyList());
-        verify(ftsService).removeByDocument(hash, "spectra_documents");
+        verify(ftsService).removeBySource("doc.txt", "spectra_documents");
         // Ré-ingestion d'un hash connu → versioning GED, pas de nouvelle ligne.
         verify(gedService).incrementVersion(hash, "system");
-        verify(repository, atLeastOnce()).save(existing);
+        verify(repository, never()).save(any(IngestedFileEntity.class));
     }
 
     @Test
@@ -213,4 +207,3 @@ class IngestionServiceContractTest {
         verify(repository, never()).save(any(IngestedFileEntity.class));
     }
 }
-

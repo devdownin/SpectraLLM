@@ -6,7 +6,7 @@
 # authentification :
 #   — chromadb (8000) : lecture ET ÉCRITURE sur l'index vectoriel, donc sur le corpus
 #     de documents ingérés — c'est la donnée que ce projet promet de garder chez vous ;
-#   — llm-chat / llm-embed (8091, 8092 sur l'hôte) : llama-server n'a pas d'authentification ;
+#   — llm-chat / llm-embed (8081, 8082) : llama-server n'a pas d'authentification ;
 #   — spectra-api (8080), reranker, docparser, trainer, kafka.
 #
 # Rien de tout cela n'est nécessaire au fonctionnement : les services se parlent par le
@@ -17,13 +17,7 @@
 # Déploiement multi-hôte volontaire (serveur consulté depuis un autre poste) :
 #   SPECTRA_BIND_ADDR=0.0.0.0
 # À ne faire qu'en ayant renseigné SPECTRA_API_KEY, et de préférence derrière un
-# reverse-proxy TLS : ouvrir 8000 et 8091 revient à publier la base et le moteur.
-#
-# PORTS DE L'HÔTE — un plan commun avec Kafka SQL Explorer (8080) et Kex-anHarness (8081).
-# Les deux llama-server publient sur 8091/8092 et non plus 8081/8082 : 8081 est le port de
-# l'agent Kex-anHarness, et les deux piles ne pouvaient pas tourner sur une même machine.
-# L'interface (80) et l'API (8080) gardent leurs ports quand Spectra tourne seul ;
-# SPECTRA_UI_PORT=8088 SPECTRA_API_PORT=8089 le placent à côté de Kafka SQL Explorer.
+# reverse-proxy TLS : ouvrir 8000 et 8081 revient à publier la base et le moteur.
 # ═══════════════════════════════════════════════════════════════════════════════
 services:
 
@@ -48,7 +42,7 @@ services:
           # avec LLM_CONTEXT. À relever pour un modèle plus grand ou un contexte plus large.
           memory: ${LLM_CHAT_MEMORY_LIMIT:-8g}
     ports:
-      - "${SPECTRA_BIND_ADDR:-127.0.0.1}:${SPECTRA_LLM_CHAT_PORT:-8091}:8081"
+      - "${SPECTRA_BIND_ADDR:-127.0.0.1}:8081:8081"
     volumes:
       - ./data/models:/models
       - ./scripts/llm-chat-entrypoint.sh:/llm-chat-entrypoint.sh:ro
@@ -107,7 +101,7 @@ services:
           # d'ingestion (SPECTRA_EMBEDDING_BATCH_SIZE).
           memory: ${LLM_EMBED_MEMORY_LIMIT:-2g}
     ports:
-      - "${SPECTRA_BIND_ADDR:-127.0.0.1}:${SPECTRA_LLM_EMBED_PORT:-8092}:8082"
+      - "${SPECTRA_BIND_ADDR:-127.0.0.1}:8082:8082"
     volumes:
       - ./data/models:/models
       - ./scripts/llm-embed-entrypoint.sh:/llm-embed-entrypoint.sh:ro
@@ -331,7 +325,7 @@ services:
           # actif, les allocations NATIVES d'ONNX Runtime, qui échappent au heap.
           memory: ${SPECTRA_API_MEMORY_LIMIT:-4g}
     ports:
-      - "${SPECTRA_BIND_ADDR:-127.0.0.1}:${SPECTRA_API_PORT:-8080}:8080"
+      - "${SPECTRA_BIND_ADDR:-127.0.0.1}:8080:8080"
     environment:
       - JAVA_OPTS=${JAVA_OPTS:--Xms256m -Xmx1024m -XX:+UseZGC}
       # Provider LLM : llama-cpp (deux serveurs dédiés chat + embed)
@@ -355,10 +349,6 @@ services:
       # « authentification API désactivée » et laissait passer toutes les requêtes, pendant
       # que scripts/pipeline.sh envoyait consciencieusement un en-tête X-API-Key ignoré.
       - SPECTRA_API_KEY=${SPECTRA_API_KEY:-}
-      # Serveur MCP en lecture seule sur /mcp (port 8080) ; exige SPECTRA_API_KEY.
-      - SPECTRA_MCP_ENABLED=${SPECTRA_MCP_ENABLED:-false}
-      - SPECTRA_MCP_RATE_LIMIT_PER_MINUTE=${SPECTRA_MCP_RATE_LIMIT_PER_MINUTE:-60}
-      - SPECTRA_MCP_RATE_LIMIT_BURST=${SPECTRA_MCP_RATE_LIMIT_BURST:-10}
       - SPECTRA_CHROMADB_BASE_URL=http://chromadb:8000
       - SPECTRA_PIPELINE_CHUNK_MAX_TOKENS=${SPECTRA_CHUNK_MAX_TOKENS:-256}
       - SPECTRA_PIPELINE_CHUNK_OVERLAP_TOKENS=${SPECTRA_CHUNK_OVERLAP_TOKENS:-64}
@@ -451,7 +441,7 @@ services:
           # Nginx servant des fichiers statiques.
           memory: ${FRONTEND_MEMORY_LIMIT:-256m}
     ports:
-      - "${SPECTRA_BIND_ADDR:-127.0.0.1}:${SPECTRA_UI_PORT:-80}:80"
+      - "${SPECTRA_BIND_ADDR:-127.0.0.1}:80:80"
     depends_on:
       spectra-api:
         condition: service_healthy
@@ -486,11 +476,9 @@ services:
           # l'hôte — donc l'API et le frontend avec. Une limite explicite transforme un
           # incident système en échec de job, lisible et sans dommage collatéral.
           #
-          # 12 GiB : profil CPU avec --base-model tinyllama. Phi-3 FP32 ne tient
-          # pas dans cette limite ; le preflight refuse avant de charger les poids.
-          # Phi-3 CPU + export : TRAINER_MEMORY_LIMIT=40g, avec autant de RAM libre.
-          # GPU via docker-compose.gpu.yml : QLoRA pour l'entraînement, mais la
-          # fusion/export reste sur CPU et impose aussi son budget RAM.
+          # 12 Go convient à du QLoRA 4-bit sur un modèle de 3 à 7 milliards de paramètres.
+          # À relever pour un modèle plus grand ou un lot plus large : trop bas, le job est
+          # tué par l'OOM killer sans cause claire ; trop haut, la limite ne protège de rien.
           memory: ${TRAINER_MEMORY_LIMIT:-12g}
     ports:
       - "${SPECTRA_BIND_ADDR:-127.0.0.1}:8004:8000"

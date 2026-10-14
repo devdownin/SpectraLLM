@@ -3,8 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SpectraLLM — Transformez vos documents en IA privée et fine-tunée</title>
-    <meta name="description" content="SpectraLLM — turn your documents into a private, fine-tuned AI. 100% local.">
+    <title>Spectra - Domain LLM Builder</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script type="module">
         import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
@@ -39,7 +38,6 @@
                 <a href="#retrieval" class="hover:text-blue-600 transition">Recherche</a>
                 <a href="#specialization" class="hover:text-blue-600 transition">Spécialisation</a>
                 <a href="#architecture" class="hover:text-blue-600 transition">Architecture</a>
-                <a href="#ecosystem" class="hover:text-blue-600 transition">Écosystème</a>
             </div>
             <div>
                 <a href="https://github.com/devdownin/SpectraLLM" class="inline-flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-full text-sm font-medium hover:bg-slate-800 transition">
@@ -55,7 +53,7 @@
             <div class="lg:grid lg:grid-cols-2 lg:gap-12 items-center">
                 <div>
                     <h1 class="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight mb-6">
-                        Transformez vos documents en <span class="text-blue-400">IA privée et fine-tunée</span>
+                        Construisez votre expertise <span class="text-blue-400">IA souveraine</span>
                     </h1>
                     <p class="text-lg sm:text-xl text-slate-300 mb-10 max-w-2xl">
                         Transformez vos documents métier en un assistant IA spécialisé. 100 % local. Zéro Cloud. Zéro compromis sur la confidentialité.
@@ -345,41 +343,6 @@ graph TD
         </div>
     </section>
 
-    <!-- Écosystème -->
-    <section id="ecosystem" class="py-24 bg-white">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div class="text-center mb-16">
-                <h2 class="text-blue-600 font-bold tracking-widest text-sm uppercase mb-4">Écosystème</h2>
-                <h3 class="text-4xl font-bold text-slate-900 mb-4">Trois projets, un même câblage MCP</h3>
-                <p class="text-slate-600 max-w-2xl mx-auto">Chacun fonctionne seul ; les trois sont publiés sous le même espace Docker Hub et se branchent l'un sur l'autre par MCP.</p>
-            </div>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <a href="https://github.com/devdownin/Kafkaexplorer" class="block bg-slate-50 p-8 rounded-2xl border border-slate-200 hover:border-blue-500 transition">
-                    <h4 class="text-xl font-bold text-slate-900 mb-2">Kafka SQL Explorer</h4>
-                    <p class="text-sm text-slate-600 mb-4">Explorer Kafka, l'interroger en Flink SQL, l'auditer avec l'IA — et le servir aux agents en serveur MCP en lecture seule. Peut prendre Spectra comme fournisseur de LLM privé.</p>
-                    <p class="text-xs text-slate-500 font-mono">compagnonsdudev/kafkaexplorer · AGPL-3.0</p>
-                </a>
-                <a href="https://github.com/devdownin/SpectraLLM" class="block bg-slate-50 p-8 rounded-2xl border border-slate-200 hover:border-blue-500 transition">
-                    <h4 class="text-xl font-bold text-slate-900 mb-2">SpectraLLM <span class="text-xs text-blue-600 align-middle">· ce projet</span></h4>
-                    <p class="text-sm text-slate-600 mb-4">Transformer vos documents en IA privée et fine-tunée — RAG local, fine-tuning, et un serveur MCP sur le corpus.</p>
-                    <p class="text-xs text-slate-500 font-mono">compagnonsdudev/spectrallm · AGPL-3.0</p>
-                </a>
-                <a href="https://github.com/devdownin/Kex-anHarness" class="block bg-slate-50 p-8 rounded-2xl border border-slate-200 hover:border-blue-500 transition">
-                    <h4 class="text-xl font-bold text-slate-900 mb-2">Kex-anHarness</h4>
-                    <p class="text-sm text-slate-600 mb-4">Un agent IA gouverné qui agit par des outils MCP — il lit Kafka par l'Explorer et cherche dans vos documents par Spectra, sous supervision humaine.</p>
-                    <p class="text-xs text-slate-500 font-mono">compagnonsdudev/kex-agent-ai · GPL-3.0</p>
-                </a>
-            </div>
-            <div class="mt-12 max-w-4xl mx-auto">
-                <p class="text-slate-700 mb-4"><span class="font-bold">Les trois ensemble</span>, depuis les images publiées — rien n'est construit :</p>
-                <pre class="bg-slate-900 text-slate-100 rounded-lg p-4 text-sm overflow-x-auto"><code>git clone https://github.com/devdownin/Kafkaexplorer.git &amp;&amp; cd Kafkaexplorer
-docker compose -f compose/spectra-hub.yml -f compose/spectra-hub.mcp.yml \
-  -f compose/ecosystem.yml up -d</code></pre>
-                <p class="text-sm text-slate-600 mt-4">Un seul plan de ports : <span class="font-mono">8080</span> Kafka SQL Explorer · <span class="font-mono">8081</span> Kex-anHarness · <span class="font-mono">8088 / 8089</span> interface / API Spectra · <span class="font-mono">9092</span> Kafka.</p>
-            </div>
-        </div>
-    </section>
-
     <!-- Footer -->
     <footer class="bg-slate-900 text-slate-400 py-12 border-t border-slate-800">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -390,14 +353,10 @@ docker compose -f compose/spectra-hub.yml -f compose/spectra-hub.mcp.yml \
                 </div>
                 <div class="flex gap-8 text-sm">
                     <a href="https://github.com/devdownin/SpectraLLM" class="hover:text-white transition">Documentation</a>
-                    <a href="https://github.com/devdownin/SpectraLLM/blob/main/LICENSE" class="hover:text-white transition">Licence AGPL-3.0</a>
-                    <a href="https://hub.docker.com/r/compagnonsdudev/spectrallm" class="hover:text-white transition">Docker Hub</a>
+                    <a href="https://github.com/devdownin/SpectraLLM/blob/main/LICENSE" class="hover:text-white transition">Licence MIT</a>
                 </div>
                 <div class="text-sm">
-                    Même écosystème : <a href="https://github.com/devdownin/Kafkaexplorer" class="hover:text-white transition underline">Kafka SQL Explorer</a> · <a href="https://github.com/devdownin/Kex-anHarness" class="hover:text-white transition underline">Kex-anHarness</a>
-                </div>
-                <div class="text-sm">
-                    © 2026 Les contributeurs SpectraLLM. Publié sous AGPL-3.0.
+                    © 2024 Spectra LLM Project. Tous droits réservés.
                 </div>
             </div>
         </div>

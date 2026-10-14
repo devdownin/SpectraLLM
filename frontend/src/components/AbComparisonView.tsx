@@ -1,16 +1,11 @@
-import { useViewState } from '../hooks/useViewState';
-import { WorkList, WorkListRow, ListFeedback, ListTools } from './ui';
-import { DetailPanel } from './ui/DetailPanel';
-import { Button } from './ui';
-import { useContextSearchParams } from '../hooks/useContextSearchParams';
-import { StatusBadge } from './ui';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import type { FC } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { configApi, evaluationApi } from '../services/api';
 import type { AbComparisonReport, AbItem } from '../types/api';
+import Skeleton from './Skeleton';
 import { apiErrorMessage } from '../lib/apiError';
 
 interface RegisteredModel { id?: string; name?: string; type?: string; }
@@ -72,13 +67,7 @@ const AbComparisonView: FC = () => {
   const [modelA, setModelA] = useState('');
   const [modelB, setModelB] = useState('');
   const [size, setSize] = useState('');
-  const [params, setParams] = useContextSearchParams();
-  const targetAb = params.get('ab');
-  const [selectedId, setSelectedId] = useState<string | null>(targetAb);
-  const requested = useQuery<AbComparisonReport>({ queryKey: ['ab-target', targetAb], queryFn: async () => (await evaluationApi.getAb(targetAb!)).data, enabled: !!targetAb, refetchInterval: q => ['PENDING','RUNNING'].includes(q.state.data?.status ?? '') ? 4000 : false });
-  const [search, setSearch] = useViewState('ab.search', '');
-  const [status, setStatus] = useViewState('ab.status', 'all');
-  const [sort, setSort] = useViewState('ab.sort', 'recent');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const { data: models = [] } = useQuery({
@@ -89,7 +78,7 @@ const AbComparisonView: FC = () => {
     },
   });
 
-  const { data: reports = [], isLoading, isError, refetch } = useQuery({
+  const { data: reports = [], isLoading } = useQuery({
     queryKey: ['ab-reports'],
     queryFn: async (): Promise<AbComparisonReport[]> =>
       (((await evaluationApi.getAllAb()).data ?? []) as AbComparisonReport[])
@@ -100,13 +89,7 @@ const AbComparisonView: FC = () => {
     },
   });
 
-  const filtered = reports.filter(r => (status === 'all' || r.status === status) && `${r.modelA} ${r.modelB} ${r.abId}`.toLowerCase().includes(search.toLowerCase())).sort((a, b) => sort === 'name' ? a.modelA.localeCompare(b.modelA) : b.startedAt.localeCompare(a.startedAt));
-  const selected = targetAb ? requested.data ?? null : reports.find(r => r.abId === selectedId) ?? null;
-  useEffect(() => { if (targetAb) setSelectedId(targetAb); }, [targetAb]);
-  const closeReport = () => {
-    setSelectedId(null);
-    if (targetAb) { const next = new URLSearchParams(params); next.delete('ab'); setParams(next, { replace: true }); }
-  };
+  const selected = reports.find(r => r.abId === selectedId) ?? reports[0] ?? null;
   const nameOf = (m: RegisteredModel) => m.name ?? m.id ?? '';
 
   const run = async () => {
@@ -116,7 +99,6 @@ const AbComparisonView: FC = () => {
       const parsed = size.trim() ? parseInt(size, 10) : undefined;
       const res = await evaluationApi.submitAb(modelA, modelB, Number.isFinite(parsed) ? parsed : undefined);
       setSelectedId(res.data?.abId ?? null);
-      if (targetAb && res.data?.abId) { const next = new URLSearchParams(params); next.set('ab', res.data.abId); setParams(next); }
       await queryClient.invalidateQueries({ queryKey: ['ab-reports'] });
       toast.success(t('ab.started'), { description: t('ab.startedDesc') });
     } catch (err) {
@@ -128,7 +110,6 @@ const AbComparisonView: FC = () => {
 
   return (
     <div className="space-y-6">
-      {targetAb && requested.isError && <p role="alert">{t('detail.missingTarget')}</p>}
       {/* Setup */}
       <div className="bg-surface-container p-6 space-y-4">
         <p className="font-label text-[11px] uppercase tracking-widest text-on-surface-variant">{t('ab.newRun')}</p>
@@ -166,31 +147,33 @@ const AbComparisonView: FC = () => {
       </div>
 
       {isLoading ? (
-        <ListFeedback loading><span /></ListFeedback>
-      ) : isError && !reports.length ? (<ListFeedback error retry={() => { void refetch(); }}><span /></ListFeedback>) : reports.length === 0 && !selected ? (
+        <Skeleton className="h-64" />
+      ) : reports.length === 0 ? (
         <div className="bg-surface-container p-8 text-center text-sm text-on-surface-variant">
           {t('ab.empty')}
         </div>
       ) : (
-        <div className="space-y-6">
-          <ListTools resultCount={filtered.length} search={search} onSearch={setSearch} status={status} onStatus={setStatus} statuses={['PENDING', 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED']} sort={sort} onSort={setSort} onReset={() => { setSearch(''); setStatus('all'); setSort('recent'); }} />
-          <ListFeedback error={isError} empty={!filtered.length} retry={() => { void refetch(); }} action={<Button variant="outline" onClick={() => { setSearch(''); setStatus('all'); }}>{t('workList.reset')}</Button>}>
-            {!!filtered.length && <WorkList viewKey="ab" filters={JSON.stringify([search, status, sort])} label={t('ab.history')}>{filtered.map(r => <WorkListRow key={r.abId}
-              identity={<><p className="font-medium">{r.modelA} {t('ab.vs')} {r.modelB}</p><p className="text-xs text-on-surface-variant break-all">{r.abId}</p></>}
-              status={<StatusBadge status={r.status} />}
-              context={<p className="text-xs">{r.status === 'COMPLETED' ? `${r.aWins}–${r.ties}–${r.bWins}` : `${r.processed}/${r.testSetSize}`}</p>}
-              updated={<time dateTime={r.completedAt ?? r.startedAt}>{new Date(r.completedAt ?? r.startedAt).toLocaleString(i18n.language)}</time>}
-              actions={<Button variant="outline" size="sm" onClick={() => { setSelectedId(r.abId); const next = new URLSearchParams(params); next.set('ab', r.abId); setParams(next); }}>{t(['PENDING', 'RUNNING'].includes(r.status) ? 'workList.follow' : r.status === 'COMPLETED' ? 'workList.result' : r.status === 'FAILED' ? 'workList.inspect' : 'workList.open')}</Button>}
-            />)}</WorkList>}
-          </ListFeedback>
+        <div className="grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-6 items-start">
+          {/* History */}
+          <div className="bg-surface-container divide-y divide-outline-variant/10">
+            <p className="px-4 py-3 bg-surface-container-high font-label text-[11px] uppercase tracking-widest text-on-surface-variant">{t('ab.history')}</p>
+            {reports.map(r => (
+              <button key={r.abId} onClick={() => setSelectedId(r.abId)}
+                className={`w-full text-left px-4 py-3 transition-colors hover:bg-surface-container-high/60 ${selected?.abId === r.abId ? 'bg-surface-container-high' : ''}`}>
+                <p className="font-headline font-bold text-xs truncate">{r.modelA} <span className="text-on-surface-variant">{t('ab.vs')}</span> {r.modelB}</p>
+                <p className="font-label text-[10px] text-on-surface-variant mt-0.5">
+                  {new Date(r.startedAt).toLocaleString(i18n.language, { dateStyle: 'short', timeStyle: 'short' })} · {r.status}
+                </p>
+                {r.status === 'COMPLETED' && (
+                  <p className="font-headline text-xs font-bold mt-1">{r.aWins}–{r.ties}–{r.bWins}</p>
+                )}
+              </button>
+            ))}
+          </div>
 
           {/* Detail */}
           {selected && (
-            <DetailPanel title={`${selected.modelA} vs ${selected.modelB}`} onClose={closeReport}
-              summary={<div className="flex flex-wrap gap-3"><StatusBadge status={selected.status} /><span className="text-sm break-all">{selected.abId}</span></div>}
-              history={<dl className="text-sm space-y-2"><dt>{t('detail.started')}</dt><dd>{new Date(selected.startedAt).toLocaleString(i18n.language)}</dd><dt>{t('detail.finished')}</dt><dd>{selected.completedAt ? new Date(selected.completedAt).toLocaleString(i18n.language) : '—'}</dd></dl>}
-              actions={<Button variant="outline" onClick={closeReport}>{t('detail.close')}</Button>}
-              details={<div className="space-y-6">
+            <div className="space-y-6">
               <div className="bg-surface-container p-6 space-y-4">
                 <div className="flex items-center justify-between">
                   <p className="font-headline font-bold text-lg">
@@ -234,7 +217,7 @@ const AbComparisonView: FC = () => {
                   ))}
                 </div>
               )}
-            </div>} />
+            </div>
           )}
         </div>
       )}
