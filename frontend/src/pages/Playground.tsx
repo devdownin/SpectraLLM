@@ -1,14 +1,10 @@
 import { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import type { FC } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { useWorkspaceCollection } from '../hooks/useWorkspaceCollection';
-import SourceDocumentButton from '../components/playground/SourceDocumentButton';
-import AnswerActions from '../components/playground/AnswerActions';
-import { PageHeader, Button, ActionMenu } from '../components/ui';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { queryApi, configApi, fineTuningApi, healthApi } from '../services/api';
+import { queryApi, configApi, fineTuningApi, ingestApi, healthApi } from '../services/api';
 import type { StreamDoneMeta, StreamStageInfo } from '../services/api';
 import type { ServiceStatus } from '../types/api';
 import Tooltip from '../components/Tooltip';
@@ -84,8 +80,6 @@ const RagBadges: FC<{ meta: RagMeta; onShowTrace?: () => void }> = ({ meta, onSh
 /** Source de réponse dépliable : nom de fichier + pertinence + passage récupéré. */
 const SourceItem: FC<{
   src: Source;
-  collection?: string;
-  focusId?: string;
   expert?: boolean;
   /** Numéro de citation [n] affiché en tête (correspond aux marqueurs [n] de la réponse). */
   citeNumber?: number;
@@ -93,8 +87,8 @@ const SourceItem: FC<{
   cited?: boolean;
   /** Compteur incrémenté à chaque clic sur la citation [n] : déplie et défile jusqu'ici. */
   openSignal?: number;
-}> = ({ src, collection, focusId, expert = false, citeNumber, cited = false, openSignal = 0 }) => {
-  const location = useLocation();
+}> = ({ src, expert = false, citeNumber, cited = false, openSignal = 0 }) => {
+  const navigate = useNavigate();
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -108,14 +102,20 @@ const SourceItem: FC<{
     }
   }, [openSignal]);
 
-  useEffect(() => {
-    if (focusId && location.state?.sourceFocusId === focusId) {
-      setOpen(true); ref.current?.focus(); ref.current?.scrollIntoView({ block: 'center' });
+  const openInDatabase = async () => {
+    try {
+      const res = await ingestApi.getHistory({ q: src.sourceFile, size: 5 });
+      const items: any[] = res.data?.content ?? res.data ?? [];
+      const match = items.find(d => d.fileName === src.sourceFile) ?? items[0];
+      if (match?.sha256) navigate(`/documents?doc=${encodeURIComponent(match.sha256)}`);
+      else toast.error(t('playground.docNotFound'));
+    } catch {
+      toast.error(t('playground.docOpenFailed'));
     }
-  }, [focusId, location.state]);
+  };
 
   return (
-    <div ref={ref} id={focusId} tabIndex={-1} className={`border-b border-outline-variant/10 last:border-0 ${cited ? 'bg-primary/5 -mx-1 px-1 rounded' : ''}`}>
+    <div ref={ref} className={`border-b border-outline-variant/10 last:border-0 ${cited ? 'bg-primary/5 -mx-1 px-1 rounded' : ''}`}>
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
@@ -145,7 +145,13 @@ const SourceItem: FC<{
                 {typeof src.bm25Score === 'number' && src.bm25Score > 0 && ` · bm25: ${src.bm25Score.toFixed(2)}`}
               </span>
             )}
-            <SourceDocumentButton fileName={src.sourceFile} collection={collection} focusId={focusId} />
+            <button
+              type="button"
+              onClick={openInDatabase}
+              className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-primary hover:text-primary/70 transition-colors"
+            >
+              <span aria-hidden="true" className="material-symbols-outlined text-[11px]">open_in_new</span>Open in Documents
+            </button>
           </div>
         </div>
       )}
@@ -154,9 +160,6 @@ const SourceItem: FC<{
 };
 
 const Playground: FC = () => {
-  const navigate = useNavigate();
-  const [collection] = useWorkspaceCollection();
-  const [mobileSettingsOpen, setMobileSettingsOpen] = useState(false);
   const { t } = useTranslation();
   const defaultWelcome: Message = { role: 'assistant', content: 'Welcome to the Spectra Playground. I am ready to answer questions based on your ingested documents. How can I help you today?', status: 'SENT', local: true };
   const [traceMsg, setTraceMsg] = useState<Message | null>(null);
@@ -195,6 +198,8 @@ const Playground: FC = () => {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [advisorOpen, setAdvisorOpen] = useState(false);
   const [atBottom, setAtBottom] = useState(true);
+  const [regenMenuOpen, setRegenMenuOpen] = useState(false);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
   /** Modules RAG désactivés par l'utilisateur (surcharges par requête → override `false`). */
   const [disabledModules, setDisabledModules] = useState<Set<OverrideKey>>(() => {
     try {
@@ -206,6 +211,7 @@ const Playground: FC = () => {
   const [comparison, setComparison] = useState<{
     baseline: Message; question: string; module: ModuleDef; history: { role: string; content: string }[];
   } | null>(null);
+  const [compareMenuIdx, setCompareMenuIdx] = useState<number | null>(null);
   // Cible de citation : clé `${messageIdx}-${sourceNumber}` + compteur de clics. Un changement
   // déclenche l'ouverture + le défilement de la source correspondante (cf. SourceItem.openSignal).
   const [citeTarget, setCiteTarget] = useState<{ key: string; tick: number } | null>(null);
@@ -321,8 +327,6 @@ const Playground: FC = () => {
       d ? { ...d, activeModel: modelName } : d);
     try {
       await configApi.setModelConfig({ model: modelName });
-      void queryClient.invalidateQueries({ queryKey: ['system-status'] });
-      void queryClient.invalidateQueries({ queryKey: ['configured-model'] });
       toast.info(t('playground.modelUpdated'), {
         description: `llm-chat reloads "${modelName}" automatically within a few seconds.`,
       });
@@ -400,6 +404,7 @@ const Playground: FC = () => {
 
   /** Exporte la conversation courante (Markdown ou JSON). */
   const exportConversation = (format: 'md' | 'json') => {
+    setExportMenuOpen(false);
     const real = messages.filter(m => m.content?.trim());
     if (real.length <= 1) { toast.info(t('playground.nothingToExport')); return; }
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
@@ -446,7 +451,7 @@ const Playground: FC = () => {
     // Config effective de CETTE requête, mémorisée sur la réponse pour une comparaison A/B
     // rigoureuse (rejouée depuis cette config, pas les réglages courants de la session).
     const effOverrides = buildOverrides();
-    const reqParams: RequestParams = { collection, useRag: ragEnabled, temperature: effTemperature, topP, topCandidates, overrides: effOverrides };
+    const reqParams: RequestParams = { temperature: effTemperature, topP, topCandidates, overrides: effOverrides };
 
     abortRef.current?.abort();
     const controller = new AbortController();
@@ -512,7 +517,7 @@ const Playground: FC = () => {
 
     try {
       for await (const event of queryApi.queryStream(
-        currentInput, ragEnabled, controller.signal, topCandidates, history, effTemperature, topP, effOverrides, collection
+        currentInput, ragEnabled, controller.signal, topCandidates, history, effTemperature, topP, effOverrides
       )) {
         if (event.type === 'sources') {
           try { sources = JSON.parse(event.data); } catch { /* ignore */ }
@@ -622,7 +627,7 @@ const Playground: FC = () => {
             .map((m, i) => {
               if (i === lastUserIdx) return { ...m, status: 'SENT' as const };
               if (i === lastAsstIdx && !removeEmpty)
-                return { ...m, status: 'SENT' as const, sources, metrics, params: reqParams, stopped: true };
+                return { ...m, status: 'SENT' as const, sources, metrics, stopped: true };
               return m;
             });
         });
@@ -680,6 +685,7 @@ const Playground: FC = () => {
    * @param tempOverride température pour cette régénération (cf. menu « plus factuel/créatif »).
    */
   const regenerateLast = (tempOverride?: number) => {
+    setRegenMenuOpen(false);
     const lastUser = [...messages].reverse().find(m => m.role === 'user');
     if (lastUser) submitQuery(lastUser.content, true, tempOverride);
   };
@@ -709,6 +715,7 @@ const Playground: FC = () => {
 
   /** Lance une comparaison A/B : rejoue la question de ce tour avec {@code mod} désactivé. */
   const openComparison = (msgIndex: number, mod: ModuleDef) => {
+    setCompareMenuIdx(null);
     const before = messages.slice(0, msgIndex);
     const userIdx = before.map(m => m.role).lastIndexOf('user');
     const question = userIdx >= 0 ? before[userIdx].content : '';
@@ -742,17 +749,8 @@ const Playground: FC = () => {
   const lastAssistantIdx = messages.findLastIndex(m => m.role === 'assistant');
 
   return (
-    <>
-    <PageHeader title={t('nav.playground')} description={t('playground.description')}
-      primaryAction={<Button icon="chat" onClick={() => { textareaRef.current?.scrollIntoView({ block: 'center' }); textareaRef.current?.focus(); }}>{t('playground.askQuestion')}</Button>}
-      secondaryActions={[
-        { id: 'markdown', label: t('playground.exportMarkdown'), icon: 'download', onSelect: () => exportConversation('md') },
-        { id: 'json', label: t('playground.exportJson'), icon: 'download', onSelect: () => exportConversation('json') },
-        { id: 'clear', label: t('playground.clearHistory'), icon: 'delete_sweep', danger: true, onSelect: requestClearChat },
-      ]} />
-    <div className="mt-6 h-auto lg:h-[calc(100vh-24rem)] lg:min-h-[480px] flex flex-col lg:flex-row gap-4 lg:gap-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
-      <button className="lg:hidden text-sm text-primary text-left rounded-lg border border-outline-variant/40 p-3" aria-expanded={mobileSettingsOpen} aria-controls="playground-settings" onClick={() => setMobileSettingsOpen(open => !open)}>{t('playground.toggleSettings')}</button>
-      <aside id="playground-settings" className={`${mobileSettingsOpen ? 'block' : 'hidden'} lg:block w-full lg:w-80 shrink-0 bg-surface-container p-6 space-y-8 overflow-y-auto custom-scrollbar`}>
+    <div className="h-[calc(100vh-12rem)] flex gap-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+      <aside className="w-80 bg-surface-container p-6 space-y-8 overflow-y-auto custom-scrollbar">
         {services && (
           <div>
             <h3 className="font-headline text-sm font-bold tracking-tight mb-4 uppercase">{t('playground.system')}</h3>
@@ -841,7 +839,7 @@ const Playground: FC = () => {
               ))}
               {availableModels.length > 1 && (
                 <p className="text-[10px] text-outline uppercase tracking-widest leading-relaxed">
-                  {t('playground.modelReloadHint')}
+                  Effective on the next chat service restart.
                 </p>
               )}
             </div>
@@ -995,7 +993,40 @@ const Playground: FC = () => {
             <span className="material-symbols-outlined text-sm">psychology</span>
             RAG Advisor
           </button>
-
+          <div className="relative">
+            <button
+              onClick={() => setExportMenuOpen(o => !o)}
+              aria-haspopup="menu" aria-expanded={exportMenuOpen}
+              className="w-full py-3 px-4 border border-outline-variant/40 text-on-surface-variant text-[11px] font-headline uppercase tracking-widest hover:border-primary/40 hover:text-primary transition-colors flex items-center justify-center gap-2"
+            >
+              <span className="material-symbols-outlined text-sm">download</span>
+              Export Conversation
+            </button>
+            {exportMenuOpen && (
+              <>
+                <button type="button" aria-hidden="true" tabIndex={-1}
+                  className="fixed inset-0 z-10 cursor-default" onClick={() => setExportMenuOpen(false)} />
+                <div role="menu"
+                  className="absolute left-0 right-0 bottom-full mb-1 z-20 bg-surface-container-high border border-outline-variant/30 shadow-lg py-1 animate-in fade-in slide-in-from-bottom-1">
+                  <button type="button" role="menuitem" onClick={() => exportConversation('md')}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-left text-[11px] uppercase tracking-widest text-on-surface-variant hover:bg-primary/10 hover:text-primary transition-colors">
+                    <span aria-hidden="true" className="material-symbols-outlined text-[14px]">description</span>As Markdown
+                  </button>
+                  <button type="button" role="menuitem" onClick={() => exportConversation('json')}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-left text-[11px] uppercase tracking-widest text-on-surface-variant hover:bg-primary/10 hover:text-primary transition-colors">
+                    <span aria-hidden="true" className="material-symbols-outlined text-[14px]">data_object</span>As JSON
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+          <button
+            onClick={requestClearChat}
+            className="w-full h-10 px-4 rounded-lg border border-error/30 text-error text-[13px] font-medium hover:bg-error/10 transition-colors flex items-center justify-center gap-2"
+          >
+            <span aria-hidden="true" className="material-symbols-outlined text-[16px]">delete_sweep</span>
+            Clear Chat History
+          </button>
         </div>
       </aside>
 
@@ -1008,7 +1039,7 @@ const Playground: FC = () => {
         onCancel={() => setConfirmClear(false)}
       />
 
-      <div className="min-w-0 min-h-[600px] lg:min-h-0 flex-1 flex flex-col bg-surface-container overflow-hidden relative">
+      <div className="flex-1 flex flex-col bg-surface-container overflow-hidden relative">
         <div
           ref={scrollContainerRef}
           onScroll={handleScroll}
@@ -1016,11 +1047,11 @@ const Playground: FC = () => {
           aria-live="polite"
           aria-busy={isTyping}
           aria-label={t('playground.conversation')}
-          className="flex-1 overflow-y-auto p-3 md:p-8 space-y-8 custom-scrollbar"
+          className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar"
         >
           {messages.map((msg, i) => (
             <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-full md:max-w-[80%] p-4 md:p-6 group relative ${
+              <div className={`max-w-[80%] p-6 group relative ${
                 msg.role === 'user'
                   ? 'bg-surface-container-high border-r-2 border-secondary'
                   : 'bg-surface-container-lowest border-l-2 border-primary'
@@ -1037,7 +1068,6 @@ const Playground: FC = () => {
                 <p className="font-label text-[11px] uppercase tracking-[0.1em] text-on-surface-variant mb-3">
                   {msg.role === 'user' ? 'Architect' : 'Spectra Core'}
                 </p>
-                {msg.role === 'assistant' && !msg.local && <h4 className="text-xs font-semibold text-primary mb-3">{t('answer.title')}</h4>}
                 {msg.role === 'assistant' ? (
                   <div className="text-sm">
                     {msg.content && (
@@ -1074,8 +1104,6 @@ const Playground: FC = () => {
                         <SourceItem
                           key={j}
                           src={src}
-                          collection={msg.params?.collection}
-                          focusId={`source-${i}-${j}`}
                           expert={expertMode}
                           citeNumber={j + 1}
                           cited={cited.has(j + 1)}
@@ -1085,15 +1113,6 @@ const Playground: FC = () => {
                     </div>
                   );
                 })()}
-
-                {msg.role === 'assistant' && msg.status === 'SENT' && !msg.local && (
-                  <AnswerActions message={msg} onSources={() => {
-                    if (msg.sources?.length) jumpToSource(i, 1);
-                  }} onTrace={() => setTraceMsg(msg)} onCompare={() => {
-                    const mod = appliedModules(msg.ragMeta)[0];
-                    if (mod) openComparison(i, mod);
-                  }} onEvaluate={() => navigate('/comparison')} />
-                )}
 
                 {/* Badges pipeline visibles pour tous (visibilité du fonctionnement RAG) ;
                     le mode expert reste réservé aux distances brutes et métriques. */}
@@ -1129,16 +1148,75 @@ const Playground: FC = () => {
                         aria-label={t('playground.badAnswer')} aria-pressed={msg.feedback === 'DOWN'}
                         className={`material-symbols-outlined text-[14px] px-1 transition-colors ${msg.feedback === 'DOWN' ? 'text-error' : 'text-outline hover:text-error'}`}>thumb_down</button>
 
-                      <ActionMenu label={t('playground.answerActions')} side="up" items={[
-                        { id: 'copy', label: t('playground.copyAnswer'), icon: 'content_copy', onSelect: () => copyAnswer(msg.content) },
-                        ...(i === lastAssistantIdx ? regenVariants.map((variant, index) => ({ id: `regenerate-${index}`, label: t(`playground.regenVariants.${index}`), icon: variant.icon, disabled: isTyping, onSelect: () => regenerateLast(variant.temp) })) : []),
-                        ...appliedModules(msg.ragMeta).map(mod => ({ id: `compare-${mod.key}`, label: t('playground.compareModule', { module: mod.label }), icon: 'compare_arrows', disabled: isTyping || Boolean(msg.stopped), onSelect: () => openComparison(i, mod) })),
-                      ]} />
+                      <span className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                        <button type="button" onClick={() => copyAnswer(msg.content)} aria-label={t('playground.copyAnswer')}
+                          className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-outline hover:text-primary transition-colors px-1.5 py-0.5">
+                          <span aria-hidden="true" className="material-symbols-outlined text-[13px]">content_copy</span>Copy
+                        </button>
+                        {i === lastAssistantIdx && (
+                          <div className="relative">
+                            <button type="button" onClick={() => setRegenMenuOpen(o => !o)} disabled={isTyping}
+                              aria-label={t('playground.regenerate')} aria-haspopup="menu" aria-expanded={regenMenuOpen}
+                              className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-outline hover:text-primary transition-colors px-1.5 py-0.5 disabled:opacity-40">
+                              <span aria-hidden="true" className="material-symbols-outlined text-[13px]">refresh</span>Regenerate
+                              <span aria-hidden="true" className={`material-symbols-outlined text-[12px] transition-transform ${regenMenuOpen ? 'rotate-180' : ''}`}>expand_more</span>
+                            </button>
+                            {regenMenuOpen && (
+                              <>
+                                {/* Couche de fermeture au clic extérieur. */}
+                                <button type="button" aria-hidden="true" tabIndex={-1}
+                                  className="fixed inset-0 z-10 cursor-default" onClick={() => setRegenMenuOpen(false)} />
+                                <div role="menu"
+                                  className="absolute right-0 bottom-full mb-1 z-20 w-44 bg-surface-container-high border border-outline-variant/30 shadow-lg py-1 animate-in fade-in slide-in-from-bottom-1">
+                                  {regenVariants.map(v => (
+                                    <button key={v.label} type="button" role="menuitem"
+                                      onClick={() => regenerateLast(v.temp)}
+                                      className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-[11px] uppercase tracking-widest text-on-surface-variant hover:bg-primary/10 hover:text-primary transition-colors">
+                                      <span aria-hidden="true" className="material-symbols-outlined text-[13px]">{v.icon}</span>
+                                      <span className="flex-1">{v.label}</span>
+                                      {v.temp !== undefined && <span className="font-mono text-[10px] text-outline">{v.temp.toFixed(1)}</span>}
+                                    </button>
+                                  ))}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        )}
+                        {/* Comparaison A/B : rejouer sans un module qui a réellement agi (chantier 4) */}
+                        {appliedModules(msg.ragMeta).length > 0 && (
+                          <div className="relative">
+                            <button type="button" onClick={() => setCompareMenuIdx(idx => idx === i ? null : i)} disabled={isTyping}
+                              aria-label={t('playground.compareWithout')} aria-haspopup="menu" aria-expanded={compareMenuIdx === i}
+                              className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-outline hover:text-primary transition-colors px-1.5 py-0.5 disabled:opacity-40">
+                              <span aria-hidden="true" className="material-symbols-outlined text-[13px]">compare_arrows</span>Compare
+                              <span aria-hidden="true" className={`material-symbols-outlined text-[12px] transition-transform ${compareMenuIdx === i ? 'rotate-180' : ''}`}>expand_more</span>
+                            </button>
+                            {compareMenuIdx === i && (
+                              <>
+                                <button type="button" aria-hidden="true" tabIndex={-1}
+                                  className="fixed inset-0 z-10 cursor-default" onClick={() => setCompareMenuIdx(null)} />
+                                <div role="menu"
+                                  className="absolute right-0 bottom-full mb-1 z-20 w-52 bg-surface-container-high border border-outline-variant/30 shadow-lg py-1 animate-in fade-in slide-in-from-bottom-1">
+                                  <p className="px-3 py-1 text-[9px] uppercase tracking-widest text-outline">Re-run without…</p>
+                                  {appliedModules(msg.ragMeta).map(mod => (
+                                    <button key={mod.key} type="button" role="menuitem"
+                                      onClick={() => openComparison(i, mod)}
+                                      className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-[11px] uppercase tracking-widest text-on-surface-variant hover:bg-primary/10 hover:text-primary transition-colors">
+                                      <span aria-hidden="true" className="material-symbols-outlined text-[13px]">block</span>
+                                      <span className="flex-1">{mod.label}</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </span>
                     </div>
                   </div>
                 )}
                 {msg.role === 'user' && (
-                  <div className="mt-2 flex items-center justify-end gap-1 ">
+                  <div className="mt-2 flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
                     <button type="button" onClick={() => editMessage(i)} disabled={isTyping} aria-label={t('playground.editMessage')}
                       className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-outline hover:text-secondary transition-colors px-1.5 py-0.5 disabled:opacity-40">
                       <span aria-hidden="true" className="material-symbols-outlined text-[13px]">edit</span>Edit
@@ -1247,8 +1325,7 @@ const Playground: FC = () => {
             temperature={comparison.baseline.params?.temperature ?? temperature}
             topP={comparison.baseline.params?.topP ?? topP}
             topCandidates={comparison.baseline.params?.topCandidates ?? topCandidates}
-            ragEnabled={comparison.baseline.params?.useRag ?? ragEnabled}
-            collection={comparison.baseline.params ? comparison.baseline.params.collection : collection}
+            ragEnabled={ragEnabled}
             baseOverrides={comparison.baseline.params?.overrides ?? buildOverrides()}
             onClose={() => setComparison(null)}
           />
@@ -1260,7 +1337,6 @@ const Playground: FC = () => {
         </Suspense>
       )}
     </div>
-    </>
   );
 };
 

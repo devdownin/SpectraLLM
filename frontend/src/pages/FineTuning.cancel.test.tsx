@@ -1,4 +1,3 @@
-import { MemoryRouter } from 'react-router-dom';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { toast } from 'sonner';
@@ -68,7 +67,7 @@ beforeEach(() => {
 
 describe('FineTuning — arrêt d\'un job en cours', () => {
   it('propose l\'arrêt, demande confirmation, puis appelle l\'API', async () => {
-    render(<MemoryRouter><FineTuning /></MemoryRouter>);
+    render(<FineTuning />);
 
     // Le job en cours est restauré depuis l'historique au montage.
     const stop = await screen.findByTitle('Stop');
@@ -83,7 +82,7 @@ describe('FineTuning — arrêt d\'un job en cours', () => {
   });
 
   it('n\'appelle rien si la confirmation est refusée', async () => {
-    render(<MemoryRouter><FineTuning /></MemoryRouter>);
+    render(<FineTuning />);
 
     fireEvent.click(await screen.findByTitle('Stop'));
     fireEvent.click(await screen.findByRole('button', { name: /^cancel$/i }));
@@ -102,7 +101,7 @@ describe('FineTuning — refus de soumission', () => {
       message: 'Request failed with status code 409',
     });
 
-    render(<MemoryRouter><FineTuning /></MemoryRouter>);
+    render(<FineTuning />);
     fireEvent.click(await screen.findByRole('button', { name: /new training job/i }));
     fireEvent.click(await screen.findByRole('button', { name: /launch training/i }));
 

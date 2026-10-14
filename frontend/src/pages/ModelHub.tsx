@@ -6,7 +6,6 @@ import Skeleton from '../components/Skeleton';
 import ModelStoragePanel from '../components/ModelStoragePanel';
 import InstallationHistoryPanel from '../components/InstallationHistoryPanel';
 import QualityBenchmarkCta from '../components/QualityBenchmarkCta';
-import RuntimeModelSummary from '../components/RuntimeModelSummary';
 import { EmptyState, Button, PageHeader, Field, Input } from '../components/ui';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { toast } from 'sonner';
@@ -149,7 +148,7 @@ const ModelHub: FC = () => {
 
   if (isLoading) {
     return (
-      <div className="space-y-6">
+      <div className="p-8 space-y-6">
         <PageHeader title={t('nav.modelHub')} description={t('modelHub.kicker')} />
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {[...Array(6)].map((_, i) => (
@@ -161,7 +160,7 @@ const ModelHub: FC = () => {
   }
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-700">
+    <div className="p-8 space-y-8 animate-in fade-in duration-700">
       <PageHeader
         title={t('nav.modelHub')}
         description={
@@ -170,7 +169,8 @@ const ModelHub: FC = () => {
             Powered by <span className="text-primary font-semibold">llmfit</span>.
           </Trans>
         }
-        context={        <div className="flex flex-wrap gap-3">
+        actions={
+        <div className="flex flex-wrap gap-3">
           <div className="flex items-center gap-2 bg-surface-container-low px-3 py-1 border border-outline-variant/20">
             <span className="text-[11px] font-black uppercase tracking-widest text-outline">{t('modelHub.show')}</span>
             <select
@@ -209,12 +209,23 @@ const ModelHub: FC = () => {
             <span className="text-[11px] font-black uppercase tracking-widest text-outline">{t('modelHub.autoActivate')}</span>
           </label>
 
-        </div>}
-        secondaryActions={[{ id: 'refresh', label: t('modelHub.refresh'), icon: 'refresh', disabled: isFetching, onSelect: () => { void refetch(); } }]}
-        primaryAction={<Button variant={isSimulating ? 'secondary' : 'primary'} icon="settings_input_component" onClick={() => setIsSimulating(value => !value)} aria-pressed={isSimulating}>{t('modelHub.simulation')}</Button>}
-      />
+          <Button
+            variant={isSimulating ? 'primary' : 'secondary'}
+            size="sm"
+            icon="settings_input_component"
+            onClick={() => setIsSimulating(!isSimulating)}
+            aria-pressed={isSimulating}
+          >
+            {t('modelHub.simulation')}
+          </Button>
 
-      <div className="rounded-xl border border-outline-variant/30 p-4"><RuntimeModelSummary /></div>
+          <Button variant="secondary" size="sm" onClick={() => refetch()}>
+            <span aria-hidden="true" className={`material-symbols-outlined text-[16px] ${isFetching ? 'animate-spin' : ''}`}>refresh</span>
+            {t('modelHub.refresh')}
+          </Button>
+        </div>
+        }
+      />
 
       {isSimulating && (
         <section className="bg-primary/5 p-6 rounded-xl border border-primary/20 animate-in slide-in-from-top-4 duration-300">

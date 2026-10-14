@@ -72,6 +72,9 @@ public class AgenticRagService {
             %%s
             === FIN DU CONTEXTE ===""";
 
+    /** Tokens réservés pour la réponse du LLM (prompt + tokens d'amorçage). */
+    private static final int RESPONSE_RESERVE_TOKENS = 500;
+
     // ---------- Regex parseurs ---------------------------------------------
 
     private static final Pattern ACTION_PATTERN =
@@ -141,6 +144,27 @@ public class AgenticRagService {
     }
 
     /**
+     * Élimine les chunks qui dépassent le budget de tokens de contexte.
+     * Conserve les premiers chunks (supposés les plus pertinents par ordre de retrieval)
+     * et s'arrête dès que le budget est atteint, en réservant {@code RESPONSE_RESERVE_TOKENS}.
+     */
+    private List<String> fitToContextBudget(List<String> chunks, int maxTokens) {
+        int budget = maxTokens - RESPONSE_RESERVE_TOKENS;
+        if (budget <= 0) return List.of();
+        List<String> result = new ArrayList<>();
+        int used = 0;
+        for (String chunk : chunks) {
+            int cost = TokenEstimator.estimateTokens(chunk);
+            if (used + cost > budget) break;
+            result.add(chunk);
+            used += cost;
+        }
+        return result;
+    }
+
+    // ---------- API publique -----------------------------------------------
+
+    /**
      * Callback de progression de la boucle ReAct — une notification par recherche
      * complémentaire décidée par le LLM. Utilisé par le pipeline streaming pour émettre
      * des événements SSE {@code stage} (visibilité + keep-alive de la connexion).
@@ -185,8 +209,10 @@ public class AgenticRagService {
 
         int maxIterations = props.agenticRag() != null
                 ? props.agenticRag().effectiveMaxIterations() : 3;
-        // La sélection de chaque appel tient compte du prompt complet et d'une réserve de sortie,
-        // dans la fenêtre servie et dans la limite configurée pour le mode agentique.
+        // Borné par la fenêtre réellement servie : fitToContextBudget découpe fidèlement au
+        // budget qu'on lui donne, mais un budget de 3000 tokens respecté à la lettre déborde
+        // tout autant d'une fenêtre de 2048 — et llama.cpp tronque alors le DÉBUT de la
+        // requête, donc le prompt système, sans lever d'erreur.
         int maxContextTokens = ContextBudgetValidator.clampContextTokens(
                 props.agenticRag() != null ? props.agenticRag().effectiveMaxContextTokens() : 3000,
                 llmClient, "spectra.agentic-rag.max-context-tokens");
@@ -204,18 +230,12 @@ public class AgenticRagService {
         int    iterations   = 0;
         String finalAnswer  = null;
         QueryResponse.AgenticStopReason stopReason = null;
-        List<Integer> answerIndices = List.of();
 
         // ── Boucle ReAct ────────────────────────────────────────────────────
         while (iterations < maxIterations) {
 
-            List<Integer> budgetedIndices = RagPromptBudget.selectIndices(contextChunks.size(), llmClient,
-                    maxContextTokens, indices -> buildReactSystemPrompt() + "\n"
-                            + reactUserMessage(request.question(), select(contextChunks, indices),
-                                    select(contextMetadatas, indices)));
-            List<String> budgetedChunks = select(contextChunks, budgetedIndices);
-            List<Map<String, String>> budgetedMetas = select(contextMetadatas, budgetedIndices);
-            answerIndices = budgetedIndices;
+            List<String> budgetedChunks = fitToContextBudget(contextChunks, maxContextTokens);
+            List<Map<String, String>> budgetedMetas = contextMetadatas.subList(0, budgetedChunks.size());
             if (budgetedChunks.size() < contextChunks.size()) {
                 log.debug("Agentic RAG itération {} — budget tokens: {} chunks retenus sur {} (max {} tokens)",
                         iterations + 1, budgetedChunks.size(), contextChunks.size(), maxContextTokens);
@@ -229,7 +249,9 @@ public class AgenticRagService {
                 break;
             }
 
-            String userMsg = reactUserMessage(request.question(), budgetedChunks, budgetedMetas);
+            String userMsg = "Question : " + request.question()
+                    + "\n\n=== CONTEXTE DISPONIBLE ===\n" + contextStr
+                    + "\n=== FIN DU CONTEXTE ===";
 
             log.debug("Agentic RAG itération {} — {} chunks en contexte", iterations + 1, budgetedChunks.size());
             String llmResponse = llmClient.chat(buildReactSystemPrompt(), userMsg,
@@ -289,28 +311,22 @@ public class AgenticRagService {
         if (finalAnswer == null) {
             log.info("Agentic RAG : max itérations atteint ({}), génération directe", maxIterations);
             stopReason = QueryResponse.AgenticStopReason.MAX_ITERATIONS;
-            answerIndices = RagPromptBudget.selectIndices(contextChunks.size(), llmClient, maxContextTokens,
-                    indices -> buildFallbackSystemPrompt(buildContextString(
-                            select(contextChunks, indices), select(contextMetadatas, indices)))
-                            + "\n" + request.question());
+            int limit = Math.min(request.maxContextChunks(), contextChunks.size());
+            List<String> fallbackChunks = fitToContextBudget(contextChunks.subList(0, limit), maxContextTokens);
             String contextStr = buildContextString(
-                    select(contextChunks, answerIndices), select(contextMetadatas, answerIndices));
-            if (answerIndices.isEmpty()) {
-                finalAnswer = "Aucun document pertinent ne tient dans le budget du modèle.";
-            } else {
-                finalAnswer = llmClient.chat(buildFallbackSystemPrompt(contextStr), request.question(),
-                        request.temperature(), request.topP());
-            }
+                    fallbackChunks,
+                    contextMetadatas.subList(0, fallbackChunks.size()));
+            finalAnswer = llmClient.chat(buildFallbackSystemPrompt(contextStr), request.question(),
+                    request.temperature(), request.topP());
         }
 
         // ── Construction des sources pour la réponse ───────────────────────
-        int srcLimit = answerIndices.size();
+        int srcLimit = Math.min(request.maxContextChunks(), contextChunks.size());
         List<QueryResponse.Source> sources = new ArrayList<>(srcLimit);
         for (int i = 0; i < srcLimit; i++) {
-            int index = answerIndices.get(i);
-            String text       = contextChunks.get(index);
-            String sourceFile = contextMetadatas.get(index).getOrDefault("sourceFile", "inconnu");
-            double distance   = contextDistances.get(index);
+            String text       = contextChunks.get(i);
+            String sourceFile = contextMetadatas.get(i).getOrDefault("sourceFile", "inconnu");
+            double distance   = contextDistances.get(i);
             sources.add(new QueryResponse.Source(
                     text.length() > 200 ? text.substring(0, 200) + "..." : text,
                     sourceFile, distance, null, null));
@@ -375,16 +391,6 @@ public class AgenticRagService {
         return results;
     }
 
-    private String reactUserMessage(String question, List<String> chunks,
-                                    List<Map<String, String>> metadatas) {
-        return "Question : " + question + "\n\n=== CONTEXTE DISPONIBLE ===\n"
-                + buildContextString(chunks, metadatas) + "\n=== FIN DU CONTEXTE ===";
-    }
-
-    private <T> List<T> select(List<T> values, List<Integer> indices) {
-        return indices.stream().map(values::get).toList();
-    }
-
     private String buildContextString(List<String> chunks, List<Map<String, String>> metadatas) {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < chunks.size(); i++) {
@@ -408,4 +414,3 @@ public class AgenticRagService {
 
     private record RetrievedChunk(String text, String sourceFile, double distance) {}
 }
-

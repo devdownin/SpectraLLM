@@ -54,11 +54,9 @@ class FakeEventSource {
 vi.stubGlobal('EventSource', FakeEventSource);
 
 import FineTuning from './FineTuning';
-import { fineTuningApi } from '../services/api';
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(fineTuningApi.getJob).mockResolvedValue({ data: COMPLETED_JOB } as never);
   i18n.changeLanguage('en');
 });
 
@@ -115,23 +113,8 @@ describe('FineTuning — évaluation enchaînée', () => {
     // chose qui relie les deux moitiés de la chaîne côté interface.
     renderPage();
     // Un job terminal n'est pas restauré automatiquement : on le sélectionne dans l'historique.
-    fireEvent.click(await screen.findByRole('button', { name: 'spectra-domain' }));
+    fireEvent.click(await screen.findByRole('cell', { name: 'spectra-domain' }));
 
-    expect(await screen.findByRole('link', { name: /view evaluation/i })).toHaveAttribute('href', '/comparison?eval=eval-7');
+    expect(await screen.findByRole('link', { name: /view evaluation/i })).toBeInTheDocument();
   });
-});
-
-it('loads an exact job from a deep link even when it is outside the local history', async () => {
-  vi.mocked(fineTuningApi.getJob).mockResolvedValue({ data: { ...COMPLETED_JOB, jobId: 'target', modelName: 'Target direct job' } } as never);
-  render(<MemoryRouter initialEntries={['/fine-tuning?job=target']}><FineTuning /></MemoryRouter>);
-  expect(await screen.findByText('Target direct job')).toBeInTheDocument();
-  expect(fineTuningApi.getJob).toHaveBeenCalledWith('target');
-  expect(fineTuningApi.getTelemetry).toHaveBeenCalledWith('target');
-});
-
-it('does not restore a different job if the deep-linked job is unavailable', async () => {
-  vi.mocked(fineTuningApi.getJob).mockRejectedValue(new Error('404'));
-  render(<MemoryRouter initialEntries={['/fine-tuning?job=missing']}><FineTuning /></MemoryRouter>);
-  expect(await screen.findByRole('alert')).toHaveTextContent('No other result has been selected');
-  expect(screen.queryByRole('link', { name: /view evaluation/i })).not.toBeInTheDocument();
 });

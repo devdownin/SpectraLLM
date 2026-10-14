@@ -38,7 +38,7 @@ export type GlobalTaskKind =
   | 'benchmark'
   | 'ablation';
 
-export type GlobalTaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'partial';
+export type GlobalTaskStatus = 'pending' | 'running' | 'completed' | 'failed';
 
 export interface GlobalTask {
   /** Unique inter-sources : `${kind}:${id brut}`. */
@@ -75,12 +75,11 @@ const RUNNING_STATES = new Set([
   'DOWNLOADING', 'REGISTERING', 'UPLOADING',
 ]);
 
-/** Mappe les statuts hétérogènes du backend vers les états normalisés. */
+/** Mappe les statuts hétérogènes du backend vers les 4 états normalisés. */
 export function toStatus(raw: string | null | undefined): GlobalTaskStatus {
   const s = (raw ?? '').toUpperCase();
   if (s === 'COMPLETED') return 'completed';
-  if (s === 'CANCELLED') return 'cancelled';
-  if (s === 'FAILED') return 'failed';
+  if (s === 'FAILED' || s === 'CANCELLED') return 'failed';
   if (RUNNING_STATES.has(s)) return 'running';
   return 'pending';
 }
@@ -125,7 +124,7 @@ export function normalizeIngestTasks(raw: unknown): GlobalTask[] {
       detail: typeof t.chunksExpected === 'number' && t.chunksExpected > 0
         ? `${t.chunksCreated ?? 0}/${t.chunksExpected} chunks`
         : typeof t.chunksCreated === 'number' && t.chunksCreated > 0 ? `${t.chunksCreated} chunks` : null,
-      status: toStatus(t.status) === 'completed' && fileErrors.length > 0 ? 'partial' : toStatus(t.status),
+      status: toStatus(t.status),
       // Dénominateur découvert au fil du chunking (0 tant qu'inconnu → barre indéterminée).
       progress: ratio(t.chunksCreated, t.chunksExpected),
       path: '/ingestion',
@@ -353,7 +352,7 @@ export function normalizeSnapshot(snap: TasksSnapshot | null | undefined): Globa
  * Interroge toutes les sources en parallèle ; une source en panne est ignorée
  * (les autres tâches restent visibles), cohérent avec le suivi par page.
  */
-async function fetchGlobalTasks(): Promise<{ tasks: GlobalTask[]; unavailable: number }> {
+async function fetchGlobalTasks(): Promise<GlobalTask[]> {
   const sources: [() => Promise<{ data: unknown }>, (raw: unknown) => GlobalTask[]][] = [
     [() => ingestApi.getAllTasks(), normalizeIngestTasks],
     [() => datasetApi.getAllTasks(), normalizeDatasetTasks],
@@ -366,9 +365,9 @@ async function fetchGlobalTasks(): Promise<{ tasks: GlobalTask[]; unavailable: n
     [() => ablationApi.listJobs(), normalizeAblationJobs],
   ];
   const results = await Promise.allSettled(sources.map(([fetch]) => fetch()));
-  const unavailable = results.filter(r => r.status === 'rejected').length;
-  if (unavailable === sources.length) throw new Error('Task sources unavailable');
-  return { unavailable, tasks: results.flatMap((r, i) => r.status === 'fulfilled' ? sources[i][1](r.value.data) : []) };
+  return results.flatMap((r, i) =>
+    r.status === 'fulfilled' ? sources[i][1](r.value.data) : []
+  );
 }
 
 // ── Hook ─────────────────────────────────────────────────────────────────────
@@ -390,12 +389,12 @@ export function useGlobalTasks() {
   // abandon après épuisement des tentatives). Poll rapide seulement quand quelque
   // chose tourne : l'UI réagit vite sans marteler l'API au repos.
   const pollingEnabled = sseStatus !== 'open';
-  const { data: polled, isLoading: pollLoading, isError, refetch } = useQuery({
+  const { data: polledTasks, isLoading: pollLoading } = useQuery({
     queryKey: ['global-tasks'],
     queryFn: fetchGlobalTasks,
     enabled: pollingEnabled,
     refetchInterval: (query) =>
-      (query.state.data?.tasks ?? []).some(isActiveTask) ? ACTIVE_POLL_MS : IDLE_POLL_MS,
+      (query.state.data ?? []).some(isActiveTask) ? ACTIVE_POLL_MS : IDLE_POLL_MS,
     retry: false,
   });
 
@@ -403,8 +402,8 @@ export function useGlobalTasks() {
     if (sseStatus === 'open' && sseTasks) return sseTasks;
     // Flux coupé : le polling reprend ; en attendant sa 1re réponse, on garde le
     // dernier instantané SSE plutôt que de vider le panneau.
-    return polled?.tasks ?? sseTasks ?? [];
-  }, [sseStatus, sseTasks, polled]);
+    return polledTasks ?? sseTasks ?? [];
+  }, [sseStatus, sseTasks, polledTasks]);
 
   const activeTasks = useMemo(() => tasks.filter(isActiveTask), [tasks]);
 
@@ -412,10 +411,7 @@ export function useGlobalTasks() {
     tasks,
     activeTasks,
     activeCount: activeTasks.length,
-    isError: pollingEnabled && isError,
-    unavailable: pollingEnabled ? polled?.unavailable ?? 0 : 0,
-    refetch,
-    isLoading: !sseSnapshot && !polled && (pollLoading || sseStatus === 'open'),
+    isLoading: !sseSnapshot && pollLoading,
     /** 'open' = flux temps réel actif ; sinon repli sur le polling REST. */
     liveStatus: sseStatus,
   };

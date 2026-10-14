@@ -202,13 +202,7 @@ together and is the recommended way in.
 | Environment variable | Default | Description |
 |---|---|---|
 | `SPECTRA_BIND_ADDR` | `127.0.0.1` | Host address the stack's ports are published on. The default reaches this machine only. Set to `0.0.0.0` for a deliberate multi-host deployment |
-| `SPECTRA_UI_PORT` | `80` | Host port of the web UI. `8088` beside Kafka SQL Explorer and Kex-anHarness |
-| `SPECTRA_API_PORT` | `8080` | Host port of the API (scripts, Swagger, `/mcp`). `8089` beside Kafka SQL Explorer, which owns 8080 |
-| `SPECTRA_LLM_CHAT_PORT` | `8091` | Host port of the chat llama-server, diagnostics only. Not 8081: Kex-anHarness owns it |
-| `SPECTRA_LLM_EMBED_PORT` | `8092` | Host port of the embedding llama-server, diagnostics only |
 | `SPECTRA_API_KEY` | *(empty)* | Required in the `X-API-Key` header on every `/api/**` route when set. Empty = no authentication. `/actuator` is always exempt so health checks work without a key |
-| `SPECTRA_MCP_ENABLED` | `false` | Serves a read-only MCP server on `/mcp` (Streamable HTTP, port 8080): `spectra_search`, `spectra_ask`, `spectra_list_documents`, `spectra_preview_document`, `spectra_status`. Requires `SPECTRA_API_KEY` — without a key `/mcp` answers 503 rather than exposing the corpus unauthenticated. The last 500 tool calls (tool, truncated arguments, outcome, duration) are readable on `GET /api/mcp/calls?limit=50` and timed as `spectra_mcp_calls_seconds{tool,outcome}`; they are kept in memory and lost on restart |
-| `SPECTRA_MCP_RATE_LIMIT_PER_MINUTE` / `SPECTRA_MCP_RATE_LIMIT_BURST` | `60` / `10` | Rate limit on MCP tool calls, one token bucket for the whole instance — there is a single API key, so nothing tells two agents apart. A refused call says how long to wait and is journaled as `RATE_LIMITED`. `0` calls per minute turns the limit off |
 
 Containers do **not** need the published ports to reach each other — they talk over the
 Compose network using service names. Publishing exists only for host access: the browser on
@@ -217,7 +211,7 @@ default.
 
 Opening the stack with `SPECTRA_BIND_ADDR=0.0.0.0` exposes more than the API. ChromaDB (8000)
 accepts reads **and writes** to the vector index — the ingested corpus — and llama-server
-(host ports 8091, 8092) has no authentication of its own. Neither has any notion of an API key: only
+(8081, 8082) has no authentication of its own. Neither has any notion of an API key: only
 `spectra-api` enforces `SPECTRA_API_KEY`. Treat `0.0.0.0` as a decision to put the whole stack
 behind a reverse proxy you control, not as a convenience toggle.
 

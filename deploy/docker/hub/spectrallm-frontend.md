@@ -1,4 +1,4 @@
-<!-- short: SpectraLLM web interface — React UI for the local RAG and fine-tuning stack -->
+<!-- short: Spectra LLM web interface — React UI for the local RAG and fine-tuning stack -->
 <!--
   Page de présentation Docker Hub de compagnonsdudev/spectrallm-frontend.
   Poussée par .github/workflows/docker-publish.yml (job « describe »).
@@ -46,8 +46,8 @@ Then open **http://localhost**. The full walkthrough lives on the [backend image
 | Tag | Meaning |
 |---|---|
 | `latest` | The most recent release. |
-| `0.11` | The 0.11 series. |
-| `0.11.0` | An exact version. **Pin this in production.** |
+| `0.7` | The 0.7 series. |
+| `0.7.1` | An exact version. **Pin this in production.** |
 
 **Architectures:** `linux/amd64` and `linux/arm64`.
 
@@ -60,7 +60,5 @@ Keep this image and `compagnonsdudev/spectrallm` on the **same tag**: they are b
 - [Getting Started](https://github.com/devdownin/SpectraLLM/blob/main/docs/getting-started.en.md)
 - [User Manual](https://github.com/devdownin/SpectraLLM/blob/main/docs/user/user-manual.en.md) · [FR](https://github.com/devdownin/SpectraLLM/blob/main/docs/user/user-manual.fr.md)
 - [Publier / consommer les images (FR)](https://github.com/devdownin/SpectraLLM/blob/main/docs/tech/docker-hub.fr.md)
-
-Part of an ecosystem of three projects published under `compagnonsdudev` — [Kafka SQL Explorer](https://github.com/devdownin/Kafkaexplorer), SpectraLLM and [Kex-anHarness](https://github.com/devdownin/Kex-anHarness): see the [backend image's page](https://hub.docker.com/r/compagnonsdudev/spectrallm).
 
 **License:** GNU AGPL-3.0 — [full text](https://github.com/devdownin/SpectraLLM/blob/main/LICENSE).
