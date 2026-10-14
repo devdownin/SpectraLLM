@@ -61,6 +61,7 @@ public class UrlIngestionService {
                         totalChunks += chunks;
                         log.info("URL '{}' ingérée → {} chunks", url, chunks);
                     } catch (Exception e) {
+                        if (e instanceof PartialIngestionException partial) totalChunks += partial.chunks();
                         log.error("Erreur ingestion URL '{}': {}", url, e.getMessage());
                         urlErrors.add(url + ": " + e.getMessage());
                     }
@@ -81,3 +82,4 @@ public class UrlIngestionService {
         return task;
     }
 }
+

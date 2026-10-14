@@ -9,6 +9,7 @@ import Skeleton from '../components/Skeleton';
 import Tooltip from '../components/Tooltip';
 import LifecycleDonut from '../components/charts/LifecycleDonut';
 import CategoryBar from '../components/charts/CategoryBar';
+import DashboardWorkOverview from '../components/DashboardWorkOverview';
 import EmbeddingConsistencyCard from '../components/EmbeddingConsistencyCard';
 import { PageHeader, CountUp, AnimatedContent, SpotlightCard } from '../components/ui';
 
@@ -86,10 +87,10 @@ function statusChip(status: string): { label: string; cls: string } {
 const Dashboard: FC = () => {
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { status, loading } = useStatus();
+  const { status, loading, error: statusError } = useStatus();
   // Stats périodiques (dataset + GED + métriques) via React Query — Promise.allSettled
   // pour que l'échec d'une source n'invalide pas les autres ; polling 30 s.
-  const { data: statsData, isLoading: statsLoading } = useQuery({
+  const { data: statsData, isLoading: statsLoading, dataUpdatedAt: statsUpdatedAt } = useQuery({
     queryKey: ['dashboard-stats'],
     queryFn: async () => {
       const [dsRes, gedRes, metricsRes] = await Promise.allSettled([
@@ -162,118 +163,27 @@ const Dashboard: FC = () => {
   const dpoPairsReady = (commentStats?.approved ?? 0) > 0;
 
   return (
-    <div className="space-y-12 animate-in fade-in duration-700">
+    <div className="space-y-6 animate-in fade-in duration-700">
 
       {/* Header */}
       <PageHeader kicker={t('dashboard.kicker')} title={t('dashboard.title')} />
 
-      {/* ── Cohérence embedding ↔ index (visible seulement en cas de problème) ── */}
-      <EmbeddingConsistencyCard />
+      <DashboardWorkOverview
+        chunks={stats?.chunksInStore ?? null}
+        loading={statsLoading || loading}
+        unavailable={statsErrors.length > 0 || !!statusError}
+        updatedAt={statsUpdatedAt}
+        chat={chatSvc}
+        embedding={embedSvc}
+        store={chromadb}
+        unqualifiedDocuments={gedStats?.byLifecycle ? (gedStats.byLifecycle.INGESTED ?? 0) : null}
+      >
+        <EmbeddingConsistencyCard />
+      </DashboardWorkOverview>
 
-      {/* ── Service Health ── */}
-      <section className="space-y-4">
-        <h3 className="font-headline text-sm font-bold uppercase tracking-tight text-on-surface-variant">{t('dashboard.serviceHealth')}</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-
-          <div className="bg-surface-container p-6 flex items-center justify-between card-hover">
-            <div className="flex items-center gap-4">
-              <div className={`w-10 h-10 flex items-center justify-center border ${
-                loading ? 'border-outline-variant/30 text-outline' :
-                chatSvc?.available ? 'border-primary bg-primary/10 text-primary' :
-                'border-error bg-error/10 text-error'
-              }`}>
-                <span className="material-symbols-outlined text-base">memory</span>
-              </div>
-              <div>
-                <p className="font-headline font-bold text-sm uppercase">{t('dashboard.chat')}</p>
-                <p className="text-[11px] text-on-surface-variant uppercase tracking-widest">LLM Inference · llama.cpp</p>
-              </div>
-            </div>
-            <div className="text-right">
-              {loading ? <Skeleton className="h-4 w-16" /> : (
-                <>
-                  <p className={`text-[11px] font-bold uppercase tracking-widest ${chatSvc?.available ? 'text-primary' : 'text-error'}`}>
-                    {chatSvc?.available ? t('dashboard.online') : t('dashboard.offline')}
-                  </p>
-                  {chatSvc?.details?.activeModel && (
-                    <p className="text-[10px] text-outline font-mono mt-0.5 max-w-[120px] truncate" title={chatSvc.details.activeModel}>
-                      {chatSvc.details.activeModel}
-                    </p>
-                  )}
-                  {chatSvc?.available && chatSvc?.details?.activeModelLoaded === false && (
-                    <p className="text-[10px] font-bold text-error uppercase tracking-widest mt-1 flex items-center gap-1">
-                      <span className="material-symbols-outlined text-[11px]">warning</span>
-                      {t('dashboard.modelNotLoaded')}
-                    </p>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-
-          <div className="bg-surface-container p-6 flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className={`w-10 h-10 flex items-center justify-center border ${
-                loading ? 'border-outline-variant/30 text-outline' :
-                embedSvc?.available ? 'border-secondary bg-secondary/10 text-secondary' :
-                !embedSvc ? 'border-outline-variant/30 text-outline' :
-                'border-error bg-error/10 text-error'
-              }`}>
-                <span className="material-symbols-outlined text-base">hub</span>
-              </div>
-              <div>
-                <p className="font-headline font-bold text-sm uppercase">{t('dashboard.embed')}</p>
-                <p className="text-[11px] text-on-surface-variant uppercase tracking-widest">Embeddings · llama.cpp</p>
-              </div>
-            </div>
-            <div className="text-right">
-              {loading ? <Skeleton className="h-4 w-16" /> : !embedSvc ? (
-                <p className="text-[11px] font-bold uppercase tracking-widest text-outline">N/A</p>
-              ) : (
-                <>
-                  <p className={`text-[11px] font-bold uppercase tracking-widest ${embedSvc.available ? 'text-secondary' : 'text-error'}`}>
-                    {embedSvc.available ? t('dashboard.online') : t('dashboard.offline')}
-                  </p>
-                  {embedSvc?.details?.activeModel && (
-                    <p className="text-[10px] text-outline font-mono mt-0.5 max-w-[120px] truncate" title={embedSvc.details.activeModel}>
-                      {embedSvc.details.activeModel}
-                    </p>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-
-          <div className="bg-surface-container p-6 flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className={`w-10 h-10 flex items-center justify-center border ${
-                loading ? 'border-outline-variant/30 text-outline' :
-                chromadb?.available ? 'border-primary bg-primary/10 text-primary' :
-                'border-error bg-error/10 text-error'
-              }`}>
-                <span className="material-symbols-outlined text-base">database</span>
-              </div>
-              <div>
-                <p className="font-headline font-bold text-sm uppercase">{t('dashboard.chromadb')}</p>
-                <p className="text-[11px] text-on-surface-variant uppercase tracking-widest">Vector Storage · API v2</p>
-              </div>
-            </div>
-            <div className="text-right">
-              {loading ? <Skeleton className="h-4 w-16" /> : (
-                <>
-                  <p className={`text-[11px] font-bold uppercase tracking-widest ${chromadb?.available ? 'text-primary' : 'text-error'}`}>
-                    {chromadb?.available ? t('dashboard.online') : t('dashboard.offline')}
-                  </p>
-                  {!statsLoading && (stats?.chunksInStore ?? 0) > 0 && (
-                    <p className="text-[10px] text-outline font-mono mt-0.5">{stats!.chunksInStore} chunks</p>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-
-        </div>
-      </section>
+      <details className="group bg-surface-container rounded-xl border border-outline-variant/40 p-5">
+        <summary className="cursor-pointer text-base font-semibold">{t('dashboard.work.analytics')}</summary>
+        <div className="space-y-6 mt-5">
 
       {/* ── Getting Started (shown only when no data yet) ── */}
       {!statsLoading && !loading && (stats?.chunksInStore ?? 0) === 0 && (
@@ -897,6 +807,117 @@ const Dashboard: FC = () => {
         </div>
       </section>
 
+        </div>
+      </details>
+
+      <details className="bg-surface-container rounded-xl border border-outline-variant/40 p-5">
+        <summary className="cursor-pointer text-base font-semibold">{t('dashboard.work.technical')}</summary>
+        <div className="space-y-6 mt-5">
+      {/* ── Service Health ── */}
+      <section className="space-y-4">
+        <h3 className="font-headline text-sm font-bold uppercase tracking-tight text-on-surface-variant">{t('dashboard.serviceHealth')}</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+          <div className="bg-surface-container p-6 flex items-center justify-between card-hover">
+            <div className="flex items-center gap-4">
+              <div className={`w-10 h-10 flex items-center justify-center border ${
+                loading ? 'border-outline-variant/30 text-outline' :
+                chatSvc?.available ? 'border-primary bg-primary/10 text-primary' :
+                'border-error bg-error/10 text-error'
+              }`}>
+                <span className="material-symbols-outlined text-base">memory</span>
+              </div>
+              <div>
+                <p className="font-headline font-bold text-sm uppercase">{t('dashboard.chat')}</p>
+                <p className="text-[11px] text-on-surface-variant uppercase tracking-widest">LLM Inference · llama.cpp</p>
+              </div>
+            </div>
+            <div className="text-right">
+              {loading ? <Skeleton className="h-4 w-16" /> : (
+                <>
+                  <p className={`text-[11px] font-bold uppercase tracking-widest ${chatSvc?.available ? 'text-primary' : 'text-error'}`}>
+                    {chatSvc?.available ? t('dashboard.online') : t('dashboard.offline')}
+                  </p>
+                  {chatSvc?.details?.activeModel && (
+                    <p className="text-[10px] text-outline font-mono mt-0.5 max-w-[120px] truncate" title={chatSvc.details.activeModel}>
+                      {chatSvc.details.activeModel}
+                    </p>
+                  )}
+                  {chatSvc?.available && chatSvc?.details?.activeModelLoaded === false && (
+                    <p className="text-[10px] font-bold text-error uppercase tracking-widest mt-1 flex items-center gap-1">
+                      <span className="material-symbols-outlined text-[11px]">warning</span>
+                      {t('dashboard.modelNotLoaded')}
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className="bg-surface-container p-6 flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className={`w-10 h-10 flex items-center justify-center border ${
+                loading ? 'border-outline-variant/30 text-outline' :
+                embedSvc?.available ? 'border-secondary bg-secondary/10 text-secondary' :
+                !embedSvc ? 'border-outline-variant/30 text-outline' :
+                'border-error bg-error/10 text-error'
+              }`}>
+                <span className="material-symbols-outlined text-base">hub</span>
+              </div>
+              <div>
+                <p className="font-headline font-bold text-sm uppercase">{t('dashboard.embed')}</p>
+                <p className="text-[11px] text-on-surface-variant uppercase tracking-widest">Embeddings · llama.cpp</p>
+              </div>
+            </div>
+            <div className="text-right">
+              {loading ? <Skeleton className="h-4 w-16" /> : !embedSvc ? (
+                <p className="text-[11px] font-bold uppercase tracking-widest text-outline">N/A</p>
+              ) : (
+                <>
+                  <p className={`text-[11px] font-bold uppercase tracking-widest ${embedSvc.available ? 'text-secondary' : 'text-error'}`}>
+                    {embedSvc.available ? t('dashboard.online') : t('dashboard.offline')}
+                  </p>
+                  {embedSvc?.details?.activeModel && (
+                    <p className="text-[10px] text-outline font-mono mt-0.5 max-w-[120px] truncate" title={embedSvc.details.activeModel}>
+                      {embedSvc.details.activeModel}
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className="bg-surface-container p-6 flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className={`w-10 h-10 flex items-center justify-center border ${
+                loading ? 'border-outline-variant/30 text-outline' :
+                chromadb?.available ? 'border-primary bg-primary/10 text-primary' :
+                'border-error bg-error/10 text-error'
+              }`}>
+                <span className="material-symbols-outlined text-base">database</span>
+              </div>
+              <div>
+                <p className="font-headline font-bold text-sm uppercase">{t('dashboard.chromadb')}</p>
+                <p className="text-[11px] text-on-surface-variant uppercase tracking-widest">Vector Storage · API v2</p>
+              </div>
+            </div>
+            <div className="text-right">
+              {loading ? <Skeleton className="h-4 w-16" /> : (
+                <>
+                  <p className={`text-[11px] font-bold uppercase tracking-widest ${chromadb?.available ? 'text-primary' : 'text-error'}`}>
+                    {chromadb?.available ? t('dashboard.online') : t('dashboard.offline')}
+                  </p>
+                  {!statsLoading && (stats?.chunksInStore ?? 0) > 0 && (
+                    <p className="text-[10px] text-outline font-mono mt-0.5">{stats!.chunksInStore} chunks</p>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+
+        </div>
+      </section>
+
       {/* ── API Info ── */}
       {status && (
         <section className="bg-surface-container p-5 flex items-center justify-between">
@@ -913,6 +934,8 @@ const Dashboard: FC = () => {
         </section>
       )}
 
+        </div>
+      </details>
     </div>
   );
 };

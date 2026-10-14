@@ -58,7 +58,7 @@ const toastError = vi.fn();
 vi.mock('sonner', () => ({ toast: { error: (...a: unknown[]) => toastError(...a) } }));
 
 const {
-  gedApi, ingestApi, datasetApi, fineTuningApi, evaluationApi, commentApi, dpoApi,
+  gedApi, ingestApi, datasetApi, fineTuningApi, evaluationApi, commentApi, dpoApi, queryApi,
 } = await import('./api');
 
 beforeEach(() => {
@@ -198,6 +198,11 @@ describe('routes des familles principales', () => {
     });
   });
 
+  it('transmet force pour une réindexation explicite', () => {
+    ingestApi.uploadFile(new File(['contenu'], 'contrat.txt'), true);
+    expect(last()).toMatchObject({ url: '/ingest', config: { params: { force: true } } });
+  });
+
   it('interroge et annule une tâche d\'ingestion sur la même route', () => {
     ingestApi.getTaskStatus('t-1');
     expect(last()).toMatchObject({ method: 'get', url: '/ingest/t-1' });
@@ -260,5 +265,20 @@ describe('routes des familles principales', () => {
       method: 'patch',
       url: '/ged/documents/abc123/comments/7/rating?rating=APPROVED&actor=ui',
     });
+  });
+});
+
+
+
+describe('stream collection selection', () => {
+  it.each([true, false])('sends the selected collection only for RAG=%s', async useRag => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, body: new ReadableStream({ start(controller) { controller.close(); } }) });
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      for await (const _event of queryApi.queryStream('Question', useRag, undefined, 5, [], 0.4, 0.9, undefined, 'legal')) { /* consume */ }
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.useRag).toBe(useRag);
+      if (useRag) expect(body.collection).toBe('legal'); else expect(body).not.toHaveProperty('collection');
+    } finally { vi.unstubAllGlobals(); }
   });
 });

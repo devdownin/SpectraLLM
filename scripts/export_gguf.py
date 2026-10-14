@@ -12,6 +12,7 @@ import sys
 import os
 import shutil
 import subprocess
+import gc
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--adapter",    default="data/fine-tuning/adapter")
@@ -31,8 +32,13 @@ hf_model = MODEL_MAP.get(args.base_model, args.base_model)
 # ── Étape 1 : Fusion LoRA → modèle plein ──────────────────────
 print("=== Étape 1 : Fusion de l'adaptateur LoRA ===")
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoConfig, AutoTokenizer, AutoModelForCausalLM
 from peft import PeftModel
+
+from training_resources import check_memory_budget, model_parameter_count
+
+parameter_count = model_parameter_count(AutoConfig.from_pretrained(hf_model))
+check_memory_budget(parameter_count, operation="export", model_name=hf_model)
 
 print(f"  Chargement du modèle de base : {hf_model}")
 tokenizer = AutoTokenizer.from_pretrained(hf_model)
@@ -49,6 +55,10 @@ os.makedirs(args.output, exist_ok=True)
 model.save_pretrained(args.output)
 tokenizer.save_pretrained(args.output)
 print("  Fusion terminée.\n")
+# Conversion runs in a child process: release the parent model so its FP32 weights
+# do not remain resident alongside the converter's working set.
+del model, base_model, tokenizer
+gc.collect()
 
 # ── Étape 2 : Conversion GGUF via llama.cpp ───────────────────
 print("=== Étape 2 : Conversion GGUF ===")

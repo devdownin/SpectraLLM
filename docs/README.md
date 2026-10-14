@@ -53,3 +53,7 @@ New here? Start with **[Getting Started](getting-started.en.md)**.
 ---
 
 **Project root:** [README](../README.md) · [Français](../README.fr.md) · [Roadmap](../ROADMAP.fr.md) · [Contributing](../CONTRIBUTING.md) · [Changelog](../CHANGELOG.md) · [License](../LICENSE)
+
+- [Contexte et cockpits de travail](user/workspace-cockpits.fr.md) — collection du Playground, aperçu Documents et Activité.
+
+- [Cohérence des écrans de travail](user/ui-consistency.fr.md) — en-têtes, badges et actions communes.

@@ -42,6 +42,28 @@ class HybridSearchServiceTest {
         hybridSearch = new HybridSearchService(chromaDb, ftsService, props);
     }
 
+    @Test
+    void searchLexicalNeverCallsTheVectorStore() {
+        when(ftsService.search(anyString(), eq(COLL_NAME), anyInt())).thenReturn(List.of(
+                new BM25Index.ScoredDoc("d1", "preuve lexicale", "source.txt", 3.5f)));
+        var results = hybridSearch.searchLexical("question", COLL_NAME, 1);
+        assertThat(results).hasSize(1);
+        assertThat(results.getFirst().sourceFile()).isEqualTo("source.txt");
+        assertThat(results.getFirst().vectorDistance()).isEqualTo(1.0);
+        org.mockito.Mockito.verifyNoInteractions(chromaDb);
+    }
+
+    @Test
+    void searchMissingVectorFieldsDoesNotInventAZeroDistance() {
+        when(chromaDb.query(anyString(), any(), anyInt())).thenReturn(Map.of(
+                "documents", List.of(List.of("preuve"))));
+        when(ftsService.search(anyString(), anyString(), anyInt())).thenReturn(List.of());
+        var results = hybridSearch.search("question", QUERY_EMBEDDING, COLL_ID, COLL_NAME, 1);
+        assertThat(results).hasSize(1);
+        assertThat(results.getFirst().sourceFile()).isEqualTo("inconnu");
+        assertThat(results.getFirst().vectorDistance()).isEqualTo(1.0);
+    }
+
     // ── Cas nominal ───────────────────────────────────────────────────────────
 
     @Test
@@ -184,3 +206,4 @@ class HybridSearchServiceTest {
         when(chromaDb.query(eq(COLL_ID), any(), anyInt())).thenReturn(result);
     }
 }
+

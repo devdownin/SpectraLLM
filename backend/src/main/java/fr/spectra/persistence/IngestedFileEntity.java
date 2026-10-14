@@ -48,6 +48,15 @@ public class IngestedFileEntity {
     private Instant ingestedAt;
     private int chunksCreated;
 
+    /** Les documents partiels restent relançables au lieu de bloquer la déduplication. */
+    @Column(nullable = false, columnDefinition = "BOOLEAN DEFAULT TRUE")
+    private boolean ingestionComplete = true;
+
+    /** Tombstone durable : conservé jusqu'à confirmation du nettoyage de tous les index. */
+    @Column(nullable = false, columnDefinition = "BOOLEAN DEFAULT FALSE")
+    private boolean deletionPending;
+    private String deletionActor;
+
     // R2 — cycle de vie
     @Enumerated(EnumType.STRING)
     private Lifecycle lifecycle = Lifecycle.INGESTED;
@@ -129,6 +138,9 @@ public class IngestedFileEntity {
     public Double getQualityScore()  { return qualityScore; }
     public String getCollectionName(){ return collectionName; }
     public Instant getArchivedAt()   { return archivedAt; }
+    public boolean isIngestionComplete() { return ingestionComplete; }
+    public boolean isDeletionPending() { return deletionPending; }
+    public String getDeletionActor() { return deletionActor; }
 
     public List<String> getCategories()       { return categories; }
     public String getCategoryScores()         { return categoryScores; }
@@ -150,6 +162,10 @@ public class IngestedFileEntity {
     public void setTags(List<String> tags)        { this.tags = tags != null ? tags : new ArrayList<>(); }
     public void setQualityScore(Double score)     { this.qualityScore = score; }
     public void setCollectionName(String col)     { this.collectionName = col; }
+    public void setChunksCreated(int chunks)      { this.chunksCreated = chunks; }
+    public void setIngestionComplete(boolean complete) { this.ingestionComplete = complete; }
+    public void setDeletionPending(boolean pending) { this.deletionPending = pending; }
+    public void setDeletionActor(String actor) { this.deletionActor = actor; }
 
     public void setCategories(List<String> categories) {
         this.categories = categories != null ? categories : new ArrayList<>();
@@ -159,3 +175,4 @@ public class IngestedFileEntity {
     public void setClassifiedAt(Instant classifiedAt)        { this.classifiedAt = classifiedAt; }
     public void setClassifierModel(String classifierModel)   { this.classifierModel = classifierModel; }
 }
+

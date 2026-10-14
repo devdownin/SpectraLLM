@@ -1,14 +1,14 @@
 ---
-title: Spectra LLM - Domain LLM Builder
+title: SpectraLLM
 emoji: 🚀
 colorFrom: blue
 colorTo: indigo
 sdk: static
 pinned: false
-license: mit
+license: agpl-3.0
 ---
 
-# Spectra — Domain LLM Builder
+# SpectraLLM — Transformez vos documents en IA privée et fine-tunée
 
 **Transformez vos documents métier bruts en LLMs spécialisés, prêts pour la production. 100 % local, souverain et respectueux de la vie privée.**
 

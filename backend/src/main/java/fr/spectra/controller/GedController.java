@@ -94,6 +94,16 @@ public class GedController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
+    @GetMapping("/documents/{sha256}/preview")
+    @Operation(summary = "Aperçu borné des textes indexés du document, identifié par SHA256")
+    public ResponseEntity<GedService.DocumentPreview> preview(@PathVariable String sha256) {
+        try {
+            return ResponseEntity.ok(gedService.preview(sha256));
+        } catch (NoSuchElementException e) {
+            return ResponseEntity.notFound().build();
+        }
+    }
+
     // ── Amélioration 3 — Suppression synchronisée ChromaDB + GED ─────────────
 
     @DeleteMapping("/documents/{sha256}")
@@ -103,7 +113,8 @@ public class GedController {
             @RequestParam(defaultValue = "api") String actor) {
         try {
             Map<String, Object> result = gedService.deleteDocument(sha256, actor);
-            return ResponseEntity.ok(result);
+            return Boolean.TRUE.equals(result.get("deletionPending"))
+                    ? ResponseEntity.accepted().body(result) : ResponseEntity.ok(result);
         } catch (NoSuchElementException e) {
             return ResponseEntity.notFound().build();
         }
@@ -341,6 +352,8 @@ public class GedController {
         m.put("ingestedAt",     doc.getIngestedAt() != null ? doc.getIngestedAt().toString() : null);
         m.put("lifecycle",      doc.getLifecycle() != null ? doc.getLifecycle().name() : "INGESTED");
         m.put("version",        doc.getVersion());
+        m.put("ingestionComplete", doc.isIngestionComplete());
+        m.put("deletionPending", doc.isDeletionPending());
         m.put("tags",           doc.getTags());
         m.put("qualityScore",   doc.getQualityScore());
         m.put("chunksCreated",  doc.getChunksCreated());
@@ -410,3 +423,4 @@ public class GedController {
         }
     }
 }
+

@@ -1,9 +1,10 @@
 import { useEffect, useRef } from 'react';
 
-/* eslint-disable react-hooks/exhaustive-deps */
-
 const FOCUSABLE =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+// Only the most recently opened dialog handles keys (e.g. a confirmation over a sheet).
+const activeTraps: object[] = [];
 
 /**
  * Piège de focus pour les modales / panneaux latéraux.
@@ -29,6 +30,8 @@ export function useFocusTrap<T extends HTMLElement>(active: boolean, onEscape?: 
     if (!active) return;
     const node = ref.current;
     const previouslyFocused = document.activeElement as HTMLElement | null;
+    const token = {};
+    activeTraps.push(token);
 
     const focusable = () =>
       node
@@ -39,7 +42,8 @@ export function useFocusTrap<T extends HTMLElement>(active: boolean, onEscape?: 
     (focusable()[0] ?? node)?.focus();
 
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { onEscapeRef.current?.(); return; }
+      if (activeTraps.at(-1) !== token || e.defaultPrevented) return;
+      if (e.key === 'Escape') { e.preventDefault(); onEscapeRef.current?.(); return; }
       if (e.key !== 'Tab' || !node) return;
       const items = focusable();
       if (items.length === 0) { e.preventDefault(); return; }
@@ -58,6 +62,8 @@ export function useFocusTrap<T extends HTMLElement>(active: boolean, onEscape?: 
     document.addEventListener('keydown', onKeyDown);
     return () => {
       document.removeEventListener('keydown', onKeyDown);
+      const index = activeTraps.indexOf(token);
+      if (index >= 0) activeTraps.splice(index, 1);
       previouslyFocused?.focus?.();
     };
   }, [active]);

@@ -1,158 +1,165 @@
-"""
-Invariants de l'approvisionnement des convertisseurs GGUF (`scripts/lcc.py`).
+"""Offline regression tests for complete pinned converter provisioning.
 
-Aucun accès réseau : ce qui compte ici est vérifiable hors ligne — que la révision soit
-**épinglée** et jamais `master`, qu'elle reste alignée sur l'image llama.cpp servie, et que le
-cache ne réutilise pas une copie tirée d'une autre révision. C'est précisément ce que l'ancien
-code ne garantissait pas, et son échec était silencieux : l'export réussissait, avec un
-convertisseur différent d'une semaine à l'autre.
+The tiny archive fixture tests packaging and launcher execution, not ML conversion.
+The trainer Docker build additionally runs both real upstream --help entry points.
 """
 
+import io
+import json
 import os
 import pathlib
 import re
+import subprocess
 import sys
+import tarfile
 
 import pytest
 
-SCRIPTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, SCRIPTS_DIR)
-
+SCRIPTS_DIR = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(SCRIPTS_DIR))
 import llama_cpp_convert as lcc  # noqa: E402
 
 
-def test_revision_par_defaut_est_epinglee():
-    """Un tag de release (bNNNN) ou un SHA — jamais une branche mobile."""
-    assert lcc.DEFAULT_REVISION not in ("master", "main", "HEAD")
-    assert re.fullmatch(r"b\d+|[0-9a-f]{7,40}", lcc.DEFAULT_REVISION), lcc.DEFAULT_REVISION
+@pytest.fixture(autouse=True)
+def isolated_sources(tmp_path, monkeypatch):
+    monkeypatch.delenv("SPECTRA_LLAMA_CPP_DIR", raising=False)
+    monkeypatch.delenv("LLAMA_CPP_REVISION", raising=False)
+    monkeypatch.setattr(lcc, "VENDORED_DIR", str(tmp_path / "image"))
 
 
-def test_revision_alignee_sur_image_llama_cpp_du_compose():
-    """
-    La révision doit suivre le tag de l'image qui SERT les GGUF produits.
-
-    Sans ce test, les deux valeurs dérivent : on convertirait avec un llama.cpp et on servirait
-    avec un autre, ce qui est exactement le mode de défaillance que l'épinglage vise à éviter.
-    """
-    compose = pathlib.Path(SCRIPTS_DIR).parent / "deploy" / "docker" / "docker-compose.yml"
-    text = compose.read_text(encoding="utf-8")
-    tags = set(re.findall(r"LLAMA_CPP_IMAGE_TAG:-server-(\S+?)\}", text))
-    assert tags, "tag d'image llama.cpp introuvable dans docker-compose.yml"
-    assert tags == {lcc.DEFAULT_REVISION}, (
-        f"docker-compose épingle {tags}, llama_cpp_convert épingle "
-        f"{lcc.DEFAULT_REVISION} — les deux doivent évoluer ensemble")
-
-
-def test_url_construite_sur_le_depot_canonique_et_la_revision():
-    url = lcc.script_url("convert_hf_to_gguf.py", "b1234")
-    assert url == ("https://raw.githubusercontent.com/ggml-org/llama.cpp/"
-                   "b1234/convert_hf_to_gguf.py")
-
-
-def test_revision_surchargeable_par_environnement(monkeypatch):
-    monkeypatch.setenv("LLAMA_CPP_REVISION", "deadbeef")
-    assert lcc.pinned_revision() == "deadbeef"
+def archive_bytes(extra=None, omit=None):
+    files = {name: "# fixture\n" for name in lcc.REQUIRED}
+    # This exercises sibling package imports from an arbitrary working directory.
+    files["conversion/__init__.py"] = "VALUE = 'conversion-imported'\n"
+    files["gguf-py/gguf/__init__.py"] = "VALUE = 'gguf-imported'\n"
+    for name in lcc.SCRIPTS:
+        files[name] = ("import pathlib, sys\n"
+                       "sys.path.insert(0, str(pathlib.Path(__file__).parent / 'gguf-py'))\n"
+                       "import conversion, gguf\n"
+                       "print(conversion.VALUE, gguf.VALUE, sys.argv[1])\n")
+    files.pop(omit, None)
+    output = io.BytesIO()
+    with tarfile.open(fileobj=output, mode="w:gz") as archive:
+        for name, content in files.items():
+            info = tarfile.TarInfo(f"llama.cpp-{lcc.commit_for(lcc.DEFAULT_REVISION)}/{name}")
+            data = content.encode()
+            info.size = len(data)
+            archive.addfile(info, io.BytesIO(data))
+        if extra:
+            archive.addfile(extra)
+    return output.getvalue()
 
 
-@pytest.mark.parametrize("valeur", ["", "   "])
-def test_surcharge_vide_retombe_sur_le_defaut(monkeypatch, valeur):
-    monkeypatch.setenv("LLAMA_CPP_REVISION", valeur)
+def fake_download(monkeypatch, payload=None):
+    calls = []
+
+    def download(url, target):
+        calls.append(url)
+        pathlib.Path(target).write_bytes(payload if payload is not None else archive_bytes())
+
+    monkeypatch.setattr(lcc.urllib.request, "urlretrieve", download)
+    return calls
+
+
+def test_revision_matches_serving_image():
+    text = (SCRIPTS_DIR.parent / "deploy/docker/docker-compose.yml").read_text()
+    assert set(re.findall(r"LLAMA_CPP_IMAGE_TAG:-server-(\S+?)\}", text)) == {lcc.DEFAULT_REVISION}
+    assert re.fullmatch(r"[0-9a-f]{40}", lcc.commit_for(lcc.DEFAULT_REVISION))
+
+
+@pytest.mark.parametrize("value", ["", "   "])
+def test_empty_environment_uses_default(monkeypatch, value):
+    monkeypatch.setenv("LLAMA_CPP_REVISION", value)
     assert lcc.pinned_revision() == lcc.DEFAULT_REVISION
 
 
-def test_cache_reutilise_la_meme_revision_sans_telecharger(tmp_path, monkeypatch):
-    def interdit(*_args, **_kwargs):
-        pytest.fail("aucun téléchargement ne doit avoir lieu quand le cache est valide")
-
-    monkeypatch.setattr(lcc.urllib.request, "urlretrieve", interdit)
-    monkeypatch.setattr(lcc, "find_in_package", lambda _name: None)
-    (tmp_path / "convert_hf_to_gguf-b9999.py").write_text("# cache", encoding="utf-8")
-
-    resolved = lcc.resolve("convert_hf_to_gguf.py", tmp_path, revision="b9999")
-    assert resolved == str(tmp_path / "convert_hf_to_gguf-b9999.py")
+def test_sha_override_and_immutable_url(monkeypatch):
+    commit = "a" * 40
+    monkeypatch.setenv("LLAMA_CPP_REVISION", commit)
+    assert commit in lcc.script_url(lcc.SCRIPTS[0])
+    assert lcc.commit_for(commit) == commit
 
 
-def test_cache_dune_autre_revision_nest_pas_reutilise(tmp_path, monkeypatch):
-    """
-    Le nom de cache porte la révision : une copie de `master` laissée par l'ancienne version du
-    script (nom fixe `convert_hf_to_gguf.py`) ne doit plus geler la conversion.
-    """
-    telecharges = []
+@pytest.mark.parametrize("revision", ["main", "master", "../bad", "deadbeef", "b9999"])
+def test_unverified_revisions_rejected(revision):
+    with pytest.raises(ValueError, match="full commit SHA"):
+        lcc.commit_for(revision)
+
+
+def test_vendor_complete_toolchain_and_both_launchers_execute(tmp_path, monkeypatch):
+    calls = fake_download(monkeypatch)
+    first = lcc.vendor(lcc.SCRIPTS[0], tmp_path)
+    assert calls == [f"{lcc.ARCHIVE_BASE}/{lcc.commit_for(lcc.DEFAULT_REVISION)}"]
+    for name in lcc.SCRIPTS:
+        script = lcc.resolve(name, tmp_path)
+        result = subprocess.run([sys.executable, script, "--help"], cwd="/tmp",
+                                capture_output=True, text=True, check=True)
+        assert result.stdout.strip() == "conversion-imported gguf-imported --help"
+    assert pathlib.Path(first).is_file()
+    assert len(calls) == 1
+
+
+def test_verified_local_copy_works_without_network(tmp_path, monkeypatch):
+    fake_download(monkeypatch)
+    expected = lcc.vendor(lcc.SCRIPTS[0], tmp_path / "vendored")
+    monkeypatch.setenv("SPECTRA_LLAMA_CPP_DIR", str(tmp_path / "vendored"))
     monkeypatch.setattr(lcc.urllib.request, "urlretrieve",
-                        lambda url, dest: telecharges.append((url, str(dest))))
-    monkeypatch.setattr(lcc, "find_in_package", lambda _name: None)
-    (tmp_path / "convert_hf_to_gguf.py").write_text("# ancienne copie master", encoding="utf-8")
-
-    lcc.resolve("convert_hf_to_gguf.py", tmp_path, revision="b9999")
-
-    assert len(telecharges) == 1
-    url, dest = telecharges[0]
-    assert "b9999" in url and "master" not in url
-    assert dest.endswith("convert_hf_to_gguf-b9999.py")
+                        lambda *_args: pytest.fail("network used for complete local toolchain"))
+    assert lcc.resolve(lcc.SCRIPTS[0], tmp_path / "cache") == expected
 
 
-def test_paquet_installe_a_la_priorite(tmp_path, monkeypatch):
-    monkeypatch.setattr(lcc, "find_in_package", lambda _name: "/opt/llama_cpp/convert_x.py")
-    monkeypatch.setattr(lcc.urllib.request, "urlretrieve",
-                        lambda *_a, **_k: pytest.fail("le paquet local devait suffire"))
-    assert lcc.resolve("convert_x.py", tmp_path) == "/opt/llama_cpp/convert_x.py"
+def test_partial_or_modified_cache_is_rebuilt(tmp_path, monkeypatch):
+    calls = fake_download(monkeypatch)
+    first = pathlib.Path(lcc.vendor(lcc.SCRIPTS[0], tmp_path))
+    (first.parent / "conversion/base.py").unlink()
+    assert lcc.resolve(lcc.SCRIPTS[0], tmp_path) == str(first)
+    (first.parent / "gguf-py/gguf/__init__.py").write_text("# modified")
+    assert lcc.resolve(lcc.SCRIPTS[1], tmp_path)
+    assert len(calls) == 3
 
 
-# ── Hors ligne : F12 ──────────────────────────────────────────────────────────
-
-def test_une_copie_locale_est_preferee_au_telechargement(tmp_path, monkeypatch):
-    # Le cœur de F12 : un déploiement sans accès sortant doit pouvoir exporter. Si `resolve`
-    # tentait le réseau malgré une copie sur le disque, la promesse « même air-gapped » resterait
-    # fausse — et l'échec surviendrait après la fusion LoRA, c'est-à-dire après plusieurs minutes.
-    vendored = tmp_path / "vendored"
-    vendored.mkdir()
-    rev = lcc.pinned_revision()
-    (vendored / f"convert_hf_to_gguf-{rev}.py").write_text("# convertisseur")
-    monkeypatch.setenv("SPECTRA_LLAMA_CPP_DIR", str(vendored))
-
-    def _refuse(*_args, **_kwargs):
-        raise AssertionError("aucun accès réseau ne doit être tenté")
-
-    monkeypatch.setattr(lcc.urllib.request, "urlretrieve", _refuse)
-
-    resolved = lcc.resolve("convert_hf_to_gguf.py", tmp_path / "cache")
-
-    assert resolved.endswith(f"convert_hf_to_gguf-{rev}.py")
+def test_loose_script_and_package_are_not_accepted(tmp_path, monkeypatch):
+    (tmp_path / f"convert_hf_to_gguf-{lcc.DEFAULT_REVISION}.py").write_text("# obsolete")
+    (tmp_path / "convert_hf_to_gguf.py").write_text("# unverified")
+    calls = fake_download(monkeypatch)
+    assert "spectra-" in lcc.resolve(lcc.SCRIPTS[0], tmp_path)
+    assert len(calls) == 1
 
 
-def test_une_copie_locale_d_une_AUTRE_revision_n_est_pas_reutilisee(tmp_path, monkeypatch):
-    # Le nom versionné est ce qui prouve la révision. Accepter une copie quelconque ramènerait le
-    # défaut d'origine : un GGUF converti par un code différent de celui que sert llama-server.
-    vendored = tmp_path / "vendored"
-    vendored.mkdir()
-    (vendored / "convert_hf_to_gguf-b0001.py").write_text("# vieux convertisseur")
-    monkeypatch.setenv("SPECTRA_LLAMA_CPP_DIR", str(vendored))
-
-    assert lcc.find_vendored("convert_hf_to_gguf.py", "b9999") is None
-
-
-def test_le_nom_nu_reste_accepte_pour_une_copie_deposee_a_la_main(tmp_path, monkeypatch):
-    # Un exploitant qui dépose le fichier lui-même n'a pas à connaître la convention de nommage.
-    vendored = tmp_path / "vendored"
-    vendored.mkdir()
-    (vendored / "convert_hf_to_gguf.py").write_text("# convertisseur")
-    monkeypatch.setenv("SPECTRA_LLAMA_CPP_DIR", str(vendored))
-
-    assert lcc.find_vendored("convert_hf_to_gguf.py", "b9828") is not None
-
-
-def test_sans_copie_locale_la_recherche_ne_trouve_rien(tmp_path, monkeypatch):
+def test_explicit_invalid_toolchain_fails_actionably(tmp_path, monkeypatch):
     monkeypatch.setenv("SPECTRA_LLAMA_CPP_DIR", str(tmp_path))
+    with pytest.raises(RuntimeError, match="Incomplete or incompatible"):
+        lcc.resolve(lcc.SCRIPTS[0], tmp_path)
 
-    assert lcc.find_vendored("convert_hf_to_gguf.py", "b9828") is None
+
+def test_manifest_revision_and_required_files_checked(tmp_path, monkeypatch):
+    fake_download(monkeypatch)
+    script = pathlib.Path(lcc.vendor(lcc.SCRIPTS[0], tmp_path))
+    manifest = script.parent / lcc.MANIFEST
+    data = json.loads(manifest.read_text())
+    data["commit"] = "b" * 40
+    manifest.write_text(json.dumps(data))
+    assert lcc._validated_script(tmp_path, lcc.SCRIPTS[0], lcc.DEFAULT_REVISION) is None
 
 
-def test_vendor_refuse_un_fichier_vide(tmp_path, monkeypatch):
-    # Un fichier vide passerait les tests d'existence et ferait échouer l'export bien plus tard,
-    # avec un message sans rapport. La construction d'image doit échouer ici, pas l'export.
-    monkeypatch.setattr(lcc.urllib.request, "urlretrieve",
-                        lambda _url, target: pathlib.Path(target).write_text(""))
+def test_incomplete_archive_does_not_publish_cache(tmp_path, monkeypatch):
+    fake_download(monkeypatch, archive_bytes(omit="conversion/base.py"))
+    with pytest.raises(RuntimeError, match="Incomplete"):
+        lcc.vendor(lcc.SCRIPTS[0], tmp_path)
+    assert not lcc._toolchain(tmp_path, lcc.DEFAULT_REVISION).exists()
 
-    with pytest.raises(RuntimeError, match="vide"):
-        lcc.vendor("convert_hf_to_gguf.py", tmp_path)
 
+@pytest.mark.parametrize("kind", ["traversal", "symlink", "wrong-commit"])
+def test_unsafe_archive_is_rejected(tmp_path, monkeypatch, kind):
+    prefix = f"llama.cpp-{lcc.commit_for(lcc.DEFAULT_REVISION)}"
+    name = {"traversal": f"{prefix}/conversion/../../escape.py",
+            "symlink": f"{prefix}/conversion/link.py",
+            "wrong-commit": "llama.cpp-wrong/conversion/base.py"}[kind]
+    extra = tarfile.TarInfo(name)
+    if kind == "symlink":
+        extra.type = tarfile.SYMTYPE
+        extra.linkname = "/etc/passwd"
+    fake_download(monkeypatch, archive_bytes(extra=extra))
+    with pytest.raises(RuntimeError):
+        lcc.vendor(lcc.SCRIPTS[0], tmp_path)
+    assert not lcc._toolchain(tmp_path, lcc.DEFAULT_REVISION).exists()

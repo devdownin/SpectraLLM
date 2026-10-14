@@ -259,6 +259,9 @@ public class EvaluationService {
     }
 
     public String submit(EvaluationRequest request) {
+        // A linked evaluation must never fall back to the mutable training corpus.
+        if (request.jobId() != null && !request.jobId().isBlank()) loadHeldOutPairs(request.jobId());
+        else log.warn("Évaluation manuelle sur le corpus courant : score diagnostique, sans garantie de généralisation.");
         String evalId = UUID.randomUUID().toString();
         String modelName = (request.modelName() != null && !request.modelName().isBlank())
                 ? request.modelName()
@@ -830,7 +833,9 @@ public class EvaluationService {
     }
 
     private void runEvaluation(String evalId, EvaluationRequest request) {
-        List<TrainingPair> testPairs = sampleTestSet(request.testSetSize());
+        List<TrainingPair> testPairs = request.jobId() != null && !request.jobId().isBlank()
+                ? samplePairs(loadHeldOutPairs(request.jobId()), request.testSetSize())
+                : sampleTestSet(request.testSetSize());
         if (testPairs.isEmpty()) {
             failReport(evalId, "Dataset vide — générez d'abord des paires via POST /api/dataset/generate.");
             return;
@@ -859,7 +864,24 @@ public class EvaluationService {
      * @return liste indépendante (réutilisable), vide si le dataset est vide
      */
     private List<TrainingPair> sampleTestSet(Integer requestedSize) {
-        List<TrainingPair> allPairs = datasetGenerator.getAllPairs();
+        return samplePairs(datasetGenerator.getAllPairs(), requestedSize);
+    }
+
+    List<TrainingPair> loadHeldOutPairs(String jobId) {
+        if (!jobId.matches("[A-Za-z0-9_-]+")) throw new IllegalArgumentException("Invalid job identifier");
+        Path file = workDir.resolve(jobId).resolve("evaluation.jsonl");
+        try (var lines = Files.lines(file)) {
+            List<TrainingPair> pairs = new ArrayList<>();
+            for (String line : lines.toList()) pairs.add(mapper.readValue(line, TrainingPair.class));
+            if (pairs.isEmpty()) throw new IllegalArgumentException("Jeu de test réservé vide pour " + jobId);
+            return List.copyOf(pairs);
+        } catch (java.io.IOException e) {
+            throw new IllegalArgumentException("Jeu de test réservé indisponible pour " + jobId
+                    + " ; relancez un entraînement avec autoEvaluate.", e);
+        }
+    }
+
+    private List<TrainingPair> samplePairs(List<TrainingPair> allPairs, Integer requestedSize) {
         if (allPairs.isEmpty()) {
             return List.of();
         }

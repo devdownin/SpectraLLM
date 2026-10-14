@@ -137,4 +137,57 @@ class ProcessTrainingRunnerTest {
     void cancelUnknownJobReportsNothingStopped() {
         assertThat(runner("/inexistant").cancel("jamais-lancé")).isFalse();
     }
+    @Test
+    @DisplayName("l'annulation tue aussi le convertisseur enfant qui garde stdout ouvert")
+    void cancellationStopsChildProcess() throws Exception {
+        Path script = tempDir.resolve("train.sh");
+        Files.writeString(script, "#!/bin/sh\nsleep 60 &\nchild=$!\necho CHILD:$child\nwait $child\n");
+        script.toFile().setExecutable(true);
+        ProcessTrainingRunner runner = runner(script.toString());
+        java.util.concurrent.atomic.AtomicLong childPid = new java.util.concurrent.atomic.AtomicLong();
+        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(java.time.Duration.ofSeconds(10), () -> {
+            runner.train(
+                    new TrainingSpec("tree-job", tempDir.resolve("d"), tempDir.resolve("a"), "base",
+                            8, 16, 1, 1e-4, false, false, false, 0.0),
+                    line -> {
+                        // The shell may also emit "Killed" after its child exits.
+                        if (line.startsWith("CHILD:")) {
+                            childPid.set(Long.parseLong(line.substring("CHILD:".length())));
+                            assertThat(runner.cancel("tree-job")).isTrue();
+                        }
+                    }, () -> false);
+        });
+        assertThat(childPid.get()).isPositive();
+        assertThat(ProcessHandle.of(childPid.get()).map(ProcessHandle::isAlive).orElse(false)).isFalse();
+    }
+
+    @Test
+    @DisplayName("un job annulé avant le lancement ne crée aucun processus")
+    void alreadyCancelledJobDoesNotStart() throws Exception {
+        List<String> lines = new ArrayList<>();
+        int exit = runner(echoScript().toString()).train(
+                new TrainingSpec("cancelled", tempDir.resolve("d"), tempDir.resolve("a"), "base",
+                        8, 16, 1, 1e-4, false, false, false, 0.0),
+                lines::add, () -> true);
+        assertThat(exit).isNotZero();
+        assertThat(lines).isEmpty();
+    }
+
+    @Test
+    @DisplayName("une annulation pendant le lancement est revérifiée après l'enregistrement")
+    void cancellationDuringRegistrationDoesNotLeaveProcessRunning() throws Exception {
+        Path script = tempDir.resolve("train.sh");
+        Files.writeString(script, "#!/bin/sh\nsleep 60\n");
+        script.toFile().setExecutable(true);
+        java.util.concurrent.atomic.AtomicInteger checks = new java.util.concurrent.atomic.AtomicInteger();
+        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(java.time.Duration.ofSeconds(10), () -> {
+            int exit = runner(script.toString()).train(
+                    new TrainingSpec("registration-race", tempDir.resolve("d"), tempDir.resolve("a"), "base",
+                            8, 16, 1, 1e-4, false, false, false, 0.0),
+                    line -> { }, () -> checks.incrementAndGet() > 1);
+            assertThat(exit).isNotZero();
+        });
+        assertThat(checks.get()).isGreaterThanOrEqualTo(2);
+    }
+
 }

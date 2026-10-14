@@ -1,157 +1,176 @@
-"""
-Spectra — Localisation des convertisseurs GGUF de llama.cpp, à révision **épinglée**.
+"""Resolve complete, revision-verified llama.cpp conversion toolchains offline first.
 
-`export_gguf.py` et `export_lora_gguf.py` téléchargeaient chacun leur convertisseur depuis la
-branche `master` de llama.cpp, au moment de l'exécution. Deux conséquences, invisibles depuis
-l'interface :
-
-* **Non reproductible.** Deux exports faits à quelques semaines d'intervalle n'utilisaient pas
-  le même code de conversion, et rien ne le signalait — alors que le convertisseur décide de la
-  quantification, du nommage des tenseurs et des métadonnées (dont le gabarit de conversation)
-  écrits dans le GGUF.
-* **Divergence avec le runtime.** Le GGUF produit doit être lisible par le `llama-server` qui le
-  sert, dont l'image est elle-même épinglée (`LLAMA_CPP_IMAGE_TAG`, défaut `server-b9828`).
-  Convertir avec `master` et servir avec un build figé, c'est faire dépendre le résultat de la
-  date de l'export.
-
-La révision par défaut est donc **alignée sur le tag de l'image servie**. Un tag de release
-llama.cpp (`bNNNN`) désigne un état figé, contrairement à `master`.
-
-Surcharge : `LLAMA_CPP_REVISION` (tag, branche ou SHA de commit).
-
-Hors ligne (F12)
-----------------
-Le téléchargement à l'exécution contredisait la promesse « 100 % local · même air-gapped » :
-un export GGUF échouait sans accès sortant, alors que rien dans l'interface ne le laissait
-prévoir. Le convertisseur est donc cherché **d'abord sur le disque** :
-
-1. `SPECTRA_LLAMA_CPP_DIR` — répertoire fourni par l'exploitant ;
-2. `/opt/llama-cpp-converters` — emplacement rempli **à la construction** de l'image du trainer
-   (`services/trainer/Dockerfile`), où le réseau est disponible et le résultat figé ;
-3. le paquet `llama_cpp` s'il est installé ;
-4. le cache du répertoire de sortie ;
-5. téléchargement — **dernier recours**, et le seul chemin qui exige un accès sortant.
-
-Un déploiement air-gapped s'appuie sur (1) ou (2) et ne passe jamais par (5).
+Set SPECTRA_LLAMA_CPP_DIR to a directory populated by ``vendor``. Loose scripts and
+unversioned llama_cpp packages cannot establish compatibility and are never used.
+LLAMA_CPP_REVISION accepts the supported release tag or a full immutable commit SHA.
 """
 
+import hashlib
+import json
 import os
 import pathlib
+import re
+import shutil
+import tarfile
+import tempfile
 import urllib.request
 
-# Aligné sur LLAMA_CPP_IMAGE_TAG de deploy/docker/docker-compose.yml (server-b9828).
-# À faire évoluer EN MÊME TEMPS que l'image, pas indépendamment.
+# Keep aligned with the llama-server image in docker-compose.yml.
 DEFAULT_REVISION = "b9828"
-
-# Dépôt canonique : « ggerganov/llama.cpp » n'est plus qu'une redirection.
+RELEASE_COMMITS = {"b9828": "ebd048fc5e4b43ec4e0b4abe0b9bf66e1724dad0"}
 RAW_BASE = "https://raw.githubusercontent.com/ggml-org/llama.cpp"
+ARCHIVE_BASE = "https://codeload.github.com/ggml-org/llama.cpp/tar.gz"
+VENDORED_DIR = "/opt/llama-cpp-converters"
+SCRIPTS = ("convert_hf_to_gguf.py", "convert_lora_to_gguf.py")
+MANIFEST = "spectra-converters.json"
+REQUIRED = (*SCRIPTS, "conversion/__init__.py", "conversion/base.py",
+            "gguf-py/gguf/__init__.py", "gguf-py/pyproject.toml",
+            "requirements/requirements-convert_legacy_llama.txt")
 
 
 def pinned_revision():
-    """Révision de llama.cpp à utiliser (`LLAMA_CPP_REVISION` sinon défaut épinglé)."""
     return os.getenv("LLAMA_CPP_REVISION", "").strip() or DEFAULT_REVISION
 
 
+def commit_for(revision):
+    if revision in RELEASE_COMMITS:
+        return RELEASE_COMMITS[revision]
+    if re.fullmatch(r"[0-9a-f]{40}", revision):
+        return revision
+    raise ValueError("LLAMA_CPP_REVISION must be a supported release tag or full commit SHA")
+
+
 def script_url(script_name, revision=None):
-    """URL brute du convertisseur pour la révision retenue."""
-    return f"{RAW_BASE}/{revision or pinned_revision()}/{script_name}"
+    return f"{RAW_BASE}/{commit_for(revision or pinned_revision())}/{script_name}"
 
 
-#: Emplacement rempli à la construction de l'image du trainer. Le nom est stable et versionné
-#: par le nom de fichier (`convert_hf_to_gguf-<rev>.py`) : une image plus ancienne ne fournit
-#: jamais en silence un convertisseur d'une autre révision que celle demandée.
-VENDORED_DIR = "/opt/llama-cpp-converters"
+def _toolchain(root, revision):
+    return pathlib.Path(root) / f"llama.cpp-{commit_for(revision)}"
+
+
+def _launcher_name(script_name):
+    if script_name not in SCRIPTS:
+        raise ValueError(f"unsupported converter: {script_name}")
+    return f"spectra-{script_name}"
+
+
+def _validated_script(root, script_name, revision):
+    """Only return complete toolchains with matching revision and intact source files."""
+    target = _toolchain(root, revision)
+    try:
+        manifest = json.loads((target / MANIFEST).read_text(encoding="utf-8"))
+        hashes = manifest["sha256"]
+        if manifest["commit"] != commit_for(revision) or not isinstance(hashes, dict):
+            return None
+        required = (*REQUIRED, *(_launcher_name(name) for name in SCRIPTS))
+        if not all(name in hashes for name in required):
+            return None
+        for name, expected in hashes.items():
+            path = pathlib.PurePosixPath(name)
+            if path.is_absolute() or ".." in path.parts:
+                return None
+            source = target / name
+            if source.is_symlink() or not source.is_file():
+                return None
+            if hashlib.sha256(source.read_bytes()).hexdigest() != expected:
+                return None
+        return str(target / _launcher_name(script_name))
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
 
 
 def find_vendored(script_name, revision):
-    """
-    Convertisseur déjà présent sur le disque, pour la révision demandée.
-
-    Cherche dans `SPECTRA_LLAMA_CPP_DIR` puis dans `VENDORED_DIR`, sous le nom versionné puis
-    sous le nom nu. Le nom versionné est essayé d'abord : c'est le seul qui prouve la révision.
-    """
-    stem = pathlib.Path(script_name).stem
-    roots = [os.getenv("SPECTRA_LLAMA_CPP_DIR", "").strip(), VENDORED_DIR]
-    for root in roots:
-        if not root:
-            continue
-        for name in (f"{stem}-{revision}.py", script_name):
-            candidate = pathlib.Path(root) / name
-            if candidate.is_file():
-                return str(candidate)
-    return None
-
-
-def find_in_package(script_name):
-    """Chemin du convertisseur fourni par le paquet `llama_cpp` installé, ou None."""
-    try:
-        import llama_cpp
-    except ImportError:
-        return None
-    candidate = os.path.join(os.path.dirname(llama_cpp.__file__), script_name)
-    return candidate if os.path.exists(candidate) else None
+    explicit = os.getenv("SPECTRA_LLAMA_CPP_DIR", "").strip()
+    if explicit:
+        found = _validated_script(explicit, script_name, revision)
+        if not found:
+            raise RuntimeError(f"Incomplete or incompatible converter toolchain in {explicit}; "
+                               "populate it with llama_cpp_convert.vendor for this revision")
+        return found
+    return _validated_script(VENDORED_DIR, script_name, revision)
 
 
 def resolve(script_name, cache_dir, revision=None):
-    """
-    Renvoie le chemin d'un convertisseur utilisable, téléchargé si nécessaire.
-
-    Le fichier mis en cache porte la révision dans son nom : une copie tirée d'une révision
-    antérieure (ou de l'ancien `master`) n'est jamais réutilisée en silence — c'était le cas
-    avec un nom fixe, où le premier téléchargement gelait la version pour tous les suivants.
-
-    Toute erreur de téléchargement est propagée : l'appelant décide du message et du code retour.
-    """
     rev = revision or pinned_revision()
-
-    # Disque d'abord : un déploiement sans accès sortant doit fonctionner, et c'est ce chemin
-    # qui le lui permet (F12).
-    vendored = find_vendored(script_name, rev)
-    if vendored:
-        return vendored
-
-    from_package = find_in_package(script_name)
-    if from_package:
-        return from_package
-
-    cache = pathlib.Path(cache_dir)
-    cache.mkdir(parents=True, exist_ok=True)
-    target = cache / f"{pathlib.Path(script_name).stem}-{rev}.py"
-    if target.exists():
-        return str(target)
-
-    # Dernier recours, et le seul chemin qui exige un accès sortant : le dire, pour qu'un export
-    # qui échoue en environnement cloisonné soit compris du premier coup.
-    print(f"  Téléchargement de {script_name} (llama.cpp {rev}) — aucune copie locale trouvée "
-          f"(cf. SPECTRA_LLAMA_CPP_DIR / {VENDORED_DIR})...")
-    urllib.request.urlretrieve(script_url(script_name, rev), target)
-    print(f"  Convertisseur : {target}")
-    return str(target)
+    _launcher_name(script_name)
+    found = find_vendored(script_name, rev) or _validated_script(cache_dir, script_name, rev)
+    if found:
+        return found
+    print(f"  Downloading complete llama.cpp toolchain ({rev}); no verified local copy found")
+    return vendor(script_name, cache_dir, rev)
 
 
 def vendor(script_name, target_dir, revision=None):
-    """
-    Télécharge un convertisseur dans `target_dir`, sous son nom versionné.
+    """Install both converters and their sibling packages from one immutable archive.
 
-    Appelée à la **construction** de l'image du trainer, où le réseau est disponible : c'est ce
-    qui permet à l'exécution de s'en passer (F12). Renvoie le chemin écrit.
+    Manual extraction never follows links or writes archive paths. Publish only after
+    completeness checks; interrupted downloads cannot become a usable cache entry.
+    The launchers use a sibling .venv when the trainer build has installed one, otherwise
+    the calling Python environment must provide the upstream conversion dependencies.
     """
     rev = revision or pinned_revision()
-    target_dir = pathlib.Path(target_dir)
-    target_dir.mkdir(parents=True, exist_ok=True)
-    target = target_dir / f"{pathlib.Path(script_name).stem}-{rev}.py"
-    urllib.request.urlretrieve(script_url(script_name, rev), target)
-    if target.stat().st_size == 0:
-        # Un fichier vide passerait les vérifications d'existence et ferait échouer l'export
-        # bien plus tard, avec un message sans rapport.
-        raise RuntimeError(f"convertisseur vide téléchargé : {target}")
-    return str(target)
+    commit = commit_for(rev)
+    _launcher_name(script_name)
+    found = _validated_script(target_dir, script_name, rev)
+    if found:
+        return found
+    root = pathlib.Path(target_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    target = _toolchain(root, rev)
+    with tempfile.TemporaryDirectory(prefix=".llama-cpp-", dir=root) as staging:
+        stage = pathlib.Path(staging)
+        archive = stage / "source.tar.gz"
+        urllib.request.urlretrieve(f"{ARCHIVE_BASE}/{commit}", archive)
+        tree = stage / "toolchain"
+        tree.mkdir()
+        hashes = {}
+        extracted_bytes = 0
+        with tarfile.open(archive, "r:gz") as source:
+            for member in source:
+                parts = pathlib.PurePosixPath(member.name).parts
+                if not parts or parts[0] != f"llama.cpp-{commit}":
+                    raise RuntimeError("Archive does not match the requested llama.cpp commit")
+                if ".." in parts or pathlib.PurePosixPath(member.name).is_absolute():
+                    raise RuntimeError("Unsafe path in converter archive")
+                name = "/".join(parts[1:])
+                selected = name in (*SCRIPTS, "LICENSE") or name.startswith(
+                    ("conversion/", "gguf-py/", "requirements/"))
+                if not selected or member.isdir():
+                    continue
+                if not member.isfile() or name in hashes:
+                    raise RuntimeError("Unsafe or duplicate member in converter archive")
+                extracted_bytes += member.size
+                if member.size > 16 * 1024 * 1024 or extracted_bytes > 64 * 1024 * 1024 or len(hashes) >= 10000:
+                    raise RuntimeError("Converter archive exceeds extraction limits")
+                data = source.extractfile(member).read()
+                destination = tree / name
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(data)
+                hashes[name] = hashlib.sha256(data).hexdigest()
+        if not all(name in hashes and (tree / name).stat().st_size for name in REQUIRED):
+            raise RuntimeError("Incomplete llama.cpp converter archive")
+        for name in SCRIPTS:
+            launcher = _launcher_name(name)
+            code = ("import os, pathlib, sys\n"
+                    "root = pathlib.Path(__file__).resolve().parent\n"
+                    "python = root / '.venv' / 'bin' / 'python'\n"
+                    "os.environ.pop('NO_LOCAL_GGUF', None)\n"
+                    f"os.execv(str(python) if python.is_file() else sys.executable, "
+                    f"[str(python) if python.is_file() else sys.executable, str(root / {name!r}), "
+                    "*sys.argv[1:]])\n")
+            (tree / launcher).write_text(code, encoding="utf-8")
+            hashes[launcher] = hashlib.sha256(code.encode()).hexdigest()
+        (tree / MANIFEST).write_text(json.dumps({"commit": commit, "sha256": hashes}),
+                                     encoding="utf-8")
+        # Replace corrupt/partial caches only after the replacement is fully prepared.
+        if target.exists():
+            shutil.rmtree(target)
+        tree.rename(target)
+    return str(target / _launcher_name(script_name))
 
 
 if __name__ == "__main__":
-    # Point d'entrée de la construction d'image : `python3 llama_cpp_convert.py <répertoire>`.
-    import sys as _sys
+    import sys
 
-    _dir = _sys.argv[1] if len(_sys.argv) > 1 else VENDORED_DIR
-    _path = vendor("convert_hf_to_gguf.py", _dir)
-    print(f"Convertisseur GGUF embarqué : {_path}")
+    directory = sys.argv[1] if len(sys.argv) > 1 else VENDORED_DIR
+    print(vendor(SCRIPTS[0], directory))

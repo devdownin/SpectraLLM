@@ -41,6 +41,19 @@ class GedControllerTest {
         controller            = new GedController(gedService, classificationService);
     }
 
+    @Test
+    void preview_returnsIndexedText() {
+        var preview = new GedService.DocumentPreview(List.of("Text"), false);
+        when(gedService.preview("sha")).thenReturn(preview);
+        assertThat(controller.preview("sha").getBody()).isEqualTo(preview);
+    }
+
+    @Test
+    void preview_unknownDocumentReturns404() {
+        when(gedService.preview("missing")).thenThrow(new NoSuchElementException());
+        assertThat(controller.preview("missing").getStatusCode().value()).isEqualTo(404);
+    }
+
     // ── listAll — filtrage paginé (amélioration 2) ────────────────────────────
 
     @Test
@@ -158,6 +171,15 @@ class GedControllerTest {
         ResponseEntity<Map<String, Object>> resp = controller.deleteDocument("missing", "api");
 
         assertThat(resp.getStatusCode().value()).isEqualTo(404);
+    }
+
+    @Test
+    void deleteDocument_pendingCleanupReturns202() {
+        when(gedService.deleteDocument("sha1", "api"))
+                .thenReturn(Map.of("sha256", "sha1", "deletionPending", true));
+        ResponseEntity<Map<String, Object>> response = controller.deleteDocument("sha1", "api");
+        assertThat(response.getStatusCode().value()).isEqualTo(202);
+        assertThat(response.getBody()).containsEntry("deletionPending", true);
     }
 
     // ── setLifecycle — machine à états ────────────────────────────────────────
@@ -507,3 +529,4 @@ class GedControllerTest {
                 Instant.now(), 5, "spectra_documents", 0.6);
     }
 }
+

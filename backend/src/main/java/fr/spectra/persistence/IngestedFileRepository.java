@@ -42,6 +42,10 @@ public interface IngestedFileRepository
     /** Documents portant exactement ce nom de fichier (suppression par nom de source). */
     List<IngestedFileEntity> findByFileName(String fileName);
 
+    List<IngestedFileEntity> findByFileNameAndCollectionName(String fileName, String collectionName);
+
+    List<IngestedFileEntity> findByDeletionPendingTrue();
+
     /** Collections ChromaDB référencées par la GED (réconciliation multi-collections). */
     @Query("SELECT DISTINCT f.collectionName FROM IngestedFileEntity f "
             + "WHERE f.collectionName IS NOT NULL AND f.collectionName <> ''")
@@ -99,3 +103,4 @@ public interface IngestedFileRepository
             + "ORDER BY f.ingestedAt DESC")
     Page<IngestedFileEntity> findUnclassified(Pageable pageable);
 }
+

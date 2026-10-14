@@ -59,6 +59,11 @@ public class HybridSearchService {
             double rrfScore         // combined RRF score (higher = more relevant)
     ) {}
 
+    /** BM25-only retrieval when query embeddings are unavailable; no vector request is made. */
+    public List<HybridChunk> searchLexical(String question, String collectionName, int topCandidates) {
+        return search(question, null, null, collectionName, topCandidates);
+    }
+
     /**
      * Run hybrid search and return up to {@code topCandidates} results sorted by RRF score desc.
      *
@@ -85,7 +90,8 @@ public class HybridSearchService {
         // --- Run both searches in parallel, chaque source dégradant indépendamment ---
         // Si le vector store échoue, on garde les résultats BM25 (et inversement) plutôt
         // que de tout perdre — c'est précisément l'intérêt d'une recherche hybride.
-        CompletableFuture<Map<String, Object>> vectorFuture = CompletableFuture
+        CompletableFuture<Map<String, Object>> vectorFuture = queryEmbedding == null
+                ? CompletableFuture.completedFuture(null) : CompletableFuture
                 .supplyAsync(() -> chromaDbClient.query(collectionId, queryEmbedding, topCandidates), searchExecutor)
                 .exceptionally(ex -> {
                     log.warn("Hybrid search: requête vectorielle échouée, dégradation BM25-only: {}", ex.getMessage());
@@ -112,16 +118,12 @@ public class HybridSearchService {
         if (vectorResult == null) vectorResult = Map.of();
         if (bm25Results  == null) bm25Results  = List.of();
 
-        // --- Parse vector results ---
-        List<List<String>>               docsList     = (List<List<String>>)               vectorResult.get("documents");
-        List<List<Map<String, String>>>  metasList    = (List<List<Map<String, String>>>)  vectorResult.get("metadatas");
-        List<List<Double>>               distsList    = (List<List<Double>>)               vectorResult.get("distances");
-        List<List<String>>               idsList      = (List<List<String>>)               vectorResult.get("ids");
-
-        List<String>              vecDocs  = (docsList  != null && !docsList.isEmpty())  ? docsList.getFirst()  : List.of();
-        List<Map<String, String>> vecMetas = (metasList != null && !metasList.isEmpty()) ? metasList.getFirst() : List.of();
-        List<Double>              vecDists = (distsList != null && !distsList.isEmpty())  ? distsList.getFirst() : List.of();
-        List<String>              vecIds   = (idsList   != null && !idsList.isEmpty())   ? idsList.getFirst()   : List.of();
+        // Normalize optional fields together before ranking, preserving document alignment.
+        ChromaQueryResult vector = ChromaQueryResult.from(vectorResult);
+        List<String> vecDocs = vector.documents();
+        List<Map<String, String>> vecMetas = vector.metadatas();
+        List<Double> vecDists = vector.distances();
+        List<String> vecIds = vector.ids();
 
         // Build map: chunkId → vector rank (1-indexed)
         Map<String, Integer>  vecRankByid = new LinkedHashMap<>();
@@ -133,7 +135,7 @@ public class HybridSearchService {
             String id = i < vecIds.size() ? vecIds.get(i) : ("__vec_" + i);
             vecRankByid.put(id, i + 1);
             // Réponse Chroma potentiellement plus courte que vecDocs : borner chaque accès.
-            vecDistById.put(id, i < vecDists.size() ? vecDists.get(i) : 0.0);
+            vecDistById.put(id, vecDists.get(i));
             vecTextById.put(id, vecDocs.get(i));
             String src = i < vecMetas.size() && vecMetas.get(i) != null
                     ? vecMetas.get(i).getOrDefault("sourceFile", "inconnu")
@@ -196,3 +198,4 @@ public class HybridSearchService {
         return results;
     }
 }
+

@@ -72,21 +72,18 @@ COPY services/trainer/app.py /app/app.py
 COPY services/trainer/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
-# ── Convertisseur GGUF embarqué (F12) ─────────────────────────────────────────
-# L'export GGUF téléchargeait convert_hf_to_gguf.py À L'EXÉCUTION : un export échouait donc sans
-# accès sortant, en contradiction avec la promesse « 100 % local · même air-gapped », et rien
-# dans l'interface ne le laissait prévoir.
-#
-# On le récupère ici, à la CONSTRUCTION de l'image, où le réseau est disponible et où le résultat
-# est figé dans une couche. La révision vient de scripts/llama_cpp_convert.py — source unique,
-# alignée sur le tag de l'image llama-server qui servira le GGUF produit. Le fichier porte la
-# révision dans son nom : une image plus ancienne ne fournit jamais en silence un convertisseur
-# d'une autre révision que celle demandée à l'exécution.
-#
-# LLAMA_CPP_REVISION surcharge la révision au build (elle est aussi lue à l'exécution).
+# Complete immutable conversion toolchain: conversion/ and gguf-py must remain
+# beside both entry scripts. Its Transformers 4 dependencies are isolated from
+# training's Transformers 5; the venv shares the already installed torch wheel.
 ARG LLAMA_CPP_REVISION=""
 ENV LLAMA_CPP_REVISION=${LLAMA_CPP_REVISION}
-RUN python3 /app/scripts/llama_cpp_convert.py /opt/llama-cpp-converters
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python3 /app/scripts/llama_cpp_convert.py /opt/llama-cpp-converters \
+    && converter_dir="$(python3 -c 'import sys; sys.path.insert(0, "/app/scripts"); import llama_cpp_convert as c; print(c._toolchain(c.VENDORED_DIR, c.pinned_revision()))')" \
+    && python3 -m venv --system-site-packages "$converter_dir/.venv" \
+    && "$converter_dir/.venv/bin/pip" install -r "$converter_dir/requirements/requirements-convert_legacy_llama.txt" "$converter_dir/gguf-py" \
+    && python3 "$converter_dir/spectra-convert_hf_to_gguf.py" --help \
+    && python3 "$converter_dir/spectra-convert_lora_to_gguf.py" --help
 
 EXPOSE 8000
 

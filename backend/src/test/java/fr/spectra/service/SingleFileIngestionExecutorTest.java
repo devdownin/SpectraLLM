@@ -162,6 +162,7 @@ class SingleFileIngestionExecutorTest {
         assertThat(finalTask.status()).isEqualTo(IngestionTask.Status.COMPLETED);
         // Le 1ᵉʳ lot (1 chunk) a réussi avant l'échec → compte final = 1, pas 0.
         assertThat(finalTask.chunksCreated()).isEqualTo(1);
+        assertThat(finalTask.fileErrors()).anyMatch(error -> error.contains("embedding service indisponible"));
         // Le document est enregistré en GED malgré l'échec partiel.
         assertThat(recorded.get()).isNotNull();
         assertThat(recorded.get().chunks()).isEqualTo(1);
@@ -275,3 +276,4 @@ class SingleFileIngestionExecutorTest {
         assertThat(lastSeen.get()).isEqualTo(finalTask.chunksCreated());
     }
 }
+

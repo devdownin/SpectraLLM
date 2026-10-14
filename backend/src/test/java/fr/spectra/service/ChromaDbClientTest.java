@@ -84,6 +84,23 @@ class ChromaDbClientTest {
     }
 
     @Test
+    void legacyCleanupSelectsOnlyChunksWithoutDocumentIdentity() throws Exception {
+        server.enqueue(new MockResponse().setHeader("Content-Type", "application/json")
+                .setBody("{\"ids\":[\"legacy\",\"other\"],\"metadatas\":[{\"sourceFile\":\"rapport.pdf\"},{\"sourceFile\":\"rapport.pdf\",\"sha256\":\"shaB\"}]}"));
+        assertThat(client.getLegacyChunkIdsBySource("col", "rapport.pdf")).containsExactly("legacy");
+        RecordedRequest request = server.takeRequest(5, TimeUnit.SECONDS);
+        assertThat(new ObjectMapper().readTree(request.getBody().readUtf8())
+                .path("where").path("sourceFile").path("$eq").asText()).isEqualTo("rapport.pdf");
+    }
+
+    @Test
+    void deletionWithoutIdsIsNotConfirmedAsAnEmptyResult() {
+        server.enqueue(new MockResponse().setHeader("Content-Type", "application/json").setBody("{}"));
+        assertThatThrownBy(() -> client.deleteByMetadata("col", "sha256", "shaA"))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("sans IDs");
+    }
+
+    @Test
     void getOrCreateCollection_estampilleLeModeleEmbeddingActif() throws Exception {
         server.enqueue(new MockResponse()
                 .setHeader("Content-Type", "application/json")
@@ -146,3 +163,4 @@ class ChromaDbClientTest {
         assertThat(client.getOrCreateCollection("legacy")).isEqualTo("col-4");
     }
 }
+

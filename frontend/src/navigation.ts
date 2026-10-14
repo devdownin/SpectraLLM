@@ -21,6 +21,7 @@ export interface NavItem {
 /** Ordre = parcours utilisateur : vue d'ensemble → données → modèles → test/évaluation. */
 export const NAV_ITEMS: NavItem[] = [
   { name: 'Dashboard',    nameKey: 'nav.dashboard',    icon: 'dashboard',      path: '/',             docSection: 'interface'     },
+  { name: 'Activity', nameKey: 'nav.activity', icon: 'browse_activity', path: '/activity', docSection: 'interface' },
   { name: 'Ingestion',    nameKey: 'nav.ingestion',    icon: 'cloud_upload',   path: '/ingestion',    docSection: 'pipeline',      groupKey: 'nav.groupData'     },
   { name: 'Documents',    nameKey: 'nav.documents',    icon: 'folder_open',    path: '/documents',    docSection: 'commenting',    groupKey: 'nav.groupData'     },
   { name: 'Model Hub',    nameKey: 'nav.modelHub',     icon: 'hub',            path: '/model-hub',    docSection: 'prerequisites', groupKey: 'nav.groupModels'   },

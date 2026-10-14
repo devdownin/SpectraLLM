@@ -28,6 +28,12 @@ CREATE TABLE IF NOT EXISTS ingested_files (
 -- Migration : bases créées avant l'ajout de archived_at (idempotent sous H2)
 ALTER TABLE ingested_files ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP WITH TIME ZONE;
 
+-- Reprise des ingestions partielles et des suppressions interrompues (H2, idempotent).
+ALTER TABLE ingested_files ADD COLUMN IF NOT EXISTS ingestion_complete BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE ingested_files ADD COLUMN IF NOT EXISTS deletion_pending BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE ingested_files ADD COLUMN IF NOT EXISTS deletion_actor VARCHAR(255);
+CREATE INDEX IF NOT EXISTS idx_ingested_files_deletion_pending ON ingested_files(deletion_pending);
+
 -- Migration : bases créées avant la classification automatique (R8, idempotent sous H2)
 ALTER TABLE ingested_files ADD COLUMN IF NOT EXISTS categories             TEXT;
 ALTER TABLE ingested_files ADD COLUMN IF NOT EXISTS category_scores        TEXT;
@@ -205,3 +211,4 @@ CREATE INDEX IF NOT EXISTS idx_ged_audit_sha256           ON ged_audit_log(docum
 CREATE INDEX IF NOT EXISTS idx_ged_audit_timestamp        ON ged_audit_log(timestamp);
 CREATE INDEX IF NOT EXISTS idx_doc_model_sha256           ON document_model_links(document_sha256);
 CREATE INDEX IF NOT EXISTS idx_doc_model_name             ON document_model_links(model_name);
+

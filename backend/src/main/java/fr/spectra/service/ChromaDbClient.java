@@ -519,6 +519,41 @@ public class ChromaDbClient {
         return deleteByMetadata(collectionId, "sourceFile", sourceFile);
     }
 
+    /** IDs historiques uniquement : zéro résultat par SHA ne justifie jamais une purge par nom. */
+    @SuppressWarnings("unchecked")
+    public List<String> getLegacyChunkIdsBySource(String collectionId, String sourceFile) {
+        java.util.ArrayList<String> legacyIds = new java.util.ArrayList<>();
+        for (int offset = 0; ; offset += BULK_PAGE_SIZE) {
+            Map<String, Object> result = webClient.post()
+                    .uri(COLLECTIONS_BASE + "/{id}/get", collectionId)
+                    .bodyValue(Map.of("where", Map.of("sourceFile", Map.of("$eq", sourceFile)),
+                            "limit", BULK_PAGE_SIZE, "offset", offset, "include", List.of("metadatas")))
+                    .retrieve().bodyToMono(Map.class).block(TIMEOUT_BULK_GET);
+            if (result == null) throw new IllegalStateException("Réponse ChromaDB absente pendant le nettoyage");
+            List<String> ids = (List<String>) result.get("ids");
+            List<Map<String, Object>> metadata = (List<Map<String, Object>>) result.get("metadatas");
+            if (ids == null) throw new IllegalStateException("Réponse ChromaDB sans IDs");
+            if (ids.isEmpty()) break;
+            if (metadata == null || metadata.size() != ids.size()) {
+                throw new IllegalStateException("Métadonnées ChromaDB manquantes : suppression historique refusée");
+            }
+            for (int i = 0; i < ids.size(); i++) {
+                Map<String, Object> meta = metadata.get(i);
+                if (meta == null || meta.get("sha256") == null) legacyIds.add(ids.get(i));
+            }
+            if (ids.size() < BULK_PAGE_SIZE) break;
+        }
+        return legacyIds;
+    }
+
+    public void deleteChunksByIds(String collectionId, List<String> ids) {
+        for (int start = 0; start < ids.size(); start += BULK_PAGE_SIZE) {
+            webClient.post().uri(COLLECTIONS_BASE + "/{id}/delete", collectionId)
+                    .bodyValue(Map.of("ids", ids.subList(start, Math.min(start + BULK_PAGE_SIZE, ids.size()))))
+                    .retrieve().bodyToMono(Void.class).block(TIMEOUT_BULK_GET);
+        }
+    }
+
     /**
      * Supprime tous les chunks dont la métadonnée {@code field} vaut {@code value}.
      * Utilisé avec {@code sha256} pour supprimer/remplacer un document par son identité de
@@ -542,9 +577,10 @@ public class ChromaDbClient {
                 .bodyToMono(Map.class)
                 .block(TIMEOUT_BULK_GET);
 
-        if (result == null) return 0;
+        if (result == null) throw new IllegalStateException("Réponse ChromaDB absente pendant la suppression");
         List<String> ids = (List<String>) result.get("ids");
-        if (ids == null || ids.isEmpty()) return 0;
+        if (ids == null) throw new IllegalStateException("Réponse ChromaDB sans IDs pendant la suppression");
+        if (ids.isEmpty()) return 0;
 
         // Suppression par filtre where (un seul appel, payload constant) : une liste d'ids
         // pouvant atteindre le million d'entrées explosait le timeout court (10 s).
@@ -619,3 +655,4 @@ public class ChromaDbClient {
         }
     }
 }
+

@@ -13,7 +13,8 @@
     "newModel": "Nouveau modèle",
     "groupData": "Données",
     "groupModels": "Modèles",
-    "groupEvaluate": "Test & évaluation"
+    "groupEvaluate": "Test & évaluation",
+    "activity": "Activité"
   },
   "header": {
     "switchLanguage": "Changer de langue",
@@ -56,7 +57,13 @@
     "cancelFailed": "Impossible d'annuler la tâche",
     "retry": "Relancer cette ingestion d'URLs",
     "retryRequested": "Ingestion relancée",
-    "retryFailed": "Impossible de relancer l'ingestion"
+    "retryFailed": "Impossible de relancer l'ingestion",
+    "terminal": {
+      "completed": "Tâche terminée",
+      "failed": "Tâche échouée",
+      "cancelled": "Tâche annulée",
+      "partial": "Tâche partiellement réussie"
+    }
   },
   "wizard": {
     "ingestion": "Ingestion",
@@ -137,7 +144,57 @@
     "ragCapabilities": "Capacités RAG",
     "pipeline": "Pipeline",
     "rejected": "Rejetés",
-    "pending": "En attente"
+    "pending": "En attente",
+    "work": {
+      "kicker": "Centre de contrôle",
+      "attention": "À traiter",
+      "running": "En cours",
+      "results": "Derniers résultats",
+      "analytics": "Données et analyses détaillées",
+      "technical": "État technique",
+      "updated": "Dernière lecture des statistiques : {{time}}",
+      "noUpdate": "Statistiques pas encore reçues",
+      "partial": "Certaines données sont indisponibles ; la vue peut être incomplète.",
+      "loading": "Chargement des tâches…",
+      "noFailures": "Aucun échec signalé dans les tâches disponibles.",
+      "noActive": "Aucune tâche en cours dans les données disponibles.",
+      "noResults": "Aucun résultat terminé disponible.",
+      "live": "Suivi en temps réel",
+      "polling": "Suivi périodique ; le flux temps réel est en reconnexion.",
+      "resultsHint": "Ouvrez la page concernée pour examiner le résultat. Une tâche terminée ne garantit pas sa qualité.",
+      "progress": "Progression de {{name}}",
+      "unqualified_one": "{{count}} document à qualifier",
+      "unqualified_other": "{{count}} documents à qualifier",
+      "status": {
+        "pending": "En attente",
+        "running": "En cours",
+        "completed": "Terminé",
+        "failed": "Échec",
+        "cancelled": "Annulée",
+        "partial": "Succès partiel"
+      },
+      "summary": {
+        "unknown": "La préparation reste à vérifier",
+        "blocked": "Votre index demande une intervention",
+        "services": "Les services ne sont pas prêts",
+        "empty": "Ajoutez vos premiers documents",
+        "ready": "Votre base documentaire est prête à être interrogée"
+      },
+      "hint": {
+        "unknown": "Les données nécessaires sont manquantes ou la cohérence de l’index n’est pas confirmée.",
+        "blocked": "Une incohérence ou une réindexation nécessite votre attention avant de tester le RAG.",
+        "services": "Vérifiez les modèles chargés et le service de stockage dans l’état technique ci-dessous.",
+        "empty": "Importez des documents pour constituer votre base de connaissances.",
+        "ready": "Testez une question, puis examinez les sources et les limites de la réponse."
+      },
+      "action": {
+        "test": "Tester une réponse",
+        "import": "Importer des documents",
+        "reviewIndex": "Examiner l’index",
+        "models": "Vérifier les modèles",
+        "qualify": "Examiner les documents"
+      }
+    }
   },
   "playground": {
     "expertMode": "Mode expert",
@@ -153,7 +210,7 @@
     "modelParameters": "Paramètres du modèle",
     "temperature": "Température",
     "topP": "Top P",
-    "activeModel": "Modèle actif",
+    "activeModel": "Modèle configuré",
     "ragConfiguration": "Configuration du RAG",
     "enableKb": "Activer la base de connaissances",
     "history": "Historique de conversation",
@@ -189,7 +246,21 @@
     "answerCopied": "Réponse copiée",
     "noQuestion": "Aucune question à comparer",
     "modelOfflineDesc": "Le service du modèle de chat est injoignable. Vérifiez llama-cpp-chat.",
-    "coreUnreachable": "Le cœur de Spectra est injoignable ou a expiré."
+    "coreUnreachable": "Le cœur de Spectra est injoignable ou a expiré.",
+    "toggleSettings": "Réglages du Playground",
+    "modelReloadHint": "La configuration demande un rechargement du service. Le bandeau confirme séparément le modèle réellement chargé.",
+    "description": "Interrogez vos documents et examinez les sources et la trace de chaque réponse.",
+    "exportMarkdown": "Exporter en Markdown",
+    "exportJson": "Exporter en JSON",
+    "clearHistory": "Effacer la conversation",
+    "askQuestion": "Poser une question",
+    "answerActions": "Actions de la réponse",
+    "compareModule": "Comparer sans {{module}}",
+    "regenVariants": {
+      "0": "Régénérer à température identique",
+      "1": "Régénérer plus factuellement",
+      "2": "Régénérer plus créativement"
+    }
   },
   "docs": {
     "searchPlaceholder": "Rechercher dans la documentation…",
@@ -822,6 +893,7 @@
     "lifecycleUpdated": "Cycle de vie mis à jour",
     "transitionFailed": "Échec de la transition",
     "docDeleted": "Document supprimé",
+    "deletionPending": "Suppression en attente. Elle sera reprise automatiquement lorsque le nettoyage sera possible.",
     "deleteFailed": "Échec de la suppression",
     "bulkUpdated": "{{count}} document(s) mis à jour",
     "bulkUpdateFailed": "Échec de la mise à jour groupée",
@@ -860,7 +932,22 @@
     "cancel": "Annuler",
     "classifyPending": "Classifier ({{count}})",
     "allClassified": "Tout est classifié",
-    "classifyHint": "Classer les documents en attente avec {{model}}"
+    "classifyHint": "Classer les documents en attente avec {{model}}",
+    "moreFilters": "Autres filtres",
+    "selectionScope": "Périmètre de sélection",
+    "selectPage": "Sélectionner cette page",
+    "selectView": "Sélectionner les documents visibles",
+    "selectedOnPage_one": "{{count}} sélectionné sur cette page",
+    "selectedOnPage_other": "{{count}} sélectionnés sur cette page",
+    "selectedInView_one": "{{count}} sélectionné dans cette vue",
+    "selectedInView_other": "{{count}} sélectionnés dans cette vue",
+    "selectedTotal_one": "{{count}} sélectionné au total",
+    "selectedTotal_other": "{{count}} sélectionnés au total",
+    "selectFiltered": "Sélectionner tous les résultats filtrés",
+    "selectingAll": "Chargement de tous les résultats filtrés…",
+    "filteredLoaded": "Le compteur porte sur les résultats chargés ; la sélection globale charge tous les lots.",
+    "clearSelection": "Effacer la sélection",
+    "selectionFailed": "Impossible de charger tous les résultats. Votre sélection est conservée."
   },
   "batchEval": {
     "kicker": "Comparer des modèles",
@@ -938,5 +1025,158 @@
     "uploadDocs": "Téléverser des documents",
     "newEvaluation": "Nouvelle évaluation",
     "switchLanguage": "Changer de langue (FR/EN)"
+  },
+  "workspace": {
+    "title": "Travail en cours",
+    "model": "Modèle chargé",
+    "collection": "Collection du Playground",
+    "default": "Collection par défaut du serveur",
+    "unavailable": "État du modèle indisponible",
+    "unloaded": "Aucun modèle chargé confirmé",
+    "playgroundHint": "Cette collection est utilisée pour les prochaines requêtes RAG.",
+    "evaluationHint": "La collection s’applique au Playground. Les évaluations utilisent leur jeu de test et les modèles indiqués dans leurs rapports.",
+    "collectionsUnavailable": "Liste des collections indisponible.",
+    "missingCollection": "Collection introuvable : choisissez une collection disponible ou le défaut serveur.",
+    "mismatch": "Index incompatible avec le modèle d’embedding actuel."
+  },
+  "answer": {
+    "title": "Réponse",
+    "limitations": "Limites et vérification",
+    "stopped": "Réponse interrompue : le texte peut être incomplet.",
+    "noSources": "Aucune source documentaire retournée pour cette réponse.",
+    "maxIterations": "La recherche agentique a atteint sa limite d’itérations.",
+    "verify": "Vérifiez les affirmations et leur correspondance avec les sources avant réutilisation.",
+    "sources": "Examiner les sources",
+    "trace": "Voir la trace RAG",
+    "compare": "Comparer un module RAG",
+    "evaluate": "Ouvrir les évaluations",
+    "evaluationHint": "L’évaluation porte sur un jeu de test ; cette réponse n’est pas automatiquement notée."
+  },
+  "activity": {
+    "title": "Activité",
+    "description": "Suivez les tâches disponibles, leur progression et leurs résultats.",
+    "live": "Flux temps réel connecté.",
+    "polling": "Actualisation périodique des tâches accessibles. Certaines sources peuvent être indisponibles.",
+    "search": "Rechercher une tâche",
+    "status": "État",
+    "kind": "Type",
+    "all": "Tous",
+    "loading": "Chargement des tâches…",
+    "count": "{{count}} tâches affichées",
+    "empty": "Aucune tâche ne correspond aux filtres.",
+    "progress": "Progression",
+    "indeterminate": "Progression non disponible.",
+    "error": "Détails des erreurs",
+    "result": "Ouvrir les résultats",
+    "manage": "Ouvrir la page de gestion",
+    "viewAll": "Voir toute l’activité"
+  },
+  "cockpit": {
+    "preview": "Aperçu des textes indexés",
+    "previewHint": "Échantillon des extraits stockés, sans restitution de la mise en page originale. Les anciens index sans identité SHA256 peuvent ne pas fournir d’aperçu.",
+    "loading": "Chargement de l’aperçu…",
+    "unavailable": "L’aperçu est indisponible. Les métadonnées restent accessibles.",
+    "retry": "Réessayer",
+    "empty": "Aucun extrait indexé disponible pour cette identité de document.",
+    "truncated": "Aperçu limité à 12 extraits de 2 000 caractères.",
+    "extract": "Extrait {{number}}",
+    "sections": "Sections du document",
+    "qualification": "Qualification",
+    "annotations": "Annotations",
+    "history": "Historique",
+    "indexInfo": "Dernière ingestion : {{count}} chunks dans {{collection}}. L’aperçu vérifie les textes actuellement accessibles."
+  },
+  "ui": {
+    "moreActions": "Autres actions",
+    "modelContext": "État du modèle",
+    "unknown": "Inconnu",
+    "status": {
+      "task": {
+        "pending": "En attente",
+        "running": "En cours",
+        "completed": "Terminé",
+        "partial": "Succès partiel",
+        "failed": "Échec",
+        "cancelled": "Annulé"
+      },
+      "document": {
+        "INGESTED": "Ingéré",
+        "QUALIFIED": "Qualifié",
+        "TRAINED": "Utilisé pour l’entraînement",
+        "ARCHIVED": "Archivé"
+      },
+      "model": {
+        "configured": "Configuré",
+        "loading": "Chargement",
+        "loaded": "Chargé",
+        "unavailable": "Indisponible",
+        "unverified": "Non vérifié"
+      }
+    }
+  },
+  "detail": {
+    "summary": "Résumé",
+    "details": "Détails",
+    "history": "Historique",
+    "actions": "Actions",
+    "close": "Fermer le panneau de détail",
+    "sections": "Sections du panneau",
+    "unavailable": "Aucune information disponible.",
+    "returnTo": "Retour vers {{screen}}",
+    "ambiguousSource": "Plusieurs documents correspondent à cette source. Choisissez le document dans Documents.",
+    "opening": "Ouverture…",
+    "openDocument": "Ouvrir le document",
+    "missingTarget": "Cette tâche ou ce rapport est indisponible. Aucun autre résultat n’a été sélectionné.",
+    "taskId": "Identifiant",
+    "started": "Début",
+    "finished": "Fin",
+    "export": "Exporter le résultat",
+    "taskTitle": "Détail de la tâche",
+    "traceTitle": "Trace RAG",
+    "closeTrace": "Fermer la trace",
+    "chunksCreated": "Passages indexés",
+    "pairsGenerated": "Paires générées",
+    "pairsAccepted": "Paires acceptées",
+    "processed": "Traités",
+    "total": "Total",
+    "quality": "Score qualité",
+    "baseline": "Référence",
+    "candidate": "Candidat"
+  },
+  "workList": {
+    "loading": "Chargement de la liste…",
+    "loadFailed": "La liste n’a pas pu être actualisée",
+    "loadFailedHint": "Les éléments déjà chargés restent visibles. Réessayez pour obtenir un état à jour.",
+    "retry": "Réessayer",
+    "empty": "Aucun élément à afficher",
+    "emptyHint": "Modifiez les filtres ou lancez une nouvelle tâche.",
+    "identity": "Identité",
+    "status": "Statut",
+    "context": "Contexte",
+    "updated": "Dernière mise à jour",
+    "actions": "Actions",
+    "search": "Rechercher",
+    "reset": "Réinitialiser la vue",
+    "follow": "Suivre",
+    "result": "Ouvrir le résultat",
+    "inspect": "Examiner l’échec",
+    "restart": "Préparer une relance",
+    "restartHint": "Les paramètres sont repris dans le formulaire ; vérifiez-les avant de lancer.",
+    "open": "Ouvrir",
+    "history": "Historique des jobs",
+    "partial": "Certaines sources sont indisponibles. La liste peut être incomplète.",
+    "sortLabel": "Trier",
+    "sort": {
+      "recent": "Plus récents",
+      "name": "Nom",
+      "chunks": "Chunks",
+      "quality": "Qualité"
+    },
+    "pagination": "Pagination",
+    "previous": "Précédent",
+    "next": "Suivant",
+    "configure": "Configurer une nouvelle tâche",
+    "resultCount_one": "{{count}} résultat filtré",
+    "resultCount_other": "{{count}} résultats filtrés"
   }
 }

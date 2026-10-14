@@ -1,3 +1,5 @@
+import { useContextSearchParams } from '../hooks/useContextSearchParams';
+import { useViewState } from '../hooks/useViewState';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FC } from 'react';
 import type { TFunction } from 'i18next';
@@ -7,7 +9,7 @@ import { toast } from 'sonner';
 import { ablationApi, fineTuningApi } from '../services/api';
 import { etaMs, formatEta } from '../hooks/useGlobalTasks';
 import AblationCharts from '../components/charts/AblationCharts';
-import { PageHeader, Button, SpotlightCard } from '../components/ui';
+import { PageHeader, Button, SpotlightCard, StatusBadge, DetailPanel, WorkList, WorkListRow, ListFeedback, ListTools } from '../components/ui';
 import type {
   AblationArmConfig,
   AblationArmReport,
@@ -198,25 +200,30 @@ function downloadCsv(report: AblationReport, t: TFunction): void {
 }
 
 const Optimization: FC = () => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [preset, setPreset] = useState<PresetKey>('rag');
   const [models, setModels] = useState<string[]>([]);
   const [baseModel, setBaseModel] = useState<string>('');
   const [tunedModel, setTunedModel] = useState<string>('');
   const [maxChunks, setMaxChunks] = useState<number>(5);
   const [runs, setRuns] = useState<number>(1);
-  const [jobId, setJobId] = useState<string | null>(null);
+  const [params, setParams] = useContextSearchParams();
+  const targetJob = params.get('job');
+  const [reportOpen, setReportOpen] = useState(Boolean(targetJob));
+  const [jobId, setJobId] = useState<string | null>(targetJob);
 
-  // Restauration au montage : reprend le passage le plus récent (rechargement / navigation
-  // pendant un run — le job et son rapport sont persistés côté serveur).
+  const [historySearch, setHistorySearch] = useViewState('ablation.search', '');
+  const [historyStatus, setHistoryStatus] = useViewState('ablation.status', 'all');
+  const [historySort, setHistorySort] = useViewState('ablation.sort', 'recent');
+  const history = useQuery<AblationJobDto[]>({ queryKey: ['ablation-history'], queryFn: async () => (await ablationApi.listJobs()).data ?? [], refetchInterval: q => q.state.data?.some(j => ['PENDING', 'RUNNING'].includes(j.status)) ? 5000 : false });
   useEffect(() => {
-    ablationApi.listJobs()
-      .then(res => {
-        const last = (res.data ?? [])[0] as AblationJobDto | undefined;
-        if (last?.jobId) setJobId(last.jobId);
-      })
-      .catch(() => { /* historique optionnel */ });
-  }, []);
+    if (targetJob) { setJobId(targetJob); setReportOpen(true); }
+  }, [targetJob]);
+  useEffect(() => {
+    if (!targetJob && !jobId && history.data?.[0]?.jobId) setJobId(history.data[0].jobId);
+  }, [targetJob, jobId, history.data]);
+  const openHistoryJob = (id: string) => { setJobId(id); setReportOpen(true); const next = new URLSearchParams(params); next.set('job', id); setParams(next); };
+  const visibleJobs = (history.data ?? []).filter(j => (historyStatus === 'all' || j.status === historyStatus) && `${j.label} ${j.jobId}`.toLowerCase().includes(historySearch.toLowerCase())).sort((a, b) => historySort === 'name' ? (a.label ?? a.jobId).localeCompare(b.label ?? b.jobId) : b.createdAt.localeCompare(a.createdAt));
 
   useEffect(() => {
     fineTuningApi.getModels()
@@ -245,7 +252,7 @@ const Optimization: FC = () => {
   }, [preset, baseModel, tunedModel, t]);
 
   // Suivi du job asynchrone : polling 2 s tant qu'il tourne, arrêt une fois terminal.
-  const { data: job } = useQuery<AblationJobDto>({
+  const { data: job, isError: jobUnavailable } = useQuery<AblationJobDto>({
     queryKey: ['ablation-job', jobId],
     queryFn: async () => (await ablationApi.getJob(jobId!)).data,
     enabled: !!jobId,
@@ -258,7 +265,7 @@ const Optimization: FC = () => {
   const submit = useMutation({
     mutationFn: async () =>
       (await ablationApi.runAsync({ arms, maxContextChunks: maxChunks, runs })).data as { jobId: string },
-    onSuccess: (data) => setJobId(data.jobId),
+    onSuccess: (data) => { openHistoryJob(data.jobId); void history.refetch(); },
     onError: (error) => {
       const conflict = apiErrorStatus(error) === 409;
       toast.error(conflict ? t('optimization.alreadyRunning') : t('optimization.startFailed'), {
@@ -283,7 +290,7 @@ const Optimization: FC = () => {
     const prev = prevStatusRef.current;
     prevStatusRef.current = job?.status ?? null;
     if (!job || prev === null || prev === job.status) return;
-    if (job.status === 'COMPLETED') toast.success(t('optimization.done'));
+    if (job.status === 'COMPLETED') { setReportOpen(true); toast.success(t('optimization.done')); }
     else if (job.status === 'FAILED') {
       toast.error(t('optimization.failed'), { description: job.error ?? undefined });
     } else if (job.status === 'CANCELLED') toast.info(t('optimization.cancelledToast'));
@@ -302,8 +309,9 @@ const Optimization: FC = () => {
   const noRetrieval = report?.arms?.every(a => !a.retrieval.evaluatedQuestions);
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-700">
+    <div className="space-y-6 animate-in fade-in duration-700">
       {/* Header */}
+      {targetJob && jobUnavailable && <p role="alert">{t('detail.missingTarget')}</p>}
       <PageHeader
         kicker={t('optimization.kicker')}
         title={t('optimization.title')}
@@ -443,6 +451,8 @@ const Optimization: FC = () => {
         </section>
       )}
 
+      {job && <StatusBadge status={job.status} />}
+
       {/* Passage interrompu : cause affichée plutôt qu'un écran qui redevient muet. */}
       {!running && job?.status === 'FAILED' && (
         <p className="text-xs text-error bg-error/10 border border-error/30 px-3 py-2">
@@ -455,20 +465,28 @@ const Optimization: FC = () => {
         </p>
       )}
 
-      {report && baseArm && !running && (
-        <section className="space-y-4">
-          <div className="flex items-end justify-between flex-wrap gap-2">
-            <h3 className="font-headline text-xs uppercase tracking-widest text-on-surface-variant">
-              {t('optimization.resultsTitle', { count: report.benchmarkSize, base: baseArm.label })}
-            </h3>
-            <button
-              onClick={() => downloadCsv(report, t)}
-              className="px-3 py-1.5 border border-outline-variant/30 text-on-surface-variant font-headline text-[11px] uppercase tracking-widest hover:border-primary hover:text-on-surface transition-colors"
-            >
-              {t('optimization.exportCsv')}
-            </button>
-          </div>
+      <section className="space-y-4">
+        <h2 className="font-headline text-xl font-bold">{t('workList.history')}</h2>
+        <ListTools resultCount={visibleJobs.length} search={historySearch} onSearch={setHistorySearch} status={historyStatus} onStatus={setHistoryStatus} statuses={['PENDING', 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED']} sort={historySort} onSort={setHistorySort} onReset={() => { setHistorySearch(''); setHistoryStatus('all'); setHistorySort('recent'); }} />
+        <ListFeedback loading={history.isLoading} error={history.isError} empty={!visibleJobs.length} retry={() => { void history.refetch(); }} action={<Button variant="outline" onClick={() => { setHistorySearch(''); setHistoryStatus('all'); }}>{t('workList.reset')}</Button>}>
+          {!!visibleJobs.length && <WorkList viewKey="ablation" filters={JSON.stringify([historySearch, historyStatus, historySort])} label={t('workList.history')}>{visibleJobs.map(j => <WorkListRow key={j.jobId} selected={jobId === j.jobId}
+            identity={<><button className="font-medium text-left hover:text-primary" onClick={() => openHistoryJob(j.jobId)}>{j.label ?? j.jobId}</button><p className="text-xs text-on-surface-variant break-all">{j.jobId}</p></>}
+            status={<StatusBadge status={j.status} />}
+            context={<div className="text-xs"><p>{j.currentStep ?? '—'}</p><p>{j.processedUnits}/{j.totalUnits}</p>{j.error && <p className="text-error break-all">{j.error}</p>}</div>}
+            updated={<time dateTime={j.completedAt ?? j.createdAt}>{new Date(j.completedAt ?? j.createdAt).toLocaleString(i18n.language)}</time>}
+            actions={<Button size="sm" variant="outline" onClick={() => openHistoryJob(j.jobId)}>{t(['PENDING', 'RUNNING'].includes(j.status) ? 'workList.follow' : j.status === 'COMPLETED' ? 'workList.result' : j.status === 'FAILED' ? 'workList.inspect' : 'workList.open')}</Button>}
+          />)}</WorkList>}
+        </ListFeedback>
+      </section>
 
+      {report && baseArm && !running && <Button variant="outline" onClick={() => setReportOpen(true)} icon="analytics">{t('activity.result')}</Button>}
+      {report && baseArm && !running && reportOpen && <DetailPanel
+        title={t('optimization.resultsTitle', { count: report.benchmarkSize, base: baseArm.label })}
+        onClose={() => setReportOpen(false)}
+        summary={<div className="flex flex-wrap gap-3"><StatusBadge status={job?.status} /><span className="text-sm break-all">{job?.jobId}</span></div>}
+        history={<dl className="text-sm space-y-2"><dt>{t('detail.started')}</dt><dd>{new Date(report.startedAt).toLocaleString(i18n.language)}</dd><dt>{t('detail.finished')}</dt><dd>{new Date(report.completedAt).toLocaleString(i18n.language)}</dd></dl>}
+        actions={<div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => downloadCsv(report, t)} icon="download">{t('optimization.exportCsv')}</Button><Button variant="outline" onClick={() => setReportOpen(false)}>{t('detail.close')}</Button></div>}
+        details={<section className="space-y-4">
           {noRetrieval && (
             <p className="text-[11px] text-secondary bg-secondary/10 border border-secondary/20 px-3 py-2">
               <Trans i18nKey="optimization.noRetrieval">
@@ -587,8 +605,8 @@ const Optimization: FC = () => {
               </li>
             </ul>
           </details>
-        </section>
-      )}
+        </section>} />}
+
     </div>
   );
 };

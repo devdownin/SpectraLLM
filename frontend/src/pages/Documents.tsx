@@ -1,17 +1,20 @@
-import { useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import type { FC } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useViewState } from '../hooks/useViewState';
+import { useScrollMemory } from '../hooks/useScrollMemory';
+import { useContextSearchParams } from '../hooks/useContextSearchParams';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import Skeleton from '../components/Skeleton';
+import DocumentPreview from '../components/DocumentPreview';
 import Tooltip from '../components/Tooltip';
 import ConfirmDialog from '../components/ConfirmDialog';
-import { Badge, EmptyState, PageHeader, Button } from '../components/ui';
+import { Badge, PageHeader, Button, StatusBadge, WorkListRow, ListFeedback, ListTools } from '../components/ui';
 import { gedApi, commentApi } from '../services/api';
-import { useFocusTrap } from '../hooks/useFocusTrap';
+import { DetailPanel } from '../components/ui/DetailPanel';
 import {
-  DOCUMENT_TYPES, LIFECYCLE_BAR_COLORS, LIFECYCLE_COLORS, LIFECYCLE_TONES,
+  DOCUMENT_TYPES, LIFECYCLE_BAR_COLORS, LIFECYCLE_COLORS,
   QUALITY_THRESHOLDS, getDocumentType, getGroupLabel,
 } from '../lib/documentTaxonomy';
 import type { DocumentTypeKey, GroupBy, SortMode } from '../lib/documentTaxonomy';
@@ -43,41 +46,60 @@ const Documents: FC = () => {
   const formatDate = (value: string): string =>
     new Date(value).toLocaleString(i18n.language, { dateStyle: 'medium', timeStyle: 'short' });
 
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useViewState('documents.search', '');
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
-  const [selectedLifecycle, setSelectedLifecycle] = useState<string>('all');
-  const [sortMode, setSortMode] = useState<SortMode>('recent');
+  const [selectedLifecycle, setSelectedLifecycle] = useViewState<string>('documents.selectedLifecycle', 'all');
+  const [sortMode, setSortMode] = useViewState<SortMode>('documents.sortMode', 'recent');
   const [selectedSha, setSelectedSha] = useState<string | null>(null);
-  const [groupBy, setGroupBy] = useState<GroupBy>('none');
-  const [selectedFormats, setSelectedFormats] = useState<Set<DocumentTypeKey>>(new Set());
-  const [qualityMin, setQualityMin] = useState(0);
+  const [groupBy, setGroupBy] = useViewState<GroupBy>('documents.groupBy', 'none');
+  const [selectedFormats, setSelectedFormats] = useViewState<Set<DocumentTypeKey>>('documents.selectedFormats', new Set());
+  const [qualityMin, setQualityMin] = useViewState('documents.qualityMin', 0);
   const [bulkSelected, setBulkSelected] = useState<Set<string>>(new Set());
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
-  const [page, setPage] = useState(0);
+  const [collapsedGroups, setCollapsedGroups] = useViewState<Set<string>>('documents.collapsedGroups', new Set());
+  const [page, setPage] = useViewState('documents.page', 0, n => Number.isInteger(n) && n >= 0);
   const [newTagInput, setNewTagInput] = useState('');
   // R8 — classification : filtre par catégorie et suivi du lot en cours.
-  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [selectedCategory, setSelectedCategory] = useViewState<string>('documents.selectedCategory', 'all');
   const [classifyTaskId, setClassifyTaskId] = useState<string | null>(null);
   const [commentInput, setCommentInput] = useState('');
   const [focusInput, setFocusInput] = useState('');
   const [commentTab, setCommentTab] = useState<'list' | 'add' | 'generate'>('list');
   const deferredSearch = useDeferredValue(search);
 
-  useEffect(() => { setPage(0); }, [deferredSearch, selectedLifecycle, selectedFormats, qualityMin, groupBy, sortMode, selectedCategory]);
+  const filterSignature = JSON.stringify([deferredSearch, selectedLifecycle, [...selectedFormats], qualityMin, groupBy, sortMode, selectedCategory]);
+  const [selectingAll, setSelectingAll] = useState(false);
+  const selectionGeneration = useRef(0);
+  const selectionFilters = JSON.stringify([search, selectedLifecycle, [...selectedFormats], qualityMin, selectedCategory]);
+  const previousSelectionFilters = useRef(selectionFilters);
+  useEffect(() => {
+    if (previousSelectionFilters.current !== selectionFilters) {
+      previousSelectionFilters.current = selectionFilters;
+      selectionGeneration.current++;
+      setSelectingAll(false);
+      setBulkSelected(new Set());
+    }
+  }, [selectionFilters]);
+  useEffect(() => () => { selectionGeneration.current++; }, []);
+  const lastFilters = useRef(filterSignature);
+  useEffect(() => { if (lastFilters.current !== filterSignature) { setPage(0); lastFilters.current = filterSignature; } }, [filterSignature, setPage]);
+  const listScrollRef = useRef<HTMLDivElement>(null);
+  useScrollMemory('documents.list', listScrollRef);
 
   // Deep-link : ?doc=<sha256> (ex. depuis une source du Playground) ouvre la fiche.
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useContextSearchParams();
   useEffect(() => {
     const doc = searchParams.get('doc');
     if (doc) {
       setSelectedSha(doc);
-      searchParams.delete('doc');
-      setSearchParams(searchParams, { replace: true });
     }
   }, [searchParams, setSearchParams]);
 
-  // Piège de focus + fermeture Échap + restauration du focus sur la fiche document.
-  const sheetRef = useFocusTrap<HTMLDivElement>(Boolean(selectedSha), () => setSelectedSha(null));
+
+  const closeSheet = () => {
+    setSelectedSha(null);
+    const next = new URLSearchParams(searchParams); next.delete('doc');
+    setSearchParams(next, { replace: true });
+  };
 
   // ── Queries ────────────────────────────────────────────────────────────────
 
@@ -94,6 +116,7 @@ const Documents: FC = () => {
   const {
     data: docPages,
     isLoading,
+    isError,
     isFetching,
     refetch,
     fetchNextPage,
@@ -121,6 +144,8 @@ const Documents: FC = () => {
     () => docPages?.pages.flatMap((p) => p.content) ?? [],
     [docPages],
   );
+  // Rehydrate enough server batches for the remembered client page after a reload.
+  const resetView = () => { setSearch(''); setSelectedLifecycle('all'); setSortMode('recent'); setGroupBy('none'); setSelectedFormats(new Set()); setQualityMin(0); setSelectedCategory('all'); setPage(0); };
   const totalDocuments = docPages?.pages[0]?.totalElements ?? documents.length;
 
   const { data: sheet, isLoading: isLoadingSheet } = useQuery<IngestedFileSheet>({
@@ -194,10 +219,14 @@ const Documents: FC = () => {
 
   const deleteMutation = useMutation({
     mutationFn: (sha: string) => gedApi.deleteDocument(sha),
-    onSuccess: () => {
+    onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: ['ged-documents'] });
       queryClient.invalidateQueries({ queryKey: ['ged-stats'] });
-      setSelectedSha(null);
+      if (response.data.deletionPending) {
+        toast.warning(t('documents.deletionPending'));
+        return;
+      }
+      closeSheet();
       toast.success(t('documents.docDeleted'));
     },
     onError: (err) => toast.error(t('documents.deleteFailed'), { description: apiErrorMessage(err) }),
@@ -222,12 +251,16 @@ const Documents: FC = () => {
 
   const bulkDeleteMutation = useMutation({
     mutationFn: (sha256List: string[]) => Promise.all(sha256List.map(sha => gedApi.deleteDocument(sha))),
-    onSuccess: (_, sha256List) => {
+    onSuccess: (responses, sha256List) => {
       queryClient.invalidateQueries({ queryKey: ['ged-documents'] });
       queryClient.invalidateQueries({ queryKey: ['ged-stats'] });
       setBulkSelected(new Set());
-      if (selectedSha && sha256List.includes(selectedSha)) setSelectedSha(null);
-      toast.success(t('documents.bulkDeleted', { count: sha256List.length }));
+      const deleted = sha256List.filter((_, index) => !responses[index].data.deletionPending);
+      if (responses.some(response => response.data.deletionPending)) {
+        toast.warning(t('documents.deletionPending'));
+      }
+      if (selectedSha && deleted.includes(selectedSha)) closeSheet();
+      if (deleted.length > 0) toast.success(t('documents.bulkDeleted', { count: deleted.length }));
     },
     onError: () => toast.error(t('documents.bulkDeleteFailed')),
   });
@@ -410,22 +443,60 @@ const Documents: FC = () => {
 
   const groups = useMemo(() => groupDocuments(filtered, groupBy), [filtered, groupBy]);
 
+  useEffect(() => {
+    if (page > 0 && !isLoading && !isFetching && !isError && hasNextPage && filtered.length < (page + 1) * PAGE_SIZE) void fetchNextPage();
+    if (!isLoading && !isFetching && !isError && !hasNextPage) setPage(p => Math.min(p, Math.max(0, Math.ceil(filtered.length / PAGE_SIZE) - 1)));
+  }, [page, filtered.length, isLoading, isFetching, isError, hasNextPage, fetchNextPage, setPage]);
+  const restoringPage = page > 0 && !!hasNextPage && filtered.length < (page + 1) * PAGE_SIZE;
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const paginatedItems = groupBy === 'none' ? filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE) : [];
 
   // ── Selection helpers ──────────────────────────────────────────────────────
 
-  const allFilteredSha = filtered.map(d => d.sha256);
-  const allSelected = allFilteredSha.length > 0 && allFilteredSha.every(sha => bulkSelected.has(sha));
+  const visibleSha = (groupBy === 'none' ? paginatedItems : Object.entries(groups).filter(([key]) => !collapsedGroups.has(key)).flatMap(([, docs]) => docs)).map(d => d.sha256);
+  const selectedOnPage = visibleSha.filter(sha => bulkSelected.has(sha)).length;
+  const allSelected = visibleSha.length > 0 && selectedOnPage === visibleSha.length;
   const someSelected = bulkSelected.size > 0;
-
-  const toggleSelectAll = () => {
-    if (allSelected) setBulkSelected(new Set());
-    else setBulkSelected(new Set(allFilteredSha));
+  const toggleSelectPage = () => {
+    selectionGeneration.current++;
+    setSelectingAll(false);
+    setBulkSelected(previous => {
+      const next = new Set(previous);
+      visibleSha.forEach(sha => allSelected ? next.delete(sha) : next.add(sha));
+      return next;
+    });
+  };
+  // Apply the global selection only once every server batch was successfully read.
+  const selectAllFiltered = async () => {
+    const generation = ++selectionGeneration.current;
+    setSelectingAll(true);
+    try {
+      let pages = docPages?.pages ?? [];
+      while (pages.length && pages.at(-1)!.page + 1 < pages.at(-1)!.totalPages) {
+        const result = await fetchNextPage({ cancelRefetch: false });
+        if (generation !== selectionGeneration.current) return;
+        if (result.isError || !result.data || result.data.pages.length <= pages.length) throw result.error ?? new Error('Incomplete document list');
+        pages = result.data.pages;
+      }
+      if (generation !== selectionGeneration.current) return;
+      const matches = filterDocuments(pages.flatMap(batch => batch.content), { search: deferredSearch, formats: selectedFormats, qualityMin, category: selectedCategory });
+      setBulkSelected(new Set(matches.map(doc => doc.sha256)));
+    } catch (error) {
+      if (generation === selectionGeneration.current) toast.error(t('documents.selectionFailed'), { description: apiErrorMessage(error) });
+    } finally {
+      if (generation === selectionGeneration.current) setSelectingAll(false);
+    }
+  };
+  const clearSelection = () => {
+    selectionGeneration.current++;
+    setSelectingAll(false);
+    setBulkSelected(new Set());
   };
 
   const toggleSelect = (sha: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    selectionGeneration.current++;
+    setSelectingAll(false);
     setBulkSelected(prev => {
       const next = new Set(prev);
       if (next.has(sha)) next.delete(sha);
@@ -459,13 +530,8 @@ const Documents: FC = () => {
     const score = doc.qualityScore ?? 0;
     const isChecked = bulkSelected.has(doc.sha256);
     const isActive = selectedSha === doc.sha256;
-    return (
-      <div
-        key={doc.sha256}
-        onClick={() => setSelectedSha(doc.sha256)}
-        className={`cv-auto group grid grid-cols-1 lg:grid-cols-[32px_minmax(0,1.5fr)_100px_140px_120px_100px_80px] gap-4 items-center px-4 py-4 transition-colors cursor-pointer border-l-2 ${isActive ? 'border-primary bg-surface-container-high/70' : 'border-transparent hover:bg-surface-container-high/40'}`}
-      >
-        <button
+    return <WorkListRow key={doc.sha256} selected={isActive}
+      identity={<div className="flex gap-3 items-center">        <button
           type="button"
           role="checkbox"
           aria-checked={isChecked}
@@ -483,7 +549,7 @@ const Documents: FC = () => {
             <span className="material-symbols-outlined text-base">{type.icon}</span>
           </div>
           <div className="min-w-0">
-            <p className="font-headline text-sm font-bold tracking-tight truncate">{doc.fileName}</p>
+            <button onClick={() => setSelectedSha(doc.sha256)} className="font-headline text-sm font-bold text-left break-all hover:text-primary">{doc.fileName}</button>
             <div className="flex items-center gap-2 mt-1 flex-wrap">
               <span className="text-[10px] font-mono text-outline">{doc.sha256.slice(0, 8)}</span>
               {doc.collectionName && (
@@ -507,13 +573,9 @@ const Documents: FC = () => {
           </div>
         </div>
 
-        <div className="flex justify-center">
-          <Badge tone={LIFECYCLE_TONES[doc.lifecycle]} className={doc.lifecycle === 'ARCHIVED' ? 'opacity-60' : undefined}>
-            {doc.lifecycle}
-          </Badge>
-        </div>
-
-        <div className="flex items-center gap-2">
+</div>}
+      status={<StatusBadge status={doc.lifecycle} domain="document" />}
+      context={<div className="space-y-2">        <div className="flex items-center gap-2">
           <div
             role="progressbar"
             aria-valuenow={Math.round(score * 100)}
@@ -533,10 +595,9 @@ const Documents: FC = () => {
           <span className="text-[11px] font-mono text-on-surface-variant w-8 text-right">{(score * 100).toFixed(0)}%</span>
         </div>
 
-        <div className="text-[11px] text-on-surface-variant font-label uppercase">{formatDate(doc.ingestedAt)}</div>
-        <div className="text-right font-headline font-bold text-lg">{doc.chunksCreated}</div>
-
-        <div className="flex justify-end">
+<p className="text-xs">{t('documents.colChunks')}: {doc.chunksCreated}</p></div>}
+      updated={<time dateTime={doc.ingestedAt}>{formatDate(doc.ingestedAt)}</time>}
+      actions={<div className="flex gap-2 items-center"><Button size="sm" variant="outline" onClick={() => setSelectedSha(doc.sha256)}>{t('workList.open')}</Button>        <div className="flex justify-end">
           <button
             onClick={e => {
               e.stopPropagation();
@@ -547,12 +608,11 @@ const Documents: FC = () => {
           >
             <span aria-hidden="true" className="material-symbols-outlined text-sm">delete</span>
           </button>
-        </div>
-      </div>
-    );
+        </div></div>}
+    />;
   };
 
-  if (isLoading) return <div className="p-8 space-y-4"><Skeleton className="h-10 w-1/4" /><Skeleton className="h-64 w-full" /></div>;
+
 
   const total = stats?.total ?? 0;
   // R8 — documents restant à classifier, tirés des stats serveur (et non de la page
@@ -567,38 +627,15 @@ const Documents: FC = () => {
         kicker={t('documents.kicker')}
         title={t('documents.title')}
         description={t('documents.subtitle')}
-        actions={
-          <>
-            <span className="text-[12px] text-on-surface-variant">
-              {t('documents.shownCount', { shown: filtered.length, loaded: documents.length })}
-              {totalDocuments > documents.length ? t('documents.ofTotal', { total: totalDocuments }) : ''}
-            </span>
-            {/* R8 — action principale de l'écran : lancer la classification du fonds. Elle vit
-                dans l'en-tête et non dans le panneau de filtres, où elle était invisible.
-                Le libellé porte le reste à faire : « Classifier (23) » dit à la fois quoi
-                et combien, et disparaît quand tout est déjà classifié. */}
-            {classificationConfig?.enabled && (
-              <Button
-                variant={pendingClassification > 0 ? 'primary' : 'outline'}
-                size="sm"
-                disabled={bulkClassifyMutation.isPending || !!classifyTaskId || pendingClassification === 0}
-                title={t('documents.classifyHint', { model: classificationConfig.model })}
-                onClick={() => bulkClassifyMutation.mutate({ sha256List: null, force: false })}
-              >
-                <span aria-hidden="true" className={`material-symbols-outlined text-[16px] ${classifyTaskId ? 'animate-spin' : ''}`}>
-                  {classifyTaskId ? 'progress_activity' : 'auto_awesome'}
-                </span>
-                {pendingClassification > 0
-                  ? t('documents.classifyPending', { count: pendingClassification })
-                  : t('documents.allClassified')}
-              </Button>
-            )}
-            <Button variant="outline" size="sm" onClick={() => refetch()}>
-              <span aria-hidden="true" className={`material-symbols-outlined text-[16px] ${isFetching ? 'animate-spin' : ''}`}>refresh</span>
-              {t('documents.sync')}
-            </Button>
-          </>
-        }
+        context={<>{t('documents.shownCount', { shown: filtered.length, loaded: documents.length })}{totalDocuments > documents.length ? t('documents.ofTotal', { total: totalDocuments }) : ''}</>}
+        secondaryActions={[{ id: 'reset', label: t('workList.reset'), icon: 'filter_alt_off', onSelect: resetView }, { id: 'sync', label: t('documents.sync'), icon: 'refresh', onSelect: () => { void refetch(); }, disabled: isFetching }]}
+        primaryAction={classificationConfig?.enabled && <Button
+          disabled={bulkClassifyMutation.isPending || !!classifyTaskId || pendingClassification === 0}
+          title={t('documents.classifyHint', { model: classificationConfig.model })}
+          icon={classifyTaskId ? 'progress_activity' : 'auto_awesome'}
+          onClick={() => bulkClassifyMutation.mutate({ sha256List: null, force: false })}>
+          {pendingClassification > 0 ? t('documents.classifyPending', { count: pendingClassification }) : t('documents.allClassified')}
+        </Button>}
       />
 
       {/* Stats Cards */}
@@ -622,7 +659,7 @@ const Documents: FC = () => {
               const count = stats?.byLifecycle?.[lc] ?? 0;
               const pct = total > 0 ? (count / total) * 100 : 0;
               return pct > 0 ? (
-                <Tooltip key={lc} content={`${lc}: ${count}`}>
+                <Tooltip key={lc} content={`${t(`ui.status.document.${lc}`)}: ${count}`}>
                   <div style={{ width: `${pct}%` }} className={`h-2 min-w-[4px] ${LIFECYCLE_BAR_COLORS[lc]}`} />
                 </Tooltip>
               ) : null;
@@ -637,57 +674,7 @@ const Documents: FC = () => {
       </section>
 
       {/* Filters */}
-      <section className="bg-surface-container p-5 space-y-5 border border-outline-variant/10">
-        {/* Row 1 */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="space-y-2">
-            <label className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">{t('documents.search')}</label>
-            <div className="flex items-center gap-3 border border-outline-variant/20 bg-surface-container-lowest px-4 py-2.5">
-              <span className="material-symbols-outlined text-base text-outline">search</span>
-              <input
-                type="text"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder={t('documents.searchPlaceholder')}
-                className="w-full bg-transparent outline-none text-sm font-body placeholder:text-outline"
-              />
-              {search && (
-                <button onClick={() => setSearch('')} className="text-outline hover:text-on-surface">
-                  <span className="material-symbols-outlined text-sm">close</span>
-                </button>
-              )}
-            </div>
-          </div>
-          <div className="space-y-2">
-            <label className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">{t('documents.lifecycle')}</label>
-            <div className="flex gap-2">
-              {['all', 'INGESTED', 'QUALIFIED', 'TRAINED', 'ARCHIVED'].map(lc => (
-                <button
-                  key={lc}
-                  onClick={() => setSelectedLifecycle(lc)}
-                  className={`flex-1 py-2 border text-[10px] font-label uppercase tracking-widest transition-all ${selectedLifecycle === lc ? 'border-primary bg-primary/10 text-primary' : 'border-outline-variant/20 text-on-surface-variant hover:border-primary/30'}`}
-                >
-                  {lc === 'all' ? t('documents.qualityAll') : lc.slice(0, 1)}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="space-y-2">
-            <label className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant">{t('documents.sort')}</label>
-            <div className="flex gap-2">
-              {(['recent', 'name', 'chunks', 'quality'] as SortMode[]).map(m => (
-                <button
-                  key={m}
-                  onClick={() => setSortMode(m)}
-                  className={`flex-1 py-2 border text-[10px] font-label uppercase tracking-widest transition-all ${sortMode === m ? 'border-primary bg-primary/10 text-primary' : 'border-outline-variant/20 text-on-surface-variant hover:border-primary/30'}`}
-                >
-                  {m === 'recent' ? t('documents.sortDate') : m === 'chunks' ? t('documents.sortChunks') : m === 'quality' ? t('documents.sortQuality') : t('documents.sortName')}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
+      <section id="document-extra-filters" tabIndex={-1} className="scroll-mt-56 bg-surface-container p-5 space-y-5 border border-outline-variant/10">
         {/* Row 2 */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="space-y-2">
@@ -836,50 +823,52 @@ const Documents: FC = () => {
         )}
       </section>
 
-      {/* Document List — aligné sur le style ui/Table (carte + en-tête + lignes divisées) */}
-      <section className="bg-surface-container rounded-xl ring-1 ring-white/[0.045] overflow-hidden">
-        {/* Column headers */}
-        <div className="hidden lg:grid lg:grid-cols-[32px_minmax(0,1.5fr)_100px_140px_120px_100px_80px] gap-4 px-4 py-2.5 bg-surface-container-high/60 border-b border-outline-variant/60 text-[11px] font-medium uppercase tracking-[0.05em] text-on-surface-variant">
-          <div className="flex justify-center">
-            <button
-              type="button"
-              role="checkbox"
-              aria-checked={allSelected ? true : someSelected ? 'mixed' : false}
-              aria-label={t('documents.selectAll')}
-              onClick={toggleSelectAll}
-              className={`w-4 h-4 rounded border flex items-center justify-center cursor-pointer transition-all ${allSelected ? 'bg-primary border-primary' : 'border-outline-variant/40 hover:border-primary/50'}`}
-            >
-              {allSelected && <span aria-hidden="true" className="material-symbols-outlined text-white text-[11px]">check</span>}
-              {!allSelected && someSelected && <span aria-hidden="true" className="material-symbols-outlined text-primary text-[11px]">remove</span>}
+      <ListTools search={search} onSearch={setSearch} status={selectedLifecycle} onStatus={setSelectedLifecycle}
+        statuses={['INGESTED', 'QUALIFIED', 'TRAINED', 'ARCHIVED']} statusDomain="document"
+        sort={sortMode} onSort={value => setSortMode(value as SortMode)} sortChoices={['recent', 'name', 'chunks', 'quality']}
+        onReset={resetView} resultCount={filtered.length}
+        extraControls={<>
+          <Button variant="ghost" onClick={() => { const filters = document.getElementById('document-extra-filters'); filters?.focus(); filters?.scrollIntoView({ block: 'start' }); }}>{t('documents.moreFilters')}</Button>
+          <div className="basis-full grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2 text-xs" role="group" aria-label={t('documents.selectionScope')}>
+            <button type="button" role="checkbox" aria-checked={allSelected ? true : selectedOnPage ? 'mixed' : false}
+              aria-label={t(groupBy === 'none' ? 'documents.selectPage' : 'documents.selectView')}
+              disabled={!visibleSha.length} onClick={toggleSelectPage} className="flex items-center gap-2 min-h-9 disabled:opacity-50">
+              <span aria-hidden="true" className="material-symbols-outlined text-base">{allSelected ? 'check_box' : selectedOnPage ? 'indeterminate_check_box' : 'check_box_outline_blank'}</span>
+              {t(groupBy === 'none' ? 'documents.selectedOnPage' : 'documents.selectedInView', { count: selectedOnPage })}
             </button>
+            <span>{t('documents.selectedTotal', { count: bulkSelected.size })}</span>
+            <Button variant="ghost" className="col-span-2 text-xs max-w-full" disabled={isLoading || isError || selectingAll || isFetching || search !== deferredSearch || (!filtered.length && !hasNextPage)} onClick={() => { void selectAllFiltered(); }}>
+              {t(selectingAll ? 'documents.selectingAll' : 'documents.selectFiltered')}
+            </Button>
+            {hasNextPage && <span className="col-span-2">{t('documents.filteredLoaded')}</span>}
           </div>
-          <span>{t('documents.colDocument')}</span>
-          <span className="text-center">{t('documents.colLifecycle')}</span>
-          <span>{t('documents.colQuality')}</span>
-          <span>{t('documents.colIngestedOn')}</span>
-          <span className="text-right">{t('documents.colChunks')}</span>
-          <span className="text-right">{t('documents.colActions')}</span>
-        </div>
+        </>} />
 
-        <div className="max-h-[70vh] overflow-y-auto custom-scrollbar divide-y divide-outline-variant/40">
+      {/* Document list: the heading shares the list scroll container. */}
+      <section className="bg-surface-container rounded-xl ring-1 ring-white/[0.045] overflow-hidden">
+        <div ref={listScrollRef} data-work-list-scroll role="region" tabIndex={0} aria-label={t('documents.title')} className="max-h-[65vh] overflow-y-auto custom-scrollbar divide-y divide-outline-variant/40">
+          <div data-work-list-heading aria-hidden="true" className="sticky top-0 z-10 hidden lg:grid lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,2fr)_minmax(0,1fr)_auto] gap-4 px-4 py-2.5 bg-surface-container-high border-b border-outline-variant/60 text-[11px] font-medium uppercase tracking-[0.05em] text-on-surface-variant">
+            {['identity', 'status', 'context', 'updated', 'actions'].map(field => <span key={field}>{t(`workList.${field}`)}</span>)}
+          </div>
+          <ListFeedback loading={isLoading || restoringPage} error={isError} empty={!isLoading && !filtered.length} retry={() => { void refetch(); }} action={<Button variant="outline" onClick={resetView}>{t('workList.reset')}</Button>}>
           {groupBy === 'none' ? (
             <>
-              {paginatedItems.map(renderRow)}
-              {filtered.length === 0 && (
-                <EmptyState icon="search_off" title={t('documents.noMatch')} className="py-16" />
-              )}
+              <ul>{paginatedItems.map(renderRow)}</ul>
+
             </>
           ) : (
             Object.entries(groups)
               .sort(([a], [b]) => a.localeCompare(b))
               .map(([key, docs]) => {
                 const isCollapsed = collapsedGroups.has(key);
-                const label = getGroupLabel(key, groupBy);
+                const label = groupBy === 'lifecycle' ? t(`ui.status.document.${key}`, { defaultValue: key }) : getGroupLabel(key, groupBy);
                 const groupSha = docs.map(d => d.sha256);
                 const groupSelected = groupSha.filter(sha => bulkSelected.has(sha)).length;
                 const allGroupSelected = groupSelected === docs.length;
                 const toggleGroupSelect = (e: React.MouseEvent) => {
                   e.stopPropagation();
+                  selectionGeneration.current++;
+                  setSelectingAll(false);
                   setBulkSelected(prev => {
                     const next = new Set(prev);
                     if (allGroupSelected) groupSha.forEach(sha => next.delete(sha));
@@ -916,13 +905,14 @@ const Documents: FC = () => {
                     </div>
                     {!isCollapsed && (
                       <div className="divide-y divide-outline-variant/40">
-                        {docs.map(renderRow)}
+                        <ul>{docs.map(renderRow)}</ul>
                       </div>
                     )}
                   </div>
                 );
               })
           )}
+          </ListFeedback>
         </div>
       </section>
 
@@ -934,7 +924,7 @@ const Documents: FC = () => {
           </span>
           <div className="flex gap-1.5">
             <Button variant="outline" size="sm" onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}>
-              {t('documents.prev')}
+              {t('workList.previous')}
             </Button>
             {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
               const p = totalPages <= 7 ? i : (page < 4 ? i : page + i - 3);
@@ -951,7 +941,7 @@ const Documents: FC = () => {
               );
             })}
             <Button variant="outline" size="sm" onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1}>
-              {t('documents.next')}
+              {t('workList.next')}
             </Button>
           </div>
         </div>
@@ -973,8 +963,8 @@ const Documents: FC = () => {
 
       {/* Bulk Action Bar */}
       {someSelected && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom duration-300">
-          <div className="flex items-center gap-4 bg-surface-container-high border border-primary/30 px-6 py-4 shadow-2xl">
+        <div className="fixed bottom-6 inset-x-4 md:left-1/2 md:right-auto md:-translate-x-1/2 z-50 animate-in slide-in-from-bottom duration-300">
+          <div className="flex flex-wrap items-center gap-3 bg-surface-container-high border border-primary/30 px-4 py-4 shadow-2xl">
             <span className="text-[11px] font-label uppercase tracking-widest text-primary font-bold">
               {t('documents.selectedCount', { count: bulkSelected.size })}
             </span>
@@ -984,10 +974,10 @@ const Documents: FC = () => {
               <button
                 key={lc}
                 onClick={() => bulkLifecycleMutation.mutate({ sha256List: Array.from(bulkSelected), lifecycle: lc })}
-                disabled={bulkLifecycleMutation.isPending}
+                disabled={bulkLifecycleMutation.isPending || selectingAll}
                 className={`px-3 py-2 border text-[10px] font-bold tracking-widest uppercase transition-all disabled:opacity-50 ${LIFECYCLE_COLORS[lc]} hover:bg-primary/10`}
               >
-                {lc}
+                {t(`ui.status.document.${lc}`)}
               </button>
             ))}
             {classificationConfig?.enabled && (
@@ -1000,7 +990,7 @@ const Documents: FC = () => {
                     // documents-là, y compris ceux déjà étiquetés.
                     force: true,
                   })}
-                  disabled={bulkClassifyMutation.isPending || !!classifyTaskId}
+                  disabled={bulkClassifyMutation.isPending || !!classifyTaskId || selectingAll}
                   className="flex items-center gap-1.5 px-3 py-2 border border-secondary/40 text-secondary text-[10px] font-bold tracking-widest uppercase hover:bg-secondary/10 transition-all disabled:opacity-50"
                 >
                   <span aria-hidden="true" className="material-symbols-outlined text-[13px]">auto_awesome</span>
@@ -1014,11 +1004,11 @@ const Documents: FC = () => {
               size="sm"
               icon="delete"
               onClick={() => setPendingDelete({ kind: 'bulk', shaList: Array.from(bulkSelected) })}
-              disabled={bulkDeleteMutation.isPending}
+              disabled={bulkDeleteMutation.isPending || selectingAll}
             >
               {t('documents.delete')}
             </Button>
-            <button onClick={() => setBulkSelected(new Set())} className="w-8 h-8 flex items-center justify-center text-outline hover:text-on-surface transition-colors">
+            <button aria-label={t('documents.clearSelection')} onClick={clearSelection} className="w-8 h-8 flex items-center justify-center text-outline hover:text-on-surface transition-colors">
               <span className="material-symbols-outlined text-sm">close</span>
             </button>
           </div>
@@ -1026,36 +1016,16 @@ const Documents: FC = () => {
       )}
 
       {/* Document Detail Sheet */}
-      {selectedSha && (
-        <div
-          ref={sheetRef}
-          tabIndex={-1}
-          role="dialog"
-          aria-modal="true"
-          aria-label={t('documents.sheetAria')}
-          className="fixed inset-y-0 right-0 w-full lg:w-[520px] bg-surface-container-high shadow-[-20px_0_40px_rgba(0,0,0,0.5)] z-50 animate-in slide-in-from-right duration-300 border-l border-outline-variant/20 flex flex-col outline-none">
-          <header className="p-6 border-b border-outline-variant/20 flex justify-between items-center">
-            <div className="min-w-0">
-              <p className="text-[10px] font-label uppercase tracking-widest text-outline">{t('documents.sheetTitle')}</p>
-              <h3 className="font-headline text-lg font-bold truncate max-w-[380px]">{sheet?.fileName ?? '—'}</h3>
-            </div>
-            <button onClick={() => setSelectedSha(null)} aria-label={t('documents.closeSheet')} className="w-10 h-10 flex items-center justify-center hover:bg-surface-variant transition-colors shrink-0">
-              <span aria-hidden="true" className="material-symbols-outlined">close</span>
-            </button>
-          </header>
-
-          {isLoadingSheet ? (
-            <div className="p-8 space-y-6">
-              <Skeleton className="h-20" /><Skeleton className="h-40" /><Skeleton className="h-40" />
-            </div>
-          ) : sheet && (
-            <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
-
+      {selectedSha && <DetailPanel title={sheet?.fileName ?? t('documents.sheetTitle')} onClose={closeSheet} closeLabel={t('documents.closeSheet')}
+        summary={isLoadingSheet ? <Skeleton className="h-20" /> : sheet ? <div className="space-y-2"><StatusBadge status={sheet.lifecycle} domain="document" /><p className="text-xs text-on-surface-variant">{t('cockpit.indexInfo', { count: sheet.chunksCreated, collection: sheet.collectionName ?? '—' })}</p></div> : <p role="alert">{t('detail.missingTarget')}</p>}
+        details={sheet && <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_440px] gap-6 min-w-0">
+          <DocumentPreview sha={sheet.sha256} />
+          <div className="space-y-8 min-w-0">
               {/* Metadata grid */}
-              <div className="grid grid-cols-2 gap-3">
+              <div id="doc-qualification" className="grid grid-cols-2 gap-3">
                 <div className="p-4 bg-surface-container-lowest border-l-2 border-primary">
                   <p className="text-[10px] uppercase tracking-widest text-outline mb-1">{t('documents.status')}</p>
-                  <p className="font-headline font-bold text-sm text-primary uppercase">{sheet.lifecycle}</p>
+                  <StatusBadge status={sheet.lifecycle} domain="document" />
                 </div>
                 <div className="p-4 bg-surface-container-lowest border-l-2 border-secondary">
                   <p className="text-[10px] uppercase tracking-widest text-outline mb-1">{t('documents.quality')}</p>
@@ -1108,7 +1078,7 @@ const Documents: FC = () => {
                       onClick={() => transitionMutation.mutate({ sha: sheet.sha256, lc })}
                       className={`px-3 py-2 border text-[10px] font-bold tracking-widest uppercase transition-all ${lc === sheet.lifecycle ? 'opacity-30 cursor-not-allowed border-outline' : 'border-primary/30 text-primary hover:bg-primary/10'}`}
                     >
-                      {lc === sheet.lifecycle ? '✓ ' : ''}{lc}
+                      {lc === sheet.lifecycle ? '✓ ' : ''}{t(`ui.status.document.${lc}`)}
                     </button>
                   ))}
                 </div>
@@ -1238,7 +1208,7 @@ const Documents: FC = () => {
               </div>
 
               {/* Comments — RAG generation + DPO rating */}
-              <div className="space-y-3">
+              <div id="doc-annotations" className="space-y-3">
                 <div className="flex items-center justify-between">
                   <h4 className="text-[11px] font-bold uppercase tracking-widest text-outline">{t('documents.comments')}</h4>
                   <div className="flex gap-1">
@@ -1401,8 +1371,11 @@ const Documents: FC = () => {
                 )}
               </div>
 
+          </div>
+        </div>}
+        history={sheet && <div>
               {/* Audit Trail */}
-              <div className="space-y-3">
+              <div id="doc-history" className="space-y-3">
                 <h4 className="text-[11px] font-bold uppercase tracking-widest text-outline">{t('documents.auditTrail')}</h4>
                 <div className="space-y-1 relative before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-px before:bg-outline-variant/20">
                   {sheet.auditTrail.map((a, i) => (
@@ -1418,10 +1391,8 @@ const Documents: FC = () => {
                   ))}
                 </div>
               </div>
-            </div>
-          )}
-
-          <footer className="p-6 border-t border-outline-variant/20">
+        </div>}
+        actions={
             <button
               onClick={() => {
                 if (sheet) setPendingDelete({ kind: 'single', sha: sheet.sha256, name: sheet.fileName, chunks: sheet.chunksCreated });
@@ -1430,18 +1401,7 @@ const Documents: FC = () => {
               className="w-full py-3 bg-error/10 border border-error/30 text-error font-bold text-[11px] tracking-widest uppercase hover:bg-error hover:text-white transition-all disabled:opacity-50"
             >
               {t('documents.deletePermanently')}
-            </button>
-          </footer>
-        </div>
-      )}
-
-      {/* Backdrop */}
-      {selectedSha && (
-        <div
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 animate-in fade-in duration-300"
-          onClick={() => setSelectedSha(null)}
-        />
-      )}
+            </button>        } />}
 
       {/* Confirmation de suppression (ligne, fiche ou sélection multiple) */}
       <ConfirmDialog
@@ -1469,3 +1429,4 @@ const Documents: FC = () => {
 };
 
 export default Documents;
+

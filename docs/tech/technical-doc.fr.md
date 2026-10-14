@@ -1207,6 +1207,45 @@ GET /api/dataset/export (→ fichier JSONL)
 
 ### Fine-tuning et Modèles
 
+L'entraînement sauvegarde un adaptateur PEFT. `exportGguf: true` enchaîne sa fusion,
+la conversion et l'enregistrement ; aucun export n'est déclenché implicitement sur GPU.
+Un adaptateur valide et ses métadonnées restent conservés si cette dernière étape échoue
+ou est annulée. Leur suppression nécessite une action explicite de l'exploitant.
+Chaque job publie son propre fichier GGUF, atomiquement, sans remplacer un fichier
+produit par un autre job. Réutiliser un nom logique met à jour l'entrée du registre,
+mais conserve le fichier de la version précédente.
+Le volume des modèles doit accepter les liens physiques utilisés pour la publication
+atomique sans remplacement ; sinon l'export échoue et l'adaptateur reste conservé.
+
+`autoEvaluate: true` exige `exportGguf: true`. Avant le lancement du trainer, environ
+20 % des exemples SFT sont réservés dans `evaluation.jsonl` sous le répertoire du job.
+Les exemples partageant une source ou un prompt sont gardés ensemble ; en DPO/ORPO,
+les préférences correspondantes sont également exclues de l'entraînement. Le corpus
+doit permettre un test indépendant tout en conservant des exemples d'entraînement,
+sinon le job échoue avant le lancement du trainer. `valSplit` s'applique uniquement
+aux données restantes, jamais au jeu de test. Une évaluation avec `jobId` relit cette
+réserve figée et refuse de revenir au corpus courant si elle manque. Une évaluation
+manuelle sans `jobId` reste un diagnostic du corpus courant, sans garantie de
+généralisation. Configurer `spectra.evaluation.judge-model` permet un juge distinct.
+
+Le trainer Compose de base dispose de **12 GiB et fonctionne sur CPU**. Choisir
+`baseModel: "tinyllama"` pour ce profil ; le défaut historique `phi3` est conservé,
+mais nécessite davantage de mémoire. Pour Phi-3 sur CPU avec export, prévoir
+`TRAINER_MEMORY_LIMIT=40g` et la RAM correspondante réellement disponible sur l'hôte.
+Les contrôles préalables tiennent compte de la RAM libre, de la VRAM et des limites
+cgroup ; ils refusent les budgets insuffisants avant le téléchargement des poids.
+Les estimations sont des budgets minimaux, sans garantie contre les OOM pour de
+longues séquences. L'override `docker-compose.gpu.yml` exige NVIDIA et son runtime ;
+la fusion pour l'export reste sur CPU même avec cet override.
+
+La conversion GGUF utilise la toolchain complète embarquée dans le trainer, avec
+des dépendances isolées de celles de l'entraînement. `LLAMA_CPP_REVISION` accepte
+`b9828` ou un SHA Git complet immuable ; il doit correspondre au runtime llama.cpp.
+Pour fournir une copie hors ligne, peupler `SPECTRA_LLAMA_CPP_DIR` via
+`python scripts/llama_cpp_convert.py <répertoire>` puis préparer les dépendances
+de conversion de cette révision. Les scripts isolés et caches incomplets ne sont
+plus acceptés comme convertisseurs valides.
+
 ```
 POST /api/fine-tuning
   Corps : {"modelName": "spectra-domain", "baseModel": "phi3",
@@ -1230,8 +1269,9 @@ POST /api/fine-tuning/models/{name}/pull
 
 ```
 POST /api/evaluation                    body: {modelName?, testSetSize?, jobId?}
-  Évaluation LLM-as-a-judge d'un modèle sur un échantillon du dataset (5 %,
-  min 5 / max 50). Le modèle ciblé est chargé (bascule puis restauration du
+  Avec jobId : échantillon du jeu de test réservé par ce job. Sans jobId :
+  diagnostic sur le dataset courant (5 %, min 5 / max 50).
+  Le modèle ciblé est chargé (bascule puis restauration du
   modèle actif) ; latence de génération et débit estimé (tokens/s) sont mesurés.
 GET  /api/evaluation                    Liste tous les rapports.
 GET  /api/evaluation/{evalId}           Rapport détaillé (progression temps réel).

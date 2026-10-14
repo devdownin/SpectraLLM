@@ -66,6 +66,9 @@ public class DocumentController {
             @PathVariable String sourceFile,
             @RequestParam(value = "collection", defaultValue = "") String collection) {
         String coll = collection.isBlank() ? defaultCollection : collection;
-        return ResponseEntity.ok(gedService.deleteBySourceFile(sourceFile, coll, "api"));
+        Map<String, Object> result = gedService.deleteBySourceFile(sourceFile, coll, "api");
+        return Boolean.TRUE.equals(result.get("deletionPending"))
+                ? ResponseEntity.accepted().body(result) : ResponseEntity.ok(result);
     }
 }
+

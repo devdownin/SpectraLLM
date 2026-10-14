@@ -40,10 +40,11 @@ export const healthApi = {
 };
 
 export const ingestApi = {
-  uploadFile: (file: File) => {
+  uploadFile: (file: File, force = false) => {
     const formData = new FormData();
     formData.append('files', file);
     return api.post('/ingest', formData, {
+      ...(force ? { params: { force: true } } : {}),
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -58,6 +59,7 @@ export const ingestApi = {
 };
 
 export const gedApi = {
+  getPreview: (sha256: string) => api.get<{ chunks: string[]; truncated: boolean }>(`/ged/documents/${sha256}/preview`),
   listDocuments: (params: any) => api.get('/ged/documents', { params }),
   getDocument: (sha256: string) => api.get(`/ged/documents/${sha256}`),
   deleteDocument: (sha256: string, actor = 'ui') => api.delete(`/ged/documents/${sha256}?actor=${actor}`),
@@ -276,8 +278,10 @@ export const queryApi = {
     temperature?: number,
     topP?: number,
     overrides?: RagOverridesDto,
+    collection?: string,
   ): AsyncGenerator<StreamEvent> {
     const body: Record<string, unknown> = { question, useRag };
+    if (useRag && collection) body.collection = collection;
     if (topCandidates !== undefined) body.topCandidates = topCandidates;
     if (temperature !== undefined) body.temperature = temperature;
     if (topP !== undefined) body.topP = topP;
@@ -409,3 +413,4 @@ export const modelsHubApi = {
 };
 
 export default api;
+

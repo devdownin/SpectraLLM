@@ -105,7 +105,8 @@ describe('Documents — déclencheur de classification dans l’en-tête', () =>
     renderPage();
 
     // On attend que la page soit rendue avant de conclure à l'absence du bouton.
-    await screen.findByRole('button', { name: /Sync/ });
+    fireEvent.click(await screen.findByRole('button', { name: 'More actions' }));
+    await screen.findByRole('menuitem', { name: /Sync/ });
     expect(screen.queryByRole('button', { name: /Classify/ })).toBeNull();
   });
 

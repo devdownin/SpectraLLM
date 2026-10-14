@@ -486,7 +486,7 @@ class GedServiceTest {
 
         IngestedFileEntity doc = entity("shaY");
         doc.setCollectionName("spectra_documents");
-        when(fileRepo.findByFileName("doc.pdf")).thenReturn(List.of(doc));
+        when(fileRepo.findByFileNameAndCollectionName("doc.pdf", "spectra_documents")).thenReturn(List.of(doc));
         when(fileRepo.findById("shaY")).thenReturn(Optional.of(doc));
 
         Map<String, Object> result = svc.deleteBySourceFile("doc.pdf", "spectra_documents", "api");
@@ -504,7 +504,7 @@ class GedServiceTest {
         GedService svc = new GedService(fileRepo, linkRepo, auditRepo,
                 chroma, fts, tempArchive.toString());
 
-        when(fileRepo.findByFileName("orphelin.pdf")).thenReturn(List.of());
+        when(fileRepo.findByFileNameAndCollectionName("orphelin.pdf", "autre_collection")).thenReturn(List.of());
 
         Map<String, Object> result = svc.deleteBySourceFile("orphelin.pdf", "autre_collection", "api");
 
@@ -685,3 +685,4 @@ class GedServiceTest {
                 Instant.now(), 5, "spectra_documents", 0.6);
     }
 }
+

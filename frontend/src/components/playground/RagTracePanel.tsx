@@ -1,3 +1,6 @@
+import { useTranslation } from 'react-i18next';
+import { DetailPanel } from '../ui/DetailPanel';
+import SourceDocumentButton from './SourceDocumentButton';
 import type { FC } from 'react';
 import { CountUp, SpotlightCard } from '../ui';
 import {
@@ -116,29 +119,10 @@ const TokenBudgetBar: FC<{ contextChars: number; outputTokens: number }> = ({ co
  * budget de tokens, optimisations déclenchées, contexte final). Chargé à la demande (React.lazy) —
  * n'entre dans le bundle que lorsque l'utilisateur ouvre une trace.
  */
-const RagTracePanel: FC<{ traceMsg: Message; onClose: () => void }> = ({ traceMsg, onClose }) => (
-  <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
-    <div className="bg-surface-container border border-outline-variant/30 shadow-2xl w-full max-w-4xl max-h-full flex flex-col rounded-xl overflow-hidden animate-in zoom-in-95 duration-300">
-      <header className="px-6 py-4 border-b border-outline-variant/10 flex items-center justify-between bg-surface-container-high shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-primary/20 text-primary flex items-center justify-center">
-            <span className="material-symbols-outlined text-sm">insights</span>
-          </div>
-          <div>
-            <h2 className="font-headline font-bold text-lg text-on-surface">Algorithm Trace</h2>
-            <p className="text-[11px] uppercase tracking-widest text-on-surface-variant">Execution details for the selected response</p>
-          </div>
-        </div>
-        <button
-          onClick={onClose}
-          className="w-8 h-8 flex items-center justify-center text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest transition-colors rounded-full"
-          aria-label="Close trace panel"
-        >
-          <span className="material-symbols-outlined text-sm">close</span>
-        </button>
-      </header>
-
-      <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
+const RagTracePanel: FC<{ traceMsg: Message; onClose: () => void }> = ({ traceMsg, onClose }) => {
+  const { t } = useTranslation();
+  return <DetailPanel title={t('detail.traceTitle')} onClose={onClose} closeLabel={t('detail.closeTrace')}
+    summary={<div>
         <div className="space-y-3">
           <h3 className="font-headline font-bold text-sm text-primary uppercase tracking-widest flex items-center gap-2">
             <span className="material-symbols-outlined text-base">route</span>
@@ -175,6 +159,8 @@ const RagTracePanel: FC<{ traceMsg: Message; onClose: () => void }> = ({ traceMs
           </div>
         </div>
 
+    </div>}
+    history={traceMsg.ragMeta?.stages?.length ? <div>
         {traceMsg.ragMeta?.stages && traceMsg.ragMeta.stages.length > 0 && (
           <div className="space-y-3">
             <h3 className="font-headline font-bold text-sm text-primary uppercase tracking-widest flex items-center gap-2">
@@ -187,6 +173,8 @@ const RagTracePanel: FC<{ traceMsg: Message; onClose: () => void }> = ({ traceMs
             </div>
           </div>
         )}
+    </div> : null}
+    details={<div className="space-y-8">
 
         {(() => {
           const funnel = traceMsg.ragMeta?.stages ? buildFunnel(traceMsg.ragMeta.stages) : [];
@@ -295,6 +283,7 @@ const RagTracePanel: FC<{ traceMsg: Message; onClose: () => void }> = ({ traceMs
                          )}
                        </span>
                      </div>
+                     <SourceDocumentButton fileName={src.sourceFile} collection={traceMsg.params?.collection} />
                      <p className="text-on-surface-variant line-clamp-2" title={src.text || src.preview}>{src.text || src.preview}</p>
                   </div>
                  );
@@ -302,9 +291,8 @@ const RagTracePanel: FC<{ traceMsg: Message; onClose: () => void }> = ({ traceMs
             </div>
           </div>
         )}
-      </div>
-    </div>
-  </div>
-);
+    </div>}
+    actions={<button type="button" className="rounded-lg border border-outline-variant/40 px-3 py-2 text-sm" onClick={onClose}>{t('detail.close')}</button>} />;
+};
 
 export default RagTracePanel;

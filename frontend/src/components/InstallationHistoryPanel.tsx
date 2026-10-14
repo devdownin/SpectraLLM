@@ -1,3 +1,4 @@
+import { StatusBadge } from './ui';
 import type { FC } from 'react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -15,14 +16,6 @@ import { apiErrorMessage } from '../lib/apiError';
  * (« Interrompu par un redémarrage du serveur ») plutôt que figé à jamais.
  */
 
-const STATUS_STYLE: Record<string, string> = {
-  COMPLETED: 'border-primary text-primary',
-  FAILED: 'border-error text-error',
-  CANCELLED: 'border-outline-variant/40 text-outline',
-  DOWNLOADING: 'border-secondary text-secondary',
-  REGISTERING: 'border-secondary text-secondary',
-  PENDING: 'border-outline-variant/40 text-outline',
-};
 
 const formatDate = (iso?: string) => {
   if (!iso) return '';
@@ -121,9 +114,7 @@ const InstallationHistoryPanel: FC = () => {
                     {t('installs.retry')}
                   </button>
                 )}
-                <span className={`px-1.5 py-0.5 border text-[11px] font-black uppercase tracking-widest ${STATUS_STYLE[j.status] ?? 'border-outline-variant/40 text-outline'}`}>
-                  {j.status}
-                </span>
+                <StatusBadge status={j.status} />
               </div>
             </div>
           ))}
