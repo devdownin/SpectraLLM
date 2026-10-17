@@ -47,7 +47,7 @@ Then open **http://localhost**. The full walkthrough lives on the [backend image
 |---|---|
 | `latest` | The most recent release. |
 | `0.11` | The 0.11 series. |
-| `0.11.0` | An exact version. **Pin this in production.** |
+| `0.11.2` | An exact version. **Pin this in production.** |
 
 **Architectures:** `linux/amd64` and `linux/arm64`.
 
