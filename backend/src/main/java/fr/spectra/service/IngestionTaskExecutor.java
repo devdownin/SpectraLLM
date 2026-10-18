@@ -372,12 +372,13 @@ public class IngestionTaskExecutor {
                               String fileName, IntConsumer progress) {
         int embedded = 0;
         String error = null;
+        EmbeddingPromptScheme scheme = EmbeddingPromptScheme.orNone(chromaDbClient.promptScheme(collectionName));
         for (int i = 0; i < chunks.size(); i += embeddingBatchSize) {
             int end = Math.min(i + embeddingBatchSize, chunks.size());
             List<TextChunk> batch = chunks.subList(i, end);
             try {
                 List<List<Float>> batchEmbeddings = embeddingService.embedBatch(
-                        batch.stream().map(TextChunk::text).toList());
+                        scheme.documents(batch.stream().map(TextChunk::text).toList()));
                 chromaDbClient.addDocuments(collectionId, batch, batchEmbeddings);
                 embedded += batch.size();
                 progress.accept(batch.size());

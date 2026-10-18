@@ -81,6 +81,8 @@ public class EmbeddingReindexService {
     private void run(String collection, String targetModel) {
         try {
             String collectionId = chromaDbClient.resolveCollectionIdUnchecked(collection);
+            // Passages ré-embeddés avec le schéma du modèle cible : updateEmbeddingStamp l'estampille.
+            EmbeddingPromptScheme scheme = EmbeddingPromptScheme.detect(targetModel);
             int total = chromaDbClient.count(collectionId);
             update(collection, s -> s.withTotal(total));
 
@@ -107,7 +109,7 @@ public class EmbeddingReindexService {
                 }
 
                 if (!embeddableIds.isEmpty()) {
-                    List<List<Float>> embeddings = embeddingService.embedBatch(embeddableTexts);
+                    List<List<Float>> embeddings = embeddingService.embedBatch(scheme.documents(embeddableTexts));
                     chromaDbClient.updateEmbeddings(collectionId, embeddableIds, embeddings);
                 }
 

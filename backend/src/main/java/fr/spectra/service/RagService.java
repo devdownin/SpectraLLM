@@ -75,6 +75,7 @@ public class RagService {
 
     private static final Logger log = LoggerFactory.getLogger(RagService.class);
     private static final String COLLECTION_NAME = "spectra_documents";
+    private static final int RRF_K = 60;
 
     // Consignes RAG et bloc de contexte : voir fr.spectra.model.RagPromptFormat. La mise en forme
     // a été SORTIE d'ici parce qu'elle est aussi celle sur laquelle le modèle doit être entraîné
@@ -905,8 +906,8 @@ public class RagService {
 
         if (useReranker && !allChunks.isEmpty()) {
             try {
-                List<RerankerClient.RankedResult> ranked = rerankerClient.get()
-                        .rerank(retrievalQuestion, allChunks, request.maxContextChunks());
+                List<RerankerClient.RankedResult> ranked = applyRerankThreshold(rerankerClient.get()
+                        .rerank(retrievalQuestion, allChunks, request.maxContextChunks()));
                 contextChunks  = new ArrayList<>(ranked.size());
                 chunkMetadatas = new ArrayList<>(ranked.size());
                 chunkDistances = new ArrayList<>(ranked.size());
@@ -964,6 +965,23 @@ public class RagService {
     }
 
     // ── Helpers privés ─────────────────────────────────────────────────────────
+
+    /**
+     * Écarte les chunks dont le score du cross-encoder est sous {@code spectra.reranker.min-score}.
+     * Le cross-encoder juge la paire (question, passage) : c'est le signal le plus fiable dont
+     * dispose le pipeline pour décider qu'un passage est hors sujet, bien plus que la distance
+     * vectorielle, dont l'échelle varie d'un modèle et d'un corpus à l'autre.
+     */
+    private List<RerankerClient.RankedResult> applyRerankThreshold(List<RerankerClient.RankedResult> ranked) {
+        Float minScore = props.reranker() != null ? props.reranker().minScore() : null;
+        if (minScore == null) return ranked;
+        List<RerankerClient.RankedResult> kept = ranked.stream().filter(r -> r.score() >= minScore).toList();
+        if (kept.size() < ranked.size()) {
+            meterRegistry.counter("spectra.rag.rerank.below_threshold").increment(ranked.size() - kept.size());
+            log.info("Re-ranking : {} chunk(s) sous le seuil {} écarté(s)", ranked.size() - kept.size(), minScore);
+        }
+        return kept;
+    }
 
     /** Résultat de l'étape Corrective RAG : contexte éventuellement filtré/complété. */
     private record CorrectiveOutcome(RagContext ctx, boolean applied) {}
@@ -1177,7 +1195,8 @@ public class RagService {
         List<Float> embedding;
         boolean lexicalFallback = false;
         try {
-            embedding = embeddingService.embed(question);
+            embedding = embeddingService.embed(EmbeddingPromptScheme.orNone(
+                    chromaDbClient.promptScheme(collectionName)).query(question));
             if (embedding == null || embedding.isEmpty()) {
                 throw new IllegalStateException("Embedding de requête absent");
             }
@@ -1212,8 +1231,11 @@ public class RagService {
         } else {
             ChromaQueryResult result = ChromaQueryResult.from(
                     chromaDbClient.query(collectionId, embedding, retrieveCount));
+            // Score RRF de rang (k=60) : permet la fusion multi-query par RRF aussi en vectoriel pur.
+            List<Double> rrf = new ArrayList<>(result.documents().size());
+            for (int rank = 1; rank <= result.documents().size(); rank++) rrf.add(1.0 / (RRF_K + rank));
             return new SingleQueryResult(result.documents(), result.metadatas(), result.distances(),
-                    null, null, false);
+                    null, rrf, false);
         }
     }
 
@@ -1226,7 +1248,10 @@ public class RagService {
      * un chunk retrouvé par plusieurs reformulations est renforcé) et le tri final se fait par
      * score RRF décroissant. Trier par distance vectorielle écraserait le classement hybride :
      * les chunks issus du BM25 seul portent une distance sentinelle (1.0) qui les reléguait
-     * systématiquement en queue. En vectoriel pur (pas de RRF), tri par distance croissante.</p>
+     * systématiquement en queue. En vectoriel pur, le score RRF est celui du rang vectoriel : la
+     * fusion RAG-Fusion récompense ainsi un chunk retrouvé par plusieurs variantes, là où un tri
+     * par meilleure distance favorisait le chunk d'une seule variante, éventuellement dérivée.
+     * Repli sur la distance croissante si un résultat ne porte pas de score RRF.</p>
      *
      * <p>Le résultat est limité à {@code retrieveCount} chunks.</p>
      */

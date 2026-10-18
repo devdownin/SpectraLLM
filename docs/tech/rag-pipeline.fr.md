@@ -83,6 +83,15 @@ suppression et la mise à jour *par source* (delete-by-source puis réindexation
 `spectra.pipeline.chunk-max-tokens` (défaut **512**) ·
 `spectra.pipeline.chunk-overlap-tokens` (défaut **64**).
 
+**Préfixes d'instruction.** Les modèles d'embedding récents sont asymétriques : nomic-embed-text
+(modèle par défaut) attend `search_query: ` devant la question et `search_document: ` devant le
+chunk, E5 `query: ` / `passage: `, Qwen3-Embedding une instruction côté requête. Sans eux, le
+rappel chute sans aucune erreur. Le schéma est déduit du modèle actif et **estampillé sur la
+collection** (`spectra:embedding-prompts`) : requêtes et ajouts suivent toujours l'estampille,
+donc une collection indexée avant ce mécanisme reste cohérente — sa ré-indexation la fait
+passer aux préfixes.
+[`EmbeddingPromptScheme`](../../backend/src/main/java/fr/spectra/service/EmbeddingPromptScheme.java).
+
 ---
 
 ## 2. Multi-Query — élargir le rappel
@@ -167,6 +176,11 @@ par défaut dans la stack le modèle **multilingue** `cross-encoder/mmarco-mMini
 (adapté aux corpus français ; repli interne du service : `ms-marco-MiniLM-L-6-v2`) ·
 `spectra.reranker.top-candidates` (env `SPECTRA_RERANKER_TOP_CANDIDATES`, défaut **20**) ·
 timeout **30 s**.
+
+**Seuil d'abstention.** `spectra.reranker.min-score` (env `SPECTRA_RERANKER_MIN_SCORE`, vide par
+défaut) écarte les chunks que le cross-encoder juge hors sujet. Si aucun ne passe, le RAG répond
+qu'il n'a rien trouvé plutôt que de générer une réponse « sourcée » à partir de passages sans
+rapport. Le seuil se cale par ablation (0,1 à 0,3 en sigmoïde pour commencer).
 
 ---
 

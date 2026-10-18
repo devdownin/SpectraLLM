@@ -232,4 +232,98 @@ class RagServiceRetrievalTest {
         assertThat(ctx.contextChunks()).containsExactly("petit chunk 1", "petit chunk 2");
         verify(chromaDbClient, never()).query(anyString(), any(), anyInt());
     }
+
+    // ── Fusion multi-query RRF en vectoriel pur ──────────────────────────────
+
+    private static Map<String, Object> vectorResults(List<String> texts, List<Double> distances) {
+        return Map.of(
+                "documents", List.of(texts),
+                "metadatas", List.of(texts.stream().map(t -> Map.of("sourceFile", "doc.txt")).toList()),
+                "distances", List.of(distances));
+    }
+
+    @Test
+    void multiQueryVector_mergeRewardsChunksFoundBySeveralVariants() {
+        when(multiQueryService.generateQueries(anyString()))
+                .thenReturn(List.of("Quelles normes ?", "variante"));
+        when(embeddingService.embed("Quelles normes ?")).thenReturn(List.of(1f));
+        when(embeddingService.embed("variante")).thenReturn(List.of(2f));
+        when(chromaDbClient.query(eq("col-1"), eq(List.of(1f)), anyInt()))
+                .thenReturn(vectorResults(List.of("x", "y"), List.of(0.10, 0.20)));
+        when(chromaDbClient.query(eq("col-1"), eq(List.of(2f)), anyInt()))
+                .thenReturn(vectorResults(List.of("z", "y"), List.of(0.05, 0.30)));
+
+        RagService.RagContext ctx = ragService(Optional.empty(), Optional.of(multiQueryService))
+                .retrieveContext(request());
+
+        // RRF : y = 2/(60+2) > x = z = 1/(60+1). Le tri par meilleure distance donnait z, x, y.
+        assertThat(ctx.contextChunks()).containsExactly("y", "x", "z");
+    }
+
+    // ── Préfixes d'instruction d'embedding ───────────────────────────────────
+
+    @Test
+    void queryEmbedding_usesPromptSchemeStampedOnCollection() {
+        when(chromaDbClient.promptScheme(anyString())).thenReturn(EmbeddingPromptScheme.NOMIC);
+        when(chromaDbClient.query(eq("col-1"), anyList(), anyInt())).thenReturn(vectorResult("chunk"));
+
+        ragService(Optional.empty(), Optional.empty()).retrieveContext(request());
+
+        verify(embeddingService).embed("search_query: Quelles normes ?");
+    }
+
+    // ── Seuil de pertinence du reranker ──────────────────────────────────────
+
+    private RagService ragServiceWithReranker(RerankerClient reranker, Float minScore) {
+        when(props.reranker()).thenReturn(new SpectraProperties.RerankerProperties(
+                true, null, null, null, 20, "onnx", null, minScore));
+        when(reranker.isAvailable()).thenReturn(true);
+        return new RagService(
+                chromaDbClient, embeddingService, llmChatClient,
+                Optional.of(reranker), Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.empty(), Optional.empty(),
+                defaultProfiles(), props, new ObjectMapper(),
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
+    }
+
+    @Test
+    void rerankThreshold_dropsChunksScoredBelowMinScore() {
+        RerankerClient reranker = org.mockito.Mockito.mock(RerankerClient.class);
+        when(chromaDbClient.query(eq("col-1"), anyList(), anyInt()))
+                .thenReturn(vectorResults(List.of("pertinent", "hors-sujet"), List.of(0.2, 0.3)));
+        when(reranker.rerank(anyString(), anyList(), anyInt())).thenReturn(List.of(
+                new RerankerClient.RankedResult(0, 0.92f), new RerankerClient.RankedResult(1, 0.04f)));
+
+        RagService.RagContext ctx = ragServiceWithReranker(reranker, 0.2f).retrieveContext(request());
+
+        assertThat(ctx.contextChunks()).containsExactly("pertinent");
+        assertThat(ctx.rerankScores()).containsExactly(0.92f);
+    }
+
+    @Test
+    void rerankThreshold_nothingRelevant_answersWithoutCallingTheLlm() {
+        RerankerClient reranker = org.mockito.Mockito.mock(RerankerClient.class);
+        when(chromaDbClient.query(eq("col-1"), anyList(), anyInt())).thenReturn(vectorResult("hors-sujet"));
+        when(reranker.rerank(anyString(), anyList(), anyInt()))
+                .thenReturn(List.of(new RerankerClient.RankedResult(0, 0.01f)));
+
+        QueryResponse resp = ragServiceWithReranker(reranker, 0.2f).query(request());
+
+        assertThat(resp.sources()).isEmpty();
+        assertThat(resp.answer()).startsWith("Aucun document pertinent");
+        verify(llmChatClient, never()).chat(anyString(), anyString(), anyFloat(), anyFloat());
+    }
+
+    @Test
+    void rerankThreshold_unsetKeepsEveryRerankedChunk() {
+        RerankerClient reranker = org.mockito.Mockito.mock(RerankerClient.class);
+        when(chromaDbClient.query(eq("col-1"), anyList(), anyInt())).thenReturn(vectorResult("faible"));
+        when(reranker.rerank(anyString(), anyList(), anyInt()))
+                .thenReturn(List.of(new RerankerClient.RankedResult(0, 0.01f)));
+
+        RagService.RagContext ctx = ragServiceWithReranker(reranker, null).retrieveContext(request());
+
+        assertThat(ctx.contextChunks()).containsExactly("faible");
+    }
 }

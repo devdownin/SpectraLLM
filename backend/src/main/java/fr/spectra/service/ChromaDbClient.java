@@ -57,6 +57,8 @@ public class ChromaDbClient {
 
     /** Clé de métadonnée portant le modèle d'embedding qui a indexé la collection. */
     public static final String EMBEDDING_MODEL_METADATA_KEY = "spectra:embedding-model";
+    /** Clé de métadonnée portant le schéma de préfixes d'instruction ({@link EmbeddingPromptScheme}). */
+    public static final String EMBEDDING_PROMPTS_METADATA_KEY = "spectra:embedding-prompts";
 
     // Timeouts adaptés à chaque opération
     private static final Duration TIMEOUT_DEFAULT  = Duration.ofSeconds(10);
@@ -82,6 +84,8 @@ public class ChromaDbClient {
     private final ConcurrentHashMap<String, CollectionRef> collectionCache = new ConcurrentHashMap<>();
     // Collections legacy (sans estampille) déjà signalées, pour ne logger l'avertissement qu'une fois
     private final java.util.Set<String> warnedUnstamped = ConcurrentHashMap.newKeySet();
+    // Collections indexées sans les préfixes qu'attend le modèle actif, déjà signalées
+    private final java.util.Set<String> warnedPromptScheme = ConcurrentHashMap.newKeySet();
 
     public ChromaDbClient(@Qualifier("chromaDbWebClient") WebClient webClient,
                           SpectraProperties properties,
@@ -142,7 +146,32 @@ public class ChromaDbClient {
         }
 
         verifyEmbeddingModel(name, ref.embeddingModel());
+        warnIfPromptSchemeOutdated(name, ref.promptScheme());
         return ref.id();
+    }
+
+    /**
+     * Schéma de préfixes d'instruction avec lequel la collection a été indexée — à appliquer
+     * aux requêtes ET aux ajouts pour rester dans le même espace. {@link EmbeddingPromptScheme#NONE}
+     * pour une collection inconnue du cache ou antérieure à l'estampille.
+     */
+    public EmbeddingPromptScheme promptScheme(String collectionName) {
+        CollectionRef ref = collectionName != null ? collectionCache.get(collectionName) : null;
+        return ref != null ? ref.promptScheme() : EmbeddingPromptScheme.NONE;
+    }
+
+    private void warnIfPromptSchemeOutdated(String name, EmbeddingPromptScheme stamped) {
+        EmbeddingPromptScheme expected = activePromptScheme();
+        if (expected != stamped && warnedPromptScheme.add(name)) {
+            log.warn("Collection '{}' indexée avec le schéma de préfixes {} alors que le modèle d'embedding "
+                    + "actif attend {} : le schéma de la collection est conservé (cohérence), mais le rappel "
+                    + "est sous-optimal. Ré-indexez-la (POST /api/config/embedding-consistency/reindex).",
+                    name, stamped, expected);
+        }
+    }
+
+    private EmbeddingPromptScheme activePromptScheme() {
+        return EmbeddingPromptScheme.detect(modelRegistry != null ? modelRegistry.getActiveEmbeddingModel() : null);
     }
 
     /**
@@ -211,7 +240,8 @@ public class ChromaDbClient {
     private Map<String, Object> embeddingStamp() {
         String active = modelRegistry != null ? modelRegistry.getActiveEmbeddingModel() : null;
         return active != null && !active.isBlank()
-                ? Map.of(EMBEDDING_MODEL_METADATA_KEY, active)
+                ? Map.of(EMBEDDING_MODEL_METADATA_KEY, active,
+                         EMBEDDING_PROMPTS_METADATA_KEY, EmbeddingPromptScheme.detect(active).name())
                 : Map.of();
     }
 
@@ -240,7 +270,13 @@ public class ChromaDbClient {
         if (id == null) {
             throw new IllegalStateException("ChromaDB: champ 'id' absent de la réponse pour la collection '" + name + "'");
         }
-        return new CollectionRef(id, extractEmbeddingStamp(response));
+        return new CollectionRef(id, extractEmbeddingStamp(response), extractPromptScheme(response));
+    }
+
+    private static EmbeddingPromptScheme extractPromptScheme(Map<String, Object> collection) {
+        return collection.get("metadata") instanceof Map<?, ?> meta
+                ? EmbeddingPromptScheme.fromStamp(meta.get(EMBEDDING_PROMPTS_METADATA_KEY))
+                : EmbeddingPromptScheme.NONE;
     }
 
     /** Extrait l'estampille embedding des métadonnées d'une collection retournée par ChromaDB. */
@@ -287,7 +323,8 @@ public class ChromaDbClient {
     }
 
     /**
-     * Ré-estampille une collection avec un modèle d'embedding (fin de ré-indexation).
+     * Ré-estampille une collection avec un modèle d'embedding (fin de ré-indexation), ainsi que
+     * le schéma de préfixes de ce modèle : la ré-indexation a ré-embeddé les passages avec lui.
      * Les métadonnées existantes (réglages {@code hnsw:*} des collections legacy) sont
      * préservées : seule l'estampille change. Le cache local est mis à jour pour que
      * l'accès suivant reflète immédiatement la nouvelle estampille.
@@ -304,7 +341,9 @@ public class ChromaDbClient {
         if (current != null && current.get("metadata") instanceof Map<?, ?> existing) {
             existing.forEach((k, v) -> metadata.put(String.valueOf(k), v));
         }
+        EmbeddingPromptScheme scheme = EmbeddingPromptScheme.detect(embeddingModel);
         metadata.put(EMBEDDING_MODEL_METADATA_KEY, embeddingModel);
+        metadata.put(EMBEDDING_PROMPTS_METADATA_KEY, scheme.name());
 
         webClient.put()
                 .uri(COLLECTIONS_BASE + "/{id}", collectionId)
@@ -313,7 +352,8 @@ public class ChromaDbClient {
                 .bodyToMono(Void.class)
                 .block(TIMEOUT_DEFAULT);
 
-        collectionCache.put(collectionName, new CollectionRef(collectionId, embeddingModel));
+        collectionCache.put(collectionName, new CollectionRef(collectionId, embeddingModel, scheme));
+        warnedPromptScheme.remove(collectionName);
         log.info("Collection '{}' ré-estampillée avec le modèle d'embedding '{}'", collectionName, embeddingModel);
     }
 
@@ -635,8 +675,8 @@ public class ChromaDbClient {
         public EmbeddingModelMismatchException(String msg) { super(msg); }
     }
 
-    /** Référence de collection résolue : id ChromaDB + estampille embedding (nullable). */
-    private record CollectionRef(String id, String embeddingModel) {}
+    /** Référence de collection résolue : id ChromaDB + estampille embedding (nullable) + schéma de préfixes. */
+    private record CollectionRef(String id, String embeddingModel, EmbeddingPromptScheme promptScheme) {}
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 

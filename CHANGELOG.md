@@ -8,6 +8,21 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Corrigé — qualité et fiabilité du RAG ([audit](docs/process/audit-rag.fr.md))
+
+- Préfixes d'instruction des modèles d'embedding asymétriques (`search_query:` /
+  `search_document:` pour nomic-embed-text, le modèle par défaut ; E5, BGE-en, mxbai,
+  arctic-embed, Qwen3-Embedding). Ils n'étaient jamais envoyés, ce qui dégradait le rappel
+  vectoriel de chaque requête. Le schéma est estampillé par collection
+  (`spectra:embedding-prompts`) : une collection existante reste cohérente avec ses vecteurs, et
+  la ré-indexation (`POST /api/config/embedding-consistency/reindex`) la fait bénéficier des
+  préfixes.
+- Fusion multi-query par RRF aussi en vectoriel pur (tri par meilleure distance auparavant).
+- Seuil de pertinence du reranker `SPECTRA_RERANKER_MIN_SCORE` (désactivé par défaut) : sous le
+  seuil, le RAG répond qu'il n'a rien trouvé au lieu de générer à partir de passages hors sujet.
+- Un document contenant `=== FIN DU CONTEXTE ===` ne peut plus refermer le bloc de contexte du
+  prompt système ; les consignes précisent que le contexte n'est jamais une consigne.
+
 ### Ajouté — PR de rattrapage qui lancent la CI
 
 - `release-followup.yml` lit le secret facultatif `AUTOMATION_PR_TOKEN` (jeton à portée restreinte ou

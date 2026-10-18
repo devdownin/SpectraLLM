@@ -162,5 +162,51 @@ class ChromaDbClientTest {
 
         assertThat(client.getOrCreateCollection("legacy")).isEqualTo("col-4");
     }
+
+    @Test
+    void getOrCreateCollection_estampilleLeSchemaDePrefixesDuModeleActif() throws Exception {
+        server.enqueue(new MockResponse()
+                .setHeader("Content-Type", "application/json")
+                .setBody("{\"id\":\"col-5\",\"metadata\":{\"spectra:embedding-model\":\"nomic-embed-text\","
+                        + "\"spectra:embedding-prompts\":\"NOMIC\"}}"));
+
+        client.getOrCreateCollection("neuve");
+
+        JsonNode body = new ObjectMapper().readTree(server.takeRequest(5, TimeUnit.SECONDS).getBody().readUtf8());
+        assertThat(body.path("metadata").path(ChromaDbClient.EMBEDDING_PROMPTS_METADATA_KEY).asText())
+                .isEqualTo("NOMIC");
+        assertThat(client.promptScheme("neuve")).isEqualTo(EmbeddingPromptScheme.NOMIC);
+    }
+
+    @Test
+    void collectionIndexeeSansPrefixes_conserveSonSchemaPourResterCoherente() {
+        // Collection antérieure aux préfixes : ses passages ont été embeddés bruts, ses requêtes
+        // doivent donc l'être aussi — même si le modèle actif attend des préfixes.
+        server.enqueue(new MockResponse()
+                .setHeader("Content-Type", "application/json")
+                .setBody("{\"id\":\"col-6\",\"metadata\":{\"spectra:embedding-model\":\"nomic-embed-text\"}}"));
+
+        client.getOrCreateCollection("historique");
+
+        assertThat(client.promptScheme("historique")).isEqualTo(EmbeddingPromptScheme.NONE);
+        assertThat(client.promptScheme("inconnue")).isEqualTo(EmbeddingPromptScheme.NONE);
+    }
+
+    @Test
+    void updateEmbeddingStamp_passeLaCollectionAuSchemaDuModeleReindexe() throws Exception {
+        server.enqueue(new MockResponse()
+                .setHeader("Content-Type", "application/json")
+                .setBody("{\"id\":\"col-7\",\"metadata\":{\"hnsw:space\":\"cosine\"}}"));
+        server.enqueue(new MockResponse().setResponseCode(200));
+
+        client.updateEmbeddingStamp("reindexee", "col-7", "nomic-embed-text");
+
+        server.takeRequest(5, TimeUnit.SECONDS);
+        JsonNode put = new ObjectMapper().readTree(server.takeRequest(5, TimeUnit.SECONDS).getBody().readUtf8());
+        assertThat(put.path("new_metadata").path("hnsw:space").asText()).isEqualTo("cosine");
+        assertThat(put.path("new_metadata").path(ChromaDbClient.EMBEDDING_PROMPTS_METADATA_KEY).asText())
+                .isEqualTo("NOMIC");
+        assertThat(client.promptScheme("reindexee")).isEqualTo(EmbeddingPromptScheme.NOMIC);
+    }
 }
 

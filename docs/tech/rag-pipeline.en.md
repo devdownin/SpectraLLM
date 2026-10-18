@@ -83,6 +83,14 @@ update possible (delete-by-source then reindex) on the vector side.
 `spectra.pipeline.chunk-max-tokens` (default **512**) ·
 `spectra.pipeline.chunk-overlap-tokens` (default **64**).
 
+**Instruction prefixes.** Recent embedding models are asymmetric: nomic-embed-text (the default)
+expects `search_query: ` before the question and `search_document: ` before the chunk, E5
+`query: ` / `passage: `, Qwen3-Embedding a query-side instruction. Without them recall drops with
+no error at all. The scheme is derived from the active model and **stamped on the collection**
+(`spectra:embedding-prompts`): queries and additions always follow the stamp, so a collection
+indexed before this mechanism stays consistent — reindexing it switches it to the prefixes.
+[`EmbeddingPromptScheme`](../../backend/src/main/java/fr/spectra/service/EmbeddingPromptScheme.java).
+
 ---
 
 ## 2. Multi-Query — widen recall
@@ -167,6 +175,11 @@ by default in the stack the **multilingual** model `cross-encoder/mmarco-mMiniLM
 (suited to French corpora; the service's internal fallback: `ms-marco-MiniLM-L-6-v2`) ·
 `spectra.reranker.top-candidates` (env `SPECTRA_RERANKER_TOP_CANDIDATES`, default **20**) ·
 **30 s** timeout.
+
+**Abstention threshold.** `spectra.reranker.min-score` (env `SPECTRA_RERANKER_MIN_SCORE`, empty by
+default) drops chunks the cross-encoder judges off-topic. When none passes, the RAG says it found
+nothing instead of generating a "sourced" answer from unrelated passages. Tune it by ablation
+(0.1–0.3 on the sigmoid scale to start).
 
 ---
 

@@ -158,8 +158,20 @@ public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, 
              * (cf. docs/process/audit-python-java.fr.md, lot 2).
              */
             String engine,
-            OnnxRerankerProperties onnx
+            OnnxRerankerProperties onnx,
+            /**
+             * Score minimal (barème du moteur : [0,1] en activation {@code sigmoid}) d'un chunk
+             * re-classé pour entrer dans le contexte. {@code null} = pas de seuil. Si aucun chunk
+             * ne l'atteint, le RAG répond qu'il n'a rien trouvé au lieu de générer à partir de
+             * passages hors sujet — première source d'hallucination « sourcée ».
+             */
+            Float minScore
     ) {
+        public RerankerProperties(Boolean enabled, String baseUrl, String model, Integer timeoutSeconds,
+                                  Integer topCandidates, String engine, OnnxRerankerProperties onnx) {
+            this(enabled, baseUrl, model, timeoutSeconds, topCandidates, engine, onnx, null);
+        }
+
         public boolean isEnabled() { return Boolean.TRUE.equals(enabled); }
         public String effectiveBaseUrl() { return baseUrl != null ? baseUrl : "http://reranker:8000"; }
         public String effectiveModel() { return model != null ? model : "cross-encoder/ms-marco-MiniLM-L-6-v2"; }
