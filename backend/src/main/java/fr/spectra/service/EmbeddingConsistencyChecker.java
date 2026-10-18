@@ -57,12 +57,18 @@ public class EmbeddingConsistencyChecker {
      * Compare l'estampille embedding de chaque collection au modèle actif.
      *
      * @return le rapport par collection : {@code name}, {@code status} (OK | MISMATCH |
-     *         UNSTAMPED), {@code indexedWith} (estampille, absente si UNSTAMPED)
+     *         UNSTAMPED), {@code indexedWith} (estampille, absente si UNSTAMPED), {@code contract}
+     *         (préfixes/version de texte des vecteurs, ex. {@code NONE/v1}) et
+     *         {@code reindexRecommended} quand ce contrat est antérieur au contrat courant du modèle
+     *         — la collection reste servie, mais avec un rappel dégradé ; {@code reindexRecommended}
+     *         au niveau du rapport compte ces collections.
      */
     public Map<String, Object> verify() {
         String active = modelRegistry.getActiveEmbeddingModel();
         List<Map<String, Object>> collections = new ArrayList<>();
         int mismatches = 0;
+        int outdated = 0;
+        String currentContract = EmbeddingContract.current(active, EmbeddingContract.DEFAULT_SERVER_MAX_INPUT_TOKENS).label();
 
         for (Map<String, Object> collection : chromaDbClient.listCollections()) {
             String name = String.valueOf(collection.get("name"));
@@ -70,12 +76,18 @@ public class EmbeddingConsistencyChecker {
 
             Map<String, Object> entry = new LinkedHashMap<>();
             entry.put("name", name);
+            EmbeddingContract contract = contractOf(collection, stamped != null && !stamped.isBlank() ? stamped : active);
+            entry.put("contract", contract.label());
             if (stamped == null || stamped.isBlank()) {
                 entry.put("status", STATUS_UNSTAMPED);
             } else {
                 entry.put("indexedWith", stamped);
                 boolean ok = stamped.equals(active);
                 entry.put("status", ok ? STATUS_OK : STATUS_MISMATCH);
+                if (ok && !contract.isCurrentFor(active)) {
+                    entry.put("reindexRecommended", true);
+                    outdated++;
+                }
                 if (!ok) {
                     mismatches++;
                     log.error("Collection '{}' indexée avec le modèle d'embedding '{}' mais le modèle "
@@ -93,9 +105,19 @@ public class EmbeddingConsistencyChecker {
 
         Map<String, Object> report = new LinkedHashMap<>();
         report.put("activeEmbeddingModel", active);
+        report.put("currentContract", currentContract);
         report.put("mismatches", mismatches);
+        report.put("reindexRecommended", outdated);
         report.put("collections", collections);
         return report;
+    }
+
+    private static EmbeddingContract contractOf(Map<String, Object> collection, String model) {
+        Map<?, ?> meta = collection.get("metadata") instanceof Map<?, ?> m ? m : Map.of();
+        return ChromaDbClient.contractOf(model,
+                EmbeddingPromptScheme.fromStamp(meta.get(ChromaDbClient.EMBEDDING_PROMPTS_METADATA_KEY)),
+                ChromaDbClient.textVersionOf(meta.get(ChromaDbClient.EMBEDDING_TEXT_VERSION_METADATA_KEY)),
+                EmbeddingContract.DEFAULT_SERVER_MAX_INPUT_TOKENS);
     }
 
     private static String extractStamp(Map<String, Object> collection) {

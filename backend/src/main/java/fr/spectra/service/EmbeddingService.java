@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Service métier pour la génération d'embeddings.
@@ -40,5 +41,16 @@ public class EmbeddingService {
             return List.of();
         }
         return client.embedBatch(texts);
+    }
+
+    /** Tokens de chaque texte selon le tokenizer du modèle servi ; vide si indisponible. */
+    public Optional<List<Integer>> countTokens(List<String> texts) {
+        if (texts == null || texts.isEmpty()) return Optional.of(List.of());
+        try {
+            return client.countTokens(texts);
+        } catch (RuntimeException e) {
+            log.warn("Comptage de tokens d'embedding indisponible : {}", e.getMessage());
+            return Optional.empty();
+        }
     }
 }

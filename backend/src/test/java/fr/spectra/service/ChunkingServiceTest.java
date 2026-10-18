@@ -170,4 +170,23 @@ class ChunkingServiceTest {
 
         assertThat(chunks.getFirst().metadata()).doesNotContainKey("section");
     }
+
+    // ── Taille garantie, chevauchement compris ──────────────────────────────
+
+    @Test
+    void overlapNeverPushesAChunkBeyondTheLimit() {
+        ChunkingService service = new ChunkingService();
+        var enc = com.knuddels.jtokkit.Encodings.newDefaultEncodingRegistry()
+                .getEncoding(com.knuddels.jtokkit.api.EncodingType.CL100K_BASE);
+        StringBuilder paragraphs = new StringBuilder();
+        // Paragraphes de ~500 tokens : avant correction, overlap (64) + paragraphe → 565 > 512.
+        for (int i = 0; i < 6; i++) paragraphs.append("mot ".repeat(500).strip()).append("\n\n");
+        String sentences = "Une phrase assez longue pour remplir le chunk rapidement. ".repeat(300);
+        String multibyte = "Événement à l'échéance réglée — ½ œuvre. ".repeat(400);
+
+        for (String text : List.of(paragraphs.toString(), sentences, multibyte)) {
+            assertThat(service.chunk(text, "a.txt", Map.of()))
+                    .allSatisfy(c -> assertThat(enc.countTokens(c.text())).isLessThanOrEqualTo(512));
+        }
+    }
 }

@@ -137,13 +137,13 @@ public class ChunkingService {
                 chunkSection = null;
 
                 // Chevauchement : on garde la fin du buffer précédent — seul point où le
-                // buffer complet est encodé (une fois par chunk émis, pas par paragraphe).
-                IntArrayList bufferTokens = encoding.encode(buffer.toString());
-                int startIdx = Math.max(0, bufferTokens.size() - overlapTokens);
-                String overlap = encoding.decode(subList(bufferTokens, startIdx, bufferTokens.size()));
+                // buffer complet est encodé (une fois par chunk émis, pas par paragraphe). Il
+                // est borné par la place que laisse le paragraphe suivant : un chevauchement
+                // plein devant un paragraphe presque plein donnait un chunk au-delà du maximum.
+                String overlap = overlapFor(buffer.toString(), maxChunkTokens - sepTokenCount - paraTokens.size());
                 buffer.setLength(0);
                 buffer.append(overlap);
-                bufferTokenCount = bufferTokens.size() - startIdx;
+                bufferTokenCount = overlap.isEmpty() ? 0 : encoding.countTokens(overlap);
             }
 
             if (!buffer.isEmpty()) {
@@ -256,13 +256,11 @@ public class ChunkingService {
                 chunks.add(createChunk(currentChunk.toString(), index++, sourceFile, meta, section));
 
                 // Application du chevauchement (overlap) — unique encodage du chunk complet,
-                // effectué une fois par chunk émis.
-                IntArrayList currentTokens = encoding.encode(currentChunk.toString());
-                int startIdx = Math.max(0, currentTokens.size() - overlapTokens);
-                String overlap = encoding.decode(subList(currentTokens, startIdx, currentTokens.size()));
+                // effectué une fois par chunk émis, borné par la place que laisse la phrase.
+                String overlap = overlapFor(currentChunk.toString(), maxChunkTokens - spaceTokenCount - sentenceTokens.size());
                 currentChunk.setLength(0);
                 currentChunk.append(overlap);
-                currentTokenCount = currentTokens.size() - startIdx;
+                currentTokenCount = overlap.isEmpty() ? 0 : encoding.countTokens(overlap);
             }
 
             if (!currentChunk.isEmpty() && !currentChunk.toString().endsWith(" ") && !sentence.startsWith(" ")) {
@@ -305,6 +303,21 @@ public class ChunkingService {
         }
 
         return chunks;
+    }
+
+    /**
+     * Fin du chunk précédent à reprendre en tête du suivant : au plus {@code overlapTokens}, et au
+     * plus {@code room} — la place laissée par le segment qui va suivre. Recomptée après décodage :
+     * une coupe au milieu d'un caractère multi-octets se ré-encode en plus de tokens qu'elle n'en
+     * occupait ; si elle ne tient plus, pas de chevauchement plutôt qu'un chunk trop long.
+     */
+    private String overlapFor(String previous, int room) {
+        int keep = Math.min(overlapTokens, room);
+        if (keep <= 0) return "";
+        IntArrayList tokens = encoding.encode(previous);
+        int start = Math.max(0, tokens.size() - keep);
+        String overlap = encoding.decode(subList(tokens, start, tokens.size()));
+        return encoding.countTokens(overlap) <= room ? overlap : "";
     }
 
     private IntArrayList subList(IntArrayList list, int from, int to) {

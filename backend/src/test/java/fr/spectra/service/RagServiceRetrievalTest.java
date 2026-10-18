@@ -264,7 +264,8 @@ class RagServiceRetrievalTest {
 
     @Test
     void queryEmbedding_usesPromptSchemeStampedOnCollection() {
-        when(chromaDbClient.promptScheme(anyString())).thenReturn(EmbeddingPromptScheme.NOMIC);
+        when(chromaDbClient.embeddingContract(anyString())).thenReturn(
+                EmbeddingContract.current("nomic-embed-text", 2048));
         when(chromaDbClient.query(eq("col-1"), anyList(), anyInt())).thenReturn(vectorResult("chunk"));
 
         ragService(Optional.empty(), Optional.empty()).retrieveContext(request());

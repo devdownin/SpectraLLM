@@ -74,4 +74,25 @@ class EmbeddingConsistencyCheckerTest {
         // Ne doit lever aucune exception (ChromaDB peut encore être en cours de boot).
         checker.checkOnStartup();
     }
+
+    @Test
+    void verify_recommendsReindexingCollectionsUnderAnOlderContract() {
+        when(chromaDbClient.listCollections()).thenReturn(List.of(
+                Map.of("name", "historique",
+                        "metadata", Map.of(ChromaDbClient.EMBEDDING_MODEL_METADATA_KEY, "nomic-embed-text")),
+                Map.of("name", "courante",
+                        "metadata", Map.of(ChromaDbClient.EMBEDDING_MODEL_METADATA_KEY, "nomic-embed-text",
+                                ChromaDbClient.EMBEDDING_PROMPTS_METADATA_KEY, "NOMIC",
+                                ChromaDbClient.EMBEDDING_TEXT_VERSION_METADATA_KEY, "2"))));
+
+        Map<String, Object> report = checker.verify();
+
+        assertThat(report.get("currentContract")).isEqualTo("NOMIC/v2");
+        assertThat(report.get("reindexRecommended")).isEqualTo(1);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> collections = (List<Map<String, Object>>) report.get("collections");
+        assertThat(collections.get(0)).containsEntry("status", "OK").containsEntry("contract", "NONE/v1")
+                .containsEntry("reindexRecommended", true);
+        assertThat(collections.get(1)).containsEntry("contract", "NOMIC/v2").doesNotContainKey("reindexRecommended");
+    }
 }

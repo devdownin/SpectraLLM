@@ -23,6 +23,21 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 - Un document contenant `=== FIN DU CONTEXTE ===` ne peut plus refermer le bloc de contexte du
   prompt système ; les consignes précisent que le contexte n'est jamais une consigne.
 
+### Corrigé — contrat d'embedding et taille des chunks
+
+- **Contrat d'embedding par modèle** (`EmbeddingContract`) : préfixes requête/document du contrat
+  officiel (nomic : `search_query:` / `search_document:`), fenêtre d'entrée du modèle (nomic :
+  2048 tokens sous llama.cpp, faute de RoPE YaRN), version de la construction du texte embeddé.
+- **Taille vérifiée avec le tokenizer servi** : chaque texte embeddé est compté par `/tokenize`
+  de llm-embed ; un chunk qui dépasse est redécoupé par phrases (ingestion) ou tronqué
+  (ré-indexation, texte stocké intact), une question trop longue est tronquée.
+  `SPECTRA_EMBEDDING_MAX_INPUT_TOKENS` donne la fenêtre servie (2048 = `-c 8192 / --parallel 4`).
+- **Le chevauchement ne fait plus déborder un chunk** : borné par la place que laisse le segment
+  suivant (un chunk atteignait 565 tokens pour une limite de 512).
+- **Ré-indexation versionnée** : estampille `spectra:embedding-text-version` ; le rapport
+  `GET /api/config/embedding-consistency` publie le contrat de chaque collection et
+  `reindexRecommended` ; le suivi de ré-indexation donne `fromContract` → `toContract`.
+
 ### Ajouté — RAG : recommandations A1 à A8 de l'audit
 
 - **Contexte hors du prompt système** (`SPECTRA_RAG_CONTEXT_PLACEMENT=user`, défaut) : les

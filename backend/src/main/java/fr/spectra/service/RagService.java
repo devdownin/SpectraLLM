@@ -147,6 +147,8 @@ public class RagService {
 
     private final ChromaDbClient chromaDbClient;
     private final EmbeddingService embeddingService;
+    /** Fenêtre d'embedding côté requête : une question collée très longue est tronquée, pas rejetée. */
+    private final EmbeddingInputGuard queryGuard;
     private final LlmChatClient llmClient;
     private final Optional<RerankerClient> rerankerClient;
     private final Optional<HybridSearchService> hybridSearchService;
@@ -181,6 +183,7 @@ public class RagService {
                       MeterRegistry meterRegistry) {
         this.chromaDbClient = chromaDbClient;
         this.embeddingService = embeddingService;
+        this.queryGuard = new EmbeddingInputGuard(embeddingService, false);
         this.llmClient = llmClient;
         this.rerankerClient = rerankerClient;
         this.hybridSearchService = hybridSearchService;
@@ -1214,8 +1217,8 @@ public class RagService {
         List<Float> embedding;
         boolean lexicalFallback = false;
         try {
-            embedding = embeddingService.embed(EmbeddingPromptScheme.orNone(
-                    chromaDbClient.promptScheme(collectionName)).query(question));
+            embedding = embeddingService.embed(queryGuard.queryText(question,
+                    EmbeddingContract.orDefault(chromaDbClient.embeddingContract(collectionName))));
             if (embedding == null || embedding.isEmpty()) {
                 throw new IllegalStateException("Embedding de requête absent");
             }
@@ -1507,8 +1510,8 @@ public class RagService {
     private List<Integer> selectByMmr(String collectionName, List<String> chunks, double threshold, double lambda) {
         List<List<Float>> vectors;
         try {
-            vectors = embeddingService.embedBatch(EmbeddingPromptScheme.orNone(
-                    chromaDbClient.promptScheme(collectionName)).documents(chunks));
+            vectors = embeddingService.embedBatch(EmbeddingContract.orDefault(
+                    chromaDbClient.embeddingContract(collectionName)).prompts().documents(chunks));
         } catch (RuntimeException e) {
             log.warn("MMR : embeddings des candidats indisponibles, contexte conservé tel quel — {}", e.getMessage());
             return identity(chunks.size());

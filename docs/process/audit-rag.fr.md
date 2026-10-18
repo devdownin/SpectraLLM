@@ -74,6 +74,37 @@ l'Agentic RAG), et les consignes précisent que le contexte est une donnée, jam
 La consigne étant partagée avec la génération du dataset (F14), les prochains fine-tunings
 l'apprennent aussi.
 
+## R5 — Contrat d'embedding, taille réelle des entrées, ré-indexation versionnée
+
+**Constats.**
+- Le chunking compte en **cl100k**, un vocabulaire que le modèle d'embedding n'utilise pas.
+  nomic-embed-text tokenise en WordPiece (BERT, anglais) : sur du français, nettement plus de
+  tokens pour le même texte, auxquels s'ajoutent préfixe de tâche et en-tête contextuel. Rien ne
+  vérifiait que le texte réellement embeddé tenait dans la fenêtre.
+- La fenêtre elle-même était mal connue : le GGUF officiel de nomic sert **2048 tokens** sous
+  llama.cpp (8192 seulement avec RoPE YaRN, que `llm-embed` ne configure pas), et `llm-embed`
+  partage `-c 8192` entre `--parallel 4` requêtes, soit 2048 par requête.
+- **Le chevauchement faisait déborder les chunks** : après un chunk émis, les 64 tokens repris
+  précédaient le paragraphe suivant sans revérifier la somme — jusqu'à 565 tokens pour une
+  limite de 512 (reproduit par `ChunkingServiceTest.overlapNeverPushesAChunkBeyondTheLimit`).
+
+**Corrections.**
+- `EmbeddingContract` : modèle, préfixes (`EmbeddingPromptScheme`, contrat officiel de chaque
+  famille), version de la construction du texte embeddé, fenêtre = min(limite de la famille,
+  `SPECTRA_EMBEDDING_MAX_INPUT_TOKENS`). Le contrat d'une collection se lit de ses estampilles ;
+  la fenêtre vient du modèle, pas des préfixes estampillés.
+- `EmbeddingInputGuard` : borne sûre sans appel (un token couvre au moins un octet UTF-8), sinon
+  comptage par `/tokenize` du GGUF servi ; redécoupage par phrases et renumérotation des
+  `chunkIndex` à l'ingestion, troncature du texte embeddé à la ré-indexation (identité figée,
+  texte stocké intact), troncature des questions trop longues. Tokenizer indisponible :
+  avertissement unique, rien n'est modifié.
+- `ChunkingService` : le chevauchement est borné par la place laissée au segment suivant, et
+  recompté après décodage (une coupe au milieu d'un caractère multi-octets se ré-encode plus long).
+- Ré-indexation versionnée : `spectra:embedding-text-version` (1 = texte brut, 2 = préfixe +
+  en-tête) ; `GET /api/config/embedding-consistency` publie `contract`, `currentContract` et
+  `reindexRecommended` ; la ré-indexation trace `fromContract` → `toContract` et estampille le
+  contrat courant en dernier.
+
 ## Recommandations A1 à A8 — implémentées
 
 Toutes se mesurent avec le harnais d'ablation (`POST /api/ablation`) avant d'être généralisées.

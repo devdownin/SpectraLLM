@@ -1,8 +1,5 @@
 package fr.spectra.service;
 
-import fr.spectra.model.TextChunk;
-
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -23,12 +20,6 @@ public final class ContextualHeader {
     public static String apply(String text, Map<String, ?> metadata) {
         String header = header(metadata);
         return header.isEmpty() ? text : header + text;
-    }
-
-    public static List<String> texts(List<TextChunk> chunks, boolean enabled) {
-        return chunks.stream()
-                .map(c -> enabled ? apply(c.text(), c.metadata()) : c.text())
-                .toList();
     }
 
     static String header(Map<String, ?> metadata) {

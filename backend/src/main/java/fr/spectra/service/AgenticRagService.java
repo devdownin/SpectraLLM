@@ -88,6 +88,8 @@ public class AgenticRagService {
 
     private final ChromaDbClient chromaDbClient;
     private final EmbeddingService embeddingService;
+    /** Fenêtre d'embedding côté requête : une question collée très longue est tronquée, pas rejetée. */
+    private final EmbeddingInputGuard queryGuard;
     private final LlmChatClient llmClient;
     private final Optional<RerankerClient> rerankerClient;
     private final Optional<HybridSearchService> hybridSearchService;
@@ -107,6 +109,7 @@ public class AgenticRagService {
                               MeterRegistry meterRegistry) {
         this.chromaDbClient = chromaDbClient;
         this.embeddingService = embeddingService;
+        this.queryGuard = new EmbeddingInputGuard(embeddingService, false);
         this.llmClient = llmClient;
         this.rerankerClient = rerankerClient;
         this.hybridSearchService = hybridSearchService;
@@ -344,8 +347,8 @@ public class AgenticRagService {
                                                            Set<String> seen) {
         List<RetrievedChunk> results = new ArrayList<>();
         try {
-            List<Float> embedding = embeddingService.embed(EmbeddingPromptScheme.orNone(
-                    chromaDbClient.promptScheme(collectionName)).query(query));
+            List<Float> embedding = embeddingService.embed(queryGuard.queryText(query,
+                    EmbeddingContract.orDefault(chromaDbClient.embeddingContract(collectionName))));
             int fetchN = maxChunks * 2; // fetch more to maximise novelty
 
             if (hybridSearchService.isPresent()) {

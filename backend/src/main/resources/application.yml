@@ -71,6 +71,11 @@ spectra:
       # Timeout des requêtes /v1/embeddings. Doit couvrir un lot complet
       # (embedding-batch-size × chunk-max-tokens) sur du CPU lent.
       timeout-seconds: ${SPECTRA_EMBEDDING_TIMEOUT:60}
+      # Fenêtre par requête servie par llm-embed, en tokens DU MODÈLE : -c / --parallel de
+      # llm-embed-entrypoint.sh (8192 / 4). Chaque texte embeddé (préfixe + en-tête + chunk) est
+      # vérifié contre min(cette valeur, limite du modèle) avec le tokenizer servi, et redécoupé
+      # s'il dépasse. À ajuster si LLM_EMBED_PARALLEL change.
+      max-input-tokens: ${SPECTRA_EMBEDDING_MAX_INPUT_TOKENS:2048}
     # Bascule du modèle actif par les harnais d'évaluation (ModelSwitchCoordinator) :
     # attente que llama-server serve RÉELLEMENT le modèle demandé avant de mesurer.
     # En mode conteneurs séparés, llm-chat suit le pointeur du registre (~10 s) puis

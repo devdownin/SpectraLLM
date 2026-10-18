@@ -85,8 +85,23 @@ public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, 
              * fichier réel (source servable) au lieu d'un simple alias sans chemin.
              */
             String file,
-            Integer timeoutSeconds
+            Integer timeoutSeconds,
+            /**
+             * Embedding : fenêtre par requête réellement servie par llama-server, en tokens du
+             * modèle ({@code -c} divisé par {@code --parallel}). Bornée ensuite par la limite de la
+             * famille de modèle ({@link fr.spectra.service.EmbeddingPromptScheme#maxInputTokens()}).
+             */
+            Integer maxInputTokens
     ) {
+        public EndpointProperties(String baseUrl, String model, String file, Integer timeoutSeconds) {
+            this(baseUrl, model, file, timeoutSeconds, null);
+        }
+
+        public int effectiveMaxInputTokens() {
+            return maxInputTokens != null && maxInputTokens > 0 ? maxInputTokens
+                    : fr.spectra.service.EmbeddingContract.DEFAULT_SERVER_MAX_INPUT_TOKENS;
+        }
+
         public int effectiveTimeoutSeconds(int fallback) {
             return timeoutSeconds != null ? timeoutSeconds : fallback;
         }

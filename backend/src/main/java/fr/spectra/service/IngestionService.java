@@ -90,7 +90,7 @@ public class IngestionService {
     private final ChromaDbClient chromaDbClient;
     private final FtsService ftsService;
     private final int embeddingBatchSize;
-    private final boolean contextualHeaders;
+    private final EmbeddingInputGuard inputGuard;
     /** Taille décompressée maximale par fichier local (mémoire ; garde-fou avant délégation). */
     private final long maxUncompressedBytes;
     /**
@@ -178,7 +178,8 @@ public class IngestionService {
                 "ingestion");
         this.taskRepository = taskRepository;
         this.embeddingBatchSize = properties.pipeline().embeddingBatchSize();
-        this.contextualHeaders = properties.rag() == null || properties.rag().contextualHeadersEnabled();
+        this.inputGuard = new EmbeddingInputGuard(embeddingService,
+                properties.rag() == null || properties.rag().contextualHeadersEnabled());
         this.defaultCollection = properties.chromadb() != null
                 ? properties.chromadb().effectiveCollection()
                 : DEFAULT_COLLECTION;
@@ -763,7 +764,8 @@ public class IngestionService {
         Map<String, String> metadata = new java.util.HashMap<>(doc.metadata());
         metadata.put("ingestedAt", Instant.now().toString());
         if (extraMetadata != null) metadata.putAll(extraMetadata);
-        List<TextChunk> chunks = chunkingService.chunk(cleanedText, sourceKey, metadata);
+        List<TextChunk> chunks = inputGuard.fit(chunkingService.chunk(cleanedText, sourceKey, metadata),
+                EmbeddingContract.orDefault(chromaDbClient.embeddingContract(collectionName)));
 
         // 2. Tombstone : plus de contenu → suppression pure
         if (chunks.isEmpty()) {
@@ -828,12 +830,12 @@ public class IngestionService {
 
     /** Embed les chunks par lot et les indexe dans ChromaDB puis BM25. */
     private void embedAndIndex(String collectionId, String collectionName, List<TextChunk> chunks) {
-        EmbeddingPromptScheme scheme = EmbeddingPromptScheme.orNone(chromaDbClient.promptScheme(collectionName));
+        EmbeddingContract contract = EmbeddingContract.orDefault(chromaDbClient.embeddingContract(collectionName));
         for (int i = 0; i < chunks.size(); i += embeddingBatchSize) {
             int end = Math.min(i + embeddingBatchSize, chunks.size());
             List<TextChunk> batch = chunks.subList(i, end);
             List<List<Float>> batchEmbeddings = embeddingService.embedBatch(
-                    scheme.documents(ContextualHeader.texts(batch, contextualHeaders)));
+                    inputGuard.documentTexts(batch, contract));
             chromaDbClient.addDocuments(collectionId, batch, batchEmbeddings);
         }
         ftsService.indexChunks(chunks, collectionName);
