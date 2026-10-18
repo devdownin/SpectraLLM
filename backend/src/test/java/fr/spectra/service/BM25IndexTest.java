@@ -274,4 +274,37 @@ class BM25IndexTest {
 
         assertThat(results).extracting(BM25Index.ScoredDoc::id).containsExactlyInAnyOrder("d2", "d3");
     }
+
+    @Test
+    void header_questionNommantLaSection_remonteSesChunks_sansAltererLeTexteCite() {
+        index.add("d1", "le délai est de trois mois", "contrat.pdf", "s1", "Contrat cadre Résiliation");
+        index.add("d2", "le délai est de trois mois", "notice.pdf", "s2", "Notice Installation");
+
+        List<BM25Index.ScoredDoc> results = index.search("délai de résiliation", 5);
+
+        assertThat(results).extracting(BM25Index.ScoredDoc::id).containsExactly("d1", "d2");
+        assertThat(results.getFirst().text()).isEqualTo("le délai est de trois mois");
+    }
+
+    @Test
+    void header_seulAppoint_leTexteRestePreponderant() {
+        index.add("d1", "préavis de résiliation trois mois", "a.pdf", null, "Notice");
+        index.add("d2", "tableau des tarifs", "b.pdf", null, "Résiliation");
+
+        assertThat(index.search("préavis résiliation", 5).getFirst().id()).isEqualTo("d1");
+    }
+
+    @Test
+    void header_suiviParLaSuppressionEtLaRecopie() {
+        index.add("d1", "texte neutre", "a.pdf", "s1", "Garantie");
+        BM25Index copy = new BM25Index();
+        copy.addAll(index);
+        assertThat(copy.search("garantie", 5)).extracting(BM25Index.ScoredDoc::id).containsExactly("d1");
+
+        index.removeByDocument("s1");
+        assertThat(index.search("garantie", 5)).isEmpty();
+        // Ré-indexation sans en-tête : l'ancien en-tête ne survit pas.
+        copy.add("d1", "texte neutre", "a.pdf", "s1");
+        assertThat(copy.search("garantie", 5)).isEmpty();
+    }
 }

@@ -162,8 +162,12 @@ généré avec `user`, lève la contrainte.
 
 ### Limites connues
 
-- A3 n'enrichit pas l'index BM25 (le texte BM25 est aussi le texte cité) ; seuls les chunks
-  ingérés ou ré-indexés après la mise à jour portent l'en-tête.
+- A3 : seuls les chunks ingérés ou ré-indexés après la mise à jour portent l'en-tête embeddé.
+  Côté BM25, titre, nom de fichier et section sont indexés dans un **champ séparé** du texte cité
+  (statistiques propres, poids 0,5) : une question qui nomme un document ou une section remonte
+  ses chunks aussi par mots-clés. Le changement d'analyse (`ANALYZER_VERSION` 3) reconstruit
+  l'index lexical depuis ChromaDB au premier démarrage ; les métadonnées y étant déjà, tous les
+  chunks en profitent, sans ré-indexation des vecteurs.
 - A4 reconstruit l'index lexical au premier démarrage (lecture paginée de ChromaDB).
 - A5 coûte un appel ChromaDB par passage retenu ; le budget de prompt reste appliqué après.
 - A7 coûte un appel d'embedding par requête (≤ `maxContextChunks` textes).
@@ -264,3 +268,5 @@ plutôt qu'ignoré.
   sans GED, seuil du reranker surchargé, rapport et mode strict sur `query`.
 - `CalibrationRequestTest`, `RagAblationServiceTest`, `BenchmarkDraftServiceTest` : grille et
   plafond, objectif et bras recommandé, brouillon tiré du corpus.
+- `BM25IndexTest`, `FtsServiceTest`, `ContextualHeaderTest` : champ d'en-tête du BM25 (appoint
+  au texte, texte cité intact, suppression et recopie, relecture depuis ChromaDB).

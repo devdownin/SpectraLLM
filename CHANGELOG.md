@@ -67,6 +67,8 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
   comprise.
 - **Filtres de recherche** `filter` sur `/api/query` : catégories GED, sources, période
   d'ingestion, appliqués avant le classement aux index vectoriel et BM25.
+- **En-têtes dans le BM25** : titre, nom de fichier et section indexés dans un champ séparé du
+  texte cité (poids 0,5). L'index lexical est reconstruit depuis ChromaDB au premier démarrage.
 
 ### Ajouté — PR de rattrapage qui lancent la CI
 

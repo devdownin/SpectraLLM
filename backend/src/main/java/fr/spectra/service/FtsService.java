@@ -165,15 +165,17 @@ public class FtsService {
                     String text       = documents != null ? (String) documents.get(i) : "";
                     String sourceFile = "inconnu";
                     String sha256 = null;
+                    String header = null;
                     if (metadatas != null) {
                         @SuppressWarnings("unchecked")
                         Map<String, String> meta = (Map<String, String>) metadatas.get(i);
                         if (meta != null) {
                             sourceFile = meta.getOrDefault("sourceFile", "inconnu");
                             sha256 = meta.get("sha256");
+                            header = ContextualHeader.terms(meta);
                         }
                     }
-                    index.add(id, text, sourceFile, sha256);
+                    index.add(id, text, sourceFile, sha256, header);
                     total++;
                 }
 
@@ -241,7 +243,8 @@ public class FtsService {
         indices.compute(collectionName, (k, existing) -> {
             BM25Index index = existing != null ? existing : new BM25Index();
             for (TextChunk chunk : chunks) {
-                index.add(chunk.id(), chunk.text(), chunk.sourceFile(), chunk.metadata().get("sha256"));
+                index.add(chunk.id(), chunk.text(), chunk.sourceFile(), chunk.metadata().get("sha256"),
+                        ContextualHeader.terms(chunk.metadata()));
             }
             return index;
         });
@@ -249,7 +252,8 @@ public class FtsService {
         BM25Index pending = pendingRebuilds.get(collectionName);
         if (pending != null) {
             for (TextChunk chunk : chunks) {
-                pending.add(chunk.id(), chunk.text(), chunk.sourceFile(), chunk.metadata().get("sha256"));
+                pending.add(chunk.id(), chunk.text(), chunk.sourceFile(), chunk.metadata().get("sha256"),
+                        ContextualHeader.terms(chunk.metadata()));
             }
         }
         dirtyIndices.add(collectionName);
