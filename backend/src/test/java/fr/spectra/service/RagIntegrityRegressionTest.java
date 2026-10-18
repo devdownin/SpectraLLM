@@ -96,7 +96,7 @@ class RagIntegrityRegressionTest {
         assertThat(sourceCount(events)).isEqualTo(response.sources().size());
         assertThat(events).noneMatch(e -> "error".equals(e.event()));
         for (int i = 0; i < response.sources().size(); i++) {
-            assertThat(generationPrompts.get(0)).contains("[" + (i + 1) + "] (Source: " + response.sources().get(i).sourceFile() + ")");
+            assertThat(generationUsers.get(0)).contains("[" + (i + 1) + "] (Source: " + response.sources().get(i).sourceFile() + ")");
         }
     }
 
@@ -126,9 +126,10 @@ class RagIntegrityRegressionTest {
         var service = service(true, false);
         var response = service.query(request(1));
         var events = stream(service, request(1));
-        assertThat(generationPrompts).allSatisfy(prompt -> {
-            assertThat(prompt).contains("La valeur attestée est 10.").doesNotContain("999");
+        assertThat(generationUsers).allSatisfy(user -> {
+            assertThat(user).contains("La valeur attestée est 10.").doesNotContain("999");
         });
+        assertThat(generationPrompts).allSatisfy(prompt -> assertThat(prompt).doesNotContain("999"));
         assertThat(response.sources().getFirst().text()).isEqualTo("La valeur attestée est 10.");
         assertThat(events.stream().filter(e -> "sources".equals(e.event())).findFirst().orElseThrow().data()).doesNotContain("999");
     }

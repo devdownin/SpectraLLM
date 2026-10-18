@@ -74,7 +74,8 @@ class RagPromptFormatTest {
 
         TrainingPair pair = TrainingPair.grounded(
                 "Le péage est-il conforme ?", "Oui, il est conforme [1].", contextBlock,
-                "peage.json", "qa", "question_answer_grounded", 0.9, "technique");
+                "peage.json", "qa", "question_answer_grounded", 0.9, "technique",
+                RagPromptFormat.ContextPlacement.SYSTEM);
 
         // Égalité stricte, et non « contient » : c'est tout l'objet du correctif. Un préfixe, un
         // saut de ligne ou une consigne en plus d'un côté suffisent à recréer l'écart de
@@ -83,6 +84,49 @@ class RagPromptFormatTest {
                 .isEqualTo(RagPromptFormat.systemPrompt(AssistantPersona.SYSTEM_PROMPT, contextBlock));
         // La question reste NUE : au service, elle arrive telle quelle en message utilisateur.
         assertThat(pair.conversations().get(1).content()).isEqualTo("Le péage est-il conforme ?");
+    }
+
+    @Test
+    @DisplayName("placement USER : le système ne porte que les consignes, les passages suivent la question")
+    void userPlacementMovesTheContextOutOfTheSystemPrompt() {
+        String contextBlock = RagPromptFormat.contextBlock(List.of(
+                new RagPromptFormat.Passage("peage.json", "Le péage de sortie est conforme.")));
+
+        RagPromptFormat.RagPrompt prompt = RagPromptFormat.prompt(
+                RagPromptFormat.ContextPlacement.USER, "Persona.", contextBlock, "Question ?");
+
+        assertThat(prompt.system()).startsWith("Persona.\n")
+                .contains("cite tes sources")
+                .doesNotContain("Le péage de sortie est conforme.");
+        assertThat(prompt.user())
+                .startsWith("=== CONTEXTE ===\n[1] (Source: peage.json)\nLe péage de sortie est conforme.")
+                .endsWith("=== FIN DU CONTEXTE ===\n\nQuestion ?");
+    }
+
+    @Test
+    @DisplayName("une paire ancrée suit le placement servi, message utilisateur compris")
+    void groundedPairFollowsTheUserPlacement() {
+        String contextBlock = RagPromptFormat.contextBlock(List.of(
+                new RagPromptFormat.Passage("peage.json", "Le péage de sortie est conforme.")));
+        RagPromptFormat.RagPrompt served = RagPromptFormat.prompt(RagPromptFormat.ContextPlacement.USER,
+                AssistantPersona.SYSTEM_PROMPT, contextBlock, "Le péage est-il conforme ?");
+
+        TrainingPair pair = TrainingPair.grounded(
+                "Le péage est-il conforme ?", "Oui [1].", contextBlock,
+                "peage.json", "qa", "question_answer_grounded", 0.9, null,
+                RagPromptFormat.ContextPlacement.USER);
+
+        assertThat(pair.conversations().get(0).content()).isEqualTo(served.system());
+        assertThat(pair.conversations().get(1).content()).isEqualTo(served.user());
+    }
+
+    @Test
+    @DisplayName("le placement se lit de la configuration ; inconnu ou vide = USER")
+    void placementParsing() {
+        assertThat(RagPromptFormat.ContextPlacement.parse("system")).isEqualTo(RagPromptFormat.ContextPlacement.SYSTEM);
+        assertThat(RagPromptFormat.ContextPlacement.parse(" SYSTEM ")).isEqualTo(RagPromptFormat.ContextPlacement.SYSTEM);
+        assertThat(RagPromptFormat.ContextPlacement.parse("user")).isEqualTo(RagPromptFormat.ContextPlacement.USER);
+        assertThat(RagPromptFormat.ContextPlacement.parse(null)).isEqualTo(RagPromptFormat.ContextPlacement.USER);
     }
 
     @Test

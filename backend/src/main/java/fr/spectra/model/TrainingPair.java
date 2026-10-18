@@ -61,17 +61,23 @@ public record TrainingPair(
      * est le seul moyen d'apprendre au modèle à <i>utiliser</i> le contexte : c'est le bénéfice
      * attendu du couplage RAG + fine-tuning revendiqué par le produit.
      *
+     * <p>Le placement du contexte suit celui du service ({@code spectra.rag.context-placement}) :
+     * en {@code USER}, le système ne porte que persona et consignes, et le message utilisateur
+     * porte les passages puis la question — exactement ce que {@code RagService} envoie.
+     *
      * @param contextBlock passages numérotés, produits par
      *                     {@link RagPromptFormat#contextBlock(List)}
      */
     public static TrainingPair grounded(String question, String response, String contextBlock,
                                         String source, String category, String type,
-                                        double confidence, String documentCategory) {
+                                        double confidence, String documentCategory,
+                                        RagPromptFormat.ContextPlacement placement) {
+        RagPromptFormat.RagPrompt prompt = RagPromptFormat.prompt(
+                placement, AssistantPersona.SYSTEM_PROMPT, contextBlock, question);
         return new TrainingPair(
                 List.of(
-                        new Message("system", RagPromptFormat.systemPrompt(
-                                AssistantPersona.SYSTEM_PROMPT, contextBlock)),
-                        new Message("user", question),
+                        new Message("system", prompt.system()),
+                        new Message("user", prompt.user()),
                         new Message("assistant", response)
                 ),
                 new Metadata(source, category, type, confidence, documentCategory)

@@ -38,6 +38,7 @@ public class EmbeddingReindexService {
     private final ChromaDbClient chromaDbClient;
     private final EmbeddingService embeddingService;
     private final ModelRegistryService modelRegistry;
+    private final boolean contextualHeaders;
 
     private final Map<String, ReindexStatus> statuses = new ConcurrentHashMap<>();
     private final AtomicBoolean running = new AtomicBoolean(false);
@@ -45,9 +46,19 @@ public class EmbeddingReindexService {
     public EmbeddingReindexService(ChromaDbClient chromaDbClient,
                                    EmbeddingService embeddingService,
                                    ModelRegistryService modelRegistry) {
+        this(chromaDbClient, embeddingService, modelRegistry, true);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public EmbeddingReindexService(ChromaDbClient chromaDbClient,
+                                   EmbeddingService embeddingService,
+                                   ModelRegistryService modelRegistry,
+                                   @org.springframework.beans.factory.annotation.Value(
+                                           "${spectra.rag.contextual-headers:true}") boolean contextualHeaders) {
         this.chromaDbClient = chromaDbClient;
         this.embeddingService = embeddingService;
         this.modelRegistry = modelRegistry;
+        this.contextualHeaders = contextualHeaders;
     }
 
     /**
@@ -92,6 +103,7 @@ public class EmbeddingReindexService {
                 Map<String, Object> page = chromaDbClient.getDocumentsPaged(collectionId, PAGE_SIZE, offset);
                 List<String> ids = stringList(page, "ids");
                 List<String> documents = stringList(page, "documents");
+                List<?> metadatas = page != null && page.get("metadatas") instanceof List<?> m ? m : List.of();
                 if (ids.isEmpty()) {
                     break;
                 }
@@ -104,7 +116,10 @@ public class EmbeddingReindexService {
                     String text = i < documents.size() ? documents.get(i) : null;
                     if (text != null && !text.isBlank()) {
                         embeddableIds.add(ids.get(i));
-                        embeddableTexts.add(text);
+                        // Même texte embeddé qu'à l'ingestion : en-tête contextuel compris.
+                        Map<?, ?> meta = i < metadatas.size() && metadatas.get(i) instanceof Map<?, ?> mm ? mm : null;
+                        embeddableTexts.add(contextualHeaders && meta != null
+                                ? ContextualHeader.apply(text, stringMap(meta)) : text);
                     }
                 }
 
@@ -135,6 +150,12 @@ public class EmbeddingReindexService {
 
     private void update(String collection, java.util.function.UnaryOperator<ReindexStatus> updater) {
         statuses.computeIfPresent(collection, (k, s) -> updater.apply(s));
+    }
+
+    private static Map<String, String> stringMap(Map<?, ?> raw) {
+        Map<String, String> out = new LinkedHashMap<>();
+        raw.forEach((k, v) -> { if (v != null) out.put(String.valueOf(k), String.valueOf(v)); });
+        return out;
     }
 
     @SuppressWarnings("unchecked")

@@ -551,6 +551,73 @@ public class ChromaDbClient {
     }
 
     /**
+     * Métadonnées de chunks désignés par leurs ids — pour les résultats BM25 seuls de la
+     * recherche hybride, dont l'index lexical ne conserve que la source.
+     *
+     * @return id → métadonnées (ids inconnus absents)
+     */
+    @SuppressWarnings("unchecked")
+    public Map<String, Map<String, String>> getMetadatasByIds(String collectionId, List<String> ids) {
+        if (ids == null || ids.isEmpty()) return Map.of();
+        Map<String, Object> result = webClient.post()
+                .uri(COLLECTIONS_BASE + "/{id}/get", collectionId)
+                .bodyValue(Map.of("ids", ids, "include", List.of("metadatas")))
+                .retrieve()
+                .bodyToMono(Map.class)
+                .block(TIMEOUT_QUERY);
+        Map<String, Map<String, String>> byId = new java.util.LinkedHashMap<>();
+        if (result == null || !(result.get("ids") instanceof List<?> found)) return byId;
+        List<?> metas = result.get("metadatas") instanceof List<?> m ? m : List.of();
+        for (int i = 0; i < found.size(); i++) {
+            if (i < metas.size() && metas.get(i) instanceof Map<?, ?> meta) {
+                Map<String, String> copy = new java.util.LinkedHashMap<>();
+                meta.forEach((k, v) -> copy.put(String.valueOf(k), v != null ? String.valueOf(v) : null));
+                byId.put(String.valueOf(found.get(i)), copy);
+            }
+        }
+        return byId;
+    }
+
+    /**
+     * Textes des chunks d'un même document aux positions {@code chunkIndexes} — expansion aux
+     * voisins d'un passage retenu.
+     *
+     * @param identityField {@code sha256} (identité du document) ou {@code sourceFile} (chunks
+     *                      historiques sans empreinte)
+     * @return chunkIndex → texte
+     */
+    @SuppressWarnings("unchecked")
+    public Map<Integer, String> getChunksByIndex(String collectionId, String identityField,
+                                                 String identityValue, List<Integer> chunkIndexes) {
+        if (chunkIndexes == null || chunkIndexes.isEmpty()) return Map.of();
+        List<String> wanted = chunkIndexes.stream().map(String::valueOf).toList();
+        Map<String, Object> where = Map.of("$and", List.of(
+                Map.of(identityField, Map.of("$eq", identityValue)),
+                Map.of("chunkIndex", Map.of("$in", wanted))));
+        Map<String, Object> result = webClient.post()
+                .uri(COLLECTIONS_BASE + "/{id}/get", collectionId)
+                .bodyValue(Map.of("where", where, "limit", wanted.size() * 2,
+                        "include", List.of("documents", "metadatas")))
+                .retrieve()
+                .bodyToMono(Map.class)
+                .block(TIMEOUT_QUERY);
+        Map<Integer, String> byIndex = new java.util.HashMap<>();
+        if (result == null) return byIndex;
+        List<?> docs = result.get("documents") instanceof List<?> d ? d : List.of();
+        List<?> metas = result.get("metadatas") instanceof List<?> m ? m : List.of();
+        for (int i = 0; i < Math.min(docs.size(), metas.size()); i++) {
+            if (docs.get(i) instanceof String text && metas.get(i) instanceof Map<?, ?> meta) {
+                try {
+                    byIndex.putIfAbsent(Integer.parseInt(String.valueOf(meta.get("chunkIndex"))), text);
+                } catch (NumberFormatException ignored) {
+                    // chunk sans position exploitable : pas un voisin
+                }
+            }
+        }
+        return byIndex;
+    }
+
+    /**
      * Supprime tous les chunks correspondant à un fichier source.
      * Utilise le filtre {@code where} ChromaDB pour ne récupérer que les IDs concernés
      * au lieu de charger toute la collection en mémoire.

@@ -45,6 +45,7 @@ public class IngestionTaskExecutor {
     private final ChromaDbClient chromaDbClient;
     private final FtsService ftsService;
     private final int embeddingBatchSize;
+    private final boolean contextualHeaders;
     /** Taille décompressée maximale autorisée par fichier/entrée (mémoire + anti-ZIP-bomb). */
     private final long maxEntryUncompressedBytes;
     /** Nombre maximal d'entrées traitées par archive (protection ZIP bomb). */
@@ -73,6 +74,7 @@ public class IngestionTaskExecutor {
         this.chromaDbClient = chromaDbClient;
         this.ftsService = ftsService;
         this.embeddingBatchSize = embeddingBatchSize;
+        this.contextualHeaders = properties.rag() == null || properties.rag().contextualHeadersEnabled();
         this.maxZipEntries = properties.ingestion() != null ? properties.ingestion().effectiveMaxZipEntries() : 10_000;
         // 0 → auto-calcul selon le heap et la concurrence (évite l'OOM).
         this.maxEntryUncompressedBytes = IngestionLimits.resolveMaxUncompressedBytes(maxUncompressedMb, concurrentIngestions);
@@ -378,7 +380,7 @@ public class IngestionTaskExecutor {
             List<TextChunk> batch = chunks.subList(i, end);
             try {
                 List<List<Float>> batchEmbeddings = embeddingService.embedBatch(
-                        scheme.documents(batch.stream().map(TextChunk::text).toList()));
+                        scheme.documents(ContextualHeader.texts(batch, contextualHeaders)));
                 chromaDbClient.addDocuments(collectionId, batch, batchEmbeddings);
                 embedded += batch.size();
                 progress.accept(batch.size());

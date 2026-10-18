@@ -84,7 +84,7 @@ class GroundedDatasetIntegrationTest {
                 .filter(p -> p.metadata().type().endsWith("_grounded"))
                 .findFirst().orElseThrow();
 
-        String system = grounded.conversations().get(0).content();
+        String system = servedPrompt(grounded);
         assertThat(system)
                 .contains("=== CONTEXTE ===")
                 .contains("cite tes sources en insérant le numéro")
@@ -100,7 +100,7 @@ class GroundedDatasetIntegrationTest {
                 .filter(p -> p.metadata().type().endsWith("_grounded"))
                 .findFirst().orElseThrow();
 
-        assertThat(grounded.conversations().get(0).content()).contains("[2] (Source:");
+        assertThat(servedPrompt(grounded)).contains("[2] (Source:");
     }
 
     @Test
@@ -110,5 +110,10 @@ class GroundedDatasetIntegrationTest {
 
         assertThat(pairs).isNotEmpty();
         assertThat(pairs).noneMatch(p -> p.metadata().type().endsWith("_grounded"));
+    }
+
+    /** Prompt servi au modèle (système puis utilisateur) — indépendant du placement du contexte. */
+    private static String servedPrompt(TrainingPair pair) {
+        return pair.conversations().get(0).content() + "\n" + pair.conversations().get(1).content();
     }
 }

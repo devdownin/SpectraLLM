@@ -134,4 +134,40 @@ class ChunkingServiceTest {
         assertThat(chunks.get(0).text()).isEqualTo(s1.strip());
         assertThat(chunks.get(1).text()).contains("world");
     }
+
+    // ── A3 : section Markdown d'origine ─────────────────────────────────────
+
+    @Test
+    void chunksCarryTheirMarkdownSectionPath() {
+        ChunkingService service = new ChunkingService();
+        String text = "# Guide\n\nIntro.\n\n## Installation\n\nÉtape un.\n\n### Prérequis\n\nJava 21.";
+
+        List<TextChunk> chunks = service.chunk(text, "guide.md", Map.of());
+
+        assertThat(chunks).hasSize(1);
+        // Le chunk commence dans « Guide » : sa section est celle de son premier paragraphe.
+        assertThat(chunks.getFirst().metadata()).containsEntry("section", "Guide");
+    }
+
+    @Test
+    void deeperHeadingIsResetBySiblingSection() {
+        ChunkingService service = new ChunkingService();
+        String para = "mot ".repeat(400).strip();
+        String text = "# A\n\n## A1\n\n" + para + "\n\n# B\n\n" + para;
+
+        List<TextChunk> chunks = service.chunk(text, "doc.md", Map.of());
+
+        assertThat(chunks).extracting(c -> c.metadata().get("section"))
+                .contains("A", "B")
+                .doesNotContain("B > A1");
+    }
+
+    @Test
+    void plainTextHasNoSection() {
+        ChunkingService service = new ChunkingService();
+
+        List<TextChunk> chunks = service.chunk("Texte sans titre.", "a.txt", Map.of());
+
+        assertThat(chunks.getFirst().metadata()).doesNotContainKey("section");
+    }
 }

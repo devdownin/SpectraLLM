@@ -90,6 +90,7 @@ public class IngestionService {
     private final ChromaDbClient chromaDbClient;
     private final FtsService ftsService;
     private final int embeddingBatchSize;
+    private final boolean contextualHeaders;
     /** Taille décompressée maximale par fichier local (mémoire ; garde-fou avant délégation). */
     private final long maxUncompressedBytes;
     /**
@@ -177,6 +178,7 @@ public class IngestionService {
                 "ingestion");
         this.taskRepository = taskRepository;
         this.embeddingBatchSize = properties.pipeline().embeddingBatchSize();
+        this.contextualHeaders = properties.rag() == null || properties.rag().contextualHeadersEnabled();
         this.defaultCollection = properties.chromadb() != null
                 ? properties.chromadb().effectiveCollection()
                 : DEFAULT_COLLECTION;
@@ -831,7 +833,7 @@ public class IngestionService {
             int end = Math.min(i + embeddingBatchSize, chunks.size());
             List<TextChunk> batch = chunks.subList(i, end);
             List<List<Float>> batchEmbeddings = embeddingService.embedBatch(
-                    scheme.documents(batch.stream().map(TextChunk::text).toList()));
+                    scheme.documents(ContextualHeader.texts(batch, contextualHeaders)));
             chromaDbClient.addDocuments(collectionId, batch, batchEmbeddings);
         }
         ftsService.indexChunks(chunks, collectionName);

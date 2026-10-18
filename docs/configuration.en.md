@@ -110,6 +110,14 @@ Disabled by default — no Kafka bean is created unless `SPECTRA_KAFKA_ENABLED=t
 | `SPECTRA_RERANKER_TIMEOUT` | `30` | Reranker timeout (seconds) |
 | `SPECTRA_RERANKER_TOP_CANDIDATES` | `20` | Candidates fed to reranker |
 | `SPECTRA_RERANKER_MIN_SCORE` | *(empty)* | Minimum reranker score (sigmoid, 0–1) for a chunk to enter the context; empty = no threshold. When no chunk passes, the RAG answers that nothing relevant was found. Tune with `POST /api/ablation` (0.1–0.3 is a sensible start). |
+| `SPECTRA_RERANKER_ONNX_MODEL_FILE` | `model.onnx` | Path of the ONNX graph under `SPECTRA_RERANKER_ONNX_URL` (e.g. `onnx/model_int8.onnx` for `bge-reranker-v2-m3`); always saved locally as `model.onnx`. |
+| `SPECTRA_RAG_CONTEXT_PLACEMENT` | `user` | Where retrieved passages go: `user` (user message, below the system instructions) or `system` (legacy form — keep it for a model fine-tuned before this setting). The fine-tuning dataset follows it. |
+| `SPECTRA_RAG_CONTEXTUAL_HEADERS` | `true` | Prefix "Document / Section" to the *embedded* text of each chunk (never to the stored or cited text). |
+| `SPECTRA_RAG_NEIGHBOR_WINDOW` | `0` | Adjacent chunks (± N, same document) merged into each retained passage; 0 = off. |
+| `SPECTRA_RAG_NEIGHBOR_MAX_CHARS` | `4000` | Size cap of an expanded passage. |
+| `SPECTRA_SEMANTIC_DEDUP_STRATEGY` | `jaccard` | `jaccard` (lexical) or `mmr` (Maximal Marginal Relevance on embeddings; the threshold becomes a cosine similarity, ~0.92). |
+| `SPECTRA_SEMANTIC_DEDUP_MMR_LAMBDA` | `0.7` | MMR relevance/diversity trade-off (0–1). |
+| `LLM_EMBED_POOLING` | *(empty)* | `llm-embed` pooling (`mean`, `cls`, `last`); empty = the GGUF's, or `last` inferred for Qwen3-Embedding. |
 | `RERANKER_MODEL` | `cross-encoder/mmarco-...` | HuggingFace model ID (compose-level; feeds `SPECTRA_RERANKER_MODEL`) |
 | `SPECTRA_RERANKER_ENGINE` | `http` | `http` = Python microservice (compose profile `reranker`); `onnx` = Cross-Encoder run **inside the JVM** via ONNX Runtime — no container, no Python |
 | `SPECTRA_RERANKER_ONNX_PATH` | `./data/models/reranker` | Directory holding `model.onnx` and `tokenizer.json` (`engine=onnx` only). Same convention as GGUF files: an artifact dropped into the models volume, not a versioned file |
@@ -144,7 +152,7 @@ Disabled by default — no Kafka bean is created unless `SPECTRA_KAFKA_ENABLED=t
 | `SPECTRA_MULTI_QUERY_ENABLED` | `false` | Enable multi-query retrieval fusion |
 | `SPECTRA_MULTI_QUERY_COUNT` | `2` | Number of query variants to generate |
 | `SPECTRA_CONTEXT_COMPRESSION_ENABLED` | `false` | Enable LLM-based passage extraction |
-| `SPECTRA_SEMANTIC_DEDUP_ENABLED` | `false` | Enable Jaccard near-duplicate removal |
+| `SPECTRA_SEMANTIC_DEDUP_ENABLED` | `false` | Enable near-duplicate removal (see `SPECTRA_SEMANTIC_DEDUP_STRATEGY`) |
 | `SPECTRA_SEMANTIC_DEDUP_THRESHOLD` | `0.85` | Similarity threshold for dedup (0–1) |
 | `SPECTRA_LONG_CONTEXT_RAG_ENABLED` | `false` | Load full corpus when small enough |
 | `SPECTRA_LONG_CONTEXT_MAX_CHUNKS` | `100` | Max chunks before switching to vector search |

@@ -109,7 +109,7 @@ class GroundedPairGenerationTest {
         // Le vrai passage est en deuxième position, et c'est [2] que la réponse cite. Un décalage
         // ici enseignerait au modèle à citer un passage qui ne justifie pas sa réponse — soit
         // exactement l'hallucination de source que les consignes cherchent à empêcher.
-        String system = twin.conversations().get(0).content();
+        String system = servedPrompt(twin);
         assertThat(system).contains("[2] (Source: s.pdf)\nLe vrai passage.");
         assertThat(twin.conversations().get(2).content()).isEqualTo("Réponse [2].");
     }
@@ -123,7 +123,7 @@ class GroundedPairGenerationTest {
         TrainingPair twin = DatasetGeneratorService.groundedVariant(
                 source, "Passage.", "s.pdf", List.of(), 0, GENEROUS);
 
-        assertThat(twin.conversations().get(0).content())
+        assertThat(servedPrompt(twin))
                 .contains("cite tes sources en insérant le numéro")
                 .contains("=== CONTEXTE ===");
         // Le type est distinct pour que le dataset reste analysable, la catégorie est conservée
@@ -147,7 +147,9 @@ class GroundedPairGenerationTest {
 
         TrainingPair grounded = DatasetGeneratorService.groundedRefusal(refusal, distractors, GENEROUS);
 
-        assertThat(grounded.conversations().get(0).content())
+        String served = servedPrompt(grounded);
+        String context = served.substring(0, served.lastIndexOf("=== FIN DU CONTEXTE ==="));
+        assertThat(context)
                 .contains("[1] (Source: hiver.pdf)")
                 .doesNotContain("tarif de nuit");
         // La réponse reste le refus, SANS citation : citer un passage tout en disant qu'on n'a
@@ -219,7 +221,7 @@ class GroundedPairGenerationTest {
         TrainingPair twin = DatasetGeneratorService.groundedVariant(
                 source, chunk, "s.pdf", List.of(), 0, GENEROUS);
 
-        assertThat(twin.conversations().get(0).content()).contains(chunk);
+        assertThat(servedPrompt(twin)).contains(chunk);
     }
 
     @Test
@@ -237,7 +239,7 @@ class GroundedPairGenerationTest {
                 source, "Le vrai passage.", "s.pdf", distractors, 0, budget);
 
         assertThat(twin).isNotNull();
-        String system = twin.conversations().get(0).content();
+        String system = servedPrompt(twin);
         assertThat(system).contains("court").doesNotContain("mot mot");
     }
 
@@ -261,7 +263,7 @@ class GroundedPairGenerationTest {
         assertThat(twin.conversations().get(2).content()).isEqualTo("Réponse [1].");
         // « [2] » figure dans les CONSIGNES en tant qu'exemple : c'est le bloc de contexte qui ne
         // doit pas porter de second passage.
-        assertThat(twin.conversations().get(0).content()).doesNotContain("[2] (Source:");
+        assertThat(servedPrompt(twin)).doesNotContain("[2] (Source:");
     }
 
     @Test
@@ -287,5 +289,10 @@ class GroundedPairGenerationTest {
 
         assertThat(DatasetGeneratorService.groundedVariant(
                 source, "a".repeat(700), "s.pdf", List.of(), 0, 1800)).isNotNull();
+    }
+
+    /** Prompt servi au modèle (système puis utilisateur) — indépendant du placement du contexte. */
+    private static String servedPrompt(TrainingPair pair) {
+        return pair.conversations().get(0).content() + "\n" + pair.conversations().get(1).content();
     }
 }

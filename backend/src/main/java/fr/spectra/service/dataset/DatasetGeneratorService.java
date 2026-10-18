@@ -119,6 +119,8 @@ public class DatasetGeneratorService {
      * n'a pas de sens, l'un est la traduction de l'autre.
      */
     private final int groundedBudgetChars;
+    /** Placement du contexte des paires ancrées : celui du service, pour s'entraîner sur ce qui est servi. */
+    private final RagPromptFormat.ContextPlacement contextPlacement;
     /** Taxonomie de classification (R8) — partagée avec le classifieur documentaire. */
     private final List<String> taxonomy;
 
@@ -162,6 +164,9 @@ public class DatasetGeneratorService {
         this.groundedEveryN = groundedEveryN;
         this.groundedDistractors = Math.max(0, groundedDistractors);
         this.groundedBudgetChars = groundedBudgetChars;
+        this.contextPlacement = properties != null && properties.rag() != null
+                ? properties.rag().effectiveContextPlacement()
+                : RagPromptFormat.ContextPlacement.USER;
         this.taxonomy = properties != null && properties.classification() != null
                 ? properties.classification().effectiveTaxonomy()
                 : SpectraProperties.ClassificationProperties.DEFAULT_TAXONOMY;
@@ -410,14 +415,14 @@ public class DatasetGeneratorService {
 
                     // ── F14 : jumeaux ANCRÉS, sous la forme réellement servie ──
                     // Aucun appel LLM supplémentaire : on réemploie la question et la réponse
-                    // déjà produites, en changeant seulement le prompt système. Le coût de la
+                    // déjà produites, en y ajoutant seulement le contexte servi. Le coût de la
                     // correction est donc nul en inférence, ce qui la rend activable par défaut.
                     if (groundedEveryN > 0 && i % groundedEveryN == 0) {
                         List<RagPromptFormat.Passage> distractors =
                                 distractorsFor(i, documents, metadatas, groundedDistractors);
                         for (TrainingPair pair : pairs) {
-                            TrainingPair twin = groundedVariant(
-                                    pair, chunkText, sourceFile, distractors, i, groundedBudgetChars);
+                            TrainingPair twin = groundedVariant(pair, chunkText, sourceFile,
+                                    distractors, i, groundedBudgetChars, contextPlacement);
                             if (twin != null) {
                                 newPairs.add(twin);
                                 pairsCount++;
@@ -435,7 +440,7 @@ public class DatasetGeneratorService {
                         // vrai passage : c'est tout le propos.
                         if (refusal != null && !distractors.isEmpty()) {
                             TrainingPair groundedRefusal =
-                                    groundedRefusal(refusal, distractors, groundedBudgetChars);
+                                    groundedRefusal(refusal, distractors, groundedBudgetChars, contextPlacement);
                             if (groundedRefusal != null) {
                                 newPairs.add(groundedRefusal);
                                 pairsCount++;
@@ -757,6 +762,13 @@ public class DatasetGeneratorService {
     static TrainingPair groundedVariant(TrainingPair pair, String chunkText, String sourceFile,
                                         List<RagPromptFormat.Passage> distractors, int seed,
                                         int budgetChars) {
+        return groundedVariant(pair, chunkText, sourceFile, distractors, seed, budgetChars,
+                RagPromptFormat.ContextPlacement.USER);
+    }
+
+    static TrainingPair groundedVariant(TrainingPair pair, String chunkText, String sourceFile,
+                                        List<RagPromptFormat.Passage> distractors, int seed,
+                                        int budgetChars, RagPromptFormat.ContextPlacement placement) {
         if (pair == null || pair.conversations() == null || pair.conversations().size() < 3) return null;
         String question = pair.conversations().get(1).content();
         String answer = pair.conversations().get(2).content();
@@ -782,7 +794,7 @@ public class DatasetGeneratorService {
                 withCitation(answer, position + 1),
                 RagPromptFormat.contextBlock(passages),
                 meta.source(), meta.category(), meta.type() + "_grounded",
-                meta.confidence(), meta.documentCategory());
+                meta.confidence(), meta.documentCategory(), placement);
     }
 
     /**
@@ -792,6 +804,11 @@ public class DatasetGeneratorService {
      */
     static TrainingPair groundedRefusal(TrainingPair refusal, List<RagPromptFormat.Passage> distractors,
                                         int budgetChars) {
+        return groundedRefusal(refusal, distractors, budgetChars, RagPromptFormat.ContextPlacement.USER);
+    }
+
+    static TrainingPair groundedRefusal(TrainingPair refusal, List<RagPromptFormat.Passage> distractors,
+                                        int budgetChars, RagPromptFormat.ContextPlacement placement) {
         String question = refusal.conversations().get(1).content();
         String answer = refusal.conversations().get(2).content();
         int available = budgetChars - GROUNDED_OVERHEAD_CHARS - question.length() - answer.length();
@@ -814,7 +831,7 @@ public class DatasetGeneratorService {
                 question, answer,
                 RagPromptFormat.contextBlock(kept),
                 meta.source(), meta.category(), meta.type() + "_grounded",
-                meta.confidence(), meta.documentCategory());
+                meta.confidence(), meta.documentCategory(), placement);
     }
 
     /**

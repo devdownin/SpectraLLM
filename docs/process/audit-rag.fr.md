@@ -74,21 +74,68 @@ l'Agentic RAG), et les consignes précisent que le contexte est une donnée, jam
 La consigne étant partagée avec la génération du dataset (F14), les prochains fine-tunings
 l'apprennent aussi.
 
-## Recommandations non implémentées
+## Recommandations A1 à A8 — implémentées
 
-Classées par rapport gain/coût. Chacune se mesure avec le harnais d'ablation existant avant
-d'être adoptée.
+Toutes se mesurent avec le harnais d'ablation (`POST /api/ablation`) avant d'être généralisées.
+Celles qui changent l'espace vectoriel ou un coût de requête restent **opt-in** ; celles qui
+n'ont pas d'effet de bord passent **par défaut**.
 
-| # | Recommandation | Gain attendu | Coût / risque |
-|---|---|---|---|
-| A1 | **Modèle d'embedding multilingue.** Le corpus cible est francophone (`chunk-locale: fr`), nomic v1.5 est anglo-centré. Candidats GGUF : `Qwen3-Embedding-0.6B` (multilingue, instruction gérée par R1, `--pooling last`), `bge-m3`, `multilingual-e5-base`. | Fort sur corpus FR | Ré-indexation ; vérifier mémoire `llm-embed` |
-| A2 | **Reranker multilingue récent.** `mmarco-mMiniLMv2-L12` date de 2021 ; `bge-reranker-v2-m3` (export ONNX) le surclasse nettement en français. | Fort | Latence CPU ×3-4 : réduire `top-candidates` à 10-15 |
-| A3 | **En-têtes contextuels de chunk** (version déterministe du *Contextual Retrieval*) : préfixer, à l'indexation seulement, titre du document et chemin de sections. Un chunk « La valeur est 512 » ne contient pas son sujet. | Fort sur documents structurés | Ré-ingestion ; l'en-tête ne doit pas entrer dans le texte cité |
-| A4 | **Analyse française du BM25** : stop-words et racinisation légère (pluriels, élisions déjà gérées). | Moyen (hybride) | Reconstruction de l'index FTS |
-| A5 | **Expansion aux chunks voisins** (`chunkIndex ± 1`) après reranking, dans la limite du budget. | Moyen sur réponses à cheval sur deux chunks | Budget de prompt |
-| A6 | **Métadonnées conservées en hybride** : `executeSingleQuery` ne garde que `sourceFile` ; page et `chunkIndex` sont perdus, ce qui bloque A5 et des citations plus fines. | Prérequis A5 | Faible |
-| A7 | **Déduplication réellement sémantique / MMR** : la « semantic dedup » actuelle est un Jaccard lexical. Un MMR sur embeddings diversifie le contexte. | Faible à moyen | Embeddings des candidats à conserver |
-| A8 | **Contexte hors du prompt système** : le placer dans le message utilisateur réduit l'autorité accordée au texte des documents (R4 en profondeur). | Sécurité | Contrat F14 : à faire avec un ré-entraînement |
+| # | Mise en œuvre | Défaut |
+|---|---|---|
+| A1 | **Embedding multilingue** : Qwen3-Embedding pris en charge de bout en bout — instruction de requête (`EmbeddingPromptScheme.QWEN3`), `--pooling last` déduit du nom par `llm-embed-entrypoint.sh` (`LLM_EMBED_POOLING` pour forcer). | nomic conservé (81 Mo, rapide) |
+| A2 | **Reranker multilingue** : `SPECTRA_RERANKER_ONNX_MODEL_FILE` désigne le graphe sous l'URL (`setup.sh` / `setup.bat`), ce qui permet l'export `onnx-community/bge-reranker-v2-m3-ONNX`. Le moteur ONNX ne fournit au graphe que les entrées qu'il déclare (XLM-R n'a pas de `token_type_ids`). | mmarco conservé |
+| A3 | **En-têtes contextuels** (`ContextualHeader`) : « Document : titre — fichier / Section : chemin Markdown » préfixé au texte **embeddé** (ingestion et ré-indexation), jamais au texte stocké ni cité. `ChunkingService` enregistre la métadonnée `section`. Rien côté requête : chunks avec et sans en-tête cohabitent. | **actif** |
+| A4 | **Analyse française du BM25** : mots vides FR/EN, diacritiques et ligatures retirés, pluriels (`-s`, `-x`, `-aux`→`-al`). `ANALYZER_VERSION` invalide l'index disque : il est reconstruit depuis ChromaDB au démarrage. | **actif** |
+| A5 | **Expansion aux voisins** (`chunkIndex ± N`, même document par `sha256`), recouvrement du chunking retiré, arrêt au premier voisin absent, déjà présent ou hors plafond. | `SPECTRA_RAG_NEIGHBOR_WINDOW=0` |
+| A6 | **Métadonnées complètes en hybride** : `HybridChunk.metadata` ; celles des résultats BM25 seuls sont lues en un appel ChromaDB (`getMetadatasByIds`). | **actif** |
+| A7 | **MMR sur embeddings** : `SPECTRA_SEMANTIC_DEDUP_STRATEGY=mmr` — quasi-doublons écartés au seuil cosinus, contexte réordonné pour la diversité (λ = `SPECTRA_SEMANTIC_DEDUP_MMR_LAMBDA`). Un échec d'embedding laisse le contexte intact. | `jaccard` |
+| A8 | **Contexte hors du prompt système** : `SPECTRA_RAG_CONTEXT_PLACEMENT=user` — système = persona + consignes, message utilisateur = passages délimités puis question. Le dataset de fine-tuning suit le même réglage (contrat F14), l'Agentic RAG aussi. | **`user`** |
+
+### Recettes
+
+**Corpus francophone — embedding Qwen3 (A1).** ~640 Mo, ingestion ~5× plus lente sur CPU.
+
+```bash
+# .env
+SPECTRA_EMBED_MODEL_URL=https://huggingface.co/Qwen/Qwen3-Embedding-0.6B-GGUF/resolve/main/Qwen3-Embedding-0.6B-Q8_0.gguf
+LLM_EMBED_MODEL_NAME=qwen3-embedding-0.6b
+
+rm data/models/embed.gguf && ./scripts/setup.sh --download-embed
+./scripts/start.sh
+# Le nouveau modèle actif rend les collections existantes non comparables (MISMATCH) :
+curl -X POST localhost:8080/api/config/embedding-consistency/reindex \
+     -H 'Content-Type: application/json' -d '{"collection":"spectra_documents"}'
+```
+
+Sur une installation dont le registre (`data/models/registry.json`) a déjà un modèle d'embedding
+actif, activez le nouveau via le Model Hub avant la ré-indexation : c'est son nom qui pilote les
+préfixes d'instruction.
+
+**Reranker bge-reranker-v2-m3 (A2).** ~570 Mo (int8), environ 3 à 4 fois plus lent que mmarco.
+
+```bash
+# .env
+SPECTRA_RERANKER_ONNX_URL=https://huggingface.co/onnx-community/bge-reranker-v2-m3-ONNX/resolve/main
+SPECTRA_RERANKER_ONNX_MODEL_FILE=onnx/model_int8.onnx
+RERANKER_MODEL=BAAI/bge-reranker-v2-m3
+SPECTRA_RERANKER_TOP_CANDIDATES=12
+
+rm -r data/models/reranker && ./scripts/setup.sh --download-reranker
+```
+
+Les scores changent d'échelle avec le modèle : recalez `SPECTRA_RERANKER_MIN_SCORE` ensuite.
+
+**Modèle affiné avant A8.** Il a appris le contexte dans le prompt système :
+`SPECTRA_RAG_CONTEXT_PLACEMENT=system` le sert sous la forme apprise. Le prochain fine-tuning,
+généré avec `user`, lève la contrainte.
+
+### Limites connues
+
+- A3 n'enrichit pas l'index BM25 (le texte BM25 est aussi le texte cité) ; seuls les chunks
+  ingérés ou ré-indexés après la mise à jour portent l'en-tête.
+- A4 reconstruit l'index lexical au premier démarrage (lecture paginée de ChromaDB).
+- A5 coûte un appel ChromaDB par passage retenu ; le budget de prompt reste appliqué après.
+- A7 coûte un appel d'embedding par requête (≤ `maxContextChunks` textes).
 
 ## Vérifications
 
@@ -98,4 +145,11 @@ d'être adoptée.
   `NONE`, passage au schéma du modèle à la ré-estampille.
 - `RagServiceRetrievalTest` : préfixe de requête issu de la collection, fusion RRF vectorielle,
   seuil reranker (filtrage, abstention sans appel LLM, seuil absent).
-- `RagPromptFormatTest` : un passage ne peut plus refermer le bloc de contexte.
+- `RagPromptFormatTest` : un passage ne peut plus refermer le bloc de contexte ; placements
+  `USER`/`SYSTEM`, paire ancrée identique au prompt servi.
+- `RagServiceModelProfileTest` : le prompt servi (système ET utilisateur) est mot pour mot celui
+  de la paire d'entraînement ancrée.
+- `ContextualHeaderTest`, `ChunkingServiceTest` : en-tête et chemin de sections (A3).
+- `BM25IndexTest` : accents, pluriels, mots vides, version d'analyseur (A4).
+- `RagServiceRetrievalTest` : expansion aux voisins et plafond (A5), MMR et repli (A7).
+- `HybridSearchServiceTest` : métadonnées complètes, y compris BM25 seul (A6).

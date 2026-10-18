@@ -2,6 +2,7 @@ package fr.spectra.service;
 
 import java.io.IOException;
 import java.io.Serializable;
+import java.text.Normalizer;
 import java.util.*;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -23,6 +24,27 @@ public class BM25Index implements Serializable {
     private static final float B  = 0.75f;
     private static final int   MIN_TOKEN_LEN = 2;
 
+    /**
+     * Version de l'analyse lexicale. Un index sérialisé avec une autre version a des termes que
+     * la requête ne produit plus (accents, pluriels) : il doit être reconstruit, pas servi.
+     * Les index antérieurs au champ se désérialisent à 0.
+     */
+    static final int ANALYZER_VERSION = 2;
+
+    /**
+     * Mots vides français et anglais. Leur IDF est faible, mais pas nulle : sur une question
+     * courte, « de », « la », « les » pesaient autant qu'un terme rare manquant, et un chunk
+     * bavard battait un chunk pertinent.
+     */
+    private static final Set<String> STOP_WORDS = Set.of(
+            "au", "aux", "avec", "ce", "ces", "cet", "cette", "dans", "de", "des", "du", "elle", "en",
+            "est", "et", "eux", "il", "ils", "je", "la", "le", "les", "leur", "leurs", "lui", "ma",
+            "mais", "me", "mes", "mon", "ne", "nos", "notre", "nous", "on", "ou", "par", "pas", "pour",
+            "qu", "que", "qui", "sa", "se", "ses", "son", "sont", "sur", "ta", "te", "tes", "toi",
+            "ton", "tu", "un", "une", "vos", "votre", "vous", "été", "être", "ont", "était",
+            "comme", "quel", "quelle", "quels", "quelles", "the", "of", "and", "to", "in", "is", "for",
+            "with", "as", "by", "at", "an", "be", "are", "or", "this", "that", "it", "from");
+
     // Patterns précompilés : buildTermFreq est sur le chemin chaud (indexation ET recherche) ;
     // les replaceAll(String) recompilaient ces regex pour chaque token.
     /** Séparateurs de tokens : blancs + apostrophes (élisions françaises « l'énergie » → « énergie »). */
@@ -33,6 +55,7 @@ public class BM25Index implements Serializable {
             java.util.regex.Pattern.compile("[^a-z0-9àâäéèêëîïôùûüçœæ\\-]");
 
     private transient ReadWriteLock lock = new ReentrantReadWriteLock();
+    private int analyzerVersion = ANALYZER_VERSION;
 
     private void readObject(java.io.ObjectInputStream in) throws IOException, ClassNotFoundException {
         in.defaultReadObject();
@@ -122,6 +145,9 @@ public class BM25Index implements Serializable {
     }
 
     public boolean supportsDocumentIdentity() { return identityVersion == 1; }
+
+    /** L'index a-t-il été construit avec l'analyse lexicale courante ? */
+    public boolean usesCurrentAnalyzer() { return analyzerVersion == ANALYZER_VERSION; }
 
     /** Suppression par identité, indépendamment du nom affiché. */
     public void removeByDocument(String sha256) {
@@ -252,17 +278,39 @@ public class BM25Index implements Serializable {
             String cleaned = NON_WORD.matcher(raw).replaceAll("");
             cleaned = trimHyphens(cleaned); // tirets en début/fin
             if (cleaned.length() < MIN_TOKEN_LEN) continue;
-            freq.merge(cleaned, 1, Integer::sum);   // terme complet (ex: "porte-à-faux")
+            if (STOP_WORDS.contains(cleaned)) continue;
+            freq.merge(normalize(cleaned), 1, Integer::sum);   // terme complet (ex: "porte-à-faux")
             if (cleaned.contains("-")) {
                 for (String part : cleaned.split("-")) {
-                    if (part.length() >= MIN_TOKEN_LEN) {
-                        freq.merge(part, 1, Integer::sum);  // parties (ex: "porte", "faux")
+                    if (part.length() >= MIN_TOKEN_LEN && !STOP_WORDS.contains(part)) {
+                        freq.merge(normalize(part), 1, Integer::sum);  // parties (ex: "porte", "faux")
                     }
                 }
             }
         }
         return freq;
     }
+
+    /**
+     * Normalisation appliquée à l'identique à l'indexation et à la requête : diacritiques retirés
+     * (« evenement » trouve « événement », saisie sans accents fréquente), ligatures dépliées,
+     * puis racinisation légère du pluriel (« -s », « -x » final, mots de plus de trois lettres ;
+     * « -aux » → « -al »). Volontairement minimale : une racinisation agressive fusionne des
+     * termes distincts, et l'erreur est invisible — un mauvais chunk remonte, sans échec.
+     */
+    static String normalize(String token) {
+        String folded = token.indexOf('œ') >= 0 || token.indexOf('æ') >= 0
+                ? token.replace("œ", "oe").replace("æ", "ae") : token;
+        folded = DIACRITICS.matcher(Normalizer.normalize(folded, Normalizer.Form.NFD)).replaceAll("");
+        int len = folded.length();
+        if (len > 4 && folded.endsWith("aux")) return folded.substring(0, len - 3) + "al";
+        if (len > 3 && (folded.endsWith("s") || folded.endsWith("x")) && !folded.endsWith("ss")) {
+            return folded.substring(0, len - 1);
+        }
+        return folded;
+    }
+
+    private static final java.util.regex.Pattern DIACRITICS = java.util.regex.Pattern.compile("\\p{M}+");
 
     /**
      * Retire les tirets en début et fin de token. Balayage linéaire plutôt qu'une regex

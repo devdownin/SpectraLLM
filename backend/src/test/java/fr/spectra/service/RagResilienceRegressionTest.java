@@ -101,7 +101,7 @@ class RagResilienceRegressionTest {
         var service = service(false, false);
         service.query(request);
         sources(stream(service, request));
-        assertThat(users).allSatisfy(user -> assertThat(user).isEqualTo("Quelle valeur ?"));
+        assertThat(users).allSatisfy(user -> assertThat(user).endsWith("=== FIN DU CONTEXTE ===\n\nQuelle valeur ?"));
     }
 
     @Test void unchangedRewriteStillBudgetsTheHistoryBeforeGeneration() {
@@ -117,7 +117,8 @@ class RagResilienceRegressionTest {
         var request = request(List.of(new ConversationMessage("user", "Projet ALPHA")));
         var service = service(true, false);
         service.query(request, new RagOverrides(null, false, null, null, null, null, null, null));
-        assertThat(users).containsExactly("Quelle valeur ?");
+        assertThat(users).singleElement().satisfies(user ->
+                assertThat(user).endsWith("=== FIN DU CONTEXTE ===\n\nQuelle valeur ?").doesNotContain("ALPHA"));
         verify(llm, never()).chat(anyString(), anyString());
     }
 

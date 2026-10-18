@@ -326,4 +326,76 @@ class RagServiceRetrievalTest {
 
         assertThat(ctx.contextChunks()).containsExactly("faible");
     }
+
+    // ── A5 : expansion aux chunks voisins ────────────────────────────────────
+
+    private static Map<String, Object> vectorResultWithMeta(String text, Map<String, String> meta) {
+        return Map.of(
+                "documents", List.of(List.of(text)),
+                "metadatas", List.of(List.of(meta)),
+                "distances", List.of(List.of(0.2)));
+    }
+
+    @Test
+    void neighborExpansion_joinsAdjacentChunksWithoutDuplicatingTheOverlap() {
+        when(props.rag()).thenReturn(new SpectraProperties.RagProperties(null, null, 1, 4000));
+        when(chromaDbClient.query(eq("col-1"), anyList(), anyInt())).thenReturn(vectorResultWithMeta(
+                "fin du recouvrement. Le chunk retenu.", Map.of("sourceFile", "a.pdf", "sha256", "shaA", "chunkIndex", "3")));
+        when(chromaDbClient.getChunksByIndex("col-1", "sha256", "shaA", List.of(2, 4))).thenReturn(Map.of(
+                2, "Le chunk précédent, fin du recouvrement.",
+                4, "Le chunk suivant."));
+
+        RagService.RagContext ctx = ragService(Optional.empty(), Optional.empty()).retrieveContext(request());
+
+        assertThat(ctx.contextChunks()).containsExactly(
+                "Le chunk précédent, fin du recouvrement. Le chunk retenu.\n\nLe chunk suivant.");
+        assertThat(ctx.sources().getFirst().sourceFile()).isEqualTo("a.pdf");
+    }
+
+    @Test
+    void neighborExpansion_respectsTheSizeCapAndLegacyChunksWithoutIndex() {
+        when(props.rag()).thenReturn(new SpectraProperties.RagProperties(null, null, 1, 30));
+        when(chromaDbClient.query(eq("col-1"), anyList(), anyInt())).thenReturn(vectorResultWithMeta(
+                "Chunk retenu.", Map.of("sourceFile", "a.pdf", "chunkIndex", "0")));
+        when(chromaDbClient.getChunksByIndex("col-1", "sourceFile", "a.pdf", List.of(1)))
+                .thenReturn(Map.of(1, "Un voisin bien trop long pour tenir dans le plafond."));
+
+        RagService.RagContext ctx = ragService(Optional.empty(), Optional.empty()).retrieveContext(request());
+
+        assertThat(ctx.contextChunks()).containsExactly("Chunk retenu.");
+    }
+
+    @Test
+    void joinOverlapping_withoutCommonTextKeepsBothParts() {
+        assertThat(RagService.joinOverlapping("Premier.", "Second.")).isEqualTo("Premier.\n\nSecond.");
+    }
+
+    // ── A7 : MMR sur embeddings ──────────────────────────────────────────────
+
+    @Test
+    void mmr_dropsSemanticNearDuplicates_andKeepsDiverseChunks() {
+        when(props.semanticDedup()).thenReturn(new SpectraProperties.SemanticDedupProperties(true, 0.95, "mmr", 0.7));
+        when(chromaDbClient.query(eq("col-1"), anyList(), anyInt()))
+                .thenReturn(vectorResults(List.of("a", "a-bis", "b"), List.of(0.1, 0.2, 0.3)));
+        when(embeddingService.embedBatch(List.of("a", "a-bis", "b"))).thenReturn(List.of(
+                List.of(1f, 0f), List.of(0.99f, 0.01f), List.of(0f, 1f)));
+
+        RagService.RagContext ctx = ragService(Optional.empty(), Optional.empty()).retrieveContext(request());
+
+        assertThat(ctx.contextChunks()).containsExactly("a", "b");
+        assertThat(ctx.semanticDedupApplied()).isTrue();
+    }
+
+    @Test
+    void mmr_embeddingFailure_keepsTheContextUnchanged() {
+        when(props.semanticDedup()).thenReturn(new SpectraProperties.SemanticDedupProperties(true, 0.95, "mmr", 0.7));
+        when(chromaDbClient.query(eq("col-1"), anyList(), anyInt()))
+                .thenReturn(vectorResults(List.of("a", "b"), List.of(0.1, 0.2)));
+        when(embeddingService.embedBatch(anyList())).thenThrow(new RuntimeException("embed down"));
+
+        RagService.RagContext ctx = ragService(Optional.empty(), Optional.empty()).retrieveContext(request());
+
+        assertThat(ctx.contextChunks()).containsExactly("a", "b");
+        assertThat(ctx.semanticDedupApplied()).isFalse();
+    }
 }

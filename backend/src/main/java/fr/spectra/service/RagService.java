@@ -11,6 +11,7 @@ import fr.spectra.dto.QueryResponse;
 import fr.spectra.dto.RagOverrides;
 import fr.spectra.model.RagPromptFormat;
 import fr.spectra.service.ActiveModelProfileService.ModelProfile;
+import fr.spectra.util.TextSimilarity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.codec.ServerSentEvent;
@@ -87,9 +88,17 @@ public class RagService {
     // issu du fine-tuning enregistre précisément AssistantPersona.SYSTEM_PROMPT : la cohérence
     // entraînement ↔ service est donc préservée sans être imposée aux autres modèles.
 
-    /** Prompt système RAG : persona du modèle actif, consignes de citation, puis contexte. */
-    private static String ragSystemPrompt(ModelProfile profile, String contextBlock) {
-        return RagPromptFormat.systemPrompt(profile.personaOrDefault(), contextBlock);
+    /**
+     * Prompt RAG : persona du modèle actif et consignes en système, contexte placé selon
+     * {@code spectra.rag.context-placement} (message utilisateur par défaut).
+     */
+    private RagPromptFormat.RagPrompt ragPrompt(ModelProfile profile, String contextBlock, String userMessage) {
+        return RagPromptFormat.prompt(contextPlacement(), profile.personaOrDefault(), contextBlock, userMessage);
+    }
+
+    private RagPromptFormat.ContextPlacement contextPlacement() {
+        return props.rag() != null ? props.rag().effectiveContextPlacement()
+                : RagPromptFormat.ContextPlacement.USER;
     }
 
     /** Prompt système du mode direct (sans contexte récupéré) : persona du modèle actif. */
@@ -107,7 +116,7 @@ public class RagService {
             List<QueryResponse.Source> sources,
             /** Passages numérotés [1], [2], … prêts à être injectés dans le prompt système
              *  ({@code null} si aucun chunk). La persona et les consignes sont ajoutées à la
-             *  génération, où le modèle actif est connu — cf. {@link #ragSystemPrompt}. */
+             *  génération, où le modèle actif est connu — cf. {@link #ragPrompt}. */
             String contextBlock,
             boolean rerankApplied,
             boolean hybridApplied,
@@ -352,16 +361,16 @@ public class RagService {
             answer = "Aucun document pertinent trouvé dans la base de connaissances. "
                     + "Veuillez d'abord ingérer des documents via POST /api/ingest.";
         } else {
-            String systemPrompt = ragSystemPrompt(profile, ctx.contextBlock());
+            RagPromptFormat.RagPrompt prompt = ragPrompt(profile, ctx.contextBlock(), userMessage);
 
             if (RagOverrides.resolve(ov.selfRag(), selfRagService.isPresent())) {
                 SelfRagService.SelfRagResult result = selfRagService.get()
-                        .reflect(request.question(), ctx.contextChunks(), systemPrompt, userMessage,
+                        .reflect(request.question(), ctx.contextChunks(), prompt.system(), prompt.user(),
                                 request.temperature(), request.topP());
                 answer = result.answer();
                 selfRagApplied = result.reflectionApplied();
             } else {
-                answer = llmClient.chat(systemPrompt, userMessage,
+                answer = llmClient.chat(prompt.system(), prompt.user(),
                         request.temperature(), request.topP());
             }
         }
@@ -640,7 +649,7 @@ public class RagService {
             return;
         }
 
-        String systemPrompt = ragSystemPrompt(profile, ctx.contextBlock());
+        RagPromptFormat.RagPrompt prompt = ragPrompt(profile, ctx.contextBlock(), userMessage);
         boolean selfRagApplied = false;
         String selfRagScores = null;
         long tGen = System.currentTimeMillis();
@@ -650,7 +659,7 @@ public class RagService {
             // puis auto-évalué. Si un raffinement s'impose, l'événement replace demande
             // au client d'effacer le brouillon avant de streamer la version raffinée.
             SelfRagService selfRag = selfRagService.get();
-            String draft = forwardTokens(sink, llmClient.chatStream(systemPrompt, userMessage,
+            String draft = forwardTokens(sink, llmClient.chatStream(prompt.system(), prompt.user(),
                     request.temperature(), request.topP()));
             if (sink.isCancelled()) return;
             trace.add(new StageTrace("generation", System.currentTimeMillis() - tGen, null, null, null));
@@ -664,7 +673,7 @@ public class RagService {
                 sink.next(ServerSentEvent.<String>builder().event("replace").data("{}").build());
                 emitStage(sink, "refining", null, null);
                 String refined = forwardTokens(sink, llmClient.chatStream(
-                        selfRag.refineSystemPrompt(systemPrompt), userMessage,
+                        selfRag.refineSystemPrompt(prompt.system()), prompt.user(),
                         request.temperature(), request.topP()));
                 if (!sink.isCancelled()) {
                     selfRagScores = formatScores(selfRag.evaluate(request.question(), ctx.contextChunks(), refined));
@@ -673,7 +682,7 @@ public class RagService {
             }
             trace.add(new StageTrace("reflection", System.currentTimeMillis() - tReflect, null, null, selfRagScores));
         } else {
-            forwardTokens(sink, llmClient.chatStream(systemPrompt, userMessage,
+            forwardTokens(sink, llmClient.chatStream(prompt.system(), prompt.user(),
                     request.temperature(), request.topP()));
             trace.add(new StageTrace("generation", System.currentTimeMillis() - tGen, null, null, null));
         }
@@ -947,8 +956,10 @@ public class RagService {
         boolean semanticDedupApplied = false;
         if (props.semanticDedup() != null && props.semanticDedup().isEnabled() && contextChunks.size() > 1) {
             double threshold = props.semanticDedup().effectiveSimilarityThreshold();
-            List<Integer> keptIndices = deduplicateSemantically(contextChunks, threshold);
-            if (keptIndices.size() < contextChunks.size()) {
+            List<Integer> keptIndices = props.semanticDedup().isMmr()
+                    ? selectByMmr(collectionName, contextChunks, threshold, props.semanticDedup().effectiveMmrLambda())
+                    : deduplicateSemantically(contextChunks, threshold);
+            if (!keptIndices.equals(identity(contextChunks.size()))) {
                 int before = contextChunks.size();
                 contextChunks  = filterByIndices(contextChunks, keptIndices);
                 chunkMetadatas = filterByIndices(chunkMetadatas, keptIndices);
@@ -958,6 +969,13 @@ public class RagService {
                 semanticDedupApplied = true;
                 log.info("Semantic dedup : {} → {} chunks (seuil={})", before, contextChunks.size(), threshold);
             }
+        }
+
+        // ── 5. Expansion aux chunks voisins ────────────────────────────────
+        int neighborWindow = props.rag() != null ? props.rag().effectiveNeighborWindow() : 0;
+        if (neighborWindow > 0 && !contextChunks.isEmpty()) {
+            contextChunks = expandWithNeighbors(collectionId, contextChunks, chunkMetadatas,
+                    neighborWindow, props.rag().effectiveNeighborMaxChars());
         }
 
         return buildRagContext(contextChunks, chunkMetadatas, chunkDistances,
@@ -1116,10 +1134,11 @@ public class RagService {
         List<Integer> selected = RagPromptBudget.selectIndices(original.contextChunks().size(), llmClient,
                 Integer.MAX_VALUE, indices -> {
                     RagContext candidate = selectContext(original, indices);
-                    String prompt = ragSystemPrompt(profile,
-                            candidate.contextBlock() != null ? candidate.contextBlock() : "");
-                    if (selfRagEnabled) prompt = selfRagService.get().refineSystemPrompt(prompt);
-                    return prompt + "\n" + userMessage;
+                    RagPromptFormat.RagPrompt prompt = ragPrompt(profile,
+                            candidate.contextBlock() != null ? candidate.contextBlock() : "", userMessage);
+                    String system = selfRagEnabled
+                            ? selfRagService.get().refineSystemPrompt(prompt.system()) : prompt.system();
+                    return system + "\n" + prompt.user();
                 });
         return selectContext(original, selected);
     }
@@ -1222,7 +1241,7 @@ public class RagService {
             List<Double>              rrf       = new ArrayList<>(results.size());
             for (HybridSearchService.HybridChunk hc : results) {
                 chunks.add(hc.text());
-                metadatas.add(Map.of("sourceFile", hc.sourceFile()));
+                metadatas.add(hc.metadata() != null ? hc.metadata() : Map.of("sourceFile", hc.sourceFile()));
                 distances.add(hc.vectorDistance());
                 bm25.add(hc.bm25Score());
                 rrf.add(hc.rrfScore());
@@ -1374,7 +1393,152 @@ public class RagService {
                 null, null, false, false, false, false, true);
     }
 
+    // ── Helpers expansion aux voisins ─────────────────────────────────────────
+
+    /** Recouvrement minimal reconnu entre deux chunks consécutifs (overlap du chunking). */
+    private static final int MIN_OVERLAP_CHARS = 16;
+
+    /**
+     * Élargit chaque passage à ses voisins immédiats dans le document ({@code chunkIndex ± d},
+     * d ≤ {@code window}) : une réponse à cheval sur une frontière de chunk redevient lisible
+     * d'un seul tenant. L'expansion s'arrête, dans chaque direction, au premier voisin absent,
+     * déjà présent dans le contexte, ou qui ferait dépasser {@code maxChars} — un passage reste
+     * contigu et aucun texte n'apparaît deux fois. Les métadonnées et la citation [n] restent
+     * celles du chunk retenu.
+     */
+    private List<String> expandWithNeighbors(String collectionId, List<String> chunks,
+                                             List<Map<String, String>> metadatas, int window, int maxChars) {
+        Set<String> used = new HashSet<>(chunks);
+        List<String> expanded = new ArrayList<>(chunks.size());
+        int widened = 0;
+        for (int i = 0; i < chunks.size(); i++) {
+            String text = chunks.get(i);
+            Map<String, String> meta = metadatas.get(i);
+            Integer index = parseChunkIndex(meta.get("chunkIndex"));
+            String sha = meta.get("sha256");
+            String field = sha != null && !sha.isBlank() ? "sha256" : "sourceFile";
+            String identity = "sha256".equals(field) ? sha : meta.get("sourceFile");
+            if (index == null || identity == null) {
+                expanded.add(text);
+                continue;
+            }
+            try {
+                List<Integer> wanted = new ArrayList<>();
+                for (int d = 1; d <= window; d++) {
+                    if (index - d >= 0) wanted.add(index - d);
+                    wanted.add(index + d);
+                }
+                Map<Integer, String> neighbors = chromaDbClient.getChunksByIndex(collectionId, field, identity, wanted);
+                String merged = text;
+                boolean before = true;
+                boolean after = true;
+                for (int d = 1; d <= window && (before || after); d++) {
+                    String prev = before ? neighbors.get(index - d) : null;
+                    if (prev != null && !used.contains(prev) && merged.length() + prev.length() <= maxChars) {
+                        merged = joinOverlapping(prev, merged);
+                        used.add(prev);
+                    } else {
+                        before = false;
+                    }
+                    String next = after ? neighbors.get(index + d) : null;
+                    if (next != null && !used.contains(next) && merged.length() + next.length() <= maxChars) {
+                        merged = joinOverlapping(merged, next);
+                        used.add(next);
+                    } else {
+                        after = false;
+                    }
+                }
+                if (!merged.equals(text)) widened++;
+                expanded.add(merged);
+            } catch (Exception e) {
+                log.debug("Expansion aux voisins indisponible pour le chunk {} : {}", index, e.getMessage());
+                expanded.add(text);
+            }
+        }
+        if (widened > 0) {
+            meterRegistry.counter("spectra.rag.neighbor_expansion").increment(widened);
+            log.info("Expansion aux voisins : {} passage(s) élargi(s) sur {}", widened, chunks.size());
+        }
+        return expanded;
+    }
+
+    private static Integer parseChunkIndex(String value) {
+        if (value == null) return null;
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Concatène deux chunks consécutifs en retirant leur recouvrement : le chunking fait commencer
+     * chaque chunk par la fin du précédent (overlap), qui apparaîtrait sinon deux fois.
+     */
+    static String joinOverlapping(String first, String second) {
+        int max = Math.min(Math.min(first.length(), second.length()), 2000);
+        for (int k = max; k >= MIN_OVERLAP_CHARS; k--) {
+            if (first.regionMatches(first.length() - k, second, 0, k)) {
+                return first + second.substring(k);
+            }
+        }
+        return first + "\n\n" + second;
+    }
+
     // ── Helpers déduplication sémantique ──────────────────────────────────────
+
+    private static List<Integer> identity(int size) {
+        List<Integer> indices = new ArrayList<>(size);
+        for (int i = 0; i < size; i++) indices.add(i);
+        return indices;
+    }
+
+    /**
+     * Maximal Marginal Relevance sur embeddings : à chaque pas, retient le chunk qui maximise
+     * {@code λ·pertinence − (1−λ)·similarité max aux chunks déjà retenus}. La pertinence est le
+     * rang d'entrée (déjà classé par reranker ou RRF), normalisé dans ]0,1] : les scores bruts
+     * n'ont pas d'échelle commune d'un mode de retrieval à l'autre. Un chunk dont la similarité
+     * cosinus à un chunk retenu atteint {@code threshold} est un quasi-doublon : écarté.
+     *
+     * <p>Un appel d'embedding (lot unique, ≤ maxContextChunks textes). En cas d'échec, l'ordre et
+     * le contenu sont conservés tels quels : la diversification est un raffinement, pas une
+     * dépendance.</p>
+     */
+    private List<Integer> selectByMmr(String collectionName, List<String> chunks, double threshold, double lambda) {
+        List<List<Float>> vectors;
+        try {
+            vectors = embeddingService.embedBatch(EmbeddingPromptScheme.orNone(
+                    chromaDbClient.promptScheme(collectionName)).documents(chunks));
+        } catch (RuntimeException e) {
+            log.warn("MMR : embeddings des candidats indisponibles, contexte conservé tel quel — {}", e.getMessage());
+            return identity(chunks.size());
+        }
+        if (vectors == null || vectors.size() != chunks.size()) return identity(chunks.size());
+
+        int n = chunks.size();
+        List<Integer> remaining = identity(n);
+        List<Integer> selected = new ArrayList<>(n);
+        while (!remaining.isEmpty()) {
+            int best = remaining.getFirst();
+            double bestScore = Double.NEGATIVE_INFINITY;
+            double bestMaxSim = 0.0;
+            for (int candidate : remaining) {
+                double maxSim = 0.0;
+                for (int chosen : selected) {
+                    maxSim = Math.max(maxSim, TextSimilarity.cosine(vectors.get(candidate), vectors.get(chosen)));
+                }
+                double score = lambda * (1.0 - (double) candidate / n) - (1.0 - lambda) * maxSim;
+                if (score > bestScore) {
+                    bestScore = score;
+                    best = candidate;
+                    bestMaxSim = maxSim;
+                }
+            }
+            remaining.remove(Integer.valueOf(best));
+            if (bestMaxSim < threshold) selected.add(best);
+        }
+        return selected;
+    }
 
     /**
      * Retourne les indices des chunks à conserver après déduplication sémantique.

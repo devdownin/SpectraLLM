@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -204,6 +205,41 @@ class HybridSearchServiceTest {
                 "metadatas", List.of(metas)
         );
         when(chromaDb.query(eq(COLL_ID), any(), anyInt())).thenReturn(result);
+    }
+
+    // ── A6 : métadonnées complètes, y compris pour les résultats BM25 seuls ──
+
+    @Test
+    void search_keepsFullChromaMetadata_andFetchesItForBm25OnlyHits() {
+        when(chromaDb.query(anyString(), any(), anyInt())).thenReturn(Map.of(
+                "ids", List.of(List.of("v1")),
+                "documents", List.of(List.of("vecteur")),
+                "metadatas", List.of(List.of(Map.of("sourceFile", "a.pdf", "chunkIndex", "4"))),
+                "distances", List.of(List.of(0.1))));
+        when(ftsService.search(anyString(), anyString(), anyInt())).thenReturn(List.of(
+                new BM25Index.ScoredDoc("b1", "lexical", "b.pdf", 2.0f)));
+        when(chromaDb.getMetadatasByIds(COLL_ID, List.of("b1"))).thenReturn(Map.of(
+                "b1", Map.of("sourceFile", "b.pdf", "chunkIndex", "7", "sha256", "shaB")));
+
+        var results = hybridSearch.search("q", QUERY_EMBEDDING, COLL_ID, COLL_NAME, 5);
+
+        assertThat(results).extracting(HybridSearchService.HybridChunk::id).containsExactlyInAnyOrder("v1", "b1");
+        var byId = results.stream().collect(Collectors.toMap(
+                HybridSearchService.HybridChunk::id, HybridSearchService.HybridChunk::metadata));
+        assertThat(byId.get("v1")).containsEntry("chunkIndex", "4");
+        assertThat(byId.get("b1")).containsEntry("chunkIndex", "7").containsEntry("sha256", "shaB");
+    }
+
+    @Test
+    void search_bm25OnlyMetadataUnavailable_fallsBackToSourceFile() {
+        when(chromaDb.query(anyString(), any(), anyInt())).thenReturn(Map.of());
+        when(ftsService.search(anyString(), anyString(), anyInt())).thenReturn(List.of(
+                new BM25Index.ScoredDoc("b1", "lexical", "b.pdf", 2.0f)));
+        when(chromaDb.getMetadatasByIds(anyString(), any())).thenThrow(new RuntimeException("down"));
+
+        var results = hybridSearch.search("q", QUERY_EMBEDDING, COLL_ID, COLL_NAME, 5);
+
+        assertThat(results.getFirst().metadata()).containsExactly(Map.entry("sourceFile", "b.pdf"));
     }
 }
 
