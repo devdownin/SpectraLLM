@@ -189,6 +189,15 @@ public class BM25Index implements Serializable {
 
     /** Score all documents against a query, return top-N sorted by score desc. */
     public List<ScoredDoc> search(String queryText, int topN) {
+        return search(queryText, topN, null);
+    }
+
+    /**
+     * Comme {@link #search(String, int)}, restreint aux documents acceptés par {@code accept}
+     * (empreinte sha256 nullable, source) — filtre appliqué avant la coupe top-N.
+     */
+    public List<ScoredDoc> search(String queryText, int topN,
+                                  java.util.function.BiPredicate<String, String> accept) {
         Map<String, Integer> queryTermFreq = buildTermFreq(queryText);
         if (queryTermFreq.isEmpty()) return List.of();
 
@@ -208,6 +217,7 @@ public class BM25Index implements Serializable {
                 float idf = (float) Math.log((n - df + 0.5) / (df + 0.5) + 1.0);
 
                 for (String docId : postings) {
+                    if (accept != null && !accept.test(docIdentities.get(docId), docSources.get(docId))) continue;
                     Map<String, Integer> tf = docTermFreq.get(docId);
                     if (tf == null) continue;
                     float tfVal = tf.getOrDefault(token, 0);

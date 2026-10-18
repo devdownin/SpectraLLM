@@ -24,9 +24,27 @@ public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, 
      * @param neighborWindow     nombre de chunks voisins (avant et après) ajoutés à chaque passage
      *                           retenu ; 0 = désactivé (défaut)
      * @param neighborMaxChars   taille maximale d'un passage après expansion
+     * @param citationCheck      vérification post-génération des citations par le cross-encoder ;
+     *                           défaut {@code true} (sans effet si le reranker est désactivé)
+     * @param citationMinScore   score minimal (sigmoïde) d'un passage cité pour étayer sa phrase ;
+     *                           défaut 0.2
+     * @param citationStrict     retirer de la réponse les phrases non étayées ; défaut {@code false}
+     * @param citationCheck      vérifier chaque phrase citée contre son passage (cross-encoder)
+     * @param citationMinScore   seuil d'étayage (barème du reranker, sigmoïde) — à calibrer
+     * @param citationStrict     retirer de la réponse non streamée les phrases non étayées
      */
     public record RagProperties(String contextPlacement, Boolean contextualHeaders,
-                                Integer neighborWindow, Integer neighborMaxChars) {
+                                Integer neighborWindow, Integer neighborMaxChars,
+                                Boolean citationCheck, Float citationMinScore, Boolean citationStrict) {
+        public RagProperties(String contextPlacement, Boolean contextualHeaders,
+                             Integer neighborWindow, Integer neighborMaxChars) {
+            this(contextPlacement, contextualHeaders, neighborWindow, neighborMaxChars, null, null, null);
+        }
+
+        public boolean citationCheckEnabled() { return !Boolean.FALSE.equals(citationCheck); }
+        public float effectiveCitationMinScore() { return citationMinScore != null ? citationMinScore : 0.2f; }
+        public boolean citationStrictEnabled() { return Boolean.TRUE.equals(citationStrict); }
+
         public fr.spectra.model.RagPromptFormat.ContextPlacement effectiveContextPlacement() {
             return fr.spectra.model.RagPromptFormat.ContextPlacement.parse(contextPlacement);
         }

@@ -39,5 +39,12 @@ public record AblationArmReport(
         double avgContextTokens,
         int runs,
         Map<String, Double> stdDev,
-        Map<String, Integer> appliedCounts
+        Map<String, Integer> appliedCounts,
+        /**
+         * Fidélité des citations : part moyenne des phrases citées étayées par leur passage
+         * ({@link CitationReport#faithfulness()}), sur les réponses vérifiées. {@code null} si aucune.
+         */
+        Double faithfulness,
+        /** Réponses dont les citations ont été vérifiées (cross-encoder chargé, au moins une citation). */
+        int verifiedAnswers
 ) {}

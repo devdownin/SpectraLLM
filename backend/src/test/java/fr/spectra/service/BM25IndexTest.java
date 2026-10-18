@@ -262,4 +262,16 @@ class BM25IndexTest {
     void freshIndexDeclaresTheCurrentAnalyzer() {
         assertThat(new BM25Index().usesCurrentAnalyzer()).isTrue();
     }
+
+    @Test
+    void search_filtre_ecarteLesDocumentsRefusesAvantLeClassement() {
+        index.add("d1", "norme incendie bâtiment", "a.pdf", "sha-a");
+        index.add("d2", "norme incendie entrepôt", "b.pdf", "sha-b");
+        index.add("d3", "norme incendie historique", "c.pdf");
+
+        List<BM25Index.ScoredDoc> results = index.search("norme incendie", 5,
+                (sha, source) -> "sha-b".equals(sha) || "c.pdf".equals(source));
+
+        assertThat(results).extracting(BM25Index.ScoredDoc::id).containsExactlyInAnyOrder("d2", "d3");
+    }
 }

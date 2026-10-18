@@ -451,12 +451,31 @@ public class ChromaDbClient {
     @Retry(name = "chroma")
     @SuppressWarnings("unchecked")
     public Map<String, Object> query(String collectionId, List<Float> queryEmbedding, int nResults) {
-        Map<String, Object> body = Map.of(
-                "query_embeddings", List.of(queryEmbedding),
-                "n_results",        nResults,
-                "include",          List.of("documents", "metadatas", "distances")
-        );
+        return postQuery(collectionId, queryBody(queryEmbedding, nResults, null));
+    }
 
+    /**
+     * Recherche restreinte par un filtre de métadonnées ({@code where} ChromaDB), appliqué avant
+     * le classement HNSW : les {@code nResults} voisins sont pris parmi les seuls chunks retenus.
+     */
+    @CircuitBreaker(name = "chroma", fallbackMethod = "filteredQueryFallback")
+    @Retry(name = "chroma")
+    public Map<String, Object> query(String collectionId, List<Float> queryEmbedding, int nResults,
+                                     Map<String, Object> where) {
+        return postQuery(collectionId, queryBody(queryEmbedding, nResults, where));
+    }
+
+    private static Map<String, Object> queryBody(List<Float> queryEmbedding, int nResults, Map<String, Object> where) {
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("query_embeddings", List.of(queryEmbedding));
+        body.put("n_results", nResults);
+        body.put("include", List.of("documents", "metadatas", "distances"));
+        if (where != null && !where.isEmpty()) body.put("where", where);
+        return body;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> postQuery(String collectionId, Map<String, Object> body) {
         return webClient.post()
                 .uri(COLLECTIONS_BASE + "/{id}/query", collectionId)
                 .bodyValue(body)
@@ -770,6 +789,11 @@ public class ChromaDbClient {
         }
         log.warn("[circuit-breaker] chroma ouvert — getOrCreateCollection('{}') : {}", name, cause.getMessage());
         throw new ChromaDbUnavailableException("ChromaDB temporairement indisponible", cause);
+    }
+
+    Map<String, Object> filteredQueryFallback(String collectionId, List<Float> queryEmbedding, int nResults,
+                                              Map<String, Object> where, Throwable cause) {
+        return queryFallback(collectionId, queryEmbedding, nResults, cause);
     }
 
     Map<String, Object> queryFallback(String collectionId, List<Float> queryEmbedding, int nResults, Throwable cause) {

@@ -168,6 +168,78 @@ généré avec `user`, lève la contrainte.
 - A5 coûte un appel ChromaDB par passage retenu ; le budget de prompt reste appliqué après.
 - A7 coûte un appel d'embedding par requête (≤ `maxContextChunks` textes).
 
+## Fiabilité de bout en bout — citations, calibration, filtres
+
+### Vérification des citations après génération
+
+Le pipeline choisissait ses passages ; rien ne contrôlait que la réponse s'y tenait. Un 7B cite
+volontiers `[2]` derrière une affirmation que le passage 2 ne contient pas. `CitationVerifier`
+découpe la réponse en phrases, retire les marqueurs `[n]` et note chaque phrase citée contre ses
+seuls passages cités avec le cross-encoder déjà chargé pour le reranking : aucun appel LLM, un
+résultat reproductible, quelques dizaines de millisecondes.
+
+La réponse (`POST /api/query`, et l'étape `citations` du streaming) porte un rapport
+`citations` : phrases étayées / non étayées, citations invalides (`[7]` pour 5 passages),
+phrases sans citation, `faithfulness` = étayées / citées, et le détail par phrase.
+
+| Variable | Défaut | Effet |
+|---|---|---|
+| `SPECTRA_RAG_CITATION_CHECK` | `true` | Vérification active (sans effet si le reranker n'est pas chargé). |
+| `SPECTRA_RAG_CITATION_MIN_SCORE` | `0.2` | Score sigmoïde minimal du meilleur passage cité. |
+| `SPECTRA_RAG_CITATION_STRICT` | `false` | Retire les phrases non étayées de la réponse JSON ; si rien ne reste, réponse d'abstention. En streaming, la réponse est déjà partie : le rapport la qualifie seulement. |
+
+Limite : le cross-encoder juge la **pertinence** de la phrase pour le passage, pas
+l'implication logique. Une phrase qui contredit son passage sur le même sujet peut passer : c'est
+un signal de fidélité, pas une preuve. Le mode strict est à réserver aux usages où une phrase
+retirée à tort coûte moins qu'une phrase fausse sourcée.
+
+### Calibration sur le corpus
+
+Les seuils par défaut sont des valeurs génériques ; seule une mesure sur **vos** documents les
+justifie.
+
+1. **Jeu d'évaluation.** `POST /api/quality-benchmark/draft?size=40` tire un passage par
+   document, à tour de rôle, et en fait une question et sa réponse attendue
+   (`expectedSources` = le document du passage), écrites dans
+   `data/benchmarks/draft-<horodatage>.jsonl`. C'est un **brouillon** : reformuler les questions
+   trop proches du texte (sinon le BM25 est avantagé), corriger les réponses, retirer les passages
+   sans intérêt, et ajouter 10 à 20 % de questions hors corpus (`"answerable": false`), que le
+   générateur ne peut pas produire. Le fichier relu se déclare par
+   `SPECTRA_BENCHMARK_QUALITY_FILE` (chemin vu du conteneur, ex. `/app/data/benchmarks/corpus.jsonl`).
+2. **Grille.** `POST /api/ablation/calibrate` transforme une grille en bras d'ablation (16 au
+   plus), chacun surchargeant pour la seule requête le seuil du reranker, la fenêtre de voisins et
+   la déduplication :
+
+   ```json
+   {"rerankMinScores": [0, 0.1, 0.2, 0.3], "neighborWindows": [0, 1],
+    "dedupStrategies": ["jaccard", "mmr"], "runs": 1}
+   ```
+
+   Le job se suit comme une ablation (`GET /api/ablation/jobs/{jobId}`).
+3. **Lecture.** Chaque bras porte, en plus du rappel, du MRR, du score du juge et du taux
+   d'hallucination, la fidélité moyenne des citations. Le rapport désigne `recommendedArm`, qui
+   maximise `0.35·recall@k + 0.25·MRR + 0.25·fidélité + 0.15·score/10 − 0.25·hallucination`
+   (à égalité, le plus rapide). Reporter ses valeurs dans `.env` ; un écart inférieur à l'écart-type
+   (`runs` > 1) n'est pas significatif.
+
+### Filtres de recherche
+
+`QueryRequest.filter` restreint la recherche **avant** le classement, aux deux index :
+
+```json
+{"question": "Quel est le délai de préavis ?",
+ "filter": {"categories": ["juridique"], "sources": ["contrat-2026.pdf"],
+            "ingestedAfter": "2026-01-01T00:00:00Z", "ingestedBefore": "2026-07-01T00:00:00Z"}}
+```
+
+Catégories GED et date d'ingestion ne vivent que sur la fiche du document : `RetrievalFilterResolver`
+les résout en empreintes `sha256` (et noms de source pour les chunks historiques sans
+empreinte), transmises à ChromaDB en clause `where` et au BM25 en prédicat. Les recopier dans
+chaque chunk aurait obligé à réécrire l'index à chaque reclassification. Un filtre qui ne retient
+aucun document répond sans interroger les index ; un filtre actif désactive le Long-Context RAG
+(qui charge tout le corpus). Sans accès à la GED, un filtre par catégorie ou par date est refusé
+plutôt qu'ignoré.
+
 ## Vérifications
 
 - `EmbeddingPromptSchemeTest` : détection par famille de modèles, préfixes requête/documents,
@@ -184,3 +256,11 @@ généré avec `user`, lève la contrainte.
 - `BM25IndexTest` : accents, pluriels, mots vides, version d'analyseur (A4).
 - `RagServiceRetrievalTest` : expansion aux voisins et plafond (A5), MMR et repli (A7).
 - `HybridSearchServiceTest` : métadonnées complètes, y compris BM25 seul (A6).
+- `CitationVerifierTest` : découpage en phrases (citation après le point ou à la ligne),
+  étayée / non étayée / invalide, seuil, indisponibilité, mode strict.
+- `RetrievalFilterResolverTest`, `HybridSearchServiceTest`, `BM25IndexTest`, `ChromaDbClientTest` :
+  résolution GED par collection, catégorie et date, clause `where`, prédicat BM25.
+- `RagServiceFilterCitationTest` : filtre transmis aux index, filtre vide sans recherche, refus
+  sans GED, seuil du reranker surchargé, rapport et mode strict sur `query`.
+- `CalibrationRequestTest`, `RagAblationServiceTest`, `BenchmarkDraftServiceTest` : grille et
+  plafond, objectif et bras recommandé, brouillon tiré du corpus.

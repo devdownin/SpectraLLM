@@ -56,6 +56,18 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 - `docker-compose.yml` transmet enfin `SPECTRA_RERANKER_MIN_SCORE`, `SPECTRA_MULTI_QUERY_ENABLED`
   et les réglages de déduplication, jusque-là inatteignables depuis `.env`.
 
+### Ajouté — RAG : citations vérifiées, calibration, filtres de recherche
+
+- **Vérification des citations** après génération par le cross-encoder : rapport `citations`
+  dans la réponse (phrases étayées, non étayées, citations invalides, fidélité) et étape
+  `citations` en streaming. `SPECTRA_RAG_CITATION_STRICT=true` retire les phrases non étayées.
+- **Calibration sur le corpus** : `POST /api/quality-benchmark/draft` génère un brouillon de jeu
+  d'évaluation à relire ; `POST /api/ablation/calibrate` mesure une grille seuil du reranker ×
+  voisins × déduplication et désigne le bras recommandé (`recommendedArm`), fidélité des citations
+  comprise.
+- **Filtres de recherche** `filter` sur `/api/query` : catégories GED, sources, période
+  d'ingestion, appliqués avant le classement aux index vectoriel et BM25.
+
 ### Ajouté — PR de rattrapage qui lancent la CI
 
 - `release-followup.yml` lit le secret facultatif `AUTOMATION_PR_TOKEN` (jeton à portée restreinte ou

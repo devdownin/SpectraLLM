@@ -115,6 +115,10 @@ Disabled by default — no Kafka bean is created unless `SPECTRA_KAFKA_ENABLED=t
 | `SPECTRA_RAG_CONTEXTUAL_HEADERS` | `true` | Prefix "Document / Section" to the *embedded* text of each chunk (never to the stored or cited text). |
 | `SPECTRA_RAG_NEIGHBOR_WINDOW` | `0` | Adjacent chunks (± N, same document) merged into each retained passage; 0 = off. |
 | `SPECTRA_RAG_NEIGHBOR_MAX_CHARS` | `4000` | Size cap of an expanded passage. |
+| `SPECTRA_RAG_CITATION_CHECK` | `true` | After generation, score each sentence against the passages it cites `[n]` with the cross-encoder; the report is returned in `citations`. Requires the reranker. Measures relevance, not entailment. |
+| `SPECTRA_RAG_CITATION_MIN_SCORE` | `0.2` | Minimum cross-encoder score (sigmoid) for a cited passage to support its sentence. |
+| `SPECTRA_RAG_CITATION_STRICT` | `false` | Drop unsupported sentences from the answer (not in streaming, where tokens are already sent). |
+| `SPECTRA_BENCHMARK_QUALITY_FILE` | — | Curated quality benchmark (JSONL, path inside the container) used by `/api/quality-benchmark` and `/api/ablation`; start from `POST /api/quality-benchmark/draft`. Empty = bundled benchmark. |
 | `SPECTRA_SEMANTIC_DEDUP_STRATEGY` | `jaccard` | `jaccard` (lexical) or `mmr` (Maximal Marginal Relevance on embeddings; the threshold becomes a cosine similarity, ~0.92). |
 | `SPECTRA_SEMANTIC_DEDUP_MMR_LAMBDA` | `0.7` | MMR relevance/diversity trade-off (0–1). |
 | `SPECTRA_EMBEDDING_MAX_INPUT_TOKENS` | `2048` | Per-request window served by `llm-embed` (`-c 8192` / `LLM_EMBED_PARALLEL`), in *model* tokens. Every embedded text (task prefix + header + chunk) is counted with the served tokenizer (`/tokenize`) and re-split when it exceeds `min(this, model limit)` — 2048 for nomic under llama.cpp. |

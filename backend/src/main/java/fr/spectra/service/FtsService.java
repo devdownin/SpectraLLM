@@ -352,12 +352,18 @@ public class FtsService {
      * @return scored docs sorted by BM25 score descending; empty list if index absent or query fails
      */
     public List<BM25Index.ScoredDoc> search(String query, String collectionName, int topN) {
+        return search(query, collectionName, topN, null);
+    }
+
+    /** Recherche BM25 restreinte aux documents acceptés (empreinte sha256 nullable, source). */
+    public List<BM25Index.ScoredDoc> search(String query, String collectionName, int topN,
+                                            java.util.function.BiPredicate<String, String> accept) {
         BM25Index index = indices.get(collectionName);
         if (index == null || index.size() == 0) {
             log.debug("FTS: no index for '{}', returning empty BM25 results", collectionName);
             return List.of();
         }
-        return index.search(query, topN);
+        return index.search(query, topN, accept);
     }
 
     /** Returns the number of indexed documents for a collection (for diagnostics). */

@@ -2,6 +2,7 @@ package fr.spectra.controller;
 
 import fr.spectra.dto.QualityBenchmarkReport;
 import fr.spectra.dto.QualityCompareJob;
+import fr.spectra.service.BenchmarkDraftService;
 import fr.spectra.service.QualityBenchmarkService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -15,6 +16,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.List;
 import java.util.Map;
 
@@ -30,9 +33,28 @@ import java.util.Map;
 public class QualityBenchmarkController {
 
     private final QualityBenchmarkService service;
+    private final BenchmarkDraftService draftService;
 
-    public QualityBenchmarkController(QualityBenchmarkService service) {
+    public QualityBenchmarkController(QualityBenchmarkService service, BenchmarkDraftService draftService) {
         this.service = service;
+        this.draftService = draftService;
+    }
+
+    @PostMapping("/draft")
+    @Operation(
+            summary = "Générer un brouillon de benchmark depuis le corpus",
+            description = "Tire un passage par document (à tour de rôle) et en fait une question + réponse attendue "
+                    + "avec le LLM, écrites en JSONL dans spectra.benchmark.draft-dir. À relire avant usage : "
+                    + "reformuler les questions trop proches du texte, ajouter 10 à 20 % de questions hors corpus "
+                    + "(answerable=false). Bloquant : un appel LLM par question (size ≤ 60)."
+    )
+    public BenchmarkDraftService.DraftResult draft(@RequestParam(required = false) String collection,
+                                                   @RequestParam(defaultValue = "30") int size) {
+        try {
+            return draftService.draft(collection, size);
+        } catch (IOException e) {
+            throw new UncheckedIOException("Écriture du brouillon de benchmark impossible", e);
+        }
     }
 
     @PostMapping
