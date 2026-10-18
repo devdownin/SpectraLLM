@@ -26,28 +26,43 @@ import java.util.regex.Pattern;
  */
 public enum EmbeddingPromptScheme {
 
-    NONE("", ""),
-    /** nomic-embed-text v1 / v1.5 / v2. */
-    NOMIC("search_query: ", "search_document: "),
-    /** E5 / multilingual-e5. */
-    E5("query: ", "passage: "),
+    NONE("", "", Integer.MAX_VALUE),
+    /**
+     * nomic-embed-text v1 / v1.5 / v2. Contrat officiel : préfixe de tâche obligatoire en tête de
+     * chaque texte ; 2048 tokens de contexte sous llama.cpp (8192 seulement avec RoPE YaRN,
+     * que llm-embed ne configure pas).
+     */
+    NOMIC("search_query: ", "search_document: ", 2048),
+    /** E5 / multilingual-e5 (encodeurs BERT/XLM-R, 512 positions). */
+    E5("query: ", "passage: ", 512),
     /** BGE v1.5 (en), mxbai-embed-large, snowflake-arctic-embed : instruction côté requête seule. */
-    REPRESENT("Represent this sentence for searching relevant passages: ", ""),
+    REPRESENT("Represent this sentence for searching relevant passages: ", "", 512),
     /** Qwen3-Embedding : instruction de tâche côté requête, passages bruts. */
-    QWEN3("Instruct: Given a question, retrieve relevant passages that answer the question\nQuery:", "");
+    QWEN3("Instruct: Given a question, retrieve relevant passages that answer the question\nQuery:", "", 32768);
 
     private static final Pattern E5_FAMILY = Pattern.compile("(^|[^a-z0-9])e5([^a-z0-9]|$)");
 
     private final String queryPrefix;
     private final String documentPrefix;
+    private final int maxInputTokens;
 
-    EmbeddingPromptScheme(String queryPrefix, String documentPrefix) {
+    EmbeddingPromptScheme(String queryPrefix, String documentPrefix, int maxInputTokens) {
         this.queryPrefix = queryPrefix;
         this.documentPrefix = documentPrefix;
+        this.maxInputTokens = maxInputTokens;
     }
 
     public String query(String text) {
         return queryPrefix + text;
+    }
+
+    public String document(String text) {
+        return documentPrefix + text;
+    }
+
+    /** Longueur d'entrée maximale de la famille, en tokens du modèle ; illimitée si inconnue. */
+    public int maxInputTokens() {
+        return maxInputTokens;
     }
 
     public List<String> documents(List<String> texts) {

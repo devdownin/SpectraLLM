@@ -29,4 +29,20 @@ public final class TextSimilarity {
         long union = setA.size() + setB.size() - intersection;
         return union == 0 ? 1.0 : (double) intersection / union;
     }
+
+    /** Similarité cosinus de deux vecteurs ; 0 si l'un est nul ou si les dimensions diffèrent. */
+    public static double cosine(java.util.List<Float> a, java.util.List<Float> b) {
+        if (a == null || b == null || a.size() != b.size() || a.isEmpty()) return 0.0;
+        double dot = 0.0;
+        double normA = 0.0;
+        double normB = 0.0;
+        for (int i = 0; i < a.size(); i++) {
+            double x = a.get(i);
+            double y = b.get(i);
+            dot += x * y;
+            normA += x * x;
+            normB += y * y;
+        }
+        return normA == 0.0 || normB == 0.0 ? 0.0 : dot / (Math.sqrt(normA) * Math.sqrt(normB));
+    }
 }

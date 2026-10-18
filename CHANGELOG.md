@@ -23,6 +23,39 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 - Un document contenant `=== FIN DU CONTEXTE ===` ne peut plus refermer le bloc de contexte du
   prompt système ; les consignes précisent que le contexte n'est jamais une consigne.
 
+### Corrigé — contrat d'embedding et taille des chunks
+
+- **Contrat d'embedding par modèle** (`EmbeddingContract`) : préfixes requête/document du contrat
+  officiel (nomic : `search_query:` / `search_document:`), fenêtre d'entrée du modèle (nomic :
+  2048 tokens sous llama.cpp, faute de RoPE YaRN), version de la construction du texte embeddé.
+- **Taille vérifiée avec le tokenizer servi** : chaque texte embeddé est compté par `/tokenize`
+  de llm-embed ; un chunk qui dépasse est redécoupé par phrases (ingestion) ou tronqué
+  (ré-indexation, texte stocké intact), une question trop longue est tronquée.
+  `SPECTRA_EMBEDDING_MAX_INPUT_TOKENS` donne la fenêtre servie (2048 = `-c 8192 / --parallel 4`).
+- **Le chevauchement ne fait plus déborder un chunk** : borné par la place que laisse le segment
+  suivant (un chunk atteignait 565 tokens pour une limite de 512).
+- **Ré-indexation versionnée** : estampille `spectra:embedding-text-version` ; le rapport
+  `GET /api/config/embedding-consistency` publie le contrat de chaque collection et
+  `reindexRecommended` ; le suivi de ré-indexation donne `fromContract` → `toContract`.
+
+### Ajouté — RAG : recommandations A1 à A8 de l'audit
+
+- **Contexte hors du prompt système** (`SPECTRA_RAG_CONTEXT_PLACEMENT=user`, défaut) : les
+  passages arrivent dans le message utilisateur, sous l'autorité des consignes. Le dataset de
+  fine-tuning suit le réglage. **À noter :** un modèle affiné avant cette version se sert avec
+  `SPECTRA_RAG_CONTEXT_PLACEMENT=system`.
+- **En-têtes contextuels** : titre du document et section Markdown préfixés au texte embeddé
+  (`SPECTRA_RAG_CONTEXTUAL_HEADERS`, actif) ; nouvelle métadonnée de chunk `section`.
+- **BM25 français** : mots vides, accents et pluriels. L'index lexical est reconstruit au
+  premier démarrage.
+- **Expansion aux chunks voisins** (`SPECTRA_RAG_NEIGHBOR_WINDOW`, désactivée par défaut) et
+  métadonnées complètes en recherche hybride.
+- **MMR sur embeddings** (`SPECTRA_SEMANTIC_DEDUP_STRATEGY=mmr`).
+- **Modèles multilingues** : Qwen3-Embedding (`--pooling last` automatique, `LLM_EMBED_POOLING`)
+  et bge-reranker-v2-m3 (`SPECTRA_RERANKER_ONNX_MODEL_FILE`) — recettes dans l'audit RAG.
+- `docker-compose.yml` transmet enfin `SPECTRA_RERANKER_MIN_SCORE`, `SPECTRA_MULTI_QUERY_ENABLED`
+  et les réglages de déduplication, jusque-là inatteignables depuis `.env`.
+
 ### Ajouté — PR de rattrapage qui lancent la CI
 
 - `release-followup.yml` lit le secret facultatif `AUTOMATION_PR_TOKEN` (jeton à portée restreinte ou

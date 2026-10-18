@@ -45,6 +45,7 @@ public class IngestionTaskExecutor {
     private final ChromaDbClient chromaDbClient;
     private final FtsService ftsService;
     private final int embeddingBatchSize;
+    private final EmbeddingInputGuard inputGuard;
     /** Taille décompressée maximale autorisée par fichier/entrée (mémoire + anti-ZIP-bomb). */
     private final long maxEntryUncompressedBytes;
     /** Nombre maximal d'entrées traitées par archive (protection ZIP bomb). */
@@ -73,6 +74,8 @@ public class IngestionTaskExecutor {
         this.chromaDbClient = chromaDbClient;
         this.ftsService = ftsService;
         this.embeddingBatchSize = embeddingBatchSize;
+        this.inputGuard = new EmbeddingInputGuard(embeddingService,
+                properties.rag() == null || properties.rag().contextualHeadersEnabled());
         this.maxZipEntries = properties.ingestion() != null ? properties.ingestion().effectiveMaxZipEntries() : 10_000;
         // 0 → auto-calcul selon le heap et la concurrence (évite l'OOM).
         this.maxEntryUncompressedBytes = IngestionLimits.resolveMaxUncompressedBytes(maxUncompressedMb, concurrentIngestions);
@@ -334,7 +337,7 @@ public class IngestionTaskExecutor {
         if (sha256 != null) {
             meta.put("sha256", sha256);
         }
-        List<TextChunk> chunks = chunkingService.chunk(cleanedText, fileName, meta);
+        List<TextChunk> chunks = fitToEmbeddingWindow(chunkingService.chunk(cleanedText, fileName, meta), collectionName);
 
         if (chunks.isEmpty()) {
             log.warn("Aucun chunk produit pour: {}", fileName);
@@ -363,6 +366,11 @@ public class IngestionTaskExecutor {
                 complete && stored.error() == null, stored.error());
     }
 
+    /** Chunks garantis dans la fenêtre du modèle d'embedding de la collection, mesurée avec son tokenizer. */
+    private List<TextChunk> fitToEmbeddingWindow(List<TextChunk> chunks, String collectionName) {
+        return inputGuard.fit(chunks, EmbeddingContract.orDefault(chromaDbClient.embeddingContract(collectionName)));
+    }
+
     /**
      * Embarque et stocke les chunks par lot. Indexe chaque lot dans ChromaDB + FTS au
      * fur et à mesure et retourne le nombre de chunks effectivement indexés. Un échec de
@@ -372,13 +380,13 @@ public class IngestionTaskExecutor {
                               String fileName, IntConsumer progress) {
         int embedded = 0;
         String error = null;
-        EmbeddingPromptScheme scheme = EmbeddingPromptScheme.orNone(chromaDbClient.promptScheme(collectionName));
+        EmbeddingContract contract = EmbeddingContract.orDefault(chromaDbClient.embeddingContract(collectionName));
         for (int i = 0; i < chunks.size(); i += embeddingBatchSize) {
             int end = Math.min(i + embeddingBatchSize, chunks.size());
             List<TextChunk> batch = chunks.subList(i, end);
             try {
                 List<List<Float>> batchEmbeddings = embeddingService.embedBatch(
-                        scheme.documents(batch.stream().map(TextChunk::text).toList()));
+                        inputGuard.documentTexts(batch, contract));
                 chromaDbClient.addDocuments(collectionId, batch, batchEmbeddings);
                 embedded += batch.size();
                 progress.accept(batch.size());
@@ -515,7 +523,7 @@ public class IngestionTaskExecutor {
         if (sha256 != null) {
             meta.put("sha256", sha256);
         }
-        List<TextChunk> chunks = chunkingService.chunk(cleanedText, rootSource, meta);
+        List<TextChunk> chunks = fitToEmbeddingWindow(chunkingService.chunk(cleanedText, rootSource, meta), collectionName);
 
         if (chunks.isEmpty()) {
             log.warn("Aucun chunk produit pour l'entrée ZIP: {}", fileName);

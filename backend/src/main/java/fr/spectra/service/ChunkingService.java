@@ -101,10 +101,16 @@ public class ChunkingService {
         // compte réel (BPE peut fusionner aux frontières) : les chunks restent donc ≤ max.
         int bufferTokenCount = 0;
         int chunkIndex = 0;
+        // Chemin de titres Markdown (#, ##…) en vigueur, et celui du chunk en cours : la section
+        // où commence son premier paragraphe propre (l'overlap appartient au chunk précédent).
+        String[] headings = new String[6];
+        String chunkSection = null;
 
         for (String paragraph : paragraphs) {
             String trimmed = paragraph.strip();
             if (trimmed.isEmpty()) continue;
+            trackHeading(trimmed, headings);
+            String currentSection = sectionPath(headings);
 
             IntArrayList paraTokens = encoding.encode(trimmed);
 
@@ -112,12 +118,13 @@ public class ChunkingService {
             if (paraTokens.size() > maxChunkTokens) {
                 // Flush le buffer courant
                 if (!buffer.isEmpty()) {
-                    chunks.add(createChunk(buffer.toString(), chunkIndex++, sourceFile, extraMetadata));
+                    chunks.add(createChunk(buffer.toString(), chunkIndex++, sourceFile, extraMetadata, chunkSection));
                     buffer.setLength(0);
                     bufferTokenCount = 0;
                 }
+                chunkSection = null;
                 // Découpe le grand paragraphe
-                chunks.addAll(splitLargeParagraph(trimmed, chunkIndex, sourceFile, extraMetadata));
+                chunks.addAll(splitLargeParagraph(trimmed, chunkIndex, sourceFile, extraMetadata, currentSection));
                 chunkIndex = chunks.size();
                 continue;
             }
@@ -126,16 +133,17 @@ public class ChunkingService {
             int sepTokens = buffer.isEmpty() ? 0 : sepTokenCount;
 
             if (bufferTokenCount + sepTokens + paraTokens.size() > maxChunkTokens) {
-                chunks.add(createChunk(buffer.toString(), chunkIndex++, sourceFile, extraMetadata));
+                chunks.add(createChunk(buffer.toString(), chunkIndex++, sourceFile, extraMetadata, chunkSection));
+                chunkSection = null;
 
                 // Chevauchement : on garde la fin du buffer précédent — seul point où le
-                // buffer complet est encodé (une fois par chunk émis, pas par paragraphe).
-                IntArrayList bufferTokens = encoding.encode(buffer.toString());
-                int startIdx = Math.max(0, bufferTokens.size() - overlapTokens);
-                String overlap = encoding.decode(subList(bufferTokens, startIdx, bufferTokens.size()));
+                // buffer complet est encodé (une fois par chunk émis, pas par paragraphe). Il
+                // est borné par la place que laisse le paragraphe suivant : un chevauchement
+                // plein devant un paragraphe presque plein donnait un chunk au-delà du maximum.
+                String overlap = overlapFor(buffer.toString(), maxChunkTokens - sepTokenCount - paraTokens.size());
                 buffer.setLength(0);
                 buffer.append(overlap);
-                bufferTokenCount = bufferTokens.size() - startIdx;
+                bufferTokenCount = overlap.isEmpty() ? 0 : encoding.countTokens(overlap);
             }
 
             if (!buffer.isEmpty()) {
@@ -144,19 +152,48 @@ public class ChunkingService {
             }
             buffer.append(trimmed);
             bufferTokenCount += paraTokens.size();
+            if (chunkSection == null) chunkSection = currentSection;
         }
 
         // Dernier chunk
         if (!buffer.isEmpty()) {
-            chunks.add(createChunk(buffer.toString(), chunkIndex, sourceFile, extraMetadata));
+            chunks.add(createChunk(buffer.toString(), chunkIndex, sourceFile, extraMetadata, chunkSection));
         }
 
         return chunks;
     }
 
-    private TextChunk createChunk(String text, int index, String sourceFile, Map<String, String> extraMetadata) {
+    private static final java.util.regex.Pattern MARKDOWN_HEADING =
+            java.util.regex.Pattern.compile("^(#{1,6})[ \\t]+(.+?)[ \\t#]*$");
+
+    /** Met à jour le chemin de titres si le paragraphe commence par un titre Markdown. */
+    private static void trackHeading(String paragraph, String[] headings) {
+        int eol = paragraph.indexOf('\n');
+        java.util.regex.Matcher m = MARKDOWN_HEADING.matcher(eol < 0 ? paragraph : paragraph.substring(0, eol));
+        if (!m.matches()) return;
+        int level = m.group(1).length();
+        headings[level - 1] = m.group(2).strip();
+        for (int i = level; i < headings.length; i++) headings[i] = null;
+    }
+
+    private static String sectionPath(String[] headings) {
+        StringBuilder path = new StringBuilder();
+        for (String h : headings) {
+            if (h == null) continue;
+            if (!path.isEmpty()) path.append(" > ");
+            path.append(h);
+        }
+        return path.isEmpty() ? null : path.toString();
+    }
+
+    private TextChunk createChunk(String text, int index, String sourceFile, Map<String, String> extraMetadata,
+                                  String section) {
         Map<String, String> metadata = new HashMap<>(extraMetadata);
         metadata.put("chunkIndex", String.valueOf(index));
+        // Section Markdown d'origine : alimente l'en-tête contextuel de l'embedding (cf. ContextualHeader).
+        if (section != null && !section.isBlank()) {
+            metadata.put("section", section);
+        }
         // Garantit que le filtre `where sourceFile == X` de ChromaDbClient.deleteBySource
         // fonctionne quel que soit le format : seul TxtExtractor peuplait cette métadonnée,
         // ce qui cassait silencieusement la suppression/upsert par source pour PDF, DOCX,
@@ -174,7 +211,8 @@ public class ChunkingService {
         );
     }
 
-    private List<TextChunk> splitLargeParagraph(String text, int startIndex, String sourceFile, Map<String, String> meta) {
+    private List<TextChunk> splitLargeParagraph(String text, int startIndex, String sourceFile, Map<String, String> meta,
+                                                String section) {
         List<String> sentences = new ArrayList<>();
         BreakIterator iterator = BreakIterator.getSentenceInstance(sentenceLocale);
         iterator.setText(text);
@@ -200,12 +238,12 @@ public class ChunkingService {
             if (sentenceTokens.size() > maxChunkTokens) {
                 // Flush du chunk courant s'il n'est pas vide
                 if (!currentChunk.isEmpty()) {
-                    chunks.add(createChunk(currentChunk.toString(), index++, sourceFile, meta));
+                    chunks.add(createChunk(currentChunk.toString(), index++, sourceFile, meta, section));
                     currentChunk.setLength(0);
                     currentTokenCount = 0;
                 }
                 // Découpage par tokens
-                List<TextChunk> subChunks = splitLargeTextByTokens(sentence, index, sourceFile, meta);
+                List<TextChunk> subChunks = splitLargeTextByTokens(sentence, index, sourceFile, meta, section);
                 chunks.addAll(subChunks);
                 index = startIndex + chunks.size();
                 continue;
@@ -215,16 +253,14 @@ public class ChunkingService {
 
             // Si l'ajout de cette phrase dépasse la limite du chunk
             if (currentTokenCount + spaceTokens + sentenceTokens.size() > maxChunkTokens) {
-                chunks.add(createChunk(currentChunk.toString(), index++, sourceFile, meta));
+                chunks.add(createChunk(currentChunk.toString(), index++, sourceFile, meta, section));
 
                 // Application du chevauchement (overlap) — unique encodage du chunk complet,
-                // effectué une fois par chunk émis.
-                IntArrayList currentTokens = encoding.encode(currentChunk.toString());
-                int startIdx = Math.max(0, currentTokens.size() - overlapTokens);
-                String overlap = encoding.decode(subList(currentTokens, startIdx, currentTokens.size()));
+                // effectué une fois par chunk émis, borné par la place que laisse la phrase.
+                String overlap = overlapFor(currentChunk.toString(), maxChunkTokens - spaceTokenCount - sentenceTokens.size());
                 currentChunk.setLength(0);
                 currentChunk.append(overlap);
-                currentTokenCount = currentTokens.size() - startIdx;
+                currentTokenCount = overlap.isEmpty() ? 0 : encoding.countTokens(overlap);
             }
 
             if (!currentChunk.isEmpty() && !currentChunk.toString().endsWith(" ") && !sentence.startsWith(" ")) {
@@ -236,13 +272,14 @@ public class ChunkingService {
         }
 
         if (!currentChunk.isEmpty()) {
-            chunks.add(createChunk(currentChunk.toString(), index, sourceFile, meta));
+            chunks.add(createChunk(currentChunk.toString(), index, sourceFile, meta, section));
         }
 
         return chunks;
     }
 
-    private List<TextChunk> splitLargeTextByTokens(String text, int startIndex, String sourceFile, Map<String, String> meta) {
+    private List<TextChunk> splitLargeTextByTokens(String text, int startIndex, String sourceFile, Map<String, String> meta,
+                                                   String section) {
         List<TextChunk> chunks = new ArrayList<>();
         IntArrayList tokens = encoding.encode(text);
         int offset = 0;
@@ -253,7 +290,7 @@ public class ChunkingService {
             IntArrayList subTokens = subList(tokens, offset, end);
             String chunkText = encoding.decode(subTokens);
 
-            chunks.add(createChunk(chunkText, index++, sourceFile, meta));
+            chunks.add(createChunk(chunkText, index++, sourceFile, meta, section));
 
             if (end >= tokens.size()) break;
 
@@ -266,6 +303,21 @@ public class ChunkingService {
         }
 
         return chunks;
+    }
+
+    /**
+     * Fin du chunk précédent à reprendre en tête du suivant : au plus {@code overlapTokens}, et au
+     * plus {@code room} — la place laissée par le segment qui va suivre. Recomptée après décodage :
+     * une coupe au milieu d'un caractère multi-octets se ré-encode en plus de tokens qu'elle n'en
+     * occupait ; si elle ne tient plus, pas de chevauchement plutôt qu'un chunk trop long.
+     */
+    private String overlapFor(String previous, int room) {
+        int keep = Math.min(overlapTokens, room);
+        if (keep <= 0) return "";
+        IntArrayList tokens = encoding.encode(previous);
+        int start = Math.max(0, tokens.size() - keep);
+        String overlap = encoding.decode(subList(tokens, start, tokens.size()));
+        return encoding.countTokens(overlap) <= room ? overlap : "";
     }
 
     private IntArrayList subList(IntArrayList list, int from, int to) {

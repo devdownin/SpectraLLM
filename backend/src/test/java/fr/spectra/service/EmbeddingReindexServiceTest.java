@@ -130,4 +130,35 @@ class EmbeddingReindexServiceTest {
         verify(chromaDbClient).updateEmbeddings(eq("col-1"),
                 argThat(ids -> ids.equals(List.of("plein"))), anyList());
     }
+
+    @Test
+    void reindex_recordsTheContractTransition_andEmbedsUnderTheCurrentContract() throws Exception {
+        ModelRegistryService registry = mock(ModelRegistryService.class);
+        when(registry.getActiveEmbeddingModel()).thenReturn("nomic-embed-text");
+        EmbeddingReindexService nomic = new EmbeddingReindexService(chromaDbClient, embeddingService, registry, true, 2048);
+        when(chromaDbClient.resolveCollectionIdUnchecked("docs")).thenReturn("col-1");
+        when(chromaDbClient.embeddingContract("docs")).thenReturn(
+                new EmbeddingContract("nomic-embed-text", EmbeddingPromptScheme.NONE, 1, 2048));
+        when(chromaDbClient.count("col-1")).thenReturn(1);
+        when(chromaDbClient.getDocumentsPaged(eq("col-1"), anyInt(), eq(0))).thenReturn(Map.of(
+                "ids", List.of("a"), "documents", List.of("texte A"),
+                "metadatas", List.of(Map.of("sourceFile", "a.pdf"))));
+        when(chromaDbClient.getDocumentsPaged(eq("col-1"), anyInt(), eq(16))).thenReturn(Map.of(
+                "ids", List.of(), "documents", List.of()));
+        when(embeddingService.embedBatch(anyList())).thenReturn(List.of(List.of(0.1f)));
+
+        nomic.start("docs");
+        long deadline = System.currentTimeMillis() + 5_000;
+        while (nomic.statuses().stream().noneMatch(s -> "COMPLETED".equals(s.status()))
+                && System.currentTimeMillis() < deadline) {
+            Thread.sleep(25);
+        }
+
+        verify(embeddingService).embedBatch(List.of("search_document: Document : a.pdf\n\ntexte A"));
+        var status = nomic.statuses().getFirst();
+        assertThat(status.status()).isEqualTo("COMPLETED");
+        assertThat(status.fromContract()).isEqualTo("NONE/v1");
+        assertThat(status.toContract()).isEqualTo("NOMIC/v2");
+        assertThat(status.toApi()).containsEntry("fromContract", "NONE/v1").containsEntry("toContract", "NOMIC/v2");
+    }
 }

@@ -56,8 +56,14 @@ public class HybridSearchService {
             String sourceFile,
             double vectorDistance,  // cosine distance from ChromaDB (1.0 if BM25-only)
             float  bm25Score,       // raw BM25 score (0f if vector-only)
-            double rrfScore         // combined RRF score (higher = more relevant)
-    ) {}
+            double rrfScore,        // combined RRF score (higher = more relevant)
+            Map<String, String> metadata  // métadonnées ChromaDB complètes (chunkIndex, sha256, title…)
+    ) {
+        public HybridChunk(String id, String text, String sourceFile, double vectorDistance,
+                           float bm25Score, double rrfScore) {
+            this(id, text, sourceFile, vectorDistance, bm25Score, rrfScore, Map.of("sourceFile", sourceFile));
+        }
+    }
 
     /** BM25-only retrieval when query embeddings are unavailable; no vector request is made. */
     public List<HybridChunk> searchLexical(String question, String collectionName, int topCandidates) {
@@ -130,6 +136,7 @@ public class HybridSearchService {
         Map<String, Double>   vecDistById = new LinkedHashMap<>();
         Map<String, String>   vecTextById = new LinkedHashMap<>();
         Map<String, String>   vecSrcById  = new LinkedHashMap<>();
+        Map<String, Map<String, String>> vecMetaById = new LinkedHashMap<>();
 
         for (int i = 0; i < vecDocs.size(); i++) {
             String id = i < vecIds.size() ? vecIds.get(i) : ("__vec_" + i);
@@ -141,6 +148,7 @@ public class HybridSearchService {
                     ? vecMetas.get(i).getOrDefault("sourceFile", "inconnu")
                     : "inconnu";
             vecSrcById.put(id, src);
+            if (i < vecMetas.size() && vecMetas.get(i) != null) vecMetaById.put(id, vecMetas.get(i));
         }
 
         // Build map: chunkId → BM25 rank (1-indexed)
@@ -172,9 +180,15 @@ public class HybridSearchService {
         Map<String, BM25Index.ScoredDoc> bm25DocById = bm25Results.stream()
                 .collect(Collectors.toMap(BM25Index.ScoredDoc::id, d -> d));
 
-        List<HybridChunk> results = rrfScores.entrySet().stream()
+        List<String> topIds = rrfScores.entrySet().stream()
                 .sorted(Map.Entry.<String, Double>comparingByValue().reversed())
                 .limit(topCandidates)
+                .map(Map.Entry::getKey)
+                .toList();
+        Map<String, Map<String, String>> bm25OnlyMetas = bm25OnlyMetadatas(topIds, vecMetaById, collectionId);
+
+        List<HybridChunk> results = topIds.stream()
+                .map(id -> Map.entry(id, rrfScores.get(id)))
                 .map(e -> {
                     String id = e.getKey();
                     double rrf = e.getValue();
@@ -184,7 +198,9 @@ public class HybridSearchService {
                             : (bm25DocById.containsKey(id) ? bm25DocById.get(id).sourceFile() : "inconnu");
                     double dist    = vecDistById.getOrDefault(id, 1.0);
                     float  bm25Sc  = bm25ScoreById.getOrDefault(id, 0f);
-                    return new HybridChunk(id, text, src, dist, bm25Sc, rrf);
+                    Map<String, String> meta = vecMetaById.getOrDefault(id,
+                            bm25OnlyMetas.getOrDefault(id, Map.of("sourceFile", src)));
+                    return new HybridChunk(id, text, src, dist, bm25Sc, rrf, meta);
                 })
                 .toList();
 
@@ -196,6 +212,24 @@ public class HybridSearchService {
                 results.size(), vecOnly, bm25Only, both);
 
         return results;
+    }
+
+    /**
+     * Métadonnées des résultats issus du BM25 seul : l'index lexical ne garde que la source, et
+     * l'expansion aux voisins comme les en-têtes de citation ont besoin de {@code chunkIndex} et
+     * de l'identité du document. Un seul aller-retour ChromaDB ; en cas d'échec, la source suffit.
+     */
+    private Map<String, Map<String, String>> bm25OnlyMetadatas(List<String> ids,
+                                                               Map<String, Map<String, String>> known,
+                                                               String collectionId) {
+        List<String> missing = ids.stream().filter(id -> !known.containsKey(id)).toList();
+        if (missing.isEmpty() || collectionId == null) return Map.of();
+        try {
+            return chromaDbClient.getMetadatasByIds(collectionId, missing);
+        } catch (Exception e) {
+            log.debug("Hybrid search: métadonnées BM25-only indisponibles ({})", e.getMessage());
+            return Map.of();
+        }
     }
 }
 

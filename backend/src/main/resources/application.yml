@@ -71,6 +71,11 @@ spectra:
       # Timeout des requêtes /v1/embeddings. Doit couvrir un lot complet
       # (embedding-batch-size × chunk-max-tokens) sur du CPU lent.
       timeout-seconds: ${SPECTRA_EMBEDDING_TIMEOUT:60}
+      # Fenêtre par requête servie par llm-embed, en tokens DU MODÈLE : -c / --parallel de
+      # llm-embed-entrypoint.sh (8192 / 4). Chaque texte embeddé (préfixe + en-tête + chunk) est
+      # vérifié contre min(cette valeur, limite du modèle) avec le tokenizer servi, et redécoupé
+      # s'il dépasse. À ajuster si LLM_EMBED_PARALLEL change.
+      max-input-tokens: ${SPECTRA_EMBEDDING_MAX_INPUT_TOKENS:2048}
     # Bascule du modèle actif par les harnais d'évaluation (ModelSwitchCoordinator) :
     # attente que llama-server serve RÉELLEMENT le modèle demandé avant de mesurer.
     # En mode conteneurs séparés, llm-chat suit le pointeur du registre (~10 s) puis
@@ -221,6 +226,26 @@ spectra:
   semantic-dedup:
     enabled: ${SPECTRA_SEMANTIC_DEDUP_ENABLED:false}
     similarity-threshold: ${SPECTRA_SEMANTIC_DEDUP_THRESHOLD:0.85}
+    # « jaccard » : recouvrement lexical (historique). « mmr » : Maximal Marginal Relevance sur
+    # embeddings — le seuil devient une similarité cosinus (0.9-0.95 pour ne retirer que les
+    # quasi-doublons), et le contexte est réordonné pour couvrir plus d'aspects de la question.
+    strategy: ${SPECTRA_SEMANTIC_DEDUP_STRATEGY:jaccard}
+    mmr-lambda: ${SPECTRA_SEMANTIC_DEDUP_MMR_LAMBDA:0.7}
+  rag:
+    # Où injecter les passages récupérés : « user » (défaut) les place dans le message
+    # utilisateur, sous l'autorité des consignes système — une instruction cachée dans un
+    # document n'y a pas rang de consigne. « system » rétablit la forme historique : à garder
+    # pour un modèle affiné AVANT ce réglage (il a appris cette forme). Le dataset de
+    # fine-tuning suit ce réglage, pour que le modèle s'entraîne sur ce qu'on lui sert.
+    context-placement: ${SPECTRA_RAG_CONTEXT_PLACEMENT:user}
+    # En-têtes contextuels : « Document : … / Section : … » préfixés au texte EMBEDDÉ de chaque
+    # chunk (pas au texte stocké ni cité). Un chunk « la valeur est 512 » ne nomme pas son
+    # sujet ; son titre et sa section, si. Effet sur les chunks indexés ou ré-indexés ensuite.
+    contextual-headers: ${SPECTRA_RAG_CONTEXTUAL_HEADERS:true}
+    # Expansion aux chunks voisins (chunkIndex ± N) de chaque passage retenu : utile quand la
+    # réponse est à cheval sur deux chunks. 0 = désactivé. Le budget de prompt reste appliqué.
+    neighbor-window: ${SPECTRA_RAG_NEIGHBOR_WINDOW:0}
+    neighbor-max-chars: ${SPECTRA_RAG_NEIGHBOR_MAX_CHARS:4000}
   long-context-rag:
     enabled: ${SPECTRA_LONG_CONTEXT_RAG_ENABLED:false}
     max-collection-chunks: ${SPECTRA_LONG_CONTEXT_MAX_CHUNKS:100}

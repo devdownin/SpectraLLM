@@ -331,6 +331,11 @@ RERANKER_ONNX_URL_DEFAULT="https://github.com/devdownin/SpectraLLM/releases/down
 RERANKER_DIR="data/models/reranker"
 RERANKER_ONNX_URL="${SPECTRA_RERANKER_ONNX_URL:-$(read_env_var SPECTRA_RERANKER_ONNX_URL)}"
 RERANKER_ONNX_URL="${RERANKER_ONNX_URL:-$RERANKER_ONNX_URL_DEFAULT}"
+# Chemin du graphe ONNX SOUS l'URL ci-dessus. Les exports HuggingFace rangent le graphe dans
+# onnx/ (ex. onnx/model_int8.onnx pour bge-reranker-v2-m3) ; il est toujours enregistré
+# localement sous model.onnx, le nom qu'attend le moteur.
+RERANKER_ONNX_MODEL_FILE="${SPECTRA_RERANKER_ONNX_MODEL_FILE:-$(read_env_var SPECTRA_RERANKER_ONNX_MODEL_FILE)}"
+RERANKER_ONNX_MODEL_FILE="${RERANKER_ONNX_MODEL_FILE:-model.onnx}"
 
 # Le reranking est-il attendu ? Absent de .env = défaut applicatif, donc actif.
 RERANKER_ENABLED="$(read_env_var SPECTRA_RERANKER_ENABLED)"
@@ -346,13 +351,14 @@ elif [ "$DOWNLOAD_RERANKER" -eq 1 ] || [ "$RERANKER_ENABLED" = "true" ]; then
     echo "  Récupération de l'artefact (~0,5 Go) depuis :"
     echo "    $RERANKER_ONNX_URL"
     RERANKER_OK=1
-    for f in model.onnx tokenizer.json; do
-      # --fail : une 404 doit échouer, pas laisser une page HTML nommée model.onnx —
-      # ONNX Runtime ne la rejetterait qu'au premier rerank, longtemps après le setup.
-      if ! fetch_file "${RERANKER_ONNX_URL%/}/$f" "$RERANKER_DIR/$f"; then
-        RERANKER_OK=0
-      fi
-    done
+    # --fail (dans fetch_file) : une 404 doit échouer, pas laisser une page HTML nommée
+    # model.onnx — ONNX Runtime ne la rejetterait qu'au premier rerank, longtemps après le setup.
+    if ! fetch_file "${RERANKER_ONNX_URL%/}/$RERANKER_ONNX_MODEL_FILE" "$RERANKER_DIR/model.onnx"; then
+      RERANKER_OK=0
+    fi
+    if ! fetch_file "${RERANKER_ONNX_URL%/}/tokenizer.json" "$RERANKER_DIR/tokenizer.json"; then
+      RERANKER_OK=0
+    fi
     if [ "$RERANKER_OK" -eq 1 ]; then
       green "  [OK] artefact téléchargé"
     elif [ "$DOWNLOAD_RERANKER" -eq 1 ]; then

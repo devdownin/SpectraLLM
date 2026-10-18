@@ -5,12 +5,34 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import java.util.List;
 
 @ConfigurationProperties(prefix = "spectra")
-public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, PipelineProperties pipeline, IngestionProperties ingestion, RerankerProperties reranker, HybridSearchProperties hybridSearch, LayoutParserProperties layoutParser, AgenticRagProperties agenticRag, GedProperties ged, ConversationalRagProperties conversationalRag, CorrectiveRagProperties correctiveRag, AdaptiveRagProperties adaptiveRag, SelfRagProperties selfRag, ContextCompressionProperties contextCompression, MultiQueryProperties multiQuery, SemanticDedupProperties semanticDedup, LongContextRagProperties longContextRag, KafkaProperties kafka, ClassificationProperties classification) {
+public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, PipelineProperties pipeline, IngestionProperties ingestion, RerankerProperties reranker, HybridSearchProperties hybridSearch, LayoutParserProperties layoutParser, AgenticRagProperties agenticRag, GedProperties ged, ConversationalRagProperties conversationalRag, CorrectiveRagProperties correctiveRag, AdaptiveRagProperties adaptiveRag, SelfRagProperties selfRag, ContextCompressionProperties contextCompression, MultiQueryProperties multiQuery, SemanticDedupProperties semanticDedup, LongContextRagProperties longContextRag, KafkaProperties kafka, ClassificationProperties classification, RagProperties rag) {
 
     public SpectraProperties {
         if (pipeline == null) pipeline = new PipelineProperties(null, null, null, null, null, null);
         if (ged == null) ged = new GedProperties(null, null, null);
         if (classification == null) classification = ClassificationProperties.defaults();
+        if (rag == null) rag = new RagProperties(null, null, null, null);
+    }
+
+    /**
+     * Réglages transverses du pipeline RAG (audit RAG, A3/A5/A8).
+     *
+     * @param contextPlacement   {@code user} (défaut) ou {@code system} — cf.
+     *                           {@link fr.spectra.model.RagPromptFormat.ContextPlacement}
+     * @param contextualHeaders  préfixe « Document / Section » ajouté au texte EMBEDDÉ de chaque
+     *                           chunk (jamais au texte stocké ni cité) ; défaut {@code true}
+     * @param neighborWindow     nombre de chunks voisins (avant et après) ajoutés à chaque passage
+     *                           retenu ; 0 = désactivé (défaut)
+     * @param neighborMaxChars   taille maximale d'un passage après expansion
+     */
+    public record RagProperties(String contextPlacement, Boolean contextualHeaders,
+                                Integer neighborWindow, Integer neighborMaxChars) {
+        public fr.spectra.model.RagPromptFormat.ContextPlacement effectiveContextPlacement() {
+            return fr.spectra.model.RagPromptFormat.ContextPlacement.parse(contextPlacement);
+        }
+        public boolean contextualHeadersEnabled() { return !Boolean.FALSE.equals(contextualHeaders); }
+        public int effectiveNeighborWindow() { return neighborWindow != null ? Math.max(0, neighborWindow) : 0; }
+        public int effectiveNeighborMaxChars() { return neighborMaxChars != null ? neighborMaxChars : 4000; }
     }
 
     /**
@@ -63,8 +85,23 @@ public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, 
              * fichier réel (source servable) au lieu d'un simple alias sans chemin.
              */
             String file,
-            Integer timeoutSeconds
+            Integer timeoutSeconds,
+            /**
+             * Embedding : fenêtre par requête réellement servie par llama-server, en tokens du
+             * modèle ({@code -c} divisé par {@code --parallel}). Bornée ensuite par la limite de la
+             * famille de modèle ({@link fr.spectra.service.EmbeddingPromptScheme#maxInputTokens()}).
+             */
+            Integer maxInputTokens
     ) {
+        public EndpointProperties(String baseUrl, String model, String file, Integer timeoutSeconds) {
+            this(baseUrl, model, file, timeoutSeconds, null);
+        }
+
+        public int effectiveMaxInputTokens() {
+            return maxInputTokens != null && maxInputTokens > 0 ? maxInputTokens
+                    : fr.spectra.service.EmbeddingContract.DEFAULT_SERVER_MAX_INPUT_TOKENS;
+        }
+
         public int effectiveTimeoutSeconds(int fallback) {
             return timeoutSeconds != null ? timeoutSeconds : fallback;
         }
@@ -321,9 +358,23 @@ public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, 
      * @param similarityThreshold seuil de similarité Jaccard au-delà duquel deux chunks sont considérés
      *                            doublons (0.0–1.0, défaut : 0.85)
      */
-    public record SemanticDedupProperties(Boolean enabled, Double similarityThreshold) {
+    /**
+     * @param strategy {@code jaccard} (recouvrement lexical, défaut historique) ou {@code mmr}
+     *                 (Maximal Marginal Relevance sur embeddings : écarte les quasi-doublons
+     *                 sémantiques ET réordonne pour diversifier le contexte)
+     * @param mmrLambda poids pertinence/diversité du MMR, dans [0,1] (défaut 0.7)
+     */
+    public record SemanticDedupProperties(Boolean enabled, Double similarityThreshold,
+                                          String strategy, Double mmrLambda) {
+        public SemanticDedupProperties(Boolean enabled, Double similarityThreshold) {
+            this(enabled, similarityThreshold, null, null);
+        }
         public boolean isEnabled() { return Boolean.TRUE.equals(enabled); }
         public double effectiveSimilarityThreshold() { return similarityThreshold != null ? similarityThreshold : 0.85; }
+        public boolean isMmr() { return strategy != null && strategy.trim().equalsIgnoreCase("mmr"); }
+        public double effectiveMmrLambda() {
+            return mmrLambda != null ? Math.min(1.0, Math.max(0.0, mmrLambda)) : 0.7;
+        }
     }
 
     /**

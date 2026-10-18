@@ -95,9 +95,15 @@ class RagServiceModelProfileTest {
     }
 
     private String capturedSystemPrompt() {
+        return capturedMessages()[0];
+    }
+
+    /** Messages système et utilisateur réellement envoyés au modèle. */
+    private String[] capturedMessages() {
         ArgumentCaptor<String> systemPrompt = ArgumentCaptor.forClass(String.class);
-        verify(llmChatClient).chat(systemPrompt.capture(), anyString(), anyFloat(), anyFloat());
-        return systemPrompt.getValue();
+        ArgumentCaptor<String> userMessage = ArgumentCaptor.forClass(String.class);
+        verify(llmChatClient).chat(systemPrompt.capture(), userMessage.capture(), anyFloat(), anyFloat());
+        return new String[]{systemPrompt.getValue(), userMessage.getValue()};
     }
 
     // ── Persona du modèle actif ───────────────────────────────────────────────
@@ -121,11 +127,13 @@ class RagServiceModelProfileTest {
 
         ragService.query(ragRequest(null, null));
 
-        assertThat(capturedSystemPrompt())
+        String[] messages = capturedMessages();
+        assertThat(messages[0]).contains("cite tes sources");
+        // Placement par défaut : les passages voyagent avec la question, pas dans le système.
+        assertThat(messages[1])
                 .contains("=== CONTEXTE ===")
                 .contains("[1] (Source: peage.json)")
-                .contains("Le péage de sortie est conforme.")
-                .contains("cite tes sources");
+                .contains("Le péage de sortie est conforme.");
     }
 
     @Test
@@ -143,9 +151,12 @@ class RagServiceModelProfileTest {
                 "Le péage est-il conforme ?", "Oui [1].",
                 RagPromptFormat.contextBlock(List.of(
                         new RagPromptFormat.Passage("peage.json", "Le péage de sortie est conforme."))),
-                "peage.json", "qa", "question_answer_grounded", 0.9, null);
+                "peage.json", "qa", "question_answer_grounded", 0.9, null,
+                RagPromptFormat.ContextPlacement.USER);
 
-        assertThat(capturedSystemPrompt()).isEqualTo(grounded.conversations().get(0).content());
+        String[] served = capturedMessages();
+        assertThat(served[0]).isEqualTo(grounded.conversations().get(0).content());
+        assertThat(served[1]).isEqualTo(grounded.conversations().get(1).content());
     }
 
     @Test

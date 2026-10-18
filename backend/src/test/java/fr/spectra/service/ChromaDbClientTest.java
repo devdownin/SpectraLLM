@@ -168,14 +168,18 @@ class ChromaDbClientTest {
         server.enqueue(new MockResponse()
                 .setHeader("Content-Type", "application/json")
                 .setBody("{\"id\":\"col-5\",\"metadata\":{\"spectra:embedding-model\":\"nomic-embed-text\","
-                        + "\"spectra:embedding-prompts\":\"NOMIC\"}}"));
+                        + "\"spectra:embedding-prompts\":\"NOMIC\",\"spectra:embedding-text-version\":\"2\"}}"));
 
         client.getOrCreateCollection("neuve");
 
         JsonNode body = new ObjectMapper().readTree(server.takeRequest(5, TimeUnit.SECONDS).getBody().readUtf8());
         assertThat(body.path("metadata").path(ChromaDbClient.EMBEDDING_PROMPTS_METADATA_KEY).asText())
                 .isEqualTo("NOMIC");
-        assertThat(client.promptScheme("neuve")).isEqualTo(EmbeddingPromptScheme.NOMIC);
+        assertThat(body.path("metadata").path(ChromaDbClient.EMBEDDING_TEXT_VERSION_METADATA_KEY).asText())
+                .isEqualTo(String.valueOf(EmbeddingContract.TEXT_VERSION));
+        EmbeddingContract contract = client.embeddingContract("neuve");
+        assertThat(contract.prompts()).isEqualTo(EmbeddingPromptScheme.NOMIC);
+        assertThat(contract.isCurrentFor("nomic-embed-text")).isTrue();
     }
 
     @Test
@@ -188,8 +192,13 @@ class ChromaDbClientTest {
 
         client.getOrCreateCollection("historique");
 
-        assertThat(client.promptScheme("historique")).isEqualTo(EmbeddingPromptScheme.NONE);
-        assertThat(client.promptScheme("inconnue")).isEqualTo(EmbeddingPromptScheme.NONE);
+        EmbeddingContract contract = client.embeddingContract("historique");
+        assertThat(contract.prompts()).isEqualTo(EmbeddingPromptScheme.NONE);
+        assertThat(contract.textVersion()).isEqualTo(EmbeddingContract.LEGACY_TEXT_VERSION);
+        // La fenêtre vient du MODÈLE (nomic : 2048), pas des préfixes estampillés.
+        assertThat(contract.maxInputTokens()).isEqualTo(2048);
+        assertThat(contract.isCurrentFor("nomic-embed-text")).isFalse();
+        assertThat(client.embeddingContract("inconnue")).isNull();
     }
 
     @Test
@@ -206,7 +215,9 @@ class ChromaDbClientTest {
         assertThat(put.path("new_metadata").path("hnsw:space").asText()).isEqualTo("cosine");
         assertThat(put.path("new_metadata").path(ChromaDbClient.EMBEDDING_PROMPTS_METADATA_KEY).asText())
                 .isEqualTo("NOMIC");
-        assertThat(client.promptScheme("reindexee")).isEqualTo(EmbeddingPromptScheme.NOMIC);
+        assertThat(put.path("new_metadata").path(ChromaDbClient.EMBEDDING_TEXT_VERSION_METADATA_KEY).asText())
+                .isEqualTo(String.valueOf(EmbeddingContract.TEXT_VERSION));
+        assertThat(client.embeddingContract("reindexee").isCurrentFor("nomic-embed-text")).isTrue();
     }
 }
 

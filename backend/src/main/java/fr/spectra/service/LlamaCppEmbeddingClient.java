@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Client d'embeddings pour llama-server.
@@ -156,6 +157,31 @@ public class LlamaCppEmbeddingClient implements EmbeddingClient {
             result.set(idx, toFloatVector(item.get("embedding")));
         }
         return result;
+    }
+
+    /**
+     * Tokenise avec le vocabulaire du GGUF servi ({@code POST /tokenize}), tokens spéciaux compris
+     * comme à l'embedding ({@code add_special}). Un appel par texte : l'endpoint n'accepte qu'un
+     * contenu, mais il est local et ne calcule aucun vecteur.
+     */
+    @Override
+    @SuppressWarnings("unchecked")
+    public Optional<List<Integer>> countTokens(List<String> texts) {
+        List<Integer> counts = new ArrayList<>(texts.size());
+        for (String text : texts) {
+            Map<String, Object> response = webClient.post()
+                    .uri("/tokenize")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .bodyValue(Map.of("content", text, "add_special", true))
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block(timeout);
+            if (response == null || !(response.get("tokens") instanceof List<?> tokens)) {
+                throw new IllegalStateException("Réponse /tokenize sans champ 'tokens'");
+            }
+            counts.add(tokens.size());
+        }
+        return Optional.of(counts);
     }
 
     /** Convertit un vecteur JSON (List de Number) en List&lt;Float&gt; de façon robuste. */

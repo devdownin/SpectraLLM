@@ -200,6 +200,11 @@ public class FtsService {
      */
     private boolean diskIndexMatchesChroma(String collectionName, BM25Index diskIndex) {
         if (!diskIndex.supportsDocumentIdentity()) return false;
+        if (!diskIndex.usesCurrentAnalyzer()) {
+            log.info("FTS: index disque '{}' construit avec une ancienne analyse lexicale — reconstruction",
+                    collectionName);
+            return false;
+        }
         try {
             String collectionId = chromaDbClient.getOrCreateCollection(collectionName);
             int chromaCount = chromaDbClient.count(collectionId);

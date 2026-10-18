@@ -215,4 +215,51 @@ class BM25IndexTest {
 
         assertThat(index.size()).isEqualTo(threads * docsPerThread);
     }
+
+    // ── A4 : analyse française ───────────────────────────────────────────────
+
+    @Test
+    void searchMatchesAcrossAccentsAndPlurals() {
+        BM25Index index = new BM25Index();
+        index.add("d1", "Les événements de viabilité hivernale", "a.txt");
+        index.add("d2", "Tarifs des péages autoroutiers", "b.txt");
+
+        assertThat(index.search("evenement", 5))
+                .extracting(BM25Index.ScoredDoc::id).containsExactly("d1");
+        assertThat(index.search("tarif peage", 5))
+                .extracting(BM25Index.ScoredDoc::id).containsExactly("d2");
+    }
+
+    @Test
+    void stopWordsAloneMatchNothing() {
+        BM25Index index = new BM25Index();
+        index.add("d1", "Le contrat de la société", "a.txt");
+
+        assertThat(index.search("de la le", 5)).isEmpty();
+    }
+
+    @Test
+    void stopWordsDoNotOutweighRareTerms() {
+        BM25Index index = new BM25Index();
+        index.add("bavard", "le la les de des du le la les de des du un une", "a.txt");
+        index.add("pertinent", "dérogation accordée", "b.txt");
+
+        assertThat(index.search("la dérogation de", 5))
+                .extracting(BM25Index.ScoredDoc::id).containsExactly("pertinent");
+    }
+
+    @Test
+    void normalizeFoldsDiacriticsLigaturesAndPlurals() {
+        assertThat(BM25Index.normalize("événements")).isEqualTo("evenement");
+        assertThat(BM25Index.normalize("journaux")).isEqualTo("journal");
+        assertThat(BM25Index.normalize("œuvres")).isEqualTo("oeuvre");
+        assertThat(BM25Index.normalize("classe")).isEqualTo("classe");
+        assertThat(BM25Index.normalize("stress")).isEqualTo("stress");
+        assertThat(BM25Index.normalize("bus")).isEqualTo("bus");
+    }
+
+    @Test
+    void freshIndexDeclaresTheCurrentAnalyzer() {
+        assertThat(new BM25Index().usesCurrentAnalyzer()).isTrue();
+    }
 }

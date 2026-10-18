@@ -215,9 +215,12 @@ if exist ".env" (
     for /f "usebackq eol=# tokens=1,* delims==" %%A in (".env") do (
         if "%%A"=="SPECTRA_RERANKER_ONNX_URL" if "!SPECTRA_RERANKER_ONNX_URL!"=="" set "SPECTRA_RERANKER_ONNX_URL=%%B"
         if "%%A"=="SPECTRA_RERANKER_ENABLED"  set "RERANKER_ENABLED=%%B"
+        if "%%A"=="SPECTRA_RERANKER_ONNX_MODEL_FILE" if "!SPECTRA_RERANKER_ONNX_MODEL_FILE!"=="" set "SPECTRA_RERANKER_ONNX_MODEL_FILE=%%B"
     )
 )
 if "!SPECTRA_RERANKER_ONNX_URL!"=="" set "SPECTRA_RERANKER_ONNX_URL=!RERANKER_ONNX_URL_DEFAULT!"
+rem  Chemin du graphe sous l'URL (ex. onnx/model_int8.onnx) ; enregistre localement en model.onnx.
+if "!SPECTRA_RERANKER_ONNX_MODEL_FILE!"=="" set "SPECTRA_RERANKER_ONNX_MODEL_FILE=model.onnx"
 rem  Absent de .env = defaut applicatif, donc actif.
 if "!RERANKER_ENABLED!"=="" set "RERANKER_ENABLED=true"
 
@@ -242,7 +245,7 @@ set "RERANKER_OK=1"
 rem  Meme sous-programme que les GGUF, pour la meme raison : un artefact a moitie
 rem  telecharge ne doit pas rester sous son nom definitif. ONNX Runtime ne le rejetterait
 rem  qu'au premier rerank, longtemps apres le setup.
-call :fetch_file "!SPECTRA_RERANKER_ONNX_URL!/model.onnx" "!RERANKER_DIR!\model.onnx"
+call :fetch_file "!SPECTRA_RERANKER_ONNX_URL!/!SPECTRA_RERANKER_ONNX_MODEL_FILE!" "!RERANKER_DIR!\model.onnx"
 if errorlevel 1 set "RERANKER_OK=0"
 call :fetch_file "!SPECTRA_RERANKER_ONNX_URL!/tokenizer.json" "!RERANKER_DIR!\tokenizer.json"
 if errorlevel 1 set "RERANKER_OK=0"

@@ -311,16 +311,16 @@ class RagServiceStreamTest {
     void queryStream_standardPipeline_numbersContextPassages() {
         stubStandardRetrieval();
         org.mockito.ArgumentCaptor<String> systemPrompt = org.mockito.ArgumentCaptor.forClass(String.class);
-        when(llmChatClient.chatStream(systemPrompt.capture(), anyString(), anyFloat(), anyFloat()))
+        org.mockito.ArgumentCaptor<String> userMessage = org.mockito.ArgumentCaptor.forClass(String.class);
+        when(llmChatClient.chatStream(systemPrompt.capture(), userMessage.capture(), anyFloat(), anyFloat()))
                 .thenReturn(Flux.just("ok"));
 
         StepVerifier.create(ragService.queryStream(ragRequest()))
                 .thenConsumeWhile(e -> true)
                 .verifyComplete();
 
-        org.assertj.core.api.Assertions.assertThat(systemPrompt.getValue())
-                .contains("[1] (Source: peage.json)")
-                .contains("cite tes sources");
+        org.assertj.core.api.Assertions.assertThat(systemPrompt.getValue()).contains("cite tes sources");
+        org.assertj.core.api.Assertions.assertThat(userMessage.getValue()).contains("[1] (Source: peage.json)");
     }
 
     /** Adaptive RAG en streaming : classification DIRECT → réponse directe streamée. */
