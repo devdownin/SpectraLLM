@@ -3,6 +3,7 @@ package fr.spectra.controller;
 import fr.spectra.dto.AblationJob;
 import fr.spectra.dto.AblationReport;
 import fr.spectra.dto.AblationRequest;
+import fr.spectra.dto.CalibrationRequest;
 import fr.spectra.service.RagAblationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -64,6 +65,23 @@ public class RagAblationController {
     public ResponseEntity<Map<String, String>> runAsync(
             @RequestBody(required = false) AblationRequest request) {
         String jobId = service.submit(request);
+        if (jobId == null) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of("error", "Une ablation est déjà en cours"));
+        }
+        return ResponseEntity.accepted().body(Map.of("jobId", jobId, "status", "PENDING"));
+    }
+
+    @PostMapping("/calibrate")
+    @Operation(
+            summary = "Calibrer les réglages RAG par grille (asynchrone)",
+            description = "Chaque combinaison de rerankMinScores × neighborWindows × dedupStrategies devient "
+                    + "un bras RAG mesuré sur le benchmark (retrieval, fidélité des citations, qualité, "
+                    + "latence) ; " + CalibrationRequest.MAX_ARMS + " combinaisons au plus. Le rapport désigne "
+                    + "le bras recommandé (recommendedArm) et publie l'objectif utilisé. Suivi via "
+                    + "GET /api/ablation/jobs/{jobId}.")
+    public ResponseEntity<Map<String, String>> calibrate(@RequestBody CalibrationRequest request) {
+        String jobId = service.submit(request.toAblationRequest());
         if (jobId == null) {
             return ResponseEntity.status(HttpStatus.CONFLICT)
                     .body(Map.of("error", "Une ablation est déjà en cours"));

@@ -6,9 +6,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import fr.spectra.config.SpectraProperties;
 import io.micrometer.core.annotation.Timed;
 import io.micrometer.core.instrument.MeterRegistry;
+import fr.spectra.dto.CitationReport;
 import fr.spectra.dto.QueryRequest;
 import fr.spectra.dto.QueryResponse;
 import fr.spectra.dto.RagOverrides;
+import fr.spectra.dto.RetrievalFilter;
 import fr.spectra.model.RagPromptFormat;
 import fr.spectra.service.ActiveModelProfileService.ModelProfile;
 import fr.spectra.util.TextSimilarity;
@@ -159,6 +161,8 @@ public class RagService {
     private final Optional<SelfRagService> selfRagService;
     private final Optional<ContextCompressionService> contextCompressionService;
     private final Optional<MultiQueryService> multiQueryService;
+    private final Optional<CitationVerifier> citationVerifier;
+    private final Optional<RetrievalFilterResolver> filterResolver;
     private final ActiveModelProfileService activeModelProfile;
     private final SpectraProperties props;
     private final ObjectMapper objectMapper;
@@ -181,6 +185,31 @@ public class RagService {
                       SpectraProperties props,
                       ObjectMapper objectMapper,
                       MeterRegistry meterRegistry) {
+        this(chromaDbClient, embeddingService, llmClient, rerankerClient, hybridSearchService, agenticRagService,
+                conversationalRagService, correctiveRagService, adaptiveRagService, selfRagService,
+                contextCompressionService, multiQueryService, activeModelProfile, props, objectMapper, meterRegistry,
+                Optional.empty(), Optional.empty());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public RagService(ChromaDbClient chromaDbClient,
+                      EmbeddingService embeddingService,
+                      LlmChatClient llmClient,
+                      Optional<RerankerClient> rerankerClient,
+                      Optional<HybridSearchService> hybridSearchService,
+                      Optional<AgenticRagService> agenticRagService,
+                      Optional<ConversationalRagService> conversationalRagService,
+                      Optional<CorrectiveRagService> correctiveRagService,
+                      Optional<AdaptiveRagService> adaptiveRagService,
+                      Optional<SelfRagService> selfRagService,
+                      Optional<ContextCompressionService> contextCompressionService,
+                      Optional<MultiQueryService> multiQueryService,
+                      ActiveModelProfileService activeModelProfile,
+                      SpectraProperties props,
+                      ObjectMapper objectMapper,
+                      MeterRegistry meterRegistry,
+                      Optional<CitationVerifier> citationVerifier,
+                      Optional<RetrievalFilterResolver> filterResolver) {
         this.chromaDbClient = chromaDbClient;
         this.embeddingService = embeddingService;
         this.queryGuard = new EmbeddingInputGuard(embeddingService, false);
@@ -194,6 +223,8 @@ public class RagService {
         this.selfRagService = selfRagService;
         this.contextCompressionService = contextCompressionService;
         this.multiQueryService = multiQueryService;
+        this.citationVerifier = citationVerifier;
+        this.filterResolver = filterResolver;
         this.activeModelProfile = activeModelProfile;
         this.props = props;
         this.objectMapper = objectMapper;
@@ -339,10 +370,14 @@ public class RagService {
         // Déclenché uniquement quand le routage adaptatif a classé la requête comme
         // AGENTIC (forceAgentic) ET que le service agentique est disponible.
         if (agenticRagService.isPresent() && forceAgentic) {
-            QueryResponse agenticResp = agenticRagService.get().query(
-                    request,
-                    ctx.contextChunks(), ctx.chunkMetadatas(), ctx.chunkDistances(),
-                    ctx.rerankApplied(), ctx.hybridApplied());
+            RetrievalFilterResolver.ResolvedFilter filter = resolveFilter(request, collectionNameOf(request));
+            QueryResponse agenticResp = filter.active()
+                    ? agenticRagService.get().query(request,
+                            ctx.contextChunks(), ctx.chunkMetadatas(), ctx.chunkDistances(),
+                            ctx.rerankApplied(), ctx.hybridApplied(), null, filter)
+                    : agenticRagService.get().query(request,
+                            ctx.contextChunks(), ctx.chunkMetadatas(), ctx.chunkDistances(),
+                            ctx.rerankApplied(), ctx.hybridApplied());
             long duration = System.currentTimeMillis() - start;
             return new QueryResponse(
                     agenticResp.answer(), agenticResp.sources(), duration,
@@ -385,10 +420,11 @@ public class RagService {
                 ctx.multiQueryApplied(), ctx.longContextApplied(),
                 correctiveApplied, compressionApplied, conversationalApplied, selfRagApplied);
 
-        return new QueryResponse(answer, ctx.sources(), duration,
+        QueryResponse response = new QueryResponse(answer, ctx.sources(), duration,
                 ctx.rerankApplied(), ctx.hybridApplied(), false, 0, null,
                 conversationalApplied, correctiveApplied, selfRagApplied, ragStrategy,
                 ctx.multiQueryApplied(), compressionApplied, ctx.semanticDedupApplied(), ctx.longContextApplied());
+        return withVerifiedCitations(response, ctx.contextChunks(), true);
     }
 
     /**
@@ -418,8 +454,22 @@ public class RagService {
             List<StageTrace> stages,
             /** Taille (caractères) du contexte récupéré injecté dans le prompt — budget d'entrée
              *  estimé côté client (~4 caractères/token). 0 en mode DIRECT / sans contexte. */
-            int contextChars
+            int contextChars,
+            /** Vérification des citations de la réponse streamée, {@code null} si non effectuée. */
+            CitationReport citations
     ) {
+        PipelineMeta(boolean conversationalApplied, boolean correctiveApplied, boolean selfRagApplied,
+                     String ragStrategy, boolean rerankApplied, boolean hybridSearchApplied,
+                     boolean multiQueryApplied, boolean semanticDedupApplied, boolean longContextApplied,
+                     boolean compressionApplied, int chunkCount, String rewrittenQuestion,
+                     int agenticIterations, String agenticStopReason, String selfRagScores,
+                     List<StageTrace> stages, int contextChars) {
+            this(conversationalApplied, correctiveApplied, selfRagApplied, ragStrategy, rerankApplied,
+                    hybridSearchApplied, multiQueryApplied, semanticDedupApplied, longContextApplied,
+                    compressionApplied, chunkCount, rewrittenQuestion, agenticIterations, agenticStopReason,
+                    selfRagScores, stages, contextChars, null);
+        }
+
         /** Variante sans timeline (chemins directs). */
         PipelineMeta(boolean conversationalApplied, boolean correctiveApplied, boolean selfRagApplied,
                      String ragStrategy, boolean rerankApplied, boolean hybridSearchApplied,
@@ -613,10 +663,14 @@ public class RagService {
         // visibilité sur le raisonnement et maintiennent la connexion active.
         if (forceAgentic) {
             long t0 = System.currentTimeMillis();
-            QueryResponse resp = agenticRagService.get().query(
-                    request, ctx.contextChunks(), ctx.chunkMetadatas(), ctx.chunkDistances(),
-                    ctx.rerankApplied(), ctx.hybridApplied(),
-                    (iteration, query) -> emitStage(sink, "agentic_search", iteration, query));
+            RetrievalFilterResolver.ResolvedFilter filter = resolveFilter(request, collectionNameOf(request));
+            AgenticRagService.SearchProgressListener progress =
+                    (iteration, query) -> emitStage(sink, "agentic_search", iteration, query);
+            QueryResponse resp = filter.active()
+                    ? agenticRagService.get().query(request, ctx.contextChunks(), ctx.chunkMetadatas(),
+                            ctx.chunkDistances(), ctx.rerankApplied(), ctx.hybridApplied(), progress, filter)
+                    : agenticRagService.get().query(request, ctx.contextChunks(), ctx.chunkMetadatas(),
+                            ctx.chunkDistances(), ctx.rerankApplied(), ctx.hybridApplied(), progress);
             trace.add(new StageTrace("agentic", System.currentTimeMillis() - t0,
                     null, resp.agenticIterations(),
                     resp.agenticStopReason() != null ? resp.agenticStopReason().name() : null));
@@ -655,6 +709,7 @@ public class RagService {
         RagPromptFormat.RagPrompt prompt = ragPrompt(profile, ctx.contextBlock(), userMessage);
         boolean selfRagApplied = false;
         String selfRagScores = null;
+        String finalAnswer;
         long tGen = System.currentTimeMillis();
 
         if (RagOverrides.resolve(ov.selfRag(), selfRagService.isPresent())) {
@@ -664,6 +719,7 @@ public class RagService {
             SelfRagService selfRag = selfRagService.get();
             String draft = forwardTokens(sink, llmClient.chatStream(prompt.system(), prompt.user(),
                     request.temperature(), request.topP()));
+            finalAnswer = draft;
             if (sink.isCancelled()) return;
             trace.add(new StageTrace("generation", System.currentTimeMillis() - tGen, null, null, null));
 
@@ -678,6 +734,7 @@ public class RagService {
                 String refined = forwardTokens(sink, llmClient.chatStream(
                         selfRag.refineSystemPrompt(prompt.system()), prompt.user(),
                         request.temperature(), request.topP()));
+                finalAnswer = refined;
                 if (!sink.isCancelled()) {
                     selfRagScores = formatScores(selfRag.evaluate(request.question(), ctx.contextChunks(), refined));
                 }
@@ -685,9 +742,20 @@ public class RagService {
             }
             trace.add(new StageTrace("reflection", System.currentTimeMillis() - tReflect, null, null, selfRagScores));
         } else {
-            forwardTokens(sink, llmClient.chatStream(prompt.system(), prompt.user(),
+            finalAnswer = forwardTokens(sink, llmClient.chatStream(prompt.system(), prompt.user(),
                     request.temperature(), request.topP()));
             trace.add(new StageTrace("generation", System.currentTimeMillis() - tGen, null, null, null));
+        }
+
+        // Réponse déjà émise : le rapport la qualifie, sans la modifier (pas de mode strict ici).
+        CitationReport citations = null;
+        if (!sink.isCancelled() && citationVerifier.filter(CitationVerifier::isAvailable).isPresent()) {
+            long tCite = System.currentTimeMillis();
+            emitStage(sink, "citations", null, null);
+            citations = verifyCitations(finalAnswer, ctx.contextChunks()).orElse(null);
+            trace.add(new StageTrace("citations", System.currentTimeMillis() - tCite,
+                    citations != null ? citations.citedSentences() : null,
+                    citations != null ? citations.supportedSentences() : null, null));
         }
 
         sink.next(doneEvent(new PipelineMeta(
@@ -695,7 +763,7 @@ public class RagService {
                 ctx.rerankApplied(), ctx.hybridApplied(), ctx.multiQueryApplied(),
                 ctx.semanticDedupApplied(), ctx.longContextApplied(), compressionApplied,
                 ctx.contextChunks().size(), rewrittenQuestion, 0, null, selfRagScores, trace,
-                contextChars(ctx))));
+                contextChars(ctx), citations)));
     }
 
     // ── Helpers SSE ────────────────────────────────────────────────────────────
@@ -849,8 +917,17 @@ public class RagService {
                 ? Math.max(request.topCandidates(), request.maxContextChunks())
                 : request.maxContextChunks();
 
+        // Filtre de documents : appliqué AVANT le classement, des deux côtés (vecteur et BM25).
+        RetrievalFilterResolver.ResolvedFilter filter = resolveFilter(request, collectionName);
+        if (filter.matchesNothing()) {
+            log.info("Filtre de recherche : aucun document retenu dans '{}'", collectionName);
+            return buildRagContext(List.of(), List.of(), List.of(), null, null,
+                    false, false, false, false, false);
+        }
+
         // ── 1. Long-context bypass ─────────────────────────────────────────
-        if (props.longContextRag() != null && props.longContextRag().isEnabled()) {
+        // Charge tout le corpus : incompatible avec un filtre, qui passe donc par le retrieval.
+        if (!filter.active() && props.longContextRag() != null && props.longContextRag().isEnabled()) {
             int maxChunks = props.longContextRag().effectiveMaxCollectionChunks();
             try {
                 int collectionSize = chromaDbClient.count(collectionId);
@@ -881,7 +958,7 @@ public class RagService {
                 List<String> queries = multiQueryService.get().generateQueries(retrievalQuestion);
                 if (queries.size() > 1) {
                     MultiQueryMerge merged = executeMultiQueryRetrieval(
-                            queries, collectionId, collectionName, retrieveCount, useHybrid);
+                            queries, collectionId, collectionName, retrieveCount, useHybrid, filter);
                     allChunks      = merged.chunks();
                     allMetadatas   = merged.metadatas();
                     allDistances   = merged.distances();
@@ -889,20 +966,20 @@ public class RagService {
                     hybridApplied  = merged.hybridApplied();
                     multiQueryApplied = true;
                 } else {
-                    SingleQueryResult r = executeSingleQuery(retrievalQuestion, collectionId, collectionName, retrieveCount, useHybrid);
+                    SingleQueryResult r = executeSingleQuery(retrievalQuestion, collectionId, collectionName, retrieveCount, useHybrid, filter);
                     allChunks = r.chunks(); allMetadatas = r.metadatas();
                     allDistances = r.distances(); allBm25Scores = r.bm25Scores();
                     hybridApplied = r.hybridApplied();
                 }
             } catch (Exception e) {
                 log.warn("Multi-query échoué, fallback retrieval simple: {}", e.getMessage());
-                SingleQueryResult r = executeSingleQuery(retrievalQuestion, collectionId, collectionName, retrieveCount, useHybrid);
+                SingleQueryResult r = executeSingleQuery(retrievalQuestion, collectionId, collectionName, retrieveCount, useHybrid, filter);
                 allChunks = r.chunks(); allMetadatas = r.metadatas();
                 allDistances = r.distances(); allBm25Scores = r.bm25Scores();
                 hybridApplied = r.hybridApplied();
             }
         } else {
-            SingleQueryResult r = executeSingleQuery(retrievalQuestion, collectionId, collectionName, retrieveCount, useHybrid);
+            SingleQueryResult r = executeSingleQuery(retrievalQuestion, collectionId, collectionName, retrieveCount, useHybrid, filter);
             allChunks = r.chunks(); allMetadatas = r.metadatas();
             allDistances = r.distances(); allBm25Scores = r.bm25Scores();
             hybridApplied = r.hybridApplied();
@@ -919,7 +996,7 @@ public class RagService {
         if (useReranker && !allChunks.isEmpty()) {
             try {
                 List<RerankerClient.RankedResult> ranked = applyRerankThreshold(rerankerClient.get()
-                        .rerank(retrievalQuestion, allChunks, request.maxContextChunks()));
+                        .rerank(retrievalQuestion, allChunks, request.maxContextChunks()), ov);
                 contextChunks  = new ArrayList<>(ranked.size());
                 chunkMetadatas = new ArrayList<>(ranked.size());
                 chunkDistances = new ArrayList<>(ranked.size());
@@ -957,10 +1034,11 @@ public class RagService {
 
         // ── 4. Semantic deduplication ──────────────────────────────────────
         boolean semanticDedupApplied = false;
-        if (props.semanticDedup() != null && props.semanticDedup().isEnabled() && contextChunks.size() > 1) {
-            double threshold = props.semanticDedup().effectiveSimilarityThreshold();
-            List<Integer> keptIndices = props.semanticDedup().isMmr()
-                    ? selectByMmr(collectionName, contextChunks, threshold, props.semanticDedup().effectiveMmrLambda())
+        String dedup = dedupStrategy(ov);
+        if (dedup != null && contextChunks.size() > 1) {
+            double threshold = dedupThreshold(dedup);
+            List<Integer> keptIndices = "mmr".equals(dedup)
+                    ? selectByMmr(collectionName, contextChunks, threshold, mmrLambda())
                     : deduplicateSemantically(contextChunks, threshold);
             if (!keptIndices.equals(identity(contextChunks.size()))) {
                 int before = contextChunks.size();
@@ -975,10 +1053,11 @@ public class RagService {
         }
 
         // ── 5. Expansion aux chunks voisins ────────────────────────────────
-        int neighborWindow = props.rag() != null ? props.rag().effectiveNeighborWindow() : 0;
+        int neighborWindow = ov.neighborWindow() != null ? Math.max(0, ov.neighborWindow())
+                : props.rag() != null ? props.rag().effectiveNeighborWindow() : 0;
         if (neighborWindow > 0 && !contextChunks.isEmpty()) {
-            contextChunks = expandWithNeighbors(collectionId, contextChunks, chunkMetadatas,
-                    neighborWindow, props.rag().effectiveNeighborMaxChars());
+            contextChunks = expandWithNeighbors(collectionId, contextChunks, chunkMetadatas, neighborWindow,
+                    props.rag() != null ? props.rag().effectiveNeighborMaxChars() : 4000);
         }
 
         return buildRagContext(contextChunks, chunkMetadatas, chunkDistances,
@@ -993,8 +1072,10 @@ public class RagService {
      * dispose le pipeline pour décider qu'un passage est hors sujet, bien plus que la distance
      * vectorielle, dont l'échelle varie d'un modèle et d'un corpus à l'autre.
      */
-    private List<RerankerClient.RankedResult> applyRerankThreshold(List<RerankerClient.RankedResult> ranked) {
-        Float minScore = props.reranker() != null ? props.reranker().minScore() : null;
+    private List<RerankerClient.RankedResult> applyRerankThreshold(List<RerankerClient.RankedResult> ranked,
+                                                                   RagOverrides ov) {
+        Float minScore = ov.rerankMinScore() != null ? ov.rerankMinScore()
+                : props.reranker() != null ? props.reranker().minScore() : null;
         if (minScore == null) return ranked;
         List<RerankerClient.RankedResult> kept = ranked.stream().filter(r -> r.score() >= minScore).toList();
         if (kept.size() < ranked.size()) {
@@ -1002,6 +1083,48 @@ public class RagService {
             log.info("Re-ranking : {} chunk(s) sous le seuil {} écarté(s)", ranked.size() - kept.size(), minScore);
         }
         return kept;
+    }
+
+    /**
+     * Vérifie les citations de la réponse contre les passages servis ({@code [n]} = passage n).
+     *
+     * @param mayStrip {@code true} sur le chemin JSON : en mode strict, les phrases non étayées sont
+     *                 retirées. En streaming, la réponse est déjà partie — le rapport la qualifie.
+     */
+    private QueryResponse withVerifiedCitations(QueryResponse response, List<String> passages, boolean mayStrip) {
+        Optional<CitationReport> report = verifyCitations(response.answer(), passages);
+        if (report.isEmpty()) return response;
+        String answer = mayStrip && citationVerifier.get().strict()
+                ? citationVerifier.get().withoutUnsupported(response.answer(), report.get(), UNSUPPORTED_ANSWER)
+                : response.answer();
+        return response.withCitations(answer, report.get());
+    }
+
+    private Optional<CitationReport> verifyCitations(String answer, List<String> passages) {
+        return citationVerifier.flatMap(v -> v.verify(answer, passages));
+    }
+
+    private static final String UNSUPPORTED_ANSWER =
+            "Les documents fournis ne permettent pas d'étayer une réponse à cette question.";
+
+    private String collectionNameOf(QueryRequest request) {
+        return request.collection() != null ? request.collection()
+                : (props.chromadb() != null ? props.chromadb().effectiveCollection() : COLLECTION_NAME);
+    }
+
+    /** Filtre de recherche de la requête, résolu en identités de documents. */
+    private RetrievalFilterResolver.ResolvedFilter resolveFilter(QueryRequest request, String collectionName) {
+        RetrievalFilter filter = request.filter();
+        if (filter == null || filter.isEmpty()) return RetrievalFilterResolver.ResolvedFilter.NONE;
+        String defaultName = props.chromadb() != null ? props.chromadb().effectiveCollection() : COLLECTION_NAME;
+        if (filterResolver.isPresent()) {
+            return filterResolver.get().resolve(filter, collectionName, collectionName.equals(defaultName));
+        }
+        // Sans accès à la GED, seul le filtre par source est applicable : ne pas l'élargir en silence.
+        if (filter.needsDocumentRecords()) {
+            throw new IllegalStateException("Filtre par catégorie ou date indisponible : GED non accessible");
+        }
+        return new RetrievalFilterResolver.ResolvedFilter(null, new java.util.LinkedHashSet<>(filter.sources()));
     }
 
     /** Résultat de l'étape Corrective RAG : contexte éventuellement filtré/complété. */
@@ -1067,7 +1190,7 @@ public class RagService {
                     : (props.chromadb() != null ? props.chromadb().effectiveCollection() : COLLECTION_NAME);
             String collectionId = chromaDbClient.getOrCreateCollection(collectionName);
             SingleQueryResult extra = executeSingleQuery(reformulated.get(), collectionId, collectionName,
-                    request.maxContextChunks(), useHybrid);
+                    request.maxContextChunks(), useHybrid, resolveFilter(request, collectionName));
 
             // Ne considérer que les chunks pas déjà présents dans le contexte courant.
             Set<String> seen = new HashSet<>(current.contextChunks());
@@ -1213,7 +1336,8 @@ public class RagService {
      */
     @SuppressWarnings("unchecked")
     private SingleQueryResult executeSingleQuery(String question, String collectionId,
-                                                  String collectionName, int retrieveCount, boolean useHybrid) {
+                                                  String collectionName, int retrieveCount, boolean useHybrid,
+                                                  RetrievalFilterResolver.ResolvedFilter filter) {
         List<Float> embedding;
         boolean lexicalFallback = false;
         try {
@@ -1235,8 +1359,9 @@ public class RagService {
 
         if (useHybrid) {
             List<HybridSearchService.HybridChunk> results = lexicalFallback
-                    ? hybridSearchService.get().searchLexical(question, collectionName, retrieveCount)
-                    : hybridSearchService.get().search(question, embedding, collectionId, collectionName, retrieveCount);
+                    ? hybridSearchService.get().searchLexical(question, collectionName, retrieveCount, filter)
+                    : hybridSearchService.get().search(question, embedding, collectionId, collectionName,
+                            retrieveCount, filter);
             List<String>              chunks    = new ArrayList<>(results.size());
             List<Map<String, String>> metadatas = new ArrayList<>(results.size());
             List<Double>              distances = new ArrayList<>(results.size());
@@ -1251,8 +1376,9 @@ public class RagService {
             }
             return new SingleQueryResult(chunks, metadatas, distances, bm25, rrf, !results.isEmpty());
         } else {
-            ChromaQueryResult result = ChromaQueryResult.from(
-                    chromaDbClient.query(collectionId, embedding, retrieveCount));
+            ChromaQueryResult result = ChromaQueryResult.from(filter.active()
+                    ? chromaDbClient.query(collectionId, embedding, retrieveCount, filter.chromaWhere())
+                    : chromaDbClient.query(collectionId, embedding, retrieveCount));
             // Score RRF de rang (k=60) : permet la fusion multi-query par RRF aussi en vectoriel pur.
             List<Double> rrf = new ArrayList<>(result.documents().size());
             for (int rank = 1; rank <= result.documents().size(); rank++) rrf.add(1.0 / (RRF_K + rank));
@@ -1278,7 +1404,8 @@ public class RagService {
      * <p>Le résultat est limité à {@code retrieveCount} chunks.</p>
      */
     private MultiQueryMerge executeMultiQueryRetrieval(List<String> queries, String collectionId,
-                                                        String collectionName, int retrieveCount, boolean useHybrid) {
+                                                        String collectionName, int retrieveCount, boolean useHybrid,
+                                                        RetrievalFilterResolver.ResolvedFilter filter) {
         // LinkedHashMap pour conserver l'ordre d'insertion (question originale en premier)
         Map<String, Integer> indexByText = new LinkedHashMap<>();
         List<String>              mergedChunks    = new ArrayList<>();
@@ -1291,7 +1418,7 @@ public class RagService {
         boolean trackRrf  = true; // désactivé si un résultat n'a pas de scores RRF (vectoriel pur)
 
         for (String query : queries) {
-            SingleQueryResult r = executeSingleQuery(query, collectionId, collectionName, retrieveCount, useHybrid);
+            SingleQueryResult r = executeSingleQuery(query, collectionId, collectionName, retrieveCount, useHybrid, filter);
             hybridApplied = hybridApplied || r.hybridApplied();
             if (r.bm25Scores() == null) trackBm25 = false;
             if (r.rrfScores()  == null) trackRrf  = false;
@@ -1489,6 +1616,31 @@ public class RagService {
     }
 
     // ── Helpers déduplication sémantique ──────────────────────────────────────
+
+    /** Stratégie effective : {@code null} (aucune), {@code jaccard} ou {@code mmr}. */
+    private String dedupStrategy(RagOverrides ov) {
+        if (ov.dedupStrategy() != null) {
+            String s = ov.dedupStrategy().strip().toLowerCase(Locale.ROOT);
+            return "mmr".equals(s) || "jaccard".equals(s) ? s : null;
+        }
+        if (props.semanticDedup() == null || !props.semanticDedup().isEnabled()) return null;
+        return props.semanticDedup().isMmr() ? "mmr" : "jaccard";
+    }
+
+    /**
+     * Seuil de la stratégie. Le seuil configuré vaut pour la stratégie configurée ; une stratégie
+     * forcée par calibration garde un seuil propre à son échelle (cosinus ≠ Jaccard).
+     */
+    private double dedupThreshold(String strategy) {
+        SpectraProperties.SemanticDedupProperties dedup = props.semanticDedup();
+        boolean configured = dedup != null && dedup.isEnabled() && ("mmr".equals(strategy) == dedup.isMmr());
+        if (configured) return dedup.effectiveSimilarityThreshold();
+        return "mmr".equals(strategy) ? 0.92 : 0.85;
+    }
+
+    private double mmrLambda() {
+        return props.semanticDedup() != null ? props.semanticDedup().effectiveMmrLambda() : 0.7;
+    }
 
     private static List<Integer> identity(int size) {
         List<Integer> indices = new ArrayList<>(size);

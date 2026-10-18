@@ -31,4 +31,13 @@ class ContextualHeaderTest {
         assertThat(ContextualHeader.apply("Texte.", Map.of())).isEqualTo("Texte.");
         assertThat(ContextualHeader.apply("Texte.", null)).isEqualTo("Texte.");
     }
+
+    @Test
+    void termsForBm25_splitFileNameAndSkipLabels() {
+        assertThat(ContextualHeader.terms(Map.of("title", "Contrat cadre", "sourceFile", "contrat_cadre-2026.pdf",
+                "section", "Résiliation > Préavis")))
+                .isEqualTo("Contrat cadre contrat cadre-2026 pdf Résiliation > Préavis");
+        assertThat(ContextualHeader.terms(Map.of("chunkIndex", "3"))).isNull();
+        assertThat(ContextualHeader.terms(null)).isNull();
+    }
 }

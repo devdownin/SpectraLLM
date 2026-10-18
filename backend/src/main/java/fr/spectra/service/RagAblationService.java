@@ -302,7 +302,8 @@ public class RagAblationService {
                 monitor.step("Bras " + (a + 1) + "/" + arms.size() + " · « " + arms.get(a).label() + " »…");
                 armReports.add(runArm(arms.get(a), entries, maxChunks, runs, started, monitor));
             }
-            return new AblationReport(armReports, entries.size(), started, Instant.now());
+            return new AblationReport(armReports, entries.size(), started, Instant.now(),
+                    recommend(armReports), AblationReport.OBJECTIVE);
         } finally {
             modelSwitch.unlock();
         }
@@ -322,7 +323,9 @@ public class RagAblationService {
             double avgLatency,
             double p50,
             double avgContextTokens,
-            Map<String, Integer> applied) {}
+            Map<String, Integer> applied,
+            Double faithfulness,
+            int verifiedAnswers) {}
 
     private AblationArmReport runArm(AblationRequest.Arm arm, List<JsonNode> entries,
                                      int maxChunks, int runs, Instant started, Monitor monitor) {
@@ -352,6 +355,7 @@ public class RagAblationService {
             List<Double> recalls    = map(rr, r -> r.retrieval().recallAtK());
             List<Double> p50s       = map(rr, RunResult::p50);
             List<Double> tokens     = map(rr, RunResult::avgContextTokens);
+            List<Double> faithful   = rr.stream().map(RunResult::faithfulness).filter(java.util.Objects::nonNull).toList();
             double avgLatency       = mean(map(rr, RunResult::avgLatency));
 
             RunResult first = rr.getFirst();
@@ -373,6 +377,7 @@ public class RagAblationService {
             stdDev.put("recallAtK", std(recalls));
             stdDev.put("p50LatencyMs", std(p50s));
             stdDev.put("avgContextTokens", std(tokens));
+            if (!faithful.isEmpty()) stdDev.put("faithfulness", std(faithful));
 
             log.info("Ablation '{}' (modèle={}, rag={}, runs={}) : score {}±{}/10, halluc {}%, hit@{}={}, "
                     + "tokens≈{}, latence p50={}ms",
@@ -386,7 +391,7 @@ public class RagAblationService {
 
             return new AblationArmReport(arm.label(), evaluatedModel, arm.useRag(), arm.overrides(),
                     quality, retrieval, avgLatency, mean(p50s), mean(tokens), runs,
-                    stdDev, first.applied());
+                    stdDev, first.applied(), faithful.isEmpty() ? null : mean(faithful), first.verifiedAnswers());
         } finally {
             // Best-effort : un échec de restauration ne doit pas détruire le rapport calculé.
             modelSwitch.restore(previous);
@@ -420,6 +425,8 @@ public class RagAblationService {
         double hitSum = 0, rrSum = 0, recallSum = 0;
         long tokenSum = 0;
         int answered = 0;
+        double faithfulSum = 0;
+        int verified = 0;
         Map<String, Integer> applied = new LinkedHashMap<>();
 
         // ── Phase 1 : génération via le pipeline (modèle évalué) ──
@@ -451,6 +458,10 @@ public class RagAblationService {
             tokenSum += estimateContextTokens(resp.sources());
             answered++;
             tallyApplied(applied, resp);
+            if (resp.citations() != null && resp.citations().faithfulness() != null) {
+                faithfulSum += resp.citations().faithfulness();
+                verified++;
+            }
             items.add(null); // réservé — rempli en phase 2 pour préserver l'ordre des entrées
             pending.add(new PendingJudgment(items.size() - 1,
                     question, category, answerable, reference, resp.answer()));
@@ -492,7 +503,8 @@ public class RagAblationService {
         double p50 = percentile(latencies, 50);
         double avgTokens = answered > 0 ? (double) tokenSum / answered : 0.0;
 
-        return new RunResult(quality, retrieval, avgLatency, p50, avgTokens, applied);
+        return new RunResult(quality, retrieval, avgLatency, p50, avgTokens, applied,
+                verified > 0 ? faithfulSum / verified : null, verified);
     }
 
     /**
@@ -506,6 +518,25 @@ public class RagAblationService {
             if (s.text() != null) chars += s.text().length();
         }
         return Math.round(chars / TokenEstimator.CHARS_PER_TOKEN);
+    }
+
+    /**
+     * Bras RAG qui maximise {@link AblationReport#OBJECTIVE} ; à score égal, le plus rapide (p50).
+     * Une fidélité non mesurée compte pour 0 : un bras ne gagne pas en esquivant la vérification.
+     */
+    static String recommend(List<AblationArmReport> arms) {
+        return arms.stream()
+                .filter(AblationArmReport::useRag)
+                .max(java.util.Comparator.comparingDouble(RagAblationService::objective)
+                        .thenComparing(a -> -a.p50LatencyMs()))
+                .map(AblationArmReport::label)
+                .orElse(null);
+    }
+
+    static double objective(AblationArmReport arm) {
+        double faithfulness = arm.faithfulness() != null ? arm.faithfulness() : 0.0;
+        return 0.35 * arm.retrieval().recallAtK() + 0.25 * arm.retrieval().mrr() + 0.25 * faithfulness
+                + 0.15 * arm.quality().avgScore() / 10.0 - 0.25 * arm.quality().hallucinationRate();
     }
 
     // ── Stats ─────────────────────────────────────────────────────────────────

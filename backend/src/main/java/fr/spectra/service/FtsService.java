@@ -165,15 +165,17 @@ public class FtsService {
                     String text       = documents != null ? (String) documents.get(i) : "";
                     String sourceFile = "inconnu";
                     String sha256 = null;
+                    String header = null;
                     if (metadatas != null) {
                         @SuppressWarnings("unchecked")
                         Map<String, String> meta = (Map<String, String>) metadatas.get(i);
                         if (meta != null) {
                             sourceFile = meta.getOrDefault("sourceFile", "inconnu");
                             sha256 = meta.get("sha256");
+                            header = ContextualHeader.terms(meta);
                         }
                     }
-                    index.add(id, text, sourceFile, sha256);
+                    index.add(id, text, sourceFile, sha256, header);
                     total++;
                 }
 
@@ -241,7 +243,8 @@ public class FtsService {
         indices.compute(collectionName, (k, existing) -> {
             BM25Index index = existing != null ? existing : new BM25Index();
             for (TextChunk chunk : chunks) {
-                index.add(chunk.id(), chunk.text(), chunk.sourceFile(), chunk.metadata().get("sha256"));
+                index.add(chunk.id(), chunk.text(), chunk.sourceFile(), chunk.metadata().get("sha256"),
+                        ContextualHeader.terms(chunk.metadata()));
             }
             return index;
         });
@@ -249,7 +252,8 @@ public class FtsService {
         BM25Index pending = pendingRebuilds.get(collectionName);
         if (pending != null) {
             for (TextChunk chunk : chunks) {
-                pending.add(chunk.id(), chunk.text(), chunk.sourceFile(), chunk.metadata().get("sha256"));
+                pending.add(chunk.id(), chunk.text(), chunk.sourceFile(), chunk.metadata().get("sha256"),
+                        ContextualHeader.terms(chunk.metadata()));
             }
         }
         dirtyIndices.add(collectionName);
@@ -352,12 +356,18 @@ public class FtsService {
      * @return scored docs sorted by BM25 score descending; empty list if index absent or query fails
      */
     public List<BM25Index.ScoredDoc> search(String query, String collectionName, int topN) {
+        return search(query, collectionName, topN, null);
+    }
+
+    /** Recherche BM25 restreinte aux documents acceptés (empreinte sha256 nullable, source). */
+    public List<BM25Index.ScoredDoc> search(String query, String collectionName, int topN,
+                                            java.util.function.BiPredicate<String, String> accept) {
         BM25Index index = indices.get(collectionName);
         if (index == null || index.size() == 0) {
             log.debug("FTS: no index for '{}', returning empty BM25 results", collectionName);
             return List.of();
         }
-        return index.search(query, topN);
+        return index.search(query, topN, accept);
     }
 
     /** Returns the number of indexed documents for a collection (for diagnostics). */

@@ -15,6 +15,13 @@ import java.util.stream.Collectors;
  * BM25 formula: score(d,q) = Σ IDF(t) × tf(t,d)×(k1+1) / (tf(t,d) + k1×(1−b+b×|d|/avgdl))
  * IDF(t) = ln((N − df(t) + 0.5) / (df(t) + 0.5) + 1)
  * k1=1.5, b=0.75 (standard Okapi defaults)
+ *
+ * <p><b>Champ d'en-tête.</b> Titre, fichier et section du chunk ({@link ContextualHeader#terms})
+ * sont indexés dans un champ distinct du texte, avec leurs propres statistiques, et pèsent
+ * {@link #HEADER_WEIGHT} dans le score. Le texte cité reste intact, et un en-tête répété sur tous
+ * les chunks d'un document n'allonge pas leur texte (ce qui pénaliserait leur normalisation de
+ * longueur) : une question qui nomme un document ou une section remonte ses chunks, et le texte
+ * départage entre eux.</p>
  */
 public class BM25Index implements Serializable {
 
@@ -29,7 +36,10 @@ public class BM25Index implements Serializable {
      * la requête ne produit plus (accents, pluriels) : il doit être reconstruit, pas servi.
      * Les index antérieurs au champ se désérialisent à 0.
      */
-    static final int ANALYZER_VERSION = 2;
+    static final int ANALYZER_VERSION = 3;
+
+    /** Poids du champ d'en-tête relativement au texte : un appoint, pas un substitut. */
+    static final float HEADER_WEIGHT = 0.5f;
 
     /**
      * Mots vides français et anglais. Leur IDF est faible, mais pas nulle : sur une question
@@ -61,6 +71,10 @@ public class BM25Index implements Serializable {
         in.defaultReadObject();
         this.lock = new ReentrantReadWriteLock();
         if (docIdentities == null) docIdentities = new HashMap<>();
+        if (docHeaders == null) docHeaders = new HashMap<>();
+        if (headerTermFreq == null) headerTermFreq = new HashMap<>();
+        if (headerLengths == null) headerLengths = new HashMap<>();
+        if (headerIndex == null) headerIndex = new HashMap<>();
     }
 
     /**
@@ -93,6 +107,12 @@ public class BM25Index implements Serializable {
     private final Map<String, Set<String>> invertedIndex = new HashMap<>();
     // running total doc length (for avgdl)
     private long totalDocLength = 0L;
+    // Champ d'en-tête (absent des index sérialisés avant la version 3 de l'analyse).
+    private Map<String, String> docHeaders = new HashMap<>();
+    private Map<String, Map<String, Integer>> headerTermFreq = new HashMap<>();
+    private Map<String, Integer> headerLengths = new HashMap<>();
+    private Map<String, Set<String>> headerIndex = new HashMap<>();
+    private long totalHeaderLength = 0L;
 
     public record ScoredDoc(String id, String text, String sourceFile, float score) {}
 
@@ -102,8 +122,15 @@ public class BM25Index implements Serializable {
     }
 
     public void add(String id, String text, String sourceFile, String sha256) {
+        add(id, text, sourceFile, sha256, null);
+    }
+
+    /** @param header termes d'en-tête du chunk (titre, fichier, section) ; {@code null} = aucun */
+    public void add(String id, String text, String sourceFile, String sha256, String header) {
         Map<String, Integer> termFreq = buildTermFreq(text);
         int docLen = termFreq.values().stream().mapToInt(i -> i).sum();
+        Map<String, Integer> headerFreq = buildTermFreq(header);
+        int headerLen = headerFreq.values().stream().mapToInt(i -> i).sum();
 
         lock.writeLock().lock();
         try {
@@ -118,6 +145,15 @@ public class BM25Index implements Serializable {
             totalDocLength += docLen;
             for (String token : termFreq.keySet()) {
                 invertedIndex.computeIfAbsent(token, k -> new HashSet<>()).add(id);
+            }
+            if (!headerFreq.isEmpty()) {
+                docHeaders.put(id, header);
+                headerTermFreq.put(id, headerFreq);
+                headerLengths.put(id, headerLen);
+                totalHeaderLength += headerLen;
+                for (String token : headerFreq.keySet()) {
+                    headerIndex.computeIfAbsent(token, k -> new HashSet<>()).add(id);
+                }
             }
         } finally {
             lock.writeLock().unlock();
@@ -136,12 +172,12 @@ public class BM25Index implements Serializable {
         try {
             docs = other.docTexts.entrySet().stream()
                     .map(e -> new String[]{e.getKey(), e.getValue(), other.docSources.get(e.getKey()),
-                            other.docIdentities.get(e.getKey())})
+                            other.docIdentities.get(e.getKey()), other.docHeaders.get(e.getKey())})
                     .toList();
         } finally {
             other.lock.readLock().unlock();
         }
-        docs.forEach(d -> add(d[0], d[1], d[2], d[3]));
+        docs.forEach(d -> add(d[0], d[1], d[2], d[3], d[4]));
     }
 
     public boolean supportsDocumentIdentity() { return identityVersion == 1; }
@@ -189,6 +225,15 @@ public class BM25Index implements Serializable {
 
     /** Score all documents against a query, return top-N sorted by score desc. */
     public List<ScoredDoc> search(String queryText, int topN) {
+        return search(queryText, topN, null);
+    }
+
+    /**
+     * Comme {@link #search(String, int)}, restreint aux documents acceptés par {@code accept}
+     * (empreinte sha256 nullable, source) — filtre appliqué avant la coupe top-N.
+     */
+    public List<ScoredDoc> search(String queryText, int topN,
+                                  java.util.function.BiPredicate<String, String> accept) {
         Map<String, Integer> queryTermFreq = buildTermFreq(queryText);
         if (queryTermFreq.isEmpty()) return List.of();
 
@@ -199,22 +244,11 @@ public class BM25Index implements Serializable {
             float avgdl = (float) totalDocLength / n;
 
             Map<String, Float> scores = new HashMap<>();
-            for (Map.Entry<String, Integer> queryEntry : queryTermFreq.entrySet()) {
-                String token = queryEntry.getKey();
-                Set<String> postings = invertedIndex.get(token);
-                if (postings == null || postings.isEmpty()) continue;
-
-                int df = postings.size();
-                float idf = (float) Math.log((n - df + 0.5) / (df + 0.5) + 1.0);
-
-                for (String docId : postings) {
-                    Map<String, Integer> tf = docTermFreq.get(docId);
-                    if (tf == null) continue;
-                    float tfVal = tf.getOrDefault(token, 0);
-                    int dl = docLengths.getOrDefault(docId, 1);
-                    float tfNorm = tfVal * (K1 + 1) / (tfVal + K1 * (1 - B + B * dl / avgdl));
-                    scores.merge(docId, idf * tfNorm, Float::sum);
-                }
+            score(queryTermFreq.keySet(), invertedIndex, docTermFreq, docLengths, n, avgdl, 1f, accept, scores);
+            if (!headerTermFreq.isEmpty()) {
+                float avgHeader = (float) totalHeaderLength / headerTermFreq.size();
+                score(queryTermFreq.keySet(), headerIndex, headerTermFreq, headerLengths, n, avgHeader,
+                        HEADER_WEIGHT, accept, scores);
             }
 
             return scores.entrySet().stream()
@@ -228,6 +262,30 @@ public class BM25Index implements Serializable {
                     .collect(Collectors.toList());
         } finally {
             lock.readLock().unlock();
+        }
+    }
+
+    /** Ajoute à {@code scores} la contribution BM25 d'un champ. Appelée sous verrou de lecture. */
+    private void score(Set<String> queryTokens, Map<String, Set<String>> index,
+                       Map<String, Map<String, Integer>> termFreqs, Map<String, Integer> lengths,
+                       int n, float avgLength, float weight,
+                       java.util.function.BiPredicate<String, String> accept, Map<String, Float> scores) {
+        for (String token : queryTokens) {
+            Set<String> postings = index.get(token);
+            if (postings == null || postings.isEmpty()) continue;
+
+            int df = postings.size();
+            float idf = (float) Math.log((n - df + 0.5) / (df + 0.5) + 1.0);
+
+            for (String docId : postings) {
+                if (accept != null && !accept.test(docIdentities.get(docId), docSources.get(docId))) continue;
+                Map<String, Integer> tf = termFreqs.get(docId);
+                if (tf == null) continue;
+                float tfVal = tf.getOrDefault(token, 0);
+                int dl = lengths.getOrDefault(docId, 1);
+                float tfNorm = tfVal * (K1 + 1) / (tfVal + K1 * (1 - B + B * dl / avgLength));
+                scores.merge(docId, weight * idf * tfNorm, Float::sum);
+            }
         }
     }
 
@@ -253,9 +311,22 @@ public class BM25Index implements Serializable {
                 }
             }
         }
+        Map<String, Integer> headerFreq = headerTermFreq.remove(id);
+        if (headerFreq != null) {
+            Integer headerLen = headerLengths.remove(id);
+            if (headerLen != null) totalHeaderLength -= headerLen;
+            for (String token : headerFreq.keySet()) {
+                Set<String> postings = headerIndex.get(token);
+                if (postings != null) {
+                    postings.remove(id);
+                    if (postings.isEmpty()) headerIndex.remove(token);
+                }
+            }
+        }
         docTexts.remove(id);
         docSources.remove(id);
         docIdentities.remove(id);
+        docHeaders.remove(id);
     }
 
     /** Tokenize + compute term frequencies.

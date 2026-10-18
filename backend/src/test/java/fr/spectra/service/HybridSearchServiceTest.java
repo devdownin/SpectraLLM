@@ -241,5 +241,29 @@ class HybridSearchServiceTest {
 
         assertThat(results.getFirst().metadata()).containsExactly(Map.entry("sourceFile", "b.pdf"));
     }
-}
 
+    @Test
+    void search_filtre_appliqueAuxDeuxSources() {
+        var filter = new RetrievalFilterResolver.ResolvedFilter(java.util.Set.of("sha-a"), java.util.Set.of("a.txt"));
+        when(chromaDb.query(eq(COLL_ID), any(), anyInt(), eq(filter.chromaWhere()))).thenReturn(Map.of(
+                "ids", List.of(List.of("d1")),
+                "documents", List.of(List.of("texte un")),
+                "metadatas", List.of(List.of(Map.of("sourceFile", "a.txt", "sha256", "sha-a"))),
+                "distances", List.of(List.of(0.1))));
+        // Recherche BM25 exécutée sur un autre thread : le prédicat est vérifié après coup.
+        var accept = new java.util.concurrent.atomic.AtomicReference<java.util.function.BiPredicate<String, String>>();
+        when(ftsService.search(anyString(), eq(COLL_NAME), anyInt(), any())).thenAnswer(inv -> {
+            accept.set(inv.getArgument(3));
+            return List.of();
+        });
+
+        var results = hybridSearch.search("query", QUERY_EMBEDDING, COLL_ID, COLL_NAME, 5, filter);
+
+        assertThat(accept.get().test("sha-a", "a.txt")).isTrue();
+        assertThat(accept.get().test("sha-b", "b.txt")).isFalse();
+
+        assertThat(results).extracting(HybridSearchService.HybridChunk::text).containsExactly("texte un");
+        org.mockito.Mockito.verify(chromaDb, org.mockito.Mockito.never()).query(anyString(), any(), anyInt());
+        org.mockito.Mockito.verify(ftsService, org.mockito.Mockito.never()).search(anyString(), anyString(), anyInt());
+    }
+}

@@ -18,8 +18,31 @@ public record QueryResponse(
         boolean multiQueryApplied,
         boolean compressionApplied,
         boolean semanticDedupApplied,
-        boolean longContextApplied
+        boolean longContextApplied,
+        /** Vérification des citations de la réponse ; {@code null} si non effectuée. */
+        CitationReport citations
 ) {
+    /** Constructeur complet sans vérification de citations. */
+    public QueryResponse(String answer, List<Source> sources, long durationMs,
+                         boolean rerankApplied, boolean hybridSearchApplied,
+                         boolean agenticApplied, int agenticIterations, AgenticStopReason agenticStopReason,
+                         boolean conversationalApplied, boolean correctiveApplied, boolean selfRagApplied,
+                         String ragStrategy, boolean multiQueryApplied, boolean compressionApplied,
+                         boolean semanticDedupApplied, boolean longContextApplied) {
+        this(answer, sources, durationMs, rerankApplied, hybridSearchApplied, agenticApplied,
+                agenticIterations, agenticStopReason, conversationalApplied, correctiveApplied,
+                selfRagApplied, ragStrategy, multiQueryApplied, compressionApplied,
+                semanticDedupApplied, longContextApplied, null);
+    }
+
+    /** Copie portant le rapport de citations (et la réponse éventuellement épurée en mode strict). */
+    public QueryResponse withCitations(String verifiedAnswer, CitationReport report) {
+        return new QueryResponse(verifiedAnswer, sources, durationMs, rerankApplied, hybridSearchApplied,
+                agenticApplied, agenticIterations, agenticStopReason, conversationalApplied,
+                correctiveApplied, selfRagApplied, ragStrategy, multiQueryApplied, compressionApplied,
+                semanticDedupApplied, longContextApplied, report);
+    }
+
     /** Raison d'arrêt de la boucle agentique. {@code null} si {@code agenticApplied == false}. */
     public enum AgenticStopReason {
         /** Le LLM a émis ACTION: ANSWER — arrêt normal. */

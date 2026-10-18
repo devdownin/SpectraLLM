@@ -246,6 +246,13 @@ spectra:
     # réponse est à cheval sur deux chunks. 0 = désactivé. Le budget de prompt reste appliqué.
     neighbor-window: ${SPECTRA_RAG_NEIGHBOR_WINDOW:0}
     neighbor-max-chars: ${SPECTRA_RAG_NEIGHBOR_MAX_CHARS:4000}
+    # Vérification des citations après génération : chaque phrase est confrontée par le
+    # cross-encoder aux passages qu'elle cite [n]. Mesure la PERTINENCE (pas l'implication
+    # logique) : signal de fidélité, pas preuve. Sans reranker, rien n'est vérifié.
+    # « strict » retire de la réponse les phrases non étayées (pas en streaming : déjà émises).
+    citation-check: ${SPECTRA_RAG_CITATION_CHECK:true}
+    citation-min-score: ${SPECTRA_RAG_CITATION_MIN_SCORE:0.2}
+    citation-strict: ${SPECTRA_RAG_CITATION_STRICT:false}
   long-context-rag:
     enabled: ${SPECTRA_LONG_CONTEXT_RAG_ENABLED:false}
     max-collection-chunks: ${SPECTRA_LONG_CONTEXT_MAX_CHUNKS:100}
@@ -288,7 +295,9 @@ spectra:
   benchmark:
     # Fichier JSONL du benchmark qualité tenu à l'écart. Vide = ressource embarquée
     # (benchmarks/highway_benchmark.jsonl). À pointer vers un fichier curé pour votre corpus.
-    quality-file:
+    quality-file: ${SPECTRA_BENCHMARK_QUALITY_FILE:}
+    # Brouillons générés par POST /api/quality-benchmark/draft, à relire avant usage.
+    draft-dir: ${SPECTRA_BENCHMARK_DRAFT_DIR:./data/benchmarks}
   ged:
     archive-dir: ${SPECTRA_GED_ARCHIVE_DIR:./data/archive}
     auto-qualify-threshold: ${SPECTRA_GED_AUTO_QUALIFY_THRESHOLD:0.0}

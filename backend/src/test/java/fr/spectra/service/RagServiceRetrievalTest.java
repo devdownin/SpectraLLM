@@ -110,14 +110,14 @@ class RagServiceRetrievalTest {
 
         // Variante 1 : chunkB trouvé par BM25 seul (distance sentinelle 1.0) mais
         // classé PREMIER par le RRF ; chunkA vectoriel proche mais RRF plus faible.
-        when(hybridSearchService.search(eq("Quelles normes ?"), anyList(), anyString(), anyString(), anyInt()))
+        when(hybridSearchService.search(eq("Quelles normes ?"), anyList(), anyString(), anyString(), anyInt(), any()))
                 .thenReturn(List.of(
                         chunk("b", "chunk-bm25-only", 1.0, 8.5f, 0.030),
                         chunk("a", "chunk-vectoriel", 0.1, 0.0f, 0.016)));
 
         // Variante 2 : chunkA retrouvé une seconde fois (sa contribution RRF s'additionne :
         // 0.016 + 0.016 = 0.032 > 0.030), plus un chunkC faible.
-        when(hybridSearchService.search(eq("variante"), anyList(), anyString(), anyString(), anyInt()))
+        when(hybridSearchService.search(eq("variante"), anyList(), anyString(), anyString(), anyInt(), any()))
                 .thenReturn(List.of(
                         chunk("a", "chunk-vectoriel", 0.3, 0.0f, 0.016),
                         chunk("c", "chunk-faible", 0.4, 0.0f, 0.010)));

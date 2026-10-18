@@ -29,7 +29,7 @@ class FtsServiceTest {
     /** Doit refléter FtsService.INDEX_DIR (répertoire de persistance des index). */
     private static final Path INDEX_DIR = Path.of("./data/fts-index");
     private static final List<String> TEST_COLLECTIONS = List.of(
-            "coll-b7-race", "coll-b6-stale", "coll-b6-fresh", "coll-b6-down");
+            "coll-b7-race", "coll-b6-stale", "coll-b6-fresh", "coll-b6-down", "coll-header");
 
     private ChromaDbClient chromaDb;
     private FtsService ftsService;
@@ -301,5 +301,40 @@ class FtsServiceTest {
 
     private TextChunk chunk(String id, String text, String sourceFile) {
         return new TextChunk(id, text, 0, sourceFile, Map.of());
+    }
+
+    // ── Champ d'en-tête (titre, fichier, section) ─────────────────────────────
+
+    @Test
+    void indexChunks_indexeLEnTeteSansLeMelerAuTexte() {
+        TextChunk withTitle = new TextChunk("c1", "le délai est de trois mois", 0, "contrat.pdf",
+                Map.of("sourceFile", "contrat.pdf", "title", "Contrat cadre", "section", "Résiliation"));
+        ftsService.indexChunks(List.of(withTitle, chunk("c2", "le délai est de trois mois", "notice.txt")), "coll1");
+
+        List<BM25Index.ScoredDoc> results = ftsService.search("délai résiliation contrat", "coll1", 5);
+
+        assertThat(results).extracting(BM25Index.ScoredDoc::id).containsExactly("c1", "c2");
+        assertThat(results.getFirst().text()).isEqualTo("le délai est de trois mois");
+    }
+
+    @Test
+    void rebuildCollection_relitLEnTeteDepuisLesMetadonnees() {
+        ChromaDbClient chroma = mock(ChromaDbClient.class);
+        when(chroma.getOrCreateCollection("coll-header")).thenReturn("col-h");
+        when(chroma.getDocumentsPaged("col-h", 500, 0)).thenReturn(Map.of(
+                "ids", List.of("h1", "h2"),
+                "documents", List.of("valeur par défaut 512", "valeur par défaut 512"),
+                "metadatas", List.of(
+                        Map.of("sourceFile", "guide.md", "section", "Embeddings > Fenêtre"),
+                        Map.of("sourceFile", "faq.md"))));
+        SpectraProperties props = mock(SpectraProperties.class);
+        when(props.chromadb()).thenReturn(
+                new SpectraProperties.ChromaDbProperties("http://chroma:8000", "spectra_documents"));
+        FtsService fts = new FtsService(chroma, props);
+
+        fts.rebuildCollection("coll-header");
+
+        assertThat(fts.search("fenêtre embeddings", "coll-header", 5))
+                .extracting(BM25Index.ScoredDoc::id).containsExactly("h1");
     }
 }

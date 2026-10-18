@@ -16,5 +16,13 @@ public record AblationReport(
         List<AblationArmReport> arms,
         int benchmarkSize,
         Instant startedAt,
-        Instant completedAt
-) {}
+        Instant completedAt,
+        /** Bras RAG recommandé par {@code objective} ; {@code null} s'il n'y a aucun bras RAG. */
+        String recommendedArm,
+        /** Objectif du classement, publié avec le rapport pour pouvoir le contester. */
+        String objective
+) {
+    /** Objectif de calibration : retrieval d'abord, fidélité ensuite, hallucination pénalisée. */
+    public static final String OBJECTIVE =
+            "0.35·recall@k + 0.25·MRR + 0.25·fidélité des citations + 0.15·score/10 − 0.25·taux d'hallucination";
+}

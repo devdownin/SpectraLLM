@@ -22,10 +22,29 @@ public record RagOverrides(
         Boolean rerank,
         Boolean corrective,
         Boolean compression,
-        Boolean selfRag
+        Boolean selfRag,
+        /** Seuil de score du reranker ({@code spectra.reranker.min-score}) ; {@code null} = configuration. */
+        Float rerankMinScore,
+        /** Fenêtre d'expansion aux voisins ({@code spectra.rag.neighbor-window}) ; {@code null} = configuration. */
+        Integer neighborWindow,
+        /** Déduplication : {@code none}, {@code jaccard} ou {@code mmr} ; {@code null} = configuration. */
+        String dedupStrategy
 ) {
     /** Aucune surcharge : comportement de déploiement par défaut. */
     public static final RagOverrides NONE = new RagOverrides(null, null, null, null, null, null, null, null);
+
+    /** Surcharges des modules seuls, sans réglage numérique. */
+    public RagOverrides(Boolean adaptive, Boolean conversational, Boolean multiQuery, Boolean hybrid,
+                        Boolean rerank, Boolean corrective, Boolean compression, Boolean selfRag) {
+        this(adaptive, conversational, multiQuery, hybrid, rerank, corrective, compression, selfRag,
+                null, null, null);
+    }
+
+    /** Copie avec les réglages calibrables (calibration par grille). */
+    public RagOverrides withTuning(Float minScore, Integer window, String dedup) {
+        return new RagOverrides(adaptive, conversational, multiQuery, hybrid, rerank, corrective,
+                compression, selfRag, minScore, window, dedup);
+    }
 
     /**
      * Résout l'état effectif d'un module : {@code null} → défaut ; sinon la surcharge, bornée par la

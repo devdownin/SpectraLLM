@@ -219,5 +219,30 @@ class ChromaDbClientTest {
                 .isEqualTo(String.valueOf(EmbeddingContract.TEXT_VERSION));
         assertThat(client.embeddingContract("reindexee").isCurrentFor("nomic-embed-text")).isTrue();
     }
-}
 
+    @Test
+    void query_avecFiltre_transmetLaClauseWhere() throws Exception {
+        server.enqueue(new MockResponse()
+                .setHeader("Content-Type", "application/json")
+                .setBody("{\"documents\":[[]],\"metadatas\":[[]],\"distances\":[[]]}"));
+
+        client.query("col-1", java.util.List.of(0.1f), 4,
+                java.util.Map.of("sha256", java.util.Map.of("$in", java.util.List.of("s1"))));
+
+        JsonNode body = new ObjectMapper().readTree(server.takeRequest(5, TimeUnit.SECONDS).getBody().readUtf8());
+        assertThat(body.path("n_results").asInt()).isEqualTo(4);
+        assertThat(body.path("where").path("sha256").path("$in").get(0).asText()).isEqualTo("s1");
+    }
+
+    @Test
+    void query_sansFiltre_nEnvoiePasDeWhere() throws Exception {
+        server.enqueue(new MockResponse()
+                .setHeader("Content-Type", "application/json")
+                .setBody("{\"documents\":[[]],\"metadatas\":[[]],\"distances\":[[]]}"));
+
+        client.query("col-1", java.util.List.of(0.1f), 4);
+
+        JsonNode body = new ObjectMapper().readTree(server.takeRequest(5, TimeUnit.SECONDS).getBody().readUtf8());
+        assertThat(body.has("where")).isFalse();
+    }
+}

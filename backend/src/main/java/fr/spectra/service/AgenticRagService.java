@@ -189,6 +189,22 @@ public class AgenticRagService {
                                 boolean rerankApplied,
                                 boolean hybridApplied,
                                 SearchProgressListener progressListener) {
+        return query(request, initialChunks, initialMetadatas, initialDistances, rerankApplied, hybridApplied,
+                progressListener, RetrievalFilterResolver.ResolvedFilter.NONE);
+    }
+
+    /**
+     * Variante restreinte par un filtre de documents : les recherches complémentaires de la boucle
+     * restent dans le périmètre demandé, comme le retrieval initial.
+     */
+    public QueryResponse query(QueryRequest request,
+                                List<String> initialChunks,
+                                List<Map<String, String>> initialMetadatas,
+                                List<Double> initialDistances,
+                                boolean rerankApplied,
+                                boolean hybridApplied,
+                                SearchProgressListener progressListener,
+                                RetrievalFilterResolver.ResolvedFilter filter) {
 
         long start = System.currentTimeMillis();
 
@@ -276,7 +292,7 @@ public class AgenticRagService {
                 log.info("Agentic RAG itération {} : recherche complémentaire «{}»", iterations, refinedQuery);
                 if (progressListener != null) progressListener.onSearch(iterations, refinedQuery);
 
-                List<RetrievedChunk> newChunks = retrieveAdditionalChunks(
+                List<RetrievedChunk> newChunks = retrieveAdditionalChunks(filter,
                         refinedQuery, collectionId, collectionName, request.maxContextChunks(), seenTexts);
 
                 if (newChunks.isEmpty()) {
@@ -342,7 +358,8 @@ public class AgenticRagService {
     // ---------- Helpers privés ---------------------------------------------
 
     @SuppressWarnings("unchecked")
-    private List<RetrievedChunk> retrieveAdditionalChunks(String query, String collectionId,
+    private List<RetrievedChunk> retrieveAdditionalChunks(RetrievalFilterResolver.ResolvedFilter filter,
+                                                           String query, String collectionId,
                                                            String collectionName, int maxChunks,
                                                            Set<String> seen) {
         List<RetrievedChunk> results = new ArrayList<>();
@@ -353,14 +370,16 @@ public class AgenticRagService {
 
             if (hybridSearchService.isPresent()) {
                 for (HybridSearchService.HybridChunk hc :
-                        hybridSearchService.get().search(query, embedding, collectionId, collectionName, fetchN)) {
+                        hybridSearchService.get().search(query, embedding, collectionId, collectionName, fetchN, filter)) {
                     if (!seen.contains(hc.text())) {
                         results.add(new RetrievedChunk(hc.text(), hc.sourceFile(), hc.vectorDistance()));
                         seen.add(hc.text());
                     }
                 }
             } else {
-                Map<String, Object> raw = chromaDbClient.query(collectionId, embedding, fetchN);
+                Map<String, Object> raw = filter.active()
+                        ? chromaDbClient.query(collectionId, embedding, fetchN, filter.chromaWhere())
+                        : chromaDbClient.query(collectionId, embedding, fetchN);
                 List<List<String>> docs = (List<List<String>>) raw.get("documents");
                 List<List<Map<String, String>>> metas = (List<List<Map<String, String>>>) raw.get("metadatas");
                 List<List<Double>> dists = (List<List<Double>>) raw.get("distances");

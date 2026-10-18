@@ -54,7 +54,13 @@ public record QueryRequest(
          * Permet au Playground de désactiver un module pour une requête (toggles UI, comparaison A/B)
          * sans redéploiement. Un module absent du déploiement ne peut pas être activé par ce biais.
          */
-        RagOverrides overrides
+        RagOverrides overrides,
+
+        /**
+         * Filtre de recherche (catégories GED, sources, période d'ingestion), appliqué avant le
+         * classement. {@code null} = tout le corpus.
+         */
+        RetrievalFilter filter
 ) {
     public QueryRequest {
         if (maxContextChunks == null) maxContextChunks = 5;
@@ -66,6 +72,7 @@ public record QueryRequest(
         // à l'entrée du pipeline RAG (cf. ActiveModelProfileService.ModelProfile#applyTo).
         if (useRag == null)      useRag = true;
         if (overrides == null)   overrides = RagOverrides.NONE;
+        if (filter == null)      filter = RetrievalFilter.NONE;
     }
 
     /**
@@ -76,7 +83,16 @@ public record QueryRequest(
      */
     public QueryRequest withGenerationParams(float resolvedTemperature, float resolvedTopP) {
         return new QueryRequest(question, maxContextChunks, topCandidates, collection,
-                resolvedTemperature, resolvedTopP, conversationHistory, useRag, overrides);
+                resolvedTemperature, resolvedTopP, conversationHistory, useRag, overrides, filter);
+    }
+
+    /** Constructeur de compatibilité (sans filtre de recherche). */
+    public QueryRequest(String question, Integer maxContextChunks, Integer topCandidates,
+                        String collection, Float temperature, Float topP,
+                        List<ConversationMessage> conversationHistory, Boolean useRag,
+                        RagOverrides overrides) {
+        this(question, maxContextChunks, topCandidates, collection, temperature, topP,
+                conversationHistory, useRag, overrides, null);
     }
 
     /** Constructeur de compatibilité (sans surcharges RAG) — {@link RagOverrides#NONE} par défaut. */

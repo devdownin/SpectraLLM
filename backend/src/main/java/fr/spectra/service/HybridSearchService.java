@@ -67,7 +67,12 @@ public class HybridSearchService {
 
     /** BM25-only retrieval when query embeddings are unavailable; no vector request is made. */
     public List<HybridChunk> searchLexical(String question, String collectionName, int topCandidates) {
-        return search(question, null, null, collectionName, topCandidates);
+        return searchLexical(question, collectionName, topCandidates, RetrievalFilterResolver.ResolvedFilter.NONE);
+    }
+
+    public List<HybridChunk> searchLexical(String question, String collectionName, int topCandidates,
+                                           RetrievalFilterResolver.ResolvedFilter filter) {
+        return search(question, null, null, collectionName, topCandidates, filter);
     }
 
     /**
@@ -79,12 +84,24 @@ public class HybridSearchService {
      * @param collectionName ChromaDB collection name (for FTS index lookup)
      * @param topCandidates  max results to return
      */
-    @SuppressWarnings("unchecked")
     public List<HybridChunk> search(String question,
                                     List<Float> queryEmbedding,
                                     String collectionId,
                                     String collectionName,
                                     int topCandidates) {
+        return search(question, queryEmbedding, collectionId, collectionName, topCandidates,
+                RetrievalFilterResolver.ResolvedFilter.NONE);
+    }
+
+    /** Recherche hybride restreinte par un filtre de documents, appliqué des deux côtés avant la fusion. */
+    @SuppressWarnings("unchecked")
+    public List<HybridChunk> search(String question,
+                                    List<Float> queryEmbedding,
+                                    String collectionId,
+                                    String collectionName,
+                                    int topCandidates,
+                                    RetrievalFilterResolver.ResolvedFilter filter) {
+        RetrievalFilterResolver.ResolvedFilter docs = filter != null ? filter : RetrievalFilterResolver.ResolvedFilter.NONE;
         SpectraProperties.HybridSearchProperties hybridProps =
                 props.hybridSearch() != null ? props.hybridSearch()
                         : new SpectraProperties.HybridSearchProperties(true, 20, 1.0f);
@@ -98,14 +115,18 @@ public class HybridSearchService {
         // que de tout perdre — c'est précisément l'intérêt d'une recherche hybride.
         CompletableFuture<Map<String, Object>> vectorFuture = queryEmbedding == null
                 ? CompletableFuture.completedFuture(null) : CompletableFuture
-                .supplyAsync(() -> chromaDbClient.query(collectionId, queryEmbedding, topCandidates), searchExecutor)
+                .supplyAsync(() -> docs.active()
+                        ? chromaDbClient.query(collectionId, queryEmbedding, topCandidates, docs.chromaWhere())
+                        : chromaDbClient.query(collectionId, queryEmbedding, topCandidates), searchExecutor)
                 .exceptionally(ex -> {
                     log.warn("Hybrid search: requête vectorielle échouée, dégradation BM25-only: {}", ex.getMessage());
                     return null;
                 });
 
         CompletableFuture<List<BM25Index.ScoredDoc>> bm25Future = CompletableFuture
-                .supplyAsync(() -> ftsService.search(question, collectionName, topBm25), searchExecutor)
+                .supplyAsync(() -> docs.active()
+                        ? ftsService.search(question, collectionName, topBm25, docs::accepts)
+                        : ftsService.search(question, collectionName, topBm25), searchExecutor)
                 .exceptionally(ex -> {
                     log.warn("Hybrid search: requête BM25 échouée, dégradation vector-only: {}", ex.getMessage());
                     return List.of();

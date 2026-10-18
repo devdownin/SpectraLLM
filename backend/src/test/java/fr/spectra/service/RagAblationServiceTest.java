@@ -187,4 +187,34 @@ class RagAblationServiceTest {
     void std_identicalValues_isZero() {
         assertThat(RagAblationService.std(List.of(5.0, 5.0, 5.0))).isZero();
     }
+
+    // ── Calibration : bras recommandé ───────────────────────────────────────────
+
+    private static fr.spectra.dto.AblationArmReport arm(String label, boolean useRag, double recall, double mrr,
+                                                        Double faithfulness, double score, double halluc,
+                                                        double p50) {
+        fr.spectra.dto.QualityBenchmarkReport quality = new fr.spectra.dto.QualityBenchmarkReport(
+                "m", "j", 10, 8, 2, score, halluc, 1.0, java.util.Map.of(), List.of(), null, null);
+        return new fr.spectra.dto.AblationArmReport(label, null, useRag, null, quality,
+                new fr.spectra.dto.RetrievalMetrics(8, 5, recall, mrr, recall),
+                p50, p50, 100, 1, java.util.Map.of(), java.util.Map.of(), faithfulness, 8);
+    }
+
+    @Test
+    void objective_ponderationDocumentee() {
+        double v = RagAblationService.objective(arm("a", true, 0.8, 0.6, 0.9, 7.0, 0.2, 100));
+
+        assertThat(v).isCloseTo(0.35 * 0.8 + 0.25 * 0.6 + 0.25 * 0.9 + 0.15 * 0.7 - 0.25 * 0.2,
+                org.assertj.core.data.Offset.offset(1e-9));
+    }
+
+    @Test
+    void recommend_meilleurObjectif_egaliteDepartageeParLaLatence_horsBrasSansRag() {
+        assertThat(RagAblationService.recommend(List.of(
+                arm("llm seul", false, 1, 1, 1.0, 10, 0, 1),
+                arm("lent", true, 0.8, 0.6, 0.9, 7, 0.1, 900),
+                arm("rapide", true, 0.8, 0.6, 0.9, 7, 0.1, 300),
+                arm("faible", true, 0.4, 0.3, null, 5, 0.3, 100)))).isEqualTo("rapide");
+        assertThat(RagAblationService.recommend(List.of(arm("llm seul", false, 1, 1, 1.0, 10, 0, 1)))).isNull();
+    }
 }
