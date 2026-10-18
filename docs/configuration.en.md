@@ -109,6 +109,7 @@ Disabled by default — no Kafka bean is created unless `SPECTRA_KAFKA_ENABLED=t
 | `SPECTRA_RERANKER_URL` | `http://reranker:8000` | Reranker service URL |
 | `SPECTRA_RERANKER_TIMEOUT` | `30` | Reranker timeout (seconds) |
 | `SPECTRA_RERANKER_TOP_CANDIDATES` | `20` | Candidates fed to reranker |
+| `SPECTRA_RERANKER_MIN_SCORE` | *(empty)* | Minimum reranker score (sigmoid, 0–1) for a chunk to enter the context; empty = no threshold. When no chunk passes, the RAG answers that nothing relevant was found. Tune with `POST /api/ablation` (0.1–0.3 is a sensible start). |
 | `RERANKER_MODEL` | `cross-encoder/mmarco-...` | HuggingFace model ID (compose-level; feeds `SPECTRA_RERANKER_MODEL`) |
 | `SPECTRA_RERANKER_ENGINE` | `http` | `http` = Python microservice (compose profile `reranker`); `onnx` = Cross-Encoder run **inside the JVM** via ONNX Runtime — no container, no Python |
 | `SPECTRA_RERANKER_ONNX_PATH` | `./data/models/reranker` | Directory holding `model.onnx` and `tokenizer.json` (`engine=onnx` only). Same convention as GGUF files: an artifact dropped into the models volume, not a versioned file |

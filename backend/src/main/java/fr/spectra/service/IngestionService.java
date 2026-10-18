@@ -826,11 +826,12 @@ public class IngestionService {
 
     /** Embed les chunks par lot et les indexe dans ChromaDB puis BM25. */
     private void embedAndIndex(String collectionId, String collectionName, List<TextChunk> chunks) {
+        EmbeddingPromptScheme scheme = EmbeddingPromptScheme.orNone(chromaDbClient.promptScheme(collectionName));
         for (int i = 0; i < chunks.size(); i += embeddingBatchSize) {
             int end = Math.min(i + embeddingBatchSize, chunks.size());
             List<TextChunk> batch = chunks.subList(i, end);
             List<List<Float>> batchEmbeddings = embeddingService.embedBatch(
-                    batch.stream().map(TextChunk::text).toList());
+                    scheme.documents(batch.stream().map(TextChunk::text).toList()));
             chromaDbClient.addDocuments(collectionId, batch, batchEmbeddings);
         }
         ftsService.indexChunks(chunks, collectionName);

@@ -166,6 +166,11 @@ spectra:
     model: ${SPECTRA_RERANKER_MODEL:cross-encoder/mmarco-mMiniLMv2-L12-H384-v1}
     timeout-seconds: ${SPECTRA_RERANKER_TIMEOUT:30}
     top-candidates: ${SPECTRA_RERANKER_TOP_CANDIDATES:20}
+    # Score minimal (sigmoïde, [0,1]) pour qu'un chunk re-classé entre dans le contexte. Vide =
+    # aucun seuil. Sous le seuil pour tous les chunks, le RAG répond « aucun document pertinent »
+    # au lieu de générer à partir de passages hors sujet. Point de départ : 0.1 à 0.3, à caler
+    # par ablation (POST /api/ablation) sur votre corpus — le barème dépend du modèle.
+    min-score: ${SPECTRA_RERANKER_MIN_SCORE:}
     # Moteur : « onnx » (Cross-Encoder exécuté DANS la JVM via ONNX Runtime, sans conteneur ni
     # Python) ou « http » (microservice Python services/reranker, profil compose « reranker »,
     # en cours de retrait — cf. docs/process/audit-python-java.fr.md).
