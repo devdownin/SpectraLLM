@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ChatMarkdown from './ChatMarkdown';
+import i18n from '../i18n';
 
 describe('ChatMarkdown citations', () => {
   it('renders [n] markers as clickable citation chips and reports the click', async () => {
@@ -29,5 +30,23 @@ describe('ChatMarkdown citations', () => {
   it('does not render an out-of-range marker as a chip', () => {
     render(<ChatMarkdown content="Voir [9]." citationCount={2} onCitationClick={() => {}} />);
     expect(screen.queryByRole('button', { name: 'Source 9' })).toBeNull();
+  });
+});
+
+describe('ChatMarkdown citation verification', () => {
+  it('marks a chip whose citing sentences are all unsupported, and leaves the others untouched', async () => {
+    await i18n.changeLanguage('en');
+    render(
+      <ChatMarkdown
+        content="Vrai [1]. Douteux [2]."
+        citationCount={2}
+        onCitationClick={() => {}}
+        citationMarks={{ 1: 'supported', 2: 'unsupported' }}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Source 1' })).toHaveAttribute('data-citation-status', 'supported');
+    const doubtful = screen.getByRole('button', { name: 'Source 2 — not supported by the passage' });
+    expect(doubtful).toHaveAttribute('data-citation-status', 'unsupported');
+    expect(doubtful.className).toContain('border-dashed');
   });
 });

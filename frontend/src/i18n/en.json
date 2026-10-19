@@ -260,6 +260,42 @@
       "0": "Regenerate at the same temperature",
       "1": "Regenerate more factually",
       "2": "Regenerate more creatively"
+    },
+    "citations": {
+      "badge": "{{supported}}/{{cited}} sentences backed",
+      "badgeHint": "Citation check: each cited sentence is scored against the passage it cites. Relevance, not proof.",
+      "title": "Citation check",
+      "status": {
+        "SUPPORTED": "Supported by the cited passage",
+        "UNSUPPORTED": "Not supported by the cited passage",
+        "INVALID_CITATION": "Invalid citation"
+      },
+      "openSource": "Open source {{n}}",
+      "invalidCitation": "Cites a source that does not exist",
+      "score": "score {{score}} (threshold {{min}})",
+      "caveat": "The check measures whether the passage is relevant to the sentence, not whether it logically proves it. Read the sources when it matters.",
+      "chipUnsupported": "Source {{n}} — not supported by the passage",
+      "chipUnsupportedHint": "The cited passage does not seem to answer the sentence that cites it"
+    },
+    "filter": {
+      "label": "Filter",
+      "active": "Filter active",
+      "clear": "Clear",
+      "remove": "Remove {{label}}",
+      "sinceChip": "since {{date}}",
+      "untilChip": "until {{date}}",
+      "hint": "Restrict the search to part of your corpus. The filter applies before ranking, to vector and keyword search alike.",
+      "categories": "Categories",
+      "loading": "Loading categories…",
+      "noCategories": "No category yet — classify your documents in the Documents page.",
+      "documents": "Documents",
+      "searchDocuments": "Search a document",
+      "moreDocuments": "+ {{count}} more documents — refine the search",
+      "truncated": "Only the most recent documents are listed; older ones cannot be selected here.",
+      "period": "Ingestion period",
+      "from": "From",
+      "to": "To",
+      "noMatch": "No document matches this filter. Widen it or clear it to search the whole corpus."
     }
   },
   "docs": {
@@ -470,6 +506,10 @@
       "p50": {
         "label": "p50 latency",
         "help": "Cost: median end-to-end latency of a query (ms). Noisy on shared hardware → cross-check with tokens."
+      },
+      "faith": {
+        "label": "Citations",
+        "help": "Share of cited sentences backed by the passage they cite (cross-encoder). Measures relevance, not proof. “—” when no answer had a verifiable citation."
       }
     },
     "protocol": "Protocol",
@@ -537,7 +577,15 @@
     "legendTitle": "How to read these metrics?",
     "higherBetter": "higher = better",
     "lowerBetter": "lower = better",
-    "legendDelta": "Deltas in <1>green</1> indicate an improvement, in <3>red</3> a degradation, relative to the first arm."
+    "legendDelta": "Deltas in <1>green</1> indicate an improvement, in <3>red</3> a degradation, relative to the first arm.",
+    "recommendedTitle": "Recommended setting: {{arm}}",
+    "recommendedObjective": "Objective maximised: {{objective}}",
+    "envHeader": "Calibrated on this corpus (POST /api/ablation/calibrate)",
+    "envDedupThreshold": "Also keep SPECTRA_SEMANTIC_DEDUP_THRESHOLD (0.92 suits mmr)",
+    "copyEnv": "Copy for .env",
+    "envCopied": "Copied — paste it into your .env",
+    "envCopyFailed": "Could not copy",
+    "recommendedNoEnv": "This arm changes no setting: the deployed configuration is already the best one measured."
   },
   "ingestion": {
     "kicker": "Data Engineering",
@@ -1178,5 +1226,48 @@
     "configure": "Configure a new task",
     "resultCount_one": "{{count}} filtered result",
     "resultCount_other": "{{count}} filtered results"
+  },
+  "calibration": {
+    "title": "Calibrate on your corpus",
+    "intro": "Default thresholds are generic. Measure them on your own documents: draft an evaluation set from your corpus, review it, then compare a grid of settings.",
+    "step1": "1. Evaluation set",
+    "sourceBundled": "The benchmark in use is the bundled one (motorway operations): it says nothing about your documents. Draft one from your corpus.",
+    "sourceCurated": "Benchmark from your corpus: {{total}} questions — {{answerable}} with an answer, {{unanswerable}} out of corpus, {{withSources}} naming their source.",
+    "sourceConfigured": "Benchmark set by SPECTRA_BENCHMARK_QUALITY_FILE ({{path}}): {{total}} questions. It takes precedence, so drafting is disabled here.",
+    "partialSources": "Only {{withSources}} of {{answerable}} answerable questions name their source: retrieval metrics (Hit@k, MRR, Recall) will be partial.",
+    "sizeLabel": "Questions to draft",
+    "draftButton": "Draft from my corpus",
+    "draftHint": "One LLM call per question — a few minutes on CPU. Nothing is used before you review it.",
+    "drafting": "Drafting… {{processed}}/{{total}} questions",
+    "cancel": "Cancel",
+    "draftFailed": "Drafting failed: {{error}}",
+    "draftEmpty": "No usable passage found — ingest documents first.",
+    "draftAlreadyRunning": "A draft is already running",
+    "draftStartFailed": "Could not start the draft",
+    "draftCancelFailed": "Could not cancel the draft",
+    "step2": "2. Review the draft",
+    "reviewHint": "Rewrite questions that copy the passage’s wording (they favour keyword search), fix expected answers, delete uninteresting ones. Add out-of-corpus questions: the generator cannot produce them.",
+    "noSource": "no source",
+    "outOfCorpus": "Out of corpus — the answer must be a refusal",
+    "removeQuestion": "Remove question {{n}}",
+    "questionLabel": "Question {{n}}",
+    "referenceLabel": "Expected answer {{n}}",
+    "addOutOfCorpus": "Add an out-of-corpus question",
+    "share": "Out of corpus: {{pct}}% — aim for 10–20% to measure abstention.",
+    "incomplete": "{{count}} entries are incomplete (empty question, or no expected answer).",
+    "save": "Save as my benchmark",
+    "discard": "Discard draft",
+    "saved": "Benchmark saved ({{count}} questions)",
+    "saveFailed": "Could not save the benchmark",
+    "step3": "3. Settings grid",
+    "rerankLabel": "Reranker threshold",
+    "rerankHint": "Below it, a passage is dropped; if none is left, the answer is an abstention.",
+    "neighborsLabel": "Neighbouring chunks added to each passage",
+    "dedupLabel": "Deduplication",
+    "keepConfigured": "A setting with nothing selected keeps its deployed value.",
+    "launch": "Run calibration",
+    "overCap": "{{arms}} combinations: {{max}} at most — narrow one setting.",
+    "estimate": "{{arms}} combinations × {{questions}} questions — slow on CPU (one LLM call per question and combination).",
+    "saveFirst": "Save or discard the draft before running."
   }
 }

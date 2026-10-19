@@ -79,6 +79,16 @@ public class QualityBenchmarkService {
     private final String judgeModel;
     private final String benchmarkPath;
     private final Path workDir;
+    /** Répertoire du benchmark relu depuis le corpus ({@value #CURATED_FILE}), cf. {@link #saveCurated}. */
+    private final Path curatedDir;
+
+    /**
+     * Nom du benchmark relu depuis le corpus. Il s'applique sans configuration dès qu'il existe,
+     * mais {@code spectra.benchmark.quality-file}, posé explicitement, le précède.
+     */
+    public static final String CURATED_FILE = "corpus.jsonl";
+    private static final int MAX_CURATED_ENTRIES = 500;
+    private static final int MAX_QUESTION_CHARS = 1000;
 
     /** Jobs de comparaison suivis (en mémoire + persistés en JSON), à l'image d'EvaluationService. */
     private final Map<String, QualityCompareJob> compareJobs = new ConcurrentHashMap<>();
@@ -95,12 +105,20 @@ public class QualityBenchmarkService {
     @Autowired @Lazy
     private QualityBenchmarkService self;
 
+    public QualityBenchmarkService(LlmChatClient chatClient, LlmJudge judge, ModelSwitchCoordinator modelSwitch,
+                                   String judgeModel, String benchmarkPath, String workDir) {
+        this(chatClient, judge, modelSwitch, judgeModel, benchmarkPath, workDir, "./data/benchmarks");
+    }
+
+    @Autowired
     public QualityBenchmarkService(LlmChatClient chatClient,
                                    LlmJudge judge,
                                    ModelSwitchCoordinator modelSwitch,
                                    @Value("${spectra.evaluation.judge-model:}") String judgeModel,
                                    @Value("${spectra.benchmark.quality-file:}") String benchmarkPath,
-                                   @Value("${spectra.fine-tuning.work-dir:./data/fine-tuning}") String workDir) {
+                                   @Value("${spectra.fine-tuning.work-dir:./data/fine-tuning}") String workDir,
+                                   @Value("${spectra.benchmark.draft-dir:./data/benchmarks}") String curatedDir) {
+        this.curatedDir = Path.of(curatedDir);
         this.chatClient = chatClient;
         this.judge = judge;
         this.modelSwitch = modelSwitch;
@@ -442,16 +460,40 @@ public class QualityBenchmarkService {
         );
     }
 
+    /** D'où vient le benchmark servi : configuration explicite, benchmark relu du corpus, ou embarqué. */
+    public enum BenchmarkSource { CONFIGURED, CURATED, BUNDLED }
+
+    /** Benchmark en vigueur : origine, chemin (absent s'il est embarqué) et composition. */
+    public record BenchmarkInfo(BenchmarkSource source, String path, int total, int answerable,
+                                int unanswerable, int withExpectedSources) {}
+
+    /** Entrée d'un benchmark relu ; {@code reference} est ignorée pour une question sans réponse. */
+    public record BenchmarkEntry(String question, String reference, String category, boolean answerable,
+                                 List<String> expectedSources) {}
+
+    private record ResolvedBenchmark(BenchmarkSource source, Resource resource, String path) {}
+
+    private ResolvedBenchmark resolveBenchmark() {
+        if (benchmarkPath != null && !benchmarkPath.isBlank()) {
+            return new ResolvedBenchmark(BenchmarkSource.CONFIGURED, new FileSystemResource(benchmarkPath), benchmarkPath);
+        }
+        Path curated = curatedDir.resolve(CURATED_FILE);
+        if (Files.isRegularFile(curated)) {
+            return new ResolvedBenchmark(BenchmarkSource.CURATED, new FileSystemResource(curated), curated.toString());
+        }
+        return new ResolvedBenchmark(BenchmarkSource.BUNDLED,
+                new ClassPathResource("benchmarks/highway_benchmark.jsonl"), null);
+    }
+
     /**
-     * Charge le benchmark JSONL (chemin {@code spectra.benchmark.quality-file} ou ressource par
-     * défaut). Exposé pour réutilisation par {@code RagAblationService}.
+     * Charge le benchmark JSONL : {@code spectra.benchmark.quality-file} s'il est posé, sinon le
+     * benchmark relu du corpus ({@value #CURATED_FILE}), sinon la ressource embarquée. Exposé pour
+     * réutilisation par {@code RagAblationService}.
      */
     public List<JsonNode> loadBenchmark() {
         List<JsonNode> entries = new ArrayList<>();
         try {
-            Resource resource = (benchmarkPath != null && !benchmarkPath.isBlank())
-                    ? new FileSystemResource(benchmarkPath)
-                    : new ClassPathResource("benchmarks/highway_benchmark.jsonl");
+            Resource resource = resolveBenchmark().resource();
             if (!resource.exists()) {
                 log.warn("Fichier benchmark introuvable: {}", resource.getDescription());
                 return entries;
@@ -473,6 +515,69 @@ public class QualityBenchmarkService {
             log.error("Chargement du benchmark échoué: {}", e.getMessage());
         }
         return entries;
+    }
+
+    public BenchmarkInfo benchmarkInfo() {
+        ResolvedBenchmark resolved = resolveBenchmark();
+        List<JsonNode> entries = loadBenchmark();
+        int answerable = (int) entries.stream().filter(e -> e.path("answerable").asBoolean(true)).count();
+        int withSources = (int) entries.stream()
+                .filter(e -> e.path("answerable").asBoolean(true) && e.path("expectedSources").size() > 0).count();
+        return new BenchmarkInfo(resolved.source(), resolved.path(), entries.size(), answerable,
+                entries.size() - answerable, withSources);
+    }
+
+    /**
+     * Enregistre le benchmark relu ({@value #CURATED_FILE}) : il devient celui de l'évaluation, de
+     * l'ablation et de la calibration. Refusé si {@code spectra.benchmark.quality-file} est posé —
+     * il primerait, et l'enregistrement serait sans effet sans qu'on s'en aperçoive.
+     *
+     * @throws IllegalArgumentException si une entrée est invalide
+     * @throws java.io.IOException      si le fichier ne peut pas être écrit
+     */
+    public BenchmarkInfo saveCurated(List<BenchmarkEntry> entries) throws java.io.IOException {
+        if (resolveBenchmark().source() == BenchmarkSource.CONFIGURED) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.CONFLICT,
+                    "spectra.benchmark.quality-file est défini : il prime sur le benchmark relu. "
+                            + "Modifiez ce fichier, ou retirez SPECTRA_BENCHMARK_QUALITY_FILE.");
+        }
+        if (entries == null || entries.isEmpty() || entries.size() > MAX_CURATED_ENTRIES) {
+            throw new IllegalArgumentException("Le benchmark doit contenir de 1 à " + MAX_CURATED_ENTRIES + " questions.");
+        }
+        StringBuilder jsonl = new StringBuilder();
+        for (int i = 0; i < entries.size(); i++) {
+            BenchmarkEntry e = entries.get(i);
+            String question = e.question() != null ? e.question().strip() : "";
+            String reference = e.reference() != null ? e.reference().strip() : "";
+            if (question.isEmpty() || question.length() > MAX_QUESTION_CHARS) {
+                throw new IllegalArgumentException("Question " + (i + 1) + " : texte requis (" + MAX_QUESTION_CHARS + " caractères au plus).");
+            }
+            if (e.answerable() && reference.isEmpty()) {
+                throw new IllegalArgumentException("Question " + (i + 1) + " : une question avec réponse exige une réponse attendue.");
+            }
+            Map<String, Object> line = new LinkedHashMap<>();
+            line.put("question", question);
+            line.put("reference", e.answerable() ? reference : null);
+            line.put("category", e.category() != null && !e.category().isBlank() ? e.category().strip() : "general");
+            line.put("answerable", e.answerable());
+            List<String> sources = e.expectedSources() == null ? List.of()
+                    : e.expectedSources().stream().filter(x -> x != null && !x.isBlank()).map(String::strip).distinct().toList();
+            if (e.answerable() && !sources.isEmpty()) line.put("expectedSources", sources);
+            jsonl.append(mapper.writeValueAsString(line)).append('\n');
+        }
+        Files.createDirectories(curatedDir);
+        Path target = curatedDir.resolve(CURATED_FILE);
+        Path temp = Files.createTempFile(curatedDir, "corpus-", ".tmp");
+        try {
+            Files.writeString(temp, jsonl.toString(), StandardCharsets.UTF_8);
+            Files.move(temp, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                    java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+        } finally {
+            Files.deleteIfExists(temp);
+        }
+        log.info("Benchmark relu enregistré : {} question(s) → {}", entries.size(), target);
+        return benchmarkInfo();
     }
 
 }

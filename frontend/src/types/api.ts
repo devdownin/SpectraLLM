@@ -248,6 +248,12 @@ export interface RagOverrides {
   corrective?: boolean | null;
   compression?: boolean | null;
   selfRag?: boolean | null;
+  /** Seuil du reranker ; absent = configuration de déploiement. */
+  rerankMinScore?: number | null;
+  /** Fenêtre d'expansion aux chunks voisins ; absente = configuration. */
+  neighborWindow?: number | null;
+  /** Déduplication : `none`, `jaccard` ou `mmr` ; absente = configuration. */
+  dedupStrategy?: string | null;
 }
 
 export interface AblationArmConfig {
@@ -297,6 +303,10 @@ export interface AblationArmReport {
   runs: number;
   stdDev: Record<string, number>;
   appliedCounts: Record<string, number>;
+  /** Part moyenne des phrases citées étayées par leur passage (0–1) ; absente sans citation vérifiée. */
+  faithfulness?: number | null;
+  /** Réponses dont les citations ont été vérifiées. */
+  verifiedAnswers?: number;
 }
 
 export interface AblationReport {
@@ -304,6 +314,61 @@ export interface AblationReport {
   benchmarkSize: number;
   startedAt: string;
   completedAt: string;
+  /** Libellé du bras qui maximise l'objectif ; absent si aucun bras n'utilise le RAG. */
+  recommendedArm?: string | null;
+  /** Formule de l'objectif, pour que le choix soit lisible. */
+  objective?: string | null;
+}
+
+/** Corps de `POST /ablation/calibrate` : une liste vide laisse le réglage à sa configuration. */
+export interface CalibrationRequestBody {
+  rerankMinScores?: number[];
+  neighborWindows?: number[];
+  dedupStrategies?: string[];
+  maxContextChunks?: number;
+  runs?: number;
+}
+
+/** Entrée d'un benchmark relu (`answerable: false` = question hors corpus). */
+export interface BenchmarkEntry {
+  question: string;
+  reference: string | null;
+  category: string;
+  answerable: boolean;
+  expectedSources: string[];
+}
+
+/** Benchmark en vigueur : d'où il vient et ce qu'il contient. */
+export interface BenchmarkInfo {
+  /** `BUNDLED` = benchmark embarqué, étranger à votre corpus. */
+  source: 'CONFIGURED' | 'CURATED' | 'BUNDLED';
+  path: string | null;
+  total: number;
+  answerable: number;
+  unanswerable: number;
+  /** Questions avec réponse qui annotent `expectedSources` (nécessaire aux métriques de retrieval). */
+  withExpectedSources: number;
+}
+
+/** Brouillon de benchmark tiré du corpus, en tâche de fond. */
+export interface BenchmarkDraftJob {
+  jobId: string;
+  status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+  total: number;
+  processed: number;
+  scannedChunks: number;
+  file: string | null;
+  items: Array<{
+    question: string;
+    reference: string;
+    category: string;
+    answerable: boolean;
+    expectedSources: string[];
+    draft: boolean;
+  }>;
+  error: string | null;
+  createdAt: string;
+  completedAt: string | null;
 }
 
 /** Job d'ablation asynchrone (progression réelle + rapport persisté côté serveur). */

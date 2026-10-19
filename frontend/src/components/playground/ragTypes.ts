@@ -1,4 +1,4 @@
-import type { StreamStageTrace, RagOverridesDto } from '../../services/api';
+import type { StreamStageTrace, RagOverridesDto, CitationReport, RetrievalFilterDto } from '../../services/api';
 
 /**
  * Types et constantes partagés du Playground, extraits pour être importés à la fois par la page
@@ -41,6 +41,8 @@ export interface RagMeta {
   stages?: StreamStageTrace[];
   /** Taille (caractères) du contexte récupéré injecté dans le prompt (budget de tokens estimé). */
   contextChars?: number;
+  /** Vérification des citations de la réponse ; absente sans cross-encoder ou sans phrase citée. */
+  citations?: CitationReport | null;
 }
 
 export interface MessageMetrics {
@@ -61,6 +63,8 @@ export interface RequestParams {
   topP: number;
   topCandidates: number;
   overrides?: RagOverridesDto;
+  /** Filtre de recherche appliqué (absent = tout le corpus), pour que la comparaison A/B le rejoue. */
+  filter?: RetrievalFilterDto;
 }
 
 export interface Message {
@@ -95,4 +99,5 @@ export const STAGE_LABELS: Record<string, string> = {
   compression: 'Compressing context…',
   reflection:  'Self-evaluating the answer…',
   refining:    'Refining the answer…',
+  citations:   'Verifying citations…',
 };

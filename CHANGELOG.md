@@ -70,6 +70,18 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 - **En-têtes dans le BM25** : titre, nom de fichier et section indexés dans un champ séparé du
   texte cité (poids 0,5). L'index lexical est reconstruit depuis ChromaDB au premier démarrage.
 
+### Ajouté — interface : citations, filtre et calibration
+
+- **Playground** : badge de fidélité des citations sous chaque réponse, détaillé phrase par phrase ;
+  puces `[n]` non étayées dessinées en pointillé orange ; filtre de recherche (catégories GED,
+  documents, période d'ingestion) avec puces retirables, repris par la comparaison A/B.
+- **Optimisation** : assistant « Calibrer sur votre corpus » (brouillon de jeu d'évaluation en tâche
+  de fond, relecture en ligne, grille de réglages), colonne « Citations » du rapport, réglage
+  recommandé et lignes `.env` à copier.
+- API : `POST /api/quality-benchmark/draft/async` (+ suivi et annulation), `GET` et `PUT
+  /api/quality-benchmark/benchmark` (benchmark relu `corpus.jsonl`, qui s'applique sans
+  configuration tant que `SPECTRA_BENCHMARK_QUALITY_FILE` n'est pas posé).
+
 ### Ajouté — PR de rattrapage qui lancent la CI
 
 - `release-followup.yml` lit le secret facultatif `AUTOMATION_PR_TOKEN` (jeton à portée restreinte ou
