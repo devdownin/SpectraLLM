@@ -1,6 +1,7 @@
 package fr.spectra.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.ConstructorBinding;
 
 import java.util.List;
 
@@ -36,6 +37,11 @@ public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, 
     public record RagProperties(String contextPlacement, Boolean contextualHeaders,
                                 Integer neighborWindow, Integer neighborMaxChars,
                                 Boolean citationCheck, Float citationMinScore, Boolean citationStrict) {
+        // Deux constructeurs sans @ConstructorBinding : Spring n'en choisit aucun et laisse le
+        // record à null, sans erreur. Vrai pour les quatre records à constructeur de commodité.
+        @ConstructorBinding
+        public RagProperties {}
+
         public RagProperties(String contextPlacement, Boolean contextualHeaders,
                              Integer neighborWindow, Integer neighborMaxChars) {
             this(contextPlacement, contextualHeaders, neighborWindow, neighborMaxChars, null, null, null);
@@ -111,6 +117,9 @@ public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, 
              */
             Integer maxInputTokens
     ) {
+        @ConstructorBinding
+        public EndpointProperties {}
+
         public EndpointProperties(String baseUrl, String model, String file, Integer timeoutSeconds) {
             this(baseUrl, model, file, timeoutSeconds, null);
         }
@@ -222,6 +231,9 @@ public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, 
              */
             Float minScore
     ) {
+        @ConstructorBinding
+        public RerankerProperties {}
+
         public RerankerProperties(Boolean enabled, String baseUrl, String model, Integer timeoutSeconds,
                                   Integer topCandidates, String engine, OnnxRerankerProperties onnx) {
             this(enabled, baseUrl, model, timeoutSeconds, topCandidates, engine, onnx, null);
@@ -384,6 +396,9 @@ public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, 
      */
     public record SemanticDedupProperties(Boolean enabled, Double similarityThreshold,
                                           String strategy, Double mmrLambda) {
+        @ConstructorBinding
+        public SemanticDedupProperties {}
+
         public SemanticDedupProperties(Boolean enabled, Double similarityThreshold) {
             this(enabled, similarityThreshold, null, null);
         }
