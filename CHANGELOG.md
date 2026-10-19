@@ -8,6 +8,17 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Corrigé — configuration ignorée depuis 0.12.0
+
+- **`spectra.llm.chat`, `spectra.llm.embedding`, `spectra.reranker`, `spectra.semantic-dedup` et
+  `spectra.rag` sont de nouveau lus.** Leurs records ont reçu en 0.12.0 un constructeur de commodité
+  à côté du canonique ; sans `@ConstructorBinding`, Spring ne choisit aucun des deux et laisse le
+  record à `null`, sans erreur. `SPECTRA_LLM_CHAT_BASE_URL` était donc ignorée et le client de chat
+  retombait sur `http://llama-cpp-chat:8080`, introuvable dans une stack qui nomme le service
+  autrement (la stack Docker Hub de Kafka Explorer, notamment). Le constructeur canonique de chacun
+  porte maintenant `@ConstructorBinding`, et `SpectraPropertiesBindingTest` lie la configuration
+  comme au démarrage.
+
 ### Corrigé — qualité et fiabilité du RAG ([audit](docs/process/audit-rag.fr.md))
 
 - Préfixes d'instruction des modèles d'embedding asymétriques (`search_query:` /
