@@ -72,7 +72,7 @@ Prefer the guided path? `./scripts/start.sh --first-run --hub` does the download
 |---|---|
 | `latest` | The most recent release. |
 | `0.12` | The 0.12 series — patches, without the surprises of a version bump. |
-| `0.12.1` | An exact version. **Pin this in production.** |
+| `0.12.3` | An exact version. **Pin this in production.** |
 
 Release candidates (`1.0.0-rc1`) are published as-is and never carry `latest`.
 
