@@ -207,6 +207,44 @@ export interface RagOverridesDto {
   selfRag?: boolean | null;
 }
 
+/** Verdict sur une phrase citée de la réponse (cf. `CitationReport` côté serveur). */
+export interface CitationSentenceCheck {
+  sentence: string;
+  /** Numéros `[n]` cités par la phrase, y compris ceux qui n'existent pas. */
+  citations: number[];
+  /** Meilleur score du cross-encoder parmi les passages cités ; absent si aucune citation valide. */
+  bestScore: number | null;
+  status: 'SUPPORTED' | 'UNSUPPORTED' | 'INVALID_CITATION';
+}
+
+/**
+ * Vérification des citations d'une réponse par le cross-encoder : mesure la PERTINENCE de chaque
+ * phrase citée pour son passage, pas l'implication logique — un signal, pas une preuve.
+ */
+export interface CitationReport {
+  citedSentences: number;
+  supportedSentences: number;
+  unsupportedSentences: number;
+  /** Citations `[n]` hors de la plage des passages servis. */
+  invalidCitations: number;
+  uncitedSentences: number;
+  /** Phrases étayées / phrases citées (0–1) ; absente si aucune phrase n'est citée. */
+  faithfulness: number | null;
+  /** Seuil du cross-encoder appliqué. */
+  minScore: number;
+  checks: CitationSentenceCheck[];
+}
+
+/** Filtre de recherche d'une requête (cf. `RetrievalFilter` côté serveur) ; vide = tout le corpus. */
+export interface RetrievalFilterDto {
+  categories?: string[];
+  sources?: string[];
+  /** Instant ISO, borne incluse. */
+  ingestedAfter?: string;
+  /** Instant ISO, borne exclue. */
+  ingestedBefore?: string;
+}
+
 export interface StreamDoneMeta {
   conversationalApplied: boolean;
   correctiveApplied: boolean;
@@ -232,6 +270,8 @@ export interface StreamDoneMeta {
   stages?: StreamStageTrace[];
   /** Taille (caractères) du contexte récupéré injecté dans le prompt — budget d'entrée estimé (~4 c/token). */
   contextChars?: number;
+  /** Vérification des citations ; absente si le cross-encoder est indisponible ou désactivé. */
+  citations?: CitationReport | null;
 }
 
 /** Décompte 👍/👎 pour une strate (stratégie ou module). */
@@ -279,6 +319,7 @@ export const queryApi = {
     topP?: number,
     overrides?: RagOverridesDto,
     collection?: string,
+    filter?: RetrievalFilterDto,
   ): AsyncGenerator<StreamEvent> {
     const body: Record<string, unknown> = { question, useRag };
     if (useRag && collection) body.collection = collection;
@@ -291,6 +332,9 @@ export const queryApi = {
     // N'inclure les surcharges que si au moins une est posée (sinon = défaut serveur).
     if (overrides && Object.values(overrides).some(v => v === false || v === true)) {
       body.overrides = overrides;
+    }
+    if (useRag && filter && Object.values(filter).some(v => (Array.isArray(v) ? v.length > 0 : Boolean(v)))) {
+      body.filter = filter;
     }
     const response = await fetch('/api/query/stream', {
       method: 'POST',
@@ -368,6 +412,8 @@ export const ablationApi = {
   getJob: (jobId: string) => api.get(`/ablation/jobs/${jobId}`),
   listJobs: () => api.get('/ablation/jobs'),
   cancelJob: (jobId: string) => api.delete(`/ablation/jobs/${jobId}`),
+  /** Grille de réglages (seuil du reranker × voisins × déduplication) mesurée comme une ablation. */
+  calibrate: (body: import('../types/api').CalibrationRequestBody) => api.post('/ablation/calibrate', body),
 };
 
 /** Disponibilité serveur des modules RAG (bean déployé) renvoyée par `GET /config/rag`. */
@@ -393,6 +439,17 @@ export const qualityBenchmarkApi = {
     api.post(`/quality-benchmark/compare/async?baseline=${encodeURIComponent(baseline)}&candidate=${encodeURIComponent(candidate)}`),
   getCompareJob: (jobId: string) => api.get(`/quality-benchmark/compare/${encodeURIComponent(jobId)}`),
   listCompareJobs: () => api.get('/quality-benchmark/compare'),
+  /** Benchmark en vigueur : origine et composition. */
+  getBenchmark: () => api.get<import('../types/api').BenchmarkInfo>('/quality-benchmark/benchmark'),
+  /** Enregistre le benchmark relu ; 409 si `SPECTRA_BENCHMARK_QUALITY_FILE` est posé. */
+  saveBenchmark: (items: import('../types/api').BenchmarkEntry[]) =>
+    api.put<import('../types/api').BenchmarkInfo>('/quality-benchmark/benchmark', { items }),
+  /** Brouillon tiré du corpus, en tâche de fond (un appel LLM par question). */
+  startDraft: (size: number, collection?: string) =>
+    api.post('/quality-benchmark/draft/async', null, { params: { size, collection } }),
+  getDraftJob: (jobId: string) =>
+    api.get<import('../types/api').BenchmarkDraftJob>(`/quality-benchmark/draft/jobs/${encodeURIComponent(jobId)}`),
+  cancelDraft: (jobId: string) => api.delete(`/quality-benchmark/draft/jobs/${encodeURIComponent(jobId)}`),
 };
 
 export const modelsHubApi = {

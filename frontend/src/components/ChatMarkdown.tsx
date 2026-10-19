@@ -3,7 +3,9 @@ import type { FC, ReactNode } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Components } from 'react-markdown';
+import { useTranslation } from 'react-i18next';
 import { rehypeCitations } from '../lib/citations';
+import type { CitationMarkStatus } from '../lib/citationReport';
 
 /** Bloc de code avec bouton « copier » (lit le textContent réel du <pre>). */
 const CodeBlock: FC<{ children: ReactNode }> = ({ children }) => {
@@ -68,12 +70,18 @@ const components: Components = {
  * (1 ≤ n ≤ citationCount) sont rendus en puces cliquables ; `onCitationClick(n)` remonte le
  * clic (le Playground déplie/défile alors vers la source n). Sans `citationCount`, le rendu
  * est inchangé — les [n] restent du texte normal.
+ *
+ * `citationMarks` (statut de vérification par numéro, cf. `citationMarks()`) distingue les puces
+ * dont aucune phrase citante n'est étayée : bordure pointillée orange, et libellé qui le dit —
+ * la couleur seule ne suffirait pas à qui ne la distingue pas.
  */
 const ChatMarkdown: FC<{
   content: string;
   citationCount?: number;
   onCitationClick?: (n: number) => void;
-}> = ({ content, citationCount, onCitationClick }) => {
+  citationMarks?: Record<number, CitationMarkStatus>;
+}> = ({ content, citationCount, onCitationClick, citationMarks }) => {
+  const { t } = useTranslation();
   const cites = citationCount && citationCount > 0;
   const citeComponents: Components = cites
     ? {
@@ -82,12 +90,17 @@ const ChatMarkdown: FC<{
           const cite = node?.properties?.dataCite;
           if (cite == null) return <sup>{children}</sup>;
           const n = Number(cite);
+          const unsupported = citationMarks?.[n] === 'unsupported';
           return (
             <button
               type="button"
               onClick={() => onCitationClick?.(n)}
-              aria-label={`Source ${n}`}
-              className="rag-cite align-super text-[0.65em] font-bold text-primary bg-primary/10 hover:bg-primary/20 border border-primary/30 rounded px-1 mx-0.5 transition-colors cursor-pointer leading-none"
+              aria-label={unsupported ? t('playground.citations.chipUnsupported', { n }) : `Source ${n}`}
+              title={unsupported ? t('playground.citations.chipUnsupportedHint') : undefined}
+              data-citation-status={citationMarks?.[n]}
+              className={unsupported
+                ? 'rag-cite align-super text-[0.65em] font-bold text-secondary bg-secondary/10 hover:bg-secondary/20 border border-dashed border-secondary/60 rounded px-1 mx-0.5 transition-colors cursor-pointer leading-none'
+                : 'rag-cite align-super text-[0.65em] font-bold text-primary bg-primary/10 hover:bg-primary/20 border border-primary/30 rounded px-1 mx-0.5 transition-colors cursor-pointer leading-none'}
             >
               {n}
             </button>

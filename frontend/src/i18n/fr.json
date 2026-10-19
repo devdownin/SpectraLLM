@@ -260,6 +260,42 @@
       "0": "Régénérer à température identique",
       "1": "Régénérer plus factuellement",
       "2": "Régénérer plus créativement"
+    },
+    "citations": {
+      "badge": "{{supported}}/{{cited}} phrases étayées",
+      "badgeHint": "Vérification des citations : chaque phrase citée est notée face au passage qu’elle cite. De la pertinence, pas une preuve.",
+      "title": "Vérification des citations",
+      "status": {
+        "SUPPORTED": "Étayée par le passage cité",
+        "UNSUPPORTED": "Non étayée par le passage cité",
+        "INVALID_CITATION": "Citation invalide"
+      },
+      "openSource": "Ouvrir la source {{n}}",
+      "invalidCitation": "Cite une source qui n’existe pas",
+      "score": "score {{score}} (seuil {{min}})",
+      "caveat": "La vérification mesure si le passage est pertinent pour la phrase, pas s’il la démontre. Lisez les sources quand l’enjeu le justifie.",
+      "chipUnsupported": "Source {{n}} — non étayée par le passage",
+      "chipUnsupportedHint": "Le passage cité ne semble pas répondre à la phrase qui le cite"
+    },
+    "filter": {
+      "label": "Filtre",
+      "active": "Filtre actif",
+      "clear": "Effacer",
+      "remove": "Retirer {{label}}",
+      "sinceChip": "depuis le {{date}}",
+      "untilChip": "jusqu’au {{date}}",
+      "hint": "Limite la recherche à une partie de votre corpus. Le filtre s’applique avant le classement, à la recherche vectorielle comme lexicale.",
+      "categories": "Catégories",
+      "loading": "Chargement des catégories…",
+      "noCategories": "Aucune catégorie pour l’instant — classez vos documents dans la page Documents.",
+      "documents": "Documents",
+      "searchDocuments": "Chercher un document",
+      "moreDocuments": "+ {{count}} documents de plus — affinez la recherche",
+      "truncated": "Seuls les documents les plus récents sont listés ; les plus anciens ne peuvent pas être choisis ici.",
+      "period": "Période d’ingestion",
+      "from": "Du",
+      "to": "Au",
+      "noMatch": "Aucun document ne correspond à ce filtre. Élargissez-le, ou effacez-le pour chercher dans tout le corpus."
     }
   },
   "docs": {
@@ -470,6 +506,10 @@
       "p50": {
         "label": "Latence p50",
         "help": "Coût : latence médiane bout en bout d'une requête (ms). Bruitée sur matériel partagé → à recouper avec les tokens."
+      },
+      "faith": {
+        "label": "Citations",
+        "help": "Part des phrases citées étayées par le passage qu’elles citent (cross-encoder). Mesure la pertinence, pas une preuve. « — » si aucune réponse n’avait de citation vérifiable."
       }
     },
     "protocol": "Protocole",
@@ -537,7 +577,15 @@
     "legendTitle": "Comment lire ces métriques ?",
     "higherBetter": "plus haut = mieux",
     "lowerBetter": "plus bas = mieux",
-    "legendDelta": "Les deltas en <1>vert</1> indiquent une amélioration, en <3>rouge</3> une dégradation, par rapport au premier bras."
+    "legendDelta": "Les deltas en <1>vert</1> indiquent une amélioration, en <3>rouge</3> une dégradation, par rapport au premier bras.",
+    "recommendedTitle": "Réglage recommandé : {{arm}}",
+    "recommendedObjective": "Objectif maximisé : {{objective}}",
+    "envHeader": "Calibré sur ce corpus (POST /api/ablation/calibrate)",
+    "envDedupThreshold": "Conservez aussi SPECTRA_SEMANTIC_DEDUP_THRESHOLD (0.92 convient à mmr)",
+    "copyEnv": "Copier pour .env",
+    "envCopied": "Copié — collez-le dans votre .env",
+    "envCopyFailed": "Copie impossible",
+    "recommendedNoEnv": "Ce bras ne change aucun réglage : la configuration déployée est déjà la meilleure mesurée."
   },
   "ingestion": {
     "kicker": "Ingénierie des données",
@@ -1178,5 +1226,48 @@
     "configure": "Configurer une nouvelle tâche",
     "resultCount_one": "{{count}} résultat filtré",
     "resultCount_other": "{{count}} résultats filtrés"
+  },
+  "calibration": {
+    "title": "Calibrer sur votre corpus",
+    "intro": "Les seuils par défaut sont génériques. Mesurez-les sur vos propres documents : tirez un jeu d’évaluation de votre corpus, relisez-le, puis comparez une grille de réglages.",
+    "step1": "1. Jeu d’évaluation",
+    "sourceBundled": "Le benchmark utilisé est celui embarqué (exploitation autoroutière) : il ne dit rien de vos documents. Tirez-en un de votre corpus.",
+    "sourceCurated": "Benchmark issu de votre corpus : {{total}} questions — {{answerable}} avec réponse, {{unanswerable}} hors corpus, {{withSources}} qui nomment leur source.",
+    "sourceConfigured": "Benchmark fixé par SPECTRA_BENCHMARK_QUALITY_FILE ({{path}}) : {{total}} questions. Il prime : le brouillon est désactivé ici.",
+    "partialSources": "Seules {{withSources}} questions sur {{answerable}} avec réponse nomment leur source : les métriques de retrieval (Hit@k, MRR, Recall) seront partielles.",
+    "sizeLabel": "Questions à tirer",
+    "draftButton": "Tirer un brouillon de mon corpus",
+    "draftHint": "Un appel LLM par question — quelques minutes sur CPU. Rien n’est utilisé avant votre relecture.",
+    "drafting": "Génération… {{processed}}/{{total}} questions",
+    "cancel": "Annuler",
+    "draftFailed": "Échec de la génération : {{error}}",
+    "draftEmpty": "Aucun passage exploitable — ingérez d’abord des documents.",
+    "draftAlreadyRunning": "Un brouillon est déjà en cours",
+    "draftStartFailed": "Impossible de lancer le brouillon",
+    "draftCancelFailed": "Impossible d’annuler le brouillon",
+    "step2": "2. Relire le brouillon",
+    "reviewHint": "Reformulez les questions qui recopient le texte du passage (elles avantagent la recherche par mots-clés), corrigez les réponses attendues, supprimez les questions sans intérêt. Ajoutez des questions hors corpus : le générateur ne sait pas en produire.",
+    "noSource": "sans source",
+    "outOfCorpus": "Hors corpus — la bonne réponse est un refus",
+    "removeQuestion": "Supprimer la question {{n}}",
+    "questionLabel": "Question {{n}}",
+    "referenceLabel": "Réponse attendue {{n}}",
+    "addOutOfCorpus": "Ajouter une question hors corpus",
+    "share": "Hors corpus : {{pct}} % — visez 10 à 20 % pour mesurer l’abstention.",
+    "incomplete": "{{count}} entrées sont incomplètes (question vide, ou réponse attendue manquante).",
+    "save": "Enregistrer comme mon benchmark",
+    "discard": "Abandonner le brouillon",
+    "saved": "Benchmark enregistré ({{count}} questions)",
+    "saveFailed": "Impossible d’enregistrer le benchmark",
+    "step3": "3. Grille de réglages",
+    "rerankLabel": "Seuil du reranker",
+    "rerankHint": "En dessous, un passage est écarté ; s’il n’en reste aucun, la réponse est une abstention.",
+    "neighborsLabel": "Chunks voisins ajoutés à chaque passage",
+    "dedupLabel": "Déduplication",
+    "keepConfigured": "Un réglage sans aucune valeur choisie garde sa valeur déployée.",
+    "launch": "Lancer la calibration",
+    "overCap": "{{arms}} combinaisons : {{max}} au plus — réduisez un réglage.",
+    "estimate": "{{arms}} combinaisons × {{questions}} questions — lent sur CPU (un appel LLM par question et par combinaison).",
+    "saveFirst": "Enregistrez ou abandonnez le brouillon avant de lancer."
   }
 }

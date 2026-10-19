@@ -26,6 +26,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.function.BooleanSupplier;
+import java.util.function.IntConsumer;
 
 /**
  * Brouillon de benchmark tiré du corpus, pour amorcer la calibration sur VOS documents.
@@ -63,12 +68,49 @@ public class BenchmarkDraftService {
 
     public record DraftResult(String file, int scannedChunks, List<DraftItem> items) {}
 
+    public enum JobStatus { PENDING, RUNNING, COMPLETED, FAILED, CANCELLED }
+
+    /** Instantané d'un brouillon asynchrone ; {@code items} se remplit au fil de la génération. */
+    public record DraftJob(String jobId, JobStatus status, int total, int processed, int scannedChunks,
+                           String file, List<DraftItem> items, String error, Instant createdAt, Instant completedAt) {}
+
+    private static final int MAX_JOBS = 10;
+
+    /** État mutable d'un job ; seul l'instantané {@link DraftJob} sort du service. */
+    private static final class JobState {
+        final String jobId = UUID.randomUUID().toString();
+        final Instant createdAt = Instant.now();
+        volatile JobStatus status = JobStatus.PENDING;
+        volatile int total;
+        volatile int processed;
+        volatile int scannedChunks;
+        volatile String file;
+        volatile String error;
+        volatile Instant completedAt;
+        volatile boolean cancelRequested;
+        final List<DraftItem> items = java.util.Collections.synchronizedList(new ArrayList<>());
+
+        DraftJob snapshot() {
+            synchronized (items) {
+                return new DraftJob(jobId, status, total, processed, scannedChunks, file,
+                        List.copyOf(items), error, createdAt, completedAt);
+            }
+        }
+    }
+
     private final ChromaDbClient chromaDbClient;
     private final LlmChatClient llm;
     private final IngestedFileRepository files;
     private final SpectraProperties props;
     private final Path outputDir;
     private final ObjectMapper mapper = new ObjectMapper();
+    private final Map<String, JobState> jobs = new LinkedHashMap<>();
+    // Un seul brouillon à la fois : chaque question coûte un appel LLM, et deux jobs se disputeraient le modèle.
+    private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "benchmark-draft");
+        t.setDaemon(true);
+        return t;
+    });
 
     public BenchmarkDraftService(ChromaDbClient chromaDbClient, LlmChatClient llm, IngestedFileRepository files,
                                  SpectraProperties props,
@@ -82,9 +124,65 @@ public class BenchmarkDraftService {
 
     /**
      * Génère jusqu'à {@code size} questions et les écrit en JSONL dans {@code spectra.benchmark.draft-dir}.
-     * Un appel LLM par question : compter quelques secondes chacune sur CPU.
+     * Un appel LLM par question : compter quelques secondes chacune sur CPU — au-delà de quelques
+     * questions, préférer {@link #submit}, car une requête HTTP bloquante dépasse le délai du proxy.
      */
     public DraftResult draft(String collection, int size) throws IOException {
+        List<DraftItem> items = new ArrayList<>();
+        int scanned = generate(collection, size, items, n -> { }, () -> false, c -> { });
+        Path file = write(items);
+        return new DraftResult(file.toString(), scanned, List.copyOf(items));
+    }
+
+    /**
+     * Lance un brouillon en tâche de fond.
+     *
+     * @return l'identifiant du job, ou {@code null} si un brouillon est déjà en cours
+     */
+    public synchronized String submit(String collection, int size) {
+        if (jobs.values().stream().anyMatch(j -> j.status == JobStatus.PENDING || j.status == JobStatus.RUNNING)) {
+            return null;
+        }
+        JobState job = new JobState();
+        job.total = Math.max(1, Math.min(MAX_SIZE, size));
+        jobs.put(job.jobId, job);
+        while (jobs.size() > MAX_JOBS) jobs.remove(jobs.keySet().iterator().next());
+        executor.submit(() -> run(job, collection));
+        return job.jobId;
+    }
+
+    public synchronized DraftJob getJob(String jobId) {
+        JobState job = jobs.get(jobId);
+        return job != null ? job.snapshot() : null;
+    }
+
+    /** Annulation coopérative, prise en compte entre deux questions ; les questions déjà produites restent. */
+    public synchronized boolean cancel(String jobId) {
+        JobState job = jobs.get(jobId);
+        if (job == null || (job.status != JobStatus.PENDING && job.status != JobStatus.RUNNING)) return false;
+        job.cancelRequested = true;
+        return true;
+    }
+
+    private void run(JobState job, String collection) {
+        job.status = JobStatus.RUNNING;
+        try {
+            job.scannedChunks = generate(collection, job.total, job.items, n -> job.processed = n,
+                    () -> job.cancelRequested, c -> job.scannedChunks = c);
+            job.file = write(job.snapshot().items()).toString();
+            job.status = job.cancelRequested ? JobStatus.CANCELLED : JobStatus.COMPLETED;
+        } catch (Exception e) {
+            log.warn("Brouillon de benchmark en échec : {}", e.getMessage());
+            job.error = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            job.status = JobStatus.FAILED;
+        } finally {
+            job.completedAt = Instant.now();
+        }
+    }
+
+    /** @return le nombre de chunks parcourus */
+    private int generate(String collection, int size, List<DraftItem> items, IntConsumer onProgress,
+                         BooleanSupplier cancelled, IntConsumer onScanned) throws IOException {
         int target = Math.max(1, Math.min(MAX_SIZE, size));
         String collectionName = collection != null && !collection.isBlank() ? collection
                 : props.chromadb() != null ? props.chromadb().effectiveCollection() : "spectra_documents";
@@ -92,23 +190,26 @@ public class BenchmarkDraftService {
 
         Map<String, Deque<Passage>> bySource = new LinkedHashMap<>();
         int scanned = scan(collectionId, bySource);
+        onScanned.accept(scanned);
         Map<String, String> categoryBySha = categories();
 
-        List<DraftItem> items = new ArrayList<>();
-        while (items.size() < target && bySource.values().stream().anyMatch(q -> !q.isEmpty())) {
+        int attempted = 0;
+        while (items.size() < target && !cancelled.getAsBoolean()
+                && bySource.values().stream().anyMatch(q -> !q.isEmpty())) {
             for (Deque<Passage> queue : bySource.values()) {
-                if (items.size() >= target) break;
+                if (items.size() >= target || cancelled.getAsBoolean()) break;
                 Passage passage = queue.poll();
                 if (passage == null) continue;
                 question(passage).ifPresent(q -> items.add(new DraftItem(q.question(), q.reference(),
                         categoryBySha.getOrDefault(passage.sha256(), "general"), true,
                         List.of(passage.sourceFile()), true)));
+                onProgress.accept(items.size());
+                attempted++;
             }
         }
-        Path file = write(items);
-        log.info("Brouillon de benchmark : {} question(s) depuis {} chunk(s) de '{}' → {}",
-                items.size(), scanned, collectionName, file);
-        return new DraftResult(file.toString(), scanned, items);
+        log.info("Brouillon de benchmark : {} question(s) depuis {} chunk(s) de '{}' ({} passage(s) essayé(s))",
+                items.size(), scanned, collectionName, attempted);
+        return scanned;
     }
 
     private record Passage(String text, String sourceFile, String sha256) {}

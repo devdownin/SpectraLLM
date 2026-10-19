@@ -5,7 +5,7 @@ import ChatMarkdown from '../ChatMarkdown';
 import { abPreferencePair } from '../../lib/ragPipeline';
 import type { ModuleDef } from '../../lib/ragPipeline';
 import { dpoApi, queryApi } from '../../services/api';
-import type { RagOverridesDto, StreamStageInfo } from '../../services/api';
+import type { RagOverridesDto, RetrievalFilterDto, StreamStageInfo } from '../../services/api';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import type { Message, RagMeta, Source } from './ragTypes';
 import { STRATEGY_COLORS, STAGE_LABELS } from './ragTypes';
@@ -46,11 +46,13 @@ export interface ComparisonProps {
   ragEnabled: boolean;
   collection?: string;
   baseOverrides?: RagOverridesDto;
+  /** Filtre de recherche de la réponse de référence : la variante doit chercher dans les mêmes documents. */
+  filter?: RetrievalFilterDto;
   onClose: () => void;
 }
 
 const RagComparisonDialog: FC<ComparisonProps> = ({
-  baseline, question, module, history, temperature, topP, topCandidates, ragEnabled, collection, baseOverrides, onClose,
+  baseline, question, module, history, temperature, topP, topCandidates, ragEnabled, collection, baseOverrides, filter, onClose,
 }) => {
   const [content, setContent] = useState('');
   const [sources, setSources] = useState<Source[]>([]);
@@ -90,7 +92,7 @@ const RagComparisonDialog: FC<ComparisonProps> = ({
     (async () => {
       try {
         for await (const ev of queryApi.queryStream(
-          question, ragEnabled, controller.signal, topCandidates, history, temperature, topP, overrides, collection
+          question, ragEnabled, controller.signal, topCandidates, history, temperature, topP, overrides, collection, filter
         )) {
           if (ev.type === 'sources') { try { setSources(JSON.parse(ev.data)); } catch { /* ignore */ } }
           else if (ev.type === 'token') { setStage(null); buf += ev.data; if (!timer) timer = setTimeout(flush, 80); }

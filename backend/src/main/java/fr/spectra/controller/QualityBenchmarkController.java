@@ -8,9 +8,12 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -38,6 +41,73 @@ public class QualityBenchmarkController {
     public QualityBenchmarkController(QualityBenchmarkService service, BenchmarkDraftService draftService) {
         this.service = service;
         this.draftService = draftService;
+    }
+
+    @GetMapping("/benchmark")
+    @Operation(
+            summary = "Benchmark en vigueur",
+            description = "Origine (CONFIGURED : spectra.benchmark.quality-file, CURATED : benchmark relu du corpus, "
+                    + "BUNDLED : benchmark embarqué, étranger à votre corpus) et composition : questions avec "
+                    + "réponse, hors corpus, et celles qui annotent expectedSources (nécessaire aux métriques de retrieval)."
+    )
+    public QualityBenchmarkService.BenchmarkInfo benchmark() {
+        return service.benchmarkInfo();
+    }
+
+    @PutMapping("/benchmark")
+    @Operation(
+            summary = "Enregistrer le benchmark relu",
+            description = "Remplace le benchmark relu du corpus (corpus.jsonl dans spectra.benchmark.draft-dir) ; il devient "
+                    + "celui de l'évaluation, de l'ablation et de la calibration. 400 si une entrée est invalide, "
+                    + "409 si spectra.benchmark.quality-file est défini (il prime)."
+    )
+    public QualityBenchmarkService.BenchmarkInfo saveBenchmark(@RequestBody BenchmarkUpload upload) {
+        try {
+            return service.saveCurated(upload.items());
+        } catch (IOException e) {
+            throw new UncheckedIOException("Écriture du benchmark impossible", e);
+        }
+    }
+
+    /** Corps de {@code PUT /benchmark}. */
+    public record BenchmarkUpload(List<QualityBenchmarkService.BenchmarkEntry> items) {}
+
+    @PostMapping("/draft/async")
+    @Operation(
+            summary = "Générer un brouillon de benchmark en tâche de fond (suivi, annulable)",
+            description = "Version non bloquante de POST /draft : renvoie un jobId à suivre via "
+                    + "GET /draft/jobs/{jobId} (les questions apparaissent au fil de la génération). Un seul "
+                    + "brouillon à la fois (409 sinon)."
+    )
+    public ResponseEntity<Map<String, String>> draftAsync(@RequestParam(required = false) String collection,
+                                                          @RequestParam(defaultValue = "30") int size) {
+        String jobId = draftService.submit(collection, size);
+        if (jobId == null) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "Un brouillon est déjà en cours"));
+        }
+        return ResponseEntity.accepted().body(Map.of("jobId", jobId, "status", "PENDING"));
+    }
+
+    @GetMapping("/draft/jobs/{jobId}")
+    @Operation(summary = "Suivi d'un brouillon de benchmark (progression + questions produites)")
+    public BenchmarkDraftService.DraftJob draftJob(@PathVariable String jobId) {
+        BenchmarkDraftService.DraftJob job = draftService.getJob(jobId);
+        if (job == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Brouillon inconnu: " + jobId);
+        }
+        return job;
+    }
+
+    @DeleteMapping("/draft/jobs/{jobId}")
+    @Operation(summary = "Annuler un brouillon en cours (les questions déjà produites sont conservées)")
+    public ResponseEntity<Map<String, String>> cancelDraft(@PathVariable String jobId) {
+        if (draftService.getJob(jobId) == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Brouillon inconnu: " + jobId);
+        }
+        if (!draftService.cancel(jobId)) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "Le brouillon est déjà terminé"));
+        }
+        return ResponseEntity.accepted().body(Map.of("status", "CANCEL_REQUESTED"));
     }
 
     @PostMapping("/draft")

@@ -8,13 +8,20 @@ import { PageHeader, Button, ActionMenu } from '../components/ui';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { queryApi, configApi, fineTuningApi, healthApi } from '../services/api';
+import { queryApi, configApi, fineTuningApi, gedApi, healthApi } from '../services/api';
 import type { StreamDoneMeta, StreamStageInfo } from '../services/api';
 import type { ServiceStatus } from '../types/api';
 import Tooltip from '../components/Tooltip';
 import ConfirmDialog from '../components/ConfirmDialog';
 import RagAdvisor from '../components/RagAdvisor';
 import ChatMarkdown from '../components/ChatMarkdown';
+import CitationReportBadge from '../components/playground/CitationReportBadge';
+import RetrievalFilterBar from '../components/playground/RetrievalFilterBar';
+import { citationMarks } from '../lib/citationReport';
+import {
+  EMPTY_FILTER, facetsFromDocuments, loadFilter, saveFilter, toFilterDto,
+} from '../lib/retrievalFilter';
+import type { FilterState } from '../lib/retrievalFilter';
 import {
   RAG_MODULES, appliedModules, overridesFromDisabled, isBm25Only, relevancePct,
 } from '../lib/ragPipeline';
@@ -192,6 +199,15 @@ const Playground: FC = () => {
   /** Mode expert : affiche badges RAG, distances vectorielles et métriques de latence. Off par défaut. */
   const [expertMode, setExpertMode] = useState(() =>
     localStorage.getItem('spectra_expert') === 'true');
+  /** Filtre de recherche (catégories, documents, période) — mémorisé pour l'onglet. */
+  const [filter, setFilter] = useState<FilterState>(loadFilter);
+  useEffect(() => { saveFilter(filter); }, [filter]);
+  // Catégories et documents sont propres à une collection : en changer vide le filtre, qui
+  // cherchait sinon dans un corpus où ses critères ne désignent plus rien.
+  const filterCollection = useRef(collection);
+  useEffect(() => {
+    if (filterCollection.current !== collection) { filterCollection.current = collection; setFilter(EMPTY_FILTER); }
+  }, [collection]);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [advisorOpen, setAdvisorOpen] = useState(false);
   const [atBottom, setAtBottom] = useState(true);
@@ -225,6 +241,19 @@ const Playground: FC = () => {
     refetchInterval: 20_000,
     retry: 1,
     staleTime: 10_000,
+  });
+  // Documents de la collection : alimentent les choix du filtre (les 500 plus récents).
+  const FACET_PAGE = 500;
+  const { data: facetDocs, isLoading: facetsLoading } = useQuery({
+    queryKey: ['playground-filter-facets', collection],
+    queryFn: async () => {
+      const res = await gedApi.listDocuments({ size: FACET_PAGE, ...(collection ? { collection } : {}) });
+      const docs = (res.data?.content ?? []) as Array<{ fileName: string; categories?: string[] }>;
+      return { facets: facetsFromDocuments(docs), truncated: Number(res.data?.totalElements ?? docs.length) > docs.length };
+    },
+    enabled: ragEnabled,
+    staleTime: 60_000,
+    retry: 1,
   });
   const chatService = services?.find(s => s.name === 'llama-cpp') ?? services?.[0];
   const chromaService = services?.find(s => s.name === 'chromadb');
@@ -446,7 +475,8 @@ const Playground: FC = () => {
     // Config effective de CETTE requête, mémorisée sur la réponse pour une comparaison A/B
     // rigoureuse (rejouée depuis cette config, pas les réglages courants de la session).
     const effOverrides = buildOverrides();
-    const reqParams: RequestParams = { collection, useRag: ragEnabled, temperature: effTemperature, topP, topCandidates, overrides: effOverrides };
+    const filterDto = ragEnabled ? toFilterDto(filter) : undefined;
+    const reqParams: RequestParams = { collection, useRag: ragEnabled, temperature: effTemperature, topP, topCandidates, overrides: effOverrides, filter: filterDto };
 
     abortRef.current?.abort();
     const controller = new AbortController();
@@ -512,7 +542,7 @@ const Playground: FC = () => {
 
     try {
       for await (const event of queryApi.queryStream(
-        currentInput, ragEnabled, controller.signal, topCandidates, history, effTemperature, topP, effOverrides, collection
+        currentInput, ragEnabled, controller.signal, topCandidates, history, effTemperature, topP, effOverrides, collection, filterDto
       )) {
         if (event.type === 'sources') {
           try { sources = JSON.parse(event.data); } catch { /* ignore */ }
@@ -571,6 +601,7 @@ const Playground: FC = () => {
               selfRagScores:         parsed.selfRagScores,
               stages:                parsed.stages,
               contextChars:          parsed.contextChars,
+              citations:             parsed.citations ?? null,
             };
           } catch { /* ignore */ }
 
@@ -1045,6 +1076,7 @@ const Playground: FC = () => {
                         content={msg.content}
                         citationCount={msg.status === 'SENT' ? msg.sources?.length : undefined}
                         onCitationClick={n => jumpToSource(i, n)}
+                        citationMarks={msg.status === 'SENT' ? citationMarks(msg.ragMeta?.citations, msg.sources?.length ?? 0) : undefined}
                       />
                     )}
                     {msg.status === 'STREAMING' && (
@@ -1085,6 +1117,21 @@ const Playground: FC = () => {
                     </div>
                   );
                 })()}
+
+                {msg.role === 'assistant' && msg.status === 'SENT' && (
+                  <CitationReportBadge
+                    report={msg.ragMeta?.citations}
+                    sourceCount={msg.sources?.length ?? 0}
+                    onJumpToSource={n => jumpToSource(i, n)}
+                  />
+                )}
+
+                {msg.role === 'assistant' && msg.status === 'SENT' && !msg.local && msg.params?.filter
+                  && (msg.sources?.length ?? 0) === 0 && (
+                  <p role="status" className="mt-3 text-[11px] text-secondary bg-secondary/10 border border-secondary/30 px-3 py-2">
+                    {t('playground.filter.noMatch')}
+                  </p>
+                )}
 
                 {msg.role === 'assistant' && msg.status === 'SENT' && !msg.local && (
                   <AnswerActions message={msg} onSources={() => {
@@ -1183,6 +1230,16 @@ const Playground: FC = () => {
         )}
 
         <div className="p-8 border-t border-outline-variant/10">
+          {ragEnabled && (
+            <RetrievalFilterBar
+              value={filter}
+              onChange={setFilter}
+              facets={facetDocs?.facets}
+              truncated={facetDocs?.truncated}
+              loading={facetsLoading}
+              disabled={isTyping}
+            />
+          )}
           {convEnabled && buildHistory().length > 0 && (
             <p className="text-[10px] font-label uppercase tracking-widest text-secondary mb-2 flex items-center gap-1">
               <span className="material-symbols-outlined text-[11px]">forum</span>
@@ -1250,6 +1307,7 @@ const Playground: FC = () => {
             ragEnabled={comparison.baseline.params?.useRag ?? ragEnabled}
             collection={comparison.baseline.params ? comparison.baseline.params.collection : collection}
             baseOverrides={comparison.baseline.params?.overrides ?? buildOverrides()}
+            filter={comparison.baseline.params ? comparison.baseline.params.filter : (ragEnabled ? toFilterDto(filter) : undefined)}
             onClose={() => setComparison(null)}
           />
         </Suspense>

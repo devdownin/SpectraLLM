@@ -9,6 +9,8 @@ import { toast } from 'sonner';
 import { ablationApi, fineTuningApi } from '../services/api';
 import { etaMs, formatEta } from '../hooks/useGlobalTasks';
 import AblationCharts from '../components/charts/AblationCharts';
+import CalibrationWizard from '../components/CalibrationWizard';
+import { envSnippet } from '../lib/calibration';
 import { PageHeader, Button, SpotlightCard, StatusBadge, DetailPanel, WorkList, WorkListRow, ListFeedback, ListTools } from '../components/ui';
 import type {
   AblationArmConfig,
@@ -27,7 +29,8 @@ import { apiErrorMessage, apiErrorStatus } from '../lib/apiError';
 
 // ── Métadonnées pédagogiques des modules d'optimisation ───────────────────────
 
-type ModuleKey = keyof RagOverrides;
+/** Modules à bascule (les réglages chiffrés de la calibration n'en font pas partie). */
+type ModuleKey = Exclude<keyof RagOverrides, 'rerankMinScore' | 'neighborWindow' | 'dedupStrategy'>;
 
 const MODULE_KEYS: ModuleKey[] = [
   'hybrid', 'rerank', 'multiQuery', 'corrective',
@@ -47,6 +50,7 @@ interface MetricDef {
   pct?: boolean;      // delta exprimé en points de %
   stdKey?: string;    // clé dans arm.stdDev pour l'écart-type
   retrieval?: boolean; // métrique de retrieval (delta masqué si non évaluée)
+  verified?: boolean;  // métrique des citations vérifiées (delta masqué si un bras n'en a aucune)
 }
 
 const METRICS: MetricDef[] = [
@@ -56,6 +60,7 @@ const METRICS: MetricDef[] = [
   { key: 'hit', stdKey: 'hitRate', retrieval: true, higherIsBetter: true, value: a => a.retrieval.hitRate, format: a => a.retrieval.evaluatedQuestions ? a.retrieval.hitRate.toFixed(2) : '—' },
   { key: 'mrr', stdKey: 'mrr', retrieval: true, higherIsBetter: true, value: a => a.retrieval.mrr, format: a => a.retrieval.evaluatedQuestions ? a.retrieval.mrr.toFixed(2) : '—' },
   { key: 'recall', stdKey: 'recallAtK', retrieval: true, higherIsBetter: true, value: a => a.retrieval.recallAtK, format: a => a.retrieval.evaluatedQuestions ? a.retrieval.recallAtK.toFixed(2) : '—' },
+  { key: 'faith', stdKey: 'faithfulness', verified: true, higherIsBetter: true, pct: true, value: a => a.faithfulness ?? 0, format: a => a.faithfulness != null ? `${(a.faithfulness * 100).toFixed(0)}%` : '—' },
   { key: 'tokens', stdKey: 'avgContextTokens', higherIsBetter: false, value: a => a.avgContextTokens, format: a => Math.round(a.avgContextTokens).toString() },
   { key: 'p50', stdKey: 'p50LatencyMs', higherIsBetter: false, value: a => a.p50LatencyMs, format: a => `${Math.round(a.p50LatencyMs)}ms` },
 ];
@@ -142,6 +147,7 @@ function deltaColor(delta: number, higherIsBetter: boolean): string {
 
 function fmtDelta(metric: MetricDef, base: AblationArmReport, arm: AblationArmReport): string {
   if (metric.retrieval && (!base.retrieval.evaluatedQuestions || !arm.retrieval.evaluatedQuestions)) return '';
+  if (metric.verified && (base.faithfulness == null || arm.faithfulness == null)) return '';
   const d = metric.value(arm) - metric.value(base);
   if (Math.abs(d) < 1e-9) return '±0';
   const sign = d > 0 ? '+' : '';
@@ -163,7 +169,7 @@ function buildCsv(report: AblationReport, t: TFunction): string {
   const headers = [
     'bras', 'modele', 'rag', 'runs',
     'exactitude_sur_10', 'exactitude_std', 'hallucination_taux', 'abstention_juste_taux',
-    'hit_at_k', 'mrr', 'recall_at_k', 'retrieval_questions_evaluees',
+    'hit_at_k', 'mrr', 'recall_at_k', 'retrieval_questions_evaluees', 'fidelite_citations',
     'tokens_contexte', 'latence_p50_ms', 'latence_moyenne_ms', 'modules_declenches',
   ];
   const num = (n: number, d = 4) => Number(n.toFixed(d));
@@ -179,6 +185,7 @@ function buildCsv(report: AblationReport, t: TFunction): string {
       hasRetrieval ? num(a.retrieval.mrr) : '',
       hasRetrieval ? num(a.retrieval.recallAtK) : '',
       a.retrieval.evaluatedQuestions,
+      a.faithfulness != null ? num(a.faithfulness) : '',
       Math.round(a.avgContextTokens), Math.round(a.p50LatencyMs), Math.round(a.avgLatencyMs), modules,
     ].map(csvCell).join(',');
   });
@@ -306,6 +313,10 @@ const Optimization: FC = () => {
     : null;
 
   const baseArm = report?.arms?.[0];
+  const recommended = report?.arms?.find(a => a.label === report.recommendedArm);
+  const recommendedEnv = recommended
+    ? envSnippet(recommended.overrides, { header: t('optimization.envHeader'), dedupThreshold: t('optimization.envDedupThreshold') })
+    : '';
   const noRetrieval = report?.arms?.every(a => !a.retrieval.evaluatedQuestions);
 
   return (
@@ -345,6 +356,9 @@ const Optimization: FC = () => {
           </Trans>
         </p>
       </section>
+
+      {/* Calibration sur le corpus : jeu d'évaluation relu, puis grille de réglages */}
+      <CalibrationWizard onLaunched={id => { openHistoryJob(id); void history.refetch(); }} />
 
       {/* Configuration du passage */}
       <section className="bg-surface-container-low border border-outline-variant/10 p-5 space-y-4">
@@ -487,6 +501,24 @@ const Optimization: FC = () => {
         history={<dl className="text-sm space-y-2"><dt>{t('detail.started')}</dt><dd>{new Date(report.startedAt).toLocaleString(i18n.language)}</dd><dt>{t('detail.finished')}</dt><dd>{new Date(report.completedAt).toLocaleString(i18n.language)}</dd></dl>}
         actions={<div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => downloadCsv(report, t)} icon="download">{t('optimization.exportCsv')}</Button><Button variant="outline" onClick={() => setReportOpen(false)}>{t('detail.close')}</Button></div>}
         details={<section className="space-y-4">
+          {recommended && (
+            <div className="border border-primary/40 bg-primary/5 p-4 space-y-2" data-testid="recommended-arm">
+              <p className="font-headline text-sm font-bold text-primary">{t('optimization.recommendedTitle', { arm: recommended.label })}</p>
+              {report.objective && <p className="text-[11px] text-on-surface-variant">{t('optimization.recommendedObjective', { objective: report.objective })}</p>}
+              {recommendedEnv
+                ? (
+                  <>
+                    <pre className="bg-surface-container-lowest border border-outline-variant/20 p-3 text-[11px] font-mono overflow-x-auto">{recommendedEnv}</pre>
+                    <Button size="sm" variant="outline" icon="content_copy" onClick={() => {
+                      navigator.clipboard.writeText(recommendedEnv + '\n')
+                        .then(() => toast.success(t('optimization.envCopied')))
+                        .catch(() => toast.error(t('optimization.envCopyFailed')));
+                    }}>{t('optimization.copyEnv')}</Button>
+                  </>
+                )
+                : <p className="text-[11px] text-on-surface-variant">{t('optimization.recommendedNoEnv')}</p>}
+            </div>
+          )}
           {noRetrieval && (
             <p className="text-[11px] text-secondary bg-secondary/10 border border-secondary/20 px-3 py-2">
               <Trans i18nKey="optimization.noRetrieval">

@@ -100,4 +100,58 @@ class BenchmarkDraftServiceTest {
         assertThat(result.items()).hasSize(3);
         assertThat(result.items()).extracting(BenchmarkDraftService.DraftItem::question).doesNotContain("Q A2 ?");
     }
+
+    private BenchmarkDraftService.DraftJob await(String jobId, java.util.function.Predicate<BenchmarkDraftService.DraftJob> done)
+            throws InterruptedException {
+        for (int i = 0; i < 200; i++) {
+            BenchmarkDraftService.DraftJob job = service.getJob(jobId);
+            if (done.test(job)) return job;
+            Thread.sleep(25);
+        }
+        throw new AssertionError("job non terminé : " + service.getJob(jobId));
+    }
+
+    @Test
+    void submit_produitLesQuestionsEnTacheDeFond_puisEcritLeFichier() throws Exception {
+        String jobId = service.submit(null, 3);
+
+        BenchmarkDraftService.DraftJob job = await(jobId, j -> j.status() == BenchmarkDraftService.JobStatus.COMPLETED);
+
+        assertThat(job.items()).hasSize(3);
+        assertThat(job.processed()).isEqualTo(3);
+        assertThat(job.scannedChunks()).isEqualTo(5);
+        assertThat(Files.readAllLines(Path.of(job.file()))).hasSize(3);
+    }
+
+    @Test
+    void submit_refuseUnSecondBrouillonPendantQueLePremierTourne_etPermetDAnnuler() throws Exception {
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        org.mockito.Mockito.doAnswer(inv -> {
+            release.await();
+            return "{\"question\": \"Q ?\", \"reference\": \"R\"}";
+        }).when(llm).chatJson(anyString(), anyString(), anyFloat(), anyFloat());
+
+        String jobId = service.submit(null, 4);
+
+        assertThat(jobId).isNotNull();
+        assertThat(service.submit(null, 4)).isNull();
+        assertThat(service.cancel(jobId)).isTrue();
+        release.countDown();
+        BenchmarkDraftService.DraftJob job = await(jobId, j -> j.status() == BenchmarkDraftService.JobStatus.CANCELLED);
+        // Annulation prise en compte entre deux questions : celle en cours aboutit, les suivantes non.
+        assertThat(job.items()).hasSizeLessThanOrEqualTo(1);
+        assertThat(service.cancel(jobId)).isFalse();
+        assertThat(service.getJob("inconnu")).isNull();
+    }
+
+    @Test
+    void submit_enEchec_exposeLaCause() throws Exception {
+        org.mockito.Mockito.doThrow(new IllegalStateException("chroma absent"))
+                .when(chroma).getOrCreateCollection("spectra_documents");
+
+        BenchmarkDraftService.DraftJob job = await(service.submit(null, 3),
+                j -> j.status() == BenchmarkDraftService.JobStatus.FAILED);
+
+        assertThat(job.error()).contains("chroma absent");
+    }
 }

@@ -140,4 +140,70 @@ class QualityBenchmarkServiceTest {
         assertThat(job.status()).isEqualTo(QualityCompareJob.Status.FAILED);
         assertThat(job.error()).contains("redémarrage");
     }
+
+    // ── Benchmark relu du corpus ───────────────────────────────────────────────
+
+    private QualityBenchmarkService serviceWith(String benchmarkPath, Path curatedDir) {
+        LlmChatClient chat = mock(LlmChatClient.class);
+        return new QualityBenchmarkService(chat, new LlmJudge(chat), new ModelSwitchCoordinator(chat, 2, 1),
+                "", benchmarkPath, workDir.toString(), curatedDir.toString());
+    }
+
+    private static QualityBenchmarkService.BenchmarkEntry entry(String q, String ref, boolean answerable, String... sources) {
+        return new QualityBenchmarkService.BenchmarkEntry(q, ref, "juridique", answerable, java.util.List.of(sources));
+    }
+
+    @Test
+    void benchmark_sansRienDeConfigure_estCeluiEmbarque() {
+        QualityBenchmarkService.BenchmarkInfo info = serviceWith("", workDir.resolve("absent")).benchmarkInfo();
+
+        assertThat(info.source()).isEqualTo(QualityBenchmarkService.BenchmarkSource.BUNDLED);
+        assertThat(info.path()).isNull();
+        assertThat(info.total()).isPositive();
+    }
+
+    @Test
+    void saveCurated_devientLeBenchmarkEnVigueur_etGardeLesSources() throws Exception {
+        QualityBenchmarkService service = serviceWith("", workDir.resolve("benchmarks"));
+
+        QualityBenchmarkService.BenchmarkInfo info = service.saveCurated(java.util.List.of(
+                entry("Quel est le préavis ?", "Trois mois.", true, "contrat.pdf", "contrat.pdf"),
+                entry("Qui dirigera en 2030 ?", "ignorée", false, "x.pdf")));
+
+        assertThat(info.source()).isEqualTo(QualityBenchmarkService.BenchmarkSource.CURATED);
+        assertThat(info.total()).isEqualTo(2);
+        assertThat(info.answerable()).isEqualTo(1);
+        assertThat(info.unanswerable()).isEqualTo(1);
+        assertThat(info.withExpectedSources()).isEqualTo(1);
+        var loaded = service.loadBenchmark();
+        assertThat(loaded.get(0).path("expectedSources")).hasSize(1);
+        // Hors corpus : pas de réponse attendue, pas de source attendue.
+        assertThat(loaded.get(1).get("reference").isNull()).isTrue();
+        assertThat(loaded.get(1).has("expectedSources")).isFalse();
+    }
+
+    @Test
+    void saveCurated_refuseLesEntreesInvalides() {
+        QualityBenchmarkService service = serviceWith("", workDir.resolve("b"));
+
+        assertThatThrownBy(() -> service.saveCurated(java.util.List.of()))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.saveCurated(java.util.List.of(entry(" ", "r", true))))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Question 1");
+        assertThatThrownBy(() -> service.saveCurated(java.util.List.of(entry("Q ?", "", true))))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("réponse attendue");
+        assertThat(Files.exists(workDir.resolve("b").resolve(QualityBenchmarkService.CURATED_FILE))).isFalse();
+    }
+
+    @Test
+    void saveCurated_refuseSiUnFichierEstConfigureExplicitement() throws Exception {
+        Path configured = Files.writeString(workDir.resolve("mine.jsonl"),
+                "{\"question\":\"Q ?\",\"reference\":\"R\",\"answerable\":true}\n");
+        QualityBenchmarkService service = serviceWith(configured.toString(), workDir.resolve("b"));
+
+        assertThat(service.benchmarkInfo().source()).isEqualTo(QualityBenchmarkService.BenchmarkSource.CONFIGURED);
+        assertThatThrownBy(() -> service.saveCurated(java.util.List.of(entry("Q ?", "R", true))))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("prime");
+    }
 }

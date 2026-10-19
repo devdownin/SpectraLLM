@@ -200,16 +200,25 @@ retirée à tort coûte moins qu'une phrase fausse sourcée.
 ### Calibration sur le corpus
 
 Les seuils par défaut sont des valeurs génériques ; seule une mesure sur **vos** documents les
-justifie.
+justifie. La page **Optimisation** guide les trois temps ci-dessous (« Calibrer sur votre
+corpus ») ; les mêmes appels sont disponibles par l'API.
 
-1. **Jeu d'évaluation.** `POST /api/quality-benchmark/draft?size=40` tire un passage par
-   document, à tour de rôle, et en fait une question et sa réponse attendue
-   (`expectedSources` = le document du passage), écrites dans
+1. **Jeu d'évaluation.** `POST /api/quality-benchmark/draft/async?size=40` (ou `POST /draft`,
+   bloquant, pour quelques questions) tire un passage par document, à tour de rôle, et en fait une
+   question et sa réponse attendue (`expectedSources` = le document du passage). Le job se suit
+   par `GET /api/quality-benchmark/draft/jobs/{jobId}` (les questions apparaissent au fil de la
+   génération) et s'annule par `DELETE` ; le brouillon est aussi écrit dans
    `data/benchmarks/draft-<horodatage>.jsonl`. C'est un **brouillon** : reformuler les questions
    trop proches du texte (sinon le BM25 est avantagé), corriger les réponses, retirer les passages
    sans intérêt, et ajouter 10 à 20 % de questions hors corpus (`"answerable": false`), que le
-   générateur ne peut pas produire. Le fichier relu se déclare par
-   `SPECTRA_BENCHMARK_QUALITY_FILE` (chemin vu du conteneur, ex. `/app/data/benchmarks/corpus.jsonl`).
+   générateur ne peut pas produire.
+
+   `PUT /api/quality-benchmark/benchmark` enregistre le jeu relu dans
+   `data/benchmarks/corpus.jsonl`, qui devient le benchmark de l'évaluation, de l'ablation et de
+   la calibration. Ordre de résolution : `SPECTRA_BENCHMARK_QUALITY_FILE` s'il est posé (le `PUT`
+   répond alors 409 : il primerait en silence), sinon `corpus.jsonl`, sinon le benchmark embarqué —
+   **étranger à votre corpus** ; `GET /api/quality-benchmark/benchmark` dit lequel est en vigueur
+   (`CONFIGURED`, `CURATED` ou `BUNDLED`) et combien de questions nomment leur source.
 2. **Grille.** `POST /api/ablation/calibrate` transforme une grille en bras d'ablation (16 au
    plus), chacun surchargeant pour la seule requête le seuil du reranker, la fenêtre de voisins et
    la déduplication :
@@ -223,8 +232,26 @@ justifie.
 3. **Lecture.** Chaque bras porte, en plus du rappel, du MRR, du score du juge et du taux
    d'hallucination, la fidélité moyenne des citations. Le rapport désigne `recommendedArm`, qui
    maximise `0.35·recall@k + 0.25·MRR + 0.25·fidélité + 0.15·score/10 − 0.25·hallucination`
-   (à égalité, le plus rapide). Reporter ses valeurs dans `.env` ; un écart inférieur à l'écart-type
-   (`runs` > 1) n'est pas significatif.
+   (à égalité, le plus rapide). Reporter ses valeurs dans `.env` (la page Optimisation affiche
+   les lignes à copier) ; un écart inférieur à l'écart-type (`runs` > 1) n'est pas significatif.
+
+### Dans l'interface
+
+- **Playground — citations.** Sous chaque réponse, un badge « 3/4 phrases étayées » se déplie en
+  verdict par phrase (score du passage cité face au seuil). Une puce `[n]` dont aucune phrase
+  citante n'est étayée est dessinée en pointillé orange, et son libellé accessible le dit. Rien
+  n'est affiché quand le cross-encoder est absent ou qu'aucune phrase n'est citée : un « 0/0 »
+  ferait croire à un échec. Le panneau rappelle que le contrôle mesure la pertinence, pas la
+  preuve.
+- **Playground — filtre.** Au-dessus de la saisie, un filtre par catégories GED, documents et
+  période d'ingestion. Replié, il garde une puce par critère (retirable) : on ne pose pas une
+  question en oubliant qu'elle est limitée. Il est mémorisé pour l'onglet, vidé quand on change
+  de collection (ses critères n'y désigneraient plus rien), repris par la comparaison A/B, et une
+  réponse sans aucun document le dit au lieu de laisser croire que le corpus est vide. La liste des
+  documents proposés se limite aux 500 plus récents, ce que le panneau signale.
+- **Optimisation — calibration.** Assistant en trois temps (jeu d'évaluation, relecture,
+  grille) puis rapport avec colonne « Citations », réglage recommandé et bouton « Copier pour
+  .env ».
 
 ### Filtres de recherche
 
@@ -267,6 +294,12 @@ plutôt qu'ignoré.
 - `RagServiceFilterCitationTest` : filtre transmis aux index, filtre vide sans recherche, refus
   sans GED, seuil du reranker surchargé, rapport et mode strict sur `query`.
 - `CalibrationRequestTest`, `RagAblationServiceTest`, `BenchmarkDraftServiceTest` : grille et
-  plafond, objectif et bras recommandé, brouillon tiré du corpus.
+  plafond, objectif et bras recommandé, brouillon tiré du corpus, en tâche de fond (progression,
+  annulation, un seul à la fois).
+- `QualityBenchmarkServiceTest` : résolution du benchmark (configuré, relu, embarqué),
+  enregistrement validé, refus quand un fichier est configuré.
+- Frontend : `citationReport`, `retrievalFilter` et `calibration` (logique pure),
+  `CitationReportBadge`, `RetrievalFilterBar`, `CalibrationWizard`, rapport d'optimisation
+  (`Optimization.recommendation`) et parcours du Playground (`Playground.verification`).
 - `BM25IndexTest`, `FtsServiceTest`, `ContextualHeaderTest` : champ d'en-tête du BM25 (appoint
   au texte, texte cité intact, suppression et recopie, relecture depuis ChromaDB).
