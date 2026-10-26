@@ -20,8 +20,30 @@ public record QueryResponse(
         boolean semanticDedupApplied,
         boolean longContextApplied,
         /** Vérification des citations de la réponse ; {@code null} si non effectuée. */
-        CitationReport citations
+        CitationReport citations,
+        /** Caractères des passages intégraux effectivement servis ; null si inconnus. */
+        Integer contextChars
 ) {
+    /** Compatibilité avec les réponses ne transportant pas encore la mesure du contexte. */
+    public QueryResponse(String answer, List<Source> sources, long durationMs,
+                         boolean rerankApplied, boolean hybridSearchApplied,
+                         boolean agenticApplied, int agenticIterations, AgenticStopReason agenticStopReason,
+                         boolean conversationalApplied, boolean correctiveApplied, boolean selfRagApplied,
+                         String ragStrategy, boolean multiQueryApplied, boolean compressionApplied,
+                         boolean semanticDedupApplied, boolean longContextApplied, CitationReport citations) {
+        this(answer, sources, durationMs, rerankApplied, hybridSearchApplied, agenticApplied,
+                agenticIterations, agenticStopReason, conversationalApplied, correctiveApplied,
+                selfRagApplied, ragStrategy, multiQueryApplied, compressionApplied,
+                semanticDedupApplied, longContextApplied, citations, null);
+    }
+
+    public QueryResponse withContextChars(Integer chars) {
+        if (chars != null && chars < 0) throw new IllegalArgumentException("contextChars doit être positif ou nul");
+        return new QueryResponse(answer, sources, durationMs, rerankApplied, hybridSearchApplied,
+                agenticApplied, agenticIterations, agenticStopReason, conversationalApplied,
+                correctiveApplied, selfRagApplied, ragStrategy, multiQueryApplied, compressionApplied,
+                semanticDedupApplied, longContextApplied, citations, chars);
+    }
     /** Constructeur complet sans vérification de citations. */
     public QueryResponse(String answer, List<Source> sources, long durationMs,
                          boolean rerankApplied, boolean hybridSearchApplied,
@@ -40,7 +62,7 @@ public record QueryResponse(
         return new QueryResponse(verifiedAnswer, sources, durationMs, rerankApplied, hybridSearchApplied,
                 agenticApplied, agenticIterations, agenticStopReason, conversationalApplied,
                 correctiveApplied, selfRagApplied, ragStrategy, multiQueryApplied, compressionApplied,
-                semanticDedupApplied, longContextApplied, report);
+                semanticDedupApplied, longContextApplied, report, contextChars);
     }
 
     /** Raison d'arrêt de la boucle agentique. {@code null} si {@code agenticApplied == false}. */

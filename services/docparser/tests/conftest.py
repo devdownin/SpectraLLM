@@ -51,7 +51,7 @@ def _make_fake_pymupdf4llm():
         "Real content line.\n"
         "........\n"          # dotted artefact → stripped
         "Page 2 / 47\n"       # page header artefact → stripped
-        "42\n"                # bare page number → stripped (default)
+        "42\n"                # ambiguous numeric data → preserved by default
     )
     return mod
 
@@ -64,9 +64,10 @@ def _stub_pdf_libs():
 
 
 @pytest.fixture()
-def app_module():
+def app_module(monkeypatch):
     import importlib
 
+    monkeypatch.delenv("DOCPARSER_STRIP_PAGE_NUMBERS", raising=False)
     import app as module
     importlib.reload(module)
     return module

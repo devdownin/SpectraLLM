@@ -44,10 +44,10 @@ _ARTIFACT_PATTERNS = [
     re.compile(r'^\s*Page\s+\d+\s*/\s*\d+'),    # en-têtes de page : Page 3 / 47
 ]
 
-# Suppression des lignes « numéro de page seul ». Désactivable, et bornée à ≤ 4 chiffres,
-# car une ligne composée uniquement d'un nombre peut être une donnée légitime (quantité,
-# valeur) — la retirer aveuglément est une perte de données silencieuse.
-if os.getenv("DOCPARSER_STRIP_PAGE_NUMBERS", "true").lower() == "true":
+# Une ligne numérique peut être un montant, une année ou une quantité : la conserver
+# par défaut. Le retrait heuristique reste un choix explicite pour les corpus dont
+# les nombres isolés sont connus comme des numéros de page (1 à 4 chiffres).
+if os.getenv("DOCPARSER_STRIP_PAGE_NUMBERS", "false").lower() == "true":
     _ARTIFACT_PATTERNS.append(re.compile(r'^\s*\d{1,4}\s*$'))
 
 

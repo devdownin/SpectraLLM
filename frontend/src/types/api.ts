@@ -299,7 +299,7 @@ export interface AblationArmReport {
   retrieval: RetrievalMetrics;
   avgLatencyMs: number;
   p50LatencyMs: number;
-  avgContextTokens: number;
+  avgContextTokens: number | null;
   runs: number;
   stdDev: Record<string, number>;
   appliedCounts: Record<string, number>;

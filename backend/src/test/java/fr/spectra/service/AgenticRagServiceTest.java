@@ -62,4 +62,49 @@ class AgenticRagServiceTest {
         assertThat(resp.sources()).hasSize(1);
         assertThat(resp.sources().get(0).sourceFile()).isEqualTo("config.md");
     }
+    private CitationVerifier verifier(boolean strict, RerankerClient ranker) {
+        when(ranker.isAvailable()).thenReturn(true);
+        SpectraProperties props = mock(SpectraProperties.class);
+        when(props.rag()).thenReturn(new SpectraProperties.RagProperties(
+                null, null, null, null, true, 0.2f, strict));
+        return new CitationVerifier(Optional.of(ranker), props, new SimpleMeterRegistry());
+    }
+
+    @Test
+    void invalidCitationIsReportedAndRemovedBeforeBufferedAnswerIsReturned() {
+        LlmChatClient llm = mock(LlmChatClient.class);
+        when(llm.chat(anyString(), anyString(), anyFloat(), anyFloat()))
+                .thenReturn("ACTION: ANSWER\nRESPONSE: La valeur est 512 [999].");
+        var service = serviceWith(llm);
+        var ranker = mock(RerankerClient.class);
+        service.setCitationVerifier(verifier(true, ranker));
+        QueryResponse response = service.query(agenticRequest(), List.of("La valeur est 512."),
+                List.of(Map.of("sourceFile", "config.md")), List.of(0.1), false, false);
+        assertThat(response.citations()).isNotNull();
+        assertThat(response.citations().invalidCitations()).isEqualTo(1);
+        assertThat(response.answer()).doesNotContain("[999]").contains("ne permettent pas");
+        assertThat(response.sources()).hasSize(1);
+    }
+
+    @Test
+    void verifierUsesCompleteBudgetedPassagesRatherThanSourcePreviewsOrDiscardedChunks() {
+        LlmChatClient llm = mock(LlmChatClient.class);
+        when(llm.chat(anyString(), anyString(), anyFloat(), anyFloat()))
+                .thenReturn("ACTION: ANSWER\nRESPONSE: La valeur est 512 [1].");
+        String full = "Contexte. ".repeat(30) + "La valeur est 512.";
+        var service = serviceWith(llm);
+        var ranker = mock(RerankerClient.class);
+        when(ranker.rerank(anyString(), org.mockito.ArgumentMatchers.anyList(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(List.of(new RerankerClient.RankedResult(0, 0.9f)));
+        service.setCitationVerifier(verifier(false, ranker));
+        QueryResponse response = service.query(agenticRequest(), List.of("X".repeat(25000), full),
+                List.of(Map.of("sourceFile", "discarded.md"), Map.of("sourceFile", "served.md")),
+                List.of(0.1, 0.2), false, false);
+        org.mockito.Mockito.verify(ranker).rerank(anyString(), org.mockito.ArgumentMatchers.eq(List.of(full)),
+                org.mockito.ArgumentMatchers.eq(1));
+        assertThat(response.sources()).hasSize(1);
+        assertThat(response.sources().getFirst().text().length()).isEqualTo(203);
+        assertThat(response.citations().supportedSentences()).isEqualTo(1);
+        assertThat(response.contextChars()).isEqualTo(full.length());
+    }
 }

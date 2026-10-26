@@ -36,7 +36,8 @@ public record AblationArmReport(
         RetrievalMetrics retrieval,
         double avgLatencyMs,
         double p50LatencyMs,
-        double avgContextTokens,
+        /** Estimation du contexte intégral ; null si une réponse ne fournit pas sa mesure. */
+        Double avgContextTokens,
         int runs,
         Map<String, Double> stdDev,
         Map<String, Integer> appliedCounts,

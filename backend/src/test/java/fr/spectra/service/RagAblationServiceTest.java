@@ -66,6 +66,8 @@ class RagAblationServiceTest {
         assertThat(report.arms()).hasSize(1);
         var arm = report.arms().getFirst();
         assertThat(arm.model()).isEqualTo("modele-arm");
+        assertThat(arm.avgContextTokens()).isNull();
+        assertThat(arm.stdDev()).doesNotContainKey("avgContextTokens");
         // Le juge neutre a noté (8/10 partout) et il est tracé dans le rapport.
         assertThat(arm.quality().judgeModel()).isEqualTo("judge-x");
         assertThat(arm.quality().avgScore()).isEqualTo(8.0);
@@ -216,5 +218,14 @@ class RagAblationServiceTest {
                 arm("rapide", true, 0.8, 0.6, 0.9, 7, 0.1, 300),
                 arm("faible", true, 0.4, 0.3, null, 5, 0.3, 100)))).isEqualTo("rapide");
         assertThat(RagAblationService.recommend(List.of(arm("llm seul", false, 1, 1, 1.0, 10, 0, 1)))).isNull();
+    }
+    @Test
+    void contextTokensUseFullServedLengthInsteadOfIdenticalPreviews() {
+        var source = new QueryResponse.Source("x".repeat(200) + "...", "doc.pdf", 0.1);
+        var response = new QueryResponse("answer", List.of(source), 1L);
+        assertThat(RagAblationService.estimateContextTokens(response.withContextChars(700))).isEqualTo(200L);
+        assertThat(RagAblationService.estimateContextTokens(response.withContextChars(4000))).isEqualTo(1143L);
+        assertThat(RagAblationService.estimateContextTokens(response)).isNull();
+        assertThat(RagAblationService.estimateContextTokens(response.withContextChars(0))).isZero();
     }
 }
