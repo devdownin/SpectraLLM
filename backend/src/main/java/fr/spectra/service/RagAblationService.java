@@ -322,7 +322,7 @@ public class RagAblationService {
             RetrievalMetrics retrieval,
             double avgLatency,
             double p50,
-            double avgContextTokens,
+            Double avgContextTokens,
             Map<String, Integer> applied,
             Double faithfulness,
             int verifiedAnswers) {}
@@ -354,7 +354,9 @@ public class RagAblationService {
             List<Double> mrrs       = map(rr, r -> r.retrieval().mrr());
             List<Double> recalls    = map(rr, r -> r.retrieval().recallAtK());
             List<Double> p50s       = map(rr, RunResult::p50);
-            List<Double> tokens     = map(rr, RunResult::avgContextTokens);
+            List<Double> tokens = rr.stream().map(RunResult::avgContextTokens)
+                    .filter(java.util.Objects::nonNull).toList();
+            Double avgTokens = tokens.size() == rr.size() ? mean(tokens) : null;
             List<Double> faithful   = rr.stream().map(RunResult::faithfulness).filter(java.util.Objects::nonNull).toList();
             double avgLatency       = mean(map(rr, RunResult::avgLatency));
 
@@ -376,7 +378,7 @@ public class RagAblationService {
             stdDev.put("mrr", std(mrrs));
             stdDev.put("recallAtK", std(recalls));
             stdDev.put("p50LatencyMs", std(p50s));
-            stdDev.put("avgContextTokens", std(tokens));
+            if (avgTokens != null) stdDev.put("avgContextTokens", std(tokens));
             if (!faithful.isEmpty()) stdDev.put("faithfulness", std(faithful));
 
             log.info("Ablation '{}' (modèle={}, rag={}, runs={}) : score {}±{}/10, halluc {}%, hit@{}={}, "
@@ -386,11 +388,11 @@ public class RagAblationService {
                     String.format(Locale.ROOT, "%.2f", std(avgScores)),
                     String.format(Locale.ROOT, "%.0f", quality.hallucinationRate() * 100),
                     maxChunks, String.format(Locale.ROOT, "%.2f", retrieval.hitRate()),
-                    String.format(Locale.ROOT, "%.0f", mean(tokens)),
+                    avgTokens != null ? String.format(Locale.ROOT, "%.0f", avgTokens) : "inconnu",
                     String.format(Locale.ROOT, "%.0f", mean(p50s)));
 
             return new AblationArmReport(arm.label(), evaluatedModel, arm.useRag(), arm.overrides(),
-                    quality, retrieval, avgLatency, mean(p50s), mean(tokens), runs,
+                    quality, retrieval, avgLatency, mean(p50s), avgTokens, runs,
                     stdDev, first.applied(), faithful.isEmpty() ? null : mean(faithful), first.verifiedAnswers());
         } finally {
             // Best-effort : un échec de restauration ne doit pas détruire le rapport calculé.
@@ -425,6 +427,7 @@ public class RagAblationService {
         double hitSum = 0, rrSum = 0, recallSum = 0;
         long tokenSum = 0;
         int answered = 0;
+        int measuredContexts = 0;
         double faithfulSum = 0;
         int verified = 0;
         Map<String, Integer> applied = new LinkedHashMap<>();
@@ -455,7 +458,11 @@ public class RagAblationService {
             }
 
             latencies.add(resp.durationMs());
-            tokenSum += estimateContextTokens(resp.sources());
+            Long contextTokens = estimateContextTokens(resp);
+            if (contextTokens != null) {
+                tokenSum += contextTokens;
+                measuredContexts++;
+            }
             answered++;
             tallyApplied(applied, resp);
             if (resp.citations() != null && resp.citations().faithfulness() != null) {
@@ -501,23 +508,17 @@ public class RagAblationService {
 
         double avgLatency = latencies.stream().mapToLong(Long::longValue).average().orElse(0.0);
         double p50 = percentile(latencies, 50);
-        double avgTokens = answered > 0 ? (double) tokenSum / answered : 0.0;
+        Double avgTokens = answered > 0 && measuredContexts == answered
+                ? (double) tokenSum / answered : null;
 
         return new RunResult(quality, retrieval, avgLatency, p50, avgTokens, applied,
                 verified > 0 ? faithfulSum / verified : null, verified);
     }
 
-    /**
-     * Estime le nombre de tokens du contexte injecté (somme des chunks sources).
-     * Approximation usuelle ~4 caractères par token — déterministe, contrairement à la latence.
-     */
-    private long estimateContextTokens(List<QueryResponse.Source> sources) {
-        if (sources == null) return 0;
-        long chars = 0;
-        for (QueryResponse.Source s : sources) {
-            if (s.text() != null) chars += s.text().length();
-        }
-        return Math.round(chars / TokenEstimator.CHARS_PER_TOKEN);
+    /** Estimation sur les passages intégraux, jamais sur les aperçus de Source.text. */
+    static Long estimateContextTokens(QueryResponse response) {
+        Integer chars = response.contextChars();
+        return chars == null || chars < 0 ? null : Math.round(chars / TokenEstimator.CHARS_PER_TOKEN);
     }
 
     /**

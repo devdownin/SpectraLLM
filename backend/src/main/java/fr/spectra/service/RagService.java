@@ -305,7 +305,7 @@ public class RagService {
             return new QueryResponse(answer, List.of(), duration,
                     false, false, false, 0, null,
                     false, false, false, "DIRECT",
-                    false, false, false, false);
+                    false, false, false, false).withContextChars(0);
         }
 
         // ── 1. Adaptive RAG : routing ──────────────────────────────────────
@@ -324,7 +324,7 @@ public class RagService {
                 return new QueryResponse(answer, List.of(), duration,
                         false, false, false, 0, null,
                         false, false, false, ragStrategy,
-                        false, false, false, false);
+                        false, false, false, false).withContextChars(0);
             }
             if (strategy == AdaptiveRagService.RagStrategy.AGENTIC) {
                 forceAgentic = true;
@@ -396,7 +396,9 @@ public class RagService {
                     true, agenticResp.agenticIterations(), agenticResp.agenticStopReason(),
                     conversationalApplied, correctiveApplied, false,
                     ragStrategy.equals("STANDARD") ? "AGENTIC" : ragStrategy,
-                    ctx.multiQueryApplied(), false, ctx.semanticDedupApplied(), ctx.longContextApplied());
+                    ctx.multiQueryApplied(), compressionApplied, ctx.semanticDedupApplied(), ctx.longContextApplied())
+                    .withContextChars(agenticResp.contextChars())
+                    .withCitations(agenticResp.answer(), agenticResp.citations());
         }
 
         // ── 6. Génération (standard ou Self-RAG) ───────────────────────────
@@ -435,7 +437,7 @@ public class RagService {
                 ctx.rerankApplied(), ctx.hybridApplied(), false, 0, null,
                 conversationalApplied, correctiveApplied, selfRagApplied, ragStrategy,
                 ctx.multiQueryApplied(), compressionApplied, ctx.semanticDedupApplied(), ctx.longContextApplied());
-        return withVerifiedCitations(response, ctx.contextChunks(), true);
+        return withVerifiedCitations(response.withContextChars(contextChars(ctx)), ctx.contextChunks(), true);
     }
 
     /**
@@ -696,7 +698,7 @@ public class RagService {
                     compressionApplied, resp.sources().size(), rewrittenQuestion,
                     resp.agenticIterations(),
                     resp.agenticStopReason() != null ? resp.agenticStopReason().name() : null,
-                    null, trace, contextChars(ctx))));
+                    null, trace, resp.contextChars() != null ? resp.contextChars() : 0, resp.citations())));
             return;
         }
 

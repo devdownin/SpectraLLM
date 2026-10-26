@@ -36,7 +36,8 @@ public record AblationArmReport(
         RetrievalMetrics retrieval,
         double avgLatencyMs,
         double p50LatencyMs,
-        double avgContextTokens,
+        /** Estimation du contexte intégral ; null si une réponse ne fournit pas sa mesure. */
+        Double avgContextTokens,
         int runs,
         Map<String, Double> stdDev,
         Map<String, Integer> appliedCounts,
@@ -47,4 +48,14 @@ public record AblationArmReport(
         Double faithfulness,
         /** Réponses dont les citations ont été vérifiées (cross-encoder chargé, au moins une citation). */
         int verifiedAnswers
-) {}
+) {
+    /** Compatibilité des producteurs historiques fournissant une mesure primitive. */
+    public AblationArmReport(String label, String model, boolean useRag, RagOverrides overrides,
+                             QualityBenchmarkReport quality, RetrievalMetrics retrieval,
+                             double avgLatencyMs, double p50LatencyMs, Number avgContextTokens,
+                             int runs, Map<String, Double> stdDev, Map<String, Integer> appliedCounts,
+                             Double faithfulness, int verifiedAnswers) {
+        this(label, model, useRag, overrides, quality, retrieval, avgLatencyMs, p50LatencyMs,
+                avgContextTokens == null ? null : Double.valueOf(avgContextTokens.doubleValue()), runs, stdDev, appliedCounts, faithfulness, verifiedAnswers);
+    }
+}

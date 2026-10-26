@@ -61,7 +61,7 @@ const METRICS: MetricDef[] = [
   { key: 'mrr', stdKey: 'mrr', retrieval: true, higherIsBetter: true, value: a => a.retrieval.mrr, format: a => a.retrieval.evaluatedQuestions ? a.retrieval.mrr.toFixed(2) : '—' },
   { key: 'recall', stdKey: 'recallAtK', retrieval: true, higherIsBetter: true, value: a => a.retrieval.recallAtK, format: a => a.retrieval.evaluatedQuestions ? a.retrieval.recallAtK.toFixed(2) : '—' },
   { key: 'faith', stdKey: 'faithfulness', verified: true, higherIsBetter: true, pct: true, value: a => a.faithfulness ?? 0, format: a => a.faithfulness != null ? `${(a.faithfulness * 100).toFixed(0)}%` : '—' },
-  { key: 'tokens', stdKey: 'avgContextTokens', higherIsBetter: false, value: a => a.avgContextTokens, format: a => Math.round(a.avgContextTokens).toString() },
+  { key: 'tokens', stdKey: 'avgContextTokens', higherIsBetter: false, value: a => a.avgContextTokens ?? Number.NaN, format: a => a.avgContextTokens != null ? Math.round(a.avgContextTokens).toString() : '—'  },
   { key: 'p50', stdKey: 'p50LatencyMs', higherIsBetter: false, value: a => a.p50LatencyMs, format: a => `${Math.round(a.p50LatencyMs)}ms` },
 ];
 
@@ -74,6 +74,7 @@ function metricStd(metric: MetricDef, arm: AblationArmReport): number {
 
 /** ±σ formaté pour affichage sous la valeur (unité cohérente avec la métrique). */
 function fmtStd(metric: MetricDef, arm: AblationArmReport): string {
+  if (!Number.isFinite(metric.value(arm))) return '';
   const s = metricStd(metric, arm);
   if (s <= 1e-9) return '';
   if (metric.pct) return `±${(s * 100).toFixed(1)}`;
@@ -87,6 +88,7 @@ function fmtStd(metric: MetricDef, arm: AblationArmReport): string {
  * considère le delta comme affichable normalement (non grisé).
  */
 function isSignificant(metric: MetricDef, base: AblationArmReport, arm: AblationArmReport): boolean {
+  if (!Number.isFinite(metric.value(base)) || !Number.isFinite(metric.value(arm))) return false;
   const combined = Math.hypot(metricStd(metric, base), metricStd(metric, arm));
   if (combined <= 1e-9) return true;
   return Math.abs(metric.value(arm) - metric.value(base)) > combined;
@@ -148,6 +150,7 @@ function deltaColor(delta: number, higherIsBetter: boolean): string {
 function fmtDelta(metric: MetricDef, base: AblationArmReport, arm: AblationArmReport): string {
   if (metric.retrieval && (!base.retrieval.evaluatedQuestions || !arm.retrieval.evaluatedQuestions)) return '';
   if (metric.verified && (base.faithfulness == null || arm.faithfulness == null)) return '';
+  if (!Number.isFinite(metric.value(base)) || !Number.isFinite(metric.value(arm))) return '';
   const d = metric.value(arm) - metric.value(base);
   if (Math.abs(d) < 1e-9) return '±0';
   const sign = d > 0 ? '+' : '';
@@ -186,7 +189,7 @@ function buildCsv(report: AblationReport, t: TFunction): string {
       hasRetrieval ? num(a.retrieval.recallAtK) : '',
       a.retrieval.evaluatedQuestions,
       a.faithfulness != null ? num(a.faithfulness) : '',
-      Math.round(a.avgContextTokens), Math.round(a.p50LatencyMs), Math.round(a.avgLatencyMs), modules,
+      a.avgContextTokens != null ? Math.round(a.avgContextTokens) : '', Math.round(a.p50LatencyMs), Math.round(a.avgLatencyMs), modules,
     ].map(csvCell).join(',');
   });
   // BOM pour qu'Excel lise l'UTF-8 (accents) correctement.

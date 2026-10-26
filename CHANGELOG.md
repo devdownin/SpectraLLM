@@ -8,6 +8,12 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Corrigé — audit RAG, lot 3
+
+- Les réponses agentiques vérifient leurs citations contre les passages complets effectivement utilisés ; le rapport est conservé en réponse normale et en SSE.
+- Le nettoyage PDF conserve par défaut les lignes numériques isolées (montants, années et quantités). Leur suppression reste disponible par activation explicite de `DOCPARSER_STRIP_PAGE_NUMBERS`.
+- L’ablation estime le volume du contexte à partir des passages complets servis, et non des aperçus de sources tronqués. Une mesure absente reste inconnue.
+
 ### Corrigé — images publiées
 
 - L’overlay Docker Hub, les exemples des pages d’images et `CITATION.cff` suivent la version publiée `0.12.3`, en cohérence avec les contrôles CI de publication.

@@ -357,7 +357,10 @@ class RagServiceStreamTest {
                             "Réponse agentique.",
                             List.of(new fr.spectra.dto.QueryResponse.Source("chunk", "doc.pdf", 0.1)),
                             42, false, false, true, 2,
-                            fr.spectra.dto.QueryResponse.AgenticStopReason.ANSWER);
+                            fr.spectra.dto.QueryResponse.AgenticStopReason.ANSWER)
+                            .withContextChars(1234)
+                            .withCitations("Réponse agentique.", new fr.spectra.dto.CitationReport(
+                                    1, 0, 1, 1, 0, 0.0, 0.2f, List.of()));
                 });
 
         stubStandardRetrieval();
@@ -374,7 +377,9 @@ class RagServiceStreamTest {
                 .expectNextMatches(e -> "done".equals(e.event())
                         && e.data().contains("\"ragStrategy\":\"AGENTIC\"")
                         && e.data().contains("\"agenticIterations\":2")
-                        && e.data().contains("\"agenticStopReason\":\"ANSWER\""))
+                        && e.data().contains("\"agenticStopReason\":\"ANSWER\"")
+                        && e.data().contains("\"invalidCitations\":1")
+                        && e.data().contains("\"contextChars\":1234"))
                 .verifyComplete();
     }
 
@@ -499,5 +504,21 @@ class RagServiceStreamTest {
     private static QueryRequest ragRequest() {
         return new QueryRequest("Qu'est-ce que le RAG?",
                 null, null, null, null, null, null, true);
+    }
+    @Test
+    void query_adaptiveAgenticPreservesCitationReportAndMeasuredContext() {
+        var adaptive = org.mockito.Mockito.mock(AdaptiveRagService.class);
+        when(adaptive.classifyQuery(anyString())).thenReturn(AdaptiveRagService.RagStrategy.AGENTIC);
+        var agentic = org.mockito.Mockito.mock(AgenticRagService.class);
+        var report = new fr.spectra.dto.CitationReport(1, 0, 1, 1, 0, 0.0, 0.2f, List.of());
+        when(agentic.query(any(), anyList(), anyList(), anyList(), anyBoolean(), anyBoolean()))
+                .thenReturn(new fr.spectra.dto.QueryResponse("Réponse vérifiée.", List.of(), 12,
+                        false, false, true, 1, fr.spectra.dto.QueryResponse.AgenticStopReason.ANSWER)
+                        .withContextChars(1234).withCitations("Réponse vérifiée.", report));
+        stubStandardRetrieval();
+        var response = serviceWith(Optional.of(adaptive), Optional.of(agentic), Optional.empty()).query(ragRequest());
+        org.assertj.core.api.Assertions.assertThat(response.citations()).isSameAs(report);
+        org.assertj.core.api.Assertions.assertThat(response.contextChars()).isEqualTo(1234);
+        org.assertj.core.api.Assertions.assertThat(response.agenticApplied()).isTrue();
     }
 }

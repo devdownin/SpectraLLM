@@ -42,11 +42,9 @@ const AblationCharts: FC<Props> = ({ arms }) => {
   }));
 
   // Nuage coût/qualité : x = tokens de contexte, y = exactitude. Frontière de Pareto visible.
-  const scatterData = arms.map(a => ({
-    name: a.label,
-    x: Math.round(a.avgContextTokens),
-    y: r(a.quality.avgScore),
-  }));
+  const scatterData = arms.flatMap(a => typeof a.avgContextTokens === 'number' && Number.isFinite(a.avgContextTokens)
+    ? [{ name: a.label, x: Math.round(a.avgContextTokens), y: r(a.quality.avgScore) }]
+    : []);
 
   // Waterfall : gain marginal d'exactitude vs bras précédent.
   const waterfall = arms.map((a, i) => ({
@@ -95,6 +93,11 @@ const AblationCharts: FC<Props> = ({ arms }) => {
             </ScatterChart>
           </ResponsiveContainer>
         </div>
+        {scatterData.length < arms.length && (
+          <p className="text-[10px] text-on-surface-variant mt-1">
+            Les bras sans mesure du contexte sont exclus de ce graphique.
+          </p>
+        )}
         {!hasRetrieval && (
           <p className="text-[10px] text-on-surface-variant mt-1">
             (les bras sans RAG ont 0 token de contexte)

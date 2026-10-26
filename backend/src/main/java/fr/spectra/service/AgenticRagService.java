@@ -93,6 +93,13 @@ public class AgenticRagService {
         this.maintenanceGuard = guard;
     }
 
+    private CitationVerifier citationVerifier;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setCitationVerifier(CitationVerifier verifier) {
+        this.citationVerifier = verifier;
+    }
+
     private final ChromaDbClient chromaDbClient;
     private final EmbeddingService embeddingService;
     /** Fenêtre d'embedding côté requête : une question collée très longue est tronquée, pas rejetée. */
@@ -359,7 +366,19 @@ public class AgenticRagService {
         iterationsSummary.record(iterations);
         durationTimer.record(duration, TimeUnit.MILLISECONDS);
 
-        return new QueryResponse(finalAnswer, sources, duration, rerankApplied, hybridApplied, true, iterations, stopReason);
+        List<String> servedPassages = select(contextChunks, answerIndices);
+        QueryResponse response = new QueryResponse(finalAnswer, sources, duration,
+                rerankApplied, hybridApplied, true, iterations, stopReason)
+                .withContextChars(servedPassages.stream().mapToInt(String::length).sum());
+        if (citationVerifier == null) return response;
+        var report = citationVerifier.verify(finalAnswer, servedPassages);
+        if (report.isEmpty()) return response;
+        // The agentic answer is buffered in both JSON and SSE: strict checks precede emission.
+        String checkedAnswer = citationVerifier.strict()
+                ? citationVerifier.withoutUnsupported(finalAnswer, report.get(),
+                        "Les documents fournis ne permettent pas d'étayer une réponse à cette question.")
+                : finalAnswer;
+        return response.withCitations(checkedAnswer, report.get());
     }
 
     // ---------- Helpers privés ---------------------------------------------
