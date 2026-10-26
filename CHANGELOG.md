@@ -8,6 +8,10 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Corrigé — images publiées
+
+- L’overlay Docker Hub utilise la version publiée `0.12.3` par défaut, en cohérence avec le contrôle CI de publication.
+
 ### Corrigé — audit RAG, lot 2
 
 - La ré-indexation bloque durablement les lectures et écritures de la collection jusqu'à sa réussite, y compris lorsque le modèle reste identique. Une interruption laisse la collection bloquée jusqu'à une reprise complète.
