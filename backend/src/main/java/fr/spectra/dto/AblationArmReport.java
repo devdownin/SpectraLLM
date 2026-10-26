@@ -52,10 +52,10 @@ public record AblationArmReport(
     /** Compatibilité des producteurs historiques fournissant une mesure primitive. */
     public AblationArmReport(String label, String model, boolean useRag, RagOverrides overrides,
                              QualityBenchmarkReport quality, RetrievalMetrics retrieval,
-                             double avgLatencyMs, double p50LatencyMs, double avgContextTokens,
+                             double avgLatencyMs, double p50LatencyMs, Number avgContextTokens,
                              int runs, Map<String, Double> stdDev, Map<String, Integer> appliedCounts,
                              Double faithfulness, int verifiedAnswers) {
         this(label, model, useRag, overrides, quality, retrieval, avgLatencyMs, p50LatencyMs,
-                Double.valueOf(avgContextTokens), runs, stdDev, appliedCounts, faithfulness, verifiedAnswers);
+                avgContextTokens == null ? null : Double.valueOf(avgContextTokens.doubleValue()), runs, stdDev, appliedCounts, faithfulness, verifiedAnswers);
     }
 }
