@@ -147,6 +147,17 @@ public class RagService {
             boolean hybridApplied
     ) {}
 
+    private CollectionMaintenanceGuard maintenanceGuard;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setCollectionMaintenanceGuard(CollectionMaintenanceGuard guard) {
+        this.maintenanceGuard = guard;
+    }
+
+    private CollectionMaintenanceGuard.Lease collectionLease(String collection) {
+        return maintenanceGuard != null ? maintenanceGuard.acquire(collection) : CollectionMaintenanceGuard.Lease.NONE;
+    }
+
     private final ChromaDbClient chromaDbClient;
     private final EmbeddingService embeddingService;
     /** Fenêtre d'embedding côté requête : une question collée très longue est tronquée, pas rejetée. */
@@ -901,6 +912,12 @@ public class RagService {
 
     /** Retrieval avec surcharges par requête (cf. {@link #query(QueryRequest, RagOverrides)}). */
     public RagContext retrieveContext(QueryRequest request, String retrievalQuestion, RagOverrides overrides) {
+        try (var ignored = collectionLease(collectionNameOf(request))) {
+            return retrieveContextAdmitted(request, retrievalQuestion, overrides);
+        }
+    }
+
+    private RagContext retrieveContextAdmitted(QueryRequest request, String retrievalQuestion, RagOverrides overrides) {
         RagOverrides ov = overrides != null ? overrides : RagOverrides.NONE;
         // « utilisable », pas « présent » : le moteur ONNX enregistre son bean même sans artefact
         // (pour que /api/status en publie la cause). Se fier à la présence faisait sur-extraire
@@ -1053,11 +1070,12 @@ public class RagService {
         }
 
         // ── 5. Expansion aux chunks voisins ────────────────────────────────
-        int neighborWindow = ov.neighborWindow() != null ? Math.max(0, ov.neighborWindow())
+        int neighborWindow = ov.neighborWindow() != null ? Math.min(RagOverrides.MAX_NEIGHBOR_WINDOW, Math.max(0, ov.neighborWindow()))
                 : props.rag() != null ? props.rag().effectiveNeighborWindow() : 0;
         if (neighborWindow > 0 && !contextChunks.isEmpty()) {
             contextChunks = expandWithNeighbors(collectionId, contextChunks, chunkMetadatas, neighborWindow,
-                    props.rag() != null ? props.rag().effectiveNeighborMaxChars() : 4000);
+                    props.rag() != null ? props.rag().effectiveNeighborMaxChars() : 4000,
+                    filter.sha256s() != null);
         }
 
         return buildRagContext(contextChunks, chunkMetadatas, chunkDistances,
@@ -1338,6 +1356,14 @@ public class RagService {
     private SingleQueryResult executeSingleQuery(String question, String collectionId,
                                                   String collectionName, int retrieveCount, boolean useHybrid,
                                                   RetrievalFilterResolver.ResolvedFilter filter) {
+        try (var ignored = collectionLease(collectionName)) {
+            return executeSingleQueryAdmitted(question, collectionId, collectionName, retrieveCount, useHybrid, filter);
+        }
+    }
+
+    private SingleQueryResult executeSingleQueryAdmitted(String question, String collectionId,
+                                                  String collectionName, int retrieveCount, boolean useHybrid,
+                                                  RetrievalFilterResolver.ResolvedFilter filter) {
         List<Float> embedding;
         boolean lexicalFallback = false;
         try {
@@ -1376,9 +1402,8 @@ public class RagService {
             }
             return new SingleQueryResult(chunks, metadatas, distances, bm25, rrf, !results.isEmpty());
         } else {
-            ChromaQueryResult result = ChromaQueryResult.from(filter.active()
-                    ? chromaDbClient.query(collectionId, embedding, retrieveCount, filter.chromaWhere())
-                    : chromaDbClient.query(collectionId, embedding, retrieveCount));
+            ChromaQueryResult result = ChromaQueryResult.from(FilteredVectorSearch.query(
+                    chromaDbClient, collectionId, embedding, retrieveCount, filter));
             // Score RRF de rang (k=60) : permet la fusion multi-query par RRF aussi en vectoriel pur.
             List<Double> rrf = new ArrayList<>(result.documents().size());
             for (int rank = 1; rank <= result.documents().size(); rank++) rrf.add(1.0 / (RRF_K + rank));
@@ -1537,7 +1562,8 @@ public class RagService {
      * celles du chunk retenu.
      */
     private List<String> expandWithNeighbors(String collectionId, List<String> chunks,
-                                             List<Map<String, String>> metadatas, int window, int maxChars) {
+                                             List<Map<String, String>> metadatas, int window, int maxChars,
+                                             boolean requireDocumentIdentity) {
         Set<String> used = new HashSet<>(chunks);
         List<String> expanded = new ArrayList<>(chunks.size());
         int widened = 0;
@@ -1545,32 +1571,37 @@ public class RagService {
             String text = chunks.get(i);
             Map<String, String> meta = metadatas.get(i);
             Integer index = parseChunkIndex(meta.get("chunkIndex"));
-            String sha = meta.get("sha256");
-            String field = sha != null && !sha.isBlank() ? "sha256" : "sourceFile";
-            String identity = "sha256".equals(field) ? sha : meta.get("sourceFile");
-            if (index == null || identity == null) {
+            Optional<ChunkNeighborScope> scope = ChunkNeighborScope.from(meta, requireDocumentIdentity);
+            if (index == null || scope.isEmpty()) {
                 expanded.add(text);
                 continue;
             }
+            ChunkNeighborScope document = scope.get();
             try {
                 List<Integer> wanted = new ArrayList<>();
                 for (int d = 1; d <= window; d++) {
-                    if (index - d >= 0) wanted.add(index - d);
-                    wanted.add(index + d);
+                    long previous = (long) index - d;
+                    long next = (long) index + d;
+                    if (previous >= 0) wanted.add((int) previous);
+                    if (next <= Integer.MAX_VALUE) wanted.add((int) next);
                 }
-                Map<Integer, String> neighbors = chromaDbClient.getChunksByIndex(collectionId, field, identity, wanted);
+                Map<Integer, String> neighbors = document.zipEntry() != null
+                        ? chromaDbClient.getChunksByIndex(collectionId, document.identityField(),
+                                document.identityValue(), wanted, document.zipEntry())
+                        : chromaDbClient.getChunksByIndex(collectionId, document.identityField(),
+                                document.identityValue(), wanted);
                 String merged = text;
                 boolean before = true;
                 boolean after = true;
                 for (int d = 1; d <= window && (before || after); d++) {
-                    String prev = before ? neighbors.get(index - d) : null;
+                    String prev = before && (long) index - d >= 0 ? neighbors.get(index - d) : null;
                     if (prev != null && !used.contains(prev) && merged.length() + prev.length() <= maxChars) {
                         merged = joinOverlapping(prev, merged);
                         used.add(prev);
                     } else {
                         before = false;
                     }
-                    String next = after ? neighbors.get(index + d) : null;
+                    String next = after && (long) index + d <= Integer.MAX_VALUE ? neighbors.get(index + d) : null;
                     if (next != null && !used.contains(next) && merged.length() + next.length() <= maxChars) {
                         merged = joinOverlapping(merged, next);
                         used.add(next);
@@ -1744,4 +1775,3 @@ public class RagService {
         return result;
     }
 }
-

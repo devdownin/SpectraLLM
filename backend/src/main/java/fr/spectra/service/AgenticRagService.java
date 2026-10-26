@@ -86,6 +86,13 @@ public class AgenticRagService {
 
     // ---------- Dépendances ------------------------------------------------
 
+    private CollectionMaintenanceGuard maintenanceGuard;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setCollectionMaintenanceGuard(CollectionMaintenanceGuard guard) {
+        this.maintenanceGuard = guard;
+    }
+
     private final ChromaDbClient chromaDbClient;
     private final EmbeddingService embeddingService;
     /** Fenêtre d'embedding côté requête : une question collée très longue est tronquée, pas rejetée. */
@@ -362,6 +369,16 @@ public class AgenticRagService {
                                                            String query, String collectionId,
                                                            String collectionName, int maxChunks,
                                                            Set<String> seen) {
+        try (var ignored = maintenanceGuard != null ? maintenanceGuard.acquire(collectionName)
+                : CollectionMaintenanceGuard.Lease.NONE) {
+            return retrieveAdditionalChunksAdmitted(filter, query, collectionId, collectionName, maxChunks, seen);
+        }
+    }
+
+    private List<RetrievedChunk> retrieveAdditionalChunksAdmitted(RetrievalFilterResolver.ResolvedFilter filter,
+                                                           String query, String collectionId,
+                                                           String collectionName, int maxChunks,
+                                                           Set<String> seen) {
         List<RetrievedChunk> results = new ArrayList<>();
         try {
             List<Float> embedding = embeddingService.embed(queryGuard.queryText(query,
@@ -377,9 +394,8 @@ public class AgenticRagService {
                     }
                 }
             } else {
-                Map<String, Object> raw = filter.active()
-                        ? chromaDbClient.query(collectionId, embedding, fetchN, filter.chromaWhere())
-                        : chromaDbClient.query(collectionId, embedding, fetchN);
+                Map<String, Object> raw = FilteredVectorSearch.query(
+                        chromaDbClient, collectionId, embedding, fetchN, filter);
                 List<List<String>> docs = (List<List<String>>) raw.get("documents");
                 List<List<Map<String, String>>> metas = (List<List<Map<String, String>>>) raw.get("metadatas");
                 List<List<Double>> dists = (List<List<Double>>) raw.get("distances");
@@ -436,4 +452,3 @@ public class AgenticRagService {
 
     private record RetrievedChunk(String text, String sourceFile, double distance) {}
 }
-

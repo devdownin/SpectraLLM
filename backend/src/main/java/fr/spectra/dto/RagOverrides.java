@@ -26,10 +26,14 @@ public record RagOverrides(
         /** Seuil de score du reranker ({@code spectra.reranker.min-score}) ; {@code null} = configuration. */
         Float rerankMinScore,
         /** Fenêtre d'expansion aux voisins ({@code spectra.rag.neighbor-window}) ; {@code null} = configuration. */
+        @jakarta.validation.constraints.Min(0)
+        @jakarta.validation.constraints.Max(5)
         Integer neighborWindow,
         /** Déduplication : {@code none}, {@code jaccard} ou {@code mmr} ; {@code null} = configuration. */
         String dedupStrategy
 ) {
+    public static final int MAX_NEIGHBOR_WINDOW = 5;
+
     /** Aucune surcharge : comportement de déploiement par défaut. */
     public static final RagOverrides NONE = new RagOverrides(null, null, null, null, null, null, null, null);
 

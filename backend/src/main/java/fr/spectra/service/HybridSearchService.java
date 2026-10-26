@@ -115,9 +115,8 @@ public class HybridSearchService {
         // que de tout perdre — c'est précisément l'intérêt d'une recherche hybride.
         CompletableFuture<Map<String, Object>> vectorFuture = queryEmbedding == null
                 ? CompletableFuture.completedFuture(null) : CompletableFuture
-                .supplyAsync(() -> docs.active()
-                        ? chromaDbClient.query(collectionId, queryEmbedding, topCandidates, docs.chromaWhere())
-                        : chromaDbClient.query(collectionId, queryEmbedding, topCandidates), searchExecutor)
+                .supplyAsync(() -> FilteredVectorSearch.query(chromaDbClient, collectionId,
+                        queryEmbedding, topCandidates, docs), searchExecutor)
                 .exceptionally(ex -> {
                     log.warn("Hybrid search: requête vectorielle échouée, dégradation BM25-only: {}", ex.getMessage());
                     return null;
@@ -253,4 +252,3 @@ public class HybridSearchService {
         }
     }
 }
-

@@ -114,6 +114,19 @@ public class BM25Index implements Serializable {
     private Map<String, Set<String>> headerIndex = new HashMap<>();
     private long totalHeaderLength = 0L;
 
+    /** Includes all fields that affect retrieval, not merely document cardinality. */
+    public String corpusFingerprint() {
+        lock.readLock().lock();
+        try {
+            CorpusFingerprint fingerprint = new CorpusFingerprint();
+            docTexts.forEach((id, text) -> fingerprint.add(id, text, docSources.get(id),
+                    docIdentities.get(id), docHeaders.get(id)));
+            return fingerprint.value();
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
     public record ScoredDoc(String id, String text, String sourceFile, float score) {}
 
     /** Add or re-index a document. */
@@ -146,8 +159,8 @@ public class BM25Index implements Serializable {
             for (String token : termFreq.keySet()) {
                 invertedIndex.computeIfAbsent(token, k -> new HashSet<>()).add(id);
             }
+            if (header != null) docHeaders.put(id, header);
             if (!headerFreq.isEmpty()) {
-                docHeaders.put(id, header);
                 headerTermFreq.put(id, headerFreq);
                 headerLengths.put(id, headerLen);
                 totalHeaderLength += headerLen;
@@ -203,6 +216,19 @@ public class BM25Index implements Serializable {
         try {
             docSources.entrySet().stream()
                     .filter(e -> sourceFile.equals(e.getValue()) && !docIdentities.containsKey(e.getKey()))
+                    .map(Map.Entry::getKey).toList().forEach(this::removeById);
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    /** Remove obsolete generations of a stream source; null retainedIdentity deletes all. */
+    public void pruneStreamVersions(String sourceFile, String retainedIdentity) {
+        lock.writeLock().lock();
+        try {
+            docSources.entrySet().stream()
+                    .filter(e -> sourceFile.equals(e.getValue()) && (retainedIdentity == null
+                            || !retainedIdentity.equals(docIdentities.get(e.getKey()))))
                     .map(Map.Entry::getKey).toList().forEach(this::removeById);
         } finally {
             lock.writeLock().unlock();
@@ -397,4 +423,3 @@ public class BM25Index implements Serializable {
         return (start == 0 && end == s.length()) ? s : s.substring(start, end);
     }
 }
-

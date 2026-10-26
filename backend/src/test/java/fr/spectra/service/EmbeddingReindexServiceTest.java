@@ -53,7 +53,7 @@ class EmbeddingReindexServiceTest {
 
     @Test
     void reindex_recalculeLesVecteursPuisReestampilleEnDernier() throws Exception {
-        when(chromaDbClient.resolveCollectionIdUnchecked("docs")).thenReturn("col-1");
+        when(chromaDbClient.beginReindex("docs")).thenReturn("col-1");
         when(chromaDbClient.count("col-1")).thenReturn(2);
         when(chromaDbClient.getDocumentsPaged(eq("col-1"), anyInt(), eq(0))).thenReturn(Map.of(
                 "ids", List.of("a", "b"),
@@ -70,6 +70,7 @@ class EmbeddingReindexServiceTest {
         var order = inOrder(chromaDbClient);
         order.verify(chromaDbClient).updateEmbeddings(eq("col-1"), eq(List.of("a", "b")), anyList());
         order.verify(chromaDbClient).updateEmbeddingStamp("docs", "col-1", "nouveau-modele");
+        order.verify(chromaDbClient).completeReindex("docs");
 
         var status = service.statuses().stream()
                 .filter(s -> "docs".equals(s.collection())).findFirst().orElseThrow();
@@ -80,7 +81,7 @@ class EmbeddingReindexServiceTest {
 
     @Test
     void reindex_echecEmbedding_statutFailed_sansReestampillage() throws Exception {
-        when(chromaDbClient.resolveCollectionIdUnchecked("docs")).thenReturn("col-1");
+        when(chromaDbClient.beginReindex("docs")).thenReturn("col-1");
         when(chromaDbClient.count("col-1")).thenReturn(1);
         when(chromaDbClient.getDocumentsPaged(eq("col-1"), anyInt(), eq(0))).thenReturn(Map.of(
                 "ids", List.of("a"), "documents", List.of("texte")));
@@ -93,12 +94,13 @@ class EmbeddingReindexServiceTest {
 
         // Estampille INTACTE : la collection reste marquée avec l'ancien modèle (et bloquée).
         verify(chromaDbClient, never()).updateEmbeddingStamp(anyString(), anyString(), anyString());
+        verify(chromaDbClient, never()).completeReindex(anyString());
     }
 
     @Test
     void start_reindexationDejaEnCours_rejeteEn409() {
         // Premier job bloqué sur la lecture de page → le verrou reste pris.
-        when(chromaDbClient.resolveCollectionIdUnchecked("lente")).thenReturn("col-slow");
+        when(chromaDbClient.beginReindex("lente")).thenReturn("col-slow");
         when(chromaDbClient.count("col-slow")).thenReturn(1);
         when(chromaDbClient.getDocumentsPaged(anyString(), anyInt(), anyInt())).thenAnswer(inv -> {
             Thread.sleep(2_000);
@@ -114,7 +116,7 @@ class EmbeddingReindexServiceTest {
 
     @Test
     void reindex_chunksVides_conserventLeurVecteur() throws Exception {
-        when(chromaDbClient.resolveCollectionIdUnchecked("docs")).thenReturn("col-1");
+        when(chromaDbClient.beginReindex("docs")).thenReturn("col-1");
         when(chromaDbClient.count("col-1")).thenReturn(2);
         when(chromaDbClient.getDocumentsPaged(eq("col-1"), anyInt(), eq(0))).thenReturn(Map.of(
                 "ids", List.of("plein", "vide"),
@@ -136,7 +138,7 @@ class EmbeddingReindexServiceTest {
         ModelRegistryService registry = mock(ModelRegistryService.class);
         when(registry.getActiveEmbeddingModel()).thenReturn("nomic-embed-text");
         EmbeddingReindexService nomic = new EmbeddingReindexService(chromaDbClient, embeddingService, registry, true, 2048);
-        when(chromaDbClient.resolveCollectionIdUnchecked("docs")).thenReturn("col-1");
+        when(chromaDbClient.beginReindex("docs")).thenReturn("col-1");
         when(chromaDbClient.embeddingContract("docs")).thenReturn(
                 new EmbeddingContract("nomic-embed-text", EmbeddingPromptScheme.NONE, 1, 2048));
         when(chromaDbClient.count("col-1")).thenReturn(1);
@@ -160,5 +162,19 @@ class EmbeddingReindexServiceTest {
         assertThat(status.fromContract()).isEqualTo("NONE/v1");
         assertThat(status.toContract()).isEqualTo("NOMIC/v2");
         assertThat(status.toApi()).containsEntry("fromContract", "NONE/v1").containsEntry("toContract", "NOMIC/v2");
+    }
+    @Test
+    void missingPageKeepsCollectionBlockedAndNeverRestamps() throws Exception {
+        when(chromaDbClient.beginReindex("docs")).thenReturn("col-1");
+        when(chromaDbClient.count("col-1")).thenReturn(2);
+        when(chromaDbClient.getDocumentsPaged(eq("col-1"), anyInt(), eq(0))).thenReturn(Map.of(
+                "ids", List.of("a"), "documents", List.of("texte A")));
+        when(chromaDbClient.getDocumentsPaged(eq("col-1"), anyInt(), eq(16))).thenReturn(Map.of(
+                "ids", List.of(), "documents", List.of()));
+        when(embeddingService.embedBatch(anyList())).thenReturn(List.of(List.of(0.1f)));
+        service.start("docs");
+        awaitStatus(status -> "FAILED".equals(status.status()));
+        verify(chromaDbClient, never()).updateEmbeddingStamp(anyString(), anyString(), anyString());
+        verify(chromaDbClient, never()).completeReindex(anyString());
     }
 }

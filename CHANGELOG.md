@@ -8,6 +8,23 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Corrigé — images publiées
+
+- L’overlay Docker Hub, les exemples des pages d’images et `CITATION.cff` suivent la version publiée `0.12.3`, en cohérence avec les contrôles CI de publication.
+
+### Corrigé — audit RAG, lot 2
+
+- La ré-indexation bloque durablement les lectures et écritures de la collection jusqu'à sa réussite, y compris lorsque le modèle reste identique. Une interruption laisse la collection bloquée jusqu'à une reprise complète.
+- La fraîcheur des snapshots BM25 et la réconciliation comparent l'identité et le contenu du corpus, et détectent les remplacements conservant le même nombre de passages.
+- L'expansion des voisins d'un document ZIP inclut le chemin de son entrée ; les archives historiques sans cette provenance ne sont pas élargies.
+
+### Corrigé — audit RAG, lot 1
+
+- Les filtres documentaires excluent les empreintes non autorisées, même en présence de fichiers homonymes, sur les chemins vectoriel, hybride et agentique.
+- Les mises à jour Kafka préparent la nouvelle version avant publication durable ; les échecs de suppression remontent au mécanisme de rejeu.
+- La reconstruction BM25 remplace les entrées périmées et rejoue uniquement les mutations concurrentes ; une suppression pendant la pagination invalide le snapshot.
+- Le voisinage RAG est limité à cinq passages de chaque côté ; les surcharges API hors de `0..5` sont rejetées et les calculs d’indices évitent les dépassements d’entiers.
+
 ### Corrigé — configuration ignorée depuis 0.12.0
 
 - **`spectra.llm.chat`, `spectra.llm.embedding`, `spectra.reranker`, `spectra.semantic-dedup` et

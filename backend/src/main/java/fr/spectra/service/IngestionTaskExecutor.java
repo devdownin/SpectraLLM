@@ -33,6 +33,18 @@ import java.util.zip.ZipInputStream;
 @Service
 public class IngestionTaskExecutor {
 
+    private CollectionMaintenanceGuard maintenanceGuard;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setCollectionMaintenanceGuard(CollectionMaintenanceGuard guard) {
+        this.maintenanceGuard = guard;
+    }
+
+    private CollectionMaintenanceGuard.Lease admitCollection(String collection) {
+        return maintenanceGuard != null ? maintenanceGuard.acquire(collection) : CollectionMaintenanceGuard.Lease.NONE;
+    }
+
+
     private static final Logger log = LoggerFactory.getLogger(IngestionTaskExecutor.class);
     /** Même limite que IngestionService.MAX_ZIP_DEPTH — protège contre les ZIP bombs imbriqués. */
     private static final int MAX_ZIP_DEPTH = 3;
@@ -292,6 +304,14 @@ public class IngestionTaskExecutor {
      */
     IngestOneResult ingestOne(String fileName, Path tempFile, String collectionId, String collectionName,
                                       IntConsumer progress, IntConsumer discovered, String sha256) throws Exception {
+        try (var lease = admitCollection(collectionName)) {
+            return ingestOneAdmitted(fileName, tempFile, collectionId, collectionName, progress, discovered, sha256);
+        }
+    }
+
+    private IngestOneResult ingestOneAdmitted(String fileName, Path tempFile, String collectionId,
+                                               String collectionName, IntConsumer progress,
+                                               IntConsumer discovered, String sha256) throws Exception {
         log.info("Ingestion de: {}", fileName);
 
         if (fileName.toLowerCase().endsWith(".zip")) {
@@ -510,6 +530,15 @@ public class IngestionTaskExecutor {
     private int ingestEntry(String fileName, String rootSource, InputStream inputStream,
                             String collectionId, String collectionName, IntConsumer progress,
                             IntConsumer discovered, String sha256) throws Exception {
+        try (var lease = admitCollection(collectionName)) {
+            return ingestEntryAdmitted(fileName, rootSource, inputStream, collectionId, collectionName,
+                    progress, discovered, sha256);
+        }
+    }
+
+    private int ingestEntryAdmitted(String fileName, String rootSource, InputStream inputStream,
+                            String collectionId, String collectionName, IntConsumer progress,
+                            IntConsumer discovered, String sha256) throws Exception {
         String shortName = fileName.contains("/") ? fileName.substring(fileName.lastIndexOf('/') + 1) : fileName;
         String contentType = extractorFactory.resolveContentType(shortName);
         var extractor = extractorFactory.getExtractor(contentType);
@@ -588,4 +617,3 @@ public class IngestionTaskExecutor {
         default void onFinished() {}
     }
 }
-

@@ -245,4 +245,33 @@ class ChromaDbClientTest {
         JsonNode body = new ObjectMapper().readTree(server.takeRequest(5, TimeUnit.SECONDS).getBody().readUtf8());
         assertThat(body.has("where")).isFalse();
     }
+    @Test
+    void migrationBlocksCachedResolutionQueriesAndWrites(@org.junit.jupiter.api.io.TempDir java.nio.file.Path directory) throws Exception {
+        var guard = new CollectionMaintenanceGuard(directory);
+        client.setCollectionMaintenanceGuard(guard);
+        server.enqueue(new MockResponse().setHeader("Content-Type", "application/json")
+                .setBody("{\"id\":\"col-123\"}"));
+        client.getOrCreateCollection("ma_collection");
+        server.takeRequest(5, TimeUnit.SECONDS);
+        client.beginReindex("ma_collection");
+        assertThatThrownBy(() -> client.getOrCreateCollection("ma_collection")).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> client.query("col-123", java.util.List.of(0.1f), 5)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> client.addDocuments("col-123", java.util.List.of(), java.util.List.of()))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(server.getRequestCount()).isEqualTo(1);
+        client.completeReindex("ma_collection");
+        assertThat(client.getOrCreateCollection("ma_collection")).isEqualTo("col-123");
+    }
+
+    @Test
+    void zipNeighborsIncludeExactEntryInServerFilter() throws Exception {
+        server.enqueue(new MockResponse().setHeader("Content-Type", "application/json")
+                .setBody("{\"documents\":[\"A voisin\"],\"metadatas\":[{\"chunkIndex\":\"1\",\"zipEntry\":\"archive.zip/a.txt\"}]}"));
+        assertThat(client.getChunksByIndex("col", "sha256", "archive-hash", java.util.List.of(1), "archive.zip/a.txt"))
+                .containsEntry(1, "A voisin");
+        var request = server.takeRequest(5, TimeUnit.SECONDS);
+        var conditions = new ObjectMapper().readTree(request.getBody().readUtf8()).path("where").path("$and");
+        assertThat(conditions.size()).isEqualTo(3);
+        assertThat(conditions.get(2).path("zipEntry").path("$eq").asText()).isEqualTo("archive.zip/a.txt");
+    }
 }

@@ -91,6 +91,69 @@ public class ChromaDbClient {
     // Collections indexées sous un contrat d'embedding antérieur au contrat courant, déjà signalées
     private final java.util.Set<String> warnedPromptScheme = ConcurrentHashMap.newKeySet();
 
+    private CollectionMaintenanceGuard maintenance;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setCollectionMaintenanceGuard(CollectionMaintenanceGuard maintenance) {
+        this.maintenance = maintenance;
+        collectionCache.forEach((name, ref) -> maintenance.register(name, ref.id()));
+    }
+
+    private CollectionMaintenanceGuard.Lease leaseName(String name) {
+        return maintenance != null ? maintenance.acquire(name) : CollectionMaintenanceGuard.Lease.NONE;
+    }
+
+    private CollectionMaintenanceGuard.Lease leaseId(String id) {
+        return maintenance != null ? maintenance.acquireId(id) : CollectionMaintenanceGuard.Lease.NONE;
+    }
+
+    public String beginReindex(String name) {
+        String id = resolveCollectionIdUnchecked(name);
+        if (maintenance != null) maintenance.begin(name, id);
+        return id;
+    }
+
+    public void completeReindex(String name) {
+        if (maintenance != null) maintenance.complete(name);
+    }
+
+    private StreamVersionVisibility streamVersionVisibility;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setStreamVersionVisibility(StreamVersionVisibility visibility) {
+        this.streamVersionVisibility = visibility;
+    }
+
+    private boolean visible(Map<?, ?> metadata) {
+        return streamVersionVisibility == null || streamVersionVisibility.accepts(
+                metadata.get("sha256") instanceof String sha ? sha : null,
+                metadata.get("sourceFile") instanceof String source ? source : null);
+    }
+
+    /** Preserve alignment while hiding staged/deleted Kafka revisions at serving boundaries. */
+    private Map<String, Object> visibleRows(Map<String, Object> raw, boolean nested) {
+        if (streamVersionVisibility == null || raw == null) return raw;
+        Map<String, Object> result = new java.util.LinkedHashMap<>(raw);
+        Object metasValue = raw.get("metadatas");
+        if (!(metasValue instanceof List<?> rows)) return raw;
+        List<?> metas = nested ? (!rows.isEmpty() && rows.getFirst() instanceof List<?> row ? row : List.of()) : rows;
+        java.util.function.BiPredicate<String, String> accepts = streamVersionVisibility.snapshot();
+        List<Integer> keep = new java.util.ArrayList<>();
+        for (int i = 0; i < metas.size(); i++) {
+            if (metas.get(i) instanceof Map<?, ?> meta && accepts.test(
+                    meta.get("sha256") instanceof String sha ? sha : null,
+                    meta.get("sourceFile") instanceof String source ? source : null)) keep.add(i);
+        }
+        for (String key : List.of("ids", "documents", "metadatas", "distances", "embeddings")) {
+            if (!(raw.get(key) instanceof List<?> values)) continue;
+            List<?> data = nested ? (!values.isEmpty() && values.getFirst() instanceof List<?> row ? row : List.of()) : values;
+            List<Object> retained = new java.util.ArrayList<>();
+            for (int index : keep) if (index < data.size()) retained.add(data.get(index));
+            result.put(key, nested ? List.of(retained) : retained);
+        }
+        return result;
+    }
+
     public ChromaDbClient(@Qualifier("chromaDbWebClient") WebClient webClient,
                           SpectraProperties properties,
                           ModelRegistryService modelRegistry) {
@@ -126,35 +189,37 @@ public class ChromaDbClient {
     @CircuitBreaker(name = "chroma", fallbackMethod = "getOrCreateCollectionFallback")
     @Retry(name = "chroma")
     public String getOrCreateCollection(String name) {
-        // S1 — Validation du nom avant tout appel ChromaDB
         validateCollectionName(name);
+        try (var collectionLease = leaseName(name)) {
 
-        // P1 — Cache hit (la cohérence embedding est revérifiée à CHAQUE appel :
-        // le modèle actif peut changer à chaud via le registre)
-        CollectionRef ref = collectionCache.get(name);
-        if (ref == null) {
-            // Création avec espace cosinus + réglages HNSW (sinon ChromaDB applique L2
-            // par défaut) :
-            //  - space=cosine : convention RAG, scores de similarité interprétables [0,1]
-            //    (les vecteurs de llama.cpp /v1/embeddings sont normalisés)
-            //  - ef_search relevé : meilleur recall qu'avec le défaut (~10), un reranker
-            //    affine ensuite le top-K
-            //  - ef_construction relevé : index plus précis à la construction
-            // Le SCHÉMA de configuration dépend de la version de ChromaDB : on tente
-            // l'API 1.x (configuration.hnsw), puis on retombe sur les métadonnées
-            // hnsw:* (versions plus anciennes), enfin sur une création simple — afin
-            // que le cosinus soit appliqué quelle que soit la version sans jamais
-            // casser la création.
-            // NB : l'espace de distance est figé à la création ; une collection déjà
-            // existante conserve sa configuration (get_or_create ne la modifie pas) —
-            // l'estampille embedding retournée est donc celle de la création d'origine.
-            ref = createCollectionWithCosine(name);
-            collectionCache.put(name, ref);
+            // P1 — Cache hit (la cohérence embedding est revérifiée à CHAQUE appel :
+            // le modèle actif peut changer à chaud via le registre)
+            CollectionRef ref = collectionCache.get(name);
+            if (ref == null) {
+                // Création avec espace cosinus + réglages HNSW (sinon ChromaDB applique L2
+                // par défaut) :
+                //  - space=cosine : convention RAG, scores de similarité interprétables [0,1]
+                //    (les vecteurs de llama.cpp /v1/embeddings sont normalisés)
+                //  - ef_search relevé : meilleur recall qu'avec le défaut (~10), un reranker
+                //    affine ensuite le top-K
+                //  - ef_construction relevé : index plus précis à la construction
+                // Le SCHÉMA de configuration dépend de la version de ChromaDB : on tente
+                // l'API 1.x (configuration.hnsw), puis on retombe sur les métadonnées
+                // hnsw:* (versions plus anciennes), enfin sur une création simple — afin
+                // que le cosinus soit appliqué quelle que soit la version sans jamais
+                // casser la création.
+                // NB : l'espace de distance est figé à la création ; une collection déjà
+                // existante conserve sa configuration (get_or_create ne la modifie pas) —
+                // l'estampille embedding retournée est donc celle de la création d'origine.
+                ref = createCollectionWithCosine(name);
+                collectionCache.put(name, ref);
+            }
+
+            verifyEmbeddingModel(name, ref.embeddingModel());
+            warnIfContractOutdated(name, ref);
+            if (maintenance != null) maintenance.register(name, ref.id());
+            return ref.id();
         }
-
-        verifyEmbeddingModel(name, ref.embeddingModel());
-        warnIfContractOutdated(name, ref);
-        return ref.id();
     }
 
     /**
@@ -346,6 +411,7 @@ public class ChromaDbClient {
             ref = createCollectionWithCosine(name);
             collectionCache.put(name, ref);
         }
+        if (maintenance != null) maintenance.register(name, ref.id());
         return ref.id();
     }
 
@@ -423,25 +489,27 @@ public class ChromaDbClient {
      * Utilise un timeout étendu (60s) pour absorber les grands batches.
      */
     public void addDocuments(String collectionId, List<TextChunk> chunks, List<List<Float>> embeddings) {
-        List<String> ids        = chunks.stream().map(TextChunk::id).toList();
-        List<String> documents  = chunks.stream().map(TextChunk::text).toList();
-        List<Map<String, String>> metadatas = chunks.stream().map(TextChunk::metadata).toList();
+        try (var collectionLease = leaseId(collectionId)) {
+            List<String> ids        = chunks.stream().map(TextChunk::id).toList();
+            List<String> documents  = chunks.stream().map(TextChunk::text).toList();
+            List<Map<String, String>> metadatas = chunks.stream().map(TextChunk::metadata).toList();
 
-        Map<String, Object> body = Map.of(
-                "ids",        ids,
-                "documents",  documents,
-                "embeddings", embeddings,
-                "metadatas",  metadatas
-        );
+            Map<String, Object> body = Map.of(
+                    "ids",        ids,
+                    "documents",  documents,
+                    "embeddings", embeddings,
+                    "metadatas",  metadatas
+            );
 
-        webClient.post()
-                .uri(COLLECTIONS_BASE + "/{id}/add", collectionId)
-                .bodyValue(body)
-                .retrieve()
-                .bodyToMono(Void.class)
-                .block(TIMEOUT_ADD);  // P3 — timeout étendu pour grands batches
+            webClient.post()
+                    .uri(COLLECTIONS_BASE + "/{id}/add", collectionId)
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToMono(Void.class)
+                    .block(TIMEOUT_ADD);  // P3 — timeout étendu pour grands batches
 
-        log.info("Ajouté {} chunks dans la collection {}", chunks.size(), collectionId);
+            log.info("Ajouté {} chunks dans la collection {}", chunks.size(), collectionId);
+        }
     }
 
     /**
@@ -476,12 +544,32 @@ public class ChromaDbClient {
 
     @SuppressWarnings("unchecked")
     private Map<String, Object> postQuery(String collectionId, Map<String, Object> body) {
-        return webClient.post()
-                .uri(COLLECTIONS_BASE + "/{id}/query", collectionId)
-                .bodyValue(body)
-                .retrieve()
-                .bodyToMono(Map.class)
-                .block(TIMEOUT_QUERY);  // P3 — timeout étendu pour grandes collections
+        try (var collectionLease = leaseId(collectionId)) {
+            int requested = ((Number) body.get("n_results")).intValue();
+            int fetch = requested;
+            while (true) {
+                Map<String, Object> attempt = new java.util.LinkedHashMap<>(body);
+                attempt.put("n_results", fetch);
+                Map<String, Object> raw = webClient.post()
+                        .uri(COLLECTIONS_BASE + "/{id}/query", collectionId)
+                        .bodyValue(attempt).retrieve().bodyToMono(Map.class).block(TIMEOUT_QUERY);
+                if (streamVersionVisibility == null) return raw;
+                Map<String, Object> filtered = visibleRows(raw, true);
+                int visibleCount = ChromaQueryResult.from(filtered).documents().size();
+                int rawCount = ChromaQueryResult.from(raw).documents().size();
+                if (visibleCount >= requested || rawCount < fetch || fetch >= 4096) {
+                    Map<String, Object> limited = new java.util.LinkedHashMap<>(filtered);
+                    for (String key : List.of("ids", "documents", "metadatas", "distances", "embeddings")) {
+                        if (limited.get(key) instanceof List<?> rows && !rows.isEmpty()
+                                && rows.getFirst() instanceof List<?> row) {
+                            limited.put(key, List.of(new java.util.ArrayList<>(row.subList(0, Math.min(requested, row.size())))));
+                        }
+                    }
+                    return limited;
+                }
+                fetch = (int) Math.min(4096L, Math.max(fetch + 1L, fetch * 2L));
+            }
+        }
     }
 
     /** Taille de page pour les récupérations complètes (borne chaque réponse HTTP). */
@@ -497,29 +585,31 @@ public class ChromaDbClient {
      */
     @SuppressWarnings("unchecked")
     public Map<String, Object> getAllDocuments(String collectionId) {
-        List<Object> ids       = new java.util.ArrayList<>();
-        List<Object> documents = new java.util.ArrayList<>();
-        List<Object> metadatas = new java.util.ArrayList<>();
+        try (var collectionLease = leaseId(collectionId)) {
+            List<Object> ids       = new java.util.ArrayList<>();
+            List<Object> documents = new java.util.ArrayList<>();
+            List<Object> metadatas = new java.util.ArrayList<>();
 
-        int offset = 0;
-        while (true) {
-            Map<String, Object> page = getDocumentsPaged(collectionId, BULK_PAGE_SIZE, offset);
-            List<Object> pageIds = page != null ? (List<Object>) page.get("ids") : null;
-            if (pageIds == null || pageIds.isEmpty()) break;
+            int offset = 0;
+            while (true) {
+                Map<String, Object> page = getDocumentsPaged(collectionId, BULK_PAGE_SIZE, offset);
+                List<Object> pageIds = page != null ? (List<Object>) page.get("ids") : null;
+                if (pageIds == null || pageIds.isEmpty()) break;
 
-            ids.addAll(pageIds);
-            if (page.get("documents") instanceof List<?> pageDocs) documents.addAll(pageDocs);
-            if (page.get("metadatas") instanceof List<?> pageMetas) metadatas.addAll(pageMetas);
+                ids.addAll(pageIds);
+                if (page.get("documents") instanceof List<?> pageDocs) documents.addAll(pageDocs);
+                if (page.get("metadatas") instanceof List<?> pageMetas) metadatas.addAll(pageMetas);
 
-            if (pageIds.size() < BULK_PAGE_SIZE) break;
-            offset += BULK_PAGE_SIZE;
+                if (pageIds.size() < BULK_PAGE_SIZE) break;
+                offset += BULK_PAGE_SIZE;
+            }
+
+            Map<String, Object> result = new java.util.LinkedHashMap<>();
+            result.put("ids", ids);
+            result.put("documents", documents);
+            result.put("metadatas", metadatas);
+            return visibleRows(result, false);
         }
-
-        Map<String, Object> result = new java.util.LinkedHashMap<>();
-        result.put("ids", ids);
-        result.put("documents", documents);
-        result.put("metadatas", metadatas);
-        return result;
     }
 
     /**
@@ -550,32 +640,34 @@ public class ChromaDbClient {
      */
     @SuppressWarnings("unchecked")
     public Map<String, Integer> listSources(String collectionId) {
-        Map<String, Integer> sources = new java.util.LinkedHashMap<>();
-        int offset = 0;
-        while (true) {
-            Map<String, Object> body = Map.of(
-                    "limit",   BULK_PAGE_SIZE,
-                    "offset",  offset,
-                    "include", List.of("metadatas")
-            );
-            Map<String, Object> page = webClient.post()
-                    .uri(COLLECTIONS_BASE + "/{id}/get", collectionId)
-                    .bodyValue(body)
-                    .retrieve()
-                    .bodyToMono(Map.class)
-                    .block(TIMEOUT_BULK_GET);
-            List<Map<String, String>> metadatas =
-                    page != null ? (List<Map<String, String>>) page.get("metadatas") : null;
-            if (metadatas == null || metadatas.isEmpty()) break;
+        try (var collectionLease = leaseId(collectionId)) {
+            Map<String, Integer> sources = new java.util.LinkedHashMap<>();
+            int offset = 0;
+            while (true) {
+                Map<String, Object> body = Map.of(
+                        "limit",   BULK_PAGE_SIZE,
+                        "offset",  offset,
+                        "include", List.of("metadatas")
+                );
+                Map<String, Object> page = webClient.post()
+                        .uri(COLLECTIONS_BASE + "/{id}/get", collectionId)
+                        .bodyValue(body)
+                        .retrieve()
+                        .bodyToMono(Map.class)
+                        .block(TIMEOUT_BULK_GET);
+                List<Map<String, String>> metadatas =
+                        page != null ? (List<Map<String, String>>) page.get("metadatas") : null;
+                if (metadatas == null || metadatas.isEmpty()) break;
 
-            for (Map<String, String> meta : metadatas) {
-                String source = meta != null ? meta.getOrDefault("sourceFile", "unknown") : "unknown";
-                sources.merge(source, 1, Integer::sum);
+                for (Map<String, String> meta : metadatas) {
+                    String source = meta != null ? meta.getOrDefault("sourceFile", "unknown") : "unknown";
+                    sources.merge(source, 1, Integer::sum);
+                }
+                if (metadatas.size() < BULK_PAGE_SIZE) break;
+                offset += BULK_PAGE_SIZE;
             }
-            if (metadatas.size() < BULK_PAGE_SIZE) break;
-            offset += BULK_PAGE_SIZE;
+            return sources;
         }
-        return sources;
     }
 
     /**
@@ -592,28 +684,30 @@ public class ChromaDbClient {
     @SuppressWarnings("unchecked")
     public List<String> getDocumentTextsByMetadata(String collectionId, String field,
                                                    String value, int limit) {
-        if (limit <= 0) return List.of();
-        Map<String, Object> body = Map.of(
-                "where",   Map.of(field, Map.of("$eq", value)),
-                "limit",   limit,
-                "include", List.of("documents")
-        );
+        try (var collectionLease = leaseId(collectionId)) {
+            if (limit <= 0) return List.of();
+            Map<String, Object> body = Map.of(
+                    "where",   Map.of(field, Map.of("$eq", value)),
+                    "limit",   limit,
+                    "include", List.of("documents")
+            );
 
-        Map<String, Object> result = webClient.post()
-                .uri(COLLECTIONS_BASE + "/{id}/get", collectionId)
-                .bodyValue(body)
-                .retrieve()
-                .bodyToMono(Map.class)
-                .block(TIMEOUT_BULK_GET);
+            Map<String, Object> result = webClient.post()
+                    .uri(COLLECTIONS_BASE + "/{id}/get", collectionId)
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block(TIMEOUT_BULK_GET);
 
-        if (result == null) return List.of();
-        List<Object> documents = (List<Object>) result.get("documents");
-        if (documents == null) return List.of();
-        return documents.stream()
-                .filter(String.class::isInstance)
-                .map(String.class::cast)
-                .filter(s -> !s.isBlank())
-                .toList();
+            if (result == null) return List.of();
+            List<Object> documents = (List<Object>) result.get("documents");
+            if (documents == null) return List.of();
+            return documents.stream()
+                    .filter(String.class::isInstance)
+                    .map(String.class::cast)
+                    .filter(s -> !s.isBlank())
+                    .toList();
+        }
     }
 
     /**
@@ -624,24 +718,26 @@ public class ChromaDbClient {
      */
     @SuppressWarnings("unchecked")
     public Map<String, Map<String, String>> getMetadatasByIds(String collectionId, List<String> ids) {
-        if (ids == null || ids.isEmpty()) return Map.of();
-        Map<String, Object> result = webClient.post()
-                .uri(COLLECTIONS_BASE + "/{id}/get", collectionId)
-                .bodyValue(Map.of("ids", ids, "include", List.of("metadatas")))
-                .retrieve()
-                .bodyToMono(Map.class)
-                .block(TIMEOUT_QUERY);
-        Map<String, Map<String, String>> byId = new java.util.LinkedHashMap<>();
-        if (result == null || !(result.get("ids") instanceof List<?> found)) return byId;
-        List<?> metas = result.get("metadatas") instanceof List<?> m ? m : List.of();
-        for (int i = 0; i < found.size(); i++) {
-            if (i < metas.size() && metas.get(i) instanceof Map<?, ?> meta) {
-                Map<String, String> copy = new java.util.LinkedHashMap<>();
-                meta.forEach((k, v) -> copy.put(String.valueOf(k), v != null ? String.valueOf(v) : null));
-                byId.put(String.valueOf(found.get(i)), copy);
+        try (var collectionLease = leaseId(collectionId)) {
+            if (ids == null || ids.isEmpty()) return Map.of();
+            Map<String, Object> result = webClient.post()
+                    .uri(COLLECTIONS_BASE + "/{id}/get", collectionId)
+                    .bodyValue(Map.of("ids", ids, "include", List.of("metadatas")))
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block(TIMEOUT_QUERY);
+            Map<String, Map<String, String>> byId = new java.util.LinkedHashMap<>();
+            if (result == null || !(result.get("ids") instanceof List<?> found)) return byId;
+            List<?> metas = result.get("metadatas") instanceof List<?> m ? m : List.of();
+            for (int i = 0; i < found.size(); i++) {
+                if (i < metas.size() && metas.get(i) instanceof Map<?, ?> meta) {
+                    Map<String, String> copy = new java.util.LinkedHashMap<>();
+                    meta.forEach((k, v) -> copy.put(String.valueOf(k), v != null ? String.valueOf(v) : null));
+                    byId.put(String.valueOf(found.get(i)), copy);
+                }
             }
+            return byId;
         }
-        return byId;
     }
 
     /**
@@ -655,32 +751,42 @@ public class ChromaDbClient {
     @SuppressWarnings("unchecked")
     public Map<Integer, String> getChunksByIndex(String collectionId, String identityField,
                                                  String identityValue, List<Integer> chunkIndexes) {
-        if (chunkIndexes == null || chunkIndexes.isEmpty()) return Map.of();
-        List<String> wanted = chunkIndexes.stream().map(String::valueOf).toList();
-        Map<String, Object> where = Map.of("$and", List.of(
-                Map.of(identityField, Map.of("$eq", identityValue)),
-                Map.of("chunkIndex", Map.of("$in", wanted))));
-        Map<String, Object> result = webClient.post()
-                .uri(COLLECTIONS_BASE + "/{id}/get", collectionId)
-                .bodyValue(Map.of("where", where, "limit", wanted.size() * 2,
-                        "include", List.of("documents", "metadatas")))
-                .retrieve()
-                .bodyToMono(Map.class)
-                .block(TIMEOUT_QUERY);
-        Map<Integer, String> byIndex = new java.util.HashMap<>();
-        if (result == null) return byIndex;
-        List<?> docs = result.get("documents") instanceof List<?> d ? d : List.of();
-        List<?> metas = result.get("metadatas") instanceof List<?> m ? m : List.of();
-        for (int i = 0; i < Math.min(docs.size(), metas.size()); i++) {
-            if (docs.get(i) instanceof String text && metas.get(i) instanceof Map<?, ?> meta) {
-                try {
-                    byIndex.putIfAbsent(Integer.parseInt(String.valueOf(meta.get("chunkIndex"))), text);
-                } catch (NumberFormatException ignored) {
-                    // chunk sans position exploitable : pas un voisin
+        return getChunksByIndex(collectionId, identityField, identityValue, chunkIndexes, null);
+    }
+
+    @SuppressWarnings("unchecked")
+    public Map<Integer, String> getChunksByIndex(String collectionId, String identityField,
+                                                 String identityValue, List<Integer> chunkIndexes, String zipEntry) {
+        try (var collectionLease = leaseId(collectionId)) {
+            if (chunkIndexes == null || chunkIndexes.isEmpty()) return Map.of();
+            List<String> wanted = chunkIndexes.stream().map(String::valueOf).toList();
+            List<Map<String, Object>> conditions = new java.util.ArrayList<>();
+            conditions.add(Map.of(identityField, Map.of("$eq", identityValue)));
+            conditions.add(Map.of("chunkIndex", Map.of("$in", wanted)));
+            if (zipEntry != null && !zipEntry.isBlank()) conditions.add(Map.of("zipEntry", Map.of("$eq", zipEntry)));
+            Map<String, Object> where = Map.of("$and", conditions);
+            Map<String, Object> result = webClient.post()
+                    .uri(COLLECTIONS_BASE + "/{id}/get", collectionId)
+                    .bodyValue(Map.of("where", where, "limit", wanted.size() * 2,
+                            "include", List.of("documents", "metadatas")))
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block(TIMEOUT_QUERY);
+            Map<Integer, String> byIndex = new java.util.HashMap<>();
+            if (result == null) return byIndex;
+            List<?> docs = result.get("documents") instanceof List<?> d ? d : List.of();
+            List<?> metas = result.get("metadatas") instanceof List<?> m ? m : List.of();
+            for (int i = 0; i < Math.min(docs.size(), metas.size()); i++) {
+                if (docs.get(i) instanceof String text && metas.get(i) instanceof Map<?, ?> meta && visible(meta)) {
+                    try {
+                        byIndex.putIfAbsent(Integer.parseInt(String.valueOf(meta.get("chunkIndex"))), text);
+                    } catch (NumberFormatException ignored) {
+                        // chunk sans position exploitable : pas un voisin
+                    }
                 }
             }
+            return byIndex;
         }
-        return byIndex;
     }
 
     /**
@@ -688,42 +794,75 @@ public class ChromaDbClient {
      * Utilise le filtre {@code where} ChromaDB pour ne récupérer que les IDs concernés
      * au lieu de charger toute la collection en mémoire.
      */
+    /** Delete obsolete source revisions only after the SQL publication pointer has moved. */
+    public int deleteObsoleteStreamVersions(String collectionId, String sourceFile, String retainedHash) {
+        try (var collectionLease = leaseId(collectionId)) {
+            List<String> obsolete = new java.util.ArrayList<>();
+            int offset = 0;
+            while (true) {
+                Map<String, Object> page = webClient.post()
+                        .uri(COLLECTIONS_BASE + "/{id}/get", collectionId)
+                        .bodyValue(Map.of("where", Map.of("sourceFile", sourceFile),
+                                "limit", BULK_PAGE_SIZE, "offset", offset, "include", List.of("metadatas")))
+                        .retrieve().bodyToMono(Map.class).block(TIMEOUT_BULK_GET);
+                List<?> ids = page != null && page.get("ids") instanceof List<?> list ? list : List.of();
+                List<?> metas = page != null && page.get("metadatas") instanceof List<?> list ? list : List.of();
+                for (int i = 0; i < Math.min(ids.size(), metas.size()); i++) {
+                    if (metas.get(i) instanceof Map<?, ?> meta && sourceFile.equals(meta.get("sourceFile"))
+                            && !java.util.Objects.equals(retainedHash, meta.get("sha256"))) {
+                        obsolete.add(String.valueOf(ids.get(i)));
+                    }
+                }
+                if (ids.size() < BULK_PAGE_SIZE) break;
+                offset += BULK_PAGE_SIZE;
+            }
+            deleteChunksByIds(collectionId, obsolete);
+            return obsolete.size();
+        }
+    }
+
     public int deleteBySource(String collectionId, String sourceFile) {
-        return deleteByMetadata(collectionId, "sourceFile", sourceFile);
+        try (var collectionLease = leaseId(collectionId)) {
+            return deleteByMetadata(collectionId, "sourceFile", sourceFile);
+        }
     }
 
     /** IDs historiques uniquement : zéro résultat par SHA ne justifie jamais une purge par nom. */
     @SuppressWarnings("unchecked")
     public List<String> getLegacyChunkIdsBySource(String collectionId, String sourceFile) {
-        java.util.ArrayList<String> legacyIds = new java.util.ArrayList<>();
-        for (int offset = 0; ; offset += BULK_PAGE_SIZE) {
-            Map<String, Object> result = webClient.post()
-                    .uri(COLLECTIONS_BASE + "/{id}/get", collectionId)
-                    .bodyValue(Map.of("where", Map.of("sourceFile", Map.of("$eq", sourceFile)),
-                            "limit", BULK_PAGE_SIZE, "offset", offset, "include", List.of("metadatas")))
-                    .retrieve().bodyToMono(Map.class).block(TIMEOUT_BULK_GET);
-            if (result == null) throw new IllegalStateException("Réponse ChromaDB absente pendant le nettoyage");
-            List<String> ids = (List<String>) result.get("ids");
-            List<Map<String, Object>> metadata = (List<Map<String, Object>>) result.get("metadatas");
-            if (ids == null) throw new IllegalStateException("Réponse ChromaDB sans IDs");
-            if (ids.isEmpty()) break;
-            if (metadata == null || metadata.size() != ids.size()) {
-                throw new IllegalStateException("Métadonnées ChromaDB manquantes : suppression historique refusée");
+        try (var collectionLease = leaseId(collectionId)) {
+            java.util.ArrayList<String> legacyIds = new java.util.ArrayList<>();
+            for (int offset = 0; ; offset += BULK_PAGE_SIZE) {
+                Map<String, Object> result = webClient.post()
+                        .uri(COLLECTIONS_BASE + "/{id}/get", collectionId)
+                        .bodyValue(Map.of("where", Map.of("sourceFile", Map.of("$eq", sourceFile)),
+                                "limit", BULK_PAGE_SIZE, "offset", offset, "include", List.of("metadatas")))
+                        .retrieve().bodyToMono(Map.class).block(TIMEOUT_BULK_GET);
+                if (result == null) throw new IllegalStateException("Réponse ChromaDB absente pendant le nettoyage");
+                List<String> ids = (List<String>) result.get("ids");
+                List<Map<String, Object>> metadata = (List<Map<String, Object>>) result.get("metadatas");
+                if (ids == null) throw new IllegalStateException("Réponse ChromaDB sans IDs");
+                if (ids.isEmpty()) break;
+                if (metadata == null || metadata.size() != ids.size()) {
+                    throw new IllegalStateException("Métadonnées ChromaDB manquantes : suppression historique refusée");
+                }
+                for (int i = 0; i < ids.size(); i++) {
+                    Map<String, Object> meta = metadata.get(i);
+                    if (meta == null || meta.get("sha256") == null) legacyIds.add(ids.get(i));
+                }
+                if (ids.size() < BULK_PAGE_SIZE) break;
             }
-            for (int i = 0; i < ids.size(); i++) {
-                Map<String, Object> meta = metadata.get(i);
-                if (meta == null || meta.get("sha256") == null) legacyIds.add(ids.get(i));
-            }
-            if (ids.size() < BULK_PAGE_SIZE) break;
+            return legacyIds;
         }
-        return legacyIds;
     }
 
     public void deleteChunksByIds(String collectionId, List<String> ids) {
-        for (int start = 0; start < ids.size(); start += BULK_PAGE_SIZE) {
-            webClient.post().uri(COLLECTIONS_BASE + "/{id}/delete", collectionId)
-                    .bodyValue(Map.of("ids", ids.subList(start, Math.min(start + BULK_PAGE_SIZE, ids.size()))))
-                    .retrieve().bodyToMono(Void.class).block(TIMEOUT_BULK_GET);
+        try (var collectionLease = leaseId(collectionId)) {
+            for (int start = 0; start < ids.size(); start += BULK_PAGE_SIZE) {
+                webClient.post().uri(COLLECTIONS_BASE + "/{id}/delete", collectionId)
+                        .bodyValue(Map.of("ids", ids.subList(start, Math.min(start + BULK_PAGE_SIZE, ids.size()))))
+                        .retrieve().bodyToMono(Void.class).block(TIMEOUT_BULK_GET);
+            }
         }
     }
 
@@ -736,35 +875,37 @@ public class ChromaDbClient {
      */
     @SuppressWarnings("unchecked")
     public int deleteByMetadata(String collectionId, String field, String value) {
-        // P2 — filtre where : seuls les IDs concernés sont récupérés
-        Map<String, Object> body = Map.of(
-                "where",   Map.of(field, Map.of("$eq", value)),
-                "limit",   1000000,
-                "include", List.of()  // IDs uniquement, pas de documents ni métadonnées
-        );
+        try (var collectionLease = leaseId(collectionId)) {
+            // P2 — filtre where : seuls les IDs concernés sont récupérés
+            Map<String, Object> body = Map.of(
+                    "where",   Map.of(field, Map.of("$eq", value)),
+                    "limit",   1000000,
+                    "include", List.of()  // IDs uniquement, pas de documents ni métadonnées
+            );
 
-        Map<String, Object> result = webClient.post()
-                .uri(COLLECTIONS_BASE + "/{id}/get", collectionId)
-                .bodyValue(body)
-                .retrieve()
-                .bodyToMono(Map.class)
-                .block(TIMEOUT_BULK_GET);
+            Map<String, Object> result = webClient.post()
+                    .uri(COLLECTIONS_BASE + "/{id}/get", collectionId)
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block(TIMEOUT_BULK_GET);
 
-        if (result == null) throw new IllegalStateException("Réponse ChromaDB absente pendant la suppression");
-        List<String> ids = (List<String>) result.get("ids");
-        if (ids == null) throw new IllegalStateException("Réponse ChromaDB sans IDs pendant la suppression");
-        if (ids.isEmpty()) return 0;
+            if (result == null) throw new IllegalStateException("Réponse ChromaDB absente pendant la suppression");
+            List<String> ids = (List<String>) result.get("ids");
+            if (ids == null) throw new IllegalStateException("Réponse ChromaDB sans IDs pendant la suppression");
+            if (ids.isEmpty()) return 0;
 
-        // Suppression par filtre where (un seul appel, payload constant) : une liste d'ids
-        // pouvant atteindre le million d'entrées explosait le timeout court (10 s).
-        webClient.post()
-                .uri(COLLECTIONS_BASE + "/{id}/delete", collectionId)
-                .bodyValue(Map.of("where", Map.of(field, Map.of("$eq", value))))
-                .retrieve()
-                .bodyToMono(Void.class)
-                .block(TIMEOUT_BULK_GET);
+            // Suppression par filtre where (un seul appel, payload constant) : une liste d'ids
+            // pouvant atteindre le million d'entrées explosait le timeout court (10 s).
+            webClient.post()
+                    .uri(COLLECTIONS_BASE + "/{id}/delete", collectionId)
+                    .bodyValue(Map.of("where", Map.of(field, Map.of("$eq", value))))
+                    .retrieve()
+                    .bodyToMono(Void.class)
+                    .block(TIMEOUT_BULK_GET);
 
-        return ids.size();
+            return ids.size();
+        }
     }
 
     /**
@@ -834,4 +975,3 @@ public class ChromaDbClient {
         }
     }
 }
-

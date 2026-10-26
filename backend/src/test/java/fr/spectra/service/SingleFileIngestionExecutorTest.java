@@ -275,5 +275,14 @@ class SingleFileIngestionExecutorTest {
         assertThat(finalTask.chunksCreated()).isGreaterThan(1);
         assertThat(lastSeen.get()).isEqualTo(finalTask.chunksCreated());
     }
+    @Test
+    void maintenanceRejectsIngestionBeforeReadingTheFile() {
+        var guard = mock(CollectionMaintenanceGuard.class);
+        when(guard.acquire("spectra_documents")).thenThrow(new IllegalStateException("migration"));
+        executor.setCollectionMaintenanceGuard(guard);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> executor.ingestOne(
+                "missing.txt", tempDir.resolve("missing.txt"), "cid", "spectra_documents",
+                ignored -> {}, ignored -> {}, "sha"))
+                .isInstanceOf(IllegalStateException.class).hasMessage("migration");
+    }
 }
-

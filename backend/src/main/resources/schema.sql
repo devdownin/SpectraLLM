@@ -199,6 +199,9 @@ CREATE TABLE IF NOT EXISTS kafka_stream_source (
     PRIMARY KEY (source_key)
 );
 
+-- Durable publication mode: legacy unversioned chunks stop being visible after first versioned publish.
+ALTER TABLE kafka_stream_source ADD COLUMN IF NOT EXISTS versioned_publication BOOLEAN NOT NULL DEFAULT FALSE;
+
 -- Index de performance (ddl-auto: validate ne crée pas les index déclarés via @Index ;
 -- ils doivent donc être créés ici, source de vérité du schéma). Idempotents.
 CREATE INDEX IF NOT EXISTS idx_kafka_stream_updated_at    ON kafka_stream_source(last_updated_at);
@@ -211,4 +214,3 @@ CREATE INDEX IF NOT EXISTS idx_ged_audit_sha256           ON ged_audit_log(docum
 CREATE INDEX IF NOT EXISTS idx_ged_audit_timestamp        ON ged_audit_log(timestamp);
 CREATE INDEX IF NOT EXISTS idx_doc_model_sha256           ON document_model_links(document_sha256);
 CREATE INDEX IF NOT EXISTS idx_doc_model_name             ON document_model_links(model_name);
-

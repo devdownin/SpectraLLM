@@ -40,4 +40,20 @@ class RagOverridesTest {
         assertThat(n.adaptive()).isNull();
         assertThat(n.conversational()).isNull();
     }
+    @Test
+    void neighborWindowIsValidatedIncludingNestedRequest() {
+        try (var factory = jakarta.validation.Validation.buildDefaultValidatorFactory()) {
+            var validator = factory.getValidator();
+            for (int value : new int[]{-1, 6, Integer.MAX_VALUE}) {
+                var overrides = RagOverrides.NONE.withTuning(null, value, null);
+                var request = new QueryRequest("question", 5, 20, null, null, null,
+                        null, true, overrides);
+                assertThat(validator.validate(request)).anyMatch(v ->
+                        v.getPropertyPath().toString().equals("overrides.neighborWindow"));
+            }
+            for (int value : new int[]{0, 5}) {
+                assertThat(validator.validate(RagOverrides.NONE.withTuning(null, value, null))).isEmpty();
+            }
+        }
+    }
 }

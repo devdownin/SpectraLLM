@@ -101,6 +101,19 @@ class RagServiceRetrievalTest {
         return new HybridSearchService.HybridChunk(id, text, "doc.pdf", dist, bm25, rrf);
     }
 
+    @Test
+    void maintenanceBlocksRetrievalBeforeQueryEmbedding() {
+        var guard = org.mockito.Mockito.mock(CollectionMaintenanceGuard.class);
+        when(guard.acquire(anyString())).thenThrow(new IllegalStateException("migration in progress"));
+        var service = ragService(Optional.empty(), Optional.empty());
+        service.setCollectionMaintenanceGuard(guard);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.retrieveContext(request()))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("migration");
+        verify(embeddingService, never()).embed(anyString());
+        verify(chromaDbClient, never()).getOrCreateCollection(anyString());
+    }
+
     // ── B1 : fusion multi-query préservant le classement RRF ─────────────────
 
     @Test
@@ -351,6 +364,37 @@ class RagServiceRetrievalTest {
         assertThat(ctx.contextChunks()).containsExactly(
                 "Le chunk précédent, fin du recouvrement. Le chunk retenu.\n\nLe chunk suivant.");
         assertThat(ctx.sources().getFirst().sourceFile()).isEqualTo("a.pdf");
+    }
+
+    @Test
+    void neighborExpansionKeepsZipEntryIdentityWhenArchiveIndexesCollide() {
+        when(props.rag()).thenReturn(new SpectraProperties.RagProperties(null, null, 1, 4000));
+        when(chromaDbClient.query(eq("col-1"), anyList(), anyInt())).thenReturn(vectorResultWithMeta(
+                "Passage de A.", Map.of("sourceFile", "archive.zip", "sha256", "archive-sha",
+                        "zipEntry", "archive.zip/a.txt", "chunkIndex", "0")));
+        when(chromaDbClient.getChunksByIndex("col-1", "sha256", "archive-sha", List.of(1), "archive.zip/a.txt"))
+                .thenReturn(Map.of(1, "Suite de A."));
+        // This old, archive-wide lookup would select an unrelated entry with the same index.
+        when(chromaDbClient.getChunksByIndex("col-1", "sha256", "archive-sha", List.of(1)))
+                .thenReturn(Map.of(1, "Contenu contradictoire de B."));
+
+        RagService.RagContext ctx = ragService(Optional.empty(), Optional.empty()).retrieveContext(request());
+
+        assertThat(ctx.contextChunks()).containsExactly("Passage de A.\n\nSuite de A.");
+        verify(chromaDbClient, never()).getChunksByIndex("col-1", "sha256", "archive-sha", List.of(1));
+    }
+
+    @Test
+    void neighborExpansionSkipsLegacyArchiveWithoutEntryProvenance() {
+        when(props.rag()).thenReturn(new SpectraProperties.RagProperties(null, null, 1, 4000));
+        when(chromaDbClient.query(eq("col-1"), anyList(), anyInt())).thenReturn(vectorResultWithMeta(
+                "Passage historique.", Map.of("sourceFile", "ARCHIVE.ZIP", "sha256", "archive-sha", "chunkIndex", "0")));
+
+        RagService.RagContext ctx = ragService(Optional.empty(), Optional.empty()).retrieveContext(request());
+
+        assertThat(ctx.contextChunks()).containsExactly("Passage historique.");
+        verify(chromaDbClient, never()).getChunksByIndex(anyString(), anyString(), anyString(), anyList());
+        verify(chromaDbClient, never()).getChunksByIndex(anyString(), anyString(), anyString(), anyList(), anyString());
     }
 
     @Test

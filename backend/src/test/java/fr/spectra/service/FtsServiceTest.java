@@ -157,8 +157,8 @@ class FtsServiceTest {
     // ── rebuildCollection : fusion avec les chunks indexés en direct ──────────
 
     @Test
-    void rebuildCollection_mergesWithLiveIndexInsteadOfReplacing() {
-        // Chunks indexés en direct PENDANT le rebuild (ingestion concurrente au démarrage).
+    void rebuildCollection_dropsEntriesMissingFromAuthoritativeSnapshot() {
+        // Entrée périmée présente avant le début du rebuild.
         ChromaDbClient chromaDb = mock(ChromaDbClient.class);
         when(chromaDb.getOrCreateCollection("coll-rebuild-merge")).thenReturn("col-id");
         // ChromaDB contient un seul chunk « historique ».
@@ -173,16 +173,41 @@ class FtsServiceTest {
         when(props.chromadb()).thenReturn(chromaProps);
         FtsService fts = new FtsService(chromaDb, props);
 
-        // Un chunk arrive en direct avant la fin du rebuild.
+        // Un chunk est déjà présent avant le début du rebuild.
         fts.indexChunks(List.of(chunk("live-1", "chunk indexé pendant le rebuild", "live.txt")), "coll-rebuild-merge");
 
         fts.rebuildCollection("coll-rebuild-merge");
 
-        // Régression : l'ancien indices.put écrasait l'index vivant — le chunk live
-        // disparaissait de BM25 jusqu'au rebuild suivant.
-        assertThat(fts.indexedCount("coll-rebuild-merge")).isEqualTo(2);
-        assertThat(fts.search("rebuild", "coll-rebuild-merge", 5)).isNotEmpty();
+        assertThat(fts.indexedCount("coll-rebuild-merge")).isEqualTo(1);
+        assertThat(fts.search("rebuild", "coll-rebuild-merge", 5)).isEmpty();
         assertThat(fts.search("chromadb", "coll-rebuild-merge", 5)).isNotEmpty();
+    }
+
+    @Test
+    void pruneStreamVersions_retainsOnlyPublishedGeneration() {
+        ftsService.indexChunks(List.of(
+                new TextChunk("old", "ancien", 0, "kafka://t/key", Map.of("sha256", "v1")),
+                new TextChunk("new", "nouveau", 0, "kafka://t/key", Map.of("sha256", "v2")),
+                chunk("other", "autre", "other.txt")), "versions");
+        ftsService.pruneStreamVersions("kafka://t/key", "versions", "v2");
+        assertThat(ftsService.indexedCount("versions")).isEqualTo(2);
+        assertThat(ftsService.search("ancien", "versions", 5)).isEmpty();
+        assertThat(ftsService.search("nouveau", "versions", 5)).hasSize(1);
+        ftsService.pruneStreamVersions("kafka://t/key", "versions", null);
+        assertThat(ftsService.indexedCount("versions")).isEqualTo(1);
+    }
+
+    @Test
+    void search_hidesUnpublishedStreamGenerationBeforeTopN() {
+        StreamVersionVisibility visibility = mock(StreamVersionVisibility.class);
+        when(visibility.accepts("v2", "kafka://t/key")).thenReturn(true);
+        when(visibility.snapshot()).thenReturn(visibility::accepts);
+        ftsService.setStreamVersionVisibility(visibility);
+        ftsService.indexChunks(List.of(
+                new TextChunk("old", "commun", 0, "kafka://t/key", Map.of("sha256", "v1")),
+                new TextChunk("new", "commun", 0, "kafka://t/key", Map.of("sha256", "v2"))), "versions");
+        assertThat(ftsService.search("commun", "versions", 1))
+                .extracting(BM25Index.ScoredDoc::id).containsExactly("new");
     }
 
     // ── getStatus ─────────────────────────────────────────────────────────────
@@ -246,6 +271,64 @@ class FtsServiceTest {
                 .extracting(BM25Index.ScoredDoc::id).containsExactly("c1");
     }
 
+    @Test
+    void rebuildCollection_deletionDuringPaginationRetainsLiveIndex() {
+        ftsService.indexChunks(List.of(chunk("keep", "inchangé", "keep.txt"),
+                chunk("remove", "supprimé", "remove.txt")), "coll-b7-race");
+        when(chromaDb.getOrCreateCollection("coll-b7-race")).thenReturn("id-b7");
+        when(chromaDb.getDocumentsPaged("id-b7", 500, 0)).thenAnswer(inv -> {
+            ftsService.removeBySource("remove.txt", "coll-b7-race");
+            List<String> ids = java.util.stream.IntStream.range(0, 500)
+                    .mapToObj(i -> "snapshot-" + i).toList();
+            return chromaPage(ids, ids);
+        });
+        ftsService.rebuildCollection("coll-b7-race");
+        assertThat(ftsService.indexedCount("coll-b7-race")).isEqualTo(1);
+        assertThat(ftsService.search("inchangé", "coll-b7-race", 5))
+                .extracting(BM25Index.ScoredDoc::id).containsExactly("keep");
+        assertThat(ftsService.search("supprimé", "coll-b7-race", 5)).isEmpty();
+        verify(chromaDb, never()).getDocumentsPaged("id-b7", 500, 500);
+    }
+
+    @Test
+    void rebuildCollection_replaysDeletionEvenWithoutLiveIndex() {
+        when(chromaDb.getOrCreateCollection("coll-b7-race")).thenReturn("id-b7");
+        when(chromaDb.getDocumentsPaged("id-b7", 500, 0)).thenAnswer(inv -> {
+            ftsService.removeBySource("c1.txt", "coll-b7-race");
+            return chromaPage(List.of("c1"), List.of("secret supprimé"));
+        });
+        ftsService.rebuildCollection("coll-b7-race");
+        assertThat(ftsService.indexedCount("coll-b7-race")).isZero();
+        assertThat(ftsService.search("secret", "coll-b7-race", 5)).isEmpty();
+    }
+
+    @Test
+    void rebuildCollection_concurrentUpdateWinsOverSnapshot() {
+        when(chromaDb.getOrCreateCollection("coll-b7-race")).thenReturn("id-b7");
+        when(chromaDb.getDocumentsPaged("id-b7", 500, 0)).thenAnswer(inv -> {
+            ftsService.indexChunks(List.of(chunk("c1", "nouvelle version", "c1.txt")), "coll-b7-race");
+            return chromaPage(List.of("c1"), List.of("ancienne version"));
+        });
+        ftsService.rebuildCollection("coll-b7-race");
+        assertThat(ftsService.indexedCount("coll-b7-race")).isEqualTo(1);
+        assertThat(ftsService.search("nouvelle", "coll-b7-race", 5)).hasSize(1);
+        assertThat(ftsService.search("ancienne", "coll-b7-race", 5)).isEmpty();
+    }
+
+    @Test
+    void rebuildCollection_diskSnapshotReplaysConcurrentDeletion() throws Exception {
+        BM25Index disk = new BM25Index();
+        disk.add("c1", "secret supprimé", "c1.txt", "sha");
+        writeDiskIndex("coll-b6-fresh", disk);
+        when(chromaDb.getOrCreateCollection("coll-b6-fresh")).thenReturn("disk-id");
+        when(chromaDb.count("disk-id")).thenAnswer(inv -> {
+            ftsService.removeBySource("c1.txt", "coll-b6-fresh");
+            return 1;
+        });
+        ftsService.rebuildCollection("coll-b6-fresh");
+        assertThat(ftsService.indexedCount("coll-b6-fresh")).isZero();
+    }
+
     // ── rebuildCollection : fraîcheur de l'index disque (B6) ─────────────────
 
     @Test
@@ -269,17 +352,20 @@ class FtsServiceTest {
     @Test
     void rebuildCollection_freshDiskIndex_usedWithoutChromaRebuild() throws Exception {
         BM25Index fresh = new BM25Index();
-        fresh.add("d1", "chunk persisté sur disque", "d.txt");
+        fresh.add("d1", "chunk persisté sur disque", "d.txt", null, ContextualHeader.terms(Map.of("sourceFile", "d.txt")));
         writeDiskIndex("coll-b6-fresh", fresh);
 
         when(chromaDb.getOrCreateCollection("coll-b6-fresh")).thenReturn("id-fresh");
         when(chromaDb.count("id-fresh")).thenReturn(1);
+        when(chromaDb.getDocumentsPaged("id-fresh", 500, 0)).thenReturn(Map.of(
+                "ids", List.of("d1"), "documents", List.of("chunk persisté sur disque"),
+                "metadatas", List.of(Map.of("sourceFile", "d.txt"))));
 
         ftsService.rebuildCollection("coll-b6-fresh");
 
         assertThat(ftsService.indexedCount("coll-b6-fresh")).isEqualTo(1);
         assertThat(ftsService.search("persisté", "coll-b6-fresh", 5)).hasSize(1);
-        verify(chromaDb, never()).getDocumentsPaged(eq("id-fresh"), anyInt(), anyInt());
+        verify(chromaDb).getDocumentsPaged("id-fresh", 500, 0);
     }
 
     @Test
@@ -295,6 +381,36 @@ class FtsServiceTest {
 
         // Fraîcheur invérifiable → mode dégradé : l'index disque est utilisé tel quel.
         assertThat(ftsService.indexedCount("coll-b6-down")).isEqualTo(1);
+    }
+
+    @Test
+    void sameCountReplacementInvalidatesDiskAndLiveCorpus() throws Exception {
+        BM25Index stale = new BM25Index();
+        stale.add("old", "ancien fantome", "old.txt");
+        writeDiskIndex("coll-b6-stale", stale);
+        when(chromaDb.getOrCreateCollection("coll-b6-stale")).thenReturn("replacement-id");
+        when(chromaDb.count("replacement-id")).thenReturn(1);
+        when(chromaDb.getDocumentsPaged("replacement-id", 500, 0))
+                .thenReturn(chromaPage(List.of("new"), List.of("nouveau contenu")));
+        ftsService.rebuildCollection("coll-b6-stale");
+        assertThat(ftsService.search("fantome", "coll-b6-stale", 5)).isEmpty();
+        assertThat(ftsService.search("nouveau", "coll-b6-stale", 5)).hasSize(1);
+        assertThat(ftsService.matchesChroma("coll-b6-stale")).isTrue();
+        when(chromaDb.getDocumentsPaged("replacement-id", 500, 0))
+                .thenReturn(chromaPage(List.of("new"), List.of("texte remplace meme identifiant")));
+        assertThat(ftsService.matchesChroma("coll-b6-stale")).isFalse();
+    }
+
+    @Test
+    void migrationBlocksLexicalServingAndMutations(@org.junit.jupiter.api.io.TempDir Path stateDir) {
+        var guard = new CollectionMaintenanceGuard(stateDir);
+        ftsService.setCollectionMaintenanceGuard(guard);
+        guard.begin("coll-b7-race", "id");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> ftsService.search("texte", "coll-b7-race", 5))
+                .isInstanceOf(IllegalStateException.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> ftsService.indexChunks(
+                List.of(chunk("id", "texte", "file.txt")), "coll-b7-race"))
+                .isInstanceOf(IllegalStateException.class);
     }
 
     // ── Helper ────────────────────────────────────────────────────────────────
