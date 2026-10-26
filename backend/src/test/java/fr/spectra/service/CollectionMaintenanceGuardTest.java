@@ -55,19 +55,20 @@ class CollectionMaintenanceGuardTest {
         var parent = guard.acquire("docs");
         var writer = new Thread(() -> guard.begin("docs", "id"));
         writer.start();
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
-        while (writer.getState() != Thread.State.WAITING && System.nanoTime() < deadline) Thread.onSpinWait();
-        assertThat(writer.getState()).isEqualTo(Thread.State.WAITING);
-        var childCompleted = new CountDownLatch(1);
-        var child = new Thread(() -> {
-            try (var ignored = guard.acquire("docs")) { childCompleted.countDown(); }
-        });
-        child.start();
+        Thread child = null;
         try {
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+            while (writer.getState() != Thread.State.WAITING && System.nanoTime() < deadline) Thread.onSpinWait();
+            assertThat(writer.getState()).isEqualTo(Thread.State.WAITING);
+            var childCompleted = new CountDownLatch(1);
+            child = new Thread(() -> {
+                try (var ignored = guard.acquire("docs")) { childCompleted.countDown(); }
+            });
+            child.start();
             assertThat(childCompleted.await(2, TimeUnit.SECONDS)).isTrue();
         } finally {
             parent.close();
-            child.join(2000);
+            if (child != null) child.join(2000);
             writer.join(2000);
         }
         assertThat(writer.isAlive()).isFalse();

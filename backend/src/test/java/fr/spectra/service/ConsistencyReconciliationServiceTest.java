@@ -70,6 +70,7 @@ class ConsistencyReconciliationServiceTest {
         // Défaut cohérent ; collection secondaire divergente (chroma=8, fts=0).
         when(chromaDb.count("id-default")).thenReturn(5);
         when(fts.indexedCount(DEFAULT_COLLECTION)).thenReturn(5);
+        when(fts.matchesChroma(DEFAULT_COLLECTION)).thenReturn(true);
         when(chromaDb.count("id-projet")).thenReturn(8);
         when(fts.indexedCount("collection_projet")).thenReturn(0);
 
