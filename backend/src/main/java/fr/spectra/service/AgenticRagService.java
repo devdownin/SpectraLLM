@@ -86,6 +86,13 @@ public class AgenticRagService {
 
     // ---------- Dépendances ------------------------------------------------
 
+    private CollectionMaintenanceGuard maintenanceGuard;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setCollectionMaintenanceGuard(CollectionMaintenanceGuard guard) {
+        this.maintenanceGuard = guard;
+    }
+
     private final ChromaDbClient chromaDbClient;
     private final EmbeddingService embeddingService;
     /** Fenêtre d'embedding côté requête : une question collée très longue est tronquée, pas rejetée. */
@@ -359,6 +366,16 @@ public class AgenticRagService {
 
     @SuppressWarnings("unchecked")
     private List<RetrievedChunk> retrieveAdditionalChunks(RetrievalFilterResolver.ResolvedFilter filter,
+                                                           String query, String collectionId,
+                                                           String collectionName, int maxChunks,
+                                                           Set<String> seen) {
+        try (var ignored = maintenanceGuard != null ? maintenanceGuard.acquire(collectionName)
+                : CollectionMaintenanceGuard.Lease.NONE) {
+            return retrieveAdditionalChunksAdmitted(filter, query, collectionId, collectionName, maxChunks, seen);
+        }
+    }
+
+    private List<RetrievedChunk> retrieveAdditionalChunksAdmitted(RetrievalFilterResolver.ResolvedFilter filter,
                                                            String query, String collectionId,
                                                            String collectionName, int maxChunks,
                                                            Set<String> seen) {

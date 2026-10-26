@@ -147,6 +147,17 @@ public class RagService {
             boolean hybridApplied
     ) {}
 
+    private CollectionMaintenanceGuard maintenanceGuard;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setCollectionMaintenanceGuard(CollectionMaintenanceGuard guard) {
+        this.maintenanceGuard = guard;
+    }
+
+    private CollectionMaintenanceGuard.Lease collectionLease(String collection) {
+        return maintenanceGuard != null ? maintenanceGuard.acquire(collection) : CollectionMaintenanceGuard.Lease.NONE;
+    }
+
     private final ChromaDbClient chromaDbClient;
     private final EmbeddingService embeddingService;
     /** Fenêtre d'embedding côté requête : une question collée très longue est tronquée, pas rejetée. */
@@ -901,6 +912,12 @@ public class RagService {
 
     /** Retrieval avec surcharges par requête (cf. {@link #query(QueryRequest, RagOverrides)}). */
     public RagContext retrieveContext(QueryRequest request, String retrievalQuestion, RagOverrides overrides) {
+        try (var ignored = collectionLease(collectionNameOf(request))) {
+            return retrieveContextAdmitted(request, retrievalQuestion, overrides);
+        }
+    }
+
+    private RagContext retrieveContextAdmitted(QueryRequest request, String retrievalQuestion, RagOverrides overrides) {
         RagOverrides ov = overrides != null ? overrides : RagOverrides.NONE;
         // « utilisable », pas « présent » : le moteur ONNX enregistre son bean même sans artefact
         // (pour que /api/status en publie la cause). Se fier à la présence faisait sur-extraire
@@ -1339,6 +1356,14 @@ public class RagService {
     private SingleQueryResult executeSingleQuery(String question, String collectionId,
                                                   String collectionName, int retrieveCount, boolean useHybrid,
                                                   RetrievalFilterResolver.ResolvedFilter filter) {
+        try (var ignored = collectionLease(collectionName)) {
+            return executeSingleQueryAdmitted(question, collectionId, collectionName, retrieveCount, useHybrid, filter);
+        }
+    }
+
+    private SingleQueryResult executeSingleQueryAdmitted(String question, String collectionId,
+                                                  String collectionName, int retrieveCount, boolean useHybrid,
+                                                  RetrievalFilterResolver.ResolvedFilter filter) {
         List<Float> embedding;
         boolean lexicalFallback = false;
         try {
@@ -1546,19 +1571,12 @@ public class RagService {
             String text = chunks.get(i);
             Map<String, String> meta = metadatas.get(i);
             Integer index = parseChunkIndex(meta.get("chunkIndex"));
-            String sha = meta.get("sha256");
-            // A legacy source name can also name a modern, excluded document. The neighbor
-            // API returns text only, so its provenance cannot be checked after expansion.
-            if (requireDocumentIdentity && (sha == null || sha.isBlank())) {
+            Optional<ChunkNeighborScope> scope = ChunkNeighborScope.from(meta, requireDocumentIdentity);
+            if (index == null || scope.isEmpty()) {
                 expanded.add(text);
                 continue;
             }
-            String field = sha != null && !sha.isBlank() ? "sha256" : "sourceFile";
-            String identity = "sha256".equals(field) ? sha : meta.get("sourceFile");
-            if (index == null || identity == null) {
-                expanded.add(text);
-                continue;
-            }
+            ChunkNeighborScope document = scope.get();
             try {
                 List<Integer> wanted = new ArrayList<>();
                 for (int d = 1; d <= window; d++) {
@@ -1567,7 +1585,11 @@ public class RagService {
                     if (previous >= 0) wanted.add((int) previous);
                     if (next <= Integer.MAX_VALUE) wanted.add((int) next);
                 }
-                Map<Integer, String> neighbors = chromaDbClient.getChunksByIndex(collectionId, field, identity, wanted);
+                Map<Integer, String> neighbors = document.zipEntry() != null
+                        ? chromaDbClient.getChunksByIndex(collectionId, document.identityField(),
+                                document.identityValue(), wanted, document.zipEntry())
+                        : chromaDbClient.getChunksByIndex(collectionId, document.identityField(),
+                                document.identityValue(), wanted);
                 String merged = text;
                 boolean before = true;
                 boolean after = true;

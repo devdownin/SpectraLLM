@@ -76,6 +76,18 @@ import java.util.concurrent.ConcurrentHashMap;
 @Service
 public class IngestionService {
 
+    private CollectionMaintenanceGuard maintenanceGuard;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setCollectionMaintenanceGuard(CollectionMaintenanceGuard guard) {
+        this.maintenanceGuard = guard;
+    }
+
+    private CollectionMaintenanceGuard.Lease admitCollection(String collection) {
+        return maintenanceGuard != null ? maintenanceGuard.acquire(collection) : CollectionMaintenanceGuard.Lease.NONE;
+    }
+
+
     private static final Logger log = LoggerFactory.getLogger(IngestionService.class);
     private static final String DEFAULT_COLLECTION = "spectra_documents";
     private static final int MAX_ZIP_DEPTH = 3;
@@ -654,6 +666,13 @@ public class IngestionService {
 
     private IngestionTaskExecutor.IngestOneResult ingestPrepared(String fileName, Path path,
                                                                  String hash, String collection) throws Exception {
+        try (var lease = admitCollection(collection)) {
+            return ingestPreparedAdmitted(fileName, path, hash, collection);
+        }
+    }
+
+    private IngestionTaskExecutor.IngestOneResult ingestPreparedAdmitted(String fileName, Path path,
+                                                                 String hash, String collection) throws Exception {
         if (!tryClaimHash(hash)) return new IngestionTaskExecutor.IngestOneResult(0, null, 0, true);
         try (GedService.DocumentLock ignored = gedService.lockDocument(hash)) {
             IngestedFileEntity existing = repository.findById(hash).orElse(null);
@@ -751,6 +770,14 @@ public class IngestionService {
      * dans chaque chunk — utile pour le filtrage/tri par récence au retrieval.
      */
     public synchronized UpsertResult upsertFromStream(String sourceKey, String logicalName, InputStream content,
+                                         String collectionName, String offsetRef,
+                                         Map<String, String> extraMetadata) throws Exception {
+        try (var lease = admitCollection(collectionName)) {
+            return upsertFromStreamAdmitted(sourceKey, logicalName, content, collectionName, offsetRef, extraMetadata);
+        }
+    }
+
+    private UpsertResult upsertFromStreamAdmitted(String sourceKey, String logicalName, InputStream content,
                                          String collectionName, String offsetRef,
                                          Map<String, String> extraMetadata) throws Exception {
         String collectionId = chromaDbClient.getOrCreateCollection(collectionName);

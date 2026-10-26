@@ -47,6 +47,18 @@ public class FtsService {
     private final SpectraProperties props;
 
     private StreamVersionVisibility streamVersionVisibility;
+    private CollectionMaintenanceGuard maintenanceGuard;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setCollectionMaintenanceGuard(CollectionMaintenanceGuard guard) {
+        this.maintenanceGuard = guard;
+    }
+
+    private CollectionMaintenanceGuard.Lease acquireCollection(String collectionName) {
+        return maintenanceGuard != null ? maintenanceGuard.acquire(collectionName)
+                : CollectionMaintenanceGuard.Lease.NONE;
+    }
+
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setStreamVersionVisibility(StreamVersionVisibility visibility) {
@@ -58,11 +70,11 @@ public class FtsService {
 
     /**
      * Collections dont l'index en mémoire a divergé du fichier {@code .bin}.
-     * La persistance est différée ({@link #flushDirtyIndices}, toutes les 5 s) : sérialiser
+     * La persistance est différée ({@link #flushDirtyIndices}, toutes les 30 s) : sérialiser
      * l'index COMPLET à chaque lot de 10 chunks — qui plus est sous le verrou de la map —
      * rendait l'ingestion quadratique en I/O sur les grosses collections. La sérialisation
      * hors verrou est sûre : {@link BM25Index} se sérialise sous son verrou de lecture.
-     * Fenêtre de perte max en cas d'arrêt brutal : 5 s (l'index se reconstruit de toute
+     * Fenêtre de perte max en cas d'arrêt brutal : 30 s (l'index se reconstruit de toute
      * façon depuis ChromaDB s'il est absent/périmé).
      */
     private final Set<String> dirtyIndices = ConcurrentHashMap.newKeySet();
@@ -138,6 +150,12 @@ public class FtsService {
      * Runs in the background; does not block startup.
      */
     public void rebuildCollection(String collectionName) {
+        try (var lease = acquireCollection(collectionName)) {
+            rebuildAvailableCollection(collectionName);
+        }
+    }
+
+    private void rebuildAvailableCollection(String collectionName) {
         if (!rebuilding.add(collectionName)) {
             log.debug("FTS: rebuild déjà en cours — '{}' ignoré", collectionName);
             return;
@@ -221,33 +239,65 @@ public class FtsService {
         }
     }
 
-    /**
-     * Fraîcheur de l'index disque : son nombre de chunks doit correspondre au comptage
-     * ChromaDB (source de vérité). En cas d'écart → reconstruction complète ; si ChromaDB
-     * est injoignable → l'index disque est utilisé en mode dégradé (mieux qu'un index vide,
-     * la réconciliation périodique corrigera dès que ChromaDB répond).
-     */
+    /** Compare the persisted corpus with Chroma content, even after equal-sized replacements. */
     private boolean diskIndexMatchesChroma(String collectionName, BM25Index diskIndex) {
-        if (!diskIndex.supportsDocumentIdentity()) return false;
-        if (!diskIndex.usesCurrentAnalyzer()) {
-            log.info("FTS: index disque '{}' construit avec une ancienne analyse lexicale — reconstruction",
-                    collectionName);
-            return false;
-        }
+        if (!diskIndex.supportsDocumentIdentity() || !diskIndex.usesCurrentAnalyzer()) return false;
         try {
-            String collectionId = chromaDbClient.getOrCreateCollection(collectionName);
-            int chromaCount = chromaDbClient.count(collectionId);
-            if (chromaCount == diskIndex.size()) {
-                return true;
-            }
-            log.info("FTS: index disque '{}' périmé ({} chunks vs {} dans ChromaDB) — reconstruction",
-                    collectionName, diskIndex.size(), chromaCount);
-            return false;
+            return diskIndex.corpusFingerprint().equals(chromaFingerprint(collectionName));
         } catch (Exception e) {
-            log.warn("FTS: fraîcheur de l'index disque '{}' invérifiable ({}) — utilisation en mode dégradé",
-                    collectionName, e.getMessage());
+            // Availability fallback only: this is explicitly not a freshness certificate.
+            log.warn("FTS: fraîcheur '{}' invérifiable ({}) — snapshot disque dégradé", collectionName, e.getMessage());
             return true;
         }
+    }
+
+    /** Used by reconciliation: unavailable Chroma throws rather than reporting a false match. */
+    public boolean matchesChroma(String collectionName) {
+        try (var lease = acquireCollection(collectionName)) {
+            BM25Index index = indices.get(collectionName);
+            return index != null && index.corpusFingerprint().equals(chromaFingerprint(collectionName));
+        }
+    }
+
+    private String chromaFingerprint(String collectionName) {
+        String collectionId = chromaDbClient.getOrCreateCollection(collectionName);
+        int expected = chromaDbClient.count(collectionId);
+        CorpusFingerprint fingerprint = new CorpusFingerprint();
+        int offset = 0;
+        final int limit = 500;
+        while (true) {
+            Map<String, Object> page = chromaDbClient.getDocumentsPaged(collectionId, limit, offset);
+            if (page == null || !(page.get("ids") instanceof List<?> ids)) {
+                throw new IllegalStateException("Chroma fingerprint page missing ids");
+            }
+            List<?> texts = page.get("documents") instanceof List<?> values ? values : List.of();
+            List<?> metas = page.get("metadatas") instanceof List<?> values ? values : List.of();
+            if (texts.size() != ids.size() || metas.size() != ids.size()) {
+                throw new IllegalStateException("Chroma fingerprint page misaligned");
+            }
+            for (int i = 0; i < ids.size(); i++) {
+                if (!(ids.get(i) instanceof String id) || !(texts.get(i) instanceof String text)) {
+                    throw new IllegalStateException("Chroma fingerprint document missing identity or text");
+                }
+                Map<?, ?> metadata = metas.get(i) instanceof Map<?, ?> m ? m : Map.of();
+                Object source = metadata.get("sourceFile");
+                Object sha = metadata.get("sha256");
+                fingerprint.add(id, text, source instanceof String v ? v : "inconnu",
+                        sha instanceof String v ? v : null, ContextualHeader.terms(stringMetadata(metadata)));
+            }
+            if (ids.size() < limit) break;
+            offset += limit;
+        }
+        if (fingerprint.count() != expected || chromaDbClient.count(collectionId) != expected) {
+            throw new IllegalStateException("Chroma changed during corpus fingerprint scan");
+        }
+        return fingerprint.value();
+    }
+
+    private static Map<String, String> stringMetadata(Map<?, ?> metadata) {
+        Map<String, String> result = new java.util.HashMap<>();
+        metadata.forEach((k, v) -> { if (k instanceof String key && v instanceof String value) result.put(key, value); });
+        return result;
     }
 
     /** Publish only the authoritative snapshot plus mutations since this rebuild began. */
@@ -298,23 +348,25 @@ public class FtsService {
 
     private void mutateIndex(String collectionName, java.util.function.Consumer<BM25Index> mutation,
                              boolean create, int weight) {
-        CollectionState state = state(collectionName);
-        synchronized (state) {
-            BM25Index index = create ? indices.computeIfAbsent(collectionName, ignored -> new BM25Index())
-                    : indices.get(collectionName);
-            if (index != null) {
-                mutation.accept(index);
-                dirtyIndices.add(collectionName);
-            }
-            // Journal deletions even when no live index exists: the snapshot may contain the source.
-            if (state.journal != null && !create) state.deletionDuringRebuild = true;
-            if (state.journal != null && !state.overflow) {
-                if (weight > MAX_REBUILD_MUTATIONS - state.mutationCount) {
-                    state.overflow = true;
-                    state.journal.clear();
-                } else {
-                    state.journal.add(mutation);
-                    state.mutationCount += weight;
+        try (var lease = acquireCollection(collectionName)) {
+            CollectionState state = state(collectionName);
+            synchronized (state) {
+                BM25Index index = create ? indices.computeIfAbsent(collectionName, ignored -> new BM25Index())
+                        : indices.get(collectionName);
+                if (index != null) {
+                    mutation.accept(index);
+                    dirtyIndices.add(collectionName);
+                }
+                // Journal deletions even when no live index exists: the snapshot may contain the source.
+                if (state.journal != null && !create) state.deletionDuringRebuild = true;
+                if (state.journal != null && !state.overflow) {
+                    if (weight > MAX_REBUILD_MUTATIONS - state.mutationCount) {
+                        state.overflow = true;
+                        state.journal.clear();
+                    } else {
+                        state.journal.add(mutation);
+                        state.mutationCount += weight;
+                    }
                 }
             }
         }
@@ -385,18 +437,20 @@ public class FtsService {
     /** Recherche BM25 restreinte aux documents acceptés (empreinte sha256 nullable, source). */
     public List<BM25Index.ScoredDoc> search(String query, String collectionName, int topN,
                                             java.util.function.BiPredicate<String, String> accept) {
-        BM25Index index = indices.get(collectionName);
-        if (index == null || index.size() == 0) {
-            log.debug("FTS: no index for '{}', returning empty BM25 results", collectionName);
-            return List.of();
+        try (var lease = acquireCollection(collectionName)) {
+            BM25Index index = indices.get(collectionName);
+            if (index == null || index.size() == 0) {
+                log.debug("FTS: no index for '{}', returning empty BM25 results", collectionName);
+                return List.of();
+            }
+            java.util.function.BiPredicate<String, String> effective = accept;
+            if (streamVersionVisibility != null) {
+                java.util.function.BiPredicate<String, String> published = streamVersionVisibility.snapshot();
+                effective = (sha, source) -> (accept == null || accept.test(sha, source))
+                        && published.test(sha, source);
+            }
+            return index.search(query, topN, effective);
         }
-        java.util.function.BiPredicate<String, String> effective = accept;
-        if (streamVersionVisibility != null) {
-            java.util.function.BiPredicate<String, String> published = streamVersionVisibility.snapshot();
-            effective = (sha, source) -> (accept == null || accept.test(sha, source))
-                    && published.test(sha, source);
-        }
-        return index.search(query, topN, effective);
     }
 
     /** Returns the number of indexed documents for a collection (for diagnostics). */

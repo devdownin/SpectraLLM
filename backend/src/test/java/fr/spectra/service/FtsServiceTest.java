@@ -352,17 +352,20 @@ class FtsServiceTest {
     @Test
     void rebuildCollection_freshDiskIndex_usedWithoutChromaRebuild() throws Exception {
         BM25Index fresh = new BM25Index();
-        fresh.add("d1", "chunk persisté sur disque", "d.txt");
+        fresh.add("d1", "chunk persisté sur disque", "d.txt", null, ContextualHeader.terms(Map.of("sourceFile", "d.txt")));
         writeDiskIndex("coll-b6-fresh", fresh);
 
         when(chromaDb.getOrCreateCollection("coll-b6-fresh")).thenReturn("id-fresh");
         when(chromaDb.count("id-fresh")).thenReturn(1);
+        when(chromaDb.getDocumentsPaged("id-fresh", 500, 0)).thenReturn(Map.of(
+                "ids", List.of("d1"), "documents", List.of("chunk persisté sur disque"),
+                "metadatas", List.of(Map.of("sourceFile", "d.txt"))));
 
         ftsService.rebuildCollection("coll-b6-fresh");
 
         assertThat(ftsService.indexedCount("coll-b6-fresh")).isEqualTo(1);
         assertThat(ftsService.search("persisté", "coll-b6-fresh", 5)).hasSize(1);
-        verify(chromaDb, never()).getDocumentsPaged(eq("id-fresh"), anyInt(), anyInt());
+        verify(chromaDb).getDocumentsPaged("id-fresh", 500, 0);
     }
 
     @Test
@@ -378,6 +381,36 @@ class FtsServiceTest {
 
         // Fraîcheur invérifiable → mode dégradé : l'index disque est utilisé tel quel.
         assertThat(ftsService.indexedCount("coll-b6-down")).isEqualTo(1);
+    }
+
+    @Test
+    void sameCountReplacementInvalidatesDiskAndLiveCorpus() throws Exception {
+        BM25Index stale = new BM25Index();
+        stale.add("old", "ancien fantome", "old.txt");
+        writeDiskIndex("coll-b6-stale", stale);
+        when(chromaDb.getOrCreateCollection("coll-b6-stale")).thenReturn("replacement-id");
+        when(chromaDb.count("replacement-id")).thenReturn(1);
+        when(chromaDb.getDocumentsPaged("replacement-id", 500, 0))
+                .thenReturn(chromaPage(List.of("new"), List.of("nouveau contenu")));
+        ftsService.rebuildCollection("coll-b6-stale");
+        assertThat(ftsService.search("fantome", "coll-b6-stale", 5)).isEmpty();
+        assertThat(ftsService.search("nouveau", "coll-b6-stale", 5)).hasSize(1);
+        assertThat(ftsService.matchesChroma("coll-b6-stale")).isTrue();
+        when(chromaDb.getDocumentsPaged("replacement-id", 500, 0))
+                .thenReturn(chromaPage(List.of("new"), List.of("texte remplace meme identifiant")));
+        assertThat(ftsService.matchesChroma("coll-b6-stale")).isFalse();
+    }
+
+    @Test
+    void migrationBlocksLexicalServingAndMutations(@org.junit.jupiter.api.io.TempDir Path stateDir) {
+        var guard = new CollectionMaintenanceGuard(stateDir);
+        ftsService.setCollectionMaintenanceGuard(guard);
+        guard.begin("coll-b7-race", "id");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> ftsService.search("texte", "coll-b7-race", 5))
+                .isInstanceOf(IllegalStateException.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> ftsService.indexChunks(
+                List.of(chunk("id", "texte", "file.txt")), "coll-b7-race"))
+                .isInstanceOf(IllegalStateException.class);
     }
 
     // ── Helper ────────────────────────────────────────────────────────────────

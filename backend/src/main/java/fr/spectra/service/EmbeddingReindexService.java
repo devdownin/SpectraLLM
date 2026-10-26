@@ -79,12 +79,21 @@ public class EmbeddingReindexService {
                     + "(une seule à la fois : le serveur d'embedding est le goulot d'étranglement).");
         }
 
-        String targetModel = modelRegistry.getActiveEmbeddingModel();
+        String targetModel;
+        String collectionId;
+        try {
+            targetModel = modelRegistry.getActiveEmbeddingModel();
+            // Persist the barrier before returning RUNNING, including same-model contract migrations.
+            collectionId = chromaDbClient.beginReindex(collection);
+        } catch (RuntimeException e) {
+            running.set(false);
+            throw e;
+        }
         ReindexStatus initial = ReindexStatus.started(collection, targetModel);
         statuses.put(collection, initial);
         log.info("Ré-indexation de '{}' avec le modèle d'embedding '{}'", collection, targetModel);
 
-        CompletableFuture.runAsync(() -> run(collection, targetModel));
+        CompletableFuture.runAsync(() -> run(collection, collectionId, targetModel));
         return initial;
     }
 
@@ -93,9 +102,8 @@ public class EmbeddingReindexService {
         return List.copyOf(statuses.values());
     }
 
-    private void run(String collection, String targetModel) {
+    private void run(String collection, String collectionId, String targetModel) {
         try {
-            String collectionId = chromaDbClient.resolveCollectionIdUnchecked(collection);
             // Passages ré-embeddés sous le contrat COURANT du modèle cible (préfixes, en-têtes,
             // fenêtre) ; updateEmbeddingStamp estampille ce contrat une fois tous les vecteurs écrits.
             EmbeddingContract target = EmbeddingContract.current(targetModel, serverMaxInputTokens);
@@ -113,6 +121,9 @@ public class EmbeddingReindexService {
                 List<?> metadatas = page != null && page.get("metadatas") instanceof List<?> m ? m : List.of();
                 if (ids.isEmpty()) {
                     break;
+                }
+                if (!java.util.Objects.equals(targetModel, modelRegistry.getActiveEmbeddingModel())) {
+                    throw new IllegalStateException("Le modèle d'embedding a changé pendant la ré-indexation");
                 }
 
                 // Chunks vides (texte nul/blanc) : on conserve leur vecteur existant plutôt
@@ -141,9 +152,21 @@ public class EmbeddingReindexService {
                 offset += PAGE_SIZE;
             }
 
+            if (processed != total) {
+                throw new IllegalStateException("La collection a changé pendant la ré-indexation : "
+                        + processed + " chunks traités pour " + total + " attendus");
+            }
+            if (processed != total || chromaDbClient.count(collectionId) != total) {
+                throw new IllegalStateException("La collection a changé ou une page manque pendant la ré-indexation");
+            }
+
             // Ré-estampiller EN DERNIER : la collection ne redevient interrogeable qu'une
             // fois tous les vecteurs recalculés (jamais d'état mixte servi au RAG).
+            if (!java.util.Objects.equals(targetModel, modelRegistry.getActiveEmbeddingModel())) {
+                throw new IllegalStateException("Le modèle d'embedding a changé pendant la ré-indexation");
+            }
             chromaDbClient.updateEmbeddingStamp(collection, collectionId, targetModel);
+            chromaDbClient.completeReindex(collection);
             update(collection, ReindexStatus::completed);
             log.info("Ré-indexation de '{}' terminée : {} chunks ré-embeddés avec '{}'",
                     collection, processed, targetModel);

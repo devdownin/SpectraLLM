@@ -195,9 +195,10 @@ public class ConsistencyReconciliationService {
             // périmé non vide (chunks fantômes après un reset de ChromaDB, ajouts perdus
             // par un arrêt brutal dans la fenêtre de flush différé…). La reconstruction
             // est sûre pendant une ingestion : les mutations concurrentes sont répliquées
-            // dans l'index cible (cf. FtsService.pendingRebuilds).
-            if (gap > 0) {
-                log.warn("[reconciliation] divergence FTS/ChromaDB sur '{}' (chroma={}, fts={}, db={}) — "
+            // dans le journal de reconstruction (cf. FtsService).
+            // Les empreintes détectent aussi les remplacements à cardinalité constante.
+            if (gap > 0 || !ftsService.matchesChroma(collection)) {
+                log.warn("[reconciliation] divergence de contenu FTS/ChromaDB sur '{}' (chroma={}, fts={}, db={}) — "
                         + "reconstruction depuis ChromaDB", collection, chroma, fts, dbTotal);
                 ftsService.rebuildCollection(collection);
             } else {

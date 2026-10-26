@@ -193,4 +193,13 @@ class IngestionServiceUpsertTest {
                 .isInstanceOf(IllegalStateException.class);
         verify(chromaDb, never()).deleteObsoleteStreamVersions(anyString(), anyString(), anyString());
     }
+    @Test
+    void maintenanceRejectsKafkaBeforeIndexOrPublication() {
+        var guard = mock(CollectionMaintenanceGuard.class);
+        when(guard.acquire(COLLECTION)).thenThrow(new IllegalStateException("migration"));
+        service.setCollectionMaintenanceGuard(guard);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> upsert("kafka://t/blocked", "value"))
+                .isInstanceOf(IllegalStateException.class).hasMessage("migration");
+        verifyNoInteractions(chromaDb, embeddingService, fts, streamRepo);
+    }
 }
