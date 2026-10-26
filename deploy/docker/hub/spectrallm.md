@@ -72,7 +72,7 @@ Prefer the guided path? `./scripts/start.sh --first-run --hub` does the download
 |---|---|
 | `latest` | The most recent release. |
 | `0.12` | The 0.12 series — patches, without the surprises of a version bump. |
-| `0.12.1` | An exact version. **Pin this in production.** |
+| `0.12.3` | An exact version. **Pin this in production.** |
 
 Release candidates (`1.0.0-rc1`) are published as-is and never carry `latest`.
 
@@ -184,3 +184,4 @@ Ports, one plan for the three: **8080** Kafka SQL Explorer · **8081** Kex-anHar
 **GNU AGPL-3.0** — use, modify and self-host freely, in production, on premises or air-gapped. AGPL is a strong copyleft: if you run a modified version as a network service, you must make the corresponding source available to its users. [Full text](https://github.com/devdownin/SpectraLLM/blob/main/LICENSE).
 
 *From raw documents to domain expertise — all on your hardware.*
+

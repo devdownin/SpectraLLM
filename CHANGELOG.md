@@ -10,7 +10,7 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ### Corrigé — images publiées
 
-- L’overlay Docker Hub utilise la version publiée `0.12.3` par défaut, en cohérence avec le contrôle CI de publication.
+- L’overlay Docker Hub, les exemples des pages d’images et `CITATION.cff` suivent la version publiée `0.12.3`, en cohérence avec les contrôles CI de publication.
 
 ### Corrigé — audit RAG, lot 2
 

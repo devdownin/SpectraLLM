@@ -19,8 +19,11 @@ class ConsistencyFingerprintTest {
         when(fts.indexedCount("spectra_documents")).thenReturn(1);
         when(fts.matchesChroma("spectra_documents")).thenReturn(false);
         var properties = mock(SpectraProperties.class);
-        try (var registry = new SimpleMeterRegistry()) {
+        var registry = new SimpleMeterRegistry();
+        try {
             new ConsistencyReconciliationService(repository, chroma, fts, properties, registry).reconcile();
+        } finally {
+            registry.close();
         }
         verify(fts).matchesChroma("spectra_documents");
         verify(fts).rebuildCollection("spectra_documents");
