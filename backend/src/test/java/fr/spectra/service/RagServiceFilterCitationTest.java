@@ -119,6 +119,24 @@ class RagServiceFilterCitationTest {
     }
 
     @Test
+    void categoryFilterDoesNotExpandLegacySourceIntoExcludedHomonyms() {
+        when(props.rag()).thenReturn(new SpectraProperties.RagProperties(null, null, 1, 4000));
+        IngestedFileEntity doc = new IngestedFileEntity("sha-a", "a.pdf", "pdf", Instant.now(), 2, null, null);
+        doc.setCategories(List.of("Juridique"));
+        when(files.findAllByOrderByIngestedAtDesc()).thenReturn(List.of(doc));
+        when(chromaDbClient.query(eq("col-1"), anyList(), anyInt(), any())).thenReturn(Map.of(
+                "documents", List.of(List.of("Passage historique autorisé.")),
+                "metadatas", List.of(List.of(Map.of("sourceFile", "a.pdf", "chunkIndex", "0"))),
+                "distances", List.of(List.of(0.1))));
+
+        RagService.RagContext context = ragService(Optional.empty(), Optional.empty()).retrieveContext(
+                request(new RetrievalFilter(List.of("juridique"), null, null, null), null));
+
+        assertThat(context.contextChunks()).containsExactly("Passage historique autorisé.");
+        verify(chromaDbClient, never()).getChunksByIndex(anyString(), anyString(), anyString(), anyList());
+    }
+
+    @Test
     void filtreSansDocument_aucuneRecherche() {
         when(files.findAllByOrderByIngestedAtDesc()).thenReturn(List.of());
 

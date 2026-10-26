@@ -209,6 +209,19 @@ public class BM25Index implements Serializable {
         }
     }
 
+    /** Remove obsolete generations of a stream source; null retainedIdentity deletes all. */
+    public void pruneStreamVersions(String sourceFile, String retainedIdentity) {
+        lock.writeLock().lock();
+        try {
+            docSources.entrySet().stream()
+                    .filter(e -> sourceFile.equals(e.getValue()) && (retainedIdentity == null
+                            || !retainedIdentity.equals(docIdentities.get(e.getKey()))))
+                    .map(Map.Entry::getKey).toList().forEach(this::removeById);
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
     /** Remove all documents belonging to sourceFile. */
     public void removeBySource(String sourceFile) {
         lock.writeLock().lock();
@@ -397,4 +410,3 @@ public class BM25Index implements Serializable {
         return (start == 0 && end == s.length()) ? s : s.substring(start, end);
     }
 }
-

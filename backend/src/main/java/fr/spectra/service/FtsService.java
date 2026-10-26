@@ -46,6 +46,13 @@ public class FtsService {
     private final ChromaDbClient chromaDbClient;
     private final SpectraProperties props;
 
+    private StreamVersionVisibility streamVersionVisibility;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setStreamVersionVisibility(StreamVersionVisibility visibility) {
+        this.streamVersionVisibility = visibility;
+    }
+
     /** One BM25 index per collection name. */
     private final Map<String, BM25Index> indices = new ConcurrentHashMap<>();
 
@@ -74,15 +81,21 @@ public class FtsService {
      */
     private final Set<String> rebuiltOnce = ConcurrentHashMap.newKeySet();
 
-    /**
-     * Index cibles des rebuilds en cours. Les mutations live ({@link #indexChunks},
-     * {@link #removeBySource}) y sont répliquées en plus de l'index publié : sans cela,
-     * les chunks ingérés PENDANT un rebuild (qui pagine ChromaDB, potentiellement long)
-     * étaient écrasés par le {@code indices.put} final et disparaissaient silencieusement
-     * du BM25 jusqu'au rebuild suivant. {@link BM25Index#add} étant idempotent par id, un
-     * chunk vu à la fois par le pager et par la réplication n'est pas dupliqué.
-     */
-    private final Map<String, BM25Index> pendingRebuilds = new ConcurrentHashMap<>();
+    /** Synchronizes publication and the live mutation journal per collection; never held during I/O. */
+    private final Map<String, CollectionState> collectionStates = new ConcurrentHashMap<>();
+    private static final int MAX_REBUILD_MUTATIONS = 100_000;
+
+    private static final class CollectionState {
+        java.util.List<java.util.function.Consumer<BM25Index>> journal;
+        int mutationCount;
+        boolean overflow;
+        boolean deletionDuringRebuild;
+        boolean paginated;
+    }
+
+    private CollectionState state(String collectionName) {
+        return collectionStates.computeIfAbsent(collectionName, ignored -> new CollectionState());
+    }
 
     public FtsService(ChromaDbClient chromaDbClient, SpectraProperties props) {
         this.chromaDbClient = chromaDbClient;
@@ -129,6 +142,14 @@ public class FtsService {
             log.debug("FTS: rebuild déjà en cours — '{}' ignoré", collectionName);
             return;
         }
+        CollectionState state = state(collectionName);
+        synchronized (state) {
+            state.journal = new java.util.ArrayList<>();
+            state.mutationCount = 0;
+            state.overflow = false;
+            state.deletionDuringRebuild = false;
+            state.paginated = false;
+        }
         log.info("FTS: rebuilding index for collection '{}'", collectionName);
         try {
             // Tentative de chargement depuis le disque d'abord — validée contre ChromaDB :
@@ -142,17 +163,21 @@ public class FtsService {
                 return;
             }
 
-            // Fallback : reconstruction depuis ChromaDB. L'index cible est enregistré comme
-            // « pending » AVANT la première page : tout chunk ingéré pendant le rebuild y est
-            // répliqué (cf. pendingRebuilds) et survit donc à la publication finale.
+            // Read outside the mutation lock; replay the journal only after the final page.
             String collectionId = chromaDbClient.getOrCreateCollection(collectionName);
             BM25Index index = new BM25Index();
-            pendingRebuilds.put(collectionName, index);
+
             int offset = 0;
             int limit = 500;
             int total = 0;
 
             while (true) {
+                synchronized (state) {
+                    if (offset > 0) state.paginated = true;
+                    if (state.paginated && state.deletionDuringRebuild) {
+                        throw new IllegalStateException("FTS paginated snapshot changed by deletion; live index retained");
+                    }
+                }
                 Map<String, Object> page = chromaDbClient.getDocumentsPaged(collectionId, limit, offset);
                 List<?> ids       = (List<?>) page.get("ids");
                 List<?> documents = (List<?>) page.get("documents");
@@ -189,7 +214,9 @@ public class FtsService {
         } catch (Exception e) {
             log.warn("FTS: could not rebuild index for '{}': {}", collectionName, e.getMessage());
         } finally {
-            pendingRebuilds.remove(collectionName);
+            synchronized (state) {
+                state.journal = null;
+            }
             rebuilding.remove(collectionName);
         }
     }
@@ -223,78 +250,74 @@ public class FtsService {
         }
     }
 
-    /**
-     * Installe l'index reconstruit en FUSIONNANT les chunks indexés en direct pendant le
-     * rebuild (ingestion concurrente au démarrage) : l'ancien {@code indices.put} les
-     * écrasait — ils disparaissaient de BM25 jusqu'au rebuild suivant. La fusion est
-     * atomique par collection ({@code ConcurrentHashMap.merge}), et l'index résultant est
-     * marqué dirty pour être persisté par le flush différé.
-     */
+    /** Publish only the authoritative snapshot plus mutations since this rebuild began. */
     private void mergeRebuilt(String collectionName, BM25Index rebuilt) {
-        indices.merge(collectionName, rebuilt, (live, fresh) -> {
-            fresh.addAll(live); // les ajouts en direct priment (ré-indexation par id, idempotent)
-            return fresh;
-        });
-        dirtyIndices.add(collectionName);
+        CollectionState state = state(collectionName);
+        synchronized (state) {
+            if (state.paginated && state.deletionDuringRebuild) {
+                throw new IllegalStateException("FTS paginated snapshot changed by deletion; live index retained");
+            }
+            if (state.overflow) {
+                throw new IllegalStateException("FTS rebuild mutation journal full; live index retained");
+            }
+            if (state.journal != null) state.journal.forEach(mutation -> mutation.accept(rebuilt));
+            indices.put(collectionName, rebuilt);
+            state.journal = null;
+            dirtyIndices.add(collectionName);
+        }
     }
 
-    /** Index a batch of newly ingested chunks. Called from IngestionTaskExecutor. */
+    /** Index a batch of newly ingested chunks. */
     public void indexChunks(List<TextChunk> chunks, String collectionName) {
-        indices.compute(collectionName, (k, existing) -> {
-            BM25Index index = existing != null ? existing : new BM25Index();
-            for (TextChunk chunk : chunks) {
+        if (chunks.isEmpty()) return;
+        List<TextChunk> snapshot = chunks.stream().map(c -> new TextChunk(c.id(), c.text(), c.index(),
+                c.sourceFile(), java.util.Collections.unmodifiableMap(new java.util.HashMap<>(c.metadata())))).toList();
+        mutateIndex(collectionName, index -> {
+            for (TextChunk chunk : snapshot) {
                 index.add(chunk.id(), chunk.text(), chunk.sourceFile(), chunk.metadata().get("sha256"),
                         ContextualHeader.terms(chunk.metadata()));
             }
-            return index;
-        });
-        // Réplique dans l'index cible d'un éventuel rebuild en cours (cf. pendingRebuilds).
-        BM25Index pending = pendingRebuilds.get(collectionName);
-        if (pending != null) {
-            for (TextChunk chunk : chunks) {
-                pending.add(chunk.id(), chunk.text(), chunk.sourceFile(), chunk.metadata().get("sha256"),
-                        ContextualHeader.terms(chunk.metadata()));
-            }
-        }
-        dirtyIndices.add(collectionName);
-        log.debug("FTS: indexed {} chunks into '{}'", chunks.size(), collectionName);
+        }, true, snapshot.size());
     }
 
-    /** Remove all chunks belonging to a source file. Called from DocumentController. */
     public void removeBySource(String sourceFile, String collectionName) {
-        indices.compute(collectionName, (k, existing) -> {
-            if (existing != null) {
-                existing.removeBySource(sourceFile);
-            }
-            return existing;
-        });
-        // Réplique la suppression dans l'index cible d'un éventuel rebuild en cours. Fenêtre
-        // résiduelle : si le pager ChromaDB relit ces chunks APRÈS cette suppression (avant
-        // leur effacement effectif côté ChromaDB), ils réapparaîtront — cas rare, rattrapé
-        // par la réconciliation périodique.
-        BM25Index pending = pendingRebuilds.get(collectionName);
-        if (pending != null) {
-            pending.removeBySource(sourceFile);
-        }
-        if (indices.containsKey(collectionName)) {
-            dirtyIndices.add(collectionName);
-        }
-        log.debug("FTS: removed '{}' from index '{}'", sourceFile, collectionName);
+        mutateIndex(collectionName, index -> index.removeBySource(sourceFile), false, 1);
     }
 
     public void removeByDocument(String sha256, String collectionName) {
-        mutateIndexes(collectionName, index -> index.removeByDocument(sha256));
+        mutateIndex(collectionName, index -> index.removeByDocument(sha256), false, 1);
     }
 
     public void removeLegacyBySource(String sourceFile, String collectionName) {
-        mutateIndexes(collectionName, index -> index.removeLegacyBySource(sourceFile));
+        mutateIndex(collectionName, index -> index.removeLegacyBySource(sourceFile), false, 1);
     }
 
-    private void mutateIndexes(String collectionName, java.util.function.Consumer<BM25Index> mutation) {
-        indices.computeIfPresent(collectionName, (k, index) -> { mutation.accept(index); return index; });
-        BM25Index pending = pendingRebuilds.get(collectionName);
-        if (pending != null) mutation.accept(pending);
-        if (indices.containsKey(collectionName)) dirtyIndices.add(collectionName);
+    public void pruneStreamVersions(String sourceFile, String collectionName, String retainedIdentity) {
+        mutateIndex(collectionName, index -> index.pruneStreamVersions(sourceFile, retainedIdentity), false, 1);
+    }
+
+    private void mutateIndex(String collectionName, java.util.function.Consumer<BM25Index> mutation,
+                             boolean create, int weight) {
+        CollectionState state = state(collectionName);
+        synchronized (state) {
+            BM25Index index = create ? indices.computeIfAbsent(collectionName, ignored -> new BM25Index())
+                    : indices.get(collectionName);
+            if (index != null) {
+                mutation.accept(index);
+                dirtyIndices.add(collectionName);
+            }
+            // Journal deletions even when no live index exists: the snapshot may contain the source.
+            if (state.journal != null && !create) state.deletionDuringRebuild = true;
+            if (state.journal != null && !state.overflow) {
+                if (weight > MAX_REBUILD_MUTATIONS - state.mutationCount) {
+                    state.overflow = true;
+                    state.journal.clear();
+                } else {
+                    state.journal.add(mutation);
+                    state.mutationCount += weight;
+                }
+            }
+        }
     }
 
     /**
@@ -367,7 +390,13 @@ public class FtsService {
             log.debug("FTS: no index for '{}', returning empty BM25 results", collectionName);
             return List.of();
         }
-        return index.search(query, topN, accept);
+        java.util.function.BiPredicate<String, String> effective = accept;
+        if (streamVersionVisibility != null) {
+            java.util.function.BiPredicate<String, String> published = streamVersionVisibility.snapshot();
+            effective = (sha, source) -> (accept == null || accept.test(sha, source))
+                    && published.test(sha, source);
+        }
+        return index.search(query, topN, effective);
     }
 
     /** Returns the number of indexed documents for a collection (for diagnostics). */
@@ -399,4 +428,3 @@ public class FtsService {
     /** FTS index status snapshot. */
     public record FtsStatus(boolean ready, int indexedChunks, String collections) {}
 }
-

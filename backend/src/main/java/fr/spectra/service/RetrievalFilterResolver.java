@@ -78,7 +78,10 @@ public class RetrievalFilterResolver {
             return active() && (sha256s == null || sha256s.isEmpty()) && (sourceFiles == null || sourceFiles.isEmpty());
         }
 
-        /** Clause {@code where} ChromaDB ; {@code null} si le filtre est inactif. */
+        /**
+         * Prefilter ChromaDB (superset for legacy chunks without an identity).
+         * Always use {@link FilteredVectorSearch} to enforce {@link #accepts} before ranking.
+         */
         public Map<String, Object> chromaWhere() {
             if (!active()) return null;
             Map<String, Object> bySha = sha256s != null && !sha256s.isEmpty()

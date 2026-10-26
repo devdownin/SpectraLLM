@@ -55,7 +55,7 @@ public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, 
             return fr.spectra.model.RagPromptFormat.ContextPlacement.parse(contextPlacement);
         }
         public boolean contextualHeadersEnabled() { return !Boolean.FALSE.equals(contextualHeaders); }
-        public int effectiveNeighborWindow() { return neighborWindow != null ? Math.max(0, neighborWindow) : 0; }
+        public int effectiveNeighborWindow() { return neighborWindow != null ? Math.min(fr.spectra.dto.RagOverrides.MAX_NEIGHBOR_WINDOW, Math.max(0, neighborWindow)) : 0; }
         public int effectiveNeighborMaxChars() { return neighborMaxChars != null ? neighborMaxChars : 4000; }
     }
 

@@ -244,6 +244,7 @@ spectra:
     contextual-headers: ${SPECTRA_RAG_CONTEXTUAL_HEADERS:true}
     # Expansion aux chunks voisins (chunkIndex ± N) de chaque passage retenu : utile quand la
     # réponse est à cheval sur deux chunks. 0 = désactivé. Le budget de prompt reste appliqué.
+    # Borne effective : 0..5 ; les surcharges API hors bornes sont rejetées.
     neighbor-window: ${SPECTRA_RAG_NEIGHBOR_WINDOW:0}
     neighbor-max-chars: ${SPECTRA_RAG_NEIGHBOR_MAX_CHARS:4000}
     # Vérification des citations après génération : chaque phrase est confrontée par le

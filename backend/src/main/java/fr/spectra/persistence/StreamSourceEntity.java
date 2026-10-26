@@ -32,6 +32,12 @@ public class StreamSourceEntity {
     @Column(name = "content_hash", length = 64)
     private String contentHash;
 
+    @Column(name = "versioned_publication", nullable = false)
+    private boolean versionedPublication;
+
+    public boolean isVersionedPublication() { return versionedPublication; }
+    public void setVersionedPublication(boolean value) { versionedPublication = value; }
+
     @Column(name = "chunk_count")
     private int chunkCount;
 

@@ -8,6 +8,13 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Corrigé — audit RAG, lot 1
+
+- Les filtres documentaires excluent les empreintes non autorisées, même en présence de fichiers homonymes, sur les chemins vectoriel, hybride et agentique.
+- Les mises à jour Kafka préparent la nouvelle version avant publication durable ; les échecs de suppression remontent au mécanisme de rejeu.
+- La reconstruction BM25 remplace les entrées périmées et rejoue uniquement les mutations concurrentes ; une suppression pendant la pagination invalide le snapshot.
+- Le voisinage RAG est limité à cinq passages de chaque côté ; les surcharges API hors de `0..5` sont rejetées et les calculs d’indices évitent les dépassements d’entiers.
+
 ### Corrigé — configuration ignorée depuis 0.12.0
 
 - **`spectra.llm.chat`, `spectra.llm.embedding`, `spectra.reranker`, `spectra.semantic-dedup` et

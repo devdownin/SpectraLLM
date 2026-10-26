@@ -377,9 +377,8 @@ public class AgenticRagService {
                     }
                 }
             } else {
-                Map<String, Object> raw = filter.active()
-                        ? chromaDbClient.query(collectionId, embedding, fetchN, filter.chromaWhere())
-                        : chromaDbClient.query(collectionId, embedding, fetchN);
+                Map<String, Object> raw = FilteredVectorSearch.query(
+                        chromaDbClient, collectionId, embedding, fetchN, filter);
                 List<List<String>> docs = (List<List<String>>) raw.get("documents");
                 List<List<Map<String, String>>> metas = (List<List<Map<String, String>>>) raw.get("metadatas");
                 List<List<Double>> dists = (List<List<Double>>) raw.get("distances");
@@ -436,4 +435,3 @@ public class AgenticRagService {
 
     private record RetrievedChunk(String text, String sourceFile, double distance) {}
 }
-

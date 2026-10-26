@@ -35,6 +35,7 @@ class IngestionServiceUpsertTest {
     private ChromaDbClient chromaDb;
     private FtsService fts;
     private EmbeddingService embeddingService;
+    private StreamSourceRepository streamRepo;
     private final Map<String, StreamSourceEntity> store = new HashMap<>();
 
     @BeforeEach
@@ -63,9 +64,9 @@ class IngestionServiceUpsertTest {
 
         fts = mock(FtsService.class);
 
-        StreamSourceRepository streamRepo = mock(StreamSourceRepository.class);
+        streamRepo = mock(StreamSourceRepository.class);
         when(streamRepo.findById(anyString())).thenAnswer(inv -> Optional.ofNullable(store.get(inv.getArgument(0))));
-        when(streamRepo.save(any(StreamSourceEntity.class))).thenAnswer(inv -> {
+        when(streamRepo.saveAndFlush(any(StreamSourceEntity.class))).thenAnswer(inv -> {
             StreamSourceEntity e = inv.getArgument(0);
             store.put(e.getSourceKey(), e);
             return e;
@@ -119,13 +120,13 @@ class IngestionServiceUpsertTest {
     }
 
     @Test
-    void changedContent_purgesOldThenReindexes() throws Exception {
+    void changedContent_publishesNewVersionThenPrunesOld() throws Exception {
         upsert("kafka://t/dossier-2", "Statut : ouvert.");
         IngestionService.UpsertResult r = upsert("kafka://t/dossier-2", "Statut : clos.");
         assertThat(r.kind()).isEqualTo(IngestionService.UpsertResult.Kind.UPSERTED);
-        // La version changée déclenche une purge des deux index avant réindexation.
-        verify(chromaDb, atLeastOnce()).deleteBySource("cid", "kafka://t/dossier-2");
-        verify(fts, atLeastOnce()).removeBySource("kafka://t/dossier-2", COLLECTION);
+        verify(chromaDb, never()).deleteBySource(anyString(), anyString());
+        verify(chromaDb, atLeastOnce()).deleteObsoleteStreamVersions(eq("cid"), eq("kafka://t/dossier-2"), anyString());
+        verify(fts, atLeastOnce()).pruneStreamVersions(eq("kafka://t/dossier-2"), eq(COLLECTION), anyString());
         assertThat(store.get("kafka://t/dossier-2").getVersion()).isEqualTo(2L);
     }
 
@@ -147,5 +148,49 @@ class IngestionServiceUpsertTest {
         verify(chromaDb, atLeastOnce()).deleteBySource("cid", "kafka://t/dossier-4");
         verify(fts, atLeastOnce()).removeBySource("kafka://t/dossier-4", COLLECTION);
         assertThat(store).doesNotContainKey("kafka://t/dossier-4");
+    }
+
+    @Test
+    void embeddingFailure_neverDeletesPublishedVersion() throws Exception {
+        upsert("kafka://t/stable", "Ancienne version.");
+        String previous = store.get("kafka://t/stable").getContentHash();
+        clearInvocations(chromaDb, fts, streamRepo);
+        when(embeddingService.embedBatch(anyList())).thenThrow(new IllegalStateException("embedding down"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> upsert("kafka://t/stable", "Nouvelle version."))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(store.get("kafka://t/stable").getContentHash()).isEqualTo(previous);
+        verify(chromaDb, never()).deleteBySource(anyString(), anyString());
+        verify(chromaDb, never()).deleteObsoleteStreamVersions(anyString(), anyString(), anyString());
+        verify(streamRepo, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void failedTombstone_keepsDurableDeletionIntentAndPropagates() throws Exception {
+        upsert("kafka://t/delete", "Ancienne version.");
+        when(chromaDb.deleteBySource("cid", "kafka://t/delete")).thenThrow(new IllegalStateException("chroma down"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> upsert("kafka://t/delete", ""))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(store.get("kafka://t/delete").getContentHash()).isNull();
+        verify(streamRepo, never()).deleteById("kafka://t/delete");
+    }
+
+    @Test
+    void cleanupFailure_isRetriedAfterPublicationWithoutReembedding() throws Exception {
+        when(chromaDb.deleteObsoleteStreamVersions(eq("cid"), eq("kafka://t/retry"), anyString()))
+                .thenThrow(new IllegalStateException("cleanup down")).thenReturn(1);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> upsert("kafka://t/retry", "Version courante."))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(upsert("kafka://t/retry", "Version courante.").kind())
+                .isEqualTo(IngestionService.UpsertResult.Kind.UNCHANGED);
+        verify(embeddingService, times(1)).embedBatch(anyList());
+        verify(chromaDb, times(2)).deleteObsoleteStreamVersions(eq("cid"), eq("kafka://t/retry"), anyString());
+    }
+
+    @Test
+    void publicationFailure_isPropagatedBeforeCleanup() throws Exception {
+        when(streamRepo.saveAndFlush(any())).thenThrow(new IllegalStateException("sql down"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> upsert("kafka://t/publish", "Nouvelle version."))
+                .isInstanceOf(IllegalStateException.class);
+        verify(chromaDb, never()).deleteObsoleteStreamVersions(anyString(), anyString(), anyString());
     }
 }

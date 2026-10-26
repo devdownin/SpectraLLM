@@ -54,7 +54,7 @@ public record QueryRequest(
          * Permet au Playground de désactiver un module pour une requête (toggles UI, comparaison A/B)
          * sans redéploiement. Un module absent du déploiement ne peut pas être activé par ce biais.
          */
-        RagOverrides overrides,
+        @jakarta.validation.Valid RagOverrides overrides,
 
         /**
          * Filtre de recherche (catégories GED, sources, période d'ingestion), appliqué avant le

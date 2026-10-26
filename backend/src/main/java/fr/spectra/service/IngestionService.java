@@ -730,8 +730,9 @@ public class IngestionService {
      *   <li><b>Tombstone</b> — un contenu vide (message Kafka {@code value=null}) supprime l'entrée.</li>
      *   <li><b>Idempotence</b> — si le hash du texte nettoyé est identique à la dernière version
      *       indexée, on ne fait rien (absorbe les rejeux at-least-once).</li>
-     *   <li><b>Delete-then-index</b> — purge des deux index (vecteur + BM25) par {@code sourceKey},
-     *       puis réindexation de la version courante.</li>
+     *   <li><b>Stage-publish-prune</b> — prépare les deux index sous une identité de version,
+     *       publie le pointeur SQL après réussite, puis retire les versions obsolètes.
+     *       Les recherches n'acceptent que la version publiée.</li>
      * </ol>
      *
      * @param sourceKey    identité métier stable (ex. {@code kafka://<topic>/<key>}) — sert de sourceFile
@@ -749,15 +750,21 @@ public class IngestionService {
      * Variante acceptant des métadonnées supplémentaires (temporelles, champs mappés…) fusionnées
      * dans chaque chunk — utile pour le filtrage/tri par récence au retrieval.
      */
-    public UpsertResult upsertFromStream(String sourceKey, String logicalName, InputStream content,
+    public synchronized UpsertResult upsertFromStream(String sourceKey, String logicalName, InputStream content,
                                          String collectionName, String offsetRef,
                                          Map<String, String> extraMetadata) throws Exception {
         String collectionId = chromaDbClient.getOrCreateCollection(collectionName);
 
+        // Kafka tombstones bypass format-specific extractors (an empty JSON/XML is not a document).
+        java.io.PushbackInputStream payload = new java.io.PushbackInputStream(content, 1);
+        int first = payload.read();
+        if (first < 0) return UpsertResult.deleted(sourceKey, purgeStreamSource(sourceKey, collectionName));
+        payload.unread(first);
+
         // 1. Extraction → nettoyage → chunking (sourceFile = clé métier stable)
         String contentType = extractorFactory.resolveContentType(logicalName);
         var extractor = extractorFactory.getExtractor(contentType);
-        ExtractedDocument doc = extractor.extract(logicalName, content);
+        ExtractedDocument doc = extractor.extract(logicalName, payload);
         String cleanedText = textCleaner.clean(doc.text());
 
         // Fraîcheur temporelle : horodatage d'ingestion + métadonnées fournies (eventTime, champs mappés).
@@ -769,6 +776,11 @@ public class IngestionService {
 
         // 2. Tombstone : plus de contenu → suppression pure
         if (chunks.isEmpty()) {
+            StreamSourceEntity pending = streamSourceRepository.findById(sourceKey).orElse(null);
+            if (pending != null) {
+                pending.setContentHash(null); // durable deletion intent; retries remain necessary
+                streamSourceRepository.saveAndFlush(pending);
+            }
             int removed = purgeSource(collectionId, collectionName, sourceKey);
             streamSourceRepository.deleteById(sourceKey);
             log.info("Upsert streaming '{}' : tombstone → {} chunks supprimés", sourceKey, removed);
@@ -776,21 +788,27 @@ public class IngestionService {
         }
 
         // 3. Idempotence : contenu inchangé → no-op (rejeu)
-        String contentHash = sha256(new java.io.ByteArrayInputStream(cleanedText.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        String contentHash = sha256(new java.io.ByteArrayInputStream((sourceKey + "\n" + collectionName + "\n" + cleanedText).getBytes(java.nio.charset.StandardCharsets.UTF_8)));
         StreamSourceEntity existing = streamSourceRepository.findById(sourceKey).orElse(null);
         if (existing != null && contentHash.equals(existing.getContentHash())) {
             log.debug("Upsert streaming '{}' : contenu inchangé, ignoré", sourceKey);
+            cleanupObsoleteStreamVersions(collectionId, collectionName, sourceKey, contentHash);
             return UpsertResult.unchanged(sourceKey);
         }
 
-        // 4. Delete ancienne version (les deux index)
-        int removed = purgeSource(collectionId, collectionName, sourceKey);
-
-        // 5. Index version courante (embed par lot + ChromaDB + BM25)
-        embedAndIndex(collectionId, collectionName, chunks);
-
-        // 6. Traçabilité de l'état par clé métier
+        // Stage the complete new version before changing the durable publication pointer.
+        List<TextChunk> versioned = chunks.stream().map(chunk -> {
+            Map<String, String> meta = new java.util.HashMap<>(chunk.metadata());
+            meta.put("sha256", contentHash);
+            meta.put("streamVersion", contentHash);
+            // Stable IDs make retries after an ambiguous response idempotent in Chroma.
+            String id = java.util.UUID.nameUUIDFromBytes((contentHash + ":" + chunk.index())
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
+            return new TextChunk(id, chunk.text(), chunk.index(), chunk.sourceFile(), meta);
+        }).toList();
+        embedAndIndex(collectionId, collectionName, versioned);
         recordUpsert(existing, sourceKey, collectionName, contentHash, chunks.size(), offsetRef);
+        int removed = cleanupObsoleteStreamVersions(collectionId, collectionName, sourceKey, contentHash);
         log.info("Upsert streaming '{}' : {} chunks (−{} ancienne version)", sourceKey, chunks.size(), removed);
         return UpsertResult.upserted(sourceKey, removed, chunks.size());
     }
@@ -801,30 +819,28 @@ public class IngestionService {
      *
      * @return nombre de chunks supprimés côté vecteur
      */
-    public int purgeStreamSource(String sourceKey, String collectionName) {
+    public synchronized int purgeStreamSource(String sourceKey, String collectionName) {
         String collectionId = chromaDbClient.getOrCreateCollection(collectionName);
-        int removed = purgeSource(collectionId, collectionName, sourceKey);
-        try {
-            streamSourceRepository.deleteById(sourceKey);
-        } catch (Exception e) {
-            log.warn("Suppression état streaming '{}' échouée : {}", sourceKey, e.getMessage());
+        StreamSourceEntity pending = streamSourceRepository.findById(sourceKey).orElse(null);
+        if (pending != null) {
+            pending.setContentHash(null);
+            streamSourceRepository.saveAndFlush(pending);
         }
+        int removed = purgeSource(collectionId, collectionName, sourceKey);
+        streamSourceRepository.deleteById(sourceKey);
         return removed;
     }
 
-    /** Purge une source des deux index (vecteur ChromaDB + BM25). Retourne le nb de chunks supprimés côté vecteur. */
     private int purgeSource(String collectionId, String collectionName, String sourceKey) {
-        int removed = 0;
-        try {
-            removed = chromaDbClient.deleteBySource(collectionId, sourceKey);
-        } catch (Exception e) {
-            log.warn("Purge ChromaDB échouée pour '{}': {}", sourceKey, e.getMessage());
-        }
-        try {
-            ftsService.removeBySource(sourceKey, collectionName);
-        } catch (Exception e) {
-            log.warn("Purge BM25 échouée pour '{}': {}", sourceKey, e.getMessage());
-        }
+        int removed = chromaDbClient.deleteBySource(collectionId, sourceKey);
+        ftsService.removeBySource(sourceKey, collectionName);
+        return removed;
+    }
+
+    private int cleanupObsoleteStreamVersions(String collectionId, String collectionName,
+                                               String sourceKey, String retainedHash) {
+        int removed = chromaDbClient.deleteObsoleteStreamVersions(collectionId, sourceKey, retainedHash);
+        ftsService.pruneStreamVersions(sourceKey, collectionName, retainedHash);
         return removed;
     }
 
@@ -847,13 +863,14 @@ public class IngestionService {
             StreamSourceEntity entity = existing != null ? existing : new StreamSourceEntity(sourceKey, collectionName);
             entity.setCollection(collectionName);
             entity.setContentHash(contentHash);
+            entity.setVersionedPublication(true);
             entity.setChunkCount(chunkCount);
             entity.setVersion(entity.getVersion() + 1);
             entity.setLastUpdatedAt(Instant.now());
             if (offsetRef != null) entity.setLastOffsetRef(offsetRef);
-            streamSourceRepository.save(entity);
+            streamSourceRepository.saveAndFlush(entity);
         } catch (Exception e) {
-            log.warn("Persistance état streaming '{}' échouée : {}", sourceKey, e.getMessage());
+            throw new IllegalStateException("Publication de la version streaming échouée : " + sourceKey, e);
         }
     }
 
@@ -891,4 +908,3 @@ public class IngestionService {
         return java.util.HexFormat.of().formatHex(digest.digest());
     }
 }
-
