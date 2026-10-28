@@ -89,7 +89,7 @@ jobs:
       build_images: ${{ steps.resolve.outputs.build_images }}
       matrix: ${{ steps.resolve.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Resolve
         id: resolve
@@ -230,7 +230,7 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.preflight.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Free disk space
         if: matrix.free_disk
@@ -377,7 +377,7 @@ jobs:
       && (needs.publish.result == 'success' || needs.publish.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Push overviews to Docker Hub
         env:

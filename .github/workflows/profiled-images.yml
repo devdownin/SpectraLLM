@@ -59,7 +59,7 @@ jobs:
             dockerfile: services/trainer/Dockerfile
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Free disk space
         # Les runners hébergés offrent ~14 Go utiles ; l'image du trainer les dépasse sans
