@@ -1,0 +1,404 @@
+#!/usr/bin/env python3
+"""Banc EnterpriseRAG-Bench (onyx-dot-app) pour Spectra.
+
+Produit le fichier de réponses attendu par l'évaluateur officiel
+(https://github.com/onyx-dot-app/EnterpriseRAG-Bench, ``metrics_based_eval``) et par le
+leaderboard https://huggingface.co/spaces/onyx-dot-app/EnterpriseRAG-Bench-Leaderboard :
+
+    {"question_id": "qst_0001", "answer": "...", "document_ids": ["dsid_..."]}
+
+Étapes (chacune reprenable) :
+
+    prepare  télécharge le corpus (parquet HF) et écrit un fichier ``<doc_id>.txt`` par document
+             (``--subset N`` : documents de référence + N distracteurs, pour un essai rapide) ;
+    ingest   envoie ces fichiers à ``POST /api/ingest`` par lots et suit chaque tâche ;
+    answer   pose les 500 questions à ``POST /api/query`` et écrit ``answers.jsonl`` ;
+    recall   mesure hors-ligne le rappel documentaire (sans LLM juge).
+
+Le doc_id est porté par le nom de fichier : Spectra le restitue dans ``sources[].sourceFile``,
+d'où les ``document_ids`` sont extraits. Il est aussi écrit en tête du contenu, ce qui rend
+chaque fichier unique (l'ingestion déduplique par SHA-256 : deux quasi-doublons au contenu
+identique ne seraient sinon indexés qu'une fois, sous un seul doc_id).
+
+Dépendances : bibliothèque standard ; ``pyarrow`` pour ``prepare`` uniquement.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import random
+import re
+import sys
+import time
+import urllib.error
+import urllib.request
+import uuid
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Iterable, Iterator
+
+HF_BASE = "https://huggingface.co/datasets/onyx-dot-app/EnterpriseRAG-Bench/resolve/main"
+DOCUMENTS_URL = f"{HF_BASE}/data/documents/test.parquet"
+QUESTIONS_URL = "https://raw.githubusercontent.com/onyx-dot-app/EnterpriseRAG-Bench/main/questions.jsonl"
+
+DOC_ID_PATTERN = re.compile(r"dsid_[0-9a-fA-F]{8,}")
+# Types sans document de référence : exclus du rappel (comme dans l'évaluateur officiel).
+NO_GOLD_TYPES = frozenset({"high_level", "info_not_found"})
+TERMINAL_STATUSES = frozenset({"COMPLETED", "FAILED", "CANCELLED"})
+
+# Limites Spring : 50 Mo par fichier, 100 Mo par requête (application.yml). Marge pour l'en-tête multipart.
+MAX_BATCH_BYTES = 40 * 1024 * 1024
+
+
+# ── Données ───────────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class Question:
+    question_id: str
+    question_type: str
+    question: str
+    expected_doc_ids: tuple[str, ...]
+
+
+def load_questions(path: Path) -> list[Question]:
+    questions = []
+    with path.open(encoding="utf-8") as fh:
+        for line in fh:
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            questions.append(Question(
+                question_id=row["question_id"],
+                question_type=row.get("question_type", "unknown"),
+                question=row["question"],
+                expected_doc_ids=tuple(row.get("expected_doc_ids") or ()),
+            ))
+    return questions
+
+
+def extract_doc_ids(sources: Iterable[dict], limit: int | None = None) -> list[str]:
+    """doc_ids distincts, dans l'ordre de classement des sources renvoyées par Spectra."""
+    seen: dict[str, None] = {}
+    for source in sources:
+        for match in DOC_ID_PATTERN.findall(source.get("sourceFile") or ""):
+            seen.setdefault(match.lower(), None)
+    ids = list(seen)
+    return ids[:limit] if limit else ids
+
+
+def render_document(doc_id: str, source_type: str, title: str, content: str) -> str:
+    header = f"[{doc_id}] [{source_type}] {title}".strip()
+    return f"{header}\n\n{content or ''}\n"
+
+
+def select_subset(all_ids: Iterable[str], gold_ids: set[str], distractors: int, seed: int) -> set[str]:
+    """Documents de référence + ``distractors`` documents tirés au hasard (reproductible)."""
+    others = sorted(i for i in all_ids if i not in gold_ids)
+    rng = random.Random(seed)
+    picked = rng.sample(others, min(distractors, len(others)))
+    return set(gold_ids) | set(picked)
+
+
+def plan_batches(files: list[Path], max_files: int, max_bytes: int = MAX_BATCH_BYTES) -> list[list[Path]]:
+    """Lots déterministes (fichiers triés) : un index de lot reste stable d'une reprise à l'autre."""
+    batches: list[list[Path]] = []
+    current: list[Path] = []
+    size = 0
+    for path in sorted(files):
+        file_size = path.stat().st_size
+        if current and (len(current) >= max_files or size + file_size > max_bytes):
+            batches.append(current)
+            current, size = [], 0
+        current.append(path)
+        size += file_size
+    if current:
+        batches.append(current)
+    return batches
+
+
+def recall_report(questions: list[Question], answers: dict[str, list[str]]) -> dict:
+    per_type: dict[str, list[float]] = defaultdict(list)
+    extras: dict[str, list[int]] = defaultdict(list)
+    for q in questions:
+        if q.question_type in NO_GOLD_TYPES or not q.expected_doc_ids:
+            continue
+        retrieved = {d.lower() for d in answers.get(q.question_id, [])}
+        gold = {d.lower() for d in q.expected_doc_ids}
+        per_type[q.question_type].append(len(gold & retrieved) / len(gold))
+        extras[q.question_type].append(len(retrieved - gold))
+    flat = [r for values in per_type.values() for r in values]
+    return {
+        "questions": len(flat),
+        "recall": sum(flat) / len(flat) if flat else 0.0,
+        "by_type": {
+            t: {"n": len(v), "recall": sum(v) / len(v), "mean_extra_docs": sum(extras[t]) / len(extras[t])}
+            for t, v in sorted(per_type.items())
+        },
+    }
+
+
+# ── HTTP ──────────────────────────────────────────────────────────────────────
+
+
+class SpectraClient:
+    def __init__(self, base_url: str, timeout: float):
+        self.base_url = base_url.rstrip("/")
+        self.timeout = timeout
+
+    def _send(self, request: urllib.request.Request) -> dict:
+        with urllib.request.urlopen(request, timeout=self.timeout) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+
+    def get(self, path: str) -> dict:
+        return self._send(urllib.request.Request(self.base_url + path))
+
+    def post_json(self, path: str, payload: dict) -> dict:
+        body = json.dumps(payload).encode("utf-8")
+        return self._send(urllib.request.Request(
+            self.base_url + path, data=body, method="POST",
+            headers={"Content-Type": "application/json"}))
+
+    def post_files(self, path: str, files: list[Path]) -> dict:
+        body, content_type = encode_multipart(files)
+        return self._send(urllib.request.Request(
+            self.base_url + path, data=body, method="POST", headers={"Content-Type": content_type}))
+
+
+def encode_multipart(files: list[Path], field: str = "files") -> tuple[bytes, str]:
+    boundary = uuid.uuid4().hex
+    parts = []
+    for path in files:
+        parts.append(
+            f'--{boundary}\r\nContent-Disposition: form-data; name="{field}"; filename="{path.name}"\r\n'
+            f"Content-Type: text/plain\r\n\r\n".encode("utf-8"))
+        parts.append(path.read_bytes())
+        parts.append(b"\r\n")
+    parts.append(f"--{boundary}--\r\n".encode("utf-8"))
+    return b"".join(parts), f"multipart/form-data; boundary={boundary}"
+
+
+def with_retry(call, attempts: int = 6, base_delay: float = 5.0):
+    """Réessaie sur 429 (contre-pression ``max-active-ingestions``), 5xx et erreurs réseau."""
+    for attempt in range(attempts):
+        try:
+            return call()
+        except urllib.error.HTTPError as exc:
+            if exc.code != 429 and exc.code < 500 or attempt == attempts - 1:
+                raise
+        except (urllib.error.URLError, TimeoutError, ConnectionError):
+            if attempt == attempts - 1:
+                raise
+        time.sleep(base_delay * 2 ** attempt)
+    raise RuntimeError("unreachable")
+
+
+def download(url: str, dest: Path) -> Path:
+    if dest.exists():
+        return dest
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    partial = dest.with_suffix(dest.suffix + ".part")
+    print(f"[prepare] téléchargement {url}", file=sys.stderr)
+    with urllib.request.urlopen(url, timeout=120) as resp, partial.open("wb") as out:
+        while chunk := resp.read(1 << 20):
+            out.write(chunk)
+    partial.rename(dest)
+    return dest
+
+
+# ── Commandes ─────────────────────────────────────────────────────────────────
+
+
+def iter_parquet_rows(path: Path, columns: list[str]) -> Iterator[dict]:
+    try:
+        import pyarrow.parquet as pq
+    except ImportError:
+        sys.exit("pyarrow est requis pour 'prepare' : pip install pyarrow")
+    # Lecture par lots : le corpus (1,4 Go compressé) ne tient pas confortablement en mémoire.
+    for batch in pq.ParquetFile(path).iter_batches(columns=columns, batch_size=2048):
+        yield from batch.to_pylist()
+
+
+def cmd_prepare(args: argparse.Namespace) -> None:
+    work = Path(args.work_dir)
+    questions_path = download(args.questions_url, work / "questions.jsonl")
+    parquet_path = Path(args.documents_parquet) if args.documents_parquet else download(
+        args.documents_url, work / "documents.parquet")
+
+    keep: set[str] | None = None
+    if args.subset is not None:
+        gold = {d for q in load_questions(questions_path) for d in q.expected_doc_ids}
+        all_ids = [row["doc_id"] for row in iter_parquet_rows(parquet_path, ["doc_id"])]
+        keep = select_subset(all_ids, gold, args.subset, args.seed)
+        print(f"[prepare] sous-ensemble : {len(gold)} documents de référence + "
+              f"{len(keep) - len(gold)} distracteurs (score NON comparable au leaderboard)", file=sys.stderr)
+
+    docs_dir = work / "documents"
+    docs_dir.mkdir(parents=True, exist_ok=True)
+    written = 0
+    for row in iter_parquet_rows(parquet_path, ["doc_id", "source_type", "title", "content"]):
+        if keep is not None and row["doc_id"] not in keep:
+            continue
+        target = docs_dir / f"{row['doc_id']}.txt"
+        if not target.exists():
+            target.write_text(render_document(row["doc_id"], row["source_type"] or "",
+                                              row["title"] or "", row["content"]), encoding="utf-8")
+        written += 1
+    print(f"[prepare] {written} documents dans {docs_dir}", file=sys.stderr)
+
+
+def wait_for_task(client: SpectraClient, task_id: str, poll: float) -> dict:
+    while True:
+        task = with_retry(lambda: client.get(f"/api/ingest/{task_id}"))
+        if task.get("status") in TERMINAL_STATUSES:
+            return task
+        time.sleep(poll)
+
+
+def cmd_ingest(args: argparse.Namespace) -> None:
+    work = Path(args.work_dir)
+    files = list((work / "documents").glob("dsid_*.txt"))
+    if not files:
+        sys.exit(f"aucun document dans {work / 'documents'} — lancer 'prepare' d'abord")
+    batches = plan_batches(files, args.batch_size)
+    state_path = work / "ingest_state.json"
+    done: set[int] = set(json.loads(state_path.read_text())["done"]) if state_path.exists() else set()
+    errors_path = work / "ingest_errors.log"
+    client = SpectraClient(args.api, args.timeout)
+
+    pending = [i for i in range(len(batches)) if i not in done]
+    print(f"[ingest] {len(files)} fichiers, {len(batches)} lots, {len(pending)} restants", file=sys.stderr)
+    for index in pending:
+        submitted = with_retry(lambda b=batches[index]: client.post_files("/api/ingest", b))
+        task = wait_for_task(client, submitted["taskId"], args.poll)
+        if task["status"] != "COMPLETED":
+            sys.exit(f"[ingest] lot {index} : {task['status']} — {task.get('error')}")
+        if task.get("fileErrors"):
+            with errors_path.open("a", encoding="utf-8") as fh:
+                fh.writelines(f"{e}\n" for e in task["fileErrors"])
+        done.add(index)
+        state_path.write_text(json.dumps({"done": sorted(done)}))
+        print(f"[ingest] lot {index + 1}/{len(batches)} : {task.get('chunksCreated', 0)} chunks", file=sys.stderr)
+
+
+def build_query(question: str, args: argparse.Namespace) -> dict:
+    payload = {
+        "question": f"{question}{args.question_suffix}",
+        "maxContextChunks": args.max_context_chunks,
+        "topCandidates": args.top_candidates,
+        "temperature": args.temperature,
+    }
+    if args.collection:
+        payload["collection"] = args.collection
+    return payload
+
+
+def answer_one(client: SpectraClient, q: Question, args: argparse.Namespace) -> dict:
+    response = with_retry(lambda: client.post_json("/api/query", build_query(q.question, args)), attempts=3)
+    return {
+        "question_id": q.question_id,
+        "answer": response.get("answer") or "",
+        "document_ids": extract_doc_ids(response.get("sources") or [], args.max_docs),
+        "spectra": {"ragStrategy": response.get("ragStrategy"), "durationMs": response.get("durationMs")},
+    }
+
+
+def load_answered(path: Path) -> set[str]:
+    if not path.exists():
+        return set()
+    with path.open(encoding="utf-8") as fh:
+        return {json.loads(line)["question_id"] for line in fh if line.strip()}
+
+
+def cmd_answer(args: argparse.Namespace) -> None:
+    work = Path(args.work_dir)
+    questions = load_questions(Path(args.questions) if args.questions else work / "questions.jsonl")
+    if args.question_type:
+        questions = [q for q in questions if q.question_type in args.question_type]
+    out = Path(args.output) if args.output else work / "answers.jsonl"
+    answered = load_answered(out)
+    todo = [q for q in questions if q.question_id not in answered][: args.limit]
+    print(f"[answer] {len(todo)} questions à traiter ({len(answered)} déjà dans {out})", file=sys.stderr)
+
+    client = SpectraClient(args.api, args.timeout)
+    failures = 0
+    # Écriture depuis le seul thread principal : pas d'entrelacement de lignes JSONL.
+    with out.open("a", encoding="utf-8") as fh, ThreadPoolExecutor(max_workers=args.parallelism) as pool:
+        futures = {pool.submit(answer_one, client, q, args): q for q in todo}
+        for count, future in enumerate(as_completed(futures), 1):
+            q = futures[future]
+            try:
+                record = future.result()
+            except Exception as exc:  # noqa: BLE001 — une question en échec ne stoppe pas le banc
+                failures += 1
+                print(f"[answer] {q.question_id} échec : {exc}", file=sys.stderr)
+                continue
+            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+            fh.flush()
+            print(f"[answer] {count}/{len(todo)} {q.question_id} "
+                  f"({len(record['document_ids'])} docs, {record['spectra']['durationMs']} ms)", file=sys.stderr)
+    if failures:
+        sys.exit(f"[answer] {failures} échec(s) — relancer la commande pour les reprendre")
+
+
+def cmd_recall(args: argparse.Namespace) -> None:
+    work = Path(args.work_dir)
+    questions = load_questions(Path(args.questions) if args.questions else work / "questions.jsonl")
+    answers_path = Path(args.answers) if args.answers else work / "answers.jsonl"
+    with answers_path.open(encoding="utf-8") as fh:
+        answers = {r["question_id"]: r.get("document_ids", []) for r in map(json.loads, filter(str.strip, fh))}
+    print(json.dumps(recall_report(questions, answers), indent=2))
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--work-dir", default="data/enterprise-rag-bench")
+    parser.add_argument("--api", default="http://localhost:8080")
+    parser.add_argument("--timeout", type=float, default=600.0, help="délai HTTP (s) ; un LLM local est lent")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    p = sub.add_parser("prepare", help="télécharger et matérialiser le corpus")
+    p.add_argument("--subset", type=int, metavar="N", help="références + N distracteurs aléatoires")
+    p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--documents-parquet", help="parquet déjà téléchargé")
+    p.add_argument("--documents-url", default=DOCUMENTS_URL)
+    p.add_argument("--questions-url", default=QUESTIONS_URL)
+    p.set_defaults(func=cmd_prepare)
+
+    p = sub.add_parser("ingest", help="indexer le corpus dans Spectra")
+    p.add_argument("--batch-size", type=int, default=200)
+    p.add_argument("--poll", type=float, default=5.0)
+    p.set_defaults(func=cmd_ingest)
+
+    p = sub.add_parser("answer", help="poser les questions et écrire answers.jsonl")
+    p.add_argument("--questions")
+    p.add_argument("--output")
+    p.add_argument("--collection")
+    p.add_argument("--max-context-chunks", type=int, default=10)
+    p.add_argument("--top-candidates", type=int, default=50)
+    p.add_argument("--max-docs", type=int, default=10, help="document_ids gardés (les extras sont pénalisés)")
+    p.add_argument("--temperature", type=float, default=0.0)
+    p.add_argument("--question-suffix", default="\n\nAnswer in English.",
+                   help="persona et prompts Spectra sont en français ; le juge attend de l'anglais")
+    p.add_argument("--question-type", action="append", help="filtrer par type (répétable)")
+    p.add_argument("--limit", type=int)
+    p.add_argument("--parallelism", type=int, default=1)
+    p.set_defaults(func=cmd_answer)
+
+    p = sub.add_parser("recall", help="rappel documentaire hors-ligne")
+    p.add_argument("--questions")
+    p.add_argument("--answers")
+    p.set_defaults(func=cmd_recall)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = build_parser().parse_args(argv)
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()
