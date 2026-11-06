@@ -104,6 +104,32 @@ class IngestionServiceUpsertTest {
     }
 
     @Test
+    void emptyConnectorUpdatePreservesPublishedContentInsteadOfTreatingItAsTombstone() throws Exception {
+        String key = "source://instance/guide";
+        upsert(key, "Published guide.");
+        String hash = store.get(key).getContentHash();
+        clearInvocations(chromaDb, streamRepo);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> upsert(key, ""))
+                .isInstanceOf(fr.spectra.service.extraction.ExtractionException.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> upsert(key, "    "))
+                .isInstanceOf(fr.spectra.service.extraction.ExtractionException.class);
+        assertThat(store.get(key).getContentHash()).isEqualTo(hash);
+        verify(chromaDb, never()).deleteBySource(anyString(), anyString());
+        verify(streamRepo, never()).deleteById(anyString());
+    }
+
+    @Test
+    void connectorProvenanceChangesArePublishedEvenWhenTextIsUnchanged() throws Exception {
+        String key = "source://instance/guide";
+        byte[] text = "Stable content.".getBytes(StandardCharsets.UTF_8);
+        service.upsertFromStream(key, "guide.txt", new ByteArrayInputStream(text), COLLECTION, null, Map.of("title", "Old title"));
+        String previous = store.get(key).getContentHash();
+        service.upsertFromStream(key, "guide.txt", new ByteArrayInputStream(text), COLLECTION, null, Map.of("title", "New title"));
+        assertThat(store.get(key).getContentHash()).isNotEqualTo(previous);
+        assertThat(store.get(key).getVersion()).isEqualTo(2L);
+    }
+
+    @Test
     void extraMetadataAndFreshnessArePropagatedToChunks() throws Exception {
         InputStream body = new ByteArrayInputStream("Statut courant.".getBytes(StandardCharsets.UTF_8));
         service.upsertFromStream("kafka://t/dossier-5", "kafka://t/dossier-5.json", body,

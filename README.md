@@ -80,6 +80,8 @@ Four stages, one continuous flow — all driven from a guided web interface (FR/
 
 *Curious how the hybrid fusion, reranking and context compression actually work — and **why**? → **[RAG pipeline internals](docs/tech/rag-pipeline.en.md)** · **[Architecture](docs/architecture.en.md)***
 
+Synchronized local folders, S3/MinIO buckets and websites are managed from **Data → Connectors**, with schedules, connection tests and persistent document checkpoints. See the [connector guide (FR)](docs/user/data-sources.fr.md).
+
 ## 📚 Documentation
 
 Browse everything from the **[documentation index](docs/README.md)**, or jump straight in:

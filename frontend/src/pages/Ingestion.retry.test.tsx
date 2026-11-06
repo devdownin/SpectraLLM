@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { MemoryRouter } from 'react-router-dom';
 import '../i18n';
 import i18n from 'i18next';
 
@@ -35,7 +36,7 @@ function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <Ingestion />
+      <MemoryRouter><Ingestion /></MemoryRouter>
     </QueryClientProvider>,
   );
 }

@@ -9,6 +9,21 @@ import static org.mockito.Mockito.*;
 
 class StreamVersionVisibilityTest {
     @Test
+    void connectorSourcesAlsoHideStagedObsoleteAndMissingPublications() {
+        var repository = mock(StreamSourceRepository.class);
+        String key = "source://instance/document";
+        var source = new StreamSourceEntity(key, "spectra_documents");
+        source.setContentHash("published"); source.setVersionedPublication(true);
+        when(repository.findById(key)).thenReturn(Optional.of(source));
+        var visibility = new StreamVersionVisibility(repository);
+        assertThat(visibility.accepts("published", key)).isTrue();
+        assertThat(visibility.accepts("staged", key)).isFalse();
+        assertThat(visibility.accepts(null, key)).isFalse();
+        assertThat(visibility.accepts("v", "source://instance/missing")).isFalse();
+        source.setContentHash(null);
+        assertThat(visibility.accepts("published", key)).isFalse();
+    }
+    @Test
     void onlyPublishedRevisionIsVisibleAndDeletionIntentHidesAllRevisions() {
         var repository = mock(StreamSourceRepository.class);
         var source = new StreamSourceEntity("kafka://t/key", "stream");

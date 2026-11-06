@@ -12,6 +12,7 @@ const Activity = lazy(() => import('./pages/Activity'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Playground = lazy(() => import('./pages/Playground'));
 const Ingestion = lazy(() => import('./pages/Ingestion'));
+const Sources = lazy(() => import('./pages/Sources'));
 const FineTuning = lazy(() => import('./pages/FineTuning'));
 const Comparison = lazy(() => import('./pages/Comparison'));
 const Optimization = lazy(() => import('./pages/Optimization'));
@@ -55,6 +56,7 @@ function App() {
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/activity" element={<Activity />} />
                 <Route path="/ingestion" element={<Ingestion />} />
+                <Route path="/sources" element={<Sources />} />
                 <Route path="/documents" element={<Documents />} />
                 <Route path="/fine-tuning" element={<FineTuning />} />
                 <Route path="/playground" element={<Playground />} />

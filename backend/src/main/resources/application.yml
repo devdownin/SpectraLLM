@@ -45,6 +45,10 @@ server:
 
 # Services externes
 spectra:
+  sources:
+    local-roots: ${SPECTRA_SOURCES_LOCAL_ROOTS:/app/sources}
+    allowed-hosts: ${SPECTRA_SOURCES_ALLOWED_HOSTS:}
+    max-concurrent: ${SPECTRA_SOURCES_MAX_CONCURRENT:2}
   # Serveur MCP en lecture seule (outils spectra_*) sur /mcp. Exige SPECTRA_API_KEY : sans clé,
   # ApiKeyFilter laisse tout passer, et /mcp répond alors 503 plutôt que d'exposer le corpus.
   mcp:

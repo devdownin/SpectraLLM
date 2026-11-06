@@ -54,6 +54,7 @@ public class KafkaStreamRetentionService {
         }
         int purged = 0;
         for (StreamSourceEntity s : stale) {
+            if (!s.getSourceKey().startsWith("kafka://")) continue;
             try {
                 ingestionService.purgeStreamSource(s.getSourceKey(), s.getCollection());
                 purged++;

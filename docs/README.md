@@ -9,6 +9,7 @@ New here? Start with **[Getting Started](getting-started.en.md)**.
 |---|---|
 | **[Getting Started](getting-started.en.md)** | Install step by step, download models, pick a Docker profile. |
 | **[User Manual](user/user-manual.en.md)** ([FR](user/user-manual.fr.md)) | A full walkthrough of the web interface — ingestion, playground, fine-tuning, evaluation. |
+| **[Synchronized data sources (FR)](user/data-sources.fr.md)** | Local folders, S3/MinIO and websites: connector setup, schedules, restart checkpoints and deployment. |
 | **[How Spectra works](user/documentation-pedagogique.en.md)** ([FR](user/documentation-pedagogique.fr.md)) | The ideas in plain language: embeddings, hybrid search + RRF, the RAG strategies, QLoRA/DPO. |
 
 ## Architecture & configuration
