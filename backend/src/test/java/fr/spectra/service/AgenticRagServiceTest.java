@@ -250,4 +250,153 @@ class AgenticRagServiceTest {
 
         assertThat(resp.agenticStopReason()).isEqualTo(QueryResponse.AgenticStopReason.NO_NEW_CHUNKS);
     }
+
+    // ── Function calling natif ────────────────────────────────────────────────
+
+    private ToolsFixture nativeService(LlmChatClient llm, int maxIterations) {
+        ChromaDbClient chroma = mock(ChromaDbClient.class);
+        when(chroma.getOrCreateCollection(anyString())).thenReturn("col-1");
+        SpectraProperties props = mock(SpectraProperties.class);
+        when(props.agenticRag()).thenReturn(new SpectraProperties.AgenticRagProperties(
+                true, maxIterations, 5, "fr", 3000, false, false, true));
+        return new ToolsFixture(new AgenticRagService(chroma, mock(EmbeddingService.class), llm,
+                Optional.empty(), Optional.empty(), props, new SimpleMeterRegistry()), chroma);
+    }
+
+    private static LlmChatClient.ToolTurn answer(String text) {
+        return new LlmChatClient.ToolTurn(text, List.of());
+    }
+
+    private static LlmChatClient.ToolTurn call(String name, String argsJson) {
+        return new LlmChatClient.ToolTurn("", List.of(new LlmChatClient.ToolCall("c1", name, argsJson)));
+    }
+
+    @Test
+    void native_aPlainTurnIsTheFinalAnswerAndTheModelIsOfferedTheThreeTools() {
+        LlmChatClient llm = mock(LlmChatClient.class);
+        ArgumentCaptor<List<LlmChatClient.ToolDefinition>> tools = ArgumentCaptor.forClass(List.class);
+        when(llm.chatTurn(any(), tools.capture(), anyFloat(), anyFloat())).thenReturn(answer("512 [1]."));
+        ToolsFixture f = nativeService(llm, 3);
+
+        QueryResponse resp = f.service().query(agenticRequest(), List.of("La valeur est 512."),
+                List.of(Map.of("sourceFile", "a.md")), List.of(0.1), false, false);
+
+        assertThat(resp.answer()).isEqualTo("512 [1].");
+        assertThat(resp.agenticStopReason()).isEqualTo(QueryResponse.AgenticStopReason.ANSWER);
+        assertThat(resp.agenticIterations()).isZero();
+        assertThat(tools.getValue()).extracting(LlmChatClient.ToolDefinition::name)
+                .containsExactly("search", "lookup", "open_document");
+        verify(llm, never()).chat(anyString(), anyString(), anyFloat(), anyFloat());
+    }
+
+    @Test
+    void native_lookupAddsTheMatchingChunksThenTheModelAnswers() {
+        LlmChatClient llm = mock(LlmChatClient.class);
+        ArgumentCaptor<List<LlmChatClient.ToolMessage>> sent = ArgumentCaptor.forClass(List.class);
+        when(llm.chatTurn(sent.capture(), any(), anyFloat(), anyFloat())).thenReturn(
+                call("lookup", "{\"identifier\":\"ENG-39100\"}"), answer("Fermé [2]."));
+        ToolsFixture f = nativeService(llm, 3);
+        when(f.chroma().findChunksContaining(eq("col-1"), eq("ENG-39100"), any(), anyInt()))
+                .thenReturn(List.of(new ChromaDbClient.ChunkHit("ENG-39100 est fermé.",
+                        Map.of("sourceFile", "linear/ENG-39100.json", "sha256", "s2"))));
+
+        QueryResponse resp = f.service().query(agenticRequest(), List.of("Sans rapport."),
+                List.of(Map.of("sourceFile", "a.md", "sha256", "s1")), List.of(0.3), false, false);
+
+        assertThat(resp.answer()).isEqualTo("Fermé [2].");
+        assertThat(resp.agenticIterations()).isEqualTo(1);
+        String secondUser = sent.getAllValues().get(1).get(1).content();
+        assertThat(secondUser).contains("[2] (Source: linear/ENG-39100.json)")
+                .contains("Outils déjà appelés : lookup(ENG-39100)");
+    }
+
+    @Test
+    void native_openDocumentReadsTheWholeDocument() {
+        LlmChatClient llm = mock(LlmChatClient.class);
+        ArgumentCaptor<List<LlmChatClient.ToolMessage>> sent = ArgumentCaptor.forClass(List.class);
+        when(llm.chatTurn(sent.capture(), any(), anyFloat(), anyFloat())).thenReturn(
+                call("open_document", "{\"passage\":1}"), answer("Dix minutes [1]."));
+        ToolsFixture f = nativeService(llm, 3);
+        java.util.TreeMap<Integer, String> chunks = new java.util.TreeMap<>();
+        chunks.put(0, "Début. Le seuil est de dix minutes.");
+        chunks.put(1, "Suite. Puis rollback.");
+        when(f.chroma().getDocumentChunks("col-1", "sha256", "s1", null, 24)).thenReturn(chunks);
+
+        QueryResponse resp = f.service().query(agenticRequest(), List.of("Le seuil est de dix minutes."),
+                List.of(Map.of("sourceFile", "runbook.md", "sha256", "s1", "chunkIndex", "0")),
+                List.of(0.1), false, false);
+
+        assertThat(sent.getAllValues().get(1).get(1).content()).contains("Puis rollback.");
+        assertThat(resp.answer()).isEqualTo("Dix minutes [1].");
+    }
+
+    @Test
+    void native_theLastTurnOffersNoToolsSoTheModelMustAnswer() {
+        LlmChatClient llm = mock(LlmChatClient.class);
+        ArgumentCaptor<List<LlmChatClient.ToolDefinition>> tools = ArgumentCaptor.forClass(List.class);
+        when(llm.chatTurn(any(), tools.capture(), anyFloat(), anyFloat())).thenReturn(
+                call("search", "{\"query\":\"x\"}"), answer("Réponse finale."));
+        ToolsFixture f = nativeService(llm, 1);
+        when(f.chroma().query(anyString(), any(), anyInt(), any())).thenReturn(java.util.Map.of());
+
+        // maxIterations = 1 : après un appel d'outil, plus aucun outil n'est proposé.
+        f.service().query(agenticRequest(), List.of("Texte."), List.of(Map.of("sourceFile", "a.md")),
+                List.of(0.1), false, false);
+
+        assertThat(tools.getAllValues().getFirst()).isNotEmpty();
+        if (tools.getAllValues().size() > 1) assertThat(tools.getAllValues().get(1)).isEmpty();
+    }
+
+    @Test
+    void native_anUnknownToolStopsTheLoopAndTheAnswerIsGeneratedFromTheContext() {
+        LlmChatClient llm = mock(LlmChatClient.class);
+        when(llm.chatTurn(any(), any(), anyFloat(), anyFloat())).thenReturn(call("rm_rf", "{}"));
+        when(llm.chat(anyString(), anyString(), anyFloat(), anyFloat())).thenReturn("Réponse de repli.");
+        ToolsFixture f = nativeService(llm, 3);
+
+        QueryResponse resp = f.service().query(agenticRequest(), List.of("Texte."),
+                List.of(Map.of("sourceFile", "a.md")), List.of(0.1), false, false);
+
+        assertThat(resp.answer()).isEqualTo("Réponse de repli.");
+        assertThat(resp.agenticStopReason()).isEqualTo(QueryResponse.AgenticStopReason.FORMAT_ERROR);
+    }
+
+    @Test
+    void native_unreadableArgumentsOrAnEmptyQueryStopTheLoop() {
+        LlmChatClient llm = mock(LlmChatClient.class);
+        when(llm.chatTurn(any(), any(), anyFloat(), anyFloat())).thenReturn(
+                call("search", "{pas du json"), call("lookup", "{\"identifier\":\"  \"}"));
+        when(llm.chat(anyString(), anyString(), anyFloat(), anyFloat())).thenReturn("Repli.");
+
+        for (int i = 0; i < 2; i++) {
+            QueryResponse resp = nativeService(llm, 3).service().query(agenticRequest(), List.of("Texte."),
+                    List.of(Map.of("sourceFile", "a.md")), List.of(0.1), false, false);
+            assertThat(resp.agenticStopReason()).isEqualTo(QueryResponse.AgenticStopReason.FORMAT_ERROR);
+        }
+    }
+
+    @Test
+    void native_aBlankTurnWithoutToolCallFallsBackToDirectGeneration() {
+        LlmChatClient llm = mock(LlmChatClient.class);
+        when(llm.chatTurn(any(), any(), anyFloat(), anyFloat())).thenReturn(answer("   "));
+        when(llm.chat(anyString(), anyString(), anyFloat(), anyFloat())).thenReturn("Repli.");
+
+        QueryResponse resp = nativeService(llm, 3).service().query(agenticRequest(), List.of("Texte."),
+                List.of(Map.of("sourceFile", "a.md")), List.of(0.1), false, false);
+
+        assertThat(resp.answer()).isEqualTo("Repli.");
+    }
+
+    @Test
+    void native_notEnabled_theTextFormatLoopIsUsedAsBefore() {
+        LlmChatClient llm = mock(LlmChatClient.class);
+        when(llm.chat(anyString(), anyString(), anyFloat(), anyFloat()))
+                .thenReturn("ACTION: ANSWER\nRESPONSE: ok [1].");
+        ToolsFixture f = toolsService(llm, false);
+
+        f.service().query(agenticRequest(), List.of("Texte."), List.of(Map.of("sourceFile", "a.md")),
+                List.of(0.1), false, false);
+
+        verify(llm, never()).chatTurn(any(), any(), anyFloat(), anyFloat());
+    }
 }

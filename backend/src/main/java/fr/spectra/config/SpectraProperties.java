@@ -308,6 +308,9 @@ public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, 
      * @param always toute requête passe par la boucle agentique, sans classification adaptative
      *               préalable ; défaut {@code false}. Sans cela, la boucle n'est atteinte que si le
      *               routage adaptatif classe la question « AGENTIC » — ce qui empêche de la mesurer.
+     * @param nativeTools les actions (search, lookup, open_document) sont proposées au modèle par le
+     *                    function calling natif du serveur au lieu d'un format texte {@code ACTION:} ;
+     *                    exige llama-server avec {@code --jinja} ; défaut {@code false}
      */
     public record AgenticRagProperties(
             Boolean enabled,
@@ -316,22 +319,30 @@ public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, 
             String responseLanguage,
             Integer maxContextTokens,
             Boolean tools,
-            Boolean always
+            Boolean always,
+            Boolean nativeTools
     ) {
         @ConstructorBinding
         public AgenticRagProperties {}
 
         public AgenticRagProperties(Boolean enabled, Integer maxIterations, Integer initialTopK,
+                                    String responseLanguage, Integer maxContextTokens,
+                                    Boolean tools, Boolean always) {
+            this(enabled, maxIterations, initialTopK, responseLanguage, maxContextTokens, tools, always, null);
+        }
+
+        public AgenticRagProperties(Boolean enabled, Integer maxIterations, Integer initialTopK,
                                     String responseLanguage, Integer maxContextTokens) {
-            this(enabled, maxIterations, initialTopK, responseLanguage, maxContextTokens, null, null);
+            this(enabled, maxIterations, initialTopK, responseLanguage, maxContextTokens, null, null, null);
         }
 
         public AgenticRagProperties(Boolean enabled, Integer maxIterations, Integer initialTopK,
                                     String responseLanguage, Integer maxContextTokens, Boolean tools) {
-            this(enabled, maxIterations, initialTopK, responseLanguage, maxContextTokens, tools, null);
+            this(enabled, maxIterations, initialTopK, responseLanguage, maxContextTokens, tools, null, null);
         }
 
         public boolean alwaysEnabled() { return Boolean.TRUE.equals(always); }
+        public boolean nativeToolsEnabled() { return Boolean.TRUE.equals(nativeTools); }
 
         public boolean toolsEnabled() { return Boolean.TRUE.equals(tools); }
         public boolean isEnabled() { return Boolean.TRUE.equals(enabled); }

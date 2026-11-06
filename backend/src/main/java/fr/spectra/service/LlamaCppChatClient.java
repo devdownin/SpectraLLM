@@ -283,6 +283,75 @@ public class LlamaCppChatClient implements LlmChatClient {
         return content;
     }
 
+    /**
+     * Un tour avec outils via {@code /v1/chat/completions} ({@code tools} + {@code tool_choice: auto}).
+     * Exige un llama-server démarré avec {@code --jinja} (par {@code LLM_CHAT_EXTRA_ARGS}) : sans
+     * lui, le serveur ignore les outils ou répond 400, et l'appelant retombe sur le format texte.
+     */
+    @Override
+    @CircuitBreaker(name = "llm-chat", fallbackMethod = "chatTurnFallback")
+    @SuppressWarnings("unchecked")
+    public ToolTurn chatTurn(List<ToolMessage> messages, List<ToolDefinition> tools,
+                             float temperature, float topP) {
+        Map<String, Object> request = new java.util.LinkedHashMap<>();
+        request.put("model", activeModel.get());
+        request.put("stream", false);
+        request.put("temperature", temperature);
+        request.put("top_p", topP);
+        request.put("messages", messages.stream().map(LlamaCppChatClient::toWireMessage).toList());
+        if (tools != null && !tools.isEmpty()) {
+            request.put("tools", tools.stream().map(t -> Map.of("type", "function", "function", Map.of(
+                    "name", t.name(), "description", t.description(), "parameters", t.parameters()))).toList());
+            request.put("tool_choice", "auto");
+        }
+
+        Map<String, Object> response = webClient.post()
+                .uri("/v1/chat/completions")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(request)
+                .retrieve()
+                .bodyToMono(Map.class)
+                .block(generateTimeout);
+        if (response == null) {
+            throw new IllegalStateException("Réponse null de llama.cpp /v1/chat/completions");
+        }
+        List<Map<String, Object>> choices = (List<Map<String, Object>>) response.get("choices");
+        if (choices == null || choices.isEmpty() || !(choices.getFirst().get("message") instanceof Map<?, ?> msg)) {
+            throw new IllegalStateException("Réponse llama.cpp sans message: " + response.keySet());
+        }
+        String content = msg.get("content") instanceof String s ? s : "";
+        List<ToolCall> calls = new java.util.ArrayList<>();
+        if (msg.get("tool_calls") instanceof List<?> raw) {
+            for (Object o : raw) {
+                if (!(o instanceof Map<?, ?> call) || !(call.get("function") instanceof Map<?, ?> fn)) continue;
+                Object args = fn.get("arguments");
+                calls.add(new ToolCall(call.get("id") instanceof String id ? id : "",
+                        String.valueOf(fn.get("name")), args == null ? "{}" : String.valueOf(args)));
+            }
+        }
+        return new ToolTurn(content, calls);
+    }
+
+    private static Map<String, Object> toWireMessage(ToolMessage m) {
+        Map<String, Object> wire = new java.util.LinkedHashMap<>();
+        wire.put("role", m.role());
+        wire.put("content", m.content() == null ? "" : m.content());
+        if (m.toolCalls() != null && !m.toolCalls().isEmpty()) {
+            wire.put("tool_calls", m.toolCalls().stream().map(c -> Map.of(
+                    "id", c.id() == null ? "" : c.id(), "type", "function",
+                    "function", Map.of("name", c.name(), "arguments", c.argumentsJson()))).toList());
+        }
+        if (m.toolCallId() != null) wire.put("tool_call_id", m.toolCallId());
+        return wire;
+    }
+
+    /** Fallback de {@link #chatTurn} : même traitement que {@link #chatFallback} (503). */
+    ToolTurn chatTurnFallback(List<ToolMessage> messages, List<ToolDefinition> tools,
+                              float temperature, float topP, Throwable cause) {
+        chatFallback("", "", cause);
+        return null; // inatteignable : chatFallback lève LlmUnavailableException
+    }
+
     @Override
     @CircuitBreaker(name = "llm-chat", fallbackMethod = "chatWithStatsFallback")
     @SuppressWarnings("unchecked")

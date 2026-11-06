@@ -225,6 +225,10 @@ spectra:
     # classe la question « AGENTIC » : un choix du modèle servi, qu'on ne peut ni forcer ni mesurer.
     # Chaque requête coûte alors plusieurs appels au modèle (une itération de plus par outil).
     always: ${SPECTRA_AGENTIC_ALWAYS:false}
+    # Les actions search / lookup / open_document sont proposées au modèle par le function calling
+    # natif du serveur, au lieu du format texte « ACTION: … » (qu'un 7B n'a jamais suivi : 0 appel
+    # d'outil sur 12 questions). Exige llama-server avec --jinja, c.-à-d. LLM_CHAT_EXTRA_ARGS=--jinja.
+    native-tools: ${SPECTRA_AGENTIC_NATIVE_TOOLS:false}
     initial-top-k: ${SPECTRA_AGENTIC_INITIAL_TOP_K:5}
     response-language: ${SPECTRA_AGENTIC_LANGUAGE:fr}
     max-context-tokens: ${SPECTRA_AGENTIC_MAX_CONTEXT_TOKENS:3000}
