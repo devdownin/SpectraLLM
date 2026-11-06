@@ -305,6 +305,9 @@ public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, 
      * @param tools actions {@code LOOKUP} (recherche d'un identifiant exact) et {@code OPEN}
      *              (lecture du document entier d'un passage) en plus de {@code SEARCH} ; défaut
      *              {@code false} : le prompt et le format de sortie restent ceux d'avant
+     * @param always toute requête passe par la boucle agentique, sans classification adaptative
+     *               préalable ; défaut {@code false}. Sans cela, la boucle n'est atteinte que si le
+     *               routage adaptatif classe la question « AGENTIC » — ce qui empêche de la mesurer.
      */
     public record AgenticRagProperties(
             Boolean enabled,
@@ -312,15 +315,23 @@ public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, 
             Integer initialTopK,
             String responseLanguage,
             Integer maxContextTokens,
-            Boolean tools
+            Boolean tools,
+            Boolean always
     ) {
         @ConstructorBinding
         public AgenticRagProperties {}
 
         public AgenticRagProperties(Boolean enabled, Integer maxIterations, Integer initialTopK,
                                     String responseLanguage, Integer maxContextTokens) {
-            this(enabled, maxIterations, initialTopK, responseLanguage, maxContextTokens, null);
+            this(enabled, maxIterations, initialTopK, responseLanguage, maxContextTokens, null, null);
         }
+
+        public AgenticRagProperties(Boolean enabled, Integer maxIterations, Integer initialTopK,
+                                    String responseLanguage, Integer maxContextTokens, Boolean tools) {
+            this(enabled, maxIterations, initialTopK, responseLanguage, maxContextTokens, tools, null);
+        }
+
+        public boolean alwaysEnabled() { return Boolean.TRUE.equals(always); }
 
         public boolean toolsEnabled() { return Boolean.TRUE.equals(tools); }
         public boolean isEnabled() { return Boolean.TRUE.equals(enabled); }

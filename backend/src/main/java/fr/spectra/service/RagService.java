@@ -99,6 +99,11 @@ public class RagService {
                 contextBlock, userMessage, answerStyle());
     }
 
+    /** {@code spectra.agentic-rag.always} : la boucle agentique traite toute requête (mesure, usage dédié). */
+    private boolean agenticAlways() {
+        return agenticRagService.isPresent() && props.agenticRag() != null && props.agenticRag().alwaysEnabled();
+    }
+
     private RagPromptFormat.AnswerStyle answerStyle() {
         return props.rag() != null ? props.rag().effectiveAnswerStyle() : RagPromptFormat.AnswerStyle.CONCISE;
     }
@@ -315,7 +320,7 @@ public class RagService {
 
         // ── 1. Adaptive RAG : routing ──────────────────────────────────────
         String ragStrategy = "STANDARD";
-        boolean forceAgentic = false;
+        boolean forceAgentic = agenticAlways();
 
         if (RagOverrides.resolve(ov.adaptive(), adaptiveRagService.isPresent())) {
             AdaptiveRagService.RagStrategy strategy = adaptiveRagService.get().classifyQuery(request.question());
@@ -590,7 +595,7 @@ public class RagService {
 
         // ── 1. Adaptive RAG : routage ──────────────────────────────────────
         String ragStrategy = "STANDARD";
-        boolean forceAgentic = false;
+        boolean forceAgentic = agenticAlways();
         if (RagOverrides.resolve(ov.adaptive(), adaptiveRagService.isPresent())) {
             long t0 = System.currentTimeMillis();
             emitStage(sink, "routing", null, null);

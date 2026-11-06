@@ -220,6 +220,11 @@ spectra:
     # d'un passage). Chaque appel d'outil consomme une itération. Désactivé par défaut : le
     # format de sortie attendu du modèle change, à valider sur le modèle servi.
     tools: ${SPECTRA_AGENTIC_TOOLS:false}
+    # Toute requête passe par la boucle agentique, sans classification adaptative préalable.
+    # Sans cela, la boucle n'est atteinte que si le routage adaptatif (SPECTRA_ADAPTIVE_RAG_ENABLED)
+    # classe la question « AGENTIC » : un choix du modèle servi, qu'on ne peut ni forcer ni mesurer.
+    # Chaque requête coûte alors plusieurs appels au modèle (une itération de plus par outil).
+    always: ${SPECTRA_AGENTIC_ALWAYS:false}
     initial-top-k: ${SPECTRA_AGENTIC_INITIAL_TOP_K:5}
     response-language: ${SPECTRA_AGENTIC_LANGUAGE:fr}
     max-context-tokens: ${SPECTRA_AGENTIC_MAX_CONTEXT_TOKENS:3000}
