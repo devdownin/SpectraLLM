@@ -116,6 +116,8 @@ Disabled by default — no Kafka bean is created unless `SPECTRA_KAFKA_ENABLED=t
 | `SPECTRA_RAG_NEIGHBOR_WINDOW` | `0` | Adjacent chunks (± N, same document) merged into each retained passage; 0 = off. |
 | `SPECTRA_RAG_NEIGHBOR_MAX_CHARS` | `4000` | Size cap of an expanded passage. |
 | `SPECTRA_RAG_PERSONA` | *(empty)* | Persona served when the active model declares none (empty = Spectra's canonical persona). Never overrides a registered model's own persona, so a fine-tuned model keeps the one it was trained under. |
+| `SPECTRA_RAG_ENTITY_EXPANSION` | `false` | Light entity graph: identifiers in the question (ticket keys, `#PR`, `snake_case` names, `CamelCase` products) are looked up as exact substrings, and the chunks that contain them join the candidates before reranking. No re-indexing. |
+| `SPECTRA_AGENTIC_TOOLS` | `false` | With agentic RAG, adds the `LOOKUP` (exact identifier) and `OPEN` (whole document of a passage) actions. Each tool call uses one iteration; the model's expected output format changes, so validate it on the served model. |
 | `SPECTRA_RAG_ANSWER_STYLE` | `concise` | `concise`, or `detailed`: direct answer first, then every relevant detail of the context (values, conditions, steps, exceptions). Ignored with `SPECTRA_RAG_CONTEXT_PLACEMENT=system`. |
 | `SPECTRA_RAG_CITATION_CHECK` | `true` | After generation, score each sentence against the passages it cites `[n]` with the cross-encoder; the report is returned in `citations`. Requires the reranker. Measures relevance, not entailment. |
 | `SPECTRA_RAG_CITATION_MIN_SCORE` | `0.2` | Minimum cross-encoder score (sigmoid) for a cited passage to support its sentence. |

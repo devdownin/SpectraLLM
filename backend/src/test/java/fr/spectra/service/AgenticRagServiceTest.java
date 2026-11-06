@@ -12,9 +12,14 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyFloat;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -106,5 +111,143 @@ class AgenticRagServiceTest {
         assertThat(response.sources().getFirst().text().length()).isEqualTo(203);
         assertThat(response.citations().supportedSentences()).isEqualTo(1);
         assertThat(response.contextChars()).isEqualTo(full.length());
+    }
+
+    // ── Outils LOOKUP / OPEN ──────────────────────────────────────────────────
+
+    private record ToolsFixture(AgenticRagService service, ChromaDbClient chroma) {}
+
+    private ToolsFixture toolsService(LlmChatClient llm, boolean tools) {
+        ChromaDbClient chroma = mock(ChromaDbClient.class);
+        when(chroma.getOrCreateCollection(anyString())).thenReturn("col-1");
+        SpectraProperties props = mock(SpectraProperties.class);
+        when(props.agenticRag()).thenReturn(new SpectraProperties.AgenticRagProperties(
+                true, 3, 5, "fr", 3000, tools));
+        return new ToolsFixture(new AgenticRagService(chroma, mock(EmbeddingService.class), llm,
+                Optional.empty(), Optional.empty(), props, new SimpleMeterRegistry()), chroma);
+    }
+
+    @Test
+    void toolsDisabled_promptIsUnchangedAndLookupIsNotAnAction() {
+        LlmChatClient llm = mock(LlmChatClient.class);
+        ArgumentCaptor<String> system = ArgumentCaptor.forClass(String.class);
+        when(llm.chat(system.capture(), anyString(), anyFloat(), anyFloat()))
+                .thenReturn("THOUGHT: x\nACTION: LOOKUP\nQUERY: ENG-1");
+        ToolsFixture f = toolsService(llm, false);
+
+        QueryResponse resp = f.service().query(agenticRequest(), List.of("Texte."),
+                List.of(Map.of("sourceFile", "a.md")), List.of(0.1), false, false);
+
+        assertThat(system.getAllValues().getFirst()).doesNotContain("LOOKUP").doesNotContain("OPEN");
+        // Format inattendu pour ce prompt : traité comme avant, réponse directe.
+        assertThat(resp.agenticStopReason()).isEqualTo(QueryResponse.AgenticStopReason.FORMAT_ERROR);
+        verify(f.chroma(), never()).findChunksContaining(anyString(), anyString(), any(), anyInt());
+    }
+
+    @Test
+    void toolsEnabled_promptDescribesBothTools() {
+        LlmChatClient llm = mock(LlmChatClient.class);
+        ArgumentCaptor<String> system = ArgumentCaptor.forClass(String.class);
+        when(llm.chat(system.capture(), anyString(), anyFloat(), anyFloat()))
+                .thenReturn("ACTION: ANSWER\nRESPONSE: ok [1].");
+        ToolsFixture f = toolsService(llm, true);
+
+        f.service().query(agenticRequest(), List.of("Texte."),
+                List.of(Map.of("sourceFile", "a.md")), List.of(0.1), false, false);
+
+        assertThat(system.getValue()).contains("ACTION: LOOKUP", "ACTION: OPEN", "SOURCE: <numéro [n] du passage>",
+                "dans l'un de ces formats :").doesNotContain("deux formats");
+    }
+
+    @Test
+    void lookup_addsTheChunksThatContainTheExactIdentifierThenAnswers() {
+        LlmChatClient llm = mock(LlmChatClient.class);
+        ArgumentCaptor<String> user = ArgumentCaptor.forClass(String.class);
+        when(llm.chat(anyString(), user.capture(), anyFloat(), anyFloat())).thenReturn(
+                "THOUGHT: il me faut le ticket\nACTION: LOOKUP\nQUERY: `ENG-39100`",
+                "ACTION: ANSWER\nRESPONSE: Le ticket ENG-39100 est fermé [2].");
+        ToolsFixture f = toolsService(llm, true);
+        when(f.chroma().findChunksContaining(eq("col-1"), eq("ENG-39100"), any(), anyInt()))
+                .thenReturn(List.of(new ChromaDbClient.ChunkHit("ENG-39100 est fermé.",
+                        Map.of("sourceFile", "linear/ENG-39100.json", "sha256", "s2"))));
+
+        QueryResponse resp = f.service().query(agenticRequest(), List.of("Texte sans rapport."),
+                List.of(Map.of("sourceFile", "a.md", "sha256", "s1")), List.of(0.3), false, false);
+
+        assertThat(resp.answer()).contains("ENG-39100 est fermé [2]");
+        assertThat(resp.agenticIterations()).isEqualTo(1);
+        // Le second tour voit le chunk trouvé par identifiant, numéroté [2].
+        assertThat(user.getAllValues().get(1)).contains("[2] (Source: linear/ENG-39100.json)");
+    }
+
+    @Test
+    void lookup_withoutAnyHit_stopsTheLoop() {
+        LlmChatClient llm = mock(LlmChatClient.class);
+        when(llm.chat(anyString(), anyString(), anyFloat(), anyFloat())).thenReturn(
+                "ACTION: LOOKUP\nQUERY: INCONNU-1", "Réponse de repli.");
+        ToolsFixture f = toolsService(llm, true);
+        when(f.chroma().findChunksContaining(anyString(), anyString(), any(), anyInt())).thenReturn(List.of());
+
+        QueryResponse resp = f.service().query(agenticRequest(), List.of("Texte."),
+                List.of(Map.of("sourceFile", "a.md")), List.of(0.3), false, false);
+
+        assertThat(resp.agenticStopReason()).isEqualTo(QueryResponse.AgenticStopReason.NO_NEW_CHUNKS);
+    }
+
+    @Test
+    void open_replacesThePassagesOfTheDocumentByTheWholeDocument() {
+        LlmChatClient llm = mock(LlmChatClient.class);
+        ArgumentCaptor<String> user = ArgumentCaptor.forClass(String.class);
+        when(llm.chat(anyString(), user.capture(), anyFloat(), anyFloat())).thenReturn(
+                "THOUGHT: je veux le document entier\nACTION: OPEN\nSOURCE: [1]",
+                "ACTION: ANSWER\nRESPONSE: Dix minutes puis rollback [1].");
+        ToolsFixture f = toolsService(llm, true);
+        java.util.TreeMap<Integer, String> chunks = new java.util.TreeMap<>();
+        chunks.put(0, "Début du runbook. Le seuil est de dix minutes.");
+        chunks.put(1, "Suite du runbook. Puis rollback du déploiement.");
+        when(f.chroma().getDocumentChunks("col-1", "sha256", "s1", null, 24)).thenReturn(chunks);
+
+        QueryResponse resp = f.service().query(agenticRequest(),
+                List.of("Le seuil est de dix minutes.", "Autre document."),
+                List.of(Map.of("sourceFile", "runbook.md", "sha256", "s1", "chunkIndex", "0"),
+                        Map.of("sourceFile", "autre.md", "sha256", "s2")),
+                List.of(0.1, 0.2), false, false);
+
+        // Second tour : le runbook est lu en entier, l'autre passage reste, la numérotation est refaite.
+        String second = user.getAllValues().get(1);
+        assertThat(second).contains("Début du runbook.").contains("Puis rollback du déploiement.");
+        assertThat(second).contains("[2] (Source: autre.md)");
+        assertThat(resp.agenticIterations()).isEqualTo(1);
+        assertThat(resp.answer()).contains("rollback");
+    }
+
+    @Test
+    void open_aPassageNumberOutsideTheContext_stopsWithoutReadingAnything() {
+        LlmChatClient llm = mock(LlmChatClient.class);
+        when(llm.chat(anyString(), anyString(), anyFloat(), anyFloat())).thenReturn(
+                "ACTION: OPEN\nSOURCE: 9", "Réponse de repli.");
+        ToolsFixture f = toolsService(llm, true);
+
+        QueryResponse resp = f.service().query(agenticRequest(), List.of("Texte."),
+                List.of(Map.of("sourceFile", "a.md", "sha256", "s1")), List.of(0.3), false, false);
+
+        assertThat(resp.agenticStopReason()).isEqualTo(QueryResponse.AgenticStopReason.NO_NEW_CHUNKS);
+        verify(f.chroma(), never()).getDocumentChunks(anyString(), anyString(), anyString(), any(), anyInt());
+    }
+
+    @Test
+    void open_aDocumentThatAddsNothing_isNotReopened() {
+        LlmChatClient llm = mock(LlmChatClient.class);
+        when(llm.chat(anyString(), anyString(), anyFloat(), anyFloat())).thenReturn(
+                "ACTION: OPEN\nSOURCE: 1", "Réponse de repli.");
+        ToolsFixture f = toolsService(llm, true);
+        java.util.TreeMap<Integer, String> same = new java.util.TreeMap<>();
+        same.put(0, "Texte.");
+        when(f.chroma().getDocumentChunks(anyString(), anyString(), anyString(), any(), anyInt())).thenReturn(same);
+
+        QueryResponse resp = f.service().query(agenticRequest(), List.of("Texte."),
+                List.of(Map.of("sourceFile", "a.md", "sha256", "s1")), List.of(0.3), false, false);
+
+        assertThat(resp.agenticStopReason()).isEqualTo(QueryResponse.AgenticStopReason.NO_NEW_CHUNKS);
     }
 }

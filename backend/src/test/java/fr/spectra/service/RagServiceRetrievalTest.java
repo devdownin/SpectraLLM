@@ -155,6 +155,67 @@ class RagServiceRetrievalTest {
                 "distances", List.of(List.of(0.2)));
     }
 
+    private void entityExpansion(boolean enabled) {
+        when(props.rag()).thenReturn(new SpectraProperties.RagProperties(
+                null, null, null, null, null, null, null, null, null, enabled));
+    }
+
+    @Test
+    void entityExpansion_addsTheChunksThatContainAnIdentifierOfTheQuestion() {
+        entityExpansion(true);
+        when(chromaDbClient.query(eq("col-1"), anyList(), anyInt())).thenReturn(vectorResult("chunk vectoriel"));
+        when(chromaDbClient.findChunksContaining(eq("col-1"), eq("ENG-39100"), any(), anyInt()))
+                .thenReturn(List.of(new ChromaDbClient.ChunkHit("ENG-39100 : décision de rollback.",
+                        Map.of("sourceFile", "linear/ENG-39100.json"))));
+        when(llmChatClient.chat(anyString(), anyString(), anyFloat(), anyFloat())).thenReturn("Réponse");
+
+        QueryResponse resp = ragService(Optional.empty(), Optional.empty())
+                .query(new QueryRequest("Qui a décidé le rollback dans ENG-39100 ?", 5, null, null, 0.7f, 0.9f, null, true));
+
+        assertThat(resp.sources()).extracting(QueryResponse.Source::sourceFile)
+                .containsExactly("doc.txt", "linear/ENG-39100.json");
+    }
+
+    @Test
+    void entityExpansion_disabledByDefault_neverQueriesTheExactIndex() {
+        when(chromaDbClient.query(eq("col-1"), anyList(), anyInt())).thenReturn(vectorResult("chunk vectoriel"));
+        when(llmChatClient.chat(anyString(), anyString(), anyFloat(), anyFloat())).thenReturn("Réponse");
+
+        ragService(Optional.empty(), Optional.empty())
+                .query(new QueryRequest("Qui a décidé le rollback dans ENG-39100 ?", 5, null, null, 0.7f, 0.9f, null, true));
+
+        verify(chromaDbClient, never()).findChunksContaining(anyString(), anyString(), any(), anyInt());
+    }
+
+    @Test
+    void entityExpansion_doesNotDuplicateAChunkTheVectorSearchAlreadyFound() {
+        entityExpansion(true);
+        when(chromaDbClient.query(eq("col-1"), anyList(), anyInt())).thenReturn(vectorResult("ENG-39100 : décision."));
+        when(chromaDbClient.findChunksContaining(anyString(), anyString(), any(), anyInt()))
+                .thenReturn(List.of(new ChromaDbClient.ChunkHit("ENG-39100 : décision.", Map.of("sourceFile", "doc.txt"))));
+        when(llmChatClient.chat(anyString(), anyString(), anyFloat(), anyFloat())).thenReturn("Réponse");
+
+        QueryResponse resp = ragService(Optional.empty(), Optional.empty())
+                .query(new QueryRequest("Que dit ENG-39100 ?", 5, null, null, 0.7f, 0.9f, null, true));
+
+        assertThat(resp.sources()).hasSize(1);
+    }
+
+    @Test
+    void entityExpansion_aFailingExactSearchLeavesTheCandidatesUntouched() {
+        entityExpansion(true);
+        when(chromaDbClient.query(eq("col-1"), anyList(), anyInt())).thenReturn(vectorResult("chunk vectoriel"));
+        when(chromaDbClient.findChunksContaining(anyString(), anyString(), any(), anyInt()))
+                .thenThrow(new RuntimeException("chroma indisponible"));
+        when(llmChatClient.chat(anyString(), anyString(), anyFloat(), anyFloat())).thenReturn("Réponse");
+
+        QueryResponse resp = ragService(Optional.empty(), Optional.empty())
+                .query(new QueryRequest("Que dit ENG-39100 ?", 5, null, null, 0.7f, 0.9f, null, true));
+
+        assertThat(resp.answer()).isEqualTo("Réponse");
+        assertThat(resp.sources()).hasSize(1);
+    }
+
     @Test
     void corrective_allChunksIrrelevant_reformulatesAndRetrievesComplementary() {
         when(props.correctiveRag()).thenReturn(

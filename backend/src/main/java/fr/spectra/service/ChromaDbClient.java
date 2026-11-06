@@ -789,6 +789,92 @@ public class ChromaDbClient {
         }
     }
 
+    /** Chunk retrouvé par {@link #findChunksContaining} : texte et métadonnées complètes. */
+    public record ChunkHit(String text, Map<String, String> metadata) {}
+
+    /**
+     * Chunks dont le texte contient <b>exactement</b> {@code needle} (sous-chaîne, casse comprise) —
+     * identifiants de ticket, noms de variables, codes projet que ni les embeddings ni la
+     * tokenisation BM25 ne retrouvent de façon fiable.
+     *
+     * <p>L'ordre n'est pas un classement : l'appelant doit départager les résultats (reranker).
+     * {@code where} est un préfiltre ChromaDB optionnel ; l'appelant applique ensuite
+     * {@code ResolvedFilter#accepts}, le préfiltre étant volontairement large.</p>
+     */
+    @SuppressWarnings("unchecked")
+    public List<ChunkHit> findChunksContaining(String collectionId, String needle,
+                                               Map<String, Object> where, int limit) {
+        try (var collectionLease = leaseId(collectionId)) {
+            if (needle == null || needle.isBlank() || limit <= 0) return List.of();
+            Map<String, Object> body = new java.util.LinkedHashMap<>();
+            body.put("where_document", Map.of("$contains", needle));
+            if (where != null) body.put("where", where);
+            body.put("limit", limit);
+            body.put("include", List.of("documents", "metadatas"));
+            Map<String, Object> result = webClient.post()
+                    .uri(COLLECTIONS_BASE + "/{id}/get", collectionId)
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block(TIMEOUT_QUERY);
+            if (result == null) return List.of();
+            List<?> docs = result.get("documents") instanceof List<?> d ? d : List.of();
+            List<?> metas = result.get("metadatas") instanceof List<?> m ? m : List.of();
+            List<ChunkHit> hits = new java.util.ArrayList<>();
+            for (int i = 0; i < Math.min(docs.size(), metas.size()); i++) {
+                if (docs.get(i) instanceof String text && metas.get(i) instanceof Map<?, ?> meta && visible(meta)) {
+                    Map<String, String> copy = new java.util.LinkedHashMap<>();
+                    meta.forEach((k, v) -> copy.put(String.valueOf(k), String.valueOf(v)));
+                    hits.add(new ChunkHit(text, copy));
+                }
+            }
+            return hits;
+        }
+    }
+
+    /**
+     * Tous les chunks d'un même document (dans l'ordre de {@code chunkIndex}), pour le lire en
+     * entier plutôt que par extraits.
+     *
+     * @param identityField {@code sha256} ou {@code sourceFile}
+     * @param zipEntry      entrée d'archive, ou {@code null}
+     * @param maxChunks     borne de lecture
+     * @return chunkIndex → texte, trié
+     */
+    @SuppressWarnings("unchecked")
+    public java.util.SortedMap<Integer, String> getDocumentChunks(String collectionId, String identityField,
+                                                                  String identityValue, String zipEntry,
+                                                                  int maxChunks) {
+        try (var collectionLease = leaseId(collectionId)) {
+            java.util.SortedMap<Integer, String> byIndex = new java.util.TreeMap<>();
+            if (maxChunks <= 0) return byIndex;
+            List<Map<String, Object>> conditions = new java.util.ArrayList<>();
+            conditions.add(Map.of(identityField, Map.of("$eq", identityValue)));
+            if (zipEntry != null && !zipEntry.isBlank()) conditions.add(Map.of("zipEntry", Map.of("$eq", zipEntry)));
+            Map<String, Object> where = conditions.size() == 1 ? conditions.getFirst() : Map.of("$and", conditions);
+            Map<String, Object> result = webClient.post()
+                    .uri(COLLECTIONS_BASE + "/{id}/get", collectionId)
+                    .bodyValue(Map.of("where", where, "limit", maxChunks,
+                            "include", List.of("documents", "metadatas")))
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .block(TIMEOUT_QUERY);
+            if (result == null) return byIndex;
+            List<?> docs = result.get("documents") instanceof List<?> d ? d : List.of();
+            List<?> metas = result.get("metadatas") instanceof List<?> m ? m : List.of();
+            for (int i = 0; i < Math.min(docs.size(), metas.size()); i++) {
+                if (docs.get(i) instanceof String text && metas.get(i) instanceof Map<?, ?> meta && visible(meta)) {
+                    try {
+                        byIndex.putIfAbsent(Integer.parseInt(String.valueOf(meta.get("chunkIndex"))), text);
+                    } catch (NumberFormatException ignored) {
+                        // chunk sans position exploitable : impossible à replacer dans le document
+                    }
+                }
+            }
+            return byIndex;
+        }
+    }
+
     /**
      * Supprime tous les chunks correspondant à un fichier source.
      * Utilise le filtre {@code where} ChromaDB pour ne récupérer que les IDs concernés

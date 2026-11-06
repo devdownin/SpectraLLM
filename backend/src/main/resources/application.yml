@@ -216,6 +216,10 @@ spectra:
   agentic-rag:
     enabled: ${SPECTRA_AGENTIC_RAG_ENABLED:false}
     max-iterations: ${SPECTRA_AGENTIC_MAX_ITERATIONS:3}
+    # Actions supplémentaires de la boucle : LOOKUP (identifiant exact) et OPEN (document entier
+    # d'un passage). Chaque appel d'outil consomme une itération. Désactivé par défaut : le
+    # format de sortie attendu du modèle change, à valider sur le modèle servi.
+    tools: ${SPECTRA_AGENTIC_TOOLS:false}
     initial-top-k: ${SPECTRA_AGENTIC_INITIAL_TOP_K:5}
     response-language: ${SPECTRA_AGENTIC_LANGUAGE:fr}
     max-context-tokens: ${SPECTRA_AGENTIC_MAX_CONTEXT_TOKENS:3000}
@@ -266,6 +270,10 @@ spectra:
     # tous les détails du contexte (valeurs, conditions, étapes, exceptions). Sans effet avec
     # context-placement=system.
     answer-style: ${SPECTRA_RAG_ANSWER_STYLE:concise}
+    # Graphe d'entités léger : les identifiants de la question (clé de ticket, #PR, nom_de_variable,
+    # NomDeProduit) servent de clés de recherche EXACTE ; les chunks qui les contiennent rejoignent
+    # les candidats avant le reranking. Aucune réindexation. Désactivé par défaut : non mesuré.
+    entity-expansion: ${SPECTRA_RAG_ENTITY_EXPANSION:false}
     # Vérification des citations après génération : chaque phrase est confrontée par le
     # cross-encoder aux passages qu'elle cite [n]. Mesure la PERTINENCE (pas l'implication
     # logique) : signal de fidélité, pas preuve. Sans reranker, rien n'est vérifié.
