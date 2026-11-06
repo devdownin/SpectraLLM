@@ -43,7 +43,7 @@ SPECTRA_AGENTIC_LANGUAGE=en ./scripts/start.sh
 ```
 
 ```bash
-python3 scripts/enterprise_rag_bench.py ingest --batch-size 200
+python3 scripts/enterprise_rag_bench.py ingest   # lots de 40 : Tomcat plafonne à 50 fichiers par requête
 ```
 
 Reprenable : les lots terminés sont notés dans `ingest_state.json`, les échecs par fichier dans

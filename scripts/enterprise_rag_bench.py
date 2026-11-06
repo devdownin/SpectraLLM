@@ -52,6 +52,9 @@ TERMINAL_STATUSES = frozenset({"COMPLETED", "FAILED", "CANCELLED"})
 
 # Limites Spring : 50 Mo par fichier, 100 Mo par requête (application.yml). Marge pour l'en-tête multipart.
 MAX_BATCH_BYTES = 40 * 1024 * 1024
+# Tomcat refuse au-delà de 50 parties multipart (server.tomcat.max-part-count) : HTTP 500
+# « Maximum upload size exceeded », quelle que soit la taille réelle du lot.
+MAX_BATCH_FILES = 40
 
 
 # ── Données ───────────────────────────────────────────────────────────────────
@@ -425,7 +428,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_prepare)
 
     p = sub.add_parser("ingest", help="indexer le corpus dans Spectra")
-    p.add_argument("--batch-size", type=int, default=200)
+    p.add_argument("--batch-size", type=int, default=MAX_BATCH_FILES)
     p.add_argument("--poll", type=float, default=5.0)
     p.set_defaults(func=cmd_ingest)
 
