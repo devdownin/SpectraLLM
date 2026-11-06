@@ -133,6 +133,30 @@ class EnterpriseRagBenchTest(unittest.TestCase):
         self.run_cli("ingest", "--batch-size", "2", "--poll", "0")
         self.assertEqual(FakeSpectra.uploads, [2, 2, 1])
 
+    def test_prepare_from_github_source_dir_writes_subset_with_flattened_fields(self):
+        source = self.work / "generated_data"
+        docs = {
+            GOLD_A: ("hubspot/acme.json", {"company_name": "Acme", "title_field_name": "company_name",
+                                           "content_field_names": ["next_step", "blockers"],
+                                           "next_step": "Sign SLA", "blockers": ["legal", "pricing"]}),
+            OTHER: ("slack/eng/x.json", {"channel": "eng", "title_field_name": "channel",
+                                         "content_field_names": ["messages"], "messages": "Ava: hi"}),
+        }
+        for doc_id, (rel, raw) in docs.items():
+            path = source / "sources" / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({**raw, "dataset_doc_uuid": doc_id}))
+        (source / "uuid_index.json").write_text(json.dumps({d: rel for d, (rel, _) in docs.items()}))
+
+        bench.main(["--work-dir", str(self.work), "prepare", "--subset", "0", "--source-dir", str(source),
+                    "--questions-url", "http://unused.invalid"])
+
+        written = sorted(p.name for p in (self.work / "documents").iterdir())
+        self.assertEqual(written, [f"{GOLD_A}.txt"])
+        text = (self.work / "documents" / f"{GOLD_A}.txt").read_text()
+        self.assertTrue(text.startswith(f"[{GOLD_A}] [hubspot] Acme"))
+        self.assertIn("Sign SLA\n\nlegal\n\npricing", text)
+
     def test_recall_ignores_questions_without_gold_documents(self):
         questions = bench.load_questions(self.work / "questions.jsonl")
         report = bench.recall_report(questions, {"qst_0001": [GOLD_A, OTHER], "qst_0002": [GOLD_A]})

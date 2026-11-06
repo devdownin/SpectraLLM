@@ -20,7 +20,8 @@ d'où les ``document_ids`` sont extraits. Il est aussi écrit en tête du conten
 chaque fichier unique (l'ingestion déduplique par SHA-256 : deux quasi-doublons au contenu
 identique ne seraient sinon indexés qu'une fois, sous un seul doc_id).
 
-Dépendances : bibliothèque standard ; ``pyarrow`` pour ``prepare`` uniquement.
+Dépendances : bibliothèque standard ; ``pyarrow`` pour ``prepare`` depuis le parquet
+(``prepare --source-dir`` lit le corpus brut d'un clone GitHub, sans pyarrow).
 """
 
 from __future__ import annotations
@@ -222,26 +223,80 @@ def iter_parquet_rows(path: Path, columns: list[str]) -> Iterator[dict]:
         yield from batch.to_pylist()
 
 
+def flatten_field(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        return "\n\n".join(filter(None, map(flatten_field, value)))
+    if isinstance(value, dict):
+        return "\n".join(f"{k}: {flatten_field(v)}" for k, v in value.items())
+    return str(value)
+
+
+def source_document_row(raw: dict, source_type: str) -> dict:
+    """Document brut de ``generated_data/sources`` → mêmes champs que le parquet HF (titre + champs de contenu)."""
+    return {
+        "doc_id": raw["dataset_doc_uuid"],
+        "source_type": source_type,
+        "title": flatten_field(raw.get(raw.get("title_field_name") or "title")),
+        "content": "\n\n".join(filter(None, (flatten_field(raw.get(f)) for f in raw.get("content_field_names") or []))),
+    }
+
+
+class SourceDirCorpus:
+    """Corpus lu depuis ``generated_data/`` du dépôt GitHub (alternative au parquet Hugging Face)."""
+
+    def __init__(self, root: Path):
+        self.root = root
+        # uuid_index.json : doc_id → chemin relatif à sources/ (≈ 60 Mo, lu une fois).
+        self.index: dict[str, str] = json.loads((root / "uuid_index.json").read_text(encoding="utf-8"))
+
+    def ids(self) -> list[str]:
+        return list(self.index)
+
+    def rows(self, keep: set[str] | None) -> Iterator[dict]:
+        for doc_id, rel in self.index.items():
+            if keep is not None and doc_id not in keep:
+                continue
+            raw = json.loads((self.root / "sources" / rel).read_text(encoding="utf-8"))
+            yield source_document_row(raw, rel.split("/", 1)[0])
+
+
+class ParquetCorpus:
+    def __init__(self, path: Path):
+        self.path = path
+
+    def ids(self) -> list[str]:
+        return [row["doc_id"] for row in iter_parquet_rows(self.path, ["doc_id"])]
+
+    def rows(self, keep: set[str] | None) -> Iterator[dict]:
+        for row in iter_parquet_rows(self.path, ["doc_id", "source_type", "title", "content"]):
+            if keep is None or row["doc_id"] in keep:
+                yield row
+
+
 def cmd_prepare(args: argparse.Namespace) -> None:
     work = Path(args.work_dir)
     questions_path = download(args.questions_url, work / "questions.jsonl")
-    parquet_path = Path(args.documents_parquet) if args.documents_parquet else download(
-        args.documents_url, work / "documents.parquet")
+    if args.source_dir:
+        corpus = SourceDirCorpus(Path(args.source_dir))
+    else:
+        corpus = ParquetCorpus(Path(args.documents_parquet) if args.documents_parquet else download(
+            args.documents_url, work / "documents.parquet"))
 
     keep: set[str] | None = None
     if args.subset is not None:
         gold = {d for q in load_questions(questions_path) for d in q.expected_doc_ids}
-        all_ids = [row["doc_id"] for row in iter_parquet_rows(parquet_path, ["doc_id"])]
-        keep = select_subset(all_ids, gold, args.subset, args.seed)
+        keep = select_subset(corpus.ids(), gold, args.subset, args.seed)
         print(f"[prepare] sous-ensemble : {len(gold)} documents de référence + "
               f"{len(keep) - len(gold)} distracteurs (score NON comparable au leaderboard)", file=sys.stderr)
 
     docs_dir = work / "documents"
     docs_dir.mkdir(parents=True, exist_ok=True)
     written = 0
-    for row in iter_parquet_rows(parquet_path, ["doc_id", "source_type", "title", "content"]):
-        if keep is not None and row["doc_id"] not in keep:
-            continue
+    for row in corpus.rows(keep):
         target = docs_dir / f"{row['doc_id']}.txt"
         if not target.exists():
             target.write_text(render_document(row["doc_id"], row["source_type"] or "",
@@ -364,6 +419,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--subset", type=int, metavar="N", help="références + N distracteurs aléatoires")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--documents-parquet", help="parquet déjà téléchargé")
+    p.add_argument("--source-dir", help="generated_data/ d'un clone GitHub du banc (sans Hugging Face ni pyarrow)")
     p.add_argument("--documents-url", default=DOCUMENTS_URL)
     p.add_argument("--questions-url", default=QUESTIONS_URL)
     p.set_defaults(func=cmd_prepare)
