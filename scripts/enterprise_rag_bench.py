@@ -408,6 +408,8 @@ def answer_one(client: SpectraClient, q: Question, args: argparse.Namespace) -> 
         "document_ids": cited if args.sources == "cited" else retrieved,
         # Les deux listes sont conservées : le choix cited/all se rejoue hors-ligne.
         "spectra": {"ragStrategy": response.get("ragStrategy"), "durationMs": response.get("durationMs"),
+                    "agenticIterations": response.get("agenticIterations"),
+                    "agenticStopReason": response.get("agenticStopReason"),
                     "retrievedDocumentIds": retrieved, "citedDocumentIds": cited},
     }
 

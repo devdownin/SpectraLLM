@@ -348,7 +348,8 @@ public class AgenticRagService {
                     break;
                 }
                 String refinedQuery = queryMatcher.group(1).trim();
-                log.info("Agentic RAG itération {} : recherche complémentaire «{}»", iterations, refinedQuery);
+                log.info("Agentic RAG itération {} : {} «{}»", iterations,
+                        "LOOKUP".equals(action) ? "recherche exacte" : "recherche complémentaire", refinedQuery);
                 if (progressListener != null) progressListener.onSearch(iterations, refinedQuery);
 
                 List<RetrievedChunk> newChunks = "LOOKUP".equals(action)
