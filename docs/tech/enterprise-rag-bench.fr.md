@@ -145,6 +145,28 @@ résultat où des lignes `[WARN] … failed` apparaissent (code 4, fichier renom
 compatibles avec zéro : le nombre de victoires et de défaites par question et l'intervalle comptent plus que la
 moyenne. Métriques : `score` (classement), `correct`, `completeness`, `recall`, `extra`.
 
+## Résultats mesurés (sous-corpus de 5 722 documents)
+
+Échantillon de 50 questions (5 par catégorie), juge GPT-5.4, `--no-correction`. Le sous-corpus facilite la
+recherche : ces nombres servent à **comparer des réglages entre eux**, pas à se situer dans le classement.
+
+| Réglage | Score | Écart | Lecture |
+|---|---|---|---|
+| 2 048 tokens par requête | 32,0 | — | référence |
+| 8 192 tokens par requête | 51,6 | +19,5 (IC95 % [+9,1 ; +30,8]) | distinct du bruit |
+| + recherche hybride | 60,8 | +9,2 (IC95 % [−2,3 ; +20,4]) | **indiscernable du bruit** |
+
+- Recherche hybride : le rappel documentaire passe de 83,1 % à 94,8 % (écart distinct du bruit) ; le gain de
+  score, lui, n'est pas établi à n = 50. Le défaut `true` repose sur le rappel.
+- Fenêtre de voisins (`--neighbor-window 2`) : 65,1 → 63,6, bruit.
+- Sources citées seulement (`--sources cited`) : documents hors référence 6,0 → 1,3 par question, mais rappel
+  94 % → 70 % : à réserver à un classement qui pénalise les documents en trop.
+- Graphe d'entités : aucun changement des documents retrouvés sur les 16 questions concernées.
+- Outils de l'agent : 0 appel d'outil sur 12 questions avec un 7B ; sans outils, 8 réponses directes sur 12.
+
+Non mesuré : l'index BM25 en mémoire coûte ≈ 5 Ko par chunk, soit ≈ 9 Go extrapolés à 500 000 documents
+contre 2,5 à 4 Go de tas JVM. Le run complet suppose de revoir ce point.
+
 ## 5. Soumettre au classement
 
 Le run doit couvrir les 500 questions sur le corpus complet. La soumission se fait par e-mail à
