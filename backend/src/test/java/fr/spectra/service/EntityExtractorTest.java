@@ -58,4 +58,43 @@ class EntityExtractorTest {
         assertThat(EntityExtractor.extract(null, 5)).isEmpty();
         assertThat(EntityExtractor.extract("   ", 5)).isEmpty();
     }
+
+    @Test
+    @DisplayName("entrées pathologiques (alerte CodeQL) : analyse linéaire, aucune entité, vite")
+    void pathologicalInputsAreScannedInLinearTime() {
+        String dotted = "ba" + ".ba.0".repeat(200_000) + "Z";
+        String camel = "bA0" + "AbA0".repeat(200_000) + "_";
+
+        long start = System.nanoTime();
+        List<String> a = EntityExtractor.extract(dotted, 5);
+        List<String> b = EntityExtractor.extract(camel, 5);
+        long elapsedMs = (System.nanoTime() - start) / 1_000_000;
+
+        assertThat(elapsedMs).isLessThan(500);
+        assertThat(a).isEmpty();
+        assertThat(b).isEmpty();
+    }
+
+    @Test
+    @DisplayName("un « identifiant » de plusieurs milliers de caractères n'en est pas un")
+    void absurdlyLongTokensAreNotEntities() {
+        assertThat(EntityExtractor.extract("a_".repeat(EntityExtractor.MAX_ENTITY_LENGTH) + "bc", 5)).isEmpty();
+        assertThat(EntityExtractor.extract("a_b".repeat(10), 5)).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("l'entrée est tronquée : un identifiant au-delà de la limite est ignoré")
+    void inputBeyondTheLimitIsTruncated() {
+        String padding = "mot ".repeat(EntityExtractor.MAX_INPUT_CHARS / 4 + 10);
+
+        assertThat(EntityExtractor.extract(padding + "ENG-39100", 5)).isEmpty();
+        assertThat(EntityExtractor.extract("ENG-39100 " + padding, 5)).containsExactly("ENG-39100");
+    }
+
+    @Test
+    @DisplayName("ponctuation et chemins autour des identifiants")
+    void identifiersSurroundedByPunctuation() {
+        assertThat(EntityExtractor.extract("(voir ENG-39100), puis `max_file_size`. Et linear/DES-12 ?", 10))
+                .containsExactly("ENG-39100", "max_file_size", "DES-12");
+    }
 }
