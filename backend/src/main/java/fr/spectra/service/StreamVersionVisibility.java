@@ -20,7 +20,7 @@ public class StreamVersionVisibility {
     public java.util.function.BiPredicate<String, String> snapshot() {
         java.util.Map<String, java.util.Optional<Publication>> publications = new java.util.HashMap<>();
         return (sha256, sourceFile) -> {
-            if (sourceFile == null || !sourceFile.startsWith("kafka://")) return true;
+            if (sourceFile == null || !(sourceFile.startsWith("kafka://") || sourceFile.startsWith("source://"))) return true;
             java.util.Optional<Publication> pointer = publications.computeIfAbsent(sourceFile, key ->
                     repository.findById(key).map(source -> new Publication(
                             source.getContentHash(), source.isVersionedPublication())));

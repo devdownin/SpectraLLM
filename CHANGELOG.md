@@ -8,6 +8,14 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Ajouté — sources de données synchronisées
+
+- Page Connecteurs FR/EN : catalogue dossier local, S3/MinIO et web/sitemap, assistant de configuration avec test, recherche, filtres, suivi des documents et historique.
+- Instances persistantes avec planification, checkpoints par document, annulation, reprise après redémarrage et purge des disparitions uniquement après découverte complète sans erreur.
+- Versions publiées communes au RAG vectoriel et lexical ; provenance distante et accès depuis les citations du Playground avec aperçu du texte publié.
+- Racines locales autorisées, montage en lecture seule, contrôles des hôtes privés et références aux credentials S3 par variables d'environnement.
+- Guide d'exploitation et overlay Docker dédiés. Ces sources alimentent le corpus partagé, sans synchronisation d'ACL par utilisateur.
+
 ### Corrigé — audit RAG, lot 3
 
 - Les réponses agentiques vérifient leurs citations contre les passages complets effectivement utilisés ; le rapport est conservé en réponse normale et en SSE.

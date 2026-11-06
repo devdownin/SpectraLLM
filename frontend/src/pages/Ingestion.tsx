@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import type { FC } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -574,6 +575,11 @@ const Ingestion: FC = () => {
               </button>
             </div>
 
+            <Link to="/sources" className="flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs text-primary hover:bg-primary/10">
+              <span aria-hidden="true" className="material-symbols-outlined text-base">sync</span>
+              <span className="flex-1">{t('sources.ingestionLink')}</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-base">arrow_forward</span>
+            </Link>
             {/* URL ingestion */}
             <div className="flex items-center gap-2 bg-surface-container border border-outline-variant/20 p-3">
               <span className="material-symbols-outlined text-base text-outline shrink-0">link</span>

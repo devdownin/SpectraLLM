@@ -785,7 +785,11 @@ public class IngestionService {
         // Kafka tombstones bypass format-specific extractors (an empty JSON/XML is not a document).
         java.io.PushbackInputStream payload = new java.io.PushbackInputStream(content, 1);
         int first = payload.read();
-        if (first < 0) return UpsertResult.deleted(sourceKey, purgeStreamSource(sourceKey, collectionName));
+        if (first < 0) {
+            if (sourceKey.startsWith("source://")) throw new fr.spectra.service.extraction.ExtractionException(
+                    "Empty source document; published version retained");
+            return UpsertResult.deleted(sourceKey, purgeStreamSource(sourceKey, collectionName));
+        }
         payload.unread(first);
 
         // 1. Extraction → nettoyage → chunking (sourceFile = clé métier stable)
@@ -803,6 +807,10 @@ public class IngestionService {
 
         // 2. Tombstone : plus de contenu → suppression pure
         if (chunks.isEmpty()) {
+            if (sourceKey.startsWith("source://")) {
+                throw new fr.spectra.service.extraction.ExtractionException(
+                        "Source document produced no searchable content; published version retained");
+            }
             StreamSourceEntity pending = streamSourceRepository.findById(sourceKey).orElse(null);
             if (pending != null) {
                 pending.setContentHash(null); // durable deletion intent; retries remain necessary
@@ -815,7 +823,10 @@ public class IngestionService {
         }
 
         // 3. Idempotence : contenu inchangé → no-op (rejeu)
-        String contentHash = sha256(new java.io.ByteArrayInputStream((sourceKey + "\n" + collectionName + "\n" + cleanedText).getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        // Connector provenance participates in publication identity; Kafka replay semantics stay unchanged.
+        String provenance = sourceKey.startsWith("source://") && extraMetadata != null
+                ? new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(new java.util.TreeMap<>(extraMetadata)) : "";
+        String contentHash = sha256(new java.io.ByteArrayInputStream((sourceKey + "\n" + collectionName + "\n" + cleanedText + provenance).getBytes(java.nio.charset.StandardCharsets.UTF_8)));
         StreamSourceEntity existing = streamSourceRepository.findById(sourceKey).orElse(null);
         if (existing != null && contentHash.equals(existing.getContentHash())) {
             log.debug("Upsert streaming '{}' : contenu inchangé, ignoré", sourceKey);

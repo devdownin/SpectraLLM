@@ -1,0 +1,13 @@
+# Optional connector inputs. Use --project-directory . from the repository root,
+# as with the base compose file. Never mount the Docker socket or the host root.
+services:
+  spectra-api:
+    environment:
+      - SPECTRA_SOURCES_LOCAL_ROOTS=/app/sources
+      - SPECTRA_SOURCES_ALLOWED_HOSTS=${SPECTRA_SOURCES_ALLOWED_HOSTS:-}
+      - SPECTRA_SOURCES_MAX_CONCURRENT=${SPECTRA_SOURCES_MAX_CONCURRENT:-2}
+      - SPECTRA_S3_ACCESS_KEY=${SPECTRA_S3_ACCESS_KEY:-}
+      - SPECTRA_S3_SECRET_KEY=${SPECTRA_S3_SECRET_KEY:-}
+      - SPECTRA_S3_SESSION_TOKEN=${SPECTRA_S3_SESSION_TOKEN:-}
+    volumes:
+      - ${SPECTRA_SOURCES_HOST_DIR:-./data/sources}:/app/sources:ro

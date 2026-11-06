@@ -214,3 +214,35 @@ CREATE INDEX IF NOT EXISTS idx_ged_audit_sha256           ON ged_audit_log(docum
 CREATE INDEX IF NOT EXISTS idx_ged_audit_timestamp        ON ged_audit_log(timestamp);
 CREATE INDEX IF NOT EXISTS idx_doc_model_sha256           ON document_model_links(document_sha256);
 CREATE INDEX IF NOT EXISTS idx_doc_model_name             ON document_model_links(model_name);
+
+-- Persistent connector instances and per-document checkpoints. No credentials are stored here.
+CREATE TABLE IF NOT EXISTS source_instances (
+    id VARCHAR(255) PRIMARY KEY,
+    lock_version BIGINT NOT NULL DEFAULT 0,
+    name VARCHAR(255), type VARCHAR(255), collection_name VARCHAR(255),
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    interval_minutes INTEGER NOT NULL DEFAULT 0,
+    config_json TEXT, status VARCHAR(255),
+    last_success_at TIMESTAMP WITH TIME ZONE,
+    next_sync_at TIMESTAMP WITH TIME ZONE,
+    last_error VARCHAR(1000)
+);
+CREATE TABLE IF NOT EXISTS source_documents (
+    id VARCHAR(64) PRIMARY KEY,
+    source_id VARCHAR(255) NOT NULL REFERENCES source_instances(id),
+    external_id VARCHAR(2048), title VARCHAR(512), source_url VARCHAR(2048),
+    revision VARCHAR(128), fingerprint VARCHAR(64),
+    indexed_at TIMESTAMP WITH TIME ZONE, last_seen_at TIMESTAMP WITH TIME ZONE,
+    seen_run VARCHAR(255), status VARCHAR(255), error VARCHAR(1000)
+);
+CREATE INDEX IF NOT EXISTS idx_source_docs_instance ON source_documents(source_id);
+CREATE TABLE IF NOT EXISTS source_runs (
+    id VARCHAR(255) PRIMARY KEY,
+    source_id VARCHAR(255) NOT NULL REFERENCES source_instances(id),
+    status VARCHAR(255), scanned INTEGER NOT NULL DEFAULT 0,
+    indexed INTEGER NOT NULL DEFAULT 0, unchanged INTEGER NOT NULL DEFAULT 0,
+    deleted INTEGER NOT NULL DEFAULT 0, failed INTEGER NOT NULL DEFAULT 0,
+    started_at TIMESTAMP WITH TIME ZONE, completed_at TIMESTAMP WITH TIME ZONE,
+    error VARCHAR(1000)
+);
+CREATE INDEX IF NOT EXISTS idx_source_runs_instance ON source_runs(source_id, started_at);

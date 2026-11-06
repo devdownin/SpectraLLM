@@ -11,8 +11,14 @@ export default function SourceDocumentButton({ fileName, collection, focusId }: 
   return <button type="button" disabled={opening} className="text-xs text-primary border border-primary/30 rounded-lg px-3 py-2 disabled:opacity-50" onClick={async () => {
     setOpening(true);
     try {
+      const origin = { path: location.pathname + location.search, label: t('nav.playground'), state: { sourceFocusId: focusId } };
+      const synchronizedSource = /^source:\/\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+)$/.exec(fileName);
+      if (synchronizedSource) {
+        navigate(`/sources?source=${encodeURIComponent(synchronizedSource[1])}&document=${encodeURIComponent(synchronizedSource[2])}`, { state: { origin } });
+        return;
+      }
       const sha = await resolveSourceDocument(fileName, collection);
-      navigate(`/documents?doc=${encodeURIComponent(sha)}`, { state: { origin: { path: location.pathname + location.search, label: t('nav.playground'), state: { sourceFocusId: focusId } } } });
+      navigate(`/documents?doc=${encodeURIComponent(sha)}`, { state: { origin } });
     } catch (error) {
       toast.error(t(error instanceof Error && error.message === 'ambiguous' ? 'detail.ambiguousSource' : error instanceof Error && error.message === 'missing' ? 'playground.docNotFound' : 'playground.docOpenFailed'));
     } finally { setOpening(false); }

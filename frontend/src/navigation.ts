@@ -23,6 +23,7 @@ export const NAV_ITEMS: NavItem[] = [
   { name: 'Dashboard',    nameKey: 'nav.dashboard',    icon: 'dashboard',      path: '/',             docSection: 'interface'     },
   { name: 'Activity', nameKey: 'nav.activity', icon: 'browse_activity', path: '/activity', docSection: 'interface' },
   { name: 'Ingestion',    nameKey: 'nav.ingestion',    icon: 'cloud_upload',   path: '/ingestion',    docSection: 'pipeline',      groupKey: 'nav.groupData'     },
+  { name: 'Data sources', nameKey: 'nav.sources', icon: 'hub', path: '/sources', docSection: 'pipeline', groupKey: 'nav.groupData' },
   { name: 'Documents',    nameKey: 'nav.documents',    icon: 'folder_open',    path: '/documents',    docSection: 'commenting',    groupKey: 'nav.groupData'     },
   { name: 'Model Hub',    nameKey: 'nav.modelHub',     icon: 'hub',            path: '/model-hub',    docSection: 'prerequisites', groupKey: 'nav.groupModels'   },
   { name: 'Fine-Tuning',  nameKey: 'nav.fineTuning',   icon: 'model_training', path: '/fine-tuning',  docSection: 'pipeline',      groupKey: 'nav.groupModels'   },

@@ -23,3 +23,11 @@ it.each(['ambiguous', 'missing', 'offline'])('stays in Playground when source re
   vi.mocked(resolveSourceDocument).mockRejectedValue(new Error(failure)); show(); await userEvent.click(screen.getByRole('button', { name: 'Open document' }));
   expect(screen.getByTestId('location')).toHaveTextContent('"path":"/playground"'); expect(toast.error).toHaveBeenCalledOnce(); expect(screen.getByRole('button', { name: 'Open document' })).toBeEnabled();
 });
+it('opens a synchronized document directly and preserves its return target', async () => {
+  render(<MemoryRouter initialEntries={['/playground?session=example']}><SourceDocumentButton fileName="source://source-123/doc-456" focusId="citation-7" /><Location /></MemoryRouter>);
+  await userEvent.click(screen.getByRole('button', { name: 'Open document' }));
+  expect(resolveSourceDocument).not.toHaveBeenCalled();
+  expect(screen.getByTestId('location')).toHaveTextContent('/sources?source=source-123&document=doc-456');
+  expect(screen.getByTestId('location')).toHaveTextContent('/playground?session=example');
+  expect(screen.getByTestId('location')).toHaveTextContent('citation-7');
+});
