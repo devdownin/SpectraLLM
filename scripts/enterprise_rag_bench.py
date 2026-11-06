@@ -94,6 +94,28 @@ def extract_doc_ids(sources: Iterable[dict], limit: int | None = None) -> list[s
     return ids[:limit] if limit else ids
 
 
+CITATION_PATTERN = re.compile(r"\[(\d+(?:\s*[,;]\s*\d+)*)\]")
+
+
+def cited_source_numbers(answer: str) -> list[int]:
+    """Numéros ``[n]`` cités dans la réponse (``[3]``, ``[1, 2]``), distincts, dans l'ordre d'apparition."""
+    seen: dict[int, None] = {}
+    for group in CITATION_PATTERN.findall(answer or ""):
+        for number in re.split(r"\s*[,;]\s*", group):
+            seen.setdefault(int(number), None)
+    return list(seen)
+
+
+def cited_doc_ids(answer: str, sources: list[dict], limit: int | None = None) -> list[str]:
+    """doc_ids des seuls passages cités. Les ``[n]`` sont 1-basés sur l'ordre de ``sources``.
+
+    Repli sur tous les documents récupérés quand la réponse ne cite aucun passage valide : une
+    réponse sans citation (refus, réponse de mémoire) ne doit pas perdre son rappel.
+    """
+    picked = [sources[n - 1] for n in cited_source_numbers(answer) if 1 <= n <= len(sources)]
+    return extract_doc_ids(picked or sources, limit)
+
+
 def render_document(doc_id: str, source_type: str, title: str, content: str) -> str:
     header = f"[{doc_id}] [{source_type}] {title}".strip()
     return f"{header}\n\n{content or ''}\n"
@@ -363,16 +385,30 @@ def build_query(question: str, args: argparse.Namespace) -> dict:
     }
     if args.collection:
         payload["collection"] = args.collection
+    # Surcharges par requête (RagOverrides) : permettent un A/B sur la même pile, sans la redémarrer.
+    overrides = {}
+    if args.hybrid != "default":
+        overrides["hybrid"] = args.hybrid == "on"
+    if args.neighbor_window is not None:
+        overrides["neighborWindow"] = args.neighbor_window
+    if overrides:
+        payload["overrides"] = overrides
     return payload
 
 
 def answer_one(client: SpectraClient, q: Question, args: argparse.Namespace) -> dict:
     response = with_retry(lambda: client.post_json("/api/query", build_query(q.question, args)), attempts=3)
+    answer = response.get("answer") or ""
+    sources = response.get("sources") or []
+    retrieved = extract_doc_ids(sources, args.max_docs)
+    cited = cited_doc_ids(answer, sources, args.max_docs)
     return {
         "question_id": q.question_id,
-        "answer": response.get("answer") or "",
-        "document_ids": extract_doc_ids(response.get("sources") or [], args.max_docs),
-        "spectra": {"ragStrategy": response.get("ragStrategy"), "durationMs": response.get("durationMs")},
+        "answer": answer,
+        "document_ids": cited if args.sources == "cited" else retrieved,
+        # Les deux listes sont conservées : le choix cited/all se rejoue hors-ligne.
+        "spectra": {"ragStrategy": response.get("ragStrategy"), "durationMs": response.get("durationMs"),
+                    "retrievedDocumentIds": retrieved, "citedDocumentIds": cited},
     }
 
 
@@ -453,6 +489,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-context-chunks", type=int, default=10)
     p.add_argument("--top-candidates", type=int, default=50)
     p.add_argument("--max-docs", type=int, default=10, help="document_ids gardés (les extras sont pénalisés)")
+    p.add_argument("--sources", choices=("all", "cited"), default="all",
+                   help="document_ids rendus : tous les documents récupérés, ou les seuls cités [n] dans la "
+                        "réponse (repli sur tous si aucune citation). N'agit que sur recall et invalid extra "
+                        "docs, pas sur correctness × completeness.")
+    p.add_argument("--hybrid", choices=("default", "on", "off"), default="default",
+                   help="force la recherche hybride pour cette requête (A/B sans redémarrage)")
+    p.add_argument("--neighbor-window", type=int, metavar="N",
+                   help="chunks voisins (± N, 0-5) ajoutés à chaque passage : approche le « document entier »")
     p.add_argument("--temperature", type=float, default=0.0)
     p.add_argument("--question-suffix", default="\n\nAnswer in English.",
                    help="persona et prompts Spectra sont en français ; le juge attend de l'anglais")

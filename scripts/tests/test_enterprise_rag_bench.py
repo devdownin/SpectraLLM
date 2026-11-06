@@ -161,6 +161,43 @@ class EnterpriseRagBenchTest(unittest.TestCase):
         questions = [bench.Question(f"q{i}", t, "?", ()) for i, t in enumerate("aabbbca")]
         self.assertEqual([q.question_id for q in bench.sample_per_type(questions, 2)], ["q0", "q1", "q2", "q3", "q5"])
 
+    def test_citation_numbers_cover_single_grouped_and_repeated_forms(self):
+        self.assertEqual(bench.cited_source_numbers("Vrai [3]. Aussi [1, 2] et [3][4]."), [3, 1, 2, 4])
+        self.assertEqual(bench.cited_source_numbers("Aucune citation, un tableau[]"), [])
+        self.assertEqual(bench.cited_source_numbers(None), [])
+
+    def test_cited_doc_ids_keep_only_cited_passages_in_citation_order(self):
+        sources = [{"sourceFile": f"{GOLD_A}.txt"}, {"sourceFile": f"{GOLD_B}.txt"}, {"sourceFile": f"{OTHER}.txt"}]
+
+        self.assertEqual(bench.cited_doc_ids("Fait [3] puis fait [1].", sources), [OTHER, GOLD_A])
+
+    def test_cited_doc_ids_ignore_numbers_that_do_not_exist(self):
+        sources = [{"sourceFile": f"{GOLD_A}.txt"}, {"sourceFile": f"{GOLD_B}.txt"}]
+
+        self.assertEqual(bench.cited_doc_ids("Fait [9] et [2] et [0].", sources), [GOLD_B])
+
+    def test_cited_doc_ids_fall_back_to_all_retrieved_when_nothing_valid_is_cited(self):
+        sources = [{"sourceFile": f"{GOLD_A}.txt"}, {"sourceFile": f"{GOLD_B}.txt"}]
+
+        self.assertEqual(bench.cited_doc_ids("Pas de citation.", sources), [GOLD_A, GOLD_B])
+        self.assertEqual(bench.cited_doc_ids("Citation invalide [7].", sources), [GOLD_A, GOLD_B])
+
+    def test_answer_can_return_only_cited_documents_and_keeps_both_lists(self):
+        self.run_cli("answer", "--limit", "1", "--sources", "cited")
+
+        row = json.loads((self.work / "answers.jsonl").read_text().splitlines()[0])
+        self.assertEqual(row["spectra"]["retrievedDocumentIds"], [GOLD_A, OTHER])
+        self.assertEqual(row["spectra"]["citedDocumentIds"], [GOLD_A, OTHER])  # la réponse factice ne cite rien
+        self.assertEqual(row["document_ids"], [GOLD_A, OTHER])
+
+    def test_query_overrides_are_sent_only_when_requested(self):
+        self.run_cli("answer", "--limit", "1")
+        self.run_cli("answer", "--limit", "1", "--output", str(self.work / "b.jsonl"),
+                     "--hybrid", "off", "--neighbor-window", "3")
+
+        self.assertNotIn("overrides", FakeSpectra.queries[0])
+        self.assertEqual(FakeSpectra.queries[1]["overrides"], {"hybrid": False, "neighborWindow": 3})
+
     def test_recall_ignores_questions_without_gold_documents(self):
         questions = bench.load_questions(self.work / "questions.jsonl")
         report = bench.recall_report(questions, {"qst_0001": [GOLD_A, OTHER], "qst_0002": [GOLD_A]})
