@@ -374,6 +374,7 @@ services:
       # Fenêtre par requête de llm-embed (-c 8192 / LLM_EMBED_PARALLEL), en tokens du modèle.
       - SPECTRA_EMBEDDING_MAX_INPUT_TOKENS=${SPECTRA_EMBEDDING_MAX_INPUT_TOKENS:-2048}
       - SPECTRA_PIPELINE_GENERATION_TIMEOUT_SECONDS=${SPECTRA_GENERATION_TIMEOUT:-120}
+      - SPECTRA_UPLOAD_MAX_FILES=${SPECTRA_UPLOAD_MAX_FILES:-1000}
       - SPECTRA_PIPELINE_CONCURRENT_INGESTIONS=${SPECTRA_CONCURRENT_INGESTIONS:-4}
       # Exécuteur d'entraînement : « process » (scripts sur l'hôte — indisponible dans ce
       # conteneur, d'où un 503 motivé) ou « http » (service trainer, profil « trainer »).

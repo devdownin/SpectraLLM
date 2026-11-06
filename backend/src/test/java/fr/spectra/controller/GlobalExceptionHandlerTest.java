@@ -6,6 +6,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.server.ResponseStatusException;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -46,6 +47,21 @@ class GlobalExceptionHandlerTest {
                 new RuntimeException("cause sous-jacente"));
         ProblemDetail problem = handler.handleExtraction(ex);
         assertThat(problem.getDetail()).contains("Fichier corrompu");
+    }
+
+    // ── Envoi multipart hors limites → 413 ────────────────────────────────────
+
+    @Test
+    void handleUploadTooLarge_returns413WithRootCause() {
+        var ex = new MaxUploadSizeExceededException(-1,
+                new IllegalStateException("Request exceeded the maximum number of parts (50)"));
+
+        ProblemDetail problem = handler.handleUploadTooLarge(ex);
+
+        assertThat(problem.getStatus()).isEqualTo(HttpStatus.CONTENT_TOO_LARGE.value());
+        assertThat(problem.getDetail())
+                .contains("SPECTRA_UPLOAD_MAX_FILES")
+                .contains("maximum number of parts (50)");
     }
 
     // ── Indisponibilités → 503 ────────────────────────────────────────────────

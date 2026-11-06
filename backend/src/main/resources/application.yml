@@ -42,6 +42,12 @@ spring:
 server:
   port: 8080
   shutdown: graceful
+  tomcat:
+    # Nombre maximal de parties d'une requête multipart, donc de fichiers par envoi.
+    # Le défaut Tomcat (50) rejetait tout envoi de plus de 50 fichiers par un 500 trompeur
+    # (« Maximum upload size exceeded ») bien en deçà de max-request-size. La taille totale
+    # reste bornée par spring.servlet.multipart.max-request-size.
+    max-part-count: ${SPECTRA_UPLOAD_MAX_FILES:1000}
 
 # Services externes
 spectra:
