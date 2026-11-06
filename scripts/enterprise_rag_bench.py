@@ -139,7 +139,8 @@ def recall_report(questions: list[Question], answers: dict[str, list[str]]) -> d
     per_type: dict[str, list[float]] = defaultdict(list)
     extras: dict[str, list[int]] = defaultdict(list)
     for q in questions:
-        if q.question_type in NO_GOLD_TYPES or not q.expected_doc_ids:
+        # Une question absente du fichier de réponses n'est pas un échec de rappel : elle n'a pas été posée.
+        if q.question_type in NO_GOLD_TYPES or not q.expected_doc_ids or q.question_id not in answers:
             continue
         retrieved = {d.lower() for d in answers.get(q.question_id, [])}
         gold = {d.lower() for d in q.expected_doc_ids}

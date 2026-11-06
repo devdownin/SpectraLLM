@@ -168,6 +168,12 @@ class EnterpriseRagBenchTest(unittest.TestCase):
         self.assertAlmostEqual(report["recall"], 0.75)
         self.assertEqual(report["by_type"]["basic"]["mean_extra_docs"], 1)
 
+    def test_recall_only_scores_answered_questions(self):
+        questions = bench.load_questions(self.work / "questions.jsonl")
+        report = bench.recall_report(questions, {"qst_0001": [GOLD_A]})
+        self.assertEqual(report["questions"], 1)
+        self.assertEqual(report["recall"], 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()
