@@ -54,6 +54,8 @@ pour le run complet.
 
 ```bash
 python3 scripts/enterprise_rag_bench.py answer --max-context-chunks 10 --top-candidates 50
+# Vérifier la chaîne sur un échantillon (5 questions × 10 catégories) :
+python3 scripts/enterprise_rag_bench.py answer --per-type 5 --output data/enterprise-rag-bench/answers-sample.jsonl
 # Itérer sur une catégorie :
 python3 scripts/enterprise_rag_bench.py answer --question-type basic --limit 20 \
   --output data/enterprise-rag-bench/answers-basic.jsonl

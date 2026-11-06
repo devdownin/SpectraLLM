@@ -157,6 +157,10 @@ class EnterpriseRagBenchTest(unittest.TestCase):
         self.assertTrue(text.startswith(f"[{GOLD_A}] [hubspot] Acme"))
         self.assertIn("Sign SLA\n\nlegal\n\npricing", text)
 
+    def test_per_type_sample_takes_first_questions_of_each_category(self):
+        questions = [bench.Question(f"q{i}", t, "?", ()) for i, t in enumerate("aabbbca")]
+        self.assertEqual([q.question_id for q in bench.sample_per_type(questions, 2)], ["q0", "q1", "q2", "q3", "q5"])
+
     def test_recall_ignores_questions_without_gold_documents(self):
         questions = bench.load_questions(self.work / "questions.jsonl")
         report = bench.recall_report(questions, {"qst_0001": [GOLD_A, OTHER], "qst_0002": [GOLD_A]})

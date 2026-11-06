@@ -107,6 +107,17 @@ def select_subset(all_ids: Iterable[str], gold_ids: set[str], distractors: int, 
     return set(gold_ids) | set(picked)
 
 
+def sample_per_type(questions: list[Question], per_type: int) -> list[Question]:
+    """Les ``per_type`` premières questions de chaque catégorie (ordre du fichier) : échantillon stable."""
+    counts: dict[str, int] = defaultdict(int)
+    picked = []
+    for q in questions:
+        if counts[q.question_type] < per_type:
+            counts[q.question_type] += 1
+            picked.append(q)
+    return picked
+
+
 def plan_batches(files: list[Path], max_files: int, max_bytes: int = MAX_BATCH_BYTES) -> list[list[Path]]:
     """Lots déterministes (fichiers triés) : un index de lot reste stable d'une reprise à l'autre."""
     batches: list[list[Path]] = []
@@ -376,6 +387,8 @@ def cmd_answer(args: argparse.Namespace) -> None:
     questions = load_questions(Path(args.questions) if args.questions else work / "questions.jsonl")
     if args.question_type:
         questions = [q for q in questions if q.question_type in args.question_type]
+    if args.per_type:
+        questions = sample_per_type(questions, args.per_type)
     out = Path(args.output) if args.output else work / "answers.jsonl"
     answered = load_answered(out)
     todo = [q for q in questions if q.question_id not in answered][: args.limit]
@@ -443,6 +456,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--question-suffix", default="\n\nAnswer in English.",
                    help="persona et prompts Spectra sont en français ; le juge attend de l'anglais")
     p.add_argument("--question-type", action="append", help="filtrer par type (répétable)")
+    p.add_argument("--per-type", type=int, metavar="N", help="échantillon : N premières questions par catégorie")
     p.add_argument("--limit", type=int)
     p.add_argument("--parallelism", type=int, default=1)
     p.set_defaults(func=cmd_answer)
