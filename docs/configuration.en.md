@@ -110,7 +110,7 @@ Disabled by default — no Kafka bean is created unless `SPECTRA_KAFKA_ENABLED=t
 | `SPECTRA_RERANKER_TIMEOUT` | `30` | Reranker timeout (seconds) |
 | `SPECTRA_RERANKER_TOP_CANDIDATES` | `20` | Candidates fed to reranker |
 | `SPECTRA_RERANKER_MIN_SCORE` | *(empty)* | Minimum reranker score (sigmoid, 0–1) for a chunk to enter the context; empty = no threshold. When no chunk passes, the RAG answers that nothing relevant was found. Tune with `POST /api/ablation` (0.1–0.3 is a sensible start). |
-| `SPECTRA_RERANKER_ONNX_MODEL_FILE` | `model.onnx` | Path of the ONNX graph under `SPECTRA_RERANKER_ONNX_URL` (e.g. `onnx/model_int8.onnx` for `bge-reranker-v2-m3`); always saved locally as `model.onnx`. |
+| `SPECTRA_RERANKER_ONNX_MODEL_FILE` | `onnx/model.onnx` | Path of the ONNX graph under `SPECTRA_RERANKER_ONNX_URL` (e.g. `onnx/model_int8.onnx` for `bge-reranker-v2-m3`); always saved locally as `model.onnx`. |
 | `SPECTRA_RAG_CONTEXT_PLACEMENT` | `user` | Where retrieved passages go: `user` (user message, below the system instructions) or `system` (legacy form — keep it for a model fine-tuned before this setting). The fine-tuning dataset follows it. |
 | `SPECTRA_RAG_CONTEXTUAL_HEADERS` | `true` | Prefix "Document / Section" to the *embedded* text of each chunk (never to the stored or cited text). |
 | `SPECTRA_RAG_NEIGHBOR_WINDOW` | `0` | Adjacent chunks (± N, same document) merged into each retained passage; 0 = off. |
