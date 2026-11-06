@@ -20,7 +20,7 @@ python3 scripts/enterprise_rag_bench.py prepare
 ```
 
 Sans accès à Hugging Face (proxy, réseau restreint), le même corpus se lit depuis un clone du dépôt
-GitHub, sans pyarrow (~6 Go de JSON bruts) :
+GitHub, sans pyarrow (~4 Go de JSON bruts) :
 
 ```bash
 git clone --depth 1 https://github.com/onyx-dot-app/EnterpriseRAG-Bench /tmp/erb
