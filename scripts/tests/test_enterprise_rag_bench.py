@@ -55,12 +55,13 @@ class FakeSpectra(BaseHTTPRequestHandler):
         self._reply({
             "answer": "42",
             "sources": [
-                {"sourceFile": f"{GOLD_A}.txt"},
+                {"sourceFile": f"{GOLD_A}.txt", "rerankScore": 0.91},
                 {"sourceFile": f"{GOLD_A}.txt"},
                 {"sourceFile": f"{OTHER}.txt"},
                 {"sourceFile": "notes.pdf"},
             ],
             "ragStrategy": "STANDARD",
+            "contextChars": 1234,
             "durationMs": 12,
         })
 
@@ -197,6 +198,19 @@ class EnterpriseRagBenchTest(unittest.TestCase):
 
         self.assertNotIn("overrides", FakeSpectra.queries[0])
         self.assertEqual(FakeSpectra.queries[1]["overrides"], {"hybrid": False, "neighborWindow": 3})
+
+    def test_noise_and_multi_document_overrides_are_sent_only_when_requested(self):
+        self.run_cli("answer", "--limit", "1", "--multi-query", "on", "--dedup", "mmr", "--rerank-min-score", "0.2")
+
+        self.assertEqual(FakeSpectra.queries[0]["overrides"],
+                         {"multiQuery": True, "dedupStrategy": "mmr", "rerankMinScore": 0.2})
+
+    def test_answer_keeps_rerank_scores_and_prompt_size_for_calibration(self):
+        self.run_cli("answer", "--limit", "1")
+
+        spectra = json.loads((self.work / "answers.jsonl").read_text().splitlines()[0])["spectra"]
+        self.assertEqual(spectra["contextChars"], 1234)
+        self.assertEqual(spectra["sourceScores"][0], {"docIds": [GOLD_A], "rerankScore": 0.91})
 
     def test_recall_ignores_questions_without_gold_documents(self):
         questions = bench.load_questions(self.work / "questions.jsonl")

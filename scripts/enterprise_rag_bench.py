@@ -391,6 +391,12 @@ def build_query(question: str, args: argparse.Namespace) -> dict:
         overrides["hybrid"] = args.hybrid == "on"
     if args.neighbor_window is not None:
         overrides["neighborWindow"] = args.neighbor_window
+    if args.multi_query != "default":
+        overrides["multiQuery"] = args.multi_query == "on"
+    if args.dedup != "default":
+        overrides["dedupStrategy"] = args.dedup
+    if args.rerank_min_score is not None:
+        overrides["rerankMinScore"] = args.rerank_min_score
     if overrides:
         payload["overrides"] = overrides
     return payload
@@ -408,6 +414,9 @@ def answer_one(client: SpectraClient, q: Question, args: argparse.Namespace) -> 
         "document_ids": cited if args.sources == "cited" else retrieved,
         # Les deux listes sont conservées : le choix cited/all se rejoue hors-ligne.
         "spectra": {"ragStrategy": response.get("ragStrategy"), "durationMs": response.get("durationMs"),
+                    "contextChars": response.get("contextChars"),
+                    "sourceScores": [{"docIds": extract_doc_ids([s]), "rerankScore": s.get("rerankScore")}
+                                     for s in sources],
                     "agenticIterations": response.get("agenticIterations"),
                     "agenticStopReason": response.get("agenticStopReason"),
                     "retrievedDocumentIds": retrieved, "citedDocumentIds": cited},
@@ -497,6 +506,12 @@ def build_parser() -> argparse.ArgumentParser:
                         "docs, pas sur correctness × completeness.")
     p.add_argument("--hybrid", choices=("default", "on", "off"), default="default",
                    help="force la recherche hybride pour cette requête (A/B sans redémarrage)")
+    p.add_argument("--multi-query", choices=("default", "on", "off"), default="default",
+                   help="reformulations de la question (exige SPECTRA_MULTI_QUERY_ENABLED côté serveur)")
+    p.add_argument("--dedup", choices=("default", "none", "jaccard", "mmr"), default="default",
+                   help="déduplication des passages (exige SPECTRA_SEMANTIC_DEDUP_ENABLED côté serveur)")
+    p.add_argument("--rerank-min-score", type=float, metavar="S",
+                   help="écarte les passages dont le score du reranker (sigmoïde, 0-1) est sous S")
     p.add_argument("--neighbor-window", type=int, metavar="N",
                    help="chunks voisins (± N, 0-5) ajoutés à chaque passage : approche le « document entier »")
     p.add_argument("--temperature", type=float, default=0.0)

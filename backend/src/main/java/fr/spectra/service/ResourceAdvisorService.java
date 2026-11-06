@@ -216,11 +216,14 @@ public class ResourceAdvisorService {
         //
         // Mêmes paliers que scripts/lib/llm-sizing.sh, qui fait ce calcul côté Docker.
         int contextSize;
-        if (ramMb >= 32768) {
+        // Seuils à 90 % de la taille nominale : la RAM mesurée est toujours inférieure à la RAM
+        // installée (~15 500 Mo sur une machine « 16 Go »). 8192 par requête dès 16 Go : sur
+        // EnterpriseRAG-Bench, 2048 → 8192 tokens a fait passer le score de 32,0 à 51,6.
+        if (ramMb >= 29491) {
             contextSize = 8192;
-        } else if (ramMb >= 16384) {
-            contextSize = 4096;
-        } else if (ramMb >= 8192) {
+        } else if (ramMb >= 14745) {
+            contextSize = 8192;
+        } else if (ramMb >= 7372) {
             contextSize = 2048;
         } else {
             contextSize = 1024;
@@ -234,8 +237,8 @@ public class ResourceAdvisorService {
         }
 
         // Batch
-        int batchSize = (hasGpu || ramMb >= 16384) ? 2048
-                : ramMb >= 8192 ? 1024 : 512;
+        int batchSize = (hasGpu || ramMb >= 14745) ? 2048
+                : ramMb >= 7372 ? 1024 : 512;
 
         // GPU layers
         int nGpuLayers = switch (gpuType) {

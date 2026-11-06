@@ -32,7 +32,10 @@ llm_sizing() {
   if [ "$total_ram_mb" -ge 29491 ]; then
     slot=8192;  max_total=32768
   elif [ "$total_ram_mb" -ge 14745 ]; then
-    slot=4096;  max_total=16384
+    # 8192 par requête dès 16 Go : sur EnterpriseRAG-Bench, passer de 2048 à 8192 tokens a fait
+    # monter le score de 32,0 à 51,6. À 4096 il ne tient que ~3 passages RAG après la réserve de
+    # réponse. Coût : un cache KV de ~28 Ko/token (7B, q8_0), soit ~0,5 Go pour 2 × 8192 tokens.
+    slot=8192;  max_total=16384
   elif [ "$total_ram_mb" -ge 7372 ]; then
     slot=2048;  max_total=4096
   else
