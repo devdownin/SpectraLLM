@@ -15,6 +15,7 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
@@ -50,6 +51,22 @@ public class GlobalExceptionHandler {
         ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
         problem.setTitle("Paramètre invalide");
         problem.setDetail(e.getMessage());
+        return problem;
+    }
+
+    /**
+     * Envoi multipart hors limites → 413. Couvre la taille (max-file-size, max-request-size) ET
+     * le nombre de fichiers (server.tomcat.max-part-count) : Spring rapporte les deux sous le même
+     * message, d'où le rappel des deux limites — un 500 « erreur interne » laissait chercher un bug.
+     */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ProblemDetail handleUploadTooLarge(MaxUploadSizeExceededException e) {
+        Throwable root = e.getMostSpecificCause();
+        log.warn("Envoi refusé : {}", root.getMessage());
+        ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.CONTENT_TOO_LARGE);
+        problem.setTitle("Envoi trop volumineux");
+        problem.setDetail("Limite de taille ou de nombre de fichiers dépassée (SPECTRA_UPLOAD_MAX_FILES, "
+                + "spring.servlet.multipart.max-request-size) : " + root.getMessage());
         return problem;
     }
 

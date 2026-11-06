@@ -114,6 +114,26 @@ class ActiveModelProfileServiceTest {
         assertThat(profiles.current().personaOrDefault()).isEqualTo("Tu es un juriste.");
     }
 
+    @Test
+    void personaOr_withoutRegisteredPrompt_usesTheConfiguredPersona() {
+        assertThat(ModelProfile.DEFAULT.personaOr("  Tu es l'assistant interne.  "))
+                .isEqualTo("Tu es l'assistant interne.");
+    }
+
+    @Test
+    void personaOr_blankConfiguration_fallsBackToTheCanonicalPersona() {
+        assertThat(ModelProfile.DEFAULT.personaOr("   ")).isEqualTo(AssistantPersona.SYSTEM_PROMPT);
+        assertThat(ModelProfile.DEFAULT.personaOr(null)).isEqualTo(AssistantPersona.SYSTEM_PROMPT);
+    }
+
+    @Test
+    void personaOr_neverOverridesARegisteredModelPersona() {
+        // Un modèle affiné reste servi sous la persona de son entraînement (cohérence F14).
+        activeModelIs("m", "Tu es un juriste.", Map.of());
+
+        assertThat(profiles.current().personaOr("Tu es l'assistant interne.")).isEqualTo("Tu es un juriste.");
+    }
+
     // ── Précédence des paramètres ─────────────────────────────────────────────
 
     @Test

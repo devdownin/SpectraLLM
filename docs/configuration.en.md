@@ -102,7 +102,7 @@ Disabled by default — no Kafka bean is created unless `SPECTRA_KAFKA_ENABLED=t
 
 | Environment variable | Default | Description |
 |---|---|---|
-| `SPECTRA_HYBRID_SEARCH_ENABLED` | `false` | Enable BM25 + vector fusion at query time (the BM25 index itself is always maintained) |
+| `SPECTRA_HYBRID_SEARCH_ENABLED` | `true` | Enable BM25 + vector fusion at query time (the BM25 index itself is always maintained) |
 | `SPECTRA_HYBRID_BM25_TOP` | `20` | BM25 candidates before fusion |
 | `SPECTRA_HYBRID_BM25_WEIGHT` | `1.0` | BM25 score weight multiplier |
 | `SPECTRA_RERANKER_ENABLED` | `false` | Enable Cross-Encoder reranking |
@@ -110,11 +110,17 @@ Disabled by default — no Kafka bean is created unless `SPECTRA_KAFKA_ENABLED=t
 | `SPECTRA_RERANKER_TIMEOUT` | `30` | Reranker timeout (seconds) |
 | `SPECTRA_RERANKER_TOP_CANDIDATES` | `20` | Candidates fed to reranker |
 | `SPECTRA_RERANKER_MIN_SCORE` | *(empty)* | Minimum reranker score (sigmoid, 0–1) for a chunk to enter the context; empty = no threshold. When no chunk passes, the RAG answers that nothing relevant was found. Tune with `POST /api/ablation` (0.1–0.3 is a sensible start). |
-| `SPECTRA_RERANKER_ONNX_MODEL_FILE` | `model.onnx` | Path of the ONNX graph under `SPECTRA_RERANKER_ONNX_URL` (e.g. `onnx/model_int8.onnx` for `bge-reranker-v2-m3`); always saved locally as `model.onnx`. |
+| `SPECTRA_RERANKER_ONNX_MODEL_FILE` | `onnx/model.onnx` | Path of the ONNX graph under `SPECTRA_RERANKER_ONNX_URL` (e.g. `onnx/model_int8.onnx` for `bge-reranker-v2-m3`); always saved locally as `model.onnx`. |
 | `SPECTRA_RAG_CONTEXT_PLACEMENT` | `user` | Where retrieved passages go: `user` (user message, below the system instructions) or `system` (legacy form — keep it for a model fine-tuned before this setting). The fine-tuning dataset follows it. |
 | `SPECTRA_RAG_CONTEXTUAL_HEADERS` | `true` | Prefix "Document / Section" to the *embedded* text of each chunk (never to the stored or cited text). |
 | `SPECTRA_RAG_NEIGHBOR_WINDOW` | `0` | Adjacent chunks (± N, same document) merged into each retained passage; 0 = off. |
 | `SPECTRA_RAG_NEIGHBOR_MAX_CHARS` | `4000` | Size cap of an expanded passage. |
+| `SPECTRA_RAG_PERSONA` | *(empty)* | Persona served when the active model declares none (empty = Spectra's canonical persona). Never overrides a registered model's own persona, so a fine-tuned model keeps the one it was trained under. |
+| `SPECTRA_RAG_ENTITY_EXPANSION` | `false` | Light entity graph: identifiers in the question (ticket keys, `#PR`, `snake_case` names, `CamelCase` products) are looked up as exact substrings, and the chunks that contain them join the candidates before reranking. No re-indexing. |
+| `SPECTRA_AGENTIC_TOOLS` | `false` | With agentic RAG, adds the `LOOKUP` (exact identifier) and `OPEN` (whole document of a passage) actions. Each tool call uses one iteration; the model's expected output format changes, so validate it on the served model. |
+| `SPECTRA_AGENTIC_ALWAYS` | `false` | Every query goes through the agentic loop, with no prior adaptive classification. Without it, the loop runs only when adaptive routing classifies the question as `AGENTIC`. Each query then costs several model calls. |
+| `SPECTRA_AGENTIC_NATIVE_TOOLS` | `false` | The agentic loop offers `search`, `lookup` and `open_document` through the server's native function calling instead of the text `ACTION:` format. Requires llama-server started with `--jinja` (`LLM_CHAT_EXTRA_ARGS=--jinja`). |
+| `SPECTRA_RAG_ANSWER_STYLE` | `concise` | `concise`, or `detailed`: direct answer first, then every relevant detail of the context (values, conditions, steps, exceptions). Ignored with `SPECTRA_RAG_CONTEXT_PLACEMENT=system`. |
 | `SPECTRA_RAG_CITATION_CHECK` | `true` | After generation, score each sentence against the passages it cites `[n]` with the cross-encoder; the report is returned in `citations`. Requires the reranker. Measures relevance, not entailment. |
 | `SPECTRA_RAG_CITATION_MIN_SCORE` | `0.2` | Minimum cross-encoder score (sigmoid) for a cited passage to support its sentence. |
 | `SPECTRA_RAG_CITATION_STRICT` | `false` | Drop unsupported sentences from the answer (not in streaming, where tokens are already sent). |

@@ -840,7 +840,7 @@ Suppression :
 ```yaml
 spectra:
   hybrid-search:
-    enabled:    ${SPECTRA_HYBRID_SEARCH_ENABLED:false}  # désactivé par défaut
+    enabled:    ${SPECTRA_HYBRID_SEARCH_ENABLED:true}  # actif par défaut
     top-bm25:   ${SPECTRA_HYBRID_BM25_TOP:20}           # candidats BM25 récupérés
     bm25-weight: ${SPECTRA_HYBRID_BM25_WEIGHT:1.0}      # poids relatif du signal BM25
 ```

@@ -274,4 +274,75 @@ class ChromaDbClientTest {
         assertThat(conditions.size()).isEqualTo(3);
         assertThat(conditions.get(2).path("zipEntry").path("$eq").asText()).isEqualTo("archive.zip/a.txt");
     }
+
+    // ── Recherche exacte (LOOKUP, expansion par entités) ──────────────────────
+
+    @Test
+    void findChunksContaining_sendsAnExactSubstringFilterAndTheDocumentPrefilter() throws Exception {
+        server.enqueue(new MockResponse().setHeader("Content-Type", "application/json")
+                .setBody("{\"documents\":[\"ENG-39100 fermé.\"],\"metadatas\":[{\"sourceFile\":\"a.json\",\"sha256\":\"s1\"}]}"));
+
+        var hits = client.findChunksContaining("col", "ENG-39100",
+                java.util.Map.of("sha256", java.util.Map.of("$in", java.util.List.of("s1"))), 7);
+
+        assertThat(hits).hasSize(1);
+        assertThat(hits.getFirst().text()).isEqualTo("ENG-39100 fermé.");
+        assertThat(hits.getFirst().metadata()).containsEntry("sourceFile", "a.json").containsEntry("sha256", "s1");
+        JsonNode body = new ObjectMapper().readTree(server.takeRequest(5, TimeUnit.SECONDS).getBody().readUtf8());
+        assertThat(body.path("where_document").path("$contains").asText()).isEqualTo("ENG-39100");
+        assertThat(body.path("where").path("sha256").path("$in").get(0).asText()).isEqualTo("s1");
+        assertThat(body.path("limit").asInt()).isEqualTo(7);
+    }
+
+    @Test
+    void findChunksContaining_withoutPrefilterOmitsWhere() throws Exception {
+        server.enqueue(new MockResponse().setHeader("Content-Type", "application/json")
+                .setBody("{\"documents\":[],\"metadatas\":[]}"));
+
+        assertThat(client.findChunksContaining("col", "max_file_size", null, 3)).isEmpty();
+
+        JsonNode body = new ObjectMapper().readTree(server.takeRequest(5, TimeUnit.SECONDS).getBody().readUtf8());
+        assertThat(body.has("where")).isFalse();
+    }
+
+    @Test
+    void findChunksContaining_blankNeedleOrNoLimitNeverReachesChroma() {
+        assertThat(client.findChunksContaining("col", "  ", null, 3)).isEmpty();
+        assertThat(client.findChunksContaining("col", null, null, 3)).isEmpty();
+        assertThat(client.findChunksContaining("col", "ENG-1", null, 0)).isEmpty();
+        assertThat(server.getRequestCount()).isZero();
+    }
+
+    @Test
+    void getDocumentChunks_returnsChunksSortedByPositionAndSkipsUnpositionedOnes() throws Exception {
+        server.enqueue(new MockResponse().setHeader("Content-Type", "application/json")
+                .setBody("{\"documents\":[\"deux\",\"zéro\",\"sans position\",\"un\"],"
+                        + "\"metadatas\":[{\"chunkIndex\":\"2\"},{\"chunkIndex\":\"0\"},{},{\"chunkIndex\":\"1\"}]}"));
+
+        var chunks = client.getDocumentChunks("col", "sha256", "s1", null, 24);
+
+        assertThat(chunks.values()).containsExactly("zéro", "un", "deux");
+        JsonNode body = new ObjectMapper().readTree(server.takeRequest(5, TimeUnit.SECONDS).getBody().readUtf8());
+        assertThat(body.path("where").path("sha256").path("$eq").asText()).isEqualTo("s1");
+        assertThat(body.path("limit").asInt()).isEqualTo(24);
+    }
+
+    @Test
+    void getDocumentChunks_zipEntryIsPartOfTheDocumentIdentity() throws Exception {
+        server.enqueue(new MockResponse().setHeader("Content-Type", "application/json")
+                .setBody("{\"documents\":[],\"metadatas\":[]}"));
+
+        client.getDocumentChunks("col", "sha256", "archive-hash", "archive.zip/a.txt", 10);
+
+        JsonNode conditions = new ObjectMapper()
+                .readTree(server.takeRequest(5, TimeUnit.SECONDS).getBody().readUtf8()).path("where").path("$and");
+        assertThat(conditions.size()).isEqualTo(2);
+        assertThat(conditions.get(1).path("zipEntry").path("$eq").asText()).isEqualTo("archive.zip/a.txt");
+    }
+
+    @Test
+    void getDocumentChunks_withoutBudgetNeverReachesChroma() {
+        assertThat(client.getDocumentChunks("col", "sha256", "s1", null, 0)).isEmpty();
+        assertThat(server.getRequestCount()).isZero();
+    }
 }

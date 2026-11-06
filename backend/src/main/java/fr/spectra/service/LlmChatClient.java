@@ -106,6 +106,40 @@ public interface LlmChatClient {
         return java.util.OptionalInt.empty();
     }
 
+    // ── Appels d'outils natifs (function calling) ────────────────────────────
+
+    /** Appel d'outil demandé par le modèle. {@code argumentsJson} est l'objet JSON des arguments. */
+    record ToolCall(String id, String name, String argumentsJson) {}
+
+    /** Outil proposé au modèle : nom, description et JSON Schema de ses paramètres. */
+    record ToolDefinition(String name, String description, Map<String, Object> parameters) {}
+
+    /** Message d'une conversation à outils ({@code role} : system, user, assistant ou tool). */
+    record ToolMessage(String role, String content, List<ToolCall> toolCalls, String toolCallId) {
+        public static ToolMessage system(String content) { return new ToolMessage("system", content, List.of(), null); }
+        public static ToolMessage user(String content) { return new ToolMessage("user", content, List.of(), null); }
+    }
+
+    /**
+     * Tour de parole du modèle : soit du texte ({@code content}, la réponse), soit un ou plusieurs
+     * appels d'outils. Les deux peuvent coexister ; l'appelant décide.
+     */
+    record ToolTurn(String content, List<ToolCall> toolCalls) {
+        public boolean hasToolCalls() { return toolCalls != null && !toolCalls.isEmpty(); }
+    }
+
+    /**
+     * Un tour de conversation avec outils, via le function calling natif du serveur (llama.cpp :
+     * {@code --jinja}). Plus fiable qu'un format texte {@code ACTION: …} sur un petit modèle, qui
+     * n'a jamais suivi ces formats ad hoc lors des mesures (0 appel sur 12 questions).
+     *
+     * @throws UnsupportedOperationException si le provider ne sait pas appeler d'outils
+     */
+    default ToolTurn chatTurn(List<ToolMessage> messages, List<ToolDefinition> tools,
+                              float temperature, float topP) {
+        throw new UnsupportedOperationException("Appels d'outils natifs non pris en charge par ce provider");
+    }
+
     List<Map<String, Object>> listModels();
 
     void createModel(String name, String from, String system, Map<String, Object> params);

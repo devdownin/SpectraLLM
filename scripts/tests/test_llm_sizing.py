@@ -27,10 +27,13 @@ DETECT_ENV_BAT = SCRIPTS_DIR / "detect-env.bat"
 
 # Fenêtre par requête attendue à chaque palier de RAM (Mo → tokens). C'est le contrat
 # fonctionnel : au-dessous de 2048 tokens, la classification de documents ne tient plus.
-TIERS = [(32768, 8192), (16384, 4096), (8192, 2048), (0, 1024)]
+# Seuils à 90 % du nominal : la RAM mesurée est toujours inférieure à la RAM installée.
+# (seuil de RAM mesurée en Mo, fenêtre par requête, enveloppe de contexte total).
+# Dès 16 Go, 8192 tokens par requête : EnterpriseRAG-Bench, 2048 → 8192 = score 32,0 → 51,6.
+TIERS = [(29491, 8192, 32768), (14745, 8192, 16384), (7372, 2048, 4096), (0, 1024, 2048)]
 
 CORE_COUNTS = [1, 2, 4, 8, 16, 32, 64]
-RAM_SIZES = [1024, 2048, 4096, 8191, 8192, 12288, 16384, 24576, 32768, 65536, 131072]
+RAM_SIZES = [1024, 2048, 4096, 7371, 7372, 8192, 12288, 14744, 14745, 15561, 16384, 24576, 29491, 32768, 65536, 131072]
 
 
 def sizing(ram_mb, cores):
@@ -44,7 +47,11 @@ def sizing(ram_mb, cores):
 
 
 def expected_slot(ram_mb):
-    return next(slot for threshold, slot in TIERS if ram_mb >= threshold)
+    return next(slot for threshold, slot, _ in TIERS if ram_mb >= threshold)
+
+
+def expected_envelope(ram_mb):
+    return next(envelope for threshold, _, envelope in TIERS if ram_mb >= threshold)
 
 
 @pytest.mark.parametrize("ram_mb", RAM_SIZES)
@@ -90,7 +97,7 @@ def test_total_context_stays_within_the_memory_envelope(ram_mb):
     contexte total, et le dépasser fait échouer le démarrage de llama-server (OOM), pas
     seulement ralentir.
     """
-    envelope = {8192: 32768, 4096: 16384, 2048: 4096, 1024: 2048}[expected_slot(ram_mb)]
+    envelope = expected_envelope(ram_mb)
 
     for cores in CORE_COUNTS:
         _, total, _ = sizing(ram_mb, cores)
@@ -116,6 +123,27 @@ def test_a_documented_16gb_machine_can_hold_the_agentic_budget():
     _, _, slot = sizing(16384, 16)
 
     assert slot >= 3000
+
+
+def test_a_16gb_machine_measured_below_16384_mb_keeps_the_16gb_tier():
+    """
+    Une machine « 16 Go » rapporte ~15 500 Mo disponibles (valeur relevée : 15 561 Mo). Avec
+    des seuils à la taille nominale, elle tombait au palier 8 Go : 2048 tokens par requête, dont
+    il ne restait de place que pour un ou deux passages RAG après la réserve de réponse.
+    """
+    _, _, slot = sizing(15561, 4)
+
+    assert slot == 8192
+
+
+def test_a_16gb_machine_serves_8192_tokens_per_request_on_a_single_core_box_too():
+    """Le palier 16 Go ne dépend pas du nombre de cœurs : une requête voit toujours 8192 tokens."""
+    for cores in (1, 2, 4, 8):
+        parallel, total, slot = sizing(15561, cores)
+
+        assert slot == 8192
+        assert total == 8192 * parallel
+        assert parallel <= 2  # enveloppe de 16384 tokens au total
 
 
 def test_library_rejects_a_malformed_invocation():
@@ -160,7 +188,6 @@ def test_windows_script_uses_the_same_tiers_as_the_library():
     bat_tiers = {ram: (slot, total) for ram, slot, total in thresholds}
     bat_tiers[0] = (default_slot, default_total)
 
-    envelopes = {8192: 32768, 4096: 16384, 2048: 4096, 1024: 2048}
-    expected = {ram: (slot, envelopes[slot]) for ram, slot in TIERS}
+    expected = {ram: (slot, envelope) for ram, slot, envelope in TIERS}
 
     assert bat_tiers == expected

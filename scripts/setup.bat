@@ -206,9 +206,9 @@ if exist "data\models\!CHAT_MODEL_FILE!" (
 :: ── 6. Artefact ONNX du reranker ──────────────────────────────────────────
 :: Miroir de la section 7 de setup.sh. Le reranking est ACTIF par defaut : son artefact
 :: fait partie de la pile par defaut et est recupere s'il manque, sans option.
-:: Defaut d'URL : un asset de release DU PROJET, sur un tag dedie — l'artefact ne change
-:: que si le MODELE change, pas a chaque version applicative.
-set "RERANKER_ONNX_URL_DEFAULT=https://github.com/devdownin/SpectraLLM/releases/download/reranker-onnx-v1"
+:: Defaut d'URL : l'export ONNX publie en amont par le depot du modele (mmarco-mMiniLMv2),
+:: epingle a un commit. L'asset de release reranker-onnx-v1 n'a jamais ete publie (404).
+set "RERANKER_ONNX_URL_DEFAULT=https://huggingface.co/cross-encoder/mmarco-mMiniLMv2-L12-H384-v1/resolve/1427fd652930e4ba29e8149678df786c240d8825"
 set "RERANKER_DIR=data\models\reranker"
 set "RERANKER_ENABLED="
 if exist ".env" (
@@ -220,7 +220,7 @@ if exist ".env" (
 )
 if "!SPECTRA_RERANKER_ONNX_URL!"=="" set "SPECTRA_RERANKER_ONNX_URL=!RERANKER_ONNX_URL_DEFAULT!"
 rem  Chemin du graphe sous l'URL (ex. onnx/model_int8.onnx) ; enregistre localement en model.onnx.
-if "!SPECTRA_RERANKER_ONNX_MODEL_FILE!"=="" set "SPECTRA_RERANKER_ONNX_MODEL_FILE=model.onnx"
+if "!SPECTRA_RERANKER_ONNX_MODEL_FILE!"=="" set "SPECTRA_RERANKER_ONNX_MODEL_FILE=onnx/model.onnx"
 rem  Absent de .env = defaut applicatif, donc actif.
 if "!RERANKER_ENABLED!"=="" set "RERANKER_ENABLED=true"
 

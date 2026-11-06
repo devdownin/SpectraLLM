@@ -95,7 +95,17 @@ public class RagService {
      * {@code spectra.rag.context-placement} (message utilisateur par défaut).
      */
     private RagPromptFormat.RagPrompt ragPrompt(ModelProfile profile, String contextBlock, String userMessage) {
-        return RagPromptFormat.prompt(contextPlacement(), profile.personaOrDefault(), contextBlock, userMessage);
+        return RagPromptFormat.prompt(contextPlacement(), profile.personaOr(props.rag() != null ? props.rag().persona() : null),
+                contextBlock, userMessage, answerStyle());
+    }
+
+    /** {@code spectra.agentic-rag.always} : la boucle agentique traite toute requête (mesure, usage dédié). */
+    private boolean agenticAlways() {
+        return agenticRagService.isPresent() && props.agenticRag() != null && props.agenticRag().alwaysEnabled();
+    }
+
+    private RagPromptFormat.AnswerStyle answerStyle() {
+        return props.rag() != null ? props.rag().effectiveAnswerStyle() : RagPromptFormat.AnswerStyle.CONCISE;
     }
 
     private RagPromptFormat.ContextPlacement contextPlacement() {
@@ -310,7 +320,7 @@ public class RagService {
 
         // ── 1. Adaptive RAG : routing ──────────────────────────────────────
         String ragStrategy = "STANDARD";
-        boolean forceAgentic = false;
+        boolean forceAgentic = agenticAlways();
 
         if (RagOverrides.resolve(ov.adaptive(), adaptiveRagService.isPresent())) {
             AdaptiveRagService.RagStrategy strategy = adaptiveRagService.get().classifyQuery(request.question());
@@ -585,7 +595,7 @@ public class RagService {
 
         // ── 1. Adaptive RAG : routage ──────────────────────────────────────
         String ragStrategy = "STANDARD";
-        boolean forceAgentic = false;
+        boolean forceAgentic = agenticAlways();
         if (RagOverrides.resolve(ov.adaptive(), adaptiveRagService.isPresent())) {
             long t0 = System.currentTimeMillis();
             emitStage(sink, "routing", null, null);
@@ -1004,6 +1014,16 @@ public class RagService {
             hybridApplied = r.hybridApplied();
         }
 
+        // ── 2 bis. Expansion par entités (opt-in) ────────────────────────────
+        if (props.rag() != null && props.rag().entityExpansionEnabled()) {
+            Candidates expanded = expandByEntities(retrievalQuestion, collectionId, filter,
+                    new Candidates(allChunks, allMetadatas, allDistances, allBm25Scores));
+            allChunks     = expanded.chunks();
+            allMetadatas  = expanded.metadatas();
+            allDistances  = expanded.distances();
+            allBm25Scores = expanded.bm25Scores();
+        }
+
         // ── 3. Re-ranking ──────────────────────────────────────────────────
         List<String>              contextChunks;
         List<Map<String, String>> chunkMetadatas;
@@ -1085,6 +1105,57 @@ public class RagService {
     }
 
     // ── Helpers privés ─────────────────────────────────────────────────────────
+
+    /** Candidats alignés index à index ({@code bm25Scores} est {@code null} hors recherche hybride). */
+    private record Candidates(List<String> chunks, List<Map<String, String>> metadatas,
+                              List<Double> distances, List<Float> bm25Scores) {}
+
+    /** Identifiants retenus par question : au-delà, la requête dérive vers des termes banals. */
+    private static final int ENTITY_MAX_PER_QUESTION = 3;
+    /** Chunks ajoutés par identifiant : l'ordre ChromaDB n'est pas un classement, le reranker départage. */
+    private static final int ENTITY_HITS_PER_ENTITY = 5;
+    /** Rang d'insertion : sans reranker, les chunks trouvés par identifiant passent après le haut du classement. */
+    private static final int ENTITY_INSERT_AT = 3;
+
+    /**
+     * Ajoute aux candidats les chunks qui contiennent EXACTEMENT un identifiant de la question.
+     * Un chunk déjà présent n'est pas dupliqué ; une panne de la recherche exacte laisse les
+     * candidats inchangés.
+     */
+    private Candidates expandByEntities(String question, String collectionId,
+                                        RetrievalFilterResolver.ResolvedFilter filter, Candidates base) {
+        List<String> entities = EntityExtractor.extract(question, ENTITY_MAX_PER_QUESTION);
+        if (entities.isEmpty()) return base;
+        Set<String> present = new HashSet<>(base.chunks());
+        List<ChromaDbClient.ChunkHit> extra = new ArrayList<>();
+        for (String entity : entities) {
+            try {
+                for (ChromaDbClient.ChunkHit hit : ExactMatchRetriever.find(
+                        chromaDbClient, collectionId, entity, filter, ENTITY_HITS_PER_ENTITY)) {
+                    if (present.add(hit.text())) extra.add(hit);
+                }
+            } catch (Exception e) {
+                log.debug("Expansion par entité «{}» indisponible : {}", entity, e.getMessage());
+            }
+        }
+        if (extra.isEmpty()) return base;
+
+        int at = Math.min(ENTITY_INSERT_AT, base.chunks().size());
+        List<String> chunks = new ArrayList<>(base.chunks());
+        List<Map<String, String>> metas = new ArrayList<>(base.metadatas());
+        List<Double> distances = new ArrayList<>(base.distances());
+        List<Float> bm25 = base.bm25Scores() != null ? new ArrayList<>(base.bm25Scores()) : null;
+        for (int i = 0; i < extra.size(); i++) {
+            chunks.add(at + i, extra.get(i).text());
+            metas.add(at + i, extra.get(i).metadata());
+            distances.add(at + i, 0.0);
+            if (bm25 != null) bm25.add(at + i, null);
+        }
+        meterRegistry.counter("spectra.rag.entity_expansion_chunks").increment(extra.size());
+        log.info("Expansion par entités {} : {} chunk(s) ajouté(s) aux {} candidats", entities, extra.size(),
+                base.chunks().size());
+        return new Candidates(chunks, metas, distances, bm25);
+    }
 
     /**
      * Écarte les chunks dont le score du cross-encoder est sous {@code spectra.reranker.min-score}.

@@ -322,12 +322,12 @@ fi
 # qu'aucune option ne soit nécessaire. --download-reranker ne sert plus qu'à le forcer
 # quand le reranking a été désactivé.
 #
-# Défaut d'URL : un asset de release DU PROJET, et non un dépôt tiers. Le modèle
-# multilingue par défaut (mmarco-mMiniLMv2) n'étant pas publié au format ONNX en amont,
-# l'artefact est produit une fois, hors ligne, et publié ici (cf.
-# docs/process/plan-migration-java.fr.md, décision D1). Un tag dédié — et non la version
-# applicative — parce que l'artefact ne change que si le MODÈLE change.
-RERANKER_ONNX_URL_DEFAULT="https://github.com/devdownin/SpectraLLM/releases/download/reranker-onnx-v1"
+# Défaut d'URL : l'export ONNX publié EN AMONT par le dépôt du modèle multilingue par défaut
+# (mmarco-mMiniLMv2), épinglé à un commit — l'artefact ne change que si on change ce commit.
+# L'asset de release prévu à l'origine (tag reranker-onnx-v1, décision D1 de
+# docs/process/plan-migration-java.fr.md) n'a jamais été publié : toute installation neuve
+# tournait sans reranking, avec un 404 au téléchargement.
+RERANKER_ONNX_URL_DEFAULT="https://huggingface.co/cross-encoder/mmarco-mMiniLMv2-L12-H384-v1/resolve/1427fd652930e4ba29e8149678df786c240d8825"
 RERANKER_DIR="data/models/reranker"
 RERANKER_ONNX_URL="${SPECTRA_RERANKER_ONNX_URL:-$(read_env_var SPECTRA_RERANKER_ONNX_URL)}"
 RERANKER_ONNX_URL="${RERANKER_ONNX_URL:-$RERANKER_ONNX_URL_DEFAULT}"
@@ -335,7 +335,7 @@ RERANKER_ONNX_URL="${RERANKER_ONNX_URL:-$RERANKER_ONNX_URL_DEFAULT}"
 # onnx/ (ex. onnx/model_int8.onnx pour bge-reranker-v2-m3) ; il est toujours enregistré
 # localement sous model.onnx, le nom qu'attend le moteur.
 RERANKER_ONNX_MODEL_FILE="${SPECTRA_RERANKER_ONNX_MODEL_FILE:-$(read_env_var SPECTRA_RERANKER_ONNX_MODEL_FILE)}"
-RERANKER_ONNX_MODEL_FILE="${RERANKER_ONNX_MODEL_FILE:-model.onnx}"
+RERANKER_ONNX_MODEL_FILE="${RERANKER_ONNX_MODEL_FILE:-onnx/model.onnx}"
 
 # Le reranking est-il attendu ? Absent de .env = défaut applicatif, donc actif.
 RERANKER_ENABLED="$(read_env_var SPECTRA_RERANKER_ENABLED)"

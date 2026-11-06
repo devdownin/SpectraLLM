@@ -46,9 +46,38 @@ public final class RagPromptFormat {
             + RULES + "\n\n" + OPEN + "\n%s\n" + CLOSE;
 
     /** Placement {@link ContextPlacement#USER} : consignes seules, le contexte vient avec la question. */
-    static final String USER_PLACEMENT_INSTRUCTIONS =
-            "Réponds de manière précise et concise en te basant UNIQUEMENT sur le contexte fourni par "
-            + "l'utilisateur entre " + OPEN + " et " + CLOSE + ".\n" + RULES;
+    static final String USER_PLACEMENT_INSTRUCTIONS = userInstructions(AnswerStyle.CONCISE);
+
+    /**
+     * Phrase d'ouverture du style {@link AnswerStyle#DETAILED}. Les systèmes en tête du banc
+     * EnterpriseRAG-Bench répondent par la réponse directe puis reprennent tous les détails du
+     * document : la complétude (part des faits attendus présents) ne récompense pas la concision.
+     */
+    private static final String DETAILED_LEAD =
+            "Réponds de façon complète, en te basant UNIQUEMENT sur le contexte fourni par "
+            + "l'utilisateur entre " + OPEN + " et " + CLOSE + ". Commence par la réponse directe en "
+            + "une ou deux phrases, puis reprends TOUS les détails pertinents du contexte : valeurs et "
+            + "seuils chiffrés, conditions, étapes dans l'ordre, exceptions, noms et dates. Si des "
+            + "passages se contredisent, présente chaque version avec sa source.";
+
+    private static String userInstructions(AnswerStyle style) {
+        String lead = style == AnswerStyle.DETAILED ? DETAILED_LEAD
+                : "Réponds de manière précise et concise en te basant UNIQUEMENT sur le contexte fourni par "
+                + "l'utilisateur entre " + OPEN + " et " + CLOSE + ".";
+        return lead + "\n" + RULES;
+    }
+
+    /**
+     * Style de réponse. {@code CONCISE} est le défaut et la forme sur laquelle les modèles affinés
+     * ont été entraînés ; {@code DETAILED} est un réglage de service, sans effet sur le dataset.
+     */
+    public enum AnswerStyle {
+        CONCISE, DETAILED;
+
+        public static AnswerStyle parse(String value) {
+            return value != null && value.trim().equalsIgnoreCase("detailed") ? DETAILED : CONCISE;
+        }
+    }
 
     /**
      * Où le bloc de contexte est injecté.
@@ -135,10 +164,19 @@ public final class RagPromptFormat {
      */
     public static RagPrompt prompt(ContextPlacement placement, String persona, String contextBlock,
                                    String userMessage) {
+        return prompt(placement, persona, contextBlock, userMessage, AnswerStyle.CONCISE);
+    }
+
+    /**
+     * Comme {@link #prompt(ContextPlacement, String, String, String)}, avec un style de réponse.
+     * Le placement {@code SYSTEM} (forme historique des modèles affinés) ignore le style.
+     */
+    public static RagPrompt prompt(ContextPlacement placement, String persona, String contextBlock,
+                                   String userMessage, AnswerStyle style) {
         if (placement == ContextPlacement.SYSTEM) {
             return new RagPrompt(systemPrompt(persona, contextBlock), userMessage);
         }
-        return new RagPrompt(persona + "\n" + USER_PLACEMENT_INSTRUCTIONS,
+        return new RagPrompt(persona + "\n" + userInstructions(style),
                 OPEN + "\n" + contextBlock.stripTrailing() + "\n" + CLOSE + "\n\n" + userMessage);
     }
 }

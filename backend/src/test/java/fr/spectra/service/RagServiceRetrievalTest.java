@@ -18,6 +18,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyFloat;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -153,6 +154,106 @@ class RagServiceRetrievalTest {
                 "documents", List.of(List.of(chunkText)),
                 "metadatas", List.of(List.of(Map.of("sourceFile", "doc.txt"))),
                 "distances", List.of(List.of(0.2)));
+    }
+
+    private RagService ragServiceWithAgentic(AgenticRagService agentic) {
+        return new RagService(
+                chromaDbClient, embeddingService, llmChatClient,
+                Optional.empty(), Optional.empty(), Optional.of(agentic),
+                Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.empty(), Optional.empty(),
+                defaultProfiles(), props, new ObjectMapper(),
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
+    }
+
+    @Test
+    void agenticAlways_routesEveryQueryThroughTheAgenticLoopWithoutAClassifier() {
+        when(props.agenticRag()).thenReturn(new SpectraProperties.AgenticRagProperties(
+                true, 3, 5, "en", 6000, false, true));
+        when(chromaDbClient.query(eq("col-1"), anyList(), anyInt())).thenReturn(vectorResult("chunk"));
+        AgenticRagService agentic = org.mockito.Mockito.mock(AgenticRagService.class);
+        QueryResponse fromLoop = new QueryResponse("Réponse agentique", List.of(), 5L);
+        when(agentic.query(any(), anyList(), anyList(), anyList(), anyBoolean(), anyBoolean())).thenReturn(fromLoop);
+
+        QueryResponse resp = ragServiceWithAgentic(agentic).query(request());
+
+        assertThat(resp.answer()).isEqualTo("Réponse agentique");
+        verify(llmChatClient, never()).chat(anyString(), anyString(), anyFloat(), anyFloat());
+    }
+
+    @Test
+    void agenticWithoutAlways_staysOnTheStandardPathWhenNoClassifierRoutesToIt() {
+        when(props.agenticRag()).thenReturn(new SpectraProperties.AgenticRagProperties(
+                true, 3, 5, "en", 6000, false, false));
+        when(chromaDbClient.query(eq("col-1"), anyList(), anyInt())).thenReturn(vectorResult("chunk"));
+        when(llmChatClient.chat(anyString(), anyString(), anyFloat(), anyFloat())).thenReturn("Réponse standard");
+        AgenticRagService agentic = org.mockito.Mockito.mock(AgenticRagService.class);
+
+        QueryResponse resp = ragServiceWithAgentic(agentic).query(request());
+
+        assertThat(resp.answer()).isEqualTo("Réponse standard");
+        verify(agentic, never()).query(any(), anyList(), anyList(), anyList(), anyBoolean(), anyBoolean());
+    }
+
+    private void entityExpansion(boolean enabled) {
+        when(props.rag()).thenReturn(new SpectraProperties.RagProperties(
+                null, null, null, null, null, null, null, null, null, enabled));
+    }
+
+    @Test
+    void entityExpansion_addsTheChunksThatContainAnIdentifierOfTheQuestion() {
+        entityExpansion(true);
+        when(chromaDbClient.query(eq("col-1"), anyList(), anyInt())).thenReturn(vectorResult("chunk vectoriel"));
+        when(chromaDbClient.findChunksContaining(eq("col-1"), eq("ENG-39100"), any(), anyInt()))
+                .thenReturn(List.of(new ChromaDbClient.ChunkHit("ENG-39100 : décision de rollback.",
+                        Map.of("sourceFile", "linear/ENG-39100.json"))));
+        when(llmChatClient.chat(anyString(), anyString(), anyFloat(), anyFloat())).thenReturn("Réponse");
+
+        QueryResponse resp = ragService(Optional.empty(), Optional.empty())
+                .query(new QueryRequest("Qui a décidé le rollback dans ENG-39100 ?", 5, null, null, 0.7f, 0.9f, null, true));
+
+        assertThat(resp.sources()).extracting(QueryResponse.Source::sourceFile)
+                .containsExactly("doc.txt", "linear/ENG-39100.json");
+    }
+
+    @Test
+    void entityExpansion_disabledByDefault_neverQueriesTheExactIndex() {
+        when(chromaDbClient.query(eq("col-1"), anyList(), anyInt())).thenReturn(vectorResult("chunk vectoriel"));
+        when(llmChatClient.chat(anyString(), anyString(), anyFloat(), anyFloat())).thenReturn("Réponse");
+
+        ragService(Optional.empty(), Optional.empty())
+                .query(new QueryRequest("Qui a décidé le rollback dans ENG-39100 ?", 5, null, null, 0.7f, 0.9f, null, true));
+
+        verify(chromaDbClient, never()).findChunksContaining(anyString(), anyString(), any(), anyInt());
+    }
+
+    @Test
+    void entityExpansion_doesNotDuplicateAChunkTheVectorSearchAlreadyFound() {
+        entityExpansion(true);
+        when(chromaDbClient.query(eq("col-1"), anyList(), anyInt())).thenReturn(vectorResult("ENG-39100 : décision."));
+        when(chromaDbClient.findChunksContaining(anyString(), anyString(), any(), anyInt()))
+                .thenReturn(List.of(new ChromaDbClient.ChunkHit("ENG-39100 : décision.", Map.of("sourceFile", "doc.txt"))));
+        when(llmChatClient.chat(anyString(), anyString(), anyFloat(), anyFloat())).thenReturn("Réponse");
+
+        QueryResponse resp = ragService(Optional.empty(), Optional.empty())
+                .query(new QueryRequest("Que dit ENG-39100 ?", 5, null, null, 0.7f, 0.9f, null, true));
+
+        assertThat(resp.sources()).hasSize(1);
+    }
+
+    @Test
+    void entityExpansion_aFailingExactSearchLeavesTheCandidatesUntouched() {
+        entityExpansion(true);
+        when(chromaDbClient.query(eq("col-1"), anyList(), anyInt())).thenReturn(vectorResult("chunk vectoriel"));
+        when(chromaDbClient.findChunksContaining(anyString(), anyString(), any(), anyInt()))
+                .thenThrow(new RuntimeException("chroma indisponible"));
+        when(llmChatClient.chat(anyString(), anyString(), anyFloat(), anyFloat())).thenReturn("Réponse");
+
+        QueryResponse resp = ragService(Optional.empty(), Optional.empty())
+                .query(new QueryRequest("Que dit ENG-39100 ?", 5, null, null, 0.7f, 0.9f, null, true));
+
+        assertThat(resp.answer()).isEqualTo("Réponse");
+        assertThat(resp.sources()).hasSize(1);
     }
 
     @Test

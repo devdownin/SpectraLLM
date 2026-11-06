@@ -42,6 +42,12 @@ spring:
 server:
   port: 8080
   shutdown: graceful
+  tomcat:
+    # Nombre maximal de parties d'une requête multipart, donc de fichiers par envoi.
+    # Le défaut Tomcat (50) rejetait tout envoi de plus de 50 fichiers par un 500 trompeur
+    # (« Maximum upload size exceeded ») bien en deçà de max-request-size. La taille totale
+    # reste bornée par spring.servlet.multipart.max-request-size.
+    max-part-count: ${SPECTRA_UPLOAD_MAX_FILES:1000}
 
 # Services externes
 spectra:
@@ -157,7 +163,12 @@ spectra:
     timeout-seconds: ${SPECTRA_LAYOUT_PARSER_TIMEOUT:120}
     buffer-size-mb: ${SPECTRA_LAYOUT_PARSER_BUFFER_MB:100}
   hybrid-search:
-    enabled: ${SPECTRA_HYBRID_SEARCH_ENABLED:false}
+    # Actif par défaut : BM25 + vecteurs fusionnés (RRF). Sur le banc EnterpriseRAG-Bench, BM25 seul
+    # bat la recherche vectorielle — noms de code, identifiants de ticket et acronymes internes
+    # sont absents des corpus d'entraînement des embeddings — et la fusion a porté le rappel de
+    # 0,82 à 0,92 sur un échantillon de 23 questions. L'index BM25 est maintenu quoi qu'il en
+    # soit : désactiver ne l'économise pas, cela ne fait que cesser de l'interroger.
+    enabled: ${SPECTRA_HYBRID_SEARCH_ENABLED:true}
     top-bm25: ${SPECTRA_HYBRID_BM25_TOP:20}
     bm25-weight: ${SPECTRA_HYBRID_BM25_WEIGHT:1.0}
   reranker:
@@ -209,6 +220,19 @@ spectra:
   agentic-rag:
     enabled: ${SPECTRA_AGENTIC_RAG_ENABLED:false}
     max-iterations: ${SPECTRA_AGENTIC_MAX_ITERATIONS:3}
+    # Actions supplémentaires de la boucle : LOOKUP (identifiant exact) et OPEN (document entier
+    # d'un passage). Chaque appel d'outil consomme une itération. Désactivé par défaut : le
+    # format de sortie attendu du modèle change, à valider sur le modèle servi.
+    tools: ${SPECTRA_AGENTIC_TOOLS:false}
+    # Toute requête passe par la boucle agentique, sans classification adaptative préalable.
+    # Sans cela, la boucle n'est atteinte que si le routage adaptatif (SPECTRA_ADAPTIVE_RAG_ENABLED)
+    # classe la question « AGENTIC » : un choix du modèle servi, qu'on ne peut ni forcer ni mesurer.
+    # Chaque requête coûte alors plusieurs appels au modèle (une itération de plus par outil).
+    always: ${SPECTRA_AGENTIC_ALWAYS:false}
+    # Les actions search / lookup / open_document sont proposées au modèle par le function calling
+    # natif du serveur, au lieu du format texte « ACTION: … » (qu'un 7B n'a jamais suivi : 0 appel
+    # d'outil sur 12 questions). Exige llama-server avec --jinja, c.-à-d. LLM_CHAT_EXTRA_ARGS=--jinja.
+    native-tools: ${SPECTRA_AGENTIC_NATIVE_TOOLS:false}
     initial-top-k: ${SPECTRA_AGENTIC_INITIAL_TOP_K:5}
     response-language: ${SPECTRA_AGENTIC_LANGUAGE:fr}
     max-context-tokens: ${SPECTRA_AGENTIC_MAX_CONTEXT_TOKENS:3000}
@@ -251,6 +275,18 @@ spectra:
     # Borne effective : 0..5 ; les surcharges API hors bornes sont rejetées.
     neighbor-window: ${SPECTRA_RAG_NEIGHBOR_WINDOW:0}
     neighbor-max-chars: ${SPECTRA_RAG_NEIGHBOR_MAX_CHARS:4000}
+    # Persona servie quand le modèle actif n'en déclare pas (vide = persona canonique Spectra,
+    # un assistant d'exploitation autoroutière). Ne remplace jamais la persona d'un modèle
+    # enregistré : un modèle affiné reste servi sous celle de son entraînement.
+    persona: ${SPECTRA_RAG_PERSONA:}
+    # Style des réponses : « concise » (défaut) ou « detailed » — réponse directe puis reprise de
+    # tous les détails du contexte (valeurs, conditions, étapes, exceptions). Sans effet avec
+    # context-placement=system.
+    answer-style: ${SPECTRA_RAG_ANSWER_STYLE:concise}
+    # Graphe d'entités léger : les identifiants de la question (clé de ticket, #PR, nom_de_variable,
+    # NomDeProduit) servent de clés de recherche EXACTE ; les chunks qui les contiennent rejoignent
+    # les candidats avant le reranking. Aucune réindexation. Désactivé par défaut : non mesuré.
+    entity-expansion: ${SPECTRA_RAG_ENTITY_EXPANSION:false}
     # Vérification des citations après génération : chaque phrase est confrontée par le
     # cross-encoder aux passages qu'elle cite [n]. Mesure la PERTINENCE (pas l'implication
     # logique) : signal de fidélité, pas preuve. Sans reranker, rien n'est vérifié.

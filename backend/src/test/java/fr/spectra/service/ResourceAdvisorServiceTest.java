@@ -60,9 +60,18 @@ class ResourceAdvisorServiceTest {
     }
 
     @Test
-    void recommend_mediumRam_contextIs4096PerSlot() {
+    void recommend_16gbClass_contextIs8192PerSlot() {
+        // EnterpriseRAG-Bench : 2048 → 8192 tokens par requête a fait passer le score de 32,0 à 51,6.
         ResourceProfile.LlamaServerParams params = service.recommend(4, 16384, "none", 0, "chat");
-        assertThat(params.contextSize()).isEqualTo(4096);
+        assertThat(params.contextSize()).isEqualTo(8192);
+    }
+
+    @Test
+    void recommend_16gbMachineMeasuredBelowNominal_keepsTheSameTier() {
+        // Une machine « 16 Go » rapporte ~15 500 Mo disponibles.
+        ResourceProfile.LlamaServerParams params = service.recommend(4, 15561, "none", 0, "chat");
+        assertThat(params.contextSize()).isEqualTo(8192);
+        assertThat(service.recommend(4, 14744, "none", 0, "chat").contextSize()).isEqualTo(2048);
     }
 
     @Test

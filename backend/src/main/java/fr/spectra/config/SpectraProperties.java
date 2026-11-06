@@ -30,21 +30,42 @@ public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, 
      * @param citationMinScore   score minimal (sigmoïde) d'un passage cité pour étayer sa phrase ;
      *                           défaut 0.2
      * @param citationStrict     retirer de la réponse les phrases non étayées ; défaut {@code false}
+     * @param persona            persona servie quand le modèle actif n'en déclare pas ; vide = persona
+     *                           canonique Spectra. Ne remplace jamais celle d'un modèle enregistré.
+     * @param answerStyle        {@code concise} (défaut) ou {@code detailed} — cf.
+     *                           {@link fr.spectra.model.RagPromptFormat.AnswerStyle}
+     * @param entityExpansion    ajoute aux candidats les chunks qui contiennent EXACTEMENT un
+     *                           identifiant de la question (ticket, PR, variable, produit) ; défaut
+     *                           {@code false}. Cf. {@link fr.spectra.service.EntityExtractor}
      * @param citationCheck      vérifier chaque phrase citée contre son passage (cross-encoder)
      * @param citationMinScore   seuil d'étayage (barème du reranker, sigmoïde) — à calibrer
      * @param citationStrict     retirer de la réponse non streamée les phrases non étayées
      */
     public record RagProperties(String contextPlacement, Boolean contextualHeaders,
                                 Integer neighborWindow, Integer neighborMaxChars,
-                                Boolean citationCheck, Float citationMinScore, Boolean citationStrict) {
+                                Boolean citationCheck, Float citationMinScore, Boolean citationStrict,
+                                String persona, String answerStyle, Boolean entityExpansion) {
         // Deux constructeurs sans @ConstructorBinding : Spring n'en choisit aucun et laisse le
         // record à null, sans erreur. Vrai pour les quatre records à constructeur de commodité.
         @ConstructorBinding
         public RagProperties {}
 
         public RagProperties(String contextPlacement, Boolean contextualHeaders,
+                             Integer neighborWindow, Integer neighborMaxChars,
+                             Boolean citationCheck, Float citationMinScore, Boolean citationStrict) {
+            this(contextPlacement, contextualHeaders, neighborWindow, neighborMaxChars,
+                    citationCheck, citationMinScore, citationStrict, null, null, null);
+        }
+
+        public boolean entityExpansionEnabled() { return Boolean.TRUE.equals(entityExpansion); }
+
+        public RagProperties(String contextPlacement, Boolean contextualHeaders,
                              Integer neighborWindow, Integer neighborMaxChars) {
             this(contextPlacement, contextualHeaders, neighborWindow, neighborMaxChars, null, null, null);
+        }
+
+        public fr.spectra.model.RagPromptFormat.AnswerStyle effectiveAnswerStyle() {
+            return fr.spectra.model.RagPromptFormat.AnswerStyle.parse(answerStyle);
         }
 
         public boolean citationCheckEnabled() { return !Boolean.FALSE.equals(citationCheck); }
@@ -280,13 +301,50 @@ public record SpectraProperties(LlmProperties llm, ChromaDbProperties chromadb, 
         public int effectiveBatchSize() { return batchSize != null ? batchSize : 16; }
     }
 
+    /**
+     * @param tools actions {@code LOOKUP} (recherche d'un identifiant exact) et {@code OPEN}
+     *              (lecture du document entier d'un passage) en plus de {@code SEARCH} ; défaut
+     *              {@code false} : le prompt et le format de sortie restent ceux d'avant
+     * @param always toute requête passe par la boucle agentique, sans classification adaptative
+     *               préalable ; défaut {@code false}. Sans cela, la boucle n'est atteinte que si le
+     *               routage adaptatif classe la question « AGENTIC » — ce qui empêche de la mesurer.
+     * @param nativeTools les actions (search, lookup, open_document) sont proposées au modèle par le
+     *                    function calling natif du serveur au lieu d'un format texte {@code ACTION:} ;
+     *                    exige llama-server avec {@code --jinja} ; défaut {@code false}
+     */
     public record AgenticRagProperties(
             Boolean enabled,
             Integer maxIterations,
             Integer initialTopK,
             String responseLanguage,
-            Integer maxContextTokens
+            Integer maxContextTokens,
+            Boolean tools,
+            Boolean always,
+            Boolean nativeTools
     ) {
+        @ConstructorBinding
+        public AgenticRagProperties {}
+
+        public AgenticRagProperties(Boolean enabled, Integer maxIterations, Integer initialTopK,
+                                    String responseLanguage, Integer maxContextTokens,
+                                    Boolean tools, Boolean always) {
+            this(enabled, maxIterations, initialTopK, responseLanguage, maxContextTokens, tools, always, null);
+        }
+
+        public AgenticRagProperties(Boolean enabled, Integer maxIterations, Integer initialTopK,
+                                    String responseLanguage, Integer maxContextTokens) {
+            this(enabled, maxIterations, initialTopK, responseLanguage, maxContextTokens, null, null, null);
+        }
+
+        public AgenticRagProperties(Boolean enabled, Integer maxIterations, Integer initialTopK,
+                                    String responseLanguage, Integer maxContextTokens, Boolean tools) {
+            this(enabled, maxIterations, initialTopK, responseLanguage, maxContextTokens, tools, null, null);
+        }
+
+        public boolean alwaysEnabled() { return Boolean.TRUE.equals(always); }
+        public boolean nativeToolsEnabled() { return Boolean.TRUE.equals(nativeTools); }
+
+        public boolean toolsEnabled() { return Boolean.TRUE.equals(tools); }
         public boolean isEnabled() { return Boolean.TRUE.equals(enabled); }
         /** Max tours de recherche complémentaire avant réponse forcée. */
         public int effectiveMaxIterations() { return maxIterations != null ? maxIterations : 3; }

@@ -271,7 +271,8 @@ retour arrière.
 
 ### Critère de sortie
 
-- [ ] artefact ONNX produit et **publié** sous le tag `reranker-onnx-v1`
+- [x] artefact ONNX disponible : l'export **amont** du dépôt `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1`
+  (`onnx/model.onnx`, commit épinglé) remplace l'asset `reranker-onnx-v1`, jamais publié
 - [ ] `/api/status` rapporte le reranker `available=true` sur une installation neuve
 - [ ] **benchmark qualité stable avant/après**, latence documentée — seul garde-fou restant
 - [ ] `services/reranker/` supprimé, aucune image reranker construite
@@ -628,11 +629,13 @@ demande explicite, donc un échec bloquant, et tout premier lancement passerait 
 tant que l'asset manque. `setup.sh` récupère l'artefact de lui-même, en traitant l'échec comme
 une information.
 
-#### Reste à faire — une seule étape
+#### Reste à faire — fait autrement
 
-1. **Produire et publier l'artefact** sous le tag `reranker-onnx-v1` (fichiers `model.onnx` et
-   `tokenizer.json`), par l'export hors ligne d'[audit §6.3 bis](audit-python-java.fr.md).
-   Rien d'autre à modifier : l'URL par défaut le désigne déjà.
+1. ~~**Produire et publier l'artefact** sous le tag `reranker-onnx-v1`.~~ Le dépôt amont du
+   modèle publie désormais son propre export ONNX (`onnx/model.onnx` + `tokenizer.json`) :
+   `setup.sh` / `setup.bat` le désignent par défaut, épinglé à un commit. Constaté pendant le
+   banc EnterpriseRAG-Bench : l'asset n'ayant jamais été publié, le reranking restait inactif
+   sur toute installation neuve.
 
 > **Décision — la validation de parité n'est pas un prérequis.** Ce document en faisait un
 > bloquant de release ; l'arbitrage retenu est de s'en passer, faute de base d'utilisateurs à
