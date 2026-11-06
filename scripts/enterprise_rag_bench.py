@@ -13,7 +13,9 @@ leaderboard https://huggingface.co/spaces/onyx-dot-app/EnterpriseRAG-Bench-Leade
              (``--subset N`` : documents de référence + N distracteurs, pour un essai rapide) ;
     ingest   envoie ces fichiers à ``POST /api/ingest`` par lots et suit chaque tâche ;
     answer   pose les 500 questions à ``POST /api/query`` et écrit ``answers.jsonl`` ;
-    recall   mesure hors-ligne le rappel documentaire (sans LLM juge).
+    recall   mesure hors-ligne le rappel documentaire (sans LLM juge) ;
+    retrieve recherche seule (``POST /api/query/retrieve``, sans génération) : qualité du retrieval en
+             quelques secondes par question, pour comparer rerankers, seuils, multi-query, MMR…
 
 Le doc_id est porté par le nom de fichier : Spectra le restitue dans ``sources[].sourceFile``,
 d'où les ``document_ids`` sont extraits. Il est aussi écrit en tête du contenu, ce qui rend
@@ -463,6 +465,84 @@ def cmd_answer(args: argparse.Namespace) -> None:
         sys.exit(f"[answer] {failures} échec(s) — relancer la commande pour les reprendre")
 
 
+RETRIEVAL_KS = (1, 3, 5, 10)
+
+
+def retrieval_report(questions: list[Question], rankings: dict[str, list[str]],
+                     ks: tuple[int, ...] = RETRIEVAL_KS) -> dict:
+    """Qualité du classement de documents (sans juge) : rappel@k, hit@k, MRR, documents hors référence.
+
+    ``rankings`` : question_id → doc_ids distincts, dans l'ordre de classement. Seules les questions
+    avec documents de référence et un classement présent comptent. « Hors référence » = documents
+    absents de la référence : une approximation des « invalid extra docs » du banc, qui écarte en
+    plus ceux que ses juges tiennent pour valides.
+    """
+    per_type: dict[str, list[dict]] = defaultdict(list)
+    for q in questions:
+        if q.question_type in NO_GOLD_TYPES or not q.expected_doc_ids or q.question_id not in rankings:
+            continue
+        gold = {d.lower() for d in q.expected_doc_ids}
+        ranking = [d.lower() for d in rankings[q.question_id]]
+        row = {"mrr": next((1.0 / (i + 1) for i, d in enumerate(ranking) if d in gold), 0.0)}
+        for k in ks:
+            top = set(ranking[:k])
+            row[f"recall@{k}"] = len(gold & top) / len(gold)
+            row[f"hit@{k}"] = 1.0 if gold & top else 0.0
+            row[f"extra@{k}"] = float(len(top - gold))
+        per_type[q.question_type].append(row)
+
+    def mean(rows: list[dict]) -> dict:
+        return {key: sum(r[key] for r in rows) / len(rows) for key in rows[0]} | {"n": len(rows)}
+
+    flat = [r for rows in per_type.values() for r in rows]
+    return {"overall": mean(flat) if flat else {"n": 0},
+            "by_type": {t: mean(rows) for t, rows in sorted(per_type.items())}}
+
+
+def retrieve_one(client: SpectraClient, q: Question, args: argparse.Namespace) -> dict:
+    payload = build_query(q.question, args)
+    started = time.time()
+    response = with_retry(lambda: client.post_json("/api/query/retrieve", payload), attempts=3)
+    sources = response.get("sources") or []
+    return {
+        "question_id": q.question_id,
+        "document_ids": extract_doc_ids(sources),
+        "sourceScores": [{"docIds": extract_doc_ids([s]), "rerankScore": s.get("rerankScore")} for s in sources],
+        "durationMs": response.get("durationMs"),
+        "clientMs": round((time.time() - started) * 1000),
+    }
+
+
+def cmd_retrieve(args: argparse.Namespace) -> None:
+    work = Path(args.work_dir)
+    questions = load_questions(Path(args.questions) if args.questions else work / "questions.jsonl")
+    if args.question_type:
+        questions = [q for q in questions if q.question_type in args.question_type]
+    if args.per_type:
+        questions = sample_per_type(questions, args.per_type)
+    out = Path(args.output) if args.output else work / "retrieval.jsonl"
+    done = load_answered(out)
+    todo = [q for q in questions if q.question_id not in done][: args.limit]
+    print(f"[retrieve] {len(todo)} questions à traiter ({len(done)} déjà dans {out})", file=sys.stderr)
+
+    client = SpectraClient(args.api, args.timeout)
+    with out.open("a", encoding="utf-8") as fh, ThreadPoolExecutor(max_workers=args.parallelism) as pool:
+        futures = {pool.submit(retrieve_one, client, q, args): q for q in todo}
+        for count, future in enumerate(as_completed(futures), 1):
+            q = futures[future]
+            try:
+                fh.write(json.dumps(future.result(), ensure_ascii=False) + "\n")
+                fh.flush()
+            except Exception as exc:  # noqa: BLE001 — une question en échec ne stoppe pas la mesure
+                print(f"[retrieve] {q.question_id} échec : {exc}", file=sys.stderr)
+            if count % 25 == 0:
+                print(f"[retrieve] {count}/{len(todo)}", file=sys.stderr)
+
+    with out.open(encoding="utf-8") as fh:
+        rankings = {r["question_id"]: r["document_ids"] for r in map(json.loads, filter(str.strip, fh))}
+    print(json.dumps(retrieval_report(questions, rankings), indent=2))
+
+
 def cmd_recall(args: argparse.Namespace) -> None:
     work = Path(args.work_dir)
     questions = load_questions(Path(args.questions) if args.questions else work / "questions.jsonl")
@@ -522,6 +602,26 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--limit", type=int)
     p.add_argument("--parallelism", type=int, default=1)
     p.set_defaults(func=cmd_answer)
+
+    p = sub.add_parser("retrieve", help="recherche seule, sans génération : rappel@k et MRR")
+    p.add_argument("--questions")
+    p.add_argument("--output")
+    p.add_argument("--collection")
+    p.add_argument("--max-context-chunks", type=int, default=10)
+    p.add_argument("--top-candidates", type=int, default=50)
+    p.add_argument("--temperature", type=float, default=0.0)
+    # Pas de suffixe de langue : il n'a de sens que pour la génération et fausserait le classement.
+    p.add_argument("--question-suffix", default="")
+    p.add_argument("--hybrid", choices=("default", "on", "off"), default="default")
+    p.add_argument("--multi-query", choices=("default", "on", "off"), default="default")
+    p.add_argument("--dedup", choices=("default", "none", "jaccard", "mmr"), default="default")
+    p.add_argument("--rerank-min-score", type=float, metavar="S")
+    p.add_argument("--neighbor-window", type=int, metavar="N")
+    p.add_argument("--question-type", action="append")
+    p.add_argument("--per-type", type=int, metavar="N")
+    p.add_argument("--limit", type=int)
+    p.add_argument("--parallelism", type=int, default=1)
+    p.set_defaults(func=cmd_retrieve)
 
     p = sub.add_parser("recall", help="rappel documentaire hors-ligne")
     p.add_argument("--questions")

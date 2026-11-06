@@ -88,6 +88,20 @@ Le score de classement ne se mesure qu'avec le juge (partie suivante). Sans clé
 nombre de documents hors-sujet, la taille du contexte et la latence se comparent déjà, mais **ne disent pas
 si la réponse est juste** : n'en tirez pas de changement de défaut.
 
+### Comparer le retrieval sans générer
+
+`retrieve` interroge `POST /api/query/retrieve` : mêmes surcharges, même pipeline que `/api/query`, mais **sans
+génération**. Quelques secondes par question au lieu de plusieurs minutes sur CPU, donc les 470 questions qui ont
+des documents de référence en une fois. Il rend rappel@k, hit@k, MRR et le nombre de documents hors référence
+(approximation des « invalid extra docs » du banc).
+
+```bash
+python3 scripts/enterprise_rag_bench.py retrieve --hybrid on --rerank-min-score 0.2 \
+  --output data/enterprise-rag-bench/retrieval-seuil-0.2.jsonl
+```
+
+Les étapes qui supposent le modèle de chat (RAG corrective, compression, boucle agentique) ne s'exécutent pas.
+
 ## 4. Mesurer
 
 Rappel documentaire immédiat, sans LLM juge :
@@ -108,6 +122,28 @@ python -m src.scripts.answer_evaluation.metrics_based_eval \
 ```
 
 `answer_evaluation/results.json` contient les agrégats et le détail par question.
+
+### Juger sans zéros silencieux, comparer sans bruit
+
+`scripts/enterprise_rag_eval.py` règle deux pièges rencontrés pendant les mesures :
+
+```bash
+# sonde l'API du juge, lance l'évaluateur, écarte un résultat dont des appels ont échoué
+python3 scripts/enterprise_rag_eval.py judge --evaluator-dir ../EnterpriseRAG-Bench \
+  --answers-file answer_evaluation/spectra/answers.jsonl --questions-file answer_evaluation/spectra/questions.jsonl \
+  --results-file answer_evaluation/spectra/results.json --python ../venv/bin/python
+
+# différence appariée par question, intervalle de confiance bootstrap à 95 %
+python3 scripts/enterprise_rag_eval.py compare results-a.json results-b.json --metric score
+```
+
+Crédit épuisé ou quota atteint : l'évaluateur d'Onyx ne s'arrête pas, il note chaque question 0 % et termine
+« avec succès ». `judge` sonde d'abord l'API (code de sortie 3 si le juge est indisponible) puis refuse un
+résultat où des lignes `[WARN] … failed` apparaissent (code 4, fichier renommé `….INVALID-judge-failures.json`).
+
+`compare` dit si un écart se distingue du bruit. Sur 50 questions, +9 points de score peuvent encore être
+compatibles avec zéro : le nombre de victoires et de défaites par question et l'intervalle comptent plus que la
+moyenne. Métriques : `score` (classement), `correct`, `completeness`, `recall`, `extra`.
 
 ## 5. Soumettre au classement
 

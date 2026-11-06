@@ -37,6 +37,26 @@ public class QueryController {
         return ragService.query(request);
     }
 
+    /**
+     * Recherche seule : passages classés avec leurs scores, <b>sans génération</b>. Mêmes surcharges et
+     * même pipeline de retrieval que {@code /api/query} (hybride, reranking, multi-query, déduplication,
+     * voisins, filtre de documents) ; en quelques secondes au lieu de minutes sur CPU. Sert à comparer
+     * des réglages de retrieval (reranker, seuil, MMR…) sur tout un jeu de questions.
+     *
+     * <p>{@code answer} est vide et {@code ragStrategy} vaut {@code RETRIEVAL}. Les étapes qui supposent
+     * le modèle de chat (RAG corrective, compression, boucle agentique) ne sont pas exécutées.</p>
+     */
+    @PostMapping("/retrieve")
+    @Operation(summary = "Recherche seule (sans génération) : passages classés et scores")
+    public QueryResponse retrieve(@Valid @RequestBody QueryRequest request) {
+        long start = System.currentTimeMillis();
+        RagService.RagContext ctx = ragService.retrieveContext(request, request.question(), request.overrides());
+        return new QueryResponse("", ctx.sources(), System.currentTimeMillis() - start,
+                ctx.rerankApplied(), ctx.hybridApplied(), false, 0, null,
+                false, false, false, "RETRIEVAL",
+                ctx.multiQueryApplied(), false, ctx.semanticDedupApplied(), ctx.longContextApplied());
+    }
+
     @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @Operation(summary = "Interroger le modèle en streaming SSE (sources → token* → done)")
     public Flux<ServerSentEvent<String>> queryStream(@Valid @RequestBody QueryRequest request) {

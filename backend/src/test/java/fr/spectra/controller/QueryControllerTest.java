@@ -61,6 +61,45 @@ class QueryControllerTest {
                 .andExpect(jsonPath("$.sources").isArray());
     }
 
+    // ── /api/query/retrieve (recherche seule) ──────────────────────────────────
+
+    @Test
+    void retrieve_returnsRankedSourcesWithoutGeneration() throws Exception {
+        var sources = List.of(
+                new QueryResponse.Source("Le seuil est de 30 minutes.", "dsid_a.txt", 0.12, 0.93f, 4.2f),
+                new QueryResponse.Source("Autre passage.", "dsid_b.txt", 0.4, 0.31f, null));
+        var ctx = new RagService.RagContext(List.of("a", "b"), List.of(), List.of(), null, null, sources,
+                "ctx", true, true, false, true, false);
+        when(ragService.retrieveContext(any(QueryRequest.class), org.mockito.ArgumentMatchers.eq("Quel seuil ?"),
+                any(fr.spectra.dto.RagOverrides.class))).thenReturn(ctx);
+
+        mockMvc.perform(post("/api/query/retrieve")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"question":"Quel seuil ?","overrides":{"hybrid":true,"rerankMinScore":0.2}}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.answer").value(""))
+                .andExpect(jsonPath("$.ragStrategy").value("RETRIEVAL"))
+                .andExpect(jsonPath("$.sources.length()").value(2))
+                .andExpect(jsonPath("$.sources[0].sourceFile").value("dsid_a.txt"))
+                .andExpect(jsonPath("$.sources[0].rerankScore").value(0.93))
+                .andExpect(jsonPath("$.rerankApplied").value(true))
+                .andExpect(jsonPath("$.hybridSearchApplied").value(true))
+                .andExpect(jsonPath("$.semanticDedupApplied").value(true));
+        org.mockito.Mockito.verifyNoInteractions(feedbackService);
+    }
+
+    @Test
+    void retrieve_blankQuestion_returns400() throws Exception {
+        mockMvc.perform(post("/api/query/retrieve")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"question":"  "}
+                                """))
+                .andExpect(status().isBadRequest());
+    }
+
     @Test
     void query_blankQuestion_returns400() throws Exception {
         mockMvc.perform(post("/api/query")

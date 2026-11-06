@@ -52,6 +52,13 @@ class FakeSpectra(BaseHTTPRequestHandler):
             self._reply({"taskId": f"t{len(FakeSpectra.uploads)}", "status": "PENDING"})
             return
         FakeSpectra.queries.append(json.loads(body))
+        if self.path == "/api/query/retrieve":
+            self._reply({"answer": "", "durationMs": 7, "sources": [
+                {"sourceFile": f"{OTHER}.txt", "rerankScore": 0.8},
+                {"sourceFile": f"{GOLD_A}.txt", "rerankScore": 0.6},
+                {"sourceFile": f"{GOLD_A}.txt", "rerankScore": 0.5},
+                {"sourceFile": f"{GOLD_B}.txt", "rerankScore": 0.1}]})
+            return
         self._reply({
             "answer": "42",
             "sources": [
@@ -211,6 +218,46 @@ class EnterpriseRagBenchTest(unittest.TestCase):
         spectra = json.loads((self.work / "answers.jsonl").read_text().splitlines()[0])["spectra"]
         self.assertEqual(spectra["contextChars"], 1234)
         self.assertEqual(spectra["sourceScores"][0], {"docIds": [GOLD_A], "rerankScore": 0.91})
+
+    def test_retrieval_report_ranks_distinct_documents_and_scores_recall_hit_mrr_and_extras(self):
+        questions = bench.load_questions(self.work / "questions.jsonl")
+        # qst_0001 : référence A au 2e rang ; qst_0002 : références A et B, B hors du top 3.
+        rankings = {"qst_0001": [OTHER, GOLD_A], "qst_0002": [GOLD_A, OTHER, "dsid_" + "d" * 32, GOLD_B]}
+
+        report = bench.retrieval_report(questions, rankings, ks=(1, 3))
+
+        self.assertEqual(report["overall"]["n"], 2)
+        self.assertAlmostEqual(report["overall"]["mrr"], (0.5 + 1.0) / 2)
+        self.assertAlmostEqual(report["overall"]["recall@1"], (0.0 + 0.5) / 2)
+        self.assertAlmostEqual(report["overall"]["recall@3"], (1.0 + 0.5) / 2)
+        self.assertAlmostEqual(report["overall"]["hit@1"], 0.5)
+        self.assertAlmostEqual(report["overall"]["extra@3"], (1 + 2) / 2)
+        self.assertEqual(sorted(report["by_type"]), ["basic", "completeness"])
+
+    def test_retrieval_report_ignores_questions_without_references_or_without_a_ranking(self):
+        questions = bench.load_questions(self.work / "questions.jsonl")
+
+        report = bench.retrieval_report(questions, {"qst_0003": [GOLD_A]})
+
+        self.assertEqual(report["overall"], {"n": 0})
+
+    def test_retrieve_calls_the_generation_free_endpoint_and_keeps_the_ranking(self):
+        self.run_cli("retrieve", "--hybrid", "off", "--rerank-min-score", "0.2")
+
+        rows = [json.loads(line) for line in (self.work / "retrieval.jsonl").read_text().splitlines()]
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(rows[0]["document_ids"], [OTHER, GOLD_A, GOLD_B])
+        self.assertEqual(rows[0]["sourceScores"][0], {"docIds": [OTHER], "rerankScore": 0.8})
+        # Pas de suffixe de langue (propre à la génération) et surcharges transmises.
+        self.assertEqual(FakeSpectra.queries[0]["question"], "Q1?")
+        self.assertEqual(FakeSpectra.queries[0]["overrides"], {"hybrid": False, "rerankMinScore": 0.2})
+
+    def test_retrieve_resumes_without_asking_again(self):
+        self.run_cli("retrieve", "--limit", "1")
+        self.run_cli("retrieve")
+
+        self.assertEqual(len(FakeSpectra.queries), 3)
+        self.assertEqual(len((self.work / "retrieval.jsonl").read_text().splitlines()), 3)
 
     def test_recall_ignores_questions_without_gold_documents(self):
         questions = bench.load_questions(self.work / "questions.jsonl")
