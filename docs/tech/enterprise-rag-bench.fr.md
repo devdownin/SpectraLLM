@@ -66,6 +66,28 @@ Reprenable également : les questions déjà présentes dans `answers.jsonl` son
 compté en *invalid extra docs*. `--question-suffix` ajoute « Answer in English. » à chaque
 question : la persona et les prompts internes de Spectra sont en français.
 
+### Comparer deux réglages sur la même pile
+
+Plusieurs réglages se basculent **par requête** (surcharges `RagOverrides`), sans redémarrer Spectra :
+
+| Option | Effet |
+|---|---|
+| `--hybrid on\|off` | recherche hybride BM25 + vecteurs |
+| `--neighbor-window N` | N chunks voisins (± N, 0-5) ajoutés à chaque passage |
+| `--multi-query on\|off` | reformulations de la question (serveur : `SPECTRA_MULTI_QUERY_ENABLED=true`) |
+| `--dedup none\|jaccard\|mmr` | déduplication des passages (serveur : `SPECTRA_SEMANTIC_DEDUP_ENABLED=true`) |
+| `--rerank-min-score S` | écarte les passages dont le score du reranker (0-1) est sous S |
+| `--sources cited` | `document_ids` limités aux passages cités `[n]` |
+
+Un module désactivé côté serveur ne peut pas être activé par la requête : activez-le au démarrage, puis
+fixez-le explicitement (`--multi-query off`, `--dedup none`) dans les exécutions de référence, faute de quoi
+le défaut du serveur s'applique. Chaque réponse conserve `spectra.contextChars` (taille du contexte servi),
+`spectra.sourceScores` (scores du reranker) et, en mode agentique, le nombre d'itérations.
+
+Le score de classement ne se mesure qu'avec le juge (partie suivante). Sans clé, le rappel documentaire, le
+nombre de documents hors-sujet, la taille du contexte et la latence se comparent déjà, mais **ne disent pas
+si la réponse est juste** : n'en tirez pas de changement de défaut.
+
 ## 4. Mesurer
 
 Rappel documentaire immédiat, sans LLM juge :
