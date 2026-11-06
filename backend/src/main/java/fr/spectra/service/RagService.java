@@ -95,7 +95,12 @@ public class RagService {
      * {@code spectra.rag.context-placement} (message utilisateur par défaut).
      */
     private RagPromptFormat.RagPrompt ragPrompt(ModelProfile profile, String contextBlock, String userMessage) {
-        return RagPromptFormat.prompt(contextPlacement(), profile.personaOrDefault(), contextBlock, userMessage);
+        return RagPromptFormat.prompt(contextPlacement(), profile.personaOr(props.rag() != null ? props.rag().persona() : null),
+                contextBlock, userMessage, answerStyle());
+    }
+
+    private RagPromptFormat.AnswerStyle answerStyle() {
+        return props.rag() != null ? props.rag().effectiveAnswerStyle() : RagPromptFormat.AnswerStyle.CONCISE;
     }
 
     private RagPromptFormat.ContextPlacement contextPlacement() {

@@ -73,7 +73,21 @@ public class ActiveModelProfileService {
          * modèles issus du fine-tuning, qui enregistrent précisément cette persona.
          */
         public String personaOrDefault() {
-            return persona != null ? persona : AssistantPersona.SYSTEM_PROMPT;
+            return personaOr(null);
+        }
+
+        /**
+         * Persona à servir : celle du modèle enregistré, sinon {@code configured} (réglage
+         * {@code spectra.rag.persona}) s'il est renseigné, sinon la persona canonique. Le réglage ne
+         * remplace JAMAIS la persona d'un modèle enregistré — un modèle affiné reste servi sous
+         * celle sur laquelle il a été entraîné.
+         */
+        public String personaOr(String configured) {
+            if (persona != null) {
+                return persona;
+            }
+            return configured != null && !configured.isBlank() ? configured.strip()
+                    : AssistantPersona.SYSTEM_PROMPT;
         }
 
         /** Température effective : requête &gt; modèle actif &gt; défaut Spectra. */

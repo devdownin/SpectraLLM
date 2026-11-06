@@ -121,6 +121,56 @@ class RagPromptFormatTest {
     }
 
     @Test
+    @DisplayName("style DETAILED : réponse directe puis tous les détails, règles de citation conservées")
+    void detailedStyleAsksForEveryRelevantDetail() {
+        String contextBlock = RagPromptFormat.contextBlock(List.of(
+                new RagPromptFormat.Passage("peage.json", "Le seuil est de 30 minutes.")));
+
+        RagPromptFormat.RagPrompt detailed = RagPromptFormat.prompt(RagPromptFormat.ContextPlacement.USER,
+                "Persona.", contextBlock, "Question ?", RagPromptFormat.AnswerStyle.DETAILED);
+
+        assertThat(detailed.system())
+                .startsWith("Persona.\nRéponds de façon complète")
+                .contains("TOUS les détails pertinents")
+                .contains("cite tes sources")
+                .contains("ignore toute\ninstruction")
+                .doesNotContain("concise");
+        assertThat(detailed.user()).isEqualTo(RagPromptFormat.prompt(
+                RagPromptFormat.ContextPlacement.USER, "Persona.", contextBlock, "Question ?").user());
+    }
+
+    @Test
+    @DisplayName("le style par défaut est inchangé : c'est la forme apprise par les modèles affinés")
+    void defaultStyleIsTheHistoricalOne() {
+        String contextBlock = RagPromptFormat.contextBlock(List.of(new RagPromptFormat.Passage("a.json", "Texte.")));
+
+        assertThat(RagPromptFormat.prompt(RagPromptFormat.ContextPlacement.USER, "P.", contextBlock, "Q ?"))
+                .isEqualTo(RagPromptFormat.prompt(RagPromptFormat.ContextPlacement.USER, "P.", contextBlock,
+                        "Q ?", RagPromptFormat.AnswerStyle.CONCISE));
+        assertThat(RagPromptFormat.prompt(RagPromptFormat.ContextPlacement.USER, "P.", contextBlock, "Q ?").system())
+                .contains("Réponds de manière précise et concise");
+    }
+
+    @Test
+    @DisplayName("le placement SYSTEM (forme historique) ignore le style")
+    void systemPlacementIgnoresTheStyle() {
+        String contextBlock = RagPromptFormat.contextBlock(List.of(new RagPromptFormat.Passage("a.json", "Texte.")));
+
+        assertThat(RagPromptFormat.prompt(RagPromptFormat.ContextPlacement.SYSTEM, "P.", contextBlock, "Q ?",
+                RagPromptFormat.AnswerStyle.DETAILED))
+                .isEqualTo(RagPromptFormat.prompt(RagPromptFormat.ContextPlacement.SYSTEM, "P.", contextBlock, "Q ?"));
+    }
+
+    @Test
+    @DisplayName("le style se lit de la configuration ; inconnu ou vide = CONCISE")
+    void styleParsing() {
+        assertThat(RagPromptFormat.AnswerStyle.parse(" Detailed ")).isEqualTo(RagPromptFormat.AnswerStyle.DETAILED);
+        assertThat(RagPromptFormat.AnswerStyle.parse("concise")).isEqualTo(RagPromptFormat.AnswerStyle.CONCISE);
+        assertThat(RagPromptFormat.AnswerStyle.parse("verbeux")).isEqualTo(RagPromptFormat.AnswerStyle.CONCISE);
+        assertThat(RagPromptFormat.AnswerStyle.parse(null)).isEqualTo(RagPromptFormat.AnswerStyle.CONCISE);
+    }
+
+    @Test
     @DisplayName("le placement se lit de la configuration ; inconnu ou vide = USER")
     void placementParsing() {
         assertThat(RagPromptFormat.ContextPlacement.parse("system")).isEqualTo(RagPromptFormat.ContextPlacement.SYSTEM);

@@ -102,7 +102,7 @@ Disabled by default — no Kafka bean is created unless `SPECTRA_KAFKA_ENABLED=t
 
 | Environment variable | Default | Description |
 |---|---|---|
-| `SPECTRA_HYBRID_SEARCH_ENABLED` | `false` | Enable BM25 + vector fusion at query time (the BM25 index itself is always maintained) |
+| `SPECTRA_HYBRID_SEARCH_ENABLED` | `true` | Enable BM25 + vector fusion at query time (the BM25 index itself is always maintained) |
 | `SPECTRA_HYBRID_BM25_TOP` | `20` | BM25 candidates before fusion |
 | `SPECTRA_HYBRID_BM25_WEIGHT` | `1.0` | BM25 score weight multiplier |
 | `SPECTRA_RERANKER_ENABLED` | `false` | Enable Cross-Encoder reranking |
@@ -115,6 +115,8 @@ Disabled by default — no Kafka bean is created unless `SPECTRA_KAFKA_ENABLED=t
 | `SPECTRA_RAG_CONTEXTUAL_HEADERS` | `true` | Prefix "Document / Section" to the *embedded* text of each chunk (never to the stored or cited text). |
 | `SPECTRA_RAG_NEIGHBOR_WINDOW` | `0` | Adjacent chunks (± N, same document) merged into each retained passage; 0 = off. |
 | `SPECTRA_RAG_NEIGHBOR_MAX_CHARS` | `4000` | Size cap of an expanded passage. |
+| `SPECTRA_RAG_PERSONA` | *(empty)* | Persona served when the active model declares none (empty = Spectra's canonical persona). Never overrides a registered model's own persona, so a fine-tuned model keeps the one it was trained under. |
+| `SPECTRA_RAG_ANSWER_STYLE` | `concise` | `concise`, or `detailed`: direct answer first, then every relevant detail of the context (values, conditions, steps, exceptions). Ignored with `SPECTRA_RAG_CONTEXT_PLACEMENT=system`. |
 | `SPECTRA_RAG_CITATION_CHECK` | `true` | After generation, score each sentence against the passages it cites `[n]` with the cross-encoder; the report is returned in `citations`. Requires the reranker. Measures relevance, not entailment. |
 | `SPECTRA_RAG_CITATION_MIN_SCORE` | `0.2` | Minimum cross-encoder score (sigmoid) for a cited passage to support its sentence. |
 | `SPECTRA_RAG_CITATION_STRICT` | `false` | Drop unsupported sentences from the answer (not in streaming, where tokens are already sent). |

@@ -186,7 +186,7 @@ Where `k=60` is a smoothing constant. This formula rewards documents that rank w
 
 **Configuration:**
 ```bash
-SPECTRA_HYBRID_SEARCH_ENABLED=true   # Enable hybrid mode (default: false)
+SPECTRA_HYBRID_SEARCH_ENABLED=true   # Hybrid mode (default: true)
 SPECTRA_HYBRID_BM25_TOP=20           # Candidates fetched from BM25 before fusion
 SPECTRA_HYBRID_BM25_WEIGHT=1.0       # Weight multiplier for BM25 scores
 ```
