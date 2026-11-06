@@ -216,6 +216,89 @@ class SourceSyncServiceTest {
 
     private static class SimulatedProcessFailure extends Error {}
 
+
+    @Test void pauseAndResumeKeepPublishedDocumentsAndRecomputeSchedule() throws Exception {
+        String id = create("Knowledge"); connector.items = List.of(item("guide.txt", "kept"));
+        run(id, SourceModels.Status.SUCCESS);
+        String fingerprint = docStore.values().iterator().next().fingerprint;
+        var paused = service.update(id, new SourceModels.Request("Paused knowledge", SourceModels.Type.LOCAL_FOLDER,
+                "spectra_documents", false, 60, config()));
+        assertThat(paused.enabled()).isFalse(); assertThat(paused.nextSyncAt()).isNull();
+        assertThat(paused.documentCount()).isEqualTo(1);
+        assertThatThrownBy(() -> service.sync(id)).isInstanceOf(ResponseStatusException.class)
+                .satisfies(e -> assertThat(((ResponseStatusException)e).getStatusCode().value()).isEqualTo(409));
+        var resumed = service.update(id, request("Renamed knowledge"));
+        assertThat(resumed.name()).isEqualTo("Renamed knowledge");
+        assertThat(resumed.enabled()).isTrue(); assertThat(resumed.nextSyncAt()).isAfter(Instant.now());
+        assertThat(docStore.values().iterator().next().fingerprint).isEqualTo(fingerprint);
+        verify(ingestion, never()).purgeStreamSource(anyString(), anyString());
+    }
+
+    @Test void schedulerStartsOnlyDueEnabledSourcesAndLeavesManualAndPausedSourcesAlone() {
+        String due = create("Due"); String future = create("Future");
+        String manual = service.create(new SourceModels.Request("Manual", SourceModels.Type.LOCAL_FOLDER,
+                "spectra_documents", true, 0, config())).id();
+        String paused = service.create(new SourceModels.Request("Paused", SourceModels.Type.LOCAL_FOLDER,
+                "spectra_documents", false, 60, config())).id();
+        sourceStore.get(due).nextSyncAt = Instant.now().minusSeconds(1);
+        sourceStore.get(manual).nextSyncAt = Instant.now().minusSeconds(1);
+        sourceStore.get(paused).nextSyncAt = Instant.now().minusSeconds(1);
+        service.scheduled();
+        await().atMost(Duration.ofSeconds(5)).until(() -> service.get(due).status() == SourceModels.Status.SUCCESS);
+        assertThat(service.get(future).status()).isEqualTo(SourceModels.Status.IDLE);
+        assertThat(service.get(manual).status()).isEqualTo(SourceModels.Status.IDLE);
+        assertThat(service.get(paused).status()).isEqualTo(SourceModels.Status.IDLE);
+        assertThat(runStore.values()).extracting(r -> r.sourceId).containsExactly(due);
+    }
+
+    @Test void immutableCollectionAndTooFrequentScheduleAreRejectedWithoutChangingSource() {
+        String id = create("Knowledge");
+        assertThatThrownBy(() -> service.update(id, new SourceModels.Request("Moved", SourceModels.Type.LOCAL_FOLDER,
+                "another_collection", true, 60, config()))).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("cannot change");
+        assertThatThrownBy(() -> service.update(id, new SourceModels.Request("Too frequent", SourceModels.Type.LOCAL_FOLDER,
+                "spectra_documents", true, 1, config()))).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("at least 5");
+        assertThat(service.get(id).name()).isEqualTo("Knowledge");
+        assertThat(service.get(id).collection()).isEqualTo("spectra_documents");
+        assertThat(service.get(id).intervalMinutes()).isEqualTo(60);
+    }
+
+    @Test void failedConnectionTestReturnsFailureWithoutPersistingVendorSecretsOrStartingSync() {
+        String id = create("Knowledge");
+        connector.testFailure = new IllegalStateException("signed-url?secret=must-not-leak");
+        var result = service.test(id);
+        assertThat(result.success()).isFalse(); assertThat(result.sampleCount()).isZero();
+        assertThat(result.message()).contains("IllegalStateException").doesNotContain("secret", "must-not-leak");
+        assertThat(service.get(id).status()).isEqualTo(SourceModels.Status.IDLE);
+        assertThat(runStore).isEmpty(); verifyNoInteractions(ingestion);
+    }
+
+    @Test void failedSourceCleanupDisablesSchedulingAndKeepsEnoughStateForRetry() throws Exception {
+        String id = create("Knowledge"); connector.items = List.of(item("guide.txt", "published"));
+        run(id, SourceModels.Status.SUCCESS);
+        doThrow(new IllegalStateException("temporary index outage")).doReturn(1)
+                .when(ingestion).purgeStreamSource(anyString(), anyString());
+        assertThatThrownBy(() -> service.delete(id)).isInstanceOf(ResponseStatusException.class)
+                .satisfies(e -> assertThat(((ResponseStatusException)e).getStatusCode().value()).isEqualTo(502));
+        var failed = service.get(id);
+        assertThat(failed.enabled()).isFalse(); assertThat(failed.nextSyncAt()).isNull();
+        assertThat(failed.status()).isEqualTo(SourceModels.Status.FAILED);
+        assertThat(failed.lastError()).contains("Retry deletion"); assertThat(docStore).hasSize(1);
+        service.delete(id);
+        assertThat(sourceStore).doesNotContainKey(id); assertThat(docStore).isEmpty();
+    }
+
+    @Test void staleRunningStateWithNoWorkerBecomesInterruptedInsteadOfRemainingLocked() {
+        String id = create("Knowledge");
+        SourceInstance source = sourceStore.get(id); source.status = SourceModels.Status.RUNNING; source.nextSyncAt = null;
+        SourceRun orphan = new SourceRun(); orphan.id = "stale-run"; orphan.sourceId = id;
+        orphan.startedAt = Instant.now().minusSeconds(60); orphan.status = SourceModels.Status.RUNNING; runStore.put(orphan.id, orphan);
+        service.scheduled();
+        assertThat(service.get(id).status()).isEqualTo(SourceModels.Status.INTERRUPTED);
+        assertThat(service.get(id).nextSyncAt()).isAfter(Instant.now());
+        assertThat(orphan.status).isEqualTo(SourceModels.Status.INTERRUPTED); assertThat(orphan.completedAt).isNotNull();
+        assertThat(runStore).hasSize(1); verifyNoInteractions(ingestion);
+    }
+
     private String create(String name) { return service.create(request(name)).id(); }
     private static SourceModels.Request request(String name) { return new SourceModels.Request(name, SourceModels.Type.LOCAL_FOLDER, "spectra_documents", true, 60, config()); }
     static SourceModels.Config config() { return new SourceModels.Config("/sources", null, null, null, null, null, null, null, null, null, List.of(), List.of(), 100, 2, 1); }
@@ -229,9 +312,10 @@ class SourceSyncServiceTest {
         volatile List<Item> items = List.of();
         volatile boolean complete = true;
         volatile CountDownLatch block;
+        volatile Exception testFailure;
         @Override public SourceModels.Type type() { return SourceModels.Type.LOCAL_FOLDER; }
         @Override public void validate(SourceModels.Config config) {}
-        @Override public SourceModels.ConnectionTest test(SourceModels.Config config) { return new SourceModels.ConnectionTest(true, "ok", 0); }
+        @Override public SourceModels.ConnectionTest test(SourceModels.Config config) throws Exception { if (testFailure != null) throw testFailure; return new SourceModels.ConnectionTest(true, "ok", 0); }
         @Override public boolean scan(SourceModels.Config config, Sink sink) throws Exception {
             if (block != null) { block.countDown(); while (true) { sink.checkCancelled(); Thread.sleep(5); } }
             for (Item item : items) sink.accept(item);
