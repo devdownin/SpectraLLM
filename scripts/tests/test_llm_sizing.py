@@ -27,10 +27,11 @@ DETECT_ENV_BAT = SCRIPTS_DIR / "detect-env.bat"
 
 # Fenêtre par requête attendue à chaque palier de RAM (Mo → tokens). C'est le contrat
 # fonctionnel : au-dessous de 2048 tokens, la classification de documents ne tient plus.
-TIERS = [(32768, 8192), (16384, 4096), (8192, 2048), (0, 1024)]
+# Seuils à 90 % du nominal : la RAM mesurée est toujours inférieure à la RAM installée.
+TIERS = [(29491, 8192), (14745, 4096), (7372, 2048), (0, 1024)]
 
 CORE_COUNTS = [1, 2, 4, 8, 16, 32, 64]
-RAM_SIZES = [1024, 2048, 4096, 8191, 8192, 12288, 16384, 24576, 32768, 65536, 131072]
+RAM_SIZES = [1024, 2048, 4096, 7371, 7372, 8192, 12288, 14744, 14745, 15561, 16384, 24576, 29491, 32768, 65536, 131072]
 
 
 def sizing(ram_mb, cores):
@@ -116,6 +117,17 @@ def test_a_documented_16gb_machine_can_hold_the_agentic_budget():
     _, _, slot = sizing(16384, 16)
 
     assert slot >= 3000
+
+
+def test_a_16gb_machine_measured_below_16384_mb_keeps_the_16gb_tier():
+    """
+    Une machine « 16 Go » rapporte ~15 500 Mo disponibles (valeur relevée : 15 561 Mo). Avec
+    des seuils à la taille nominale, elle tombait au palier 8 Go : 2048 tokens par requête, dont
+    il ne restait de place que pour un ou deux passages RAG après la réserve de réponse.
+    """
+    _, _, slot = sizing(15561, 4)
+
+    assert slot == 4096
 
 
 def test_library_rejects_a_malformed_invocation():

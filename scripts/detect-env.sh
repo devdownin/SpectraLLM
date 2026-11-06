@@ -123,7 +123,7 @@ case "$PROFILE" in
         EMBEDDING_TIMEOUT=60
         GENERATION_TIMEOUT=180
         CONCURRENT_INGESTIONS=1
-        JVM_HEAP=$((TOTAL_RAM_MB / 4))
+        JVM_HEAP_DIVISOR=4
         ;;
     medium)
         CHUNK_MAX_TOKENS=512
@@ -132,7 +132,7 @@ case "$PROFILE" in
         EMBEDDING_TIMEOUT=30
         GENERATION_TIMEOUT=120
         CONCURRENT_INGESTIONS=1
-        JVM_HEAP=$((TOTAL_RAM_MB / 4))
+        JVM_HEAP_DIVISOR=4
         ;;
     large)
         CHUNK_MAX_TOKENS=512
@@ -141,17 +141,16 @@ case "$PROFILE" in
         EMBEDDING_TIMEOUT=30
         GENERATION_TIMEOUT=120
         CONCURRENT_INGESTIONS=1
-        JVM_HEAP=$((TOTAL_RAM_MB / 3))
+        JVM_HEAP_DIVISOR=3
         ;;
 esac
 
-# Plafonner le heap JVM à 4 Go et garantir un minimum de 2 Go
-if (( JVM_HEAP < 2048 )); then
-    JVM_HEAP=2048
-fi
-if (( JVM_HEAP > 4096 )); then
-    JVM_HEAP=4096
-fi
+# Heap JVM : 2–4 Go selon la RAM, mais jamais plus de 60 % de la limite mémoire du conteneur
+# spectra-api — au-delà, le hors-heap (reranker ONNX, ZGC) le fait tuer par le noyau.
+# shellcheck source=lib/jvm-sizing.sh
+source "$SCRIPT_DIR/lib/jvm-sizing.sh"
+API_MEMORY_LIMIT="${SPECTRA_API_MEMORY_LIMIT:-$(grep -E '^SPECTRA_API_MEMORY_LIMIT=' "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2 | tr -d '"')}"
+jvm_heap "$TOTAL_RAM_MB" "$JVM_HEAP_DIVISOR" "$API_MEMORY_LIMIT"
 
 # ── Contexte LLM et parallélisme ──
 # Arithmétique volontairement isolée dans une bibliothèque : elle avait été fausse sans que

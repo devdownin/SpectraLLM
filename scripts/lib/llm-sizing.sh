@@ -26,11 +26,14 @@ llm_sizing() {
   local cpu_cores="$2"
   local slot max_total max_slots
 
-  if [ "$total_ram_mb" -ge 32768 ]; then
+  # Seuils à 90 % de la taille nominale : la RAM mesurée (MemAvailable, FreePhysicalMemory)
+  # est toujours inférieure à la RAM installée. Une machine « 16 Go » rapporte ~15 500 Mo et
+  # tombait au palier 8 Go — 2048 tokens par requête, soit un à deux passages RAG servis.
+  if [ "$total_ram_mb" -ge 29491 ]; then
     slot=8192;  max_total=32768
-  elif [ "$total_ram_mb" -ge 16384 ]; then
+  elif [ "$total_ram_mb" -ge 14745 ]; then
     slot=4096;  max_total=16384
-  elif [ "$total_ram_mb" -ge 8192 ]; then
+  elif [ "$total_ram_mb" -ge 7372 ]; then
     slot=2048;  max_total=4096
   else
     slot=1024;  max_total=2048

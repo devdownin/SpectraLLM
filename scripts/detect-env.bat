@@ -121,6 +121,19 @@ REM  Plafonner le heap JVM a 4 Go et garantir un minimum de 2 Go
 if %JVM_HEAP% LSS 2048 set JVM_HEAP=2048
 if %JVM_HEAP% GTR 4096 set JVM_HEAP=4096
 
+REM  Plafond final : 60 %% de la limite memoire du conteneur spectra-api (SPECTRA_API_MEMORY_LIMIT,
+REM  4g par defaut). Au-dela, le hors-heap (reranker ONNX, ZGC) fait tuer la JVM par le noyau.
+REM  Meme regle que scripts/lib/jvm-sizing.sh ; seuls les suffixes g et m sont reconnus ici.
+set "API_MEM=%SPECTRA_API_MEMORY_LIMIT%"
+if not defined API_MEM set "API_MEM=4g"
+set "API_MEM_UNIT=%API_MEM:~-1%"
+set "API_MEM_NUM=%API_MEM:~0,-1%"
+set API_MEM_MB=4096
+if /i "%API_MEM_UNIT%"=="g" set /a API_MEM_MB=%API_MEM_NUM% * 1024
+if /i "%API_MEM_UNIT%"=="m" set /a API_MEM_MB=%API_MEM_NUM%
+set /a JVM_HEAP_CAP=%API_MEM_MB% * 60 / 100
+if %JVM_HEAP% GTR %JVM_HEAP_CAP% set JVM_HEAP=%JVM_HEAP_CAP%
+
 REM  Serveur LLM : nombre de requetes paralleles (min 1, max 8)
 set /a LLM_PARALLEL=%CPU_CORES% / 2
 if %LLM_PARALLEL% LSS 1 set LLM_PARALLEL=1
@@ -133,9 +146,9 @@ REM fenetre PAR REQUETE, puis on en deduit le total, en plafonnant le parallelis
 REM pour tenir l'enveloppe memoire. (Avant : plus de coeurs = fenetre plus petite.)
 set SLOT_CONTEXT=1024
 set MAX_TOTAL_CONTEXT=2048
-if %TOTAL_RAM_MB% GEQ 8192 ( set SLOT_CONTEXT=2048& set MAX_TOTAL_CONTEXT=4096 )
-if %TOTAL_RAM_MB% GEQ 16384 ( set SLOT_CONTEXT=4096& set MAX_TOTAL_CONTEXT=16384 )
-if %TOTAL_RAM_MB% GEQ 32768 ( set SLOT_CONTEXT=8192& set MAX_TOTAL_CONTEXT=32768 )
+if %TOTAL_RAM_MB% GEQ 7372 ( set SLOT_CONTEXT=2048& set MAX_TOTAL_CONTEXT=4096 )
+if %TOTAL_RAM_MB% GEQ 14745 ( set SLOT_CONTEXT=4096& set MAX_TOTAL_CONTEXT=16384 )
+if %TOTAL_RAM_MB% GEQ 29491 ( set SLOT_CONTEXT=8192& set MAX_TOTAL_CONTEXT=32768 )
 set /a MAX_SLOTS=%MAX_TOTAL_CONTEXT% / %SLOT_CONTEXT%
 if %MAX_SLOTS% LSS 1 set MAX_SLOTS=1
 if %LLM_PARALLEL% GTR %MAX_SLOTS% set LLM_PARALLEL=%MAX_SLOTS%
