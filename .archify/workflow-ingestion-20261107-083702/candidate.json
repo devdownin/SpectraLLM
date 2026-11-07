@@ -1,0 +1,354 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Spectra — ingestion, indexation et archivage",
+    "quality_profile": "showcase",
+    "locale": "en",
+    "output": ".archify/workflow-ingestion-20261107-083702/ingestion-workflow.html",
+    "repository": {
+      "url": "https://github.com/devdownin/SpectraLLM",
+      "provider": "github",
+      "revision": "c5d1e72c1995c3720d7b5638d0426b5c56aaa744"
+    }
+  },
+  "lanes": [
+    {
+      "id": "api",
+      "label": "API et déduplication"
+    },
+    {
+      "id": "pipe",
+      "label": "Extraction et découpage"
+    },
+    {
+      "id": "index",
+      "label": "Indexation"
+    },
+    {
+      "id": "ged",
+      "label": "GED et archivage"
+    }
+  ],
+  "mainPath": [
+    "upload",
+    "submit",
+    "dedup",
+    "extract",
+    "prep",
+    "embed",
+    "chroma",
+    "bm25",
+    "record"
+  ],
+  "nodes": [
+    {
+      "id": "upload",
+      "lane": "api",
+      "col": 0,
+      "type": "external",
+      "label": "Upload",
+      "sublabel": "POST /api/ingest",
+      "width": 132,
+      "sources": [
+        {
+          "path": "backend/src/main/java/fr/spectra/controller/IngestController.java",
+          "line": 60,
+          "end_line": 70,
+          "label": "endpoint multipart"
+        }
+      ]
+    },
+    {
+      "id": "submit",
+      "lane": "api",
+      "col": 1,
+      "type": "backend",
+      "label": "Copie + SHA-256",
+      "sublabel": "429 si trop de tâches",
+      "width": 132,
+      "sources": [
+        {
+          "path": "backend/src/main/java/fr/spectra/service/IngestionService.java",
+          "line": 211,
+          "end_line": 216,
+          "label": "contre-pression"
+        },
+        {
+          "path": "backend/src/main/java/fr/spectra/service/IngestionService.java",
+          "line": 241,
+          "end_line": 249,
+          "label": "copie et hash"
+        }
+      ]
+    },
+    {
+      "id": "dedup",
+      "lane": "api",
+      "col": 2,
+      "type": "security",
+      "label": "Déduplication",
+      "sublabel": "hash en base ou en cours",
+      "tag": "force=true : purge",
+      "width": 132,
+      "sources": [
+        {
+          "path": "backend/src/main/java/fr/spectra/service/IngestionService.java",
+          "line": 257,
+          "end_line": 288,
+          "label": "hash connu ou réservé"
+        },
+        {
+          "path": "backend/src/main/java/fr/spectra/service/IngestionService.java",
+          "line": 309,
+          "end_line": 314,
+          "label": "purge avant réindexation"
+        }
+      ]
+    },
+    {
+      "id": "skip",
+      "lane": "api",
+      "col": 3,
+      "type": "external",
+      "label": "Ignoré",
+      "sublabel": "déjà ingéré",
+      "width": 132,
+      "sources": [
+        {
+          "path": "backend/src/main/java/fr/spectra/service/IngestionService.java",
+          "line": 277,
+          "end_line": 281,
+          "label": "fichier écarté"
+        }
+      ]
+    },
+    {
+      "id": "extract",
+      "lane": "pipe",
+      "col": 2,
+      "type": "backend",
+      "label": "Extraction",
+      "sublabel": "PDF, DOCX, JSON, ZIP…",
+      "tag": "ZIP : profondeur 3",
+      "width": 132,
+      "sources": [
+        {
+          "path": "backend/src/main/java/fr/spectra/service/IngestionTaskExecutor.java",
+          "line": 317,
+          "end_line": 344,
+          "label": "ZIP ou extracteur"
+        },
+        {
+          "path": "backend/src/main/java/fr/spectra/service/IngestionTaskExecutor.java",
+          "line": 453,
+          "end_line": 480,
+          "label": "garde-fous ZIP"
+        }
+      ]
+    },
+    {
+      "id": "prep",
+      "lane": "pipe",
+      "col": 3,
+      "type": "backend",
+      "label": "Nettoyage + découpage",
+      "sublabel": "chunks dans la fenêtre",
+      "width": 168,
+      "sources": [
+        {
+          "path": "backend/src/main/java/fr/spectra/service/IngestionTaskExecutor.java",
+          "line": 349,
+          "end_line": 366,
+          "label": "nettoyage et chunks"
+        }
+      ]
+    },
+    {
+      "id": "embed",
+      "lane": "index",
+      "col": 3,
+      "type": "backend",
+      "label": "Embedding",
+      "sublabel": "par lots",
+      "width": 132,
+      "sources": [
+        {
+          "path": "backend/src/main/java/fr/spectra/service/IngestionTaskExecutor.java",
+          "line": 399,
+          "end_line": 410,
+          "label": "lot d'embeddings"
+        }
+      ]
+    },
+    {
+      "id": "chroma",
+      "lane": "index",
+      "col": 4,
+      "type": "database",
+      "label": "ChromaDB",
+      "sublabel": "vecteurs + métadonnées",
+      "width": 132,
+      "sources": [
+        {
+          "path": "backend/src/main/java/fr/spectra/service/IngestionTaskExecutor.java",
+          "line": 408,
+          "end_line": 412,
+          "label": "addDocuments"
+        }
+      ]
+    },
+    {
+      "id": "bm25",
+      "lane": "index",
+      "col": 5,
+      "type": "database",
+      "label": "Index BM25",
+      "sublabel": "flush disque 30 s",
+      "width": 132,
+      "sources": [
+        {
+          "path": "backend/src/main/java/fr/spectra/service/FtsService.java",
+          "line": 321,
+          "end_line": 331,
+          "label": "indexChunks"
+        },
+        {
+          "path": "backend/src/main/java/fr/spectra/service/FtsService.java",
+          "line": 382,
+          "end_line": 390,
+          "label": "flush périodique"
+        }
+      ]
+    },
+    {
+      "id": "record",
+      "lane": "ged",
+      "col": 5,
+      "type": "database",
+      "label": "Base GED",
+      "sublabel": "fichier, version, audit",
+      "tag": "auto-qualify + classif.",
+      "width": 132,
+      "sources": [
+        {
+          "path": "backend/src/main/java/fr/spectra/service/IngestionService.java",
+          "line": 581,
+          "end_line": 605,
+          "label": "nouvelle ou réingestion"
+        },
+        {
+          "path": "backend/src/main/java/fr/spectra/service/IngestionService.java",
+          "line": 606,
+          "end_line": 617,
+          "label": "qualification, classification"
+        }
+      ]
+    },
+    {
+      "id": "archive",
+      "lane": "ged",
+      "col": 4,
+      "type": "database",
+      "label": "Archive",
+      "sublabel": "manifest.json par SHA-256",
+      "width": 132,
+      "sources": [
+        {
+          "path": "backend/src/main/java/fr/spectra/service/GedService.java",
+          "line": 100,
+          "end_line": 118,
+          "label": "transition ARCHIVED"
+        },
+        {
+          "path": "backend/src/main/java/fr/spectra/service/RetentionPolicyService.java",
+          "line": 58,
+          "end_line": 59,
+          "label": "archivage par rétention"
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-upload",
+      "from": "upload",
+      "to": "submit",
+      "label": "fichiers",
+      "variant": "default"
+    },
+    {
+      "id": "e-hash",
+      "from": "submit",
+      "to": "dedup",
+      "variant": "default"
+    },
+    {
+      "id": "e-skip",
+      "from": "dedup",
+      "to": "skip",
+      "label": "connu",
+      "variant": "dashed",
+      "role": "branch"
+    },
+    {
+      "id": "e-new",
+      "from": "dedup",
+      "to": "extract",
+      "label": "nouveau",
+      "variant": "emphasis"
+    },
+    {
+      "id": "e-extract",
+      "from": "extract",
+      "to": "prep",
+      "variant": "emphasis"
+    },
+    {
+      "id": "e-chunks",
+      "from": "prep",
+      "to": "embed",
+      "label": "chunks",
+      "variant": "emphasis"
+    },
+    {
+      "id": "e-add",
+      "from": "embed",
+      "to": "chroma",
+      "label": "lot",
+      "variant": "emphasis"
+    },
+    {
+      "id": "e-fts",
+      "from": "chroma",
+      "to": "bm25",
+      "label": "indexChunks",
+      "variant": "default"
+    },
+    {
+      "id": "e-record",
+      "from": "bm25",
+      "to": "record",
+      "label": "onIngested",
+      "variant": "emphasis"
+    },
+    {
+      "id": "e-archive",
+      "from": "record",
+      "to": "archive",
+      "label": "rétention : ARCHIVED",
+      "variant": "dashed",
+      "role": "async"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Reprise et cohérence",
+      "items": [
+        "Un lot d'embedding en échec garde les chunks déjà indexés ; le fichier est alors marqué incomplet",
+        "force=true purge Chroma et BM25 avant la réindexation"
+      ]
+    }
+  ]
+}

@@ -19,6 +19,15 @@ python3 scripts/enterprise_rag_bench.py prepare --subset 5000
 python3 scripts/enterprise_rag_bench.py prepare
 ```
 
+Pour passer à un sous-corpus plus grand sans tout ré-indexer, `--extend` conserve les documents déjà préparés et
+ajoute des distracteurs jusqu'à N ; `ingest` ne renvoie alors que les nouveaux fichiers (son état note les fichiers
+indexés) :
+
+```bash
+python3 scripts/enterprise_rag_bench.py prepare --subset 20000 --extend
+python3 scripts/enterprise_rag_bench.py ingest
+```
+
 Sans accès à Hugging Face (proxy, réseau restreint), le même corpus se lit depuis un clone du dépôt
 GitHub, sans pyarrow (~4 Go de JSON bruts) :
 
@@ -144,6 +153,42 @@ résultat où des lignes `[WARN] … failed` apparaissent (code 4, fichier renom
 `compare` dit si un écart se distingue du bruit. Sur 50 questions, +9 points de score peuvent encore être
 compatibles avec zéro : le nombre de victoires et de défaites par question et l'intervalle comptent plus que la
 moyenne. Métriques : `score` (classement), `correct`, `completeness`, `recall`, `extra`.
+
+## Résultats mesurés (sous-corpus de 5 722 documents)
+
+Échantillon de 50 questions (5 par catégorie), juge GPT-5.4, `--no-correction`. Le sous-corpus facilite la
+recherche : ces nombres servent à **comparer des réglages entre eux**, pas à se situer dans le classement.
+
+| Réglage | Score | Écart | Lecture |
+|---|---|---|---|
+| 2 048 tokens par requête | 32,0 | — | référence |
+| 8 192 tokens par requête | 51,6 | +19,5 (IC95 % [+9,1 ; +30,8]) | distinct du bruit |
+| + recherche hybride | 60,8 | +9,2 (IC95 % [−2,3 ; +20,4]) | **indiscernable du bruit** |
+
+- Recherche hybride : le rappel documentaire passe de 83,1 % à 94,8 % (écart distinct du bruit) ; le gain de
+  score, lui, n'est pas établi à n = 50. Le défaut `true` repose sur le rappel.
+- Fenêtre de voisins (`--neighbor-window 2`) : 65,1 → 63,6, bruit.
+- Sources citées seulement (`--sources cited`) : documents hors référence 6,0 → 1,3 par question, mais rappel
+  94 % → 70 % : à réserver à un classement qui pénalise les documents en trop.
+- Graphe d'entités : aucun changement des documents retrouvés sur les 16 questions concernées.
+- Outils de l'agent : 0 appel d'outil sur 12 questions avec un 7B ; sans outils, 8 réponses directes sur 12.
+
+### Retrieval seul (470 questions à documents de référence, `retrieve`)
+
+Recherche hybride, reranker ms-marco L6, 10 passages :
+
+| Seuil du reranker | recall@10 | MRR | documents hors référence @10 |
+|---|---|---|---|
+| aucun | 0,905 | 0,837 | 6,66 |
+| 0,1 | 0,812 | 0,788 | 3,59 |
+
+Un seuil de 0,1 divise le bruit par deux mais coûte 9 points de rappel : à réserver à un classement qui pénalise
+les documents en trop, jamais en défaut. Seuils 0,3 et 0,5, multi-query, MMR et rerankers `mmarco` et
+`bge-reranker-v2-m3` : **non mesurés** (la pile a été redémarrée en cours de chaîne ; les ONNX sont prêts dans
+`data/models/reranker-mmarco` et `reranker-bge`, voir `SPECTRA_RERANKER_ONNX_PATH`).
+
+Non mesuré : l'index BM25 en mémoire coûte ≈ 5 Ko par chunk, soit ≈ 9 Go extrapolés à 500 000 documents
+contre 2,5 à 4 Go de tas JVM. Le run complet suppose de revoir ce point.
 
 ## 5. Soumettre au classement
 

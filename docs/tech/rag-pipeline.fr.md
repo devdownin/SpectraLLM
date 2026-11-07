@@ -226,6 +226,39 @@ Inline dans [`RagService.retrieveContext`](../../backend/src/main/java/fr/spectr
 
 ---
 
+## 7. Identifiants exacts et agent à outils — quand le sens ne suffit pas
+
+**Le problème.** Une clé de ticket (`ENG-39100`), un `#4521` ou un `stream.timebox_finalized` n'a pas
+de « sens » : l'embedding les représente mal et la tokenisation BM25 les découpe.
+
+**La solution.** *Graphe d'entités léger*, sans réindexation : `EntityExtractor` repère ces
+identifiants dans la question (analyse linéaire, entrée tronquée à 4 000 caractères, identifiant
+limité à 100), `ExactMatchRetriever` cherche les chunks qui les contiennent (sous-chaîne exacte
+dans ChromaDB) et les ajoute aux candidats **avant** le reranker, qui tranche.
+`SPECTRA_RAG_ENTITY_EXPANSION` (défaut `false`). Mesuré sur 16 questions concernées : aucun
+changement des documents retrouvés — à ne pas activer sans mesure sur votre corpus.
+
+**Agent à outils.** La boucle agentique (ReAct) peut ajouter `LOOKUP` (identifiant exact) et `OPEN`
+(document entier d'un passage) — `SPECTRA_AGENTIC_TOOLS` ; `SPECTRA_AGENTIC_NATIVE_TOOLS` les
+expose par *function calling* natif (`search`, `lookup`, `open_document`, llama-server avec
+`--jinja`) ; `SPECTRA_AGENTIC_ALWAYS` envoie toute requête dans la boucle (plusieurs appels au modèle
+par question). Un modèle 7B n'a appelé aucun outil sur 12 questions : à valider sur le modèle servi.
+
+**Dans le code.**
+[`EntityExtractor`](../../backend/src/main/java/fr/spectra/service/EntityExtractor.java) ·
+[`ExactMatchRetriever`](../../backend/src/main/java/fr/spectra/service/ExactMatchRetriever.java) ·
+[`AgenticRagService`](../../backend/src/main/java/fr/spectra/service/AgenticRagService.java).
+
+## 8. Mesurer le retrieval sans générer
+
+`POST /api/query/retrieve` exécute le même pipeline que `/api/query` (mêmes surcharges par requête)
+**sans génération** et renvoie les passages avec `ragStrategy: "RETRIEVAL"` et une réponse vide.
+Quelques secondes par question au lieu de minutes sur CPU : c'est l'outil pour comparer seuil du
+reranker, multi-query, MMR ou modèle de reranking. Voir
+[EnterpriseRAG-Bench](enterprise-rag-bench.fr.md).
+
+---
+
 ## Voir aussi
 
 - **[Documentation technique §6 — RAG](technical-doc.fr.md)** : la référence d'implémentation complète

@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "finalize",
+  "status": "pass",
+  "type": "workflow",
+  "quality": "showcase",
+  "specification": {
+    "path": "/home/user/SpectraLLM/.archify/workflow-ingestion-20261107-083702/candidate.json",
+    "sha256": "db617b46334be80904e88b9ce7e796f691c0e07725e32f628964ef6dd2588133",
+    "bytes": 8369
+  },
+  "artifact": {
+    "path": "/home/user/SpectraLLM/.archify/workflow-ingestion-20261107-083702/ingestion-workflow.html",
+    "sha256": "4695e030481aec5eb295ed9d2b1eaa02b90bed9ee7823e5b47d7001c5a89829e",
+    "bytes": 850990
+  },
+  "gates": {
+    "validate": "pass",
+    "deliver": "pass",
+    "check": "pass",
+    "browser-check": "pass"
+  },
+  "diagnostics": [],
+  "diagnosticSummary": {
+    "total": 0,
+    "shown": 0,
+    "truncated": false
+  },
+  "evidence": {
+    "receipt": "/home/user/SpectraLLM/.archify/workflow-ingestion-20261107-083702/ingestion-workflow.finalize.json",
+    "summaryReceipt": "/home/user/SpectraLLM/.archify/workflow-ingestion-20261107-083702/ingestion-workflow.finalize-summary.json",
+    "browserCheckReceipt": "/home/user/SpectraLLM/.archify/workflow-ingestion-20261107-083702/ingestion-workflow.browser-check.json"
+  },
+  "visualReview": "not-requested",
+  "durationMs": 6198,
+  "browserCheck": {
+    "requested": true,
+    "ran": true
+  }
+}

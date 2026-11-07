@@ -123,12 +123,19 @@ def render_document(doc_id: str, source_type: str, title: str, content: str) -> 
     return f"{header}\n\n{content or ''}\n"
 
 
-def select_subset(all_ids: Iterable[str], gold_ids: set[str], distractors: int, seed: int) -> set[str]:
-    """Documents de référence + ``distractors`` documents tirés au hasard (reproductible)."""
+def select_subset(all_ids: Iterable[str], gold_ids: set[str], distractors: int, seed: int,
+                  already: Iterable[str] = ()) -> set[str]:
+    """Documents de référence + ``distractors`` documents tirés au hasard (reproductible).
+
+    ``already`` : distracteurs déjà préparés (et indexés). Ils sont conservés, puis complétés jusqu'à
+    ``distractors`` : un sous-corpus plus grand contient le précédent, rien n'est à ré-indexer.
+    """
     others = sorted(i for i in all_ids if i not in gold_ids)
+    kept = sorted(set(already) & set(others))[:distractors]
+    rest = sorted(set(others) - set(kept))
     rng = random.Random(seed)
-    picked = rng.sample(others, min(distractors, len(others)))
-    return set(gold_ids) | set(picked)
+    picked = rng.sample(rest, min(distractors - len(kept), len(rest)))
+    return set(gold_ids) | set(kept) | set(picked)
 
 
 def sample_per_type(questions: list[Question], per_type: int) -> list[Question]:
@@ -328,7 +335,8 @@ def cmd_prepare(args: argparse.Namespace) -> None:
     keep: set[str] | None = None
     if args.subset is not None:
         gold = {d for q in load_questions(questions_path) for d in q.expected_doc_ids}
-        keep = select_subset(corpus.ids(), gold, args.subset, args.seed)
+        existing = {p.stem for p in (work / "documents").glob("dsid_*.txt")} if args.extend else set()
+        keep = select_subset(corpus.ids(), gold, args.subset, args.seed, already=existing)
         print(f"[prepare] sous-ensemble : {len(gold)} documents de référence + "
               f"{len(keep) - len(gold)} distracteurs (score NON comparable au leaderboard)", file=sys.stderr)
 
@@ -357,15 +365,15 @@ def cmd_ingest(args: argparse.Namespace) -> None:
     files = list((work / "documents").glob("dsid_*.txt"))
     if not files:
         sys.exit(f"aucun document dans {work / 'documents'} — lancer 'prepare' d'abord")
-    batches = plan_batches(files, args.batch_size)
     state_path = work / "ingest_state.json"
-    done: set[int] = set(json.loads(state_path.read_text())["done"]) if state_path.exists() else set()
+    # L'état note les fichiers indexés (et non des index de lot, qui bougent dès qu'on ajoute des documents).
+    done: set[str] = set(json.loads(state_path.read_text()).get("files", [])) if state_path.exists() else set()
     errors_path = work / "ingest_errors.log"
     client = SpectraClient(args.api, args.timeout)
 
-    pending = [i for i in range(len(batches)) if i not in done]
-    print(f"[ingest] {len(files)} fichiers, {len(batches)} lots, {len(pending)} restants", file=sys.stderr)
-    for index in pending:
+    batches = plan_batches([f for f in files if f.name not in done], args.batch_size)
+    print(f"[ingest] {len(files)} fichiers, {len(done)} déjà indexés, {len(batches)} lots à envoyer", file=sys.stderr)
+    for index in range(len(batches)):
         submitted = with_retry(lambda b=batches[index]: client.post_files("/api/ingest", b))
         task = wait_for_task(client, submitted["taskId"], args.poll)
         if task["status"] != "COMPLETED":
@@ -373,8 +381,8 @@ def cmd_ingest(args: argparse.Namespace) -> None:
         if task.get("fileErrors"):
             with errors_path.open("a", encoding="utf-8") as fh:
                 fh.writelines(f"{e}\n" for e in task["fileErrors"])
-        done.add(index)
-        state_path.write_text(json.dumps({"done": sorted(done)}))
+        done.update(path.name for path in batches[index])
+        state_path.write_text(json.dumps({"files": sorted(done)}))
         print(f"[ingest] lot {index + 1}/{len(batches)} : {task.get('chunksCreated', 0)} chunks", file=sys.stderr)
 
 
@@ -562,6 +570,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("prepare", help="télécharger et matérialiser le corpus")
     p.add_argument("--subset", type=int, metavar="N", help="références + N distracteurs aléatoires")
     p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--extend", action="store_true",
+                   help="avec --subset : conserve les documents déjà préparés et ajoute des distracteurs jusqu'à N")
     p.add_argument("--documents-parquet", help="parquet déjà téléchargé")
     p.add_argument("--source-dir", help="generated_data/ d'un clone GitHub du banc (sans Hugging Face ni pyarrow)")
     p.add_argument("--documents-url", default=DOCUMENTS_URL)

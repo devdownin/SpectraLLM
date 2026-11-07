@@ -225,6 +225,39 @@ Inline in [`RagService.retrieveContext`](../../backend/src/main/java/fr/spectra/
 
 ---
 
+## 7. Exact identifiers and a tool-using agent — when meaning is not enough
+
+**The problem.** A ticket key (`ENG-39100`), a `#4521` or a `stream.timebox_finalized` has no
+"meaning": the embedding represents it poorly and BM25 tokenisation splits it.
+
+**The solution.** A *light entity graph*, no re-indexing: `EntityExtractor` spots these identifiers
+in the question (linear scan, input truncated to 4,000 characters, identifier capped at 100),
+`ExactMatchRetriever` finds the chunks containing them (exact substring in ChromaDB) and adds them
+to the candidates **before** the reranker, which decides. `SPECTRA_RAG_ENTITY_EXPANSION` (default
+`false`). Measured on 16 affected questions: the retrieved documents did not change — do not enable
+it without measuring on your corpus.
+
+**Tool-using agent.** The agentic loop (ReAct) can add `LOOKUP` (exact identifier) and `OPEN`
+(whole document of a passage) — `SPECTRA_AGENTIC_TOOLS`; `SPECTRA_AGENTIC_NATIVE_TOOLS` exposes them
+through native function calling (`search`, `lookup`, `open_document`, llama-server with `--jinja`);
+`SPECTRA_AGENTIC_ALWAYS` sends every query through the loop (several model calls per question). A
+7B model called no tool on 12 questions: validate on the served model.
+
+**In the code.**
+[`EntityExtractor`](../../backend/src/main/java/fr/spectra/service/EntityExtractor.java) ·
+[`ExactMatchRetriever`](../../backend/src/main/java/fr/spectra/service/ExactMatchRetriever.java) ·
+[`AgenticRagService`](../../backend/src/main/java/fr/spectra/service/AgenticRagService.java).
+
+## 8. Measuring retrieval without generating
+
+`POST /api/query/retrieve` runs the same pipeline as `/api/query` (same per-request overrides)
+**without generation** and returns the passages with `ragStrategy: "RETRIEVAL"` and an empty
+answer. A few seconds per question instead of minutes on CPU: the tool for comparing the reranker
+threshold, multi-query, MMR or the reranking model. See
+[EnterpriseRAG-Bench (FR)](enterprise-rag-bench.fr.md).
+
+---
+
 ## See also
 
 - **[Technical documentation §6 — RAG (FR)](technical-doc.fr.md)**: the complete implementation
