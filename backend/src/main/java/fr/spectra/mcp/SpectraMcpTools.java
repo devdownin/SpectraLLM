@@ -2,7 +2,9 @@ package fr.spectra.mcp;
 
 import fr.spectra.config.SpectraProperties;
 import fr.spectra.controller.StatusController;
+import fr.spectra.dto.CitationReport;
 import fr.spectra.dto.QueryRequest;
+import io.modelcontextprotocol.server.McpSyncServerExchange;
 import fr.spectra.dto.QueryResponse;
 import fr.spectra.dto.SystemStatusResponse;
 import fr.spectra.service.ChromaDbClient;
@@ -57,13 +59,14 @@ public class SpectraMcpTools {
     }
 
     public record Passage(int rank, String sourceFile, String text, boolean textTruncated,
-                          double distance, Float rerankScore, Float bm25Score) {}
+                          double distance, Float rerankScore, Float bm25Score,
+                          String documentId, String revision, String chunkIndex, String section, String sourceUrl) {}
 
     public record SearchResult(String collection, List<Passage> passages, boolean rerankApplied,
                                boolean hybridApplied, String note) {}
 
     public record AskResult(String collection, String answer, List<Passage> sources, long durationMs,
-                            boolean rerankApplied, boolean hybridSearchApplied) {}
+                            boolean rerankApplied, boolean hybridSearchApplied, CitationReport citations) {}
 
     public record DocumentList(String collection, boolean collectionExists, Map<String, Integer> chunksBySource,
                                int sourceCount, long chunkCount) {}
@@ -83,12 +86,12 @@ public class SpectraMcpTools {
             @McpToolParam(required = false, description = "Collection name; the configured default when omitted")
             String collection,
             @McpToolParam(required = false, description = "Passages to return, 1 to 20; default 5")
-            Integer maxPassages) {
+            Integer maxPassages, McpSyncServerExchange exchange) {
         return journal.record("spectra_search", arguments("question", question, "collection", collection, "maxPassages", maxPassages),
                 () -> McpToolFailure.guard("spectra_search", () -> {
-            String coll = collectionOrDefault(collection);
+            String coll = authorizedCollection(collection, exchange);
             RagService.RagContext ctx = ragService.retrieveContext(request(question, coll, clamp(maxPassages)));
-            List<Passage> passages = passages(ctx.sources());
+            List<Passage> passages = passages(coll, ctx.sources());
             String note = passages.isEmpty()
                     ? "No passage matched in collection '%s'.".formatted(coll) : null;
             return new SearchResult(coll, passages, ctx.rerankApplied(), ctx.hybridApplied(), note);
@@ -108,13 +111,13 @@ public class SpectraMcpTools {
             @McpToolParam(required = false, description = "Collection name; the configured default when omitted")
             String collection,
             @McpToolParam(required = false, description = "Context passages, 1 to 20; default 5")
-            Integer maxPassages) {
+            Integer maxPassages, McpSyncServerExchange exchange) {
         return journal.record("spectra_ask", arguments("question", question, "collection", collection, "maxPassages", maxPassages),
                 () -> McpToolFailure.guard("spectra_ask", () -> {
-            String coll = collectionOrDefault(collection);
+            String coll = authorizedCollection(collection, exchange);
             QueryResponse response = ragService.query(request(question, coll, clamp(maxPassages)));
-            return new AskResult(coll, response.answer(), passages(response.sources()), response.durationMs(),
-                    response.rerankApplied(), response.hybridSearchApplied());
+            return new AskResult(coll, response.answer(), passages(coll, response.sources()), response.durationMs(),
+                    response.rerankApplied(), response.hybridSearchApplied(), response.citations());
         }));
     }
 
@@ -127,10 +130,10 @@ public class SpectraMcpTools {
             """)
     public DocumentList listDocuments(
             @McpToolParam(required = false, description = "Collection name; the configured default when omitted")
-            String collection) {
+            String collection, McpSyncServerExchange exchange) {
         return journal.record("spectra_list_documents", arguments("collection", collection),
                 () -> McpToolFailure.guard("spectra_list_documents", () -> {
-            String coll = collectionOrDefault(collection);
+            String coll = authorizedCollection(collection, exchange);
             // Lister ne doit pas créer : getOrCreateCollection matérialiserait une collection vide
             // sous un nom mal orthographié, et la réponse dirait « aucun document » au lieu de
             // « cette collection n'existe pas ».
@@ -151,11 +154,38 @@ public class SpectraMcpTools {
             """)
     public DocumentPreview previewDocument(
             @McpToolParam(description = "SHA-256 of the document, as listed in the document registry")
-            String sha256) {
+            String sha256, McpSyncServerExchange exchange) {
         return journal.record("spectra_preview_document", arguments("sha256", sha256),
                 () -> McpToolFailure.guard("spectra_preview_document", () -> {
-            GedService.DocumentPreview preview = gedService.preview(sha256);
+            McpCaller caller = McpCaller.from(exchange);
+            GedService.DocumentPreview preview = caller.scoped()
+                    ? gedService.preview(sha256, caller.collections()) : gedService.preview(sha256);
             return new DocumentPreview(sha256, preview.chunks(), preview.truncated());
+        }));
+    }
+
+    @McpTool(name = "spectra_read_document", annotations = @McpTool.McpAnnotations(
+            readOnlyHint = true, destructiveHint = false, openWorldHint = false),
+            description = """
+            Read indexed text from the exact document revision returned by spectra_search or spectra_ask.
+            Use aroundChunk to start near a cited chunk, or pass nextCursor back as cursor to continue.
+            """)
+    public McpDocumentRead.Page readDocument(
+            @McpToolParam(description = "Document reference returned in a search or answer passage") String documentId,
+            @McpToolParam(required = false, description = "Chunk index to start near") Integer aroundChunk,
+            @McpToolParam(required = false, description = "Continuation cursor from the previous page") String cursor,
+            @McpToolParam(required = false, description = "Character budget between 256 and 16000, default 4000")
+            Integer maxChars, McpSyncServerExchange exchange) {
+        return journal.record("spectra_read_document", Map.of(), () -> McpToolFailure.guard("spectra_read_document", () -> {
+            var ref = McpDocumentRead.parseReference(documentId);
+            McpCaller.from(exchange).requireCollection(ref.collection());
+            String collectionId = chromaDbClient.listCollections().stream()
+                    .filter(collection -> ref.collection().equals(collection.get("name")))
+                    .map(collection -> collection.get("id"))
+                    .filter(String.class::isInstance).map(String.class::cast)
+                    .findFirst().orElseThrow(() -> new IllegalArgumentException("Document collection no longer exists"));
+            return McpDocumentRead.read(chromaDbClient, collectionId, ref, documentId, aroundChunk, cursor,
+                    maxChars == null ? 4_000 : Math.clamp(maxChars, 256, 16_000));
         }));
     }
 
@@ -166,7 +196,8 @@ public class SpectraMcpTools {
             store, and the optional layout parser and reranker) is reachable. Check it before
             concluding that an empty answer means the corpus holds nothing.
             """)
-    public SystemStatusResponse status() {
+    public SystemStatusResponse status(McpSyncServerExchange exchange) {
+        McpCaller.from(exchange);
         return journal.record("spectra_status", Map.of(), statusController::getStatus);
     }
 
@@ -197,23 +228,36 @@ public class SpectraMcpTools {
                 .anyMatch(c -> name.equals(c.get("name")));
     }
 
-    private String collectionOrDefault(String collection) {
-        return collection == null || collection.isBlank() ? defaultCollection : collection.trim();
+    private String authorizedCollection(String collection, McpSyncServerExchange exchange) {
+        McpCaller caller = McpCaller.from(exchange);
+        String resolved = collection == null || collection.isBlank() ? defaultCollection : collection.trim();
+        if ((collection == null || collection.isBlank()) && caller.scoped()
+                && !caller.collections().contains(resolved) && caller.collections().size() == 1) {
+            resolved = caller.collections().iterator().next();
+        }
+        caller.requireCollection(resolved);
+        return resolved;
     }
 
     private static int clamp(Integer maxPassages) {
         return maxPassages == null ? 5 : Math.clamp(maxPassages, 1, MAX_PASSAGES);
     }
 
-    private static List<Passage> passages(List<QueryResponse.Source> sources) {
+    private static List<Passage> passages(String collection, List<QueryResponse.Source> sources) {
         List<Passage> passages = new ArrayList<>();
         int rank = 1;
         for (QueryResponse.Source s : Objects.requireNonNullElse(sources, List.<QueryResponse.Source>of())) {
-            String text = Objects.requireNonNullElse(s.text(), "");
-            boolean truncated = text.length() > MAX_PASSAGE_CHARS;
+            var provenance = s.provenance();
+            boolean hasFullPassage = provenance != null && provenance.passage() != null;
+            String text = hasFullPassage ? provenance.passage() : Objects.requireNonNullElse(s.text(), "");
+            boolean truncated = text.length() > MAX_PASSAGE_CHARS || (!hasFullPassage && text.endsWith("..."));
+            int end = Math.min(text.length(), MAX_PASSAGE_CHARS);
+            if (end < text.length() && Character.isLowSurrogate(text.charAt(end))) end--;
             passages.add(new Passage(rank++, s.sourceFile(),
-                    truncated ? text.substring(0, MAX_PASSAGE_CHARS) : text, truncated,
-                    s.distance(), s.rerankScore(), s.bm25Score()));
+                    text.substring(0, end), truncated,
+                    s.distance(), s.rerankScore(), s.bm25Score(), McpDocumentRead.reference(collection, s),
+                    provenance == null ? null : provenance.revision(), provenance == null ? null : provenance.chunkIndex(),
+                    provenance == null ? null : provenance.section(), provenance == null ? null : provenance.sourceUrl()));
         }
         return passages;
     }

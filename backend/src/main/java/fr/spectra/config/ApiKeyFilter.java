@@ -60,7 +60,8 @@ public class ApiKeyFilter extends OncePerRequestFilter {
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = request.getRequestURI();
-        return path.startsWith("/actuator")
+        return fr.spectra.mcp.McpRequiresApiKeyFilter.hasAuthenticatedScopedCaller(request)
+                || path.startsWith("/actuator")
                 || path.startsWith("/swagger-ui")
                 || path.startsWith("/api-docs");
     }

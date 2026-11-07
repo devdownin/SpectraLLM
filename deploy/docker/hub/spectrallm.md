@@ -105,10 +105,13 @@ Everything has a working default. The variables worth knowing:
 | `SPECTRA_API_KEY` | *(empty)* | Set it and `/api/**` requires the `X-API-Key` header. Empty means **no authentication**. |
 | `SPECTRA_BIND_ADDR` | `127.0.0.1` | Interface the ports are published on. `0.0.0.0` exposes the stack to your network — set an API key first, and put TLS in front. |
 | `LLM_CHAT_MODEL_FILE` | `Qwen2.5-7B-Instruct-Q4_K_M.gguf` | The chat GGUF served from `data/models/`. |
-| `SPECTRA_MCP_ENABLED` | `false` | Serves a read-only MCP server on `/mcp` (port 8080, streamable HTTP): `spectra_search`, `spectra_ask`, `spectra_list_documents`, `spectra_preview_document`, `spectra_status`. Requires `SPECTRA_API_KEY`, sent as `X-API-Key`. |
+| `SPECTRA_MCP_ENABLED` | `false` | Serves a read-only MCP server on `/mcp` (port 8080, streamable HTTP): `spectra_search`, `spectra_ask`, `spectra_list_documents`, `spectra_preview_document`, `spectra_read_document`, `spectra_status`. Requires `SPECTRA_API_KEY`. Send it as `X-API-Key` unless scoped MCP keys are configured. |
+| `SPECTRA_MCP_CALLERS_JSON` | *(empty)* | Optional per-caller MCP keys and collection grants. When configured, send the caller key in `X-API-Key`. The separate instance key protects REST. |
 | `JAVA_OPTS` | `-Xms256m -Xmx1024m -XX:+UseZGC` | JVM heap for this container. |
 
 Full list: [Configuration guide](https://github.com/devdownin/SpectraLLM/blob/main/docs/configuration.en.md).
+
+**MCP evidence.** On image versions that include document reading, pass a search result’s `documentId` to `spectra_read_document`. Start near a cited passage with `aroundChunk` or continue with the returned `nextCursor`. `spectra_ask` includes its citation report when available.
 
 **Volume.** This image reads and writes `/app/data` — the document store, the H2 database, the GGUF models, the fine-tuning jobs and the logs. In the stack it is bind-mounted to `./data`, alongside the vector index: one directory, one backup, one reset. The container runs as the non-root user `spectra`, so that directory must be writable by others.
 
