@@ -19,6 +19,15 @@ python3 scripts/enterprise_rag_bench.py prepare --subset 5000
 python3 scripts/enterprise_rag_bench.py prepare
 ```
 
+Pour passer à un sous-corpus plus grand sans tout ré-indexer, `--extend` conserve les documents déjà préparés et
+ajoute des distracteurs jusqu'à N ; `ingest` ne renvoie alors que les nouveaux fichiers (son état note les fichiers
+indexés) :
+
+```bash
+python3 scripts/enterprise_rag_bench.py prepare --subset 20000 --extend
+python3 scripts/enterprise_rag_bench.py ingest
+```
+
 Sans accès à Hugging Face (proxy, réseau restreint), le même corpus se lit depuis un clone du dépôt
 GitHub, sans pyarrow (~4 Go de JSON bruts) :
 

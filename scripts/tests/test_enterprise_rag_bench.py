@@ -107,6 +107,19 @@ class EnterpriseRagBenchTest(unittest.TestCase):
         self.assertTrue(gold <= first)
         self.assertEqual(len(first), 12)
 
+    def test_extended_subset_contains_the_previous_one(self):
+        ids = [f"dsid_{i:032x}" for i in range(200)]
+        gold = {ids[3], ids[50]}
+        small = bench.select_subset(ids, gold, 10, seed=7)
+        big = bench.select_subset(ids, gold, 40, seed=7, already=small - gold)
+        self.assertTrue(small <= big)
+        self.assertEqual(len(big), 42)
+
+    def test_extended_subset_never_exceeds_the_requested_size(self):
+        ids = [f"dsid_{i:032x}" for i in range(50)]
+        previous = set(ids[10:30])
+        self.assertEqual(len(bench.select_subset(ids, set(), 5, seed=1, already=previous)), 5)
+
     def test_rendered_document_is_unique_per_doc_id_even_with_identical_content(self):
         self.assertNotEqual(bench.render_document(GOLD_A, "slack", "T", "same"),
                             bench.render_document(GOLD_B, "slack", "T", "same"))
@@ -138,6 +151,18 @@ class EnterpriseRagBenchTest(unittest.TestCase):
         for i in range(5):
             (docs / f"dsid_{i:032x}.txt").write_text("doc")
         self.run_cli("ingest", "--batch-size", "2", "--poll", "0")
+        self.run_cli("ingest", "--batch-size", "2", "--poll", "0")
+        self.assertEqual(FakeSpectra.uploads, [2, 2, 1])
+
+    def test_ingest_only_sends_documents_added_since_the_last_run(self):
+        docs = self.work / "documents"
+        docs.mkdir()
+        for i in range(3):
+            (docs / f"dsid_{i:032x}.txt").write_text("doc")
+        self.run_cli("ingest", "--batch-size", "2", "--poll", "0")
+        for i in range(3, 8):
+            (docs / f"dsid_{i:032x}.txt").write_text("doc")
+        FakeSpectra.uploads.clear()
         self.run_cli("ingest", "--batch-size", "2", "--poll", "0")
         self.assertEqual(FakeSpectra.uploads, [2, 2, 1])
 
