@@ -26,6 +26,10 @@ class SourceSyncServiceTest {
     private final SourceInstanceRepository sources = mock(SourceInstanceRepository.class);
     private final SourceDocumentRepository documents = mock(SourceDocumentRepository.class);
     private final SourceRunRepository runs = mock(SourceRunRepository.class);
+    private final org.springframework.transaction.PlatformTransactionManager transactionManager =
+            mock(org.springframework.transaction.PlatformTransactionManager.class);
+    private final SourceIndexJobRepository jobs = mock(SourceIndexJobRepository.class);
+    private final Map<String, SourceIndexJob> jobStore = new java.util.concurrent.ConcurrentHashMap<>();
     private final IngestionService ingestion = mock(IngestionService.class);
     private final Map<String, SourceInstance> sourceStore = new ConcurrentHashMap<>();
     private final Map<String, SourceDocument> docStore = new ConcurrentHashMap<>();
@@ -34,6 +38,8 @@ class SourceSyncServiceTest {
     private SourceSyncService service;
 
     @BeforeEach void setup() throws Exception {
+        when(transactionManager.getTransaction(any()))
+                .thenAnswer(invocation -> new org.springframework.transaction.support.SimpleTransactionStatus());
         when(sources.findById(anyString())).thenAnswer(a -> Optional.ofNullable(sourceStore.get(a.getArgument(0))));
         when(sources.saveAndFlush(any())).thenAnswer(a -> { SourceInstance s = a.getArgument(0); sourceStore.put(s.id, s); return s; });
         when(sources.findAllByOrderByNameAsc()).thenAnswer(a -> new ArrayList<>(sourceStore.values()));
@@ -49,7 +55,24 @@ class SourceSyncServiceTest {
         when(runs.findFirstBySourceIdOrderByStartedAtDesc(anyString())).thenAnswer(a -> runStore.values().stream().filter(r -> r.sourceId.equals(a.getArgument(0))).max(Comparator.comparing(r -> r.startedAt)));
         when(runs.findAll()).thenAnswer(a -> new ArrayList<>(runStore.values()));
         when(ingestion.upsertFromStream(anyString(), anyString(), any(InputStream.class), anyString(), isNull(), anyMap())).thenAnswer(a -> new IngestionService.UpsertResult(a.getArgument(0), IngestionService.UpsertResult.Kind.UPSERTED, 0, 1));
-        service = new SourceSyncService(sources, documents, runs, ingestion, List.of(connector), 1);
+        when(jobs.saveAndFlush(any())).thenAnswer(invocation -> {
+            SourceIndexJob job = invocation.getArgument(0);
+            jobStore.put(job.id, job);
+            return job;
+        });
+        when(jobs.findFirstBySourceIdAndRunIdOrderById(anyString(), anyString())).thenAnswer(invocation ->
+                jobStore.values().stream().filter(job -> job.sourceId.equals(invocation.getArgument(0))
+                        && job.runId.equals(invocation.getArgument(1))).findFirst());
+        doAnswer(invocation -> {
+            jobStore.remove(invocation.getArgument(0));
+            return null;
+        }).when(jobs).deleteById(anyString());
+        doAnswer(invocation -> {
+            jobStore.values().removeIf(job -> job.sourceId.equals(invocation.getArgument(0)));
+            return null;
+        }).when(jobs).clearSource(anyString());
+        service = new SourceSyncService(sources, documents, runs, jobs, ingestion,
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry(), transactionManager, List.of(connector), 1);
     }
     @AfterEach void stop() { service.stop(); }
 
@@ -60,7 +83,8 @@ class SourceSyncServiceTest {
         SourceDocument checkpoint = docStore.values().iterator().next();
         Instant indexedAt = checkpoint.indexedAt;
         service.stop();
-        service = new SourceSyncService(sources, documents, runs, ingestion, List.of(connector), 1);
+        service = new SourceSyncService(sources, documents, runs, jobs, ingestion,
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry(), transactionManager, List.of(connector), 1);
         service.recover();
         SourceModels.Run second = run(id, SourceModels.Status.SUCCESS);
         assertThat(second.unchanged()).isEqualTo(1);
@@ -206,7 +230,8 @@ class SourceSyncServiceTest {
         service.stop();
         // The source item disappeared before the next scan; only its durable pending identity can find the orphan.
         connector.items = List.of();
-        service = new SourceSyncService(sources, documents, runs, ingestion, List.of(connector), 1);
+        service = new SourceSyncService(sources, documents, runs, jobs, ingestion,
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry(), transactionManager, List.of(connector), 1);
         service.recover();
         SourceModels.Run resumed = run(sourceId, SourceModels.Status.SUCCESS);
         assertThat(resumed.deleted()).isEqualTo(1);

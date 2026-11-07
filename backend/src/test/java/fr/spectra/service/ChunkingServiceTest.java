@@ -144,9 +144,32 @@ class ChunkingServiceTest {
 
         List<TextChunk> chunks = service.chunk(text, "guide.md", Map.of());
 
-        assertThat(chunks).hasSize(1);
-        // Le chunk commence dans « Guide » : sa section est celle de son premier paragraphe.
-        assertThat(chunks.getFirst().metadata()).containsEntry("section", "Guide");
+        assertThat(chunks).extracting(chunk -> chunk.metadata().get("section"))
+                .containsExactly("Guide", "Guide > Installation", "Guide > Installation > Prérequis");
+        assertThat(chunks.get(1).text()).contains("Étape un.").doesNotContain("Java 21.");
+    }
+
+    @Test
+    void htmlTableRowsKeepTheirSectionAndUnitsThroughIndexingPreparation() throws Exception {
+        var document = new fr.spectra.service.extraction.HtmlExtractor().extract("limits.html",
+                new java.io.ByteArrayInputStream("""
+                <main><h1>Runbook</h1><h2>Délais</h2>
+                  <table><caption>Délais d’intervention</caption>
+                    <tr><th>Zone</th><th>Délai (minutes)</th></tr>
+                    <tr><td>Nord</td><td>15</td></tr>
+                    <tr><td>Sud</td><td>30</td></tr>
+                  </table>
+                </main>
+                """.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        String clean = new TextCleanerService().clean(document.text());
+        var chunks = new ChunkingService().chunk(clean, "limits.html", document.metadata());
+
+        assertThat(chunks.stream().filter(chunk -> chunk.metadata().containsKey("tableRow")))
+                .satisfiesExactly(north -> {
+                    assertThat(north.text()).contains("Zone: Nord", "Délai (minutes): 15");
+                    assertThat(north.metadata()).containsEntry("section", "Runbook > Délais")
+                            .containsEntry("tableIndex", "1").containsEntry("tableRow", "1");
+                }, south -> assertThat(south.text()).contains("Zone: Sud", "Délai (minutes): 30").doesNotContain("Nord"));
     }
 
     @Test
