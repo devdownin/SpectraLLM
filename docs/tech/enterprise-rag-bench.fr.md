@@ -111,6 +111,23 @@ python3 scripts/enterprise_rag_bench.py retrieve --hybrid on --rerank-min-score 
 
 Les étapes qui supposent le modèle de chat (RAG corrective, compression, boucle agentique) ne s'exécutent pas.
 
+### Sur un environnement qui redémarre
+
+Un conteneur éphémère ou une machine partagée peut redémarrer en cours de run. Les trois commandes qui appellent
+l'API reprennent là où elles s'étaient arrêtées (`ingest` note les fichiers indexés, `answer` et `retrieve` sautent
+les questions déjà écrites), donc relancer la même commande suffit. Deux garde-fous évitent de mesurer à vide :
+
+- `--wait-ready SECONDES` (600 par défaut, 0 pour désactiver) : avant de commencer, et entre deux essais après
+  une coupure, le harnais attend `/actuator/health/readiness`. L'API le garde fermé tant que l'index BM25 n'est pas
+  rechargé ; sans cela, une requête « hybride » envoyée juste après un redémarrage est vectorielle seule.
+- `scripts/bench-resume.sh <commande…>` : relance le démon Docker s'il est arrêté (en supprimant d'abord les
+  fichiers pid périmés, qui font échouer `dockerd` quand un numéro de processus est réutilisé), relance la pile,
+  puis exécute la commande du harnais.
+
+```bash
+scripts/bench-resume.sh retrieve --hybrid on --output data/enterprise-rag-bench/retrieval.jsonl
+```
+
 ## 4. Mesurer
 
 Rappel documentaire immédiat, sans LLM juge :

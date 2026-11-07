@@ -298,5 +298,79 @@ class EnterpriseRagBenchTest(unittest.TestCase):
         self.assertEqual(report["recall"], 1.0)
 
 
+class ReadinessTest(unittest.TestCase):
+    """Après un redémarrage, l'API répond avant d'être prête : le harness attend, il ne mesure pas à vide."""
+
+    def serve(self, statuses):
+        """Serveur qui répond successivement les codes de ``statuses`` (le dernier se répète)."""
+        calls = []
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *_):
+                pass
+
+            def do_GET(self):
+                calls.append(self.path)
+                code = statuses[min(len(calls) - 1, len(statuses) - 1)]
+                body = b'{"status":"UP"}' if code == 200 else b"{}"
+                self.send_response(code)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        return bench.SpectraClient(f"http://127.0.0.1:{server.server_address[1]}", 2), calls
+
+    def test_waits_through_503_until_the_api_is_ready(self):
+        client, calls = self.serve([503, 503, 200])
+        client.wait_ready(5, poll=0.01)
+        self.assertEqual(calls, ["/actuator/health/readiness"] * 3)
+
+    def test_gives_up_with_a_timeout_when_the_api_never_gets_ready(self):
+        client, _ = self.serve([503])
+        with self.assertRaises(TimeoutError):
+            client.wait_ready(0.1, poll=0.01)
+
+    def test_a_server_without_actuator_counts_as_ready(self):
+        client, calls = self.serve([404])
+        client.wait_ready(5, poll=0.01)
+        self.assertEqual(len(calls), 1)
+
+    def test_an_unreachable_api_is_waited_for_then_reported(self):
+        client = bench.SpectraClient("http://127.0.0.1:9", 1)
+        with self.assertRaises(TimeoutError):
+            client.wait_ready(0.1, poll=0.01)
+
+    def test_retry_calls_the_recovery_hook_before_each_new_attempt(self):
+        attempts, hooks = [], []
+
+        def flaky():
+            attempts.append(1)
+            if len(attempts) < 3:
+                raise ConnectionResetError("coupée par un redémarrage")
+            return "ok"
+
+        result = bench.with_retry(flaky, attempts=3, base_delay=0, before_retry=lambda: hooks.append(1))
+        self.assertEqual((result, len(attempts), len(hooks)), ("ok", 3, 2))
+
+    def test_main_stops_with_a_clear_message_when_the_api_is_not_ready(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            write_questions(Path(tmp) / "questions.jsonl")
+            with self.assertRaises(SystemExit) as raised:
+                bench.main(["--work-dir", tmp, "--api", "http://127.0.0.1:9", "--timeout", "1",
+                            "--wait-ready", "0.1", "retrieve"])
+        self.assertIn("pas prêt", str(raised.exception))
+
+    def test_wait_can_be_disabled(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            write_questions(Path(tmp) / "questions.jsonl")
+            # --wait-ready 0 : aucune attente ; chaque question échoue seule (API absente), la commande se termine.
+            bench.main(["--work-dir", tmp, "--api", "http://127.0.0.1:9", "--timeout", "1",
+                        "--wait-ready", "0", "retrieve", "--limit", "0"])
+
+
 if __name__ == "__main__":
     unittest.main()
