@@ -173,19 +173,29 @@ recherche : ces nombres servent à **comparer des réglages entre eux**, pas à 
 - Graphe d'entités : aucun changement des documents retrouvés sur les 16 questions concernées.
 - Outils de l'agent : 0 appel d'outil sur 12 questions avec un 7B ; sans outils, 8 réponses directes sur 12.
 
-### Retrieval seul (470 questions à documents de référence, `retrieve`)
+### Retrieval seul (`retrieve`), corpus de 7 402 documents indexés
 
-Recherche hybride, reranker ms-marco L6, 10 passages :
+Échantillon de 15 questions par catégorie (n = 120, dont 60 pour les 4 catégories multi-documents), recherche
+hybride, reranker ms-marco L6, 10 passages :
 
-| Seuil du reranker | recall@10 | MRR | documents hors référence @10 |
-|---|---|---|---|
-| aucun | 0,905 | 0,837 | 6,66 |
-| 0,1 | 0,812 | 0,788 | 3,59 |
+| Réglage | n | recall@10 | MRR | documents hors référence @10 |
+|---|---|---|---|---|
+| référence, toutes catégories | 120 | 0,902 | 0,904 | 5,94 |
+| référence, catégories multi-documents | 60 | 0,838 | 0,944 | 4,57 |
+| + MMR (`--dedup mmr`), multi-documents | 60 | 0,815 | 0,944 | 4,53 |
 
-Un seuil de 0,1 divise le bruit par deux mais coûte 9 points de rappel : à réserver à un classement qui pénalise
-les documents en trop, jamais en défaut. Seuils 0,3 et 0,5, multi-query, MMR et rerankers `mmarco` et
-`bge-reranker-v2-m3` : **non mesurés** (la pile a été redémarrée en cours de chaîne ; les ONNX sont prêts dans
-`data/models/reranker-mmarco` et `reranker-bge`, voir `SPECTRA_RERANKER_ONNX_PATH`).
+MMR ne se distingue pas de la référence à cette taille d'échantillon (rappel −2 points, MRR et bruit inchangés).
+
+**Non mesuré :** seuil du reranker, multi-query, rerankers `mmarco` et `bge-reranker-v2-m3` (modèles prêts dans
+`data/models/reranker-mmarco` et `reranker-bge`, voir `SPECTRA_RERANKER_ONNX_PATH`). Une première série sur 5 722
+documents, publiée dans une version précédente de ce guide (rappel 0,905 sans seuil ; 0,812 avec un seuil de 0,1),
+a été **retirée** : elle a été mesurée pendant que l'index BM25 se rechargeait après un redémarrage, donc en
+recherche vectorielle seule.
+
+> **Piège de mesure.** Après un redémarrage, l'API répond avant que l'index BM25 soit rechargé (log
+> `chroma=…, fts=0`, puis `loaded from disk` ou `rebuilt`). Une requête envoyée entre les deux est hybride de nom
+> seulement. Attendre ce message avant de mesurer, et ne jamais mélanger dans une même série des lignes obtenues
+> avant et après.
 
 Non mesuré : l'index BM25 en mémoire coûte ≈ 5 Ko par chunk, soit ≈ 9 Go extrapolés à 500 000 documents
 contre 2,5 à 4 Go de tas JVM. Le run complet suppose de revoir ce point.
