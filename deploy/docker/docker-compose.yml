@@ -460,7 +460,9 @@ services:
       interval: 20s
       timeout: 5s
       retries: 5
-      start_period: 60s
+      # Large : la disponibilité reste fermée pendant le rechargement de l'index BM25, qui prend
+      # de quelques secondes à plusieurs minutes selon la taille du corpus.
+      start_period: 300s
       start_interval: 3s
     depends_on:
       chromadb:

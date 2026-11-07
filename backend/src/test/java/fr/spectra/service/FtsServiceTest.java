@@ -29,7 +29,7 @@ class FtsServiceTest {
     /** Doit refléter FtsService.INDEX_DIR (répertoire de persistance des index). */
     private static final Path INDEX_DIR = Path.of("./data/fts-index");
     private static final List<String> TEST_COLLECTIONS = List.of(
-            "coll-b7-race", "coll-b6-stale", "coll-b6-fresh", "coll-b6-down", "coll-header");
+            "coll-b7-race", "coll-b6-stale", "coll-b6-fresh", "coll-b6-down", "coll-header", "coll-flush");
 
     private ChromaDbClient chromaDb;
     private FtsService ftsService;
@@ -452,5 +452,95 @@ class FtsServiceTest {
 
         assertThat(fts.search("fenêtre embeddings", "coll-header", 5))
                 .extracting(BM25Index.ScoredDoc::id).containsExactly("h1");
+    }
+
+    // ── Disponibilité et écriture de l'index ────────────────────────────────────────
+
+    @Test
+    void initialLoadIsNotSettledBeforeTheFirstRebuild() {
+        assertThat(ftsService.isInitialLoadSettled()).isFalse();
+    }
+
+    @Test
+    void initialLoadSettlesAfterAFailedRebuildToo() throws Exception {
+        org.springframework.context.ApplicationEventPublisher publisher =
+                mock(org.springframework.context.ApplicationEventPublisher.class);
+        ftsService.setEventPublisher(publisher);
+
+        ftsService.rebuildDefaultIndexAsync(); // ChromaDB absent (voir setUp) : la reconstruction échoue
+
+        long deadline = System.currentTimeMillis() + 5_000;
+        while (!ftsService.isInitialLoadSettled() && System.currentTimeMillis() < deadline) Thread.sleep(20);
+        assertThat(ftsService.isInitialLoadSettled())
+                .as("un ChromaDB indisponible ne doit pas garder la disponibilité fermée").isTrue();
+        verify(publisher).publishEvent(org.mockito.ArgumentMatchers.any(FtsService.InitialLoadSettled.class));
+    }
+
+    @Test
+    void initialLoadStaysUnsettledWhileTheRebuildRuns() throws Exception {
+        java.util.concurrent.CountDownLatch started = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        org.mockito.Mockito.doAnswer(invocation -> {
+            started.countDown();
+            release.await(5, java.util.concurrent.TimeUnit.SECONDS);
+            throw new RuntimeException("ChromaDB absent en test");
+        }).when(chromaDb).getOrCreateCollection("spectra_documents");
+
+        ftsService.rebuildDefaultIndexAsync();
+        assertThat(started.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+
+        assertThat(ftsService.isInitialLoadSettled())
+                .as("pendant la reconstruction, la recherche lexicale n'est pas encore là").isFalse();
+        release.countDown();
+        long deadline = System.currentTimeMillis() + 5_000;
+        while (!ftsService.isInitialLoadSettled() && System.currentTimeMillis() < deadline) Thread.sleep(20);
+        assertThat(ftsService.isInitialLoadSettled()).isTrue();
+    }
+
+    @Test
+    void writeAtomicallyReplacesTheTargetAndLeavesNoTemporaryFile(@org.junit.jupiter.api.io.TempDir Path dir) throws Exception {
+        Path target = dir.resolve("coll.bin");
+        Files.writeString(target, "ancien");
+
+        FtsService.writeAtomically(target, out -> out.write("nouveau".getBytes()));
+
+        assertThat(Files.readString(target)).isEqualTo("nouveau");
+        try (var files = Files.list(dir)) {
+            assertThat(files.map(p -> p.getFileName().toString())).containsExactly("coll.bin");
+        }
+    }
+
+    @Test
+    void aFailedWriteKeepsThePreviousIndexIntact(@org.junit.jupiter.api.io.TempDir Path dir) throws Exception {
+        Path target = dir.resolve("coll.bin");
+        Files.writeString(target, "ancien");
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> FtsService.writeAtomically(target, out -> {
+            out.write("moitié".getBytes());
+            throw new java.io.IOException("disque plein");
+        })).hasMessage("disque plein");
+
+        assertThat(Files.readString(target)).as("l'ancien index n'est pas tronqué").isEqualTo("ancien");
+        try (var files = Files.list(dir)) {
+            assertThat(files.map(p -> p.getFileName().toString())).containsExactly("coll.bin");
+        }
+    }
+
+    @Test
+    void flushedIndexIsPersistedAtomicallyAndReloadable() throws Exception {
+        TextChunk chunk = new TextChunk("c1", "alpha beta gamma", 0, "doc.txt", Map.of("sha256", "abc"));
+        ftsService.indexChunks(List.of(chunk), "coll-flush");
+
+        ftsService.flushDirtyIndices();
+
+        Path file = INDEX_DIR.resolve("coll-flush.bin");
+        assertThat(file).exists();
+        try (var files = Files.list(INDEX_DIR)) {
+            assertThat(files.map(p -> p.getFileName().toString()).filter(n -> n.startsWith("coll-flush")))
+                    .as("aucun fichier temporaire ne reste après l'écriture").containsExactly("coll-flush.bin");
+        }
+        try (java.io.ObjectInputStream in = new java.io.ObjectInputStream(Files.newInputStream(file))) {
+            assertThat(((BM25Index) in.readObject()).size()).isEqualTo(1);
+        }
     }
 }

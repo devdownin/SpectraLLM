@@ -203,6 +203,29 @@ class SpectraClient:
     def get(self, path: str) -> dict:
         return self._send(urllib.request.Request(self.base_url + path))
 
+    def wait_ready(self, timeout: float, poll: float = 3.0) -> None:
+        """Attend ``/actuator/health/readiness`` (HTTP 200). Lève ``TimeoutError`` au-delà de ``timeout`` secondes.
+
+        Après un redémarrage, l'API répond avant que l'index BM25 soit rechargé : une requête « hybride » est
+        alors vectorielle seule, sans erreur. Depuis que la disponibilité est fermée pendant ce rechargement,
+        attendre ce point d'accès suffit ; un serveur plus ancien répond 200 d'emblée, ou 404 (sans actuator),
+        ce qui compte comme prêt. 503 et erreurs réseau signifient « pas encore ».
+        """
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                self.get("/actuator/health/readiness")
+                return
+            except urllib.error.HTTPError as exc:
+                if exc.code == 404:
+                    return
+            except (urllib.error.URLError, TimeoutError, ConnectionError):
+                pass
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(f"{self.base_url} n'est pas prêt après {timeout:.0f} s")
+            time.sleep(min(poll, remaining))
+
     def post_json(self, path: str, payload: dict) -> dict:
         body = json.dumps(payload).encode("utf-8")
         return self._send(urllib.request.Request(
@@ -228,8 +251,12 @@ def encode_multipart(files: list[Path], field: str = "files") -> tuple[bytes, st
     return b"".join(parts), f"multipart/form-data; boundary={boundary}"
 
 
-def with_retry(call, attempts: int = 6, base_delay: float = 5.0):
-    """Réessaie sur 429 (contre-pression ``max-active-ingestions``), 5xx et erreurs réseau."""
+def with_retry(call, attempts: int = 6, base_delay: float = 5.0, before_retry=None):
+    """Réessaie sur 429 (contre-pression ``max-active-ingestions``), 5xx et erreurs réseau.
+
+    ``before_retry`` est appelé avant chaque nouvel essai : on y attend que l'API soit de nouveau prête
+    (un redémarrage coupe la requête en cours, et la relancer tout de suite échouerait de la même façon).
+    """
     for attempt in range(attempts):
         try:
             return call()
@@ -240,6 +267,8 @@ def with_retry(call, attempts: int = 6, base_delay: float = 5.0):
             if attempt == attempts - 1:
                 raise
         time.sleep(base_delay * 2 ** attempt)
+        if before_retry is not None:
+            before_retry()
     raise RuntimeError("unreachable")
 
 
@@ -412,8 +441,15 @@ def build_query(question: str, args: argparse.Namespace) -> dict:
     return payload
 
 
+def recover(client: SpectraClient, args: argparse.Namespace) -> None:
+    """Après une coupure, attend que l'API soit prête avant de rejouer la requête (sans effet si ``--wait-ready 0``)."""
+    if args.wait_ready > 0:
+        client.wait_ready(args.wait_ready)
+
+
 def answer_one(client: SpectraClient, q: Question, args: argparse.Namespace) -> dict:
-    response = with_retry(lambda: client.post_json("/api/query", build_query(q.question, args)), attempts=3)
+    response = with_retry(lambda: client.post_json("/api/query", build_query(q.question, args)), attempts=3,
+                          before_retry=lambda: recover(client, args))
     answer = response.get("answer") or ""
     sources = response.get("sources") or []
     retrieved = extract_doc_ids(sources, args.max_docs)
@@ -510,7 +546,8 @@ def retrieval_report(questions: list[Question], rankings: dict[str, list[str]],
 def retrieve_one(client: SpectraClient, q: Question, args: argparse.Namespace) -> dict:
     payload = build_query(q.question, args)
     started = time.time()
-    response = with_retry(lambda: client.post_json("/api/query/retrieve", payload), attempts=3)
+    response = with_retry(lambda: client.post_json("/api/query/retrieve", payload), attempts=3,
+                          before_retry=lambda: recover(client, args))
     sources = response.get("sources") or []
     return {
         "question_id": q.question_id,
@@ -565,6 +602,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--work-dir", default="data/enterprise-rag-bench")
     parser.add_argument("--api", default="http://localhost:8080")
     parser.add_argument("--timeout", type=float, default=600.0, help="délai HTTP (s) ; un LLM local est lent")
+    parser.add_argument("--wait-ready", type=float, default=600.0, metavar="SECONDES",
+                        help="attend la disponibilité de l'API avant ingest/answer/retrieve, et entre deux essais "
+                             "après une coupure (0 = ne pas attendre)")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("prepare", help="télécharger et matérialiser le corpus")
@@ -640,8 +680,16 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+API_COMMANDS = {"ingest", "answer", "retrieve"}
+
+
 def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
+    if args.command in API_COMMANDS and args.wait_ready > 0:
+        try:
+            SpectraClient(args.api, args.timeout).wait_ready(args.wait_ready)
+        except TimeoutError as exc:
+            sys.exit(f"[{args.command}] {exc}")
     args.func(args)
 
 

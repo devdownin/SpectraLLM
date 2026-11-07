@@ -114,13 +114,43 @@ public class FtsService {
         this.props = props;
     }
 
+    /** Événement publié quand le chargement initial de l'index par défaut est terminé (réussi ou non). */
+    public record InitialLoadSettled(String collection, int chunks) {}
+
+    private org.springframework.context.ApplicationEventPublisher eventPublisher;
+    private final java.util.concurrent.atomic.AtomicBoolean initialSettled = new java.util.concurrent.atomic.AtomicBoolean();
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setEventPublisher(org.springframework.context.ApplicationEventPublisher publisher) {
+        this.eventPublisher = publisher;
+    }
+
+    /**
+     * Vrai quand la recherche lexicale peut servir : la première charge ou reconstruction de l'index de la
+     * collection par défaut est terminée (l'index est toujours tenu à jour, même si la recherche hybride est
+     * désactivée par défaut : une requête peut l'activer). Tant que c'est faux, une
+     * requête « hybride » est en réalité vectorielle seule (journal : {@code both=0}), sans aucune erreur.
+     * Un échec de reconstruction (ChromaDB indisponible) compte aussi : la disponibilité ne doit pas rester
+     * bloquée, le rattrapage planifié reprend ensuite.
+     */
+    public boolean isInitialLoadSettled() {
+        return initialSettled.get();
+    }
+
+    private void settleInitialLoad() {
+        if (initialSettled.compareAndSet(false, true) && eventPublisher != null) {
+            eventPublisher.publishEvent(new InitialLoadSettled(defaultCollection(), indexedCount(defaultCollection())));
+        }
+    }
+
     @PostConstruct
     public void rebuildDefaultIndexAsync() {
         CompletableFuture.runAsync(() -> rebuildCollection(defaultCollection()))
                 .exceptionally(e -> {
                     log.warn("FTS index rebuild failed for '{}': {}", defaultCollection(), e.getMessage());
                     return null;
-                });
+                })
+                .whenComplete((ignored, error) -> settleInitialLoad());
     }
 
     /**
@@ -412,13 +442,43 @@ public class FtsService {
 
     private void saveIndexToDisk(String collectionName, BM25Index index) {
         try {
-            Files.createDirectories(INDEX_DIR);
-            Path file = INDEX_DIR.resolve(collectionName + ".bin");
-            try (ObjectOutputStream oos = new ObjectOutputStream(Files.newOutputStream(file))) {
-                oos.writeObject(index);
-            }
+            writeAtomically(INDEX_DIR.resolve(collectionName + ".bin"), out -> {
+                try (ObjectOutputStream oos = new ObjectOutputStream(out)) {
+                    oos.writeObject(index);
+                }
+            });
         } catch (Exception e) {
             log.warn("FTS: failed to serialize index for '{}' to disk: {}", collectionName, e.getMessage());
+        }
+    }
+
+    /** Écriture d'un flux, qui peut lever {@link IOException}. */
+    @FunctionalInterface
+    interface StreamWriter {
+        void write(java.io.OutputStream out) throws IOException;
+    }
+
+    /**
+     * Écrit dans un fichier temporaire voisin puis le renomme sur la cible. Un arrêt brutal pendant
+     * l'écriture laisse l'ancien fichier intact : écrit en place, il était tronqué, et le démarrage
+     * suivant devait reconstruire tout l'index depuis ChromaDB. En cas d'échec, le temporaire est supprimé.
+     */
+    static void writeAtomically(Path target, StreamWriter writer) throws IOException {
+        Path dir = target.toAbsolutePath().getParent();
+        Files.createDirectories(dir);
+        Path tmp = Files.createTempFile(dir, target.getFileName() + ".", ".tmp");
+        try {
+            try (java.io.OutputStream out = Files.newOutputStream(tmp)) {
+                writer.write(out);
+            }
+            try {
+                Files.move(tmp, target, java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                Files.move(tmp, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+        } finally {
+            Files.deleteIfExists(tmp);
         }
     }
 

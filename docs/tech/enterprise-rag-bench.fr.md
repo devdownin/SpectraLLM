@@ -111,6 +111,23 @@ python3 scripts/enterprise_rag_bench.py retrieve --hybrid on --rerank-min-score 
 
 Les étapes qui supposent le modèle de chat (RAG corrective, compression, boucle agentique) ne s'exécutent pas.
 
+### Sur un environnement qui redémarre
+
+Un conteneur éphémère ou une machine partagée peut redémarrer en cours de run. Les trois commandes qui appellent
+l'API reprennent là où elles s'étaient arrêtées (`ingest` note les fichiers indexés, `answer` et `retrieve` sautent
+les questions déjà écrites), donc relancer la même commande suffit. Deux garde-fous évitent de mesurer à vide :
+
+- `--wait-ready SECONDES` (600 par défaut, 0 pour désactiver) : avant de commencer, et entre deux essais après
+  une coupure, le harnais attend `/actuator/health/readiness`. L'API le garde fermé tant que l'index BM25 n'est pas
+  rechargé ; sans cela, une requête « hybride » envoyée juste après un redémarrage est vectorielle seule.
+- `scripts/bench-resume.sh <commande…>` : relance le démon Docker s'il est arrêté (en supprimant d'abord les
+  fichiers pid périmés, qui font échouer `dockerd` quand un numéro de processus est réutilisé), relance la pile,
+  puis exécute la commande du harnais.
+
+```bash
+scripts/bench-resume.sh retrieve --hybrid on --output data/enterprise-rag-bench/retrieval.jsonl
+```
+
 ## 4. Mesurer
 
 Rappel documentaire immédiat, sans LLM juge :
@@ -192,13 +209,18 @@ documents, publiée dans une version précédente de ce guide (rappel 0,905 sans
 a été **retirée** : elle a été mesurée pendant que l'index BM25 se rechargeait après un redémarrage, donc en
 recherche vectorielle seule.
 
-> **Piège de mesure.** Après un redémarrage, l'API répond avant que l'index BM25 soit rechargé (log
+> **Piège de mesure.** Après un redémarrage, l'index BM25 se recharge de façon asynchrone (log
 > `chroma=…, fts=0`, puis `loaded from disk` ou `rebuilt`). Une requête envoyée entre les deux est hybride de nom
-> seulement. Attendre ce message avant de mesurer, et ne jamais mélanger dans une même série des lignes obtenues
-> avant et après.
+> seulement : `both=0`, vecteurs seuls. Depuis cette version, `/actuator/health/readiness` reste fermé tant que
+> l'index n'est pas prêt ; sur une version plus ancienne, attendre ce message avant de mesurer. Ne jamais mélanger
+> dans une même série des lignes obtenues avant et après.
 
-Non mesuré : l'index BM25 en mémoire coûte ≈ 5 Ko par chunk, soit ≈ 9 Go extrapolés à 500 000 documents
-contre 2,5 à 4 Go de tas JVM. Le run complet suppose de revoir ce point.
+**Empreinte mémoire de l'index BM25 (mesurée).** Un vrai index de 26 572 passages (7 402 documents, 127 Mo
+sérialisés) occupe **655 Mo de tas, soit ≈ 26 Ko par passage**. Ce corpus donne 3,6 passages par document ; à
+500 000 documents, cela fait ≈ 1,8 million de passages et **≈ 47 Go de tas**, donc hors de portée d'un profil de
+16 Go. Une version précédente de ce guide annonçait ≈ 5 Ko par passage (≈ 9 Go) : c'était une extrapolation sans
+mesure, fausse d'un facteur 5. Un essai sur le corpus complet suppose un index lexical sur disque (Lucene,
+SQLite FTS5) ou une compression de l'index en mémoire.
 
 ## 5. Soumettre au classement
 
