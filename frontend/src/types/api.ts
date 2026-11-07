@@ -106,12 +106,22 @@ export interface FineTuningJob {
   startTime: string;
 }
 
+export interface CitationProvenance {
+  revision?: string | null;
+  chunkIndex?: string | null;
+  zipEntry?: string | null;
+  section?: string | null;
+  sourceUrl?: string | null;
+  passage: string;
+}
+
 export interface QuerySource {
   text: string;
   sourceFile: string;
   distance: number;
   rerankScore: number | null;
   bm25Score: number | null;
+  provenance?: CitationProvenance | null;
 }
 
 export interface TrainingLog {

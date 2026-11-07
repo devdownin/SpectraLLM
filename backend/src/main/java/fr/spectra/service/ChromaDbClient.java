@@ -757,11 +757,20 @@ public class ChromaDbClient {
     @SuppressWarnings("unchecked")
     public Map<Integer, String> getChunksByIndex(String collectionId, String identityField,
                                                  String identityValue, List<Integer> chunkIndexes, String zipEntry) {
+        return getChunksByIndex(collectionId, identityField, identityValue, chunkIndexes, zipEntry, null);
+    }
+
+    public Map<Integer, String> getChunksByIndex(String collectionId, String identityField,
+                                                String identityValue, List<Integer> chunkIndexes,
+                                                String zipEntry, String sourceFile) {
         try (var collectionLease = leaseId(collectionId)) {
             if (chunkIndexes == null || chunkIndexes.isEmpty()) return Map.of();
             List<String> wanted = chunkIndexes.stream().map(String::valueOf).toList();
             List<Map<String, Object>> conditions = new java.util.ArrayList<>();
             conditions.add(Map.of(identityField, Map.of("$eq", identityValue)));
+            if (sourceFile != null && !"sourceFile".equals(identityField)) {
+                conditions.add(Map.of("sourceFile", Map.of("$eq", sourceFile)));
+            }
             conditions.add(Map.of("chunkIndex", Map.of("$in", wanted)));
             if (zipEntry != null && !zipEntry.isBlank()) conditions.add(Map.of("zipEntry", Map.of("$eq", zipEntry)));
             Map<String, Object> where = Map.of("$and", conditions);

@@ -73,6 +73,7 @@ public record QueryResponse(
         MAX_ITERATIONS,
         /** Recherche complémentaire n'a retourné aucun chunk nouveau. */
         NO_NEW_CHUNKS,
+        RETRIEVAL_UNAVAILABLE,
         /** Le LLM n'a pas respecté le format THOUGHT/ACTION. */
         FORMAT_ERROR
     }
@@ -103,13 +104,27 @@ public record QueryResponse(
                 false, false, false, false);
     }
 
+    public record Provenance(String revision, String chunkIndex, String zipEntry,
+                             String section, String sourceUrl, String passage) {
+        public static Provenance from(java.util.Map<String, String> metadata, String passage) {
+            return new Provenance(metadata.get("sha256"), metadata.get("chunkIndex"), metadata.get("zipEntry"),
+                    metadata.get("section"), metadata.get("sourceUrl"), passage);
+        }
+    }
+
     public record Source(
             String text,
             String sourceFile,
             double distance,
             Float rerankScore,
-            Float bm25Score
+            Float bm25Score,
+            @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+            Provenance provenance
     ) {
+        public Source(String text, String sourceFile, double distance, Float rerankScore, Float bm25Score) {
+            this(text, sourceFile, distance, rerankScore, bm25Score, null);
+        }
+
         /** Backwards-compatible constructor without rerankScore/bm25Score. */
         public Source(String text, String sourceFile, double distance) {
             this(text, sourceFile, distance, null, null);

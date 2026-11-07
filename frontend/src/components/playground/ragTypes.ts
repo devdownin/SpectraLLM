@@ -1,3 +1,4 @@
+import type { CitationProvenance } from '../../types/api';
 import type { StreamStageTrace, RagOverridesDto, CitationReport, RetrievalFilterDto } from '../../services/api';
 
 /**
@@ -15,6 +16,7 @@ export interface Source {
   rerankScore?: number | null;
   /** Score BM25 brut (recherche hybride), si appliqué. */
   bm25Score?: number | null;
+  provenance?: CitationProvenance | null;
 }
 
 export interface RagMeta {

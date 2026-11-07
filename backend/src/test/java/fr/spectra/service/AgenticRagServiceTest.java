@@ -195,7 +195,7 @@ class AgenticRagServiceTest {
     }
 
     @Test
-    void open_replacesThePassagesOfTheDocumentByTheWholeDocument() {
+    void open_readsNeighborsAndPreservesTheAnchor() {
         LlmChatClient llm = mock(LlmChatClient.class);
         ArgumentCaptor<String> user = ArgumentCaptor.forClass(String.class);
         when(llm.chat(anyString(), user.capture(), anyFloat(), anyFloat())).thenReturn(
@@ -205,7 +205,8 @@ class AgenticRagServiceTest {
         java.util.TreeMap<Integer, String> chunks = new java.util.TreeMap<>();
         chunks.put(0, "Début du runbook. Le seuil est de dix minutes.");
         chunks.put(1, "Suite du runbook. Puis rollback du déploiement.");
-        when(f.chroma().getDocumentChunks("col-1", "sha256", "s1", null, 24)).thenReturn(chunks);
+        when(f.chroma().getChunksByIndex("col-1", "sha256", "s1", List.of(1, 2, 3, 4), null, "runbook.md"))
+                .thenReturn(Map.of(1, chunks.get(1)));
 
         QueryResponse resp = f.service().query(agenticRequest(),
                 List.of("Le seuil est de dix minutes.", "Autre document."),
@@ -213,9 +214,9 @@ class AgenticRagServiceTest {
                         Map.of("sourceFile", "autre.md", "sha256", "s2")),
                 List.of(0.1, 0.2), false, false);
 
-        // Second tour : le runbook est lu en entier, l'autre passage reste, la numérotation est refaite.
+        // Le passage déclencheur et l'autre document restent disponibles.
         String second = user.getAllValues().get(1);
-        assertThat(second).contains("Début du runbook.").contains("Puis rollback du déploiement.");
+        assertThat(second).contains("Le seuil est de dix minutes.").contains("Puis rollback du déploiement.");
         assertThat(second).contains("[2] (Source: autre.md)");
         assertThat(resp.agenticIterations()).isEqualTo(1);
         assertThat(resp.answer()).contains("rollback");
@@ -311,7 +312,34 @@ class AgenticRagServiceTest {
     }
 
     @Test
-    void native_openDocumentReadsTheWholeDocument() {
+    void native_canRecoverFromAnEmptyLookupAndKeepTheNewEvidenceUnderBudget() {
+        LlmChatClient llm = mock(LlmChatClient.class);
+        ArgumentCaptor<List<LlmChatClient.ToolMessage>> sent = ArgumentCaptor.forClass(List.class);
+        when(llm.chatTurn(sent.capture(), any(), anyFloat(), anyFloat())).thenReturn(
+                call("lookup", "{\"identifier\":\"missing\"}"),
+                call("lookup", "{\"identifier\":\"ENG-2\"}"), answer("2012."));
+        ToolsFixture f = nativeService(llm, 3);
+        when(f.chroma().findChunksContaining(eq("col-1"), eq("ENG-2"), any(), anyInt()))
+                .thenReturn(List.of(new ChromaDbClient.ChunkHit("ENG-2 a été fermé en 2012. " + "Détails. ".repeat(120),
+                        Map.of("sourceFile", "ticket.md", "sha256", "ticket-revision", "chunkIndex", "4"))));
+
+        var texts = new java.util.ArrayList<>(List.of("Le ticket est ENG-2."));
+        var metadata = new java.util.ArrayList<>(List.of(Map.of("sourceFile", "initial.md")));
+        for (int i = 0; i < 20; i++) {
+            texts.add("Contexte précédent. ".repeat(28));
+            metadata.add(Map.of("sourceFile", "noise.md", "chunkIndex", Integer.toString(i)));
+        }
+        var response = f.service().query(agenticRequest(), texts, metadata,
+                java.util.Collections.nCopies(texts.size(), 0.1), false, false);
+
+        assertThat(sent.getAllValues().get(1).get(1).content()).contains("Aucun nouveau passage");
+        assertThat(sent.getAllValues().get(2).get(1).content()).contains("ENG-2 a été fermé en 2012.");
+        assertThat(response.sources()).extracting(QueryResponse.Source::sourceFile)
+                .contains("initial.md", "ticket.md");
+    }
+
+    @Test
+    void native_openDocumentReadsNeighborsAndPreservesProvenance() {
         LlmChatClient llm = mock(LlmChatClient.class);
         ArgumentCaptor<List<LlmChatClient.ToolMessage>> sent = ArgumentCaptor.forClass(List.class);
         when(llm.chatTurn(sent.capture(), any(), anyFloat(), anyFloat())).thenReturn(
@@ -320,7 +348,8 @@ class AgenticRagServiceTest {
         java.util.TreeMap<Integer, String> chunks = new java.util.TreeMap<>();
         chunks.put(0, "Début. Le seuil est de dix minutes.");
         chunks.put(1, "Suite. Puis rollback.");
-        when(f.chroma().getDocumentChunks("col-1", "sha256", "s1", null, 24)).thenReturn(chunks);
+        when(f.chroma().getChunksByIndex("col-1", "sha256", "s1", List.of(1, 2, 3, 4), null, "runbook.md"))
+                .thenReturn(Map.of(1, chunks.get(1)));
 
         QueryResponse resp = f.service().query(agenticRequest(), List.of("Le seuil est de dix minutes."),
                 List.of(Map.of("sourceFile", "runbook.md", "sha256", "s1", "chunkIndex", "0")),
@@ -328,6 +357,8 @@ class AgenticRagServiceTest {
 
         assertThat(sent.getAllValues().get(1).get(1).content()).contains("Puis rollback.");
         assertThat(resp.answer()).isEqualTo("Dix minutes [1].");
+        assertThat(resp.sources().getFirst().provenance().revision()).isEqualTo("s1");
+        assertThat(resp.sources().get(1).provenance().chunkIndex()).isEqualTo("1");
     }
 
     @Test
