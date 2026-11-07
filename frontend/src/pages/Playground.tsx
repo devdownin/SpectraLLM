@@ -105,7 +105,7 @@ const SourceItem: FC<{
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  const snippet = src.preview ?? src.text ?? '';
+  const snippet = src.provenance?.passage ?? src.preview ?? src.text ?? '';
   const pct = relevancePct(src);
 
   useEffect(() => {
@@ -141,6 +141,9 @@ const SourceItem: FC<{
       </button>
       {open && (
         <div className="pl-5 pb-2 space-y-1.5">
+          {src.provenance?.section && (
+            <p className="text-[11px] font-semibold text-on-surface-variant">{src.provenance.section}</p>
+          )}
           {snippet
             ? <p className="text-[11px] text-on-surface-variant leading-relaxed whitespace-pre-wrap">{snippet}</p>
             : <p className="text-[11px] text-outline italic">{t('playground.noPreview')}</p>}

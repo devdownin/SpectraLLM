@@ -94,9 +94,11 @@ public class CitationVerifier {
             }
             List<Integer> valid = sentence.citations().stream()
                     .filter(n -> n >= 1 && n <= passages.size()).distinct().toList();
-            invalid += (int) sentence.citations().stream().filter(n -> n < 1 || n > passages.size()).count();
+            int invalidForSentence = (int) sentence.citations().stream()
+                    .filter(n -> n < 1 || n > passages.size()).count();
+            invalid += invalidForSentence;
             String claim = CITATION.matcher(sentence.text()).replaceAll("").strip();
-            if (valid.isEmpty() || claim.isEmpty()) {
+            if (valid.isEmpty() || claim.isEmpty() || invalidForSentence > 0) {
                 checks.add(new SentenceCheck(sentence.text(), sentence.citations(), null, Status.INVALID_CITATION));
                 unsupported++;
                 continue;

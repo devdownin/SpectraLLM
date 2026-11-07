@@ -73,8 +73,8 @@ public class AgenticRagService {
             ACTION: LOOKUP
             QUERY: <identifiant exact, ex. ENG-39100, max_file_size, #20501>
 
-            ── Format LECTURE (pour lire en entier le document d'un passage déjà fourni) ──
-            THOUGHT: <pourquoi tu as besoin du document complet>
+            ── Format LECTURE (pour lire les passages voisins d'un passage déjà fourni) ──
+            THOUGHT: <pourquoi tu as besoin de lire autour du passage>
             ACTION: OPEN
             SOURCE: <numéro [n] du passage>
 
@@ -174,8 +174,8 @@ public class AgenticRagService {
     }
 
     /** Bornes de l'action OPEN : un document ne doit pas monopoliser le budget de contexte. */
-    private static final int OPEN_MAX_CHUNKS = 24;
-    private static final int OPEN_MAX_CHARS = 8000;
+    private static final int OPEN_PAGE_SIZE = 5;
+    private static final int OPEN_MAX_PAGE = 100;
 
     /** Construit le prompt système de repli (consignes + clause de langue, sans contexte). */
     private String buildFallbackSystemPrompt() {
@@ -272,8 +272,13 @@ public class AgenticRagService {
         List<String>               contextChunks    = new ArrayList<>(initialChunks);
         List<Map<String, String>>  contextMetadatas = new ArrayList<>(initialMetadatas);
         List<Double>               contextDistances = new ArrayList<>(initialDistances);
-        Set<String>                seenTexts        = new HashSet<>(initialChunks);
+        Set<String>                seenTexts        = new HashSet<>();
+        for (int i = 0; i < initialChunks.size(); i++) {
+            seenTexts.add(evidenceKey(initialChunks.get(i), initialMetadatas.get(i)));
+        }
 
+        List<String> outcomes = new ArrayList<>();
+        int latestStart = initialChunks.size();
         int    iterations   = 0;
         String finalAnswer  = null;
         QueryResponse.AgenticStopReason stopReason = null;
@@ -293,10 +298,10 @@ public class AgenticRagService {
         // ── Boucle ReAct ────────────────────────────────────────────────────
         while (!nativeToolsEnabled() && iterations < maxIterations) {
 
-            List<Integer> budgetedIndices = RagPromptBudget.selectIndices(contextChunks.size(), llmClient,
+            List<Integer> budgetedIndices = selectEvidence(initialChunks.size(), latestStart, contextChunks.size(),
                     maxContextTokens, indices -> buildReactSystemPrompt() + "\n"
-                            + reactUserMessage(request.question(), select(contextChunks, indices),
-                                    select(contextMetadatas, indices)));
+                            + nativeUserMessage(request.question(), select(contextChunks, indices),
+                                    select(contextMetadatas, indices), outcomes));
             List<String> budgetedChunks = select(contextChunks, budgetedIndices);
             List<Map<String, String>> budgetedMetas = select(contextMetadatas, budgetedIndices);
             answerIndices = budgetedIndices;
@@ -313,7 +318,7 @@ public class AgenticRagService {
                 break;
             }
 
-            String userMsg = reactUserMessage(request.question(), budgetedChunks, budgetedMetas);
+            String userMsg = nativeUserMessage(request.question(), budgetedChunks, budgetedMetas, outcomes);
 
             log.debug("Agentic RAG itération {} — {} chunks en contexte", iterations + 1, budgetedChunks.size());
             String llmResponse = llmClient.chat(buildReactSystemPrompt(), userMsg,
@@ -325,7 +330,7 @@ public class AgenticRagService {
                 // Le LLM n'a pas suivi le format : traitement comme réponse directe
                 log.warn("Agentic RAG itération {} : format inattendu, traitement comme réponse directe", iterations + 1);
                 finalAnswer = llmResponse.trim();
-                stopReason = QueryResponse.AgenticStopReason.FORMAT_ERROR;
+                if (stopReason == null) stopReason = QueryResponse.AgenticStopReason.FORMAT_ERROR;
                 break;
             }
 
@@ -346,12 +351,15 @@ public class AgenticRagService {
                 Integer number = sourceMatcher.find() ? Integer.valueOf(sourceMatcher.group(1)) : null;
                 log.info("Agentic RAG itération {} : lecture du document du passage [{}]", iterations, number);
                 if (progressListener != null) progressListener.onSearch(iterations, "open [" + number + "]");
-                if (number == null || !openDocument(number, budgetedIndices, contextChunks, contextMetadatas,
+                int beforeOpen = contextChunks.size();
+                if (number == null || !openDocument(number, 0, budgetedIndices, contextChunks, contextMetadatas,
                         contextDistances, seenTexts, collectionId)) {
                     log.info("Agentic RAG itération {} : document indisponible ou déjà lu — arrêt de la boucle", iterations);
                     stopReason = QueryResponse.AgenticStopReason.NO_NEW_CHUNKS;
                     break;
                 }
+                latestStart = beforeOpen;
+                stopReason = null;
 
             } else { // SEARCH ou LOOKUP
                 iterations++;
@@ -366,17 +374,25 @@ public class AgenticRagService {
                         "LOOKUP".equals(action) ? "recherche exacte" : "recherche complémentaire", refinedQuery);
                 if (progressListener != null) progressListener.onSearch(iterations, refinedQuery);
 
-                List<RetrievedChunk> newChunks = "LOOKUP".equals(action)
-                        ? lookupChunks(filter, refinedQuery, collectionId, collectionName,
-                                request.maxContextChunks(), seenTexts)
-                        : retrieveAdditionalChunks(filter,
-                                refinedQuery, collectionId, collectionName, request.maxContextChunks(), seenTexts);
-
-                if (newChunks.isEmpty()) {
-                    log.info("Agentic RAG itération {} : aucun nouveau chunk — arrêt de la boucle", iterations);
-                    stopReason = QueryResponse.AgenticStopReason.NO_NEW_CHUNKS;
-                    break;
+                List<RetrievedChunk> newChunks;
+                try {
+                    newChunks = "LOOKUP".equals(action)
+                            ? lookupChunks(filter, refinedQuery, collectionId, collectionName,
+                                    request.maxContextChunks(), seenTexts)
+                            : retrieveAdditionalChunks(filter, refinedQuery, collectionId, collectionName,
+                                    request.maxContextChunks(), seenTexts, useHybrid(request));
+                } catch (RuntimeException failure) {
+                    outcomes.add(action + " : service indisponible, essayer une autre méthode.");
+                    stopReason = QueryResponse.AgenticStopReason.RETRIEVAL_UNAVAILABLE;
+                    continue;
                 }
+                if (newChunks.isEmpty()) {
+                    outcomes.add(action + " : aucun nouveau passage, essayer une autre recherche.");
+                    stopReason = QueryResponse.AgenticStopReason.NO_NEW_CHUNKS;
+                    continue;
+                }
+                stopReason = null;
+                latestStart = contextChunks.size();
                 for (RetrievedChunk c : newChunks) {
                     contextChunks.add(c.text());
                     contextMetadatas.add(c.metadata() != null && !c.metadata().isEmpty()
@@ -395,7 +411,7 @@ public class AgenticRagService {
             // La raison déjà établie (NO_NEW_CHUNKS, FORMAT_ERROR) n'est pas écrasée : tout arrêt de
             // boucle passait par ici et était rapporté, à tort, comme un budget d'itérations épuisé.
             if (stopReason == null) stopReason = QueryResponse.AgenticStopReason.MAX_ITERATIONS;
-            answerIndices = RagPromptBudget.selectIndices(contextChunks.size(), llmClient, maxContextTokens,
+            answerIndices = selectEvidence(initialChunks.size(), latestStart, contextChunks.size(), maxContextTokens,
                     indices -> buildFallbackSystemPrompt() + "\n" + fallbackUserMessage(buildContextString(
                             select(contextChunks, indices), select(contextMetadatas, indices)), request.question()));
             String contextStr = buildContextString(
@@ -419,7 +435,8 @@ public class AgenticRagService {
             double distance   = contextDistances.get(index);
             sources.add(new QueryResponse.Source(
                     text.length() > 200 ? text.substring(0, 200) + "..." : text,
-                    sourceFile, distance, null, null));
+                    sourceFile, distance, null, null,
+                    QueryResponse.Provenance.from(contextMetadatas.get(index), text)));
         }
 
         long duration = System.currentTimeMillis() - start;
@@ -448,60 +465,85 @@ public class AgenticRagService {
         return response.withCitations(checkedAnswer, report.get());
     }
 
+    private boolean useHybrid(QueryRequest request) {
+        return hybridSearchService.isPresent()
+                && fr.spectra.dto.RagOverrides.resolve(request.overrides().hybrid(), true);
+    }
+
+    private static String evidenceKey(String text, Map<String, String> metadata) {
+        if (metadata == null) return text;
+        return String.join("\u0000", metadata.getOrDefault("sourceFile", ""),
+                metadata.getOrDefault("sha256", ""), metadata.getOrDefault("zipEntry", ""),
+                metadata.getOrDefault("chunkIndex", ""),
+                metadata.containsKey("chunkIndex") ? "" : text);
+    }
+
+    private List<Integer> selectEvidence(int initialCount, int latestStart, int size, int maxTokens,
+                                         java.util.function.Function<List<Integer>, String> render) {
+        List<Integer> priority = new ArrayList<>(size);
+        // Keep the leading initial evidence and give each new round a chance before filling the window.
+        if (initialCount > 0 && size > 0) priority.add(0);
+        for (int i = latestStart; i < size; i++) priority.add(i);
+        for (int i = Math.max(initialCount, 1); i < latestStart; i++) priority.add(i);
+        for (int i = 1; i < Math.min(initialCount, size); i++) priority.add(i);
+        return RagPromptBudget.selectIndices(priority.size(), llmClient, maxTokens,
+                selected -> render.apply(selected.stream().map(priority::get).sorted().toList()))
+                .stream().map(priority::get).sorted().toList();
+    }
+
     // ---------- Helpers privés ---------------------------------------------
 
     @SuppressWarnings("unchecked")
     private List<RetrievedChunk> retrieveAdditionalChunks(RetrievalFilterResolver.ResolvedFilter filter,
                                                            String query, String collectionId,
                                                            String collectionName, int maxChunks,
-                                                           Set<String> seen) {
+                                                           Set<String> seen, boolean useHybrid) {
         try (var ignored = maintenanceGuard != null ? maintenanceGuard.acquire(collectionName)
                 : CollectionMaintenanceGuard.Lease.NONE) {
-            return retrieveAdditionalChunksAdmitted(filter, query, collectionId, collectionName, maxChunks, seen);
+            return retrieveAdditionalChunksAdmitted(filter, query, collectionId, collectionName, maxChunks, seen, useHybrid);
         }
     }
 
     private List<RetrievedChunk> retrieveAdditionalChunksAdmitted(RetrievalFilterResolver.ResolvedFilter filter,
                                                            String query, String collectionId,
                                                            String collectionName, int maxChunks,
-                                                           Set<String> seen) {
+                                                           Set<String> seen, boolean useHybrid) {
         List<RetrievedChunk> results = new ArrayList<>();
+        List<Float> embedding;
         try {
-            List<Float> embedding = embeddingService.embed(queryGuard.queryText(query,
+            embedding = embeddingService.embed(queryGuard.queryText(query,
                     EmbeddingContract.orDefault(chromaDbClient.embeddingContract(collectionName))));
-            int fetchN = maxChunks * 2; // fetch more to maximise novelty
-
-            if (hybridSearchService.isPresent()) {
-                for (HybridSearchService.HybridChunk hc :
-                        hybridSearchService.get().search(query, embedding, collectionId, collectionName, fetchN, filter)) {
-                    if (!seen.contains(hc.text())) {
-                        results.add(new RetrievedChunk(hc.text(), hc.sourceFile(), hc.vectorDistance(), hc.metadata()));
-                        seen.add(hc.text());
-                    }
-                }
-            } else {
-                Map<String, Object> raw = FilteredVectorSearch.query(
-                        chromaDbClient, collectionId, embedding, fetchN, filter);
-                List<List<String>> docs = (List<List<String>>) raw.get("documents");
-                List<List<Map<String, String>>> metas = (List<List<Map<String, String>>>) raw.get("metadatas");
-                List<List<Double>> dists = (List<List<Double>>) raw.get("distances");
-                if (docs != null && !docs.isEmpty()) {
-                    List<String> docList  = docs.getFirst();
-                    List<Map<String, String>> metaList = metas != null && !metas.isEmpty() ? metas.getFirst() : List.of();
-                    List<Double> distList = dists != null && !dists.isEmpty() ? dists.getFirst() : List.of();
-                    for (int i = 0; i < docList.size(); i++) {
-                        String t = docList.get(i);
-                        if (!seen.contains(t)) {
-                            String src = i < metaList.size() ? metaList.get(i).getOrDefault("sourceFile", "inconnu") : "inconnu";
-                            double d   = i < distList.size() ? distList.get(i) : 0.0;
-                            results.add(new RetrievedChunk(t, src, d, i < metaList.size() ? metaList.get(i) : null));
-                            seen.add(t);
-                        }
-                    }
+            if (embedding == null || embedding.isEmpty()) {
+                throw new IllegalStateException("Embedding de requête absent");
+            }
+        } catch (ChromaDbClient.EmbeddingModelMismatchException mismatch) {
+            throw mismatch;
+        } catch (RuntimeException failure) {
+            if (!useHybrid) throw failure;
+            embedding = null;
+        }
+        int fetchN = maxChunks * 2;
+        if (useHybrid) {
+            var hybrid = hybridSearchService.orElseThrow();
+            var hits = embedding == null
+                    ? hybrid.searchLexical(query, collectionName, fetchN, filter)
+                    : hybrid.search(query, embedding, collectionId, collectionName, fetchN, filter);
+            for (var hit : hits) {
+                if (seen.add(evidenceKey(hit.text(), hit.metadata()))) {
+                    results.add(new RetrievedChunk(hit.text(), hit.sourceFile(), hit.vectorDistance(), hit.metadata()));
                 }
             }
-        } catch (Exception e) {
-            log.warn("Agentic RAG : erreur lors du retrieval complémentaire — {}", e.getMessage());
+        } else {
+            var response = ChromaQueryResult.from(FilteredVectorSearch.query(
+                    chromaDbClient, collectionId, embedding, fetchN, filter));
+            for (int i = 0; i < response.documents().size(); i++) {
+                String passage = response.documents().get(i);
+                var metadata = response.metadatas().get(i);
+                if (seen.add(evidenceKey(passage, metadata))) {
+                    results.add(new RetrievedChunk(passage, metadata.getOrDefault("sourceFile", "inconnu"),
+                            response.distances().get(i), metadata));
+                }
+            }
         }
         return results;
     }
@@ -529,8 +571,12 @@ public class AgenticRagService {
                             + "numéro de PR, nom de variable ou de métrique, nom de produit.",
                     singleArgSchema("identifier", "string", "Identifiant exact, ex. ENG-39100, max_file_size, #20501")),
             new LlmChatClient.ToolDefinition("open_document",
-                    "Lit en entier le document auquel appartient un passage déjà fourni.",
-                    singleArgSchema("passage", "integer", "Numéro [n] du passage dont on veut le document entier")));
+                    "Lit une page de passages du document, autour du passage cité par défaut.",
+                    Map.of("type", "object", "required", List.of("passage"), "properties", Map.of(
+                            "passage", Map.of("type", "integer", "description", "Numéro [n] du passage"),
+                            "page", Map.of("type", "integer", "minimum", -OPEN_MAX_PAGE, "maximum", OPEN_MAX_PAGE,
+                                    "description", "Page relative au passage : 0 autour, 1 après, -1 avant")))));
+
 
     private static final String NATIVE_SYSTEM_PROMPT_TEMPLATE = """
             Tu es un assistant de recherche documentaire. Réponds UNIQUEMENT à partir du contexte fourni.
@@ -565,9 +611,12 @@ public class AgenticRagService {
         String systemPrompt = String.format(NATIVE_SYSTEM_PROMPT_TEMPLATE, buildLanguageClause());
         List<String> done = new ArrayList<>();
         int iterations = 0;
+        int initialCount = contextChunks.size();
+        int latestStart = initialCount;
         while (true) {
-            List<Integer> indices = RagPromptBudget.selectIndices(contextChunks.size(), llmClient, maxContextTokens,
-                    sel -> systemPrompt + "\n" + nativeUserMessage(request.question(),
+            List<LlmChatClient.ToolDefinition> tools = iterations < maxIterations ? NATIVE_TOOLS : List.of();
+            List<Integer> indices = selectEvidence(initialCount, latestStart, contextChunks.size(), maxContextTokens,
+                    sel -> systemPrompt + "\n" + tools + "\n" + nativeUserMessage(request.question(),
                             select(contextChunks, sel), select(contextMetadatas, sel), done));
             List<String> chunks = select(contextChunks, indices);
             List<Map<String, String>> metas = select(contextMetadatas, indices);
@@ -577,7 +626,6 @@ public class AgenticRagService {
             }
 
             // Le dernier tour n'offre plus d'outil : le modèle doit répondre.
-            List<LlmChatClient.ToolDefinition> tools = iterations < maxIterations ? NATIVE_TOOLS : List.of();
             LlmChatClient.ToolTurn turn = llmClient.chatTurn(List.of(
                     LlmChatClient.ToolMessage.system(systemPrompt),
                     LlmChatClient.ToolMessage.user(nativeUserMessage(request.question(), chunks, metas, done))),
@@ -592,6 +640,9 @@ public class AgenticRagService {
                 return new NativeLoopResult(text, QueryResponse.AgenticStopReason.ANSWER, iterations, indices);
             }
 
+            if (tools.isEmpty()) {
+                return new NativeLoopResult(null, QueryResponse.AgenticStopReason.MAX_ITERATIONS, iterations, indices);
+            }
             iterations++;
             LlmChatClient.ToolCall call = turn.toolCalls().getFirst();
             JsonNode args;
@@ -603,6 +654,7 @@ public class AgenticRagService {
             }
 
             boolean progressed;
+            int beforeTool = contextChunks.size();
             switch (call.name()) {
                 case "search", "lookup" -> {
                     String arg = args.path("search".equals(call.name()) ? "query" : "identifier").asText("").strip();
@@ -611,12 +663,18 @@ public class AgenticRagService {
                     }
                     log.info("Agentic RAG itération {} : outil {} «{}»", iterations, call.name(), arg);
                     if (progressListener != null) progressListener.onSearch(iterations, call.name() + ": " + arg);
-                    done.add(call.name() + "(" + arg + ")");
-                    List<RetrievedChunk> found = "search".equals(call.name())
+                    done.add(call.name() + "(" + arg.substring(0, Math.min(arg.length(), 160)) + ")");
+                    List<RetrievedChunk> found;
+                    try {
+                        found = "search".equals(call.name())
                             ? retrieveAdditionalChunks(filter, arg, collectionId, collectionName,
-                                    request.maxContextChunks(), seenTexts)
+                                    request.maxContextChunks(), seenTexts, useHybrid(request))
                             : lookupChunks(filter, arg, collectionId, collectionName,
                                     request.maxContextChunks(), seenTexts);
+                    } catch (RuntimeException failure) {
+                        done.add("Service de recherche indisponible, essayer une autre méthode.");
+                        continue;
+                    }
                     for (RetrievedChunk c : found) {
                         contextChunks.add(c.text());
                         contextMetadatas.add(c.metadata() != null && !c.metadata().isEmpty()
@@ -629,8 +687,9 @@ public class AgenticRagService {
                     int number = args.path("passage").asInt(0);
                     log.info("Agentic RAG itération {} : outil open_document [{}]", iterations, number);
                     if (progressListener != null) progressListener.onSearch(iterations, "open [" + number + "]");
-                    done.add("open_document(" + number + ")");
-                    progressed = openDocument(number, indices, contextChunks, contextMetadatas,
+                    int page = args.path("page").asInt(0);
+                    done.add("open_document(" + number + ", page " + page + ")");
+                    progressed = openDocument(number, page, indices, contextChunks, contextMetadatas,
                             contextDistances, seenTexts, collectionId);
                 }
                 default -> {
@@ -639,7 +698,9 @@ public class AgenticRagService {
                 }
             }
             if (!progressed) {
-                return new NativeLoopResult(null, QueryResponse.AgenticStopReason.NO_NEW_CHUNKS, iterations, indices);
+                done.add("Aucun nouveau passage, essayer une autre recherche.");
+            } else {
+                latestStart = beforeTool;
             }
         }
     }
@@ -663,66 +724,62 @@ public class AgenticRagService {
                 : CollectionMaintenanceGuard.Lease.NONE) {
             for (ChromaDbClient.ChunkHit hit : ExactMatchRetriever.find(
                     chromaDbClient, collectionId, needle, filter, Math.max(1, maxChunks))) {
-                if (seen.add(hit.text())) {
+                if (seen.add(evidenceKey(hit.text(), hit.metadata()))) {
                     results.add(new RetrievedChunk(hit.text(),
                             hit.metadata().getOrDefault("sourceFile", "inconnu"), 0.0, hit.metadata()));
                 }
             }
-        } catch (Exception e) {
-            log.warn("Agentic RAG : erreur lors de la recherche exacte — {}", e.getMessage());
         }
         return results;
     }
 
-    /**
-     * Action OPEN : remplace, dans le contexte, les extraits du document du passage {@code number}
-     * (numérotation du prompt, donc relative aux indices budgétés) par le document entier, borné à
-     * {@link #OPEN_MAX_CHARS}. Les autres extraits du même document disparaissent : ils sont inclus.
-     *
-     * @return {@code false} si le passage n'existe pas, si son document est introuvable, ou s'il
-     *         n'apporte rien de plus que ce que le contexte contient déjà
-     */
-    private boolean openDocument(int number, List<Integer> budgetedIndices, List<String> contextChunks,
-                                 List<Map<String, String>> contextMetadatas, List<Double> contextDistances,
-                                 Set<String> seenTexts, String collectionId) {
-        if (number < 1 || number > budgetedIndices.size()) return false;
+    /** Read nearby passages without discarding the cited passage or its provenance. */
+    private boolean openDocument(int number, int page, List<Integer> budgetedIndices,
+                                 List<String> contextChunks, List<Map<String, String>> contextMetadatas,
+                                 List<Double> contextDistances, Set<String> seenTexts, String collectionId) {
+        if (number < 1 || number > budgetedIndices.size() || page < -OPEN_MAX_PAGE || page > OPEN_MAX_PAGE) {
+            return false;
+        }
         int target = budgetedIndices.get(number - 1);
-        Optional<ChunkNeighborScope> scope = ChunkNeighborScope.from(contextMetadatas.get(target), false);
+        var anchor = contextMetadatas.get(target);
+        var scope = ChunkNeighborScope.from(anchor, false);
         if (scope.isEmpty()) return false;
-        ChunkNeighborScope doc = scope.get();
-        String current = contextChunks.get(target);
+        var document = scope.get();
         try {
-            java.util.SortedMap<Integer, String> chunks = chromaDbClient.getDocumentChunks(collectionId,
-                    doc.identityField(), doc.identityValue(), doc.zipEntry(), OPEN_MAX_CHUNKS);
-            String full = null;
-            for (String chunk : chunks.values()) {
-                String next = full == null ? chunk : RagService.joinOverlapping(full, chunk);
-                if (full != null && next.length() > OPEN_MAX_CHARS) break;
-                full = next;
+            String position = anchor.get("chunkIndex");
+            Map<Integer, String> chunks;
+            if (position == null) {
+                if (page != 0) return false;
+                chunks = chromaDbClient.getDocumentChunks(collectionId, document.identityField(),
+                        document.identityValue(), document.zipEntry(), OPEN_PAGE_SIZE);
+            } else {
+                int index = Integer.parseInt(position);
+                if (index < 0 || index > Integer.MAX_VALUE - (OPEN_MAX_PAGE + 1) * OPEN_PAGE_SIZE) return false;
+                int origin = Math.max(0, index - OPEN_PAGE_SIZE / 2);
+                int start = origin + page * OPEN_PAGE_SIZE;
+                int end = start + OPEN_PAGE_SIZE;
+                if (end <= 0) return false;
+                List<Integer> positions = java.util.stream.IntStream.range(Math.max(0, start), end)
+                        .filter(i -> i != index).boxed().toList();
+                chunks = chromaDbClient.getChunksByIndex(collectionId, document.identityField(),
+                        document.identityValue(), positions, document.zipEntry(), anchor.get("sourceFile"));
             }
-            if (full == null || full.equals(current) || full.length() <= current.length()) return false;
-
-            List<String> keptChunks = new ArrayList<>();
-            List<Map<String, String>> keptMetas = new ArrayList<>();
-            List<Double> keptDistances = new ArrayList<>();
-            for (int i = 0; i < contextChunks.size(); i++) {
-                boolean sameDocument = i != target
-                        && ChunkNeighborScope.from(contextMetadatas.get(i), false).equals(scope);
-                if (sameDocument) continue;
-                keptChunks.add(i == target ? full : contextChunks.get(i));
-                keptMetas.add(contextMetadatas.get(i));
-                keptDistances.add(contextDistances.get(i));
+            boolean added = false;
+            for (var entry : new java.util.TreeMap<>(chunks).entrySet()) {
+                if (entry.getValue().equals(contextChunks.get(target))) continue;
+                var metadata = new java.util.HashMap<>(anchor);
+                metadata.remove("section");
+                metadata.put("chunkIndex", entry.getKey().toString());
+                if (seenTexts.add(evidenceKey(entry.getValue(), metadata))) {
+                    contextChunks.add(entry.getValue());
+                    contextMetadatas.add(metadata);
+                    contextDistances.add(contextDistances.get(target));
+                    added = true;
+                }
             }
-            contextChunks.clear();
-            contextChunks.addAll(keptChunks);
-            contextMetadatas.clear();
-            contextMetadatas.addAll(keptMetas);
-            contextDistances.clear();
-            contextDistances.addAll(keptDistances);
-            seenTexts.add(full);
-            return true;
-        } catch (Exception e) {
-            log.warn("Agentic RAG : lecture du document impossible — {}", e.getMessage());
+            return added;
+        } catch (RuntimeException failure) {
+            log.warn("Agentic RAG : lecture du document impossible", failure);
             return false;
         }
     }

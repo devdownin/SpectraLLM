@@ -1392,7 +1392,8 @@ public class RagService {
             context.append(RagPromptFormat.passage(i + 1, sourceFile, chunkText));
             sources.add(new QueryResponse.Source(
                     chunkText.length() > 200 ? chunkText.substring(0, 200) + "..." : chunkText,
-                    sourceFile, distance, rerankScore, bm25Score));
+                    sourceFile, distance, rerankScore, bm25Score,
+                    QueryResponse.Provenance.from(metadatas.get(i), chunkText)));
         }
 
         String contextBlock = chunks.isEmpty() ? null : context.toString();
