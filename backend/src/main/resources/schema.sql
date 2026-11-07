@@ -246,3 +246,16 @@ CREATE TABLE IF NOT EXISTS source_runs (
     error VARCHAR(1000)
 );
 CREATE INDEX IF NOT EXISTS idx_source_runs_instance ON source_runs(source_id, started_at);
+
+-- Durable connector hand-off. Published document checkpoints remain separate from pending bytes.
+ALTER TABLE source_runs ADD COLUMN IF NOT EXISTS discovery_finished BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE source_runs ADD COLUMN IF NOT EXISTS discovery_complete BOOLEAN NOT NULL DEFAULT FALSE;
+CREATE TABLE IF NOT EXISTS source_index_jobs (
+    id VARCHAR(64) PRIMARY KEY,
+    source_id VARCHAR(255) NOT NULL REFERENCES source_instances(id),
+    run_id VARCHAR(255) NOT NULL REFERENCES source_runs(id),
+    filename TEXT, revision VARCHAR(128), fingerprint VARCHAR(64),
+    metadata_json TEXT, content BYTEA, queued_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    tombstone BOOLEAN NOT NULL DEFAULT FALSE
+);
+CREATE INDEX IF NOT EXISTS idx_source_index_jobs_run ON source_index_jobs(source_id, run_id, id);

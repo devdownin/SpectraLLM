@@ -33,6 +33,8 @@ class SourceJpaLifecycleTest {
     @Autowired SourceInstanceRepository sources;
     @Autowired SourceDocumentRepository documents;
     @Autowired SourceRunRepository runs;
+    @Autowired SourceIndexJobRepository jobs;
+    @Autowired org.springframework.transaction.PlatformTransactionManager transactionManager;
 
     @Test void successfulRunAndSecondSyncPersistTerminalStateWithRealDetachedJpaEntities() throws Exception {
         var ingestion = mock(IngestionService.class);
@@ -47,7 +49,8 @@ class SourceJpaLifecycleTest {
                 return true;
             }
         };
-        var service = new SourceSyncService(sources, documents, runs, ingestion, List.of(connector), 1);
+        var service = new SourceSyncService(sources, documents, runs, jobs, ingestion,
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry(), transactionManager, List.of(connector), 1);
         try {
             var source = service.create(new SourceModels.Request("JPA lifecycle", SourceModels.Type.LOCAL_FOLDER,
                     "spectra_documents", true, 0, SourceSyncServiceTest.config()));
@@ -64,6 +67,71 @@ class SourceJpaLifecycleTest {
             assertThat(sources.findById(source.id())).isEmpty();
             assertThat(documents.findBySourceId(source.id())).isEmpty();
         } finally { service.stop(); }
+    }
+
+    @Test void restartReplaysASealedRunFromDurableBytesWithoutRediscovery() throws Exception {
+        var ingestion = mock(IngestionService.class);
+        var connector = mock(SourceConnector.class);
+        when(connector.type()).thenReturn(SourceModels.Type.LOCAL_FOLDER);
+        when(ingestion.upsertFromStream(anyString(), eq("guide.md"), any(), anyString(), isNull(), anyMap()))
+                .thenAnswer(invocation -> {
+                    java.io.InputStream content = invocation.getArgument(2);
+                    assertThat(content.readAllBytes()).isEqualTo("queued bytes".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    return new IngestionService.UpsertResult(invocation.getArgument(0),
+                            IngestionService.UpsertResult.Kind.UPSERTED, 0, 1);
+                });
+
+        var service = new SourceSyncService(sources, documents, runs, jobs, ingestion,
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry(), transactionManager, List.of(connector), 1);
+        try {
+            var created = service.create(new SourceModels.Request("Recover a sealed run", SourceModels.Type.LOCAL_FOLDER,
+                    "spectra_documents", true, 0, SourceSyncServiceTest.config()));
+            var source = sources.findById(created.id()).orElseThrow();
+            source.status = SourceModels.Status.RUNNING;
+            sources.saveAndFlush(source);
+
+            var run = new SourceRun();
+            run.id = UUID.randomUUID().toString();
+            run.sourceId = source.id;
+            run.status = SourceModels.Status.RUNNING;
+            run.startedAt = java.time.Instant.now();
+            run.scanned = 1;
+            run.discoveryFinished = true;
+            run.discoveryComplete = true;
+            runs.saveAndFlush(run);
+
+            var document = new SourceDocument();
+            document.id = SourceSupport.hash(source.id + "\nguide.md");
+            document.sourceId = source.id;
+            document.externalId = "guide.md";
+            document.seenRun = run.id;
+            document.status = "QUEUED";
+            documents.saveAndFlush(document);
+
+            var job = new SourceIndexJob();
+            job.id = document.id;
+            job.sourceId = source.id;
+            job.runId = run.id;
+            job.filename = "guide.md";
+            job.revision = "revision-2";
+            job.fingerprint = SourceSupport.hash("queued bytes");
+            job.content = "queued bytes".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            job.metadataJson = "{}";
+            job.queuedAt = java.time.Instant.now();
+            jobs.saveAndFlush(job);
+
+            service.recover();
+            service.scheduled();
+            await().atMost(Duration.ofSeconds(8)).until(() -> service.get(source.id).status() == SourceModels.Status.SUCCESS);
+            assertThat(service.get(source.id).lastRun().id()).isEqualTo(run.id);
+            assertThat(service.get(source.id).lastRun().indexed()).isEqualTo(1);
+            assertThat(service.document(source.id, document.id).revision()).isEqualTo("revision-2");
+            assertThat(jobs.findById(job.id)).isEmpty();
+            verify(connector, never()).scan(any(), any());
+            service.delete(source.id);
+        } finally {
+            service.stop();
+        }
     }
 
     @Configuration(proxyBeanMethods = false)

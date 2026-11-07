@@ -8,6 +8,8 @@ import org.springframework.stereotype.Component;
 
 import java.io.InputStream;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -37,7 +39,7 @@ public class HtmlExtractor implements DocumentExtractor {
         }
 
         // Supprimer les éléments non-contenu
-        doc.select("script, style, nav, footer, header, aside, " +
+        doc.select("script, style, nav, footer, body > header, aside, " +
                    "[role=navigation], [role=banner], [role=complementary], " +
                    ".nav, .menu, .sidebar, .footer, .header, .advertisement, .cookie-banner").remove();
 
@@ -49,11 +51,16 @@ public class HtmlExtractor implements DocumentExtractor {
             text.append(title).append("\n\n");
         }
 
-        for (Element el : doc.select("h1, h2, h3, h4, h5, h6, p, li, td, th, blockquote, pre, dt, dd, figcaption")) {
+        for (Element el : doc.select("h1, h2, h3, h4, h5, h6, p, li, table, blockquote, pre, dt, dd, figcaption")) {
+            if (el.parents().stream().anyMatch(parent -> parent.normalName().equals("table"))) continue;
             String elText = el.text().strip();
-            if (!elText.isBlank()) {
-                text.append(elText).append("\n");
+            if (elText.isBlank()) continue;
+            String tag = el.normalName();
+            if (tag.matches("h[1-6]")) {
+                text.append("#".repeat(tag.charAt(1) - '0')).append(' ');
             }
+            if ("table".equals(tag)) appendTable(text, el);
+            else text.append(elText).append("\n\n");
         }
 
         // Fallback si aucun contenu structuré n'a été trouvé
@@ -71,5 +78,42 @@ public class HtmlExtractor implements DocumentExtractor {
         );
 
         return new ExtractedDocument(fileName, "text/html", text.toString().strip(), 1, metadata, Instant.now());
+    }
+    private static void appendTable(StringBuilder text, Element table) {
+        Element caption = table.children().stream().filter(child -> child.normalName().equals("caption")).findFirst().orElse(null);
+        if (caption != null && !caption.text().isBlank()) {
+            text.append("Table: ").append(caption.text()).append('\n');
+        }
+        List<Element> rows = table.select("tr").stream()
+                .filter(row -> row.closest("table") == table).toList();
+        if (rows.isEmpty()) return;
+        // Simple headered tables map directly to Markdown. Preserve the text of complex layouts.
+        List<String> headers = cells(rows.getFirst());
+        boolean regular = !headers.isEmpty() && rows.getFirst().children().stream().allMatch(cell -> cell.normalName().equals("th"))
+                && rows.stream().allMatch(row -> cells(row).size() == headers.size())
+                && table.select("[rowspan]:not([rowspan=1]), [colspan]:not([colspan=1])").isEmpty();
+        if (!regular) {
+            for (Element row : rows) text.append(String.join(" | ", cells(row))).append('\n');
+            text.append('\n');
+            return;
+        }
+        appendRow(text, headers);
+        appendRow(text, java.util.Collections.nCopies(headers.size(), "---"));
+        for (Element row : rows.subList(1, rows.size())) appendRow(text, cells(row));
+        text.append('\n');
+    }
+
+    private static List<String> cells(Element row) {
+        List<String> values = new ArrayList<>();
+        for (Element cell : row.children()) {
+            if (cell.normalName().equals("th") || cell.normalName().equals("td")) {
+                values.add(cell.text().replace("|", "\\|"));
+            }
+        }
+        return values;
+    }
+
+    private static void appendRow(StringBuilder text, List<String> cells) {
+        text.append("| ").append(String.join(" | ", cells)).append(" |\n");
     }
 }

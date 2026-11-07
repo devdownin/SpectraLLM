@@ -28,6 +28,8 @@ class SourceControllerTest {
     @Autowired SourceInstanceRepository sources;
     @Autowired SourceDocumentRepository documents;
     @Autowired SourceRunRepository runs;
+    @Autowired SourceIndexJobRepository jobs;
+    @Autowired org.springframework.transaction.PlatformTransactionManager transactionManager;
     private SourceSyncService service;
     private MockMvc mvc;
     private final ObjectMapper json = new ObjectMapper();
@@ -44,7 +46,8 @@ class SourceControllerTest {
                 return true;
             }
         };
-        service = new SourceSyncService(sources, documents, runs, ingestion, List.of(connector), 1);
+        service = new SourceSyncService(sources, documents, runs, jobs, ingestion,
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry(), transactionManager, List.of(connector), 1);
         mvc = MockMvcBuilders.standaloneSetup(new SourceController(service))
                 .setControllerAdvice(new GlobalExceptionHandler()).addFilters(new ApiKeyFilter("test-key")).build();
     }

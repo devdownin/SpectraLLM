@@ -14,6 +14,8 @@ public class SourceRun {
     public int unchanged;
     public int deleted;
     public int failed;
+    public boolean discoveryFinished;
+    public boolean discoveryComplete;
     public Instant startedAt;
     public Instant completedAt;
     @Column(length=1000) public String error;

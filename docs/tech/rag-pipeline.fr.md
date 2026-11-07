@@ -83,6 +83,20 @@ suppression et la mise à jour *par source* (delete-by-source puis réindexation
 `spectra.pipeline.chunk-max-tokens` (défaut **512**) ·
 `spectra.pipeline.chunk-overlap-tokens` (défaut **64**).
 
+**Sections et tableaux.** Les titres ouvrent un nouveau passage et conservent leur chemin de section.
+Les tableaux HTML simples et les tableaux Markdown issus d’un fichier ou d’un PDF analysé avec le
+parseur de mise en page sont indexés par ligne. Les en-têtes restent associés à leurs valeurs,
+y compris les unités. Les métadonnées identifient le tableau et la ligne. Les sources synchronisées
+réindexent les formats concernés à leur prochaine synchronisation. Pour les imports historiques,
+réimporter les documents ciblés si l’on veut appliquer le nouveau découpage.
+
+**Reprise des sources synchronisées.** La découverte dépose les fichiers modifiés dans une file SQL
+par lots bornés. La version publiée reste consultable pendant la préparation de la suivante.
+Après redémarrage, une découverte déjà terminée reprend la publication depuis les tâches persistées.
+Une découverte interrompue doit être rejouée. Un inventaire incomplet conserve les documents absents.
+La métrique `spectra.sources.publication.delay` mesure le temps entre mise en file et publication
+par type de connecteur.
+
 **Préfixes d'instruction.** Les modèles d'embedding récents sont asymétriques : nomic-embed-text
 (modèle par défaut) attend `search_query: ` devant la question et `search_document: ` devant le
 chunk, E5 `query: ` / `passage: `, Qwen3-Embedding une instruction côté requête. Sans eux, le

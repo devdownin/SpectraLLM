@@ -93,7 +93,7 @@ public class ChunkingService {
         }
 
         // Découpage par paragraphes d'abord
-        String[] paragraphs = text.split("\\n\\n+");
+        List<StructuredPassage> paragraphs = structuredPassages(text);
         StringBuilder buffer = new StringBuilder();
         // Compte de tokens du buffer maintenu INCRÉMENTALEMENT (somme des parties + séparateurs)
         // au lieu de ré-encoder tout le buffer à chaque paragraphe — l'ancien schéma rendait le
@@ -106,11 +106,28 @@ public class ChunkingService {
         String[] headings = new String[6];
         String chunkSection = null;
 
-        for (String paragraph : paragraphs) {
-            String trimmed = paragraph.strip();
+        for (StructuredPassage paragraph : paragraphs) {
+            String trimmed = paragraph.text().strip();
             if (trimmed.isEmpty()) continue;
-            trackHeading(trimmed, headings);
+            if (paragraph.table() == 0) trackHeading(trimmed, headings);
             String currentSection = sectionPath(headings);
+
+            boolean boundary = paragraph.table() > 0 || beginsWithHeading(trimmed);
+            if (boundary && !buffer.isEmpty()) {
+                chunks.add(createChunk(buffer.toString(), chunkIndex++, sourceFile, extraMetadata, chunkSection));
+                buffer.setLength(0);
+                bufferTokenCount = 0;
+                chunkSection = null;
+            }
+            if (paragraph.table() > 0) {
+                var metadata = new HashMap<>(extraMetadata);
+                metadata.put("structureVersion", "1");
+                metadata.put("tableIndex", Integer.toString(paragraph.table()));
+                metadata.put("tableRow", Integer.toString(paragraph.row()));
+                chunks.addAll(splitLargeTextByTokens(trimmed, chunkIndex, sourceFile, metadata, currentSection));
+                chunkIndex = chunks.size();
+                continue;
+            }
 
             IntArrayList paraTokens = encoding.encode(trimmed);
 
@@ -161,6 +178,69 @@ public class ChunkingService {
         }
 
         return chunks;
+    }
+
+    private record StructuredPassage(String text, int table, int row) {}
+
+    private static List<StructuredPassage> structuredPassages(String text) {
+        List<StructuredPassage> passages = new ArrayList<>();
+        int table = 0;
+        boolean codeFence = false;
+        for (String paragraph : text.split("\\n\\n+")) {
+            String[] lines = paragraph.split("\\R");
+            int tableHeader = -1;
+            for (int i = 0; i < lines.length; i++) {
+                String line = lines[i].strip();
+                if (line.startsWith("```") || line.startsWith("~~~")) codeFence = !codeFence;
+                if (!codeFence && i + 2 < lines.length && line.contains("|")) {
+                    var headers = tableCells(line);
+                    var separator = tableCells(lines[i + 1]);
+                    if (headers.size() > 1 && separator.size() == headers.size()
+                            && separator.stream().allMatch(cell -> cell.matches(":?-{2,}:?"))) {
+                        tableHeader = i;
+                        break;
+                    }
+                }
+            }
+            if (tableHeader < 0) {
+                passages.add(new StructuredPassage(paragraph, 0, 0));
+                continue;
+            }
+            if (tableHeader > 0) {
+                passages.add(new StructuredPassage(String.join("\n",
+                        java.util.Arrays.copyOfRange(lines, 0, tableHeader)), 0, 0));
+            }
+            table++;
+            var headers = tableCells(lines[tableHeader]);
+            int i = tableHeader + 2;
+            for (; i < lines.length && lines[i].contains("|"); i++) {
+                var values = tableCells(lines[i]);
+                if (values.size() != headers.size()) break;
+                StringBuilder row = new StringBuilder();
+                for (int column = 0; column < headers.size(); column++) {
+                    if (column > 0) row.append(" · ");
+                    row.append(headers.get(column)).append(": ").append(values.get(column));
+                }
+                passages.add(new StructuredPassage(row.toString(), table, i - tableHeader - 1));
+            }
+            if (i == tableHeader + 2) {
+                passages.add(new StructuredPassage(String.join("\n", lines[tableHeader], lines[tableHeader + 1]), 0, 0));
+            }
+            if (i < lines.length) passages.add(new StructuredPassage(String.join("\n",
+                    java.util.Arrays.copyOfRange(lines, i, lines.length)), 0, 0));
+        }
+        return passages;
+    }
+
+    private static List<String> tableCells(String line) {
+        String content = line.strip().replaceFirst("^\\|", "").replaceFirst("(?<!\\\\)\\|$", "");
+        return java.util.Arrays.stream(content.split("(?<!\\\\)\\|", -1))
+                .map(cell -> cell.strip().replace("\\|", "|")).toList();
+    }
+
+    private static boolean beginsWithHeading(String paragraph) {
+        int eol = paragraph.indexOf('\n');
+        return MARKDOWN_HEADING.matcher(eol < 0 ? paragraph : paragraph.substring(0, eol)).matches();
     }
 
     private static final java.util.regex.Pattern MARKDOWN_HEADING =
