@@ -84,7 +84,15 @@ public class GedService {
     public record DocumentPreview(List<String> chunks, boolean truncated) {}
 
     public DocumentPreview preview(String sha256) {
+        return preview(sha256, null);
+    }
+
+    public DocumentPreview preview(String sha256, java.util.Set<String> allowedCollections) {
         IngestedFileEntity doc = requireDoc(sha256);
+        if (allowedCollections != null
+                && (doc.getCollectionName() == null || !allowedCollections.contains(doc.getCollectionName()))) {
+            throw new NoSuchElementException("Document introuvable : " + sha256);
+        }
         if (doc.getCollectionName() == null || doc.getCollectionName().isBlank()) {
             return new DocumentPreview(List.of(), false);
         }

@@ -228,8 +228,21 @@ together and is the recommended way in.
 | `SPECTRA_LLM_CHAT_PORT` | `8091` | Host port of the chat llama-server, diagnostics only. Not 8081: Kex-anHarness owns it |
 | `SPECTRA_LLM_EMBED_PORT` | `8092` | Host port of the embedding llama-server, diagnostics only |
 | `SPECTRA_API_KEY` | *(empty)* | Required in the `X-API-Key` header on every `/api/**` route when set. Empty = no authentication. `/actuator` is always exempt so health checks work without a key |
-| `SPECTRA_MCP_ENABLED` | `false` | Serves a read-only MCP server on `/mcp` (Streamable HTTP, port 8080): `spectra_search`, `spectra_ask`, `spectra_list_documents`, `spectra_preview_document`, `spectra_status`. Requires `SPECTRA_API_KEY` — without a key `/mcp` answers 503 rather than exposing the corpus unauthenticated. The last 500 tool calls (tool, truncated arguments, outcome, duration) are readable on `GET /api/mcp/calls?limit=50` and timed as `spectra_mcp_calls_seconds{tool,outcome}`; they are kept in memory and lost on restart |
-| `SPECTRA_MCP_RATE_LIMIT_PER_MINUTE` / `SPECTRA_MCP_RATE_LIMIT_BURST` | `60` / `10` | Rate limit on MCP tool calls, one token bucket for the whole instance — there is a single API key, so nothing tells two agents apart. A refused call says how long to wait and is journaled as `RATE_LIMITED`. `0` calls per minute turns the limit off |
+| `SPECTRA_MCP_ENABLED` | `false` | Serves a read-only MCP server on `/mcp` (Streamable HTTP, port 8080): `spectra_search`, `spectra_ask`, `spectra_list_documents`, `spectra_preview_document`, `spectra_read_document`, `spectra_status`. Requires `SPECTRA_API_KEY` — without a key `/mcp` answers 503 rather than exposing the corpus unauthenticated. The last 500 tool calls (tool, truncated arguments, outcome, duration) are readable on `GET /api/mcp/calls?limit=50` and timed as `spectra_mcp_calls_seconds{tool,outcome}`; they are kept in memory and lost on restart |
+| `SPECTRA_MCP_CALLERS_JSON` | *(empty)* | Optional JSON map of caller names to distinct `key` values and allowed `collections`. When set, send the caller's key in `X-API-Key` on every MCP request. The instance key still protects the REST API and is required separately. |
+| `SPECTRA_MCP_RATE_LIMIT_PER_MINUTE` / `SPECTRA_MCP_RATE_LIMIT_BURST` | `60` / `10` | Rate limit on MCP tool calls, one token bucket for the whole instance, including in scoped mode. A refused call says how long to wait and is journaled as `RATE_LIMITED`. `0` calls per minute turns the limit off |
+
+Example caller configuration with placeholders for secrets
+
+```json
+{"analyst":{"key":"REPLACE_WITH_A_DISTINCT_SECRET","collections":["research"]}}
+```
+
+Search and answer passages provide a `documentId` when their indexed revision is known.
+Pass it to `spectra_read_document`, optionally with `aroundChunk` or the returned
+`nextCursor`. A removed or replaced revision may require a new search.
+Collection grants cover search, answer, listing, document reading and GED preview.
+Keep the instance key separate from MCP-only caller credentials.
 
 Containers do **not** need the published ports to reach each other — they talk over the
 Compose network using service names. Publishing exists only for host access: the browser on

@@ -21,7 +21,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * poignée de main puis {@code tools/list} sur {@code /mcp}, avec la clé API.</p>
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = {"spectra.mcp.enabled=true", "SPECTRA_API_KEY=test-key"})
+        properties = {"spectra.mcp.enabled=true", "SPECTRA_API_KEY=test-key",
+                """
+                SPECTRA_MCP_CALLERS_JSON={"alice":{"key":"alice-key","collections":["spectra_documents"]},"bob":{"key":"bob-key","collections":["private_bob"]}}
+                """})
 @ActiveProfiles("smoke")
 class McpServerSmokeTest {
 
@@ -47,31 +50,31 @@ class McpServerSmokeTest {
     void theToolsAreListedOverTheStreamableEndpoint() throws Exception {
         HttpResponse<String> init = post("""
                 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18",
-                "capabilities":{},"clientInfo":{"name":"smoke","version":"1"}}}""", null, "test-key");
+                "capabilities":{},"clientInfo":{"name":"smoke","version":"1"}}}""", null, "alice-key");
         assertThat(init.statusCode()).isEqualTo(200);
         String session = init.headers().firstValue("Mcp-Session-Id").orElse(null);
 
         post("""
-                {"jsonrpc":"2.0","method":"notifications/initialized"}""", session, "test-key");
+                {"jsonrpc":"2.0","method":"notifications/initialized"}""", session, "alice-key");
         HttpResponse<String> list = post("""
-                {"jsonrpc":"2.0","id":2,"method":"tools/list"}""", session, "test-key");
+                {"jsonrpc":"2.0","id":2,"method":"tools/list"}""", session, "alice-key");
 
         assertThat(list.statusCode()).isEqualTo(200);
         assertThat(list.body()).contains("spectra_search", "spectra_ask", "spectra_list_documents",
-                "spectra_preview_document", "spectra_status");
+                "spectra_preview_document", "spectra_read_document", "spectra_status");
     }
 
     @Test
     void aToolCallIsReadableInTheJournal() throws Exception {
         HttpResponse<String> init = post("""
                 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18",
-                "capabilities":{},"clientInfo":{"name":"smoke","version":"1"}}}""", null, "test-key");
+                "capabilities":{},"clientInfo":{"name":"smoke","version":"1"}}}""", null, "alice-key");
         String session = init.headers().firstValue("Mcp-Session-Id").orElse(null);
         post("""
-                {"jsonrpc":"2.0","method":"notifications/initialized"}""", session, "test-key");
+                {"jsonrpc":"2.0","method":"notifications/initialized"}""", session, "alice-key");
         post("""
                 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"spectra_status","arguments":{}}}""",
-                session, "test-key");
+                session, "alice-key");
 
         HttpResponse<String> journal = http.send(HttpRequest.newBuilder(
                         URI.create("http://localhost:" + port + "/api/mcp/calls"))
@@ -85,5 +88,25 @@ class McpServerSmokeTest {
     void withoutTheKeyMcpIsRefused() throws Exception {
         assertThat(post("""
                 {"jsonrpc":"2.0","id":1,"method":"tools/list"}""", null, null).statusCode()).isEqualTo(401);
+    }
+    @Test
+    void callerCannotUseAnotherCollectionOrSession() throws Exception {
+        var init = post("""
+                {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18",
+                "capabilities":{},"clientInfo":{"name":"scope","version":"1"}}}""", null, "alice-key");
+        assertThat(init.statusCode()).isEqualTo(200);
+        String session = init.headers().firstValue("Mcp-Session-Id").orElseThrow();
+        post("""
+                {"jsonrpc":"2.0","method":"notifications/initialized"}""", session, "alice-key");
+        var denied = post("""
+                {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{
+                  "name":"spectra_list_documents","arguments":{"collection":"private_bob"}}}""",
+                session, "alice-key");
+        assertThat(denied.body()).contains("Collection is not accessible to this MCP caller");
+        assertThat(post("""
+                {"jsonrpc":"2.0","id":3,"method":"tools/list"}""", session, "bob-key").statusCode()).isEqualTo(403);
+        var rest = http.send(HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/mcp/calls"))
+                .header("X-API-Key", "alice-key").GET().build(), HttpResponse.BodyHandlers.ofString());
+        assertThat(rest.statusCode()).isEqualTo(401);
     }
 }
