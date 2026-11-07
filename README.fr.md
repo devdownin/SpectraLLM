@@ -98,13 +98,13 @@ Tout est accessible depuis l'**[index de la documentation](docs/README.md)**, ou
 
 **Stack :** Java 25 / Spring Boot 4 · React 19 · llama.cpp · ChromaDB · Python (fine-tuning, parsing, re-ranking) — détaillée dans [Architecture](docs/architecture.en.md#technology-stack).
 
-<!-- ecosystem:start -->
 ## Accès MCP pour les agents
 
 Activez `SPECTRA_MCP_ENABLED=true` et configurez `SPECTRA_API_KEY` pour exposer le serveur Streamable HTTP en lecture seule sur `/mcp`. Les résultats de recherche fournissent une référence que l’agent peut passer à `spectra_read_document` pour relire la révision citée et continuer avec un curseur. `spectra_ask` fournit le rapport de citations lorsqu’il est disponible.
 
 Sur une instance partagée, `SPECTRA_MCP_CALLERS_JSON` attribue à chaque appelant une clé et des collections autorisées. Consultez le [guide de configuration MCP](docs/configuration.en.md#network-exposure--api-authentication).
 
+<!-- ecosystem:start -->
 ## 🧩 Écosystème
 
 Trois projets open source, publiés sous le même espace Docker Hub, utilisables seuls et branchés entre eux par MCP :
