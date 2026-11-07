@@ -29,7 +29,7 @@ class FtsServiceTest {
     /** Doit refléter FtsService.INDEX_DIR (répertoire de persistance des index). */
     private static final Path INDEX_DIR = Path.of("./data/fts-index");
     private static final List<String> TEST_COLLECTIONS = List.of(
-            "coll-b7-race", "coll-b6-stale", "coll-b6-fresh", "coll-b6-down", "coll-header");
+            "coll-b7-race", "coll-b6-stale", "coll-b6-fresh", "coll-b6-down", "coll-header", "coll-flush");
 
     private ChromaDbClient chromaDb;
     private FtsService ftsService;
@@ -523,6 +523,24 @@ class FtsServiceTest {
         assertThat(Files.readString(target)).as("l'ancien index n'est pas tronqué").isEqualTo("ancien");
         try (var files = Files.list(dir)) {
             assertThat(files.map(p -> p.getFileName().toString())).containsExactly("coll.bin");
+        }
+    }
+
+    @Test
+    void flushedIndexIsPersistedAtomicallyAndReloadable() throws Exception {
+        TextChunk chunk = new TextChunk("c1", "alpha beta gamma", 0, "doc.txt", Map.of("sha256", "abc"));
+        ftsService.indexChunks(List.of(chunk), "coll-flush");
+
+        ftsService.flushDirtyIndices();
+
+        Path file = INDEX_DIR.resolve("coll-flush.bin");
+        assertThat(file).exists();
+        try (var files = Files.list(INDEX_DIR)) {
+            assertThat(files.map(p -> p.getFileName().toString()).filter(n -> n.startsWith("coll-flush")))
+                    .as("aucun fichier temporaire ne reste après l'écriture").containsExactly("coll-flush.bin");
+        }
+        try (java.io.ObjectInputStream in = new java.io.ObjectInputStream(Files.newInputStream(file))) {
+            assertThat(((BM25Index) in.readObject()).size()).isEqualTo(1);
         }
     }
 }
