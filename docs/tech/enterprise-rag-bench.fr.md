@@ -164,6 +164,20 @@ recherche : ces nombres servent à **comparer des réglages entre eux**, pas à 
 - Graphe d'entités : aucun changement des documents retrouvés sur les 16 questions concernées.
 - Outils de l'agent : 0 appel d'outil sur 12 questions avec un 7B ; sans outils, 8 réponses directes sur 12.
 
+### Retrieval seul (470 questions à documents de référence, `retrieve`)
+
+Recherche hybride, reranker ms-marco L6, 10 passages :
+
+| Seuil du reranker | recall@10 | MRR | documents hors référence @10 |
+|---|---|---|---|
+| aucun | 0,905 | 0,837 | 6,66 |
+| 0,1 | 0,812 | 0,788 | 3,59 |
+
+Un seuil de 0,1 divise le bruit par deux mais coûte 9 points de rappel : à réserver à un classement qui pénalise
+les documents en trop, jamais en défaut. Seuils 0,3 et 0,5, multi-query, MMR et rerankers `mmarco` et
+`bge-reranker-v2-m3` : **non mesurés** (la pile a été redémarrée en cours de chaîne ; les ONNX sont prêts dans
+`data/models/reranker-mmarco` et `reranker-bge`, voir `SPECTRA_RERANKER_ONNX_PATH`).
+
 Non mesuré : l'index BM25 en mémoire coûte ≈ 5 Ko par chunk, soit ≈ 9 Go extrapolés à 500 000 documents
 contre 2,5 à 4 Go de tas JVM. Le run complet suppose de revoir ce point.
 
