@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "c418eb40-f187-49b0-b546-a75ca9c2de50",
+  "status": "current",
+  "command": "deliver",
+  "type": "workflow",
+  "input": "/home/user/SpectraLLM/.archify/workflow-ingestion-20261107-083702/candidate.json",
+  "output": "/home/user/SpectraLLM/.archify/workflow-ingestion-20261107-083702/ingestion-workflow.html",
+  "specification": {
+    "sha256": "db617b46334be80904e88b9ce7e796f691c0e07725e32f628964ef6dd2588133",
+    "bytes": 8369
+  },
+  "artifact": {
+    "sha256": "4695e030481aec5eb295ed9d2b1eaa02b90bed9ee7823e5b47d7001c5a89829e",
+    "bytes": 850990
+  }
+}
