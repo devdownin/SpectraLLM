@@ -18,11 +18,25 @@ class FakeApi(BaseHTTPRequestHandler):
     def log_message(self, *_args):
         pass
 
+    def respond(self, data):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(json.dumps(data).encode())
+
+    def do_GET(self):
+        self.server.calls.append((self.path, {}, self.headers.get("Authorization")))
+        self.respond({"default_generation_settings": {"n_ctx": 8192}})
+
     def do_POST(self):
         request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-        self.server.calls.append((self.path, request, self.headers.get("X-API-Key")))
+        self.server.calls.append((self.path, request, self.headers.get("X-API-Key") or self.headers.get("Authorization")))
         if self.path == "/v1/chat/completions":
-            data = {"choices": []}
+            data = ({"choices": []} if request.get("model") == "gpt-5.4" else
+                    {"choices": [{"message": {"content": "42 [1]"}, "finish_reason": "stop"}]})
+        elif self.path == "/apply-template":
+            data = {"prompt": "\n".join(m["content"] for m in request["messages"])}
+        elif self.path == "/tokenize":
+            data = {"tokens": [0] * self.server.prompt_tokens}
         else:
             doc_id = GOLD if request["overrides"]["hybrid"] else "dsid_abcdef02"
             sources = [{"sourceFile": doc_id + ".txt"}]
@@ -31,10 +45,7 @@ class FakeApi(BaseHTTPRequestHandler):
             data = {"sources": sources, "answer": "42",
                     "durationMs": 2, "multiQueryApplied": request["overrides"].get("multiQuery"),
                     "selfRagApplied": request["overrides"].get("selfRag")}
-        payload = json.dumps(data).encode()
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(payload)
+        self.respond(data)
 
 
 class EnterpriseRagExperimentTest(unittest.TestCase):
@@ -55,6 +66,7 @@ class EnterpriseRagExperimentTest(unittest.TestCase):
                                             "context_tokens_per_request": 8192}))
         server = ThreadingHTTPServer(("127.0.0.1", 0), FakeApi)
         server.calls = []
+        server.prompt_tokens = 64
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         self.addCleanup(thread.join)
@@ -63,7 +75,8 @@ class EnterpriseRagExperimentTest(unittest.TestCase):
         self.server = server
         self.api = f"http://127.0.0.1:{server.server_port}"
         self.env = {**os.environ, "SPECTRA_API_KEY": "fixture-key", "LLM_API_KEY": "fixture-judge",
-                    "OPENAI_BASE_URL": self.api + "/v1", "LLM_PROVIDER": "openai"}
+                    "OPENAI_BASE_URL": self.api + "/v1", "LLM_PROVIDER": "openai",
+                    "LLM_MODEL_NAME": "gpt-5.4", "LLAMA_CPP_API_KEY": "fixture-llama"}
 
     def cli(self, *args, code=0):
         result = subprocess.run([sys.executable, str(SCRIPT), *map(str, args)],
@@ -123,6 +136,33 @@ class EnterpriseRagExperimentTest(unittest.TestCase):
             row = json.loads((self.root / variant / "records.jsonl").read_text())
             self.assertEqual(report["client-ms"][f"p95_{label}"], row["clientMs"])
 
+    def oracle(self, name, *options, code=0):
+        return self.cli("oracle", "--out", self.root / name, "--questions", self.questions,
+                        "--corpus-dir", self.corpus, "--profile", self.profile, "--api", self.api,
+                        "--model", "local-chat", *options, code=code)
+
+    def test_oracle_sends_only_gold_and_resumes(self):
+        (self.corpus / "dsid_abcdef02.txt").write_text("Unrelated document")
+        self.oracle("oracle", "--style", "detailed")
+        self.oracle("oracle", "--style", "detailed")
+        self.assertEqual([path for path, _, _ in self.server.calls],
+                         ["/props", "/apply-template", "/tokenize", "/v1/chat/completions"])
+        self.assertTrue(all(key == "Bearer fixture-llama" for _, _, key in self.server.calls))
+        payload = self.server.calls[-1][1]
+        self.assertIn("[1]\n42", payload["messages"][1]["content"])
+        self.assertNotIn("Unrelated document", payload["messages"][1]["content"])
+        self.assertIn("conditions and exceptions", payload["messages"][0]["content"])
+        row = json.loads((self.root / "oracle" / "records.jsonl").read_text())
+        self.assertEqual(row["document_ids"], [GOLD])
+        self.assertEqual(row["oracle"], {"promptTokens": 64, "finishReason": "stop"})
+
+    def test_oracle_rejects_oversized_prompt_before_generation(self):
+        self.server.prompt_tokens = 8000
+        result = self.oracle("too-long", code=1)
+        self.assertIn("dépassent les 8192 tokens", result.stderr)
+        self.assertEqual(self.server.calls[-1][0], "/tokenize")
+        self.assertEqual((self.root / "too-long" / "records.jsonl").read_text(), "")
+
     def test_judge_rejects_silent_failure_and_publishes_complete_results(self):
         self.variant("answer", "--self-rag", "on", mode="answer")
         self.assertTrue(self.server.calls[0][1]["overrides"]["selfRag"])
@@ -153,3 +193,9 @@ class EnterpriseRagExperimentTest(unittest.TestCase):
         self.assertTrue((variant / "results.json").is_file())
         comparison = self.cli("compare", variant, variant)
         self.assertEqual(json.loads(comparison.stdout)["score"]["mean_a"], 100.0)
+        self.oracle("oracle")
+        self.cli("judge", "--out", self.root / "oracle", "--evaluator-dir", evaluator,
+                 "--python", os.path.relpath(sys.executable))
+        report = json.loads(self.cli("compare", variant, self.root / "oracle").stdout)
+        self.assertEqual(set(report), {"score", "correct", "completeness"})
+        self.assertEqual(report["score"]["mean_diff"], 0)
