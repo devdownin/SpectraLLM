@@ -225,8 +225,6 @@ public class LlamaCppRuntimeOrchestrator {
         command.add(String.valueOf(threads));
         command.add("-b");
         command.add(String.valueOf(recommended.batchSize()));
-        command.add("-ub");
-        command.add(String.valueOf(recommended.batchSize()));
         command.add("--cache-type-k");
         command.add(recommended.cacheTypeK());
         command.add("--cache-type-v");

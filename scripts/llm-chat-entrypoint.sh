@@ -137,7 +137,9 @@ start_server() {
     --ctx-size "${CONTEXT}" \
     --parallel "${PARALLEL}"
   [ -n "${THREADS}" ] && set -- "$@" -t "${THREADS}"
-  [ -n "${BATCH}" ] && set -- "$@" -b "${BATCH}" -ub "${BATCH}"
+  # Garder le micro-lot de llama.cpp (512 par défaut) pour limiter la mémoire
+  # de calcul du préremplissage. LLM_CHAT_EXTRA_ARGS permet de le surcharger.
+  [ -n "${BATCH}" ] && set -- "$@" -b "${BATCH}"
   [ -n "${RECO_CACHE_TYPE_K}" ] && set -- "$@" --cache-type-k "${RECO_CACHE_TYPE_K}"
   [ -n "${RECO_CACHE_TYPE_V}" ] && set -- "$@" --cache-type-v "${RECO_CACHE_TYPE_V}"
   # LLM_CHAT_EXTRA_ARGS est volontairement éclaté en mots (word-splitting voulu).
