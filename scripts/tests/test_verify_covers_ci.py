@@ -36,6 +36,7 @@ JOB_TO_SECTION = {
 EXEMPT_JOBS = {
     "e2e": "lève la stack Docker complète et télécharge les modèles (plusieurs Go) : "
            "hors de portée d'une vérification avant commit",
+    "vector-store-integration": "requiert deux services Docker ChromaDB et Qdrant et leurs ports dédiés",
     "codecov": "publie la couverture vers un service externe ; ne vérifie rien en soi",
 }
 

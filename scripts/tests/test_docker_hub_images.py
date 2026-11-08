@@ -250,6 +250,7 @@ def test_the_default_namespace_is_declared_identically_everywhere():
 WORKFLOW_EXPRESSIONS = {
     "${{ github.event_name }}": "$EVENT_NAME",
     "${{ github.ref_name }}": "$REF_NAME",
+    "${{ github.ref_type }}": "$REF_TYPE",
 }
 
 
@@ -297,6 +298,7 @@ def workflow_tags(tmp_path, ref_name: str) -> list[str]:
             "HOME": str(Path.home()),
             "EVENT_NAME": "push",
             "REF_NAME": ref_name,
+            "REF_TYPE": "tag",
             "INPUT_VERSION": "",
             "DRY_RUN": "false",
             "INCLUDE_PROFILED": "false",

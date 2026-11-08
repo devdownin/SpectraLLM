@@ -52,6 +52,12 @@ jobs:
         curl -fsS --retry 20 --retry-delay 1 --retry-connrefused "$SPECTRA_TEST_QDRANT_URL/readyz"
     - name: Run vector store integration and MCP scope checks
       run: mvn -B -f backend/pom.xml -Dtest=QdrantPilotIntegrationTest,McpServerSmokeTest test
+    - name: Upload vector store coverage
+      uses: actions/upload-artifact@v4
+      with:
+        name: jacoco-vector-store-report
+        path: backend/target/site/jacoco/jacoco.xml
+        if-no-files-found: error
 
   # Le nom des GGUF par défaut est répété dans quatre langages de configuration
   # (shell, batch, YAML Compose, Java) qu'aucune variable commune ne peut
@@ -263,7 +269,7 @@ jobs:
 
   codecov:
     name: Upload coverage to Codecov
-    needs: [build, frontend, python-services]
+    needs: [build, frontend, python-services, vector-store-integration]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -274,6 +280,12 @@ jobs:
         with:
           name: jacoco-report
           path: jacoco
+
+      - name: Download vector store coverage report
+        uses: actions/download-artifact@v8
+        with:
+          name: jacoco-vector-store-report
+          path: jacoco-vector-store
 
       - name: Download Vitest coverage report
         uses: actions/download-artifact@v8
@@ -302,6 +314,6 @@ jobs:
       - name: Upload to Codecov
         uses: codecov/codecov-action@v5
         with:
-          files: jacoco/jacoco.xml,vitest/lcov.info,docparser/coverage.xml,reranker/coverage.xml,trainer/coverage.xml
+          files: jacoco/jacoco.xml,jacoco-vector-store/jacoco.xml,vitest/lcov.info,docparser/coverage.xml,reranker/coverage.xml,trainer/coverage.xml
           fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}
