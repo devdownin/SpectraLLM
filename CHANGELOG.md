@@ -8,6 +8,10 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 
 ## [Non publié]
 
+### Ajouté — benchmark Onyx
+
+- Lanceur EnterpriseRAG-Bench avec lots de réglage (120) et de validation (380), manifestes de reprise, jugement officiel et comparaisons appariées.
+
 ### Ajouté — sources de données synchronisées
 
 - Page Connecteurs FR/EN : catalogue dossier local, S3/MinIO et web/sitemap, assistant de configuration avec test, recherche, filtres, suivi des documents et historique.

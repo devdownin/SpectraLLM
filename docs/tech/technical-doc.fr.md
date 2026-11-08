@@ -2002,6 +2002,10 @@ Ces mesures constituent la baseline de performance de Spectra sur CPU-only (conf
 
 Ce script envoie des requêtes réelles à l'API Spectra et mesure les temps de réponse. L'option `--api-only` utilise les serveurs Docker déjà démarrés (pas de démarrage local de llama-server).
 
+Pour mesurer la qualité des réponses et du retrieval sur un corpus externe, utiliser le
+[protocole EnterpriseRAG-Bench d’Onyx](enterprise-rag-bench.fr.md#comparaison-reproductible-sur-120-questions).
+Il fixe les lots de questions et le corpus, puis compare les variantes question par question.
+
 ### Impact des optimisations GPU
 
 À titre indicatif, sur GPU NVIDIA avec 8 Go de VRAM (toutes couches GPU, cache `iq4_nl`) :
