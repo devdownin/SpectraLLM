@@ -9,8 +9,8 @@ type: software
 url: "https://github.com/devdownin/spectrallm"
 repository-code: "https://github.com/devdownin/spectrallm"
 license: AGPL-3.0-or-later
-version: 0.12.3
-date-released: "2026-10-19"
+version: 0.2.0
+date-released: "2026-11-08"
 authors:
   - name: "The SpectraLLM contributors"
 
