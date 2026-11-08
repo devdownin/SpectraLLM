@@ -139,16 +139,79 @@ final class QdrantStore {
         mutation.incrementAndGet();
     }
 
-    Map<String, Object> query(String name, List<Float> embedding, int limit, Map<String, Object> where) {
+    private int groupSize;
+    private Map<String, Object> searchParams = Map.of();
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void configureSearch(@Value("${spectra.qdrant.group-size:0}") int groupSize,
+                         @Value("${spectra.qdrant.hnsw-ef:0}") int ef,
+                         @Value("${spectra.qdrant.exact:false}") boolean exact,
+                         @Value("${spectra.qdrant.acorn:false}") boolean acorn,
+                         @Value("${spectra.qdrant.acorn-max-selectivity:0.4}") double selectivity) {
+        if (groupSize < 0 || groupSize > 10 || ef < 0 || !Double.isFinite(selectivity)
+                || selectivity < 0 || selectivity > 1) {
+            throw new IllegalArgumentException("Invalid Qdrant search settings");
+        }
+        this.groupSize = groupSize;
+        var params = new HashMap<String, Object>();
+        if (ef > 0) params.put("hnsw_ef", ef);
+        if (exact) params.put("exact", true);
+        if (acorn && !exact) params.put("acorn", Map.of("enable", true, "max_selectivity", selectivity));
+        searchParams = Map.copyOf(params);
+    }
+
+    boolean supportsBatch() {
+        // The batch endpoint accepts individual point queries, while grouping has its own endpoint.
+        return groupSize == 0;
+    }
+
+    private Map<String, Object> queryRequest(List<Float> embedding, int limit, Map<String, Object> where) {
         var body = new LinkedHashMap<String, Object>(Map.of("query", embedding, "limit", limit, "with_payload", true));
         if (where != null) body.put("filter", filter(where));
+        if (!searchParams.isEmpty()) body.put("params", searchParams);
+        return body;
+    }
+
+    Map<String, Object> query(String name, List<Float> embedding, int limit, Map<String, Object> where) {
+        var body = queryRequest(embedding, limit, where);
         List<Map<String, Object>> points;
         try {
+            if (groupSize > 0 && limit > groupSize) {
+                var grouped = new LinkedHashMap<>(body);
+                grouped.put("group_by", "metadata.sha256");
+                grouped.put("group_size", groupSize);
+                var result = object(call("POST", path(name) + "/points/query/groups", grouped));
+                var hits = rows(result.get("groups")).stream().flatMap(group -> rows(group.get("hits")).stream())
+                        .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+                if (hits.size() >= limit) {
+                    // Grouping excludes points without the grouping key. Keep historical chunks eligible.
+                    var legacy = new LinkedHashMap<>(body);
+                    var noSha = Map.of("is_empty", Map.of("key", "metadata.sha256"));
+                    legacy.put("filter", Map.of("must", where == null ? List.of(noSha) : List.of(filter(where), noSha)));
+                    hits.addAll(rows(object(call("POST", path(name) + "/points/query", legacy)).get("points")));
+                    hits.sort(java.util.Comparator.comparingDouble(
+                            (Map<String, Object> point) -> ((Number) point.get("score")).doubleValue()).reversed());
+                    return queryColumns(hits.subList(0, limit));
+                }
+                // A limited number of sources may still contain all of the evidence needed for the answer.
+            }
             points = rows(object(call("POST", path(name) + "/points/query", body)).get("points"));
         } catch (WebClientResponseException.BadRequest e) {
             if (dimension(name) != 0) throw e;
             points = List.of();
         }
+        return queryColumns(points);
+    }
+
+    List<Map<String, Object>> queryBatch(String name, List<List<Float>> embeddings, int limit,
+                                         Map<String, Object> where) {
+        var searches = embeddings.stream().map(embedding -> queryRequest(embedding, limit, where)).toList();
+        var results = rows(call("POST", path(name) + "/points/query/batch", Map.of("searches", searches)));
+        if (results.size() != searches.size()) throw new IllegalStateException("Incomplete Qdrant batch response");
+        return results.stream().map(result -> queryColumns(rows(result.get("points")))).toList();
+    }
+
+    private static Map<String, Object> queryColumns(List<Map<String, Object>> points) {
         var result = columns(points, List.of("documents", "metadatas"));
         result.put("distances", points.stream()
                 .map(p -> 1 - Math.clamp(((Number) p.get("score")).doubleValue(), -1.0, 1.0)).toList());
@@ -325,7 +388,9 @@ final class QdrantStore {
 
     private Object call(String method, String path, Object body) {
         var request = http.method(HttpMethod.valueOf(method)).uri(path);
-        String operation = path.endsWith("/points/query") ? "query"
+        String operation = path.endsWith("/points/query/groups") ? "groups"
+                : path.endsWith("/points/query/batch") ? "batch"
+                : path.endsWith("/points/query") ? "query"
                 : path.endsWith("/points/scroll") ? "scroll" : "other";
         long start = System.nanoTime();
         byte[] bytes;

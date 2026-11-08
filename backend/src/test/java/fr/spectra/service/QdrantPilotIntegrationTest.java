@@ -167,6 +167,33 @@ class QdrantPilotIntegrationTest {
         assertThat(facade.count(id)).isEqualTo(1);
     }
 
+    @Test
+    void groupedSearchDiversifiesDocumentsAndBatchKeepsQueryOrder() {
+        String url = System.getenv("SPECTRA_TEST_QDRANT_URL");
+        var metrics = new SimpleMeterRegistry();
+        var store = new QdrantStore(WebClient.builder().baseUrl(url).build(), url,
+                new com.fasterxml.jackson.databind.ObjectMapper(), metrics);
+        String name = "groups_" + UUID.randomUUID().toString().replace("-", "");
+        store.resolve(name, Map.of());
+        store.add(name, List.of("a1", "a2", "b1", "c1", "old"), List.of("a1", "a2", "b1", "c1", "old"),
+                List.of(Map.of("sha256", "a"), Map.of("sha256", "a"), Map.of("sha256", "b"),
+                        Map.of("sha256", "c"), Map.of("sourceFile", "legacy")),
+                List.of(List.of(1f, 0f), List.of(0.99f, 0.1f), List.of(0.5f, 0.5f), List.of(0f, 1f),
+                        List.of(0.8f, 0.2f)));
+
+        store.configureSearch(1, 128, true, false, 0.4);
+        assertThat(ChromaQueryResult.from(store.query(name, QUERY, 3, null)).ids())
+                .containsExactly("a1", "old", "b1");
+        assertThat(metrics.get("spectra.qdrant.http").tag("operation", "groups").timer().count()).isEqualTo(1);
+        assertThat(store.supportsBatch()).isFalse();
+
+        store.configureSearch(0, 128, false, true, 0.4);
+        var results = store.queryBatch(name, List.of(QUERY, List.of(0f, 1f)), 1, null);
+        assertThat(results.stream().map(ChromaQueryResult::from).flatMap(r -> r.ids().stream()))
+                .containsExactly("a1", "c1");
+        assertThat(metrics.get("spectra.qdrant.http").tag("operation", "batch").timer().count()).isEqualTo(1);
+    }
+
     private static List<String> ids(ChromaDbClient client, String id, RetrievalFilterResolver.ResolvedFilter filter) {
         return ChromaQueryResult.from(FilteredVectorSearch.query(client, id, QUERY, 3, filter)).ids();
     }

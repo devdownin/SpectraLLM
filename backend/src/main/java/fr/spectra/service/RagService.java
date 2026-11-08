@@ -1462,28 +1462,54 @@ public class RagService {
                     ? hybridSearchService.get().searchLexical(question, collectionName, retrieveCount, filter)
                     : hybridSearchService.get().search(question, embedding, collectionId, collectionName,
                             retrieveCount, filter);
-            List<String>              chunks    = new ArrayList<>(results.size());
-            List<Map<String, String>> metadatas = new ArrayList<>(results.size());
-            List<Double>              distances = new ArrayList<>(results.size());
-            List<Float>               bm25      = new ArrayList<>(results.size());
-            List<Double>              rrf       = new ArrayList<>(results.size());
-            for (HybridSearchService.HybridChunk hc : results) {
-                chunks.add(hc.text());
-                metadatas.add(hc.metadata() != null ? hc.metadata() : Map.of("sourceFile", hc.sourceFile()));
-                distances.add(hc.vectorDistance());
-                bm25.add(hc.bm25Score());
-                rrf.add(hc.rrfScore());
-            }
-            return new SingleQueryResult(chunks, metadatas, distances, bm25, rrf, !results.isEmpty());
-        } else {
-            ChromaQueryResult result = ChromaQueryResult.from(FilteredVectorSearch.query(
-                    chromaDbClient, collectionId, embedding, retrieveCount, filter));
-            // Score RRF de rang (k=60) : permet la fusion multi-query par RRF aussi en vectoriel pur.
-            List<Double> rrf = new ArrayList<>(result.documents().size());
-            for (int rank = 1; rank <= result.documents().size(); rank++) rrf.add(1.0 / (RRF_K + rank));
-            return new SingleQueryResult(result.documents(), result.metadatas(), result.distances(),
-                    null, rrf, false);
+            return hybridResult(results);
         }
+        return denseResult(FilteredVectorSearch.query(chromaDbClient, collectionId, embedding, retrieveCount, filter));
+    }
+
+    private static SingleQueryResult hybridResult(List<HybridSearchService.HybridChunk> results) {
+        return new SingleQueryResult(results.stream().map(HybridSearchService.HybridChunk::text).toList(),
+                results.stream().map(h -> h.metadata() != null ? h.metadata() : Map.of("sourceFile", h.sourceFile())).toList(),
+                results.stream().map(HybridSearchService.HybridChunk::vectorDistance).toList(),
+                results.stream().map(HybridSearchService.HybridChunk::bm25Score).toList(),
+                results.stream().map(HybridSearchService.HybridChunk::rrfScore).toList(), !results.isEmpty());
+    }
+
+    private static SingleQueryResult denseResult(Map<String, Object> raw) {
+        ChromaQueryResult result = ChromaQueryResult.from(raw);
+        List<Double> rrf = new ArrayList<>(result.documents().size());
+        for (int rank = 1; rank <= result.documents().size(); rank++) rrf.add(1.0 / (RRF_K + rank));
+        return new SingleQueryResult(result.documents(), result.metadatas(), result.distances(), null, rrf, false);
+    }
+
+    private List<SingleQueryResult> retrieveVariants(List<String> questions, String collectionId, String collectionName,
+                                                      int limit, boolean hybrid,
+                                                      RetrievalFilterResolver.ResolvedFilter filter) {
+        if (chromaDbClient.supportsNativeBatch()) {
+            try (var ignored = collectionLease(collectionName)) {
+                var contract = EmbeddingContract.orDefault(chromaDbClient.embeddingContract(collectionName));
+                var embeddings = embeddingService.embedBatch(
+                        questions.stream().map(question -> queryGuard.queryText(question, contract)).toList());
+                if (embeddings == null || embeddings.size() != questions.size()
+                        || embeddings.stream().anyMatch(vector -> vector == null || vector.isEmpty())) {
+                    throw new IllegalStateException("Incomplete embeddings for multi-query retrieval");
+                }
+                var vectors = chromaDbClient.queryVariants(collectionId, embeddings, limit, filter);
+                List<SingleQueryResult> results = new ArrayList<>(questions.size());
+                for (int i = 0; i < questions.size(); i++) {
+                    var raw = vectors.get(i);
+                    results.add(hybrid
+                            ? hybridResult(hybridSearchService.get().searchWithDenseResult(
+                                    questions.get(i), collectionId, collectionName, limit, filter, raw))
+                            : denseResult(raw));
+                }
+                return results;
+            } catch (RuntimeException e) {
+                log.warn("Batch Qdrant unavailable, retrying multi-query retrieval individually: {}", e.getMessage());
+            }
+        }
+        return questions.stream().map(question ->
+                executeSingleQuery(question, collectionId, collectionName, limit, hybrid, filter)).toList();
     }
 
     /**
@@ -1516,8 +1542,7 @@ public class RagService {
         boolean trackBm25 = true; // désactivé si un résultat n'a pas de scores BM25
         boolean trackRrf  = true; // désactivé si un résultat n'a pas de scores RRF (vectoriel pur)
 
-        for (String query : queries) {
-            SingleQueryResult r = executeSingleQuery(query, collectionId, collectionName, retrieveCount, useHybrid, filter);
+        for (SingleQueryResult r : retrieveVariants(queries, collectionId, collectionName, retrieveCount, useHybrid, filter)) {
             hybridApplied = hybridApplied || r.hybridApplied();
             if (r.bm25Scores() == null) trackBm25 = false;
             if (r.rrfScores()  == null) trackRrf  = false;

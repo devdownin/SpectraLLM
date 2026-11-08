@@ -125,3 +125,31 @@ paginées. Les autres opérations portent le tag `operation=other`.
 La recherche d’identifiants utilise `match.text` sur le champ `document`
 sans index texte. Le test d’intégration vérifie la sous-chaîne et la casse sur
 la version Qdrant épinglée. Conserver ce test lors des mises à niveau.
+
+## Diversité, recherche approchée et reformulations
+
+| Variable Compose | Défaut | Usage |
+| --- | --- | --- |
+| `SPECTRA_QDRANT_GROUP_SIZE` | `0` | Activer le regroupement des candidats denses par SHA documentaire, par exemple avec `2` ou `3`. Une recherche complémentaire conserve les passages historiques sans SHA. Si les groupes fournissent trop peu de candidats, la recherche standard complète le parcours. |
+| `SPECTRA_QDRANT_HNSW_EF` | `0` | Laisser Qdrant choisir, ou fixer la largeur de recherche HNSW pour un essai. |
+| `SPECTRA_QDRANT_EXACT` | `false` | Forcer la recherche exacte pour établir la référence du rappel ANN. |
+| `SPECTRA_QDRANT_ACORN` | `false` | Tester ACORN en recherche approchée avec des filtres sélectifs. |
+| `SPECTRA_QDRANT_ACORN_MAX_SELECTIVITY` | `0.4` | Seuil de sélectivité transmis à Qdrant quand ACORN est activé. |
+
+Le regroupement intervient sur les candidats denses, avant la fusion hybride et le
+reranking éventuel. Il s’agit d’une option à évaluer sur les questions dont la
+réponse exige plusieurs passages du même document. La branche BM25 conserve ses
+propres candidats.
+
+En mode multi-query, les variantes indépendantes utilisent un lot d’embeddings et
+un appel `query/batch` sur le chemin Qdrant natif. Le classement RRF, BM25 et les
+contrôles de visibilité restent appliqués par variante. Les requêtes individuelles
+prennent le relais si le lot échoue ou si le regroupement est activé. Le tag
+`operation` distingue `batch`, `groups` et `query` dans les métriques Qdrant.
+
+Sur un essai isolé de 50 000 vecteurs synthétiques de dimension 64, tous indexés
+par HNSW dans Qdrant 1.16.3, un filtre combiné conservait 1 % des points. Sur
+60 requêtes filtrées par réglage, le rappel@10 mesuré par recouvrement avec la
+recherche exacte était de 96,5 % pour `ef=128`, 99,5 % pour `ef=256` et 100 %
+pour `ef=128` avec ACORN. Le p95 moteur correspondant était de 1,09, 1,39 et
+5,45 ms. Refaire cette comparaison sur le corpus cible avant de choisir un réglage.

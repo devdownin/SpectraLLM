@@ -595,6 +595,33 @@ public class ChromaDbClient {
         return postQuery(collectionId, queryBody(queryEmbedding, nResults, where));
     }
 
+    boolean supportsNativeBatch() {
+        return qdrant != null && qdrant.supportsBatch();
+    }
+
+    List<Map<String, Object>> queryVariants(String collectionId, List<List<Float>> embeddings, int limit,
+                                            RetrievalFilterResolver.ResolvedFilter filter) {
+        try (var ignored = leaseId(collectionId)) {
+            var results = qdrant.queryBatch(collectionId, embeddings, limit, filter.qdrantWhere());
+            List<Map<String, Object>> accepted = new java.util.ArrayList<>(results.size());
+            for (int i = 0; i < results.size(); i++) {
+                var raw = results.get(i);
+                var visible = visibleRows(raw, true);
+                var rows = ChromaQueryResult.from(visible);
+                boolean rejected = rows.documents().size() != ChromaQueryResult.from(raw).documents().size()
+                        || rows.metadatas().stream().anyMatch(meta ->
+                                !filter.accepts(meta.get("sha256"), meta.get("sourceFile")));
+                if (rejected) {
+                    accepted.add(FilteredVectorSearch.query(this, collectionId, embeddings.get(i), limit, filter));
+                } else {
+                    recordDenseSearch("qdrant", "success");
+                    accepted.add(visible);
+                }
+            }
+            return accepted;
+        }
+    }
+
     private static Map<String, Object> queryBody(List<Float> queryEmbedding, int nResults, Map<String, Object> where) {
         Map<String, Object> body = new java.util.LinkedHashMap<>();
         body.put("query_embeddings", List.of(queryEmbedding));

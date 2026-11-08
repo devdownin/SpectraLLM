@@ -111,14 +111,6 @@ public class HybridSearchService {
                                     int topCandidates,
                                     RetrievalFilterResolver.ResolvedFilter filter) {
         RetrievalFilterResolver.ResolvedFilter docs = filter != null ? filter : RetrievalFilterResolver.ResolvedFilter.NONE;
-        SpectraProperties.HybridSearchProperties hybridProps =
-                props.hybridSearch() != null ? props.hybridSearch()
-                        : new SpectraProperties.HybridSearchProperties(true, 20, 1.0f);
-
-        int topBm25 = hybridProps.effectiveTopBm25();
-        float bm25Weight = hybridProps.effectiveBm25Weight();
-        float vecWeight = 1.0f;  // vector weight always 1
-
         // --- Run both searches in parallel, chaque source dégradant indépendamment ---
         // Si le vector store échoue, on garde les résultats BM25 (et inversement) plutôt
         // que de tout perdre — c'est précisément l'intérêt d'une recherche hybride.
@@ -130,6 +122,27 @@ public class HybridSearchService {
                     log.warn("Hybrid search: requête vectorielle échouée, dégradation BM25-only: {}", ex.getMessage());
                     return null;
                 });
+
+        return fuse(question, collectionId, collectionName, topCandidates, docs, vectorFuture, queryEmbedding == null);
+    }
+
+    List<HybridChunk> searchWithDenseResult(String question, String collectionId, String collectionName,
+                                           int topCandidates, RetrievalFilterResolver.ResolvedFilter filter,
+                                           Map<String, Object> vectorResult) {
+        return fuse(question, collectionId, collectionName, topCandidates, filter,
+                CompletableFuture.completedFuture(vectorResult), false);
+    }
+
+    private List<HybridChunk> fuse(String question, String collectionId, String collectionName, int topCandidates,
+                                   RetrievalFilterResolver.ResolvedFilter docs,
+                                   CompletableFuture<Map<String, Object>> vectorFuture, boolean missingEmbedding) {
+        SpectraProperties.HybridSearchProperties hybridProps =
+                props.hybridSearch() != null ? props.hybridSearch()
+                        : new SpectraProperties.HybridSearchProperties(true, 20, 1.0f);
+
+        int topBm25 = hybridProps.effectiveTopBm25();
+        float bm25Weight = hybridProps.effectiveBm25Weight();
+        float vecWeight = 1.0f;  // vector weight always 1
 
         CompletableFuture<List<BM25Index.ScoredDoc>> bm25Future = CompletableFuture
                 .supplyAsync(() -> docs.active()
@@ -156,7 +169,7 @@ public class HybridSearchService {
         ChromaQueryResult vector = ChromaQueryResult.from(vectorResult);
         List<String> vecDocs = vector.documents();
         if (retrievalMeters != null && vecDocs.isEmpty() && !bm25Results.isEmpty()) {
-            String reason = queryEmbedding == null ? "no_embedding" : vectorResult == null ? "dense_error" : "dense_empty";
+            String reason = missingEmbedding ? "no_embedding" : vectorResult == null ? "dense_error" : "dense_empty";
             retrievalMeters.counter("spectra.retrieval.bm25.only", "reason", reason).increment();
         }
         List<Map<String, String>> vecMetas = vector.metadatas();
