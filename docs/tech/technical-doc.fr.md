@@ -23,7 +23,7 @@ L'inférence repose sur [llama-cpp-turboquant](https://github.com/TheTom/llama-c
 | Inférence LLM (chat) | llama-cpp-turboquant (`llama-server`) | master | API OpenAI-compatible `/v1/chat/completions` |
 | Inférence LLM (embeddings) | llama-cpp-turboquant (`llama-server`) | master | API OpenAI-compatible `/v1/embeddings` |
 | Format modèle | GGUF | v3 | Standard llama.cpp, quantization Q4–Q8 |
-| Base vectorielle | ChromaDB | latest | API v2 uniquement |
+| Base vectorielle | Qdrant | v1.16.3 | API REST |
 | Extraction PDF | `pdftotext` (poppler-utils) | — | Sous-processus, hors heap JVM |
 | Extraction DOCX | Apache POI (XWPF) | — | `.docx` uniquement |
 | Extraction HTML | jsoup 1.18.1 | — | Parsing DOM, suppression éléments non-contenu |
@@ -46,7 +46,7 @@ L'inférence repose sur [llama-cpp-turboquant](https://github.com/TheTom/llama-c
 │              ┌─────────────────┼───────────────┬──────────┐     │
 │              ▼                 ▼               ▼          ▼     │
 │     ┌──────────────┐ ┌──────────────┐ ┌──────────┐ ┌──────────┐│
-│     │ llama-cpp-   │ │ llama-cpp-   │ │chromadb  │ │browser-  ││
+│     │ llama-cpp-   │ │ llama-cpp-   │ │qdrant    │ │browser-  ││
 │     │ chat         │ │ embed        │ │  :8000   │ │ less     ││
 │     │ (llama-server│ │ (llama-server│ └──────────┘ │  :3000   ││
 │     │  :8081       │ │  :8082       │              └──────────┘│
@@ -58,12 +58,12 @@ L'inférence repose sur [llama-cpp-turboquant](https://github.com/TheTom/llama-c
 Aucun service interne n'est exposé sur le réseau hôte. Seul `spectra-api` communique avec eux :
 - `http://llm-chat:8081` — inférence chat
 - `http://llm-embed:8082` — embeddings
-- `http://chromadb:8000` — base vectorielle (API v2)
+- `http://qdrant:6333` — base vectorielle (API REST)
 - `http://browserless:3000` — rendu Chrome headless (URL ingestion)
 - `http://reranker:8000` — Cross-Encoder re-ranking (optionnel, port hôte 8002)
 - `http://docparser:8001` — parsing PDF layout-aware (optionnel, port hôte 8003)
 
-**Health checks** : `llm-chat` et `llm-embed` utilisent `curl -sf http://localhost:{port}/health` (curl disponible dans l'image llama.cpp). `spectra-api` utilise `wget -qO-` sur `/actuator/health` (wget disponible dans l'image eclipse-temurin). `chromadb` utilise `/dev/tcp` bash natif sur `/api/v2/heartbeat` (ni curl ni wget disponibles dans l'image ChromaDB). La dépendance de démarrage suit la chaîne : `chromadb` → `spectra-api` → `frontend`. `llm-chat` et `llm-embed` en sont INDÉPENDANTS : leurs entrypoints attendent le GGUF en boucle au lieu d'échouer, si bien qu'aucun autre service n'a besoin de les attendre. Corollaire à connaître en exploitation : la stack peut être « healthy » de bout en bout alors que le modèle de chat finit encore de charger. C'est ce que le composant `llmChat` de `/actuator/health` rend visible (`state` : `ready`, `loading` ou `unreachable`). Il ne renvoie JAMAIS `DOWN` — un modèle en cours de chargement est un état de démarrage normal — et reste hors du groupe `readiness`, que vise le healthcheck Compose : l'y faire entrer rendrait le démarrage du frontend tributaire du chargement du modèle.
+**Health checks** : `llm-chat` et `llm-embed` utilisent `curl -sf http://localhost:{port}/health` (curl disponible dans l'image llama.cpp). `spectra-api` utilise `wget -qO-` sur `/actuator/health` (wget disponible dans l'image eclipse-temurin). `qdrant` utilise `/dev/tcp` bash natif sur `/readyz` (ni curl ni wget disponibles dans l'image Qdrant). La dépendance de démarrage suit la chaîne : `qdrant` → `spectra-api` → `frontend`. `llm-chat` et `llm-embed` en sont INDÉPENDANTS : leurs entrypoints attendent le GGUF en boucle au lieu d'échouer, si bien qu'aucun autre service n'a besoin de les attendre. Corollaire à connaître en exploitation : la stack peut être « healthy » de bout en bout alors que le modèle de chat finit encore de charger. C'est ce que le composant `llmChat` de `/actuator/health` rend visible (`state` : `ready`, `loading` ou `unreachable`). Il ne renvoie JAMAIS `DOWN` — un modèle en cours de chargement est un état de démarrage normal — et reste hors du groupe `readiness`, que vise le healthcheck Compose : l'y faire entrer rendrait le démarrage du frontend tributaire du chargement du modèle.
 
 ### Diagramme de flux de données
 
@@ -96,7 +96,7 @@ Aucun service interne n'est exposé sur le réseau hôte. Seul `spectra-api` com
 [EmbeddingService] → POST http://llm-embed:8082/v1/embeddings
             │  model="nomic-embed-text", batch size 2048, retry exponentiel (1s/2s/4s)
             ▼
-[ChromaDB] API v2 — collection "spectra_documents"
+[Qdrant] REST — collection "spectra_documents"
             │
             ▼
 [DatasetGeneratorService] → POST http://llm-chat:8081/v1/chat/completions
@@ -108,7 +108,7 @@ Aucun service interne n'est exposé sur le réseau hôte. Seul `spectra-api` com
 [ModelRegistryService] → data/models/registry.json
             │  Enregistre le modèle produit avec source, type, alias
             ▼
-[RagService] → POST /v1/embeddings (requête) + ChromaDB + POST /v1/chat/completions
+[RagService] → POST /v1/embeddings (requête) + Qdrant + POST /v1/chat/completions
             │  Filtre qualité : chunks > seuil distance cosinus exclus du contexte
             ▼
 [Réponse sourcée avec durationMs]
@@ -445,8 +445,8 @@ Pipeline en 8 étapes :
 - Corps : `{"model": "nomic-embed-text", "input": "<texte>"}`
 - Réponse : `{"data": [{"embedding": [...float...]}]}`
 - Retry exponentiel : 3 tentatives, délais 1 s / 2 s / 4 s
-- Storage : ChromaDB API v2
-- **Buffer WebClient étendu** à 16 Mo pour ChromaDB (réponses `getAllDocuments()` dépassent 256 Ko sur 400+ chunks)
+- Storage : Qdrant REST
+- **Buffer WebClient étendu** à 64 Mio pour Qdrant (réponses `getAllDocuments()` dépassent 256 Ko sur 400+ chunks)
 
 > **Compatibilité vectorielle :** les vecteurs produits par `nomic-embed-text-v1.5.Q4_K_M.gguf` ne sont pas interchangeables avec ceux produits par la version Ollama du même modèle (différences de quantization et de normalisation). Tout changement de modèle d'embedding impose une ré-ingestion complète.
 
@@ -461,7 +461,7 @@ Source d'ingestion alternative aux uploads/URLs : un consumer Kafka alimente le 
 | `KafkaConfig` | `ConsumerFactory<String,byte[]>`, container factory (`AckMode.MANUAL`), `DefaultErrorHandler` + `DeadLetterPublishingRecoverer`, `KafkaTemplate` producteur DLT |
 | `KafkaIngestionListener` | `@KafkaListener` : mapping clé→identité, métriques, délégation à l'upsert |
 | `KafkaPayloadMapper` | Mapping optionnel : extraction d'un champ JSON (contenu) + champs → métadonnées |
-| `IngestionService.upsertFromStream(...)` | Delete-by-source (ChromaDB + BM25) puis réindexation |
+| `IngestionService.upsertFromStream(...)` | Delete-by-source (Qdrant + BM25) puis réindexation |
 | `StreamSourceEntity` / `StreamSourceRepository` | État par clé métier (`content_hash`, `version`, `last_updated_at`) — table `kafka_stream_source` |
 | `KafkaStreamRetentionService` | Cron de purge des sources périmées (`retention-ttl-days`) |
 
@@ -634,7 +634,7 @@ les chemins transmis sont absolus et calculés côté applicatif, un montage div
 
 ### `RagContext` — record interne
 
-La phase de retrieval (embed → ChromaDB → rerank → sources) est encapsulée dans un record `RagContext` retourné par `retrieveContext(QueryRequest)`. Ce record est consommé par `query()` (réponse synchrone) et `queryStream()` (streaming SSE), évitant toute duplication de la logique de retrieval.
+La phase de retrieval (embed → Qdrant → rerank → sources) est encapsulée dans un record `RagContext` retourné par `retrieveContext(QueryRequest)`. Ce record est consommé par `query()` (réponse synchrone) et `queryStream()` (streaming SSE), évitant toute duplication de la logique de retrieval.
 
 ### Streaming SSE (`queryStream`)
 
@@ -800,7 +800,7 @@ La recherche vectorielle pure peut rater des termes techniques précis (codes de
 | Classe | Rôle |
 |--------|------|
 | `BM25Index` | BM25Okapi en mémoire, thread-safe (`ReentrantReadWriteLock`). Tokeniseur Unicode (accents FR inclus). k1=1.5, b=0.75. |
-| `FtsService` | Un `BM25Index` par collection. Rebuild asynchrone au démarrage depuis ChromaDB. Mis à jour à chaque ingestion / suppression. |
+| `FtsService` | Un `BM25Index` par collection. Rebuild asynchrone au démarrage depuis Qdrant. Mis à jour à chaque ingestion / suppression. |
 | `HybridSearchService` | Lance vecteur + BM25 en parallèle (`CompletableFuture`). Fusionne via RRF. Activé par `@ConditionalOnProperty`. |
 
 **Reciprocal Rank Fusion (RRF) :**
@@ -826,12 +826,12 @@ Démarrage :
 
 Ingestion :
   IngestionTaskExecutor.ingestOne()
-    → ChromaDbClient.addDocuments()   [vecteurs → ChromaDB]
+    → ChromaDbClient.addDocuments()   [vecteurs → Qdrant]
     → FtsService.indexChunks()        [texte → BM25Index]
 
 Suppression :
   DocumentController.deleteDocument()
-    → ChromaDbClient.deleteBySource()   [ChromaDB]
+    → ChromaDbClient.deleteBySource()   [Qdrant]
     → FtsService.removeBySource()       [BM25Index]
 ```
 
@@ -958,7 +958,7 @@ spectra:
     query-count: ${SPECTRA_MULTI_QUERY_COUNT:2}   # variantes générées (hors question originale)
 ```
 
-**Coût :** 1 appel LLM (génération des variantes) + N appels embedding + N requêtes ChromaDB. Avec `query-count=2` et nomic-embed-text, latence additionnelle typique : 300–800 ms.
+**Coût :** 1 appel LLM (génération des variantes) + N appels embedding + N requêtes Qdrant. Avec `query-count=2` et nomic-embed-text, latence additionnelle typique : 300–800 ms.
 
 **Fallback :** si le LLM retourne une réponse vide ou identique à la question originale, le pipeline revient au retrieval simple sur la question originale.
 
@@ -1101,7 +1101,7 @@ frontend/
 │   │   ├── Datasets.tsx      ← pipeline 3 étapes + polling temps réel
 │   │   ├── FineTuning.tsx    ← formulaire + step bar + historique API
 │   │   ├── Playground.tsx    ← chat RAG · sélecteur de modèle · sliders temp/top-p
-│   │   ├── Dashboard.tsx     ← 3 cartes (Chat · Embed · ChromaDB) + modèle actif
+│   │   ├── Dashboard.tsx     ← 3 cartes (Chat · Embed · Qdrant) + modèle actif
 │   │   ├── Comparison.tsx    ← tableau comparatif modèles
 │   │   └── Optimization.tsx  ← ablation A/B (gain RAG/fine-tuning) + graphes recharts
 │   ├── components/charts/AblationCharts.tsx  ← barres ±σ, Pareto coût/qualité, waterfall
@@ -1115,7 +1115,7 @@ frontend/
 **Dashboard — service health (3 cartes) :**
 - `Chat` : trouve le service `llama-cpp` ; affiche `details.activeModel`
 - `Embed` : trouve `llm-embed` ; affiche `details.activeModel` ; indicateur secondary (bleu-vert)
-- `ChromaDB` : affiche `available` + nombre de chunks depuis les stats dataset
+- `Qdrant` : affiche `available` + nombre de chunks depuis les stats dataset
 
 **Dataset Pipelines — ingestion URL :**
 - Barre URL sous la zone de dépôt fichiers : `<input type="url">` + bouton **Ingest URL**
@@ -1666,14 +1666,14 @@ GET /api/status
         }
       },
       {
-        "name": "chromadb",
+        "name": "qdrant",
         "available": true
       }
     ]
   }
 
 GET /api/status/deep
-  Vérifie les 3 services (chat + embed + chromadb)
+  Vérifie les 3 services (chat + embed + qdrant)
   → 200 {"status": "UP", ...} si tous disponibles
   → 503 {"status": "DOWN", ...} si au moins un est down
 
@@ -1682,7 +1682,7 @@ POST /api/query
     "question": "...",
     "maxContextChunks": 2,      ← chunks finaux passés au LLM (défaut 5, max 20)
     "topCandidates": 20,        ← candidats récupérés avant re-ranking (défaut 20, max 100)
-    "collection": "optional",   ← collection ChromaDB cible (défaut : collection configurée)
+    "collection": "optional",   ← collection Qdrant cible (défaut : collection configurée)
     "temperature": 0.7,         ← température de génération [0.0–2.0] (défaut 0.7)
     "topP": 0.9                 ← nucleus sampling [0.0–1.0] (défaut 0.9)
   }
@@ -1812,7 +1812,7 @@ Ces `.so` sont copiés depuis le stage `llama_cpp_build` vers `llama_cpp_runtime
 | `SPECTRA_LLM_CHAT_MODEL` | `spectra-domain` | Alias du modèle (doit correspondre à `-a` de llama-server) |
 | `SPECTRA_LLM_EMBEDDING_BASE_URL` | `http://llm-embed:8082` | URL interne du serveur embedding |
 | `SPECTRA_LLM_EMBEDDING_MODEL` | `nomic-embed-text` | Alias du modèle d'embedding |
-| `SPECTRA_CHROMADB_BASE_URL` | `http://chromadb:8000` | URL ChromaDB |
+| `SPECTRA_QDRANT_BASE_URL` | `http://qdrant:6333` | URL Qdrant |
 | `SPECTRA_INGESTION_BROWSERLESS_URL` | `http://browserless:3000` | URL du service Chrome headless pour le rendu JS |
 | `SPECTRA_LAYOUT_PARSER_ENABLED` | `false` | Active le parsing PDF layout-aware (`true` pour activer) |
 | `SPECTRA_LAYOUT_PARSER_URL` | `http://docparser:8001` | URL interne du service docparser |
@@ -1887,9 +1887,9 @@ Le circuit breaker `llm-chat` est configuré via `@CircuitBreaker(name="llm-chat
 
 Tomcat supprime les fichiers temporaires multipart à la fin de la requête HTTP. Les `MultipartFile` sont copiés dans des fichiers persistants (`Files.copy`) **avant** le retour du contrôleur, puis nettoyés dans le `finally` du traitement asynchrone.
 
-### Buffer WebClient ChromaDB
+### Buffer WebClient Qdrant
 
-La réponse de `getAllDocuments()` pour 400+ chunks dépasse 256 Ko (buffer par défaut Spring WebClient). Le client ChromaDB est configuré avec `ExchangeStrategies` à 16 Mo.
+La réponse de `getAllDocuments()` pour 400+ chunks dépasse 256 Ko (buffer par défaut Spring WebClient). Le client Qdrant fixe une limite de 64 Mio par réponse. Les parcours volumineux sont paginés.
 
 ### Encodage UTF-8 et curl sur Windows
 
@@ -1991,7 +1991,7 @@ Ces mesures constituent la baseline de performance de Spectra sur CPU-only (conf
 
 **Lecture des résultats :**
 - Le débit de 36,7 tokens/s est la vitesse de génération pure (hors temps de préfill du contexte). Une réponse de 100 tokens prend environ 2,7 s.
-- Le RAG bout en bout (~18 s) inclut : embedding de la question (~0,8 s) + recherche ChromaDB (<0,1 s) + génération LLM (~17 s). Le goulot est exclusivement la génération.
+- Le RAG bout en bout (~18 s) inclut : embedding de la question (~0,8 s) + recherche Qdrant (<0,1 s) + génération LLM (~17 s). Le goulot est exclusivement la génération.
 - L'embedding à 639 vecteurs/s signifie qu'un document de 100 chunks (~50 pages) s'indexe en ~10 s.
 
 ### Reproduire les benchmarks
@@ -2029,7 +2029,7 @@ Il fixe les lots de questions et le corpus, puis compare les variantes question 
 | `pullModel` non supporté | `POST /api/fine-tuning/models/{name}/pull` lève une exception | Les modèles doivent être gérés localement (téléchargement manuel GGUF) |
 | Paires dataset en mémoire | Perdues au redémarrage du conteneur | Export JSONL avant redémarrage |
 | `.doc` non supporté | Apache POI XWPF ne lit pas le format binaire OLE2 | Convertir en `.docx` |
-| ChromaDB API v2 uniquement | L'API v1 retourne 501 | Ne pas rétrograder l'image ChromaDB |
+| Qdrant REST | La pile vérifie `/readyz` avant le démarrage du backend | Conserver une version épinglée |
 | Historique jobs en mémoire | Perdu au redémarrage de l'API | Persistance DB non implémentée |
 | Ingestion URL : pas d'authentification | Pages derrière login inaccessibles | Télécharger manuellement et uploader comme fichier |
 | Ingestion URL : max 20 URLs par requête | Volume limité par appel API | Effectuer plusieurs appels successifs |

@@ -13,7 +13,7 @@
 *   **Processing Pipeline:**
     *   **Extraction:** Integration with Apache POI (DOCX), Jackson (JSON/XML), and PDFBox/Tika (PDF).
     *   **Services:** `TextCleanerService` for OCR and Unicode normalization.
-*   **Vector Database:** Integration with ChromaDB (API v2) via a dedicated Java client or REST templates.
+*   **Vector Database:** Integration with Qdrant (REST API) via a dedicated Java client or REST templates.
 *   **Orchestration:** Spring Batch or Quartz for managing long-running fine-tuning jobs.
 
 ## 3. Machine Learning Interface

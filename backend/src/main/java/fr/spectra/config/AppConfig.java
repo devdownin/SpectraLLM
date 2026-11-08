@@ -75,6 +75,16 @@ public class AppConfig {
     }
 
     @Bean
+    public WebClient qdrantWebClient(
+            @org.springframework.beans.factory.annotation.Value("${spectra.qdrant.base-url:http://qdrant:6333}") String baseUrl,
+            @org.springframework.beans.factory.annotation.Value("${spectra.qdrant.api-key:}") String apiKey) {
+        var builder = WebClient.builder().baseUrl(baseUrl).clientConnector(connector(Duration.ofSeconds(60)))
+                .codecs(c -> c.defaultCodecs().maxInMemorySize(64 * 1024 * 1024));
+        if (!apiKey.isBlank()) builder.defaultHeader("api-key", apiKey);
+        return builder.build();
+    }
+
+    @Bean
     public WebClient chromaDbWebClient(SpectraProperties props) {
         String baseUrl = props.chromadb() != null && props.chromadb().baseUrl() != null
                 ? props.chromadb().baseUrl()

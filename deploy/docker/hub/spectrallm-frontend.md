@@ -23,10 +23,11 @@
 
 The guided FR/EN interface for the whole journey — ingestion, playground with cited sources, fine-tuning, evaluation. Static assets built with Vite and served by Nginx on **port 80**, which also reverse-proxies `/api` to the backend.
 
-**This image does not run alone.** It needs `compagnonsdudev/spectrallm` (the backend), a ChromaDB vector store and two llama.cpp servers. Everything is wired by the project's Compose file:
+**This image does not run alone.** It needs `compagnonsdudev/spectrallm` (the backend), a vector store (Qdrant on the current source branch) and two llama.cpp servers. Everything is wired by the project's Compose file:
 
 ```bash
 git clone https://github.com/devdownin/SpectraLLM.git && cd SpectraLLM
+git switch --detach "$(git tag --list 'v[0-9]*' --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)"
 ./scripts/setup.sh --download-embed --download-chat
 
 docker compose --project-directory . \
@@ -40,6 +41,9 @@ docker compose --project-directory . \
 Then open **http://localhost**. The full walkthrough lives on the [backend image's page](https://hub.docker.com/r/compagnonsdudev/spectrallm).
 
 ---
+
+Use the Compose files from the same Git release tag as the Docker images. The vector service
+and its storage layout depend on that release. Qdrant uses `data/qdrant` on a fresh instance.
 
 ## Tags
 

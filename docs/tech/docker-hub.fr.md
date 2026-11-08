@@ -4,7 +4,7 @@
 > démarrer la pile **sans rien construire** une fois qu'elles y sont.
 
 Toutes les images **tierces** de la pile viennent déjà d'un registre : `llama.cpp`,
-`chromadb`, `kafka`. Les deux images que Spectra **construit** — le backend Java et le
+`qdrant`, `kafka`. Les deux images que Spectra **construit** — le backend Java et le
 frontend — ne venaient de nulle part : chaque utilisateur les bâtissait chez lui. C'est
 plusieurs minutes de `mvn package` et de build Vite au premier démarrage, et un échec net
 derrière un réseau d'entreprise qui filtre Maven Central ou le registre npm — pour un
@@ -264,9 +264,12 @@ SPECTRA_IMAGE_TAG=0.8.0                   # « 0.8 » = la série ; « latest »
 Rien à renseigner dans le cas courant : **le défaut de l'overlay est déjà épinglé** sur la
 dernière version publiée. Ces variables servent à s'en écarter — suivre la série, suivre
 `latest`, ou revenir en arrière. Le raisonnement est celui qui vaut déjà pour
-`LLAMA_CPP_IMAGE_TAG` et `CHROMADB_IMAGE_TAG`, avec un précédent concret dans ce dépôt : le
-tag `latest` de ChromaDB a déplacé son chemin de persistance sans un message, et l'index
-vectoriel repartait de zéro à chaque `docker compose down`.
+`LLAMA_CPP_IMAGE_TAG` et `QDRANT_IMAGE_TAG`. Utilisez les fichiers Compose du tag correspondant aux images pour conserver les dépendances compatibles.
+
+Les changements apportés à `deploy/docker/hub/` sur `main` déclenchent uniquement la
+mise à jour des pages Docker Hub. La construction des images reste associée aux tags de version
+et au lancement manuel. GitHub Pages publie la [page de présentation](https://devdownin.github.io/SpectraLLM/)
+quand son fichier source change sur `main`.
 
 ### Ce que l'overlay ne couvre pas
 

@@ -35,7 +35,7 @@ It is one of **two** images published for this project:
 | **`compagnonsdudev/spectrallm`** | Backend — API, RAG pipeline, document store, fine-tuning | 8080 |
 | **`compagnonsdudev/spectrallm-frontend`** | Web interface — React served by Nginx | 80 |
 
-Neither runs alone. A working Spectra stack is five containers: these two, a **ChromaDB** vector store, and **two llama.cpp servers** — one for chat, one for embeddings. The Compose file below wires all five together.
+Neither runs alone. A working Spectra stack is five containers: these two, a vector store (**Qdrant** on the current source branch), and **two llama.cpp servers** — one for chat, one for embeddings. The Compose file below wires all five together.
 
 ---
 
@@ -43,6 +43,7 @@ Neither runs alone. A working Spectra stack is five containers: these two, a **C
 
 ```bash
 git clone https://github.com/devdownin/SpectraLLM.git && cd SpectraLLM
+git switch --detach "$(git tag --list 'v[0-9]*' --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)"
 
 # GGUF weights (~4.8 GB for the defaults: 4.7 GB chat + 81 MB embedding) — data, not image layers
 ./scripts/setup.sh --download-embed --download-chat
@@ -65,6 +66,9 @@ Then open **http://localhost**, drop a PDF on the Ingestion page, and start aski
 Prefer the guided path? `./scripts/start.sh --first-run --hub` does the download, pulls these images, starts the stack and opens the browser — without `--hub` it *builds* the images instead.
 
 ---
+
+Use the Compose files from the same Git release tag as the Docker images. The vector service
+and its storage layout depend on that release. Qdrant uses `data/qdrant` on a fresh instance.
 
 ## Tags
 

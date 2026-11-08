@@ -5,6 +5,7 @@ import fr.spectra.dto.ServiceStatus;
 import fr.spectra.model.TextChunk;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -15,6 +16,7 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
@@ -110,11 +112,54 @@ public class ChromaDbClient {
     public String beginReindex(String name) {
         String id = resolveCollectionIdUnchecked(name);
         if (maintenance != null) maintenance.begin(name, id);
+        if (qdrant != null) qdrant.beginRebuild(id);
         return id;
     }
 
     public void completeReindex(String name) {
         if (maintenance != null) maintenance.complete(name);
+    }
+
+    private QdrantStore qdrant;
+    private QdrantRetrievalPilot qdrantPilot;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setQdrantStore(QdrantStore store) {
+        this.qdrant = store;
+    }
+
+    String vectorEngine() {
+        return qdrant != null ? "qdrant" : "chroma";
+    }
+    private MeterRegistry retrievalMeters;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setRetrievalMeters(MeterRegistry registry) {
+        this.retrievalMeters = registry;
+    }
+
+    void recordDenseSearch(String engine, String outcome) {
+        if (retrievalMeters != null) {
+            retrievalMeters.counter("spectra.retrieval.dense", "engine", engine, "outcome", outcome).increment();
+        }
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setQdrantRetrievalPilot(QdrantRetrievalPilot pilot) {
+        this.qdrantPilot = pilot;
+    }
+
+    Optional<Map<String, Object>> queryPilot(String collectionId, List<Float> embedding, int topN,
+                                             RetrievalFilterResolver.ResolvedFilter filter) {
+        if (qdrant != null || qdrantPilot == null || !qdrantPilot.serves(collectionId)) return Optional.empty();
+        try (var collectionLease = leaseId(collectionId)) {
+            var result = qdrantPilot.query(embedding, topN, filter);
+            recordDenseSearch("qdrant", "success");
+            return Optional.of(result);
+        } catch (RuntimeException e) {
+            recordDenseSearch("qdrant", "error");
+            throw e;
+        }
     }
 
     private StreamVersionVisibility streamVersionVisibility;
@@ -165,20 +210,25 @@ public class ChromaDbClient {
         this.modelRegistry = modelRegistry;
     }
 
+    private String vectorUrl() {
+        return qdrant == null ? props.baseUrl() : qdrant.baseUrl();
+    }
+
     public ServiceStatus checkHealth() {
         long start = System.currentTimeMillis();
         try {
-            webClient.get()
+            if (qdrant != null) qdrant.ready();
+            else webClient.get()
                     .uri("/api/v2/heartbeat")
                     .retrieve()
                     .bodyToMono(Map.class)
                     .block(TIMEOUT_DEFAULT);
             long elapsed = System.currentTimeMillis() - start;
-            return new ServiceStatus("chromadb", props.baseUrl(), true, "ok", elapsed, Map.of());
+            return new ServiceStatus(qdrant == null ? "chromadb" : "qdrant", vectorUrl(), true, "ok", elapsed, Map.of());
         } catch (Exception e) {
             long elapsed = System.currentTimeMillis() - start;
-            log.warn("ChromaDB indisponible: {}", e.getMessage());
-            return ServiceStatus.unavailable("chromadb", props.baseUrl(), elapsed);
+            log.warn("{} indisponible: {}", vectorEngine(), e.getMessage());
+            return ServiceStatus.unavailable(qdrant == null ? "chromadb" : "qdrant", vectorUrl(), elapsed);
         }
     }
 
@@ -306,6 +356,11 @@ public class ChromaDbClient {
         // Estampille systématiquement le modèle d'embedding actif ; pour une collection
         // déjà existante, get_or_create ignore ces métadonnées et renvoie l'estampille d'origine.
         Map<String, Object> stamp = embeddingStamp();
+        if (qdrant != null) {
+            var response = qdrant.resolve(name, stamp);
+            return new CollectionRef(name, extractEmbeddingStamp(response), extractPromptScheme(response),
+                    collectionTextVersion(response));
+        }
 
         // ChromaDB 1.x : objet `configuration.hnsw`
         Map<String, Object> modern = withStamp(Map.of(
@@ -423,6 +478,10 @@ public class ChromaDbClient {
         if (ids.isEmpty()) {
             return;
         }
+        if (qdrant != null) {
+            qdrant.update(collectionId, ids, embeddings);
+            return;
+        }
         Map<String, Object> body = Map.of("ids", ids, "embeddings", embeddings);
         webClient.post()
                 .uri(COLLECTIONS_BASE + "/{id}/update", collectionId)
@@ -442,7 +501,7 @@ public class ChromaDbClient {
      */
     @SuppressWarnings("unchecked")
     public void updateEmbeddingStamp(String collectionName, String collectionId, String embeddingModel) {
-        Map<String, Object> current = webClient.get()
+        Map<String, Object> current = qdrant != null ? qdrant.info(collectionId) : webClient.get()
                 .uri(COLLECTIONS_BASE + "/{id}", collectionId)
                 .retrieve()
                 .bodyToMono(Map.class)
@@ -457,7 +516,8 @@ public class ChromaDbClient {
         metadata.put(EMBEDDING_PROMPTS_METADATA_KEY, scheme.name());
         metadata.put(EMBEDDING_TEXT_VERSION_METADATA_KEY, String.valueOf(EmbeddingContract.TEXT_VERSION));
 
-        webClient.put()
+        if (qdrant != null) qdrant.finishRebuild(collectionId, metadata);
+        else webClient.put()
                 .uri(COLLECTIONS_BASE + "/{id}", collectionId)
                 .bodyValue(Map.of("new_metadata", metadata))
                 .retrieve()
@@ -476,6 +536,7 @@ public class ChromaDbClient {
      */
     @SuppressWarnings("unchecked")
     public List<Map<String, Object>> listCollections() {
+        if (qdrant != null) return qdrant.collections();
         List<Map<String, Object>> collections = webClient.get()
                 .uri(COLLECTIONS_BASE)
                 .retrieve()
@@ -501,7 +562,8 @@ public class ChromaDbClient {
                     "metadatas",  metadatas
             );
 
-            webClient.post()
+            if (qdrant != null) qdrant.add(collectionId, ids, documents, metadatas, embeddings);
+            else webClient.post()
                     .uri(COLLECTIONS_BASE + "/{id}/add", collectionId)
                     .bodyValue(body)
                     .retrieve()
@@ -533,6 +595,63 @@ public class ChromaDbClient {
         return postQuery(collectionId, queryBody(queryEmbedding, nResults, where));
     }
 
+    boolean nativeHybridEnabled() {
+        return qdrant != null && qdrant.nativeHybridEnabled();
+    }
+
+    Optional<List<HybridSearchService.HybridChunk>> queryNativeHybrid(String collectionId, String question,
+            List<Float> embedding, int limit, RetrievalFilterResolver.ResolvedFilter filter) {
+        if (!nativeHybridEnabled() || filter.matchesNothing()) return Optional.empty();
+        try (var ignored = leaseId(collectionId)) {
+            var raw = qdrant.queryHybrid(collectionId, question, embedding, limit, filter.qdrantWhere());
+            var rows = ChromaQueryResult.from(visibleRows(raw, true));
+            if (rows.documents().isEmpty()
+                    || rows.documents().size() != ChromaQueryResult.from(raw).documents().size()
+                    || rows.metadatas().stream().anyMatch(meta ->
+                            !filter.accepts(meta.get("sha256"), meta.get("sourceFile")))) {
+                return Optional.empty();
+            }
+            var results = new java.util.ArrayList<HybridSearchService.HybridChunk>();
+            for (int i = 0; i < rows.ids().size(); i++) {
+                var meta = rows.metadatas().get(i);
+                results.add(new HybridSearchService.HybridChunk(rows.ids().get(i), rows.documents().get(i),
+                        meta.getOrDefault("sourceFile", "unknown"), 1.0, 0f, 1.0 / (61 + i), meta));
+            }
+            recordDenseSearch("qdrant", "success");
+            return Optional.of(results);
+        } catch (RuntimeException failure) {
+            log.debug("Native Qdrant hybrid unavailable for '{}': {}", collectionId, failure.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    boolean supportsNativeBatch() {
+        return qdrant != null && qdrant.supportsBatch();
+    }
+
+    List<Map<String, Object>> queryVariants(String collectionId, List<List<Float>> embeddings, int limit,
+                                            RetrievalFilterResolver.ResolvedFilter filter) {
+        try (var ignored = leaseId(collectionId)) {
+            var results = qdrant.queryBatch(collectionId, embeddings, limit, filter.qdrantWhere());
+            List<Map<String, Object>> accepted = new java.util.ArrayList<>(results.size());
+            for (int i = 0; i < results.size(); i++) {
+                var raw = results.get(i);
+                var visible = visibleRows(raw, true);
+                var rows = ChromaQueryResult.from(visible);
+                boolean rejected = rows.documents().size() != ChromaQueryResult.from(raw).documents().size()
+                        || rows.metadatas().stream().anyMatch(meta ->
+                                !filter.accepts(meta.get("sha256"), meta.get("sourceFile")));
+                if (rejected) {
+                    accepted.add(FilteredVectorSearch.query(this, collectionId, embeddings.get(i), limit, filter));
+                } else {
+                    recordDenseSearch("qdrant", "success");
+                    accepted.add(visible);
+                }
+            }
+            return accepted;
+        }
+    }
+
     private static Map<String, Object> queryBody(List<Float> queryEmbedding, int nResults, Map<String, Object> where) {
         Map<String, Object> body = new java.util.LinkedHashMap<>();
         body.put("query_embeddings", List.of(queryEmbedding));
@@ -550,7 +669,10 @@ public class ChromaDbClient {
             while (true) {
                 Map<String, Object> attempt = new java.util.LinkedHashMap<>(body);
                 attempt.put("n_results", fetch);
-                Map<String, Object> raw = webClient.post()
+                Map<String, Object> raw = qdrant != null
+                        ? qdrant.query(collectionId, (List<Float>) ((List<?>) body.get("query_embeddings")).getFirst(),
+                                fetch, (Map<String, Object>) body.get("where"))
+                        : webClient.post()
                         .uri(COLLECTIONS_BASE + "/{id}/query", collectionId)
                         .bodyValue(attempt).retrieve().bodyToMono(Map.class).block(TIMEOUT_QUERY);
                 if (streamVersionVisibility == null) return raw;
@@ -623,12 +745,14 @@ public class ChromaDbClient {
                 "include", List.of("documents", "metadatas")
         );
 
-        return webClient.post()
-                .uri(COLLECTIONS_BASE + "/{id}/get", collectionId)
-                .bodyValue(body)
-                .retrieve()
-                .bodyToMono(Map.class)
-                .block(TIMEOUT_BULK_GET);
+        return readRows(collectionId, body, TIMEOUT_BULK_GET);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> readRows(String collectionId, Map<String, Object> body, Duration timeout) {
+        if (qdrant != null) return qdrant.get(collectionId, body);
+        return webClient.post().uri(COLLECTIONS_BASE + "/{id}/get", collectionId)
+                .bodyValue(body).retrieve().bodyToMono(Map.class).block(timeout);
     }
 
     /**
@@ -649,12 +773,7 @@ public class ChromaDbClient {
                         "offset",  offset,
                         "include", List.of("metadatas")
                 );
-                Map<String, Object> page = webClient.post()
-                        .uri(COLLECTIONS_BASE + "/{id}/get", collectionId)
-                        .bodyValue(body)
-                        .retrieve()
-                        .bodyToMono(Map.class)
-                        .block(TIMEOUT_BULK_GET);
+                Map<String, Object> page = readRows(collectionId, body, TIMEOUT_BULK_GET);
                 List<Map<String, String>> metadatas =
                         page != null ? (List<Map<String, String>>) page.get("metadatas") : null;
                 if (metadatas == null || metadatas.isEmpty()) break;
@@ -692,12 +811,7 @@ public class ChromaDbClient {
                     "include", List.of("documents")
             );
 
-            Map<String, Object> result = webClient.post()
-                    .uri(COLLECTIONS_BASE + "/{id}/get", collectionId)
-                    .bodyValue(body)
-                    .retrieve()
-                    .bodyToMono(Map.class)
-                    .block(TIMEOUT_BULK_GET);
+            Map<String, Object> result = readRows(collectionId, body, TIMEOUT_BULK_GET);
 
             if (result == null) return List.of();
             List<Object> documents = (List<Object>) result.get("documents");
@@ -720,12 +834,7 @@ public class ChromaDbClient {
     public Map<String, Map<String, String>> getMetadatasByIds(String collectionId, List<String> ids) {
         try (var collectionLease = leaseId(collectionId)) {
             if (ids == null || ids.isEmpty()) return Map.of();
-            Map<String, Object> result = webClient.post()
-                    .uri(COLLECTIONS_BASE + "/{id}/get", collectionId)
-                    .bodyValue(Map.of("ids", ids, "include", List.of("metadatas")))
-                    .retrieve()
-                    .bodyToMono(Map.class)
-                    .block(TIMEOUT_QUERY);
+            Map<String, Object> result = readRows(collectionId, Map.of("ids", ids, "include", List.of("metadatas")), TIMEOUT_QUERY);
             Map<String, Map<String, String>> byId = new java.util.LinkedHashMap<>();
             if (result == null || !(result.get("ids") instanceof List<?> found)) return byId;
             List<?> metas = result.get("metadatas") instanceof List<?> m ? m : List.of();
@@ -774,13 +883,8 @@ public class ChromaDbClient {
             conditions.add(Map.of("chunkIndex", Map.of("$in", wanted)));
             if (zipEntry != null && !zipEntry.isBlank()) conditions.add(Map.of("zipEntry", Map.of("$eq", zipEntry)));
             Map<String, Object> where = Map.of("$and", conditions);
-            Map<String, Object> result = webClient.post()
-                    .uri(COLLECTIONS_BASE + "/{id}/get", collectionId)
-                    .bodyValue(Map.of("where", where, "limit", wanted.size() * 2,
-                            "include", List.of("documents", "metadatas")))
-                    .retrieve()
-                    .bodyToMono(Map.class)
-                    .block(TIMEOUT_QUERY);
+            Map<String, Object> result = readRows(collectionId, Map.of("where", where, "limit", wanted.size() * 2,
+                            "include", List.of("documents", "metadatas")), TIMEOUT_QUERY);
             Map<Integer, String> byIndex = new java.util.HashMap<>();
             if (result == null) return byIndex;
             List<?> docs = result.get("documents") instanceof List<?> d ? d : List.of();
@@ -820,12 +924,7 @@ public class ChromaDbClient {
             if (where != null) body.put("where", where);
             body.put("limit", limit);
             body.put("include", List.of("documents", "metadatas"));
-            Map<String, Object> result = webClient.post()
-                    .uri(COLLECTIONS_BASE + "/{id}/get", collectionId)
-                    .bodyValue(body)
-                    .retrieve()
-                    .bodyToMono(Map.class)
-                    .block(TIMEOUT_QUERY);
+            Map<String, Object> result = readRows(collectionId, body, TIMEOUT_QUERY);
             if (result == null) return List.of();
             List<?> docs = result.get("documents") instanceof List<?> d ? d : List.of();
             List<?> metas = result.get("metadatas") instanceof List<?> m ? m : List.of();
@@ -861,13 +960,8 @@ public class ChromaDbClient {
             conditions.add(Map.of(identityField, Map.of("$eq", identityValue)));
             if (zipEntry != null && !zipEntry.isBlank()) conditions.add(Map.of("zipEntry", Map.of("$eq", zipEntry)));
             Map<String, Object> where = conditions.size() == 1 ? conditions.getFirst() : Map.of("$and", conditions);
-            Map<String, Object> result = webClient.post()
-                    .uri(COLLECTIONS_BASE + "/{id}/get", collectionId)
-                    .bodyValue(Map.of("where", where, "limit", maxChunks,
-                            "include", List.of("documents", "metadatas")))
-                    .retrieve()
-                    .bodyToMono(Map.class)
-                    .block(TIMEOUT_QUERY);
+            Map<String, Object> result = readRows(collectionId, Map.of("where", where, "limit", maxChunks,
+                            "include", List.of("documents", "metadatas")), TIMEOUT_QUERY);
             if (result == null) return byIndex;
             List<?> docs = result.get("documents") instanceof List<?> d ? d : List.of();
             List<?> metas = result.get("metadatas") instanceof List<?> m ? m : List.of();
@@ -895,11 +989,8 @@ public class ChromaDbClient {
             List<String> obsolete = new java.util.ArrayList<>();
             int offset = 0;
             while (true) {
-                Map<String, Object> page = webClient.post()
-                        .uri(COLLECTIONS_BASE + "/{id}/get", collectionId)
-                        .bodyValue(Map.of("where", Map.of("sourceFile", sourceFile),
-                                "limit", BULK_PAGE_SIZE, "offset", offset, "include", List.of("metadatas")))
-                        .retrieve().bodyToMono(Map.class).block(TIMEOUT_BULK_GET);
+                Map<String, Object> page = readRows(collectionId, Map.of("where", Map.of("sourceFile", sourceFile),
+                                "limit", BULK_PAGE_SIZE, "offset", offset, "include", List.of("metadatas")), TIMEOUT_BULK_GET);
                 List<?> ids = page != null && page.get("ids") instanceof List<?> list ? list : List.of();
                 List<?> metas = page != null && page.get("metadatas") instanceof List<?> list ? list : List.of();
                 for (int i = 0; i < Math.min(ids.size(), metas.size()); i++) {
@@ -928,11 +1019,8 @@ public class ChromaDbClient {
         try (var collectionLease = leaseId(collectionId)) {
             java.util.ArrayList<String> legacyIds = new java.util.ArrayList<>();
             for (int offset = 0; ; offset += BULK_PAGE_SIZE) {
-                Map<String, Object> result = webClient.post()
-                        .uri(COLLECTIONS_BASE + "/{id}/get", collectionId)
-                        .bodyValue(Map.of("where", Map.of("sourceFile", Map.of("$eq", sourceFile)),
-                                "limit", BULK_PAGE_SIZE, "offset", offset, "include", List.of("metadatas")))
-                        .retrieve().bodyToMono(Map.class).block(TIMEOUT_BULK_GET);
+                Map<String, Object> result = readRows(collectionId, Map.of("where", Map.of("sourceFile", Map.of("$eq", sourceFile)),
+                                "limit", BULK_PAGE_SIZE, "offset", offset, "include", List.of("metadatas")), TIMEOUT_BULK_GET);
                 if (result == null) throw new IllegalStateException("Réponse ChromaDB absente pendant le nettoyage");
                 List<String> ids = (List<String>) result.get("ids");
                 List<Map<String, Object>> metadata = (List<Map<String, Object>>) result.get("metadatas");
@@ -954,6 +1042,10 @@ public class ChromaDbClient {
     public void deleteChunksByIds(String collectionId, List<String> ids) {
         try (var collectionLease = leaseId(collectionId)) {
             for (int start = 0; start < ids.size(); start += BULK_PAGE_SIZE) {
+                if (qdrant != null) {
+                    qdrant.deleteIds(collectionId, ids.subList(start, Math.min(start + BULK_PAGE_SIZE, ids.size())));
+                    continue;
+                }
                 webClient.post().uri(COLLECTIONS_BASE + "/{id}/delete", collectionId)
                         .bodyValue(Map.of("ids", ids.subList(start, Math.min(start + BULK_PAGE_SIZE, ids.size()))))
                         .retrieve().bodyToMono(Void.class).block(TIMEOUT_BULK_GET);
@@ -971,6 +1063,7 @@ public class ChromaDbClient {
     @SuppressWarnings("unchecked")
     public int deleteByMetadata(String collectionId, String field, String value) {
         try (var collectionLease = leaseId(collectionId)) {
+            if (qdrant != null) return qdrant.deleteWhere(collectionId, Map.of(field, value));
             // P2 — filtre where : seuls les IDs concernés sont récupérés
             Map<String, Object> body = Map.of(
                     "where",   Map.of(field, Map.of("$eq", value)),
@@ -978,12 +1071,7 @@ public class ChromaDbClient {
                     "include", List.of()  // IDs uniquement, pas de documents ni métadonnées
             );
 
-            Map<String, Object> result = webClient.post()
-                    .uri(COLLECTIONS_BASE + "/{id}/get", collectionId)
-                    .bodyValue(body)
-                    .retrieve()
-                    .bodyToMono(Map.class)
-                    .block(TIMEOUT_BULK_GET);
+            Map<String, Object> result = readRows(collectionId, body, TIMEOUT_BULK_GET);
 
             if (result == null) throw new IllegalStateException("Réponse ChromaDB absente pendant la suppression");
             List<String> ids = (List<String>) result.get("ids");
@@ -1007,6 +1095,7 @@ public class ChromaDbClient {
      * Compte le nombre de documents dans une collection.
      */
     public int count(String collectionId) {
+        if (qdrant != null) return qdrant.count(collectionId);
         Integer count = webClient.get()
                 .uri(COLLECTIONS_BASE + "/{id}/count", collectionId)
                 .retrieve()
@@ -1023,8 +1112,8 @@ public class ChromaDbClient {
         if (cause instanceof EmbeddingModelMismatchException mismatch) {
             throw mismatch;
         }
-        log.warn("[circuit-breaker] chroma ouvert — getOrCreateCollection('{}') : {}", name, cause.getMessage());
-        throw new ChromaDbUnavailableException("ChromaDB temporairement indisponible", cause);
+        log.warn("[circuit-breaker] {} — getOrCreateCollection('{}') : {}", vectorEngine(), name, cause.getMessage());
+        throw new ChromaDbUnavailableException((qdrant == null ? "ChromaDB" : "Qdrant") + " temporairement indisponible", cause);
     }
 
     Map<String, Object> filteredQueryFallback(String collectionId, List<Float> queryEmbedding, int nResults,
@@ -1033,8 +1122,8 @@ public class ChromaDbClient {
     }
 
     Map<String, Object> queryFallback(String collectionId, List<Float> queryEmbedding, int nResults, Throwable cause) {
-        log.warn("[circuit-breaker] chroma ouvert — query sur '{}' : {}", collectionId, cause.getMessage());
-        throw new ChromaDbUnavailableException("ChromaDB temporairement indisponible", cause);
+        log.warn("[circuit-breaker] {} — query sur '{}' : {}", vectorEngine(), collectionId, cause.getMessage());
+        throw new ChromaDbUnavailableException((qdrant == null ? "ChromaDB" : "Qdrant") + " temporairement indisponible", cause);
     }
 
     public static class ChromaDbUnavailableException extends RuntimeException {

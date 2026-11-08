@@ -59,7 +59,7 @@ jobs:
 
       - name: Prepare writable data directories
         run: |
-          mkdir -p data/documents data/dataset data/fine-tuning/merged data/source data/logs data/chroma
+          mkdir -p data/documents data/dataset data/fine-tuning/merged data/source data/logs data/qdrant
           chmod -R a+rwX data
 
       - name: Mesure AVEC start_interval

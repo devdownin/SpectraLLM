@@ -4,7 +4,7 @@
 # Les neuf ports étaient publiés en « 8000:8000 », c'est-à-dire sur 0.0.0.0. Sur un
 # portable en wifi ou un serveur, tout le réseau local atteignait donc, SANS la moindre
 # authentification :
-#   — chromadb (8000) : lecture ET ÉCRITURE sur l'index vectoriel, donc sur le corpus
+#   — qdrant (6333) : lecture ET ÉCRITURE sur l'index vectoriel, donc sur le corpus
 #     de documents ingérés — c'est la donnée que ce projet promet de garder chez vous ;
 #   — llm-chat / llm-embed (8091, 8092 sur l'hôte) : llama-server n'a pas d'authentification ;
 #   — spectra-api (8080), reranker, docparser, trainer, kafka.
@@ -76,7 +76,7 @@ services:
     # pendant ce temps.
     #
     # Le coût ne s'arrête pas à un service. `depends_on: condition: service_healthy`
-    # sérialise chromadb (interval 20 s) → spectra-api (20 s) → frontend (30 s) : les
+    # sérialise qdrant (interval 20 s) → spectra-api (20 s) → frontend (30 s) : les
     # granularités s'additionnent, jusqu'à 70 s de sondage empilés par-dessus la
     # disponibilité réelle. C'est autant sur chaque `docker compose up --wait`, donc sur
     # chaque ./scripts/start.sh et sur chaque exécution du job E2E.
@@ -128,41 +128,20 @@ services:
       start_interval: 3s
     restart: unless-stopped
 
-  # ── ChromaDB ──────────────────────────────────────────────────────────────
-  chromadb:
-    # Image ÉPINGLÉE, même raisonnement que llama.cpp ci-dessus : « latest » a déjà
-    # dérivé en silence une fois. Le chemin de persistance est passé de /chroma/chroma
-    # (≤ 0.5.x) à /data, et le volume monté sur l'ancien chemin est resté vide pendant
-    # des mois — l'index vectoriel repartait de zéro à chaque « down », sans un message.
-    # Surcharge possible via CHROMADB_IMAGE_TAG ; vérifiez le chemin de persistance et
-    # /api/v2/heartbeat avant de monter de version.
-    image: chromadb/chroma:${CHROMADB_IMAGE_TAG:-1.5.9}
-    container_name: spectra-chromadb
+  # ── Qdrant ────────────────────────────────────────────────────────────────
+  qdrant:
+    image: qdrant/qdrant:${QDRANT_IMAGE_TAG:-v1.16.3}
+    container_name: spectra-qdrant
     deploy:
       resources:
         limits:
-          # Croît avec le corpus indexé : à surveiller sur une base volumineuse, c'est le
-          # service dont la consommation dépend le plus des données.
-          memory: ${CHROMADB_MEMORY_LIMIT:-4g}
-    ports:
-      - "${SPECTRA_BIND_ADDR:-127.0.0.1}:8000:8000"
+          memory: ${QDRANT_MEMORY_LIMIT:-4g}
     volumes:
-      # /data et NON /chroma/chroma : ce dernier est le chemin de persistance de Chroma
-      # ≤ 0.5.x. L'image actuelle écrit dans /data — le volume monté sur l'ancien chemin
-      # restait donc VIDE et l'index vectoriel vivait dans la couche inscriptible du
-      # conteneur, détruite à chaque « docker compose down », sans même « -v ». C'est la
-      # cause réelle du « ChromaDB vide alors que la GED déclare N chunks » signalé au
-      # démarrage par ConsistencyReconciliationService.
-      #
-      # Bind-mount et NON volume nommé : la base H2 (état de la GED) vit dans ./data.
-      # Deux stockages aux cycles de vie distincts se désynchronisent tôt ou tard ;
-      # un seul répertoire = une seule sauvegarde, une seule remise à zéro.
-      - ./data/chroma:/data
+      - ./data/qdrant:/qdrant/storage
     environment:
-      - ANONYMIZED_TELEMETRY=FALSE
-      - CHROMA_OTEL_EXPORTER_OTLP_ENDPOINT=
+      QDRANT__TELEMETRY_DISABLED: "true"
     healthcheck:
-      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8000 && echo -e 'GET /api/v2/heartbeat HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3"]
+      test: ["CMD", "bash", "-ec", "exec 3<>/dev/tcp/127.0.0.1/6333 && printf 'GET /readyz HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3"]
       interval: 20s
       timeout: 5s
       retries: 3
@@ -363,7 +342,15 @@ services:
       - SPECTRA_MCP_CALLERS_JSON=${SPECTRA_MCP_CALLERS_JSON:-}
       - SPECTRA_MCP_RATE_LIMIT_PER_MINUTE=${SPECTRA_MCP_RATE_LIMIT_PER_MINUTE:-60}
       - SPECTRA_MCP_RATE_LIMIT_BURST=${SPECTRA_MCP_RATE_LIMIT_BURST:-10}
-      - SPECTRA_CHROMADB_BASE_URL=http://chromadb:8000
+      - SPECTRA_QDRANT_BASE_URL=http://qdrant:6333
+      - SPECTRA_QDRANT_INT8=${SPECTRA_QDRANT_INT8:-false}
+      - SPECTRA_QDRANT_OVERSAMPLING=${SPECTRA_QDRANT_OVERSAMPLING:-2}
+      - SPECTRA_QDRANT_NATIVE_HYBRID=${SPECTRA_QDRANT_NATIVE_HYBRID:-false}
+      - SPECTRA_QDRANT_GROUP_SIZE=${SPECTRA_QDRANT_GROUP_SIZE:-0}
+      - SPECTRA_QDRANT_HNSW_EF=${SPECTRA_QDRANT_HNSW_EF:-0}
+      - SPECTRA_QDRANT_EXACT=${SPECTRA_QDRANT_EXACT:-false}
+      - SPECTRA_QDRANT_ACORN=${SPECTRA_QDRANT_ACORN:-false}
+      - SPECTRA_QDRANT_ACORN_MAX_SELECTIVITY=${SPECTRA_QDRANT_ACORN_MAX_SELECTIVITY:-0.4}
       - SPECTRA_PIPELINE_CHUNK_MAX_TOKENS=${SPECTRA_CHUNK_MAX_TOKENS:-256}
       - SPECTRA_PIPELINE_CHUNK_OVERLAP_TOKENS=${SPECTRA_CHUNK_OVERLAP_TOKENS:-64}
       # Aligné sur le défaut applicatif (application.yml) : trois valeurs différentes
@@ -465,7 +452,7 @@ services:
       start_period: 300s
       start_interval: 3s
     depends_on:
-      chromadb:
+      qdrant:
         condition: service_healthy
     restart: unless-stopped
 

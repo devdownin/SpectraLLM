@@ -2,7 +2,7 @@
 #
 # POURQUOI CE WORKFLOW EXISTE
 # ---------------------------
-# Toutes les images TIERCES de la pile sont tirées d'un registre (llama.cpp, chromadb,
+# Toutes les images TIERCES de la pile sont tirées d'un registre (llama.cpp, Qdrant,
 # kafka) ; les deux images que ce projet CONSTRUIT — le backend et le frontend — ne
 # l'étaient nulle part. Démarrer Spectra imposait donc de compiler le backend Maven et de
 # bâtir le bundle Vite sur la machine de l'utilisateur : plusieurs minutes au mieux, un
@@ -34,6 +34,10 @@ on:
   push:
     tags:
       - 'v*'
+    branches:
+      - main
+    paths:
+      - 'deploy/docker/hub/**'
   workflow_dispatch:
     inputs:
       version:
@@ -97,14 +101,14 @@ jobs:
           DRY_RUN: ${{ inputs.dry_run || false }}
           INCLUDE_PROFILED: ${{ inputs.include_profiled || false }}
           INPUT_VERSION: ${{ inputs.version }}
-          DESCRIPTIONS_ONLY: ${{ inputs.descriptions_only || false }}
+          DESCRIPTIONS_ONLY: ${{ (github.event_name == 'push' && github.ref_type == 'branch') || inputs.descriptions_only || false }}
           HUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           HAS_TOKEN: ${{ secrets.DOCKERHUB_TOKEN != '' }}
         run: |
           set -euo pipefail
 
           # ── Version ────────────────────────────────────────────────────────────
-          if [ "${{ github.event_name }}" = "push" ]; then
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_type }}" = "tag" ]; then
             RAW="${{ github.ref_name }}"
           else
             RAW="${INPUT_VERSION}"

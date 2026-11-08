@@ -54,7 +54,7 @@ Cette commande lance les services principaux en une fois :
 | `spectra-api` | Backend API (port 8080) |
 | `spectra-llama-chat` | Serveur d'inférence chat (llama.cpp, interne) |
 | `spectra-llama-embed` | Serveur d'embeddings (llama.cpp, interne) |
-| `spectra-chromadb` | Base de données vectorielle (interne) |
+| `spectra-qdrant` | Base de données vectorielle (interne) |
 | `spectra-browserless` | Chrome headless pour le rendu des pages web dynamiques (interne) |
 | `spectra-reranker` | Re-ranking Cross-Encoder (port **8002**, optionnel — voir §4 Interrogation) |
 | `spectra-docparser` | Parsing PDF layout-aware (port **8003**, optionnel — voir §1 Ingestion) |
@@ -74,7 +74,7 @@ La réponse du `/api/status` liste trois services :
 |--------|-------------------|-------------|
 | `llama-cpp` | Serveur de chat | `details.activeModel`, `details.activeModelLoaded` |
 | `llm-embed` | Serveur d'embedding | `details.activeModel`, `details.serverStatus` |
-| `chromadb` | Base vectorielle | `available`, `version` |
+| `qdrant` | Base vectorielle | `available`, `version` |
 
 Exemple de réponse résumée :
 ```json
@@ -82,7 +82,7 @@ Exemple de réponse résumée :
   "services": [
     {"name": "llama-cpp",       "available": true,  "details": {"activeModel": "spectra-domain", "activeModelLoaded": true}},
     {"name": "llm-embed", "available": true,  "details": {"activeModel": "nomic-embed-text", "serverStatus": "ok"}},
-    {"name": "chromadb",        "available": true}
+    {"name": "qdrant",        "available": true}
   ]
 }
 ```
@@ -146,7 +146,7 @@ Voici le parcours complet pour créer votre assistant IA spécialisé :
 
 ### Étape 1 — Ingestion des documents
 
-**Objectif** : transformer vos documents (fichiers locaux ou pages web) en vecteurs stockés dans ChromaDB.
+**Objectif** : transformer vos documents (fichiers locaux ou pages web) en vecteurs stockés dans Qdrant.
 
 Spectra accepte deux types de sources : les **fichiers** uploadés depuis votre poste, et les **URLs** pointant vers des pages web ou des fichiers distants.
 
@@ -260,13 +260,13 @@ Qu'il s'agisse d'un fichier ou d'une URL, le traitement en coulisses est identiq
 3. **Nettoyage** : normalisation unicode, suppression en-têtes/pieds, harmonisation ponctuation
 4. **Chunking** : découpage en segments de ~512 tokens avec chevauchement de 64 tokens
 5. **Vectorisation** : calcul des embeddings par `nomic-embed-text` (llm-embed)
-6. **Stockage** : indexation dans ChromaDB
+6. **Stockage** : indexation dans Qdrant
 
 > **Déduplication SHA-256 :** si le même fichier est soumis deux fois (même contenu, même hash), Spectra l'ignore silencieusement. Utilisez `?force=true` pour **remplacer** un document : les anciens chunks sont purgés des index (vecteur + BM25) avant la ré-indexation — pas de doublons dans les réponses, et la fiche GED s'incrémente d'une version. Les URLs suivent la même règle : le téléchargement a bien lieu à chaque soumission, mais un contenu inchangé (même hash) n'est pas ré-indexé.
 >
 > **Erreurs par fichier :** un fichier en échec (format non supporté, fichier trop volumineux, document corrompu) n'interrompt pas le lot — son erreur apparaît directement dans le **Live Ingestion Stream** : la ligne du fichier passe en avertissement « N chunks · partiel » avec le détail de l'erreur en dessous, un toast signale la fin de tâche partielle, et le panneau global des tâches (icône activité du header) affiche aussi ces échecs. Une tâche dont **tous** les fichiers échouent finit `FAILED` avec le détail, au lieu d'un faux succès à 0 chunk.
 
-> **Changement de modèle d'embedding :** si vous remplacez `embed.gguf` par un autre modèle, vous devez ré-ingérer **tous** vos documents. Les vecteurs stockés dans ChromaDB sont propres à un modèle et ne sont pas interchangeables. Utilisez `?force=true` :
+> **Changement de modèle d'embedding :** si vous remplacez `embed.gguf` par un autre modèle, vous devez ré-ingérer **tous** vos documents. Les vecteurs stockés dans Qdrant sont propres à un modèle et ne sont pas interchangeables. Utilisez `?force=true` :
 > ```bash
 > curl -X POST "http://localhost:8080/api/ingest?force=true" -F "files=@fichier.pdf"
 > ```
@@ -560,7 +560,7 @@ trail** consultable au bas de la fiche.
    - `points réglementaires à surveiller`
    - Laissez vide pour un résumé général du document.
 3. Cliquez sur **✦ Générer via RAG**.
-4. Spectra récupère automatiquement les 6 passages les plus pertinents du document (via ChromaDB), puis le LLM rédige un commentaire analytique ancré dans ce contenu.
+4. Spectra récupère automatiquement les 6 passages les plus pertinents du document (via Qdrant), puis le LLM rédige un commentaire analytique ancré dans ce contenu.
 5. Le commentaire apparaît dans l'onglet **Liste** avec le badge `✦ IA`.
 
 #### Évaluer les commentaires IA
@@ -942,13 +942,13 @@ Réponse :
 
 > **Paramètre `maxContextChunks`** : contrôle le nombre d'extraits injectés dans le contexte du LLM. Valeur par défaut : 5. Si vous obtenez une erreur de contexte dépassé, réduisez à 2 ou 3. Le modèle fine-tuné standard a un contexte maximal de **2048 tokens**, ce qui limite le nombre de chunks utilisables par requête.
 
-> **Paramètre `topCandidates`** : utilisé uniquement si le re-ranking est activé. Contrôle combien de candidats sont récupérés dans ChromaDB avant que le Cross-Encoder les re-classe pour ne garder que `maxContextChunks`. Valeur par défaut : 20. Plus cette valeur est haute, plus le filet est large, mais le service de re-ranking prend un peu plus de temps.
+> **Paramètre `topCandidates`** : utilisé uniquement si le re-ranking est activé. Contrôle combien de candidats sont récupérés dans Qdrant avant que le Cross-Encoder les re-classe pour ne garder que `maxContextChunks`. Valeur par défaut : 20. Plus cette valeur est haute, plus le filet est large, mais le service de re-ranking prend un peu plus de temps.
 
 **Ce que fait le RAG :**
 1. *(Si Long-Context RAG activé)* Si le corpus est petit (≤ seuil configuré), tous les chunks sont chargés directement — les étapes 2 à 5 sont ignorées
 2. *(Si Multi-Query activé)* N variantes de la question sont générées, le retrieval est exécuté pour chacune, et les résultats sont fusionnés en éliminant les doublons exacts
 3. Votre question est convertie en vecteur par `nomic-embed-text` (llm-embed)
-4. Les `topCandidates` extraits les plus proches sémantiquement sont récupérés dans ChromaDB
+4. Les `topCandidates` extraits les plus proches sémantiquement sont récupérés dans Qdrant
 5. *(Si recherche hybride activée)* Une recherche BM25 parallèle récupère les extraits correspondant le mieux aux mots-clés exacts de la question ; les deux listes sont fusionnées via RRF
 6. *(Si re-ranking activé)* Un modèle Cross-Encoder évalue chaque paire `(question, extrait)` et re-classe les candidats par pertinence réelle — les N meilleurs sont conservés
 7. *(Si déduplication sémantique activée)* Les extraits quasi-identiques sont supprimés (similarité Jaccard sur les mots) — sans appel API supplémentaire
@@ -966,7 +966,7 @@ La recherche hybride récupère les termes techniques exacts (codes, numéros, a
 SPECTRA_HYBRID_SEARCH_ENABLED=true docker compose --project-directory . -f deploy/docker/docker-compose.yml up -d
 ```
 
-Au démarrage, Spectra reconstruit automatiquement l'index BM25 depuis ChromaDB en arrière-plan. Les premières requêtes peuvent être vectorielles seules si l'index n'est pas encore prêt.
+Au démarrage, Spectra charge ou reconstruit l’index BM25 depuis Qdrant. La sonde de disponibilité attend la fin de cette étape.
 
 **Activer le re-ranking :**
 
@@ -1068,7 +1068,7 @@ Le tableau de bord affiche en temps réel trois cartes de santé et le cycle de 
 |-------|------------------|---------------------|
 | **Chat** | `llm-chat` | Online/Offline · nom du modèle actif |
 | **Embed** | `llm-embed` | Online/Offline · nom du modèle d'embedding |
-| **ChromaDB** | `chromadb` | Online/Offline · nombre de chunks indexés |
+| **Qdrant** | `qdrant` | Online/Offline · nombre de chunks indexés |
 
 En dessous : statistiques de la base de connaissances (chunks, paires d'entraînement, score de confiance moyen, nombre de catégories).
 
@@ -1439,7 +1439,7 @@ Ces résultats ont été mesurés sur une configuration CPU-only (aucun GPU), av
 
 - **Embedding** : très rapide — l'indexation de vos documents et la recherche sémantique ne sont pas le goulot d'étranglement.
 - **Génération LLM** (~9 s) : c'est le temps de traitement "pur" sans contexte documentaire. Une réponse courte (50 tokens) prend ~1,4 s ; une réponse longue (300 tokens) prend ~8 s.
-- **RAG complet** (~18 s) : inclut l'embedding de la question, la recherche dans ChromaDB, et la génération. C'est le temps ressenti lors d'une utilisation normale du Playground.
+- **RAG complet** (~18 s) : inclut l'embedding de la question, la recherche dans Qdrant, et la génération. C'est le temps ressenti lors d'une utilisation normale du Playground.
 
 > Sur GPU NVIDIA avec 8 Go de VRAM, ces temps sont typiquement **5 à 10 fois plus rapides**. Sur un GPU avec 4 Go, le gain est moindre (les couches qui ne tiennent pas en VRAM restent sur CPU).
 
@@ -1498,7 +1498,7 @@ Causes courantes : modèle trop lent (timeout LLM), chunk trop long pour le cont
 
 **Réinitialisation complète**
 ```bash
-docker compose down -v    # supprime les volumes (ChromaDB inclus)
+docker compose down -v    # supprime les volumes nommés, les données montées dans ./data restent
 docker compose --project-directory . -f deploy/docker/docker-compose.yml up -d
 ```
 

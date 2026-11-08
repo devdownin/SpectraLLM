@@ -83,11 +83,22 @@ public class RetrievalFilterResolver {
          * Always use {@link FilteredVectorSearch} to enforce {@link #accepts} before ranking.
          */
         public Map<String, Object> chromaWhere() {
+            return where(false);
+        }
+
+        Map<String, Object> qdrantWhere() {
+            return where(true);
+        }
+
+        private Map<String, Object> where(boolean strict) {
             if (!active()) return null;
             Map<String, Object> bySha = sha256s != null && !sha256s.isEmpty()
                     ? Map.of("sha256", Map.of("$in", List.copyOf(sha256s))) : null;
             Map<String, Object> bySource = sourceFiles != null && !sourceFiles.isEmpty()
                     ? Map.of("sourceFile", Map.of("$in", List.copyOf(sourceFiles))) : null;
+            if (strict && bySource != null && sha256s != null) {
+                bySource = Map.of("$and", List.of(bySource, Map.of("$is_empty", "sha256")));
+            }
             if (bySha != null && bySource != null) return Map.of("$or", List.of(bySha, bySource));
             return bySha != null ? bySha : bySource;
         }

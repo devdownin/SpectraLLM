@@ -180,7 +180,7 @@ fi
 # ── 3. Répertoires de données ──────────────────────────────────────────────
 echo
 echo "> [3/7] Création des répertoires de données..."
-for dir in data/documents data/dataset data/fine-tuning data/fine-tuning/merged data/models data/source data/chroma; do
+for dir in data/documents data/dataset data/fine-tuning data/fine-tuning/merged data/models data/source data/qdrant; do
   if [ ! -d "$dir" ]; then
     mkdir -p "$dir"
     echo "  [CRÉÉ] $dir"

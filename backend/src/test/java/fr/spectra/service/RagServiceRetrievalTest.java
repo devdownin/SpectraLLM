@@ -374,6 +374,23 @@ class RagServiceRetrievalTest {
         assertThat(ctx.contextChunks()).containsExactly("y", "x", "z");
     }
 
+    @Test
+    void multiQueryVectorBatchesVariantsAndKeepsRrfFusion() {
+        when(multiQueryService.generateQueries(anyString())).thenReturn(List.of("Quelles normes ?", "variante"));
+        when(chromaDbClient.supportsNativeBatch()).thenReturn(true);
+        var vectors = List.of(List.of(1f), List.of(2f));
+        when(embeddingService.embedBatch(List.of("Quelles normes ?", "variante"))).thenReturn(vectors);
+        when(chromaDbClient.queryVariants(eq("col-1"), eq(vectors), anyInt(), any())).thenReturn(List.of(
+                vectorResults(List.of("x", "y"), List.of(0.10, 0.20)),
+                vectorResults(List.of("z", "y"), List.of(0.05, 0.30))));
+
+        var ctx = ragService(Optional.empty(), Optional.of(multiQueryService)).retrieveContext(request());
+
+        assertThat(ctx.contextChunks()).containsExactly("y", "x", "z");
+        verify(chromaDbClient).queryVariants(eq("col-1"), eq(vectors), anyInt(), any());
+        verify(embeddingService, never()).embed(anyString());
+    }
+
     // ── Préfixes d'instruction d'embedding ───────────────────────────────────
 
     @Test

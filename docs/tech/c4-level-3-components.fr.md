@@ -3,7 +3,7 @@
 ## spectra-api (Spring Boot)
 
 ### Scope
-Composants internes du backend : couche **Controllers** (REST/SSE), couche **Services** (pipeline métier), et couche **Clients** (WebClient vers Ollama et ChromaDB). Les flèches indiquent les dépendances d'injection.
+Composants internes du backend : couche **Controllers** (REST/SSE), couche **Services** (pipeline métier), et couche **Clients** (WebClient vers Ollama et Qdrant). Les flèches indiquent les dépendances d'injection.
 
 ```mermaid
 %%{init: {
@@ -37,22 +37,22 @@ C4Component
         Component(configCtrl, "ConfigController", "REST @RestController", "GET/POST /api/config/model")
         Component(statusCtrl, "StatusController", "REST @RestController", "GET /api/status")
 
-        Component(ingestSvc, "IngestionService", "@Service + @Async", "Orchestre : extraction → nettoyage\n→ chunking → embedding → ChromaDB")
+        Component(ingestSvc, "IngestionService", "@Service + @Async", "Orchestre : extraction → nettoyage\n→ chunking → embedding → Qdrant")
         Component(textCleaner, "TextCleanerService", "@Service", "Normalisation Unicode (8 étapes)\nOCR, en-têtes, tableaux")
         Component(chunking, "ChunkingService", "@Service", "512 tokens max\nOverlap 64 tokens")
         Component(embedding, "EmbeddingService", "@Service", "Batch 10, retry exponentiel\nVia nomic-embed-text")
         Component(datasetGen, "DatasetGeneratorService", "@Service @Async", "Génère Q&A, résumés, classifications\nExemples négatifs (30%)\nmaxChunks configurable")
         Component(ftSvc, "FineTuningService", "@Service @Async", "EXPORT → TRAINING → IMPORT\nSelf-injection @Lazy pour @Async")
         Component(broadcaster, "TrainingLogBroadcaster", "@Service Reactor", "Sinks.Many multicast (buffer 500)\nPublie logs train.sh en SSE")
-        Component(ragSvc, "RagService", "@Service", "Embedding question → ChromaDB search\n→ Ollama chat avec contexte")
+        Component(ragSvc, "RagService", "@Service", "Embedding question → Qdrant search\n→ Ollama chat avec contexte")
         Component(batchSvc, "BatchService", "@Service @Async", "Mode batch : ingest → dataset\n→ fine-tuning en séquence")
 
         Component(ollamaClient, "OllamaClient", "WebClient @Service", "POST /api/embeddings\nPOST /api/generate\nPOST /api/create (v0.6+ API)")
-        Component(chromaClient, "ChromaDbClient", "WebClient @Service", "REST API v2\nBuffer 16 Mo (ExchangeStrategies)\nCollection spectra_documents")
+        Component(chromaClient, "ChromaDbClient", "WebClient @Service", "Façade vectorielle\nQdrantStore · HTTP REST\nCollection spectra_documents")
     }
 
     System_Ext(ollama, "spectra-ollama", "Ollama :11434")
-    SystemDb_Ext(chroma, "spectra-chromadb", "ChromaDB :8000")
+    SystemDb_Ext(chroma, "spectra-qdrant", "Qdrant :6333")
     System_Ext(scripts, "Scripts", "train.sh · train_host.py")
 
     Rel(ingestCtrl, ingestSvc, "délègue")
@@ -84,7 +84,7 @@ C4Component
     Rel(embedding, ollamaClient, "embed(batch)")
 
     Rel(ollamaClient, ollama, "HTTP REST")
-    Rel(chromaClient, chroma, "HTTP REST v2")
+    Rel(chromaClient, chroma, "HTTP REST")
 ```
 
 ### Layers
@@ -111,7 +111,7 @@ C4Component
 
 #### Couche Clients (2) + Patterns
 *   **OllamaClient** — WebClient Reactor
-*   **ChromaDbClient** — WebClient 16 Mo
+*   **ChromaDbClient** — façade vectorielle historique, transport natif `QdrantStore` par défaut
 *   @Async via self-injection @Lazy
 *   Retry exponentiel 1s/2s/4s
 *   Sink multicast buffer 500 msg
@@ -154,7 +154,7 @@ C4Component
 
         Component(router, "React Router", "Client-side routing", "Routes : / /datasets\n/fine-tuning /playground /comparison")
 
-        Component(dashboard, "Dashboard", "React Page", "Santé services (Ollama, ChromaDB)\nMétriques via SSE")
+        Component(dashboard, "Dashboard", "React Page", "Santé services (Ollama, Qdrant)\nMétriques via SSE")
         Component(datasets, "Datasets", "React Page", "Upload fichiers (drag & drop)\nPolling ingestion 3s\nPolling stats 10s")
         Component(finetuning, "FineTuning", "React Page", "Formulaire job\nStep bar pipeline\nTelemetry SSE temps réel\nHistorique jobs")
         Component(playground, "Playground", "React Page", "Chat RAG streaming (SSE)\nParamètres + toggles par module\nTrace pipeline / timeline / comparaison A/B")

@@ -36,7 +36,7 @@
 
 0. 🟢 [Préambule : pourquoi Spectra existe](#0)
 1. 🟢 [Représenter le sens : les embeddings](#1)
-2. 🟡 [Stocker et chercher vite : ChromaDB, HNSW, cosinus](#2)
+2. 🟡 [Stocker et chercher vite : Qdrant, HNSW, cosinus](#2)
 3. 🟢 [L'ingestion : du fichier brut au savoir indexé](#3)
 4. 🟡 [La recherche hybride : vecteurs + mots‑clés + fusion](#4)
 5. 🟡 [Le re‑ranking : le contrôle qualité final](#5)
@@ -150,12 +150,12 @@ Sans normalisation, la *longueur* des vecteurs polluerait la mesure de similarit
 ---
 
 <a name="2"></a>
-## 2. Stocker et chercher vite : ChromaDB, HNSW, cosinus
+## 2. Stocker et chercher vite : Qdrant, HNSW, cosinus
 
 💡 **Intuition.** Si vous avez 1 million de chunks, comparer la question à
 *chacun* (recherche exhaustive) est trop lent. Il faut un **index** qui trouve
 les « plus proches voisins » presque instantanément, quitte à accepter une
-infime imprécision. C'est le rôle de **ChromaDB** (la base vectorielle) et de
+infime imprécision. C'est le rôle de **Qdrant** (la base vectorielle) et de
 son index **HNSW**.
 
 ⚙️ **Algorithme — HNSW (Hierarchical Navigable Small World).**
@@ -222,7 +222,7 @@ flowchart LR
     E --> N["Nettoyage<br/>(Unicode, OCR, en-têtes)"]
     N --> C["Chunking sémantique<br/>(~512 tokens)"]
     C --> V["Embeddings par lots"]
-    V --> I["Indexation<br/>(ChromaDB + métadonnées)"]
+    V --> I["Indexation<br/>(Qdrant + métadonnées)"]
 ```
 
 ### A. Extraction « consciente de la mise en page »
@@ -281,7 +281,7 @@ qui fait passer l'indexation de minutes à secondes.
 
 ### E. Indexation
 Les couples (texte, vecteur, métadonnées : fichier source, page…) sont stockés
-dans ChromaDB. Les métadonnées permettront le **filtrage** (« seulement le
+dans Qdrant. Les métadonnées permettront le **filtrage** (« seulement le
 manuel v3 ») et la **suppression ciblée** (« retire ce fichier »).
 
 🎯 **Exemple d'usage.** Vous glissez un ZIP de 80 fichiers mêlant PDF, DOCX et
@@ -1299,7 +1299,7 @@ souvent rédhibitoire (secret industriel, RGPD, clients soumis au secret).
 
 ⚙️ **Ce qui reste local dans Spectra :**
 - l'**inférence** (chat et embeddings) tourne sur **vos** serveurs (llama.cpp) ;
-- la **base vectorielle** (ChromaDB) et l'**index plein‑texte** sont sur vos volumes ;
+- la **base vectorielle** (Qdrant) et l'**index plein‑texte** sont sur vos volumes ;
 - le **fine‑tuning** (QLoRA) s'exécute sur votre matériel ;
 - les **modèles** affinés ne sont jamais téléversés.
 

@@ -22,7 +22,7 @@ final class ExactMatchRetriever {
         int fetch = filter.active() ? Math.min(limit * 4, FilteredVectorSearch.MAX_CANDIDATES) : limit;
         List<ChromaDbClient.ChunkHit> accepted = new ArrayList<>();
         for (ChromaDbClient.ChunkHit hit : client.findChunksContaining(collectionId, needle,
-                filter.chromaWhere(), fetch)) {
+                "qdrant".equals(client.vectorEngine()) ? filter.qdrantWhere() : filter.chromaWhere(), fetch)) {
             Map<String, String> meta = hit.metadata();
             if (!filter.accepts(meta.get("sha256"), meta.get("sourceFile"))) continue;
             accepted.add(hit);

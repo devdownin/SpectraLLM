@@ -58,7 +58,7 @@ for %%D in (
     "data\fine-tuning\merged"
     "data\models"
     "data\source"
-    "data\chroma"
+    "data\qdrant"
 ) do (
     if not exist %%D\ (
         mkdir %%D

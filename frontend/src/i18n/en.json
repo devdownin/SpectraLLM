@@ -90,7 +90,7 @@
     "chatModelDesc": "Place a .gguf file in data/models/ or download the default model.",
     "embedTitle": "Embedding server offline",
     "embedDesc": "Document ingestion and semantic search need it.",
-    "chromaTitle": "ChromaDB offline",
+    "chromaTitle": "Vector store offline",
     "chromaDesc": "Vector storage is unavailable — ingestion and retrieval will fail."
   },
   "dashboard": {
