@@ -1,5 +1,7 @@
 package fr.spectra.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -18,6 +20,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 /** Native Qdrant storage. Logical collection IDs are stable aliases. */
@@ -30,13 +33,18 @@ final class QdrantStore {
     private static final Duration TIMEOUT = Duration.ofSeconds(60);
 
     private final WebClient http;
+    private final ObjectMapper mapper;
+    private final MeterRegistry meters;
     private final String baseUrl;
     private final Map<String, String> rebuilds = new HashMap<>();
     private final AtomicLong mutation = new AtomicLong();
     private final ThreadLocal<Cursor> cursor = new ThreadLocal<>();
 
     QdrantStore(@Qualifier("qdrantWebClient") WebClient http,
-                @Value("${spectra.qdrant.base-url:http://qdrant:6333}") String baseUrl) {
+                @Value("${spectra.qdrant.base-url:http://qdrant:6333}") String baseUrl,
+                ObjectMapper mapper, MeterRegistry meters) {
+        this.mapper = mapper;
+        this.meters = meters;
         this.http = http;
         this.baseUrl = baseUrl;
     }
@@ -100,7 +108,7 @@ final class QdrantStore {
             staging = create(object(info(name).get("metadata")), embeddings.getFirst().size());
             rebuilds.put(name, staging);
         }
-        List<Map<String, Object>> original = pointsById(name, ids);
+        List<Map<String, Object>> original = pointsById(name, ids, List.of("documents", "metadatas"));
         Map<String, Map<String, Object>> payloads = new HashMap<>();
         for (var point : original) {
             var payload = object(point.get("payload"));
@@ -151,13 +159,18 @@ final class QdrantStore {
     Map<String, Object> get(String name, Map<String, Object> body) {
         List<?> include = (List<?>) body.get("include");
         if (body.get("ids") instanceof List<?> ids) {
-            return columns(pointsById(name, ids.stream().map(String.class::cast).toList()), include);
+            return columns(pointsById(name, ids.stream().map(String.class::cast).toList(), include), include);
         }
         int skip = ((Number) body.getOrDefault("offset", 0)).intValue();
         int limit = ((Number) body.getOrDefault("limit", PAGE)).intValue();
         var where = object(body.get("where"));
         var documentFilter = object(body.get("where_document"));
         String needle = (String) documentFilter.get("$contains");
+        Map<String, Object> nativeFilter = filter(where);
+        if (needle != null) {
+            // In Qdrant 1.16.3, text matching on the unindexed document field is case-sensitive substring matching.
+            nativeFilter = Map.of("must", List.of(nativeFilter, Map.of("key", "document", "match", Map.of("text", needle))));
+        }
         long generation = mutation.get();
         Cursor previous = cursor.get();
         Object offset = null;
@@ -170,12 +183,11 @@ final class QdrantStore {
         var found = new ArrayList<Map<String, Object>>();
         while (found.size() < limit) {
             int requested = (int) Math.min(PAGE, (long) skip + limit - found.size());
-            var query = new HashMap<String, Object>(Map.of("limit", requested, "with_payload", true));
+            var query = new HashMap<String, Object>(Map.of("limit", requested, "with_payload", payloadFields(include)));
             if (offset != null) query.put("offset", offset);
-            if (!where.isEmpty()) query.put("filter", filter(where));
+            if (needle != null || !where.isEmpty()) query.put("filter", nativeFilter);
             var result = object(call("POST", path(name) + "/points/scroll", query));
             for (var point : rows(result.get("points"))) {
-                if (needle != null && !((String) object(point.get("payload")).get("document")).contains(needle)) continue;
                 if (skip > 0) skip--;
                 else found.add(point);
             }
@@ -266,10 +278,18 @@ final class QdrantStore {
                 .map(a -> (String) a.get("collection_name")).findFirst().orElse(null);
     }
 
-    private List<Map<String, Object>> pointsById(String name, List<String> ids) {
+    private List<Map<String, Object>> pointsById(String name, List<String> ids, List<?> include) {
         if (ids.isEmpty()) return List.of();
         return rows(call("POST", path(name) + "/points",
-                Map.of("ids", ids.stream().map(QdrantStore::pointId).toList(), "with_payload", true)));
+                Map.of("ids", ids.stream().map(QdrantStore::pointId).toList(), "with_payload", payloadFields(include))));
+    }
+
+    private static List<String> payloadFields(List<?> include) {
+        var fields = new ArrayList<String>();
+        fields.add("chunkId");
+        if (include.contains("documents")) fields.add("document");
+        if (include.contains("metadatas")) fields.add("metadata");
+        return fields;
     }
 
     private static Map<String, Object> columns(List<Map<String, Object>> points, List<?> include) {
@@ -287,6 +307,8 @@ final class QdrantStore {
             if ("$and".equals(key) || "$or".equals(key)) {
                 clauses.add(Map.of("$and".equals(key) ? "must" : "should", rows(value).stream()
                         .map(QdrantStore::filter).toList()));
+            } else if ("$is_empty".equals(key)) {
+                clauses.add(Map.of("is_empty", Map.of("key", "metadata." + value)));
             } else {
                 var operation = object(value);
                 var match = operation.containsKey("$in") ? Map.of("any", operation.get("$in"))
@@ -303,8 +325,30 @@ final class QdrantStore {
 
     private Object call(String method, String path, Object body) {
         var request = http.method(HttpMethod.valueOf(method)).uri(path);
-        Map<?, ?> response = (body == null ? request : request.bodyValue(body))
-                .retrieve().bodyToMono(Map.class).block(TIMEOUT);
+        String operation = path.endsWith("/points/query") ? "query"
+                : path.endsWith("/points/scroll") ? "scroll" : "other";
+        long start = System.nanoTime();
+        byte[] bytes;
+        try {
+            bytes = (body == null ? request : request.bodyValue(body))
+                    .retrieve().bodyToMono(byte[].class).block(TIMEOUT);
+        } finally {
+            meters.timer("spectra.qdrant.http", "operation", operation)
+                    .record(System.nanoTime() - start, TimeUnit.NANOSECONDS);
+        }
+        if (bytes == null) throw new IllegalStateException("Empty Qdrant response");
+        meters.summary("spectra.qdrant.response.bytes", "operation", operation).record(bytes.length);
+        Map<?, ?> response;
+        try {
+            response = mapper.readValue(bytes, Map.class);
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("Unable to decode Qdrant response", e);
+        }
+        if (response != null && response.get("time") instanceof Number seconds
+                && Double.isFinite(seconds.doubleValue()) && seconds.doubleValue() >= 0) {
+            meters.timer("spectra.qdrant.engine", "operation", operation)
+                    .record((long) (seconds.doubleValue() * 1_000_000_000), TimeUnit.NANOSECONDS);
+        }
         if (response == null || !"ok".equals(response.get("status")) || !response.containsKey("result")) {
             throw new IllegalStateException("Invalid Qdrant response for " + method + " " + path);
         }

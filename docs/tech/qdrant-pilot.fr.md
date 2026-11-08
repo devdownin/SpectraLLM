@@ -113,3 +113,15 @@ python3 scripts/compare_qdrant_pilot.py compare "$work/chroma-hybrid.json" "$wor
 Pour la passe dense, retirer `--hybrid`. Pour une passe à faible concurrence, utiliser `--concurrency 1`. Omettre `--per-type` pour rejouer toutes les questions. Utiliser des noms de capture distincts pour chaque paire.
 
 Le rapport Onyx s’appuie sur les identifiants `dsid_…` des documents et calcule le rappel, le taux de succès et le rang réciproque moyen, globalement et par catégorie. Les questions sans référence restent dans les mesures de latence. Le comptage des documents hors référence sert au diagnostic local. Le classement public repose sur le corpus complet et l’évaluateur officiel Onyx, décrit dans le guide dédié.
+
+## Mesurer les appels Qdrant natifs
+
+Les métriques Actuator `spectra.qdrant.http`, `spectra.qdrant.engine` et
+`spectra.qdrant.response.bytes` mesurent respectivement le temps HTTP côté
+SpectraLLM, le temps déclaré par Qdrant et la taille du corps reçu. Filtrer par
+`operation=query` ou `operation=scroll` pour isoler la recherche et les lectures
+paginées. Les autres opérations portent le tag `operation=other`.
+
+La recherche d’identifiants utilise `match.text` sur le champ `document`
+sans index texte. Le test d’intégration vérifie la sous-chaîne et la casse sur
+la version Qdrant épinglée. Conserver ce test lors des mises à niveau.

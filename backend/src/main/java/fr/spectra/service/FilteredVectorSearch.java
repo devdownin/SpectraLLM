@@ -32,7 +32,7 @@ final class FilteredVectorSearch {
         int requested = Math.min(topN, MAX_CANDIDATES);
         while (true) {
             ChromaQueryResult raw = ChromaQueryResult.from(
-                    client.query(collectionId, embedding, requested, filter.chromaWhere()));
+                    client.query(collectionId, embedding, requested, "qdrant".equals(client.vectorEngine()) ? filter.qdrantWhere() : filter.chromaWhere()));
             List<String> texts = new ArrayList<>();
             List<Map<String, String>> metas = new ArrayList<>();
             List<Double> distances = new ArrayList<>();

@@ -108,7 +108,9 @@ class QdrantPilotIntegrationTest {
         var registry = mock(ModelRegistryService.class);
         when(registry.getActiveEmbeddingModel()).thenReturn("nomic-embed-text");
         var facade = new ChromaDbClient(WebClient.builder().build(), props, registry);
-        facade.setQdrantStore(new QdrantStore(WebClient.builder().baseUrl(url).build(), url));
+        var metrics = new SimpleMeterRegistry();
+        facade.setQdrantStore(new QdrantStore(WebClient.builder().baseUrl(url).build(), url,
+                new com.fasterxml.jackson.databind.ObjectMapper(), metrics));
         assertThat(facade.checkHealth().name()).isEqualTo("qdrant");
         String id = facade.getOrCreateCollection(name);
         assertThat(ids(facade, id, RetrievalFilterResolver.ResolvedFilter.NONE)).isEmpty();
@@ -120,15 +122,31 @@ class QdrantPilotIntegrationTest {
                         Map.of("sha256", "doc", "sourceFile", "report.txt", "chunkIndex", "1")),
                 new TextChunk("other:0", "a homonym", 0, "report.txt",
                         Map.of("sha256", "other", "sourceFile", "report.txt", "chunkIndex", "0")));
-        facade.addDocuments(id, chunks, List.of(List.of(1f, 0f), List.of(0.7f, 0.7f), List.of(0f, 1f)));
-        facade.addDocuments(id, chunks.subList(0, 1), List.of(List.of(1f, 0f)));
+        facade.addDocuments(id, chunks, List.of(List.of(0.9f, 0.1f), List.of(0.7f, 0.7f), List.of(1f, 0f)));
+        facade.addDocuments(id, chunks.subList(0, 1), List.of(List.of(0.9f, 0.1f)));
         assertThat(facade.count(id)).isEqualTo(3);
         assertThat(facade.listCollections()).anyMatch(row -> name.equals(row.get("name")));
         assertThat(ids(facade, id, new RetrievalFilterResolver.ResolvedFilter(Set.of("doc"), Set.of("report.txt"))))
                 .containsExactly("doc:0", "doc:1");
+        var queries = metrics.get("spectra.qdrant.http").tag("operation", "query").timer();
+        long queryCalls = queries.count();
+        var restricted = new RetrievalFilterResolver.ResolvedFilter(Set.of("doc"), Set.of("report.txt"));
+        assertThat(ChromaQueryResult.from(FilteredVectorSearch.query(facade, id, QUERY, 1, restricted)).ids())
+                .containsExactly("doc:0");
+        assertThat(queries.count()).isEqualTo(queryCalls + 1);
+        assertThat(facade.findChunksContaining(id, "PS-3", null, 2))
+                .extracting(ChromaDbClient.ChunkHit::text).containsExactly("unique ticket OPS-33");
         assertThat(facade.getChunksByIndex(id, "sha256", "doc", List.of(1))).containsEntry(1, "next passage");
         assertThat(facade.findChunksContaining(id, "OPS-33", null, 2))
                 .extracting(ChromaDbClient.ChunkHit::text).containsExactly("unique ticket OPS-33");
+        assertThat(facade.findChunksContaining(id, "ops-33", null, 2)).isEmpty();
+        var scroll = metrics.get("spectra.qdrant.http").tag("operation", "scroll").timer();
+        long calls = scroll.count();
+        assertThat(facade.findChunksContaining(id, "OPS-99999", null, 1)).isEmpty();
+        assertThat(scroll.count()).isEqualTo(calls + 1);
+        assertThat(metrics.get("spectra.qdrant.response.bytes").tag("operation", "scroll").summary().totalAmount())
+                .isPositive();
+        assertThat(metrics.get("spectra.qdrant.engine").tag("operation", "scroll").timer().count()).isPositive();
         assertThat(facade.getMetadatasByIds(id, List.of("doc:0"))).containsKey("doc:0");
         var page1 = (List<?>) facade.getDocumentsPaged(id, 2, 0).get("ids");
         var page2 = (List<?>) facade.getDocumentsPaged(id, 2, 2).get("ids");
