@@ -49,6 +49,9 @@ Two consequences worth stating outright:
 | `SPECTRA_LLM_SWITCH_POLL_MS` | `2000` | Poll interval (ms) while waiting for that model-switch convergence |
 | `SPECTRA_QDRANT_BASE_URL` | `http://qdrant:6333` | Qdrant base URL |
 | `SPECTRA_QDRANT_API_KEY` | empty | Optional Qdrant API key for an authenticated server |
+| `SPECTRA_QDRANT_INT8` | `false` | Store original vectors on disk and keep an INT8 copy in RAM for new or reindexed collections |
+| `SPECTRA_QDRANT_OVERSAMPLING` | `2` | Quantized candidate oversampling factor before rescoring with original vectors |
+| `SPECTRA_QDRANT_NATIVE_HYBRID` | `false` | Store sparse lexical vectors and try Qdrant RRF. Existing collections require a rebuild. See the [Qdrant guide](tech/qdrant-pilot.fr.md) |
 | `SPECTRA_VECTOR_STORE` | `qdrant` | Selects the vector engine. The comparison overlay explicitly sets `chroma` for its baseline |
 
 **Container-level (docker-compose):**

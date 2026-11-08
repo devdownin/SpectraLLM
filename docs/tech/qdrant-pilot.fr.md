@@ -153,3 +153,33 @@ par HNSW dans Qdrant 1.16.3, un filtre combiné conservait 1 % des points. Sur
 recherche exacte était de 96,5 % pour `ef=128`, 99,5 % pour `ef=256` et 100 %
 pour `ef=128` avec ACORN. Le p95 moteur correspondant était de 1,09, 1,39 et
 5,45 ms. Refaire cette comparaison sur le corpus cible avant de choisir un réglage.
+
+## Quantification INT8 et hybride natif
+
+| Variable Compose | Défaut | Effet |
+| --- | --- | --- |
+| `SPECTRA_QDRANT_INT8` | `false` | Vecteurs float32 sur disque et copie scalaire INT8 en RAM pour les collections créées ou réindexées avec cette option. |
+| `SPECTRA_QDRANT_OVERSAMPLING` | `2` | Nombre relatif de candidats quantifiés à reclasser sur les vecteurs originaux. Valeur comprise entre 1 et 10. |
+| `SPECTRA_QDRANT_NATIVE_HYBRID` | `false` | Index lexical clairsemé dans Qdrant et fusion RRF des candidats denses et lexicaux. |
+
+Renseigner les options dans `.env`, puis recréer le service `spectra-api`.
+Pour une collection déjà remplie, lancer sa réindexation pour construire le nouveau
+schéma. La réindexation publie la nouvelle collection par alias. Refaire la même
+opération avec les options désactivées pour revenir au schéma précédent.
+Le mode exact ignore la quantification pour la mesure de référence.
+
+L’hybride natif réutilise la tokenisation de BM25 Java. Il stocke des poids de
+termes avec une longueur de référence fixe, applique l’IDF dans Qdrant et fusionne
+les rangs avec RRF (`k=60`). La réponse expose l’ordre fusionné, avec distance
+cosinus inconnue et sans score BM25 brut. Le BM25 Java reste la référence et le
+repli si la collection est encore dense seule, si Qdrant échoue ou si le contrôle
+de visibilité écarte un résultat. Un poids BM25 personnalisé ou le regroupement
+par document utilise aussi la fusion Java. Les variantes multi-query hybrides
+natives sont exécutées séparément.
+
+Sur 50 000 vecteurs synthétiques de dimension 64 indexés, à `ef=256`, le rappel@10
+par rapport au calcul exact est resté identique entre float32 et INT8 avec
+reclassement et suréchantillonnage ×2. Le p95 moteur est passé de 1,10 à 1,01 ms
+sans filtre et de 1,40 à 1,19 ms avec le filtre à 1 %. Les originaux étaient sur
+disque dans les deux passes. Mesurer la RAM, les lectures SSD et la qualité sur
+le corpus cible avant de choisir ce profil.

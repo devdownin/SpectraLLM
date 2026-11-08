@@ -1485,7 +1485,7 @@ public class RagService {
     private List<SingleQueryResult> retrieveVariants(List<String> questions, String collectionId, String collectionName,
                                                       int limit, boolean hybrid,
                                                       RetrievalFilterResolver.ResolvedFilter filter) {
-        if (chromaDbClient.supportsNativeBatch()) {
+        if (chromaDbClient.supportsNativeBatch() && !(hybrid && chromaDbClient.nativeHybridEnabled())) {
             try (var ignored = collectionLease(collectionName)) {
                 var contract = EmbeddingContract.orDefault(chromaDbClient.embeddingContract(collectionName));
                 var embeddings = embeddingService.embedBatch(

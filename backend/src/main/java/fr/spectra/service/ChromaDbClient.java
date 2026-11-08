@@ -595,6 +595,36 @@ public class ChromaDbClient {
         return postQuery(collectionId, queryBody(queryEmbedding, nResults, where));
     }
 
+    boolean nativeHybridEnabled() {
+        return qdrant != null && qdrant.nativeHybridEnabled();
+    }
+
+    Optional<List<HybridSearchService.HybridChunk>> queryNativeHybrid(String collectionId, String question,
+            List<Float> embedding, int limit, RetrievalFilterResolver.ResolvedFilter filter) {
+        if (!nativeHybridEnabled() || filter.matchesNothing()) return Optional.empty();
+        try (var ignored = leaseId(collectionId)) {
+            var raw = qdrant.queryHybrid(collectionId, question, embedding, limit, filter.qdrantWhere());
+            var rows = ChromaQueryResult.from(visibleRows(raw, true));
+            if (rows.documents().isEmpty()
+                    || rows.documents().size() != ChromaQueryResult.from(raw).documents().size()
+                    || rows.metadatas().stream().anyMatch(meta ->
+                            !filter.accepts(meta.get("sha256"), meta.get("sourceFile")))) {
+                return Optional.empty();
+            }
+            var results = new java.util.ArrayList<HybridSearchService.HybridChunk>();
+            for (int i = 0; i < rows.ids().size(); i++) {
+                var meta = rows.metadatas().get(i);
+                results.add(new HybridSearchService.HybridChunk(rows.ids().get(i), rows.documents().get(i),
+                        meta.getOrDefault("sourceFile", "unknown"), 1.0, 0f, 1.0 / (61 + i), meta));
+            }
+            recordDenseSearch("qdrant", "success");
+            return Optional.of(results);
+        } catch (RuntimeException failure) {
+            log.debug("Native Qdrant hybrid unavailable for '{}': {}", collectionId, failure.getMessage());
+            return Optional.empty();
+        }
+    }
+
     boolean supportsNativeBatch() {
         return qdrant != null && qdrant.supportsBatch();
     }

@@ -364,7 +364,7 @@ public class BM25Index implements Serializable {
      *   <li>Ses parties sont ajoutées séparément pour que les recherches partielles matchent.</li>
      * </ol>
      */
-    private static Map<String, Integer> buildTermFreq(String text) {
+    static Map<String, Integer> buildTermFreq(String text) {
         if (text == null || text.isBlank()) return Map.of();
         Map<String, Integer> freq = new HashMap<>();
         // Split sur blancs + apostrophes (les élisions « l' », « d' »… n'apportent rien et

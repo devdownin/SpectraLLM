@@ -194,6 +194,48 @@ class QdrantPilotIntegrationTest {
         assertThat(metrics.get("spectra.qdrant.http").tag("operation", "batch").timer().count()).isEqualTo(1);
     }
 
+    @Test
+    void int8RebuildEnablesSparseHybridAndKeepsIdentityFilter() {
+        String url = System.getenv("SPECTRA_TEST_QDRANT_URL");
+        var http = WebClient.builder().baseUrl(url).build();
+        var store = new QdrantStore(http, url, new com.fasterxml.jackson.databind.ObjectMapper(),
+                new SimpleMeterRegistry());
+        var props = mock(SpectraProperties.class);
+        var facade = new ChromaDbClient(http, props, mock(ModelRegistryService.class));
+        facade.setQdrantStore(store);
+        String name = facade.getOrCreateCollection("sparse_" + UUID.randomUUID().toString().replace("-", ""));
+        var chunks = List.of(
+                new TextChunk("dense", "fruit orchard", 0, "report.txt", Map.of("sha256", "allowed")),
+                new TextChunk("second", "summer orchard", 1, "report.txt", Map.of("sha256", "allowed")),
+                new TextChunk("lexical", "tungsten reactor", 2, "report.txt", Map.of("sha256", "allowed")),
+                new TextChunk("denied", "tungsten tungsten", 3, "report.txt",
+                        Map.of("sha256", "other", "sourceFile", "report.txt")));
+        var vectors = List.of(QUERY, List.of(0.9f, 0.1f), List.of(0f, 1f), QUERY);
+        facade.addDocuments(name, chunks, vectors);
+        var filter = new RetrievalFilterResolver.ResolvedFilter(Set.of("allowed"), Set.of("report.txt"));
+        store.configureStorage(true, true, 2);
+        assertThat(facade.queryNativeHybrid(name, "tungsten", QUERY, 2, filter)).isEmpty();
+        facade.beginReindex(name);
+        facade.updateEmbeddings(name, chunks.stream().map(TextChunk::id).toList(), vectors);
+        facade.updateEmbeddingStamp(name, name, "nomic-embed-text");
+        facade.completeReindex(name);
+
+        var collection = http.get().uri("/collections/spectra_data_" + name)
+                .retrieve().bodyToMono(Map.class).block(Duration.ofSeconds(5));
+        var json = new com.fasterxml.jackson.databind.ObjectMapper().valueToTree(collection);
+        assertThat(json.at("/result/config/params/vectors/on_disk").asBoolean()).isTrue();
+        assertThat(json.at("/result/config/quantization_config/scalar/type").asText()).isEqualTo("int8");
+        assertThat(json.at("/result/config/params/sparse_vectors/spectra_lexical/modifier").asText()).isEqualTo("idf");
+
+        assertThat(ChromaQueryResult.from(facade.query(name, QUERY, 1, filter.qdrantWhere())).ids())
+                .containsExactly("dense");
+        var fts = mock(FtsService.class);
+        var hybrid = new HybridSearchService(facade, fts, props);
+        assertThat(hybrid.search("tungsten", QUERY, name, name, 2, filter))
+                .extracting(HybridSearchService.HybridChunk::id).contains("lexical").doesNotContain("denied");
+        org.mockito.Mockito.verifyNoInteractions(fts);
+    }
+
     private static List<String> ids(ChromaDbClient client, String id, RetrievalFilterResolver.ResolvedFilter filter) {
         return ChromaQueryResult.from(FilteredVectorSearch.query(client, id, QUERY, 3, filter)).ids();
     }

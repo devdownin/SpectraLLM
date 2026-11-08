@@ -111,6 +111,11 @@ public class HybridSearchService {
                                     int topCandidates,
                                     RetrievalFilterResolver.ResolvedFilter filter) {
         RetrievalFilterResolver.ResolvedFilter docs = filter != null ? filter : RetrievalFilterResolver.ResolvedFilter.NONE;
+        if (queryEmbedding != null && chromaDbClient.nativeHybridEnabled()
+                && (props.hybridSearch() == null || props.hybridSearch().effectiveBm25Weight() == 1f)) {
+            var nativeResult = chromaDbClient.queryNativeHybrid(collectionId, question, queryEmbedding, topCandidates, docs);
+            if (nativeResult.isPresent()) return nativeResult.get();
+        }
         // --- Run both searches in parallel, chaque source dégradant indépendamment ---
         // Si le vector store échoue, on garde les résultats BM25 (et inversement) plutôt
         // que de tout perdre — c'est précisément l'intérêt d'une recherche hybride.

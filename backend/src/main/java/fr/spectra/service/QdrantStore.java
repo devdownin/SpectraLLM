@@ -30,12 +30,15 @@ final class QdrantStore {
     private static final Logger log = LoggerFactory.getLogger(QdrantStore.class);
     private static final String PREFIX = "spectra_data_";
     private static final int PAGE = 256;
+    private static final String LEXICAL = "spectra_lexical";
+    private static final String DENSE = "";
     private static final Duration TIMEOUT = Duration.ofSeconds(60);
 
     private final WebClient http;
     private final ObjectMapper mapper;
     private final MeterRegistry meters;
     private final String baseUrl;
+    private final Map<String, Boolean> sparseCollections = new java.util.concurrent.ConcurrentHashMap<>();
     private final Map<String, String> rebuilds = new HashMap<>();
     private final AtomicLong mutation = new AtomicLong();
     private final ThreadLocal<Cursor> cursor = new ThreadLocal<>();
@@ -74,6 +77,7 @@ final class QdrantStore {
 
     Map<String, Object> info(String name) {
         var config = object(object(call("GET", path(name), null)).get("config"));
+        sparseCollections.put(name, hasSparse(object(config.get("params"))));
         return Map.of("id", name, "name", name, "metadata", object(config.get("metadata")));
     }
 
@@ -97,6 +101,7 @@ final class QdrantStore {
         }
         call("PATCH", "/collections/" + staging, Map.of("metadata", metadata));
         switchAlias(alias(name), backing(alias(name)), staging);
+        sparseCollections.put(name, nativeHybrid);
         rebuilds.remove(name);
         mutation.incrementAndGet();
     }
@@ -119,7 +124,7 @@ final class QdrantStore {
             String id = ids.get(i);
             var payload = payloads.get(id);
             if (payload == null) throw new IllegalStateException("Qdrant rebuild lost chunk " + id);
-            points.add(point(id, embeddings.get(i), payload));
+            points.add(point(id, embeddings.get(i), payload, nativeHybrid));
         }
         upsert("/collections/" + staging, points);
     }
@@ -128,12 +133,12 @@ final class QdrantStore {
              List<List<Float>> embeddings) {
         if (ids.isEmpty()) return;
         if (ids.size() != embeddings.size()) throw new IllegalArgumentException("Missing chunk embeddings");
-        ensureDimensions(name, embeddings.getFirst().size());
+        boolean sparse = ensureDimensions(name, embeddings.getFirst().size());
         var points = new ArrayList<Map<String, Object>>();
         for (int i = 0; i < ids.size(); i++) {
             String id = ids.get(i);
             points.add(point(id, embeddings.get(i),
-                    Map.of("chunkId", id, "document", texts.get(i), "metadata", metadata.get(i))));
+                    Map.of("chunkId", id, "document", texts.get(i), "metadata", metadata.get(i)), sparse));
         }
         upsert(path(name), points);
         mutation.incrementAndGet();
@@ -141,6 +146,26 @@ final class QdrantStore {
 
     private int groupSize;
     private Map<String, Object> searchParams = Map.of();
+
+    private boolean nativeHybrid;
+    private boolean int8;
+    private double oversampling = 2.0;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void configureStorage(@Value("${spectra.qdrant.native-hybrid:false}") boolean nativeHybrid,
+                          @Value("${spectra.qdrant.int8:false}") boolean int8,
+                          @Value("${spectra.qdrant.oversampling:2}") double oversampling) {
+        if (!Double.isFinite(oversampling) || oversampling < 1 || oversampling > 10) {
+            throw new IllegalArgumentException("Qdrant oversampling must be between 1 and 10");
+        }
+        this.nativeHybrid = nativeHybrid;
+        this.int8 = int8;
+        this.oversampling = oversampling;
+    }
+
+    boolean nativeHybridEnabled() {
+        return nativeHybrid && groupSize == 0;
+    }
 
     @org.springframework.beans.factory.annotation.Autowired
     void configureSearch(@Value("${spectra.qdrant.group-size:0}") int groupSize,
@@ -168,7 +193,10 @@ final class QdrantStore {
     private Map<String, Object> queryRequest(List<Float> embedding, int limit, Map<String, Object> where) {
         var body = new LinkedHashMap<String, Object>(Map.of("query", embedding, "limit", limit, "with_payload", true));
         if (where != null) body.put("filter", filter(where));
-        if (!searchParams.isEmpty()) body.put("params", searchParams);
+        var params = new HashMap<>(searchParams);
+        if (Boolean.TRUE.equals(params.get("exact"))) params.put("quantization", Map.of("ignore", true));
+        else if (int8) params.put("quantization", Map.of("rescore", true, "oversampling", oversampling));
+        if (!params.isEmpty()) body.put("params", params);
         return body;
     }
 
@@ -209,6 +237,34 @@ final class QdrantStore {
         var results = rows(call("POST", path(name) + "/points/query/batch", Map.of("searches", searches)));
         if (results.size() != searches.size()) throw new IllegalStateException("Incomplete Qdrant batch response");
         return results.stream().map(result -> queryColumns(rows(result.get("points")))).toList();
+    }
+
+    Map<String, Object> queryHybrid(String name, String question, List<Float> embedding,
+                                    int limit, Map<String, Object> where) {
+        if (!sparseCollections.computeIfAbsent(name, key -> hasSparse(collectionParams(key)))) return Map.of();
+        var sparse = sparseVector(question, false);
+        if (((List<?>) sparse.get("indices")).isEmpty()) return Map.of();
+
+        var dense = queryRequest(embedding, limit, where);
+        dense.remove("with_payload");
+        var lexical = new LinkedHashMap<String, Object>();
+        lexical.put("using", LEXICAL);
+        lexical.put("query", sparse);
+        lexical.put("limit", limit);
+        if (where != null) lexical.put("filter", filter(where));
+
+        var body = new LinkedHashMap<String, Object>();
+        body.put("prefetch", List.of(dense, lexical));
+        body.put("query", Map.of("rrf", Map.of("k", 60)));
+        body.put("limit", limit);
+        body.put("with_payload", true);
+        if (where != null) body.put("filter", filter(where));
+        var points = rows(object(call("POST", path(name) + "/points/query", body)).get("points"));
+        var result = columns(points, List.of("documents", "metadatas"));
+        // The fused RRF score has no cosine-distance interpretation.
+        result.put("distances", java.util.Collections.nCopies(points.size(), 1.0));
+        result.replaceAll((key, value) -> List.of(value));
+        return result;
     }
 
     private static Map<String, Object> queryColumns(List<Map<String, Object>> points) {
@@ -290,26 +346,50 @@ final class QdrantStore {
         return ((Number) object(call("POST", path + "/points/count", body)).get("count")).intValue();
     }
 
-    private synchronized void ensureDimensions(String name, int size) {
-        int existing = dimension(name);
-        if (existing == size) return;
+    private synchronized boolean ensureDimensions(String name, int size) {
+        var params = collectionParams(name);
+        int existing = dimension(params);
+        if (existing == size) return hasSparse(params);
         if (existing != 0) throw new IllegalArgumentException("Qdrant vector dimension mismatch; reindex the collection");
         String physical = create(object(info(name).get("metadata")), size);
         switchAlias(alias(name), backing(alias(name)), physical);
+        sparseCollections.put(name, nativeHybrid);
+        return nativeHybrid;
+    }
+
+    private Map<String, Object> collectionParams(String name) {
+        var result = object(call("GET", path(name), null));
+        return object(object(result.get("config")).get("params"));
     }
 
     private int dimension(String name) {
-        var result = object(call("GET", path(name), null));
-        var config = object(result.get("config"));
-        var vectors = object(object(config.get("params")).get("vectors"));
-        return ((Number) vectors.getOrDefault("size", 0)).intValue();
+        return dimension(collectionParams(name));
+    }
+
+    private static boolean hasSparse(Map<String, Object> params) {
+        return object(params.get("sparse_vectors")).containsKey(LEXICAL);
+    }
+
+    private static int dimension(Map<String, Object> params) {
+        return ((Number) object(params.get("vectors")).getOrDefault("size", 0)).intValue();
     }
 
     private String create(Map<String, Object> stamp, int size) {
         String physical = "spectra_points_" + UUID.randomUUID().toString().replace("-", "");
         String path = "/collections/" + physical;
-        var vectors = size == 0 ? Map.of() : Map.of("size", size, "distance", "Cosine");
-        call("PUT", path, Map.of("vectors", vectors, "metadata", stamp, "hnsw_config", Map.of("ef_construct", 200)));
+        var vectors = new LinkedHashMap<String, Object>();
+        if (size > 0) {
+            vectors.put("size", size);
+            vectors.put("distance", "Cosine");
+            if (int8) vectors.put("on_disk", true);
+        }
+        var body = new LinkedHashMap<String, Object>(
+                Map.of("vectors", vectors, "metadata", stamp, "hnsw_config", Map.of("ef_construct", 200)));
+        if (size > 0 && int8) {
+            body.put("quantization_config", Map.of("scalar", Map.of("type", "int8", "always_ram", true)));
+        }
+        if (size > 0 && nativeHybrid) body.put("sparse_vectors", Map.of(LEXICAL, Map.of("modifier", "idf")));
+        call("PUT", path, body);
         if (size != 0) {
             for (String key : List.of("sha256", "sourceFile", "chunkIndex", "zipEntry")) {
                 call("PUT", path + "/index?wait=true", Map.of("field_name", "metadata." + key, "field_schema", "keyword"));
@@ -390,7 +470,7 @@ final class QdrantStore {
         var request = http.method(HttpMethod.valueOf(method)).uri(path);
         String operation = path.endsWith("/points/query/groups") ? "groups"
                 : path.endsWith("/points/query/batch") ? "batch"
-                : path.endsWith("/points/query") ? "query"
+                : path.endsWith("/points/query") ? (body instanceof Map<?, ?> m && m.containsKey("prefetch") ? "hybrid" : "query")
                 : path.endsWith("/points/scroll") ? "scroll" : "other";
         long start = System.nanoTime();
         byte[] bytes;
@@ -420,8 +500,26 @@ final class QdrantStore {
         return response.get("result");
     }
 
-    private static Map<String, Object> point(String id, List<Float> vector, Map<String, Object> payload) {
-        return Map.of("id", pointId(id), "vector", vector, "payload", payload);
+    private static Map<String, Object> point(String id, List<Float> vector, Map<String, Object> payload,
+                                             boolean sparse) {
+        Object vectors = sparse
+                ? Map.of(DENSE, vector, LEXICAL, sparseVector((String) payload.get("document"), true))
+                : vector;
+        return Map.of("id", pointId(id), "vector", vectors, "payload", payload);
+    }
+
+    /** Fixed-reference BM25 term weights; Qdrant supplies the collection IDF at query time. */
+    private static Map<String, Object> sparseVector(String text, boolean document) {
+        var frequencies = BM25Index.buildTermFreq(text);
+        int length = frequencies.values().stream().mapToInt(Integer::intValue).sum();
+        var weighted = new java.util.TreeMap<Integer, Double>();
+        frequencies.forEach((term, frequency) -> {
+            double value = document ? 2.5 * frequency / (frequency + 1.5 * (0.25 + 0.75 * length / 120.0)) : 1;
+            var hash = UUID.nameUUIDFromBytes(term.getBytes(StandardCharsets.UTF_8));
+            int index = (int) hash.getLeastSignificantBits() & Integer.MAX_VALUE;
+            weighted.merge(index, value, Math::max);
+        });
+        return Map.of("indices", List.copyOf(weighted.keySet()), "values", List.copyOf(weighted.values()));
     }
 
     private static String pointId(String id) {
