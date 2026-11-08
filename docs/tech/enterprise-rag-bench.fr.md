@@ -261,6 +261,51 @@ Le Self-RAG actuel vérifie un extrait
 des trois premiers passages. `selfRagApplied` indique qu'un raffinement a eu lieu.
 Cet essai mesure la réflexion existante. Une vérification exhaustive des faits requiert sa propre variante.
 
+### Automatiser les diagnostics après le comparatif dev-120
+
+Pour le diagnostic de génération, fournir le répertoire `answer-…` de la variante
+de référence déjà jugée. Le lanceur sélectionne jusqu’à 20 questions annotées
+au score le plus faible, fige cette sélection et réutilise les notes RAG existantes.
+Il soumet les versions oracle concise et détaillée au même juge et écrit les écarts
+appariés dans `report.json`. Garder le même modèle de chat et le même corpus.
+
+```bash
+python3 scripts/enterprise_rag_diagnostics.py oracle \
+  --reference "$RAG_REFERENCE" --split-dir "$WORK/split" --corpus-dir "$WORK/documents" \
+  --api http://localhost:8091 --model "$CHAT_MODEL" --profile "$WORK/profile-reference.json" \
+  --evaluator-dir ../EnterpriseRAG-Bench --python ../EnterpriseRAG-Bench/.venv/bin/python \
+  --out "$WORK/diagnostic-oracle"
+```
+
+Pour l'hybride natif, préparer deux API de test dédiées avec la même collection
+clairsemée et le même corpus. Utiliser un serveur construit avec les compteurs
+`spectra.retrieval.qdrant.hybrid` de la PR #482. Sur la référence, régler
+`SPECTRA_QDRANT_NATIVE_HYBRID=false`, puis `true` sur la variante. Garder
+`SPECTRA_QDRANT_GROUP_SIZE=0` et le poids BM25 à 1 des deux côtés. Réchauffer
+les deux piles de la même façon et les réserver au benchmark pendant les relevés.
+
+```bash
+DISTRACTORS=5000
+python3 scripts/enterprise_rag_diagnostics.py native \
+  --work-dir "$WORK" --split-dir "$WORK/split" --profile "$WORK/profile-reference.json" \
+  --api "$API" --native-api "$NATIVE_API" --collection "$COLLECTION" \
+  --distractors "$DISTRACTORS" --top-candidates "$CANDIDATES" \
+  --evaluator-dir ../EnterpriseRAG-Bench --python ../EnterpriseRAG-Bench/.venv/bin/python \
+  --out "$WORK/diagnostic-native-$DISTRACTORS"
+```
+
+Après le palier de 5 000, passer à 20 000 avec `prepare --subset 20000 --extend`,
+indexer les nouveaux documents dans les deux piles, puis relancer avec
+`DISTRACTORS=20000`. Garder un état d’ingestion distinct par instance. Pour un
+essai documentaire sans génération ni juge, utiliser `--retrieval-only`.
+
+Le rapport inclut les scores appariés, les appels natifs retenus, les replis et
+deux relevés du tas JVM par capture. Ces relevés ne donnent pas le pic mémoire.
+Pour la RAM de Qdrant, relever `docker compose stats --no-stream qdrant spectra-api`
+sur chaque pile pendant l’essai. Le BM25 Java reste chargé pour le repli, donc
+la mesure inclut son coût. Si une capture native est interrompue avant son relevé
+final, reprendre dans un répertoire neuf pour établir des compteurs comparables.
+
 ### Diagnostiquer la génération avec les documents de référence
 
 Sur `dev-120`, choisir une vingtaine de questions mal répondues ou incomplètes dans
