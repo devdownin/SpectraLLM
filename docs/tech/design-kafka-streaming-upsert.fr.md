@@ -1,5 +1,7 @@
 # Design — Ingestion streaming Kafka → RAG avec upsert
 
+> Ce document retrace la mise en place initiale avec ChromaDB. Pour la configuration vectorielle actuelle, voir le [guide Qdrant](qdrant-pilot.fr.md).
+
 > Statut : proposition de design (référence d'implémentation).
 > Objectif : **enrichir le LLM au fil de l'eau avec des données vivantes** en
 > consommant des messages Kafka et en maintenant l'index RAG à jour (ajout,

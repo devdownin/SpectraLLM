@@ -489,7 +489,7 @@ const sectionPipeline = () => (
           <p className="text-muted-foreground">  ↓ Raw text extraction</p>
           <p className="text-muted-foreground">  ↓ Cleaning (8 passes): dedup · Unicode · stops</p>
           <p className="text-muted-foreground">  ↓ Chunking: 512 tokens, 64 overlap</p>
-          <p className="text-foreground">  ↓ Embedding → ChromaDB (768-dim vectors)</p>
+          <p className="text-foreground">  ↓ Embedding → Qdrant (768-dim vectors)</p>
         </div>
         <ul className="space-y-1.5 text-xs text-foreground/80">
           <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" /> Formats: PDF, DOCX, DOC, JSON, XML, TXT, HTML, Avro, ZIP, URL</li>
@@ -689,7 +689,7 @@ const sectionCommenting = () => (
       <div className="space-y-3">
         {[
           { n: '1', icon: 'chat_bubble',     label: 'User focus',                desc: 'Provide a specific analysis angle ("emergency procedures") or leave blank for a general summary.', color: 'text-primary border-primary/30 bg-primary/5' },
-          { n: '2', icon: 'search',          label: 'RAG retrieval',             desc: 'Spectra retrieves the 6 most relevant passages of the document from ChromaDB via hybrid search.', color: 'text-primary border-primary/30 bg-primary/5' },
+          { n: '2', icon: 'search',          label: 'RAG retrieval',             desc: 'Spectra retrieves the 6 most relevant passages of the document from Qdrant via hybrid search.', color: 'text-primary border-primary/30 bg-primary/5' },
           { n: '3', icon: 'memory',          label: 'LLM generation (temp 0.4)', desc: 'The LLM writes a factual analytical comment grounded in those passages. Low temperature = fewer fabrications.', color: 'text-secondary border-secondary/30 bg-secondary/5' },
           { n: '4', icon: 'thumb_up',        label: 'Rating 👍/👎',             desc: 'You rate APPROVED or REJECTED. Each rating creates a preference. The Jaccard guard filters out overly similar pairs.', color: 'text-secondary border-secondary/30 bg-secondary/5' },
           { n: '5', icon: 'download',        label: 'DPO export',                desc: 'Click "DPO↓" — Spectra exports the (chosen, rejected) pairs as JSONL. Pairs with Jaccard > 0.85 are excluded.', color: 'text-primary border-primary/30 bg-primary/5' },
@@ -1119,7 +1119,7 @@ const sectionInterface = () => (
           {
             key: 'Dashboard',
             title: 'Real-time monitoring',
-            body: 'Service health (LLM, ChromaDB), knowledge base statistics, and a "Personalization Cycle" section (approvals, DPO, FT, evaluation score + a progress bar toward the next auto trigger).',
+            body: 'Service health (LLM, Qdrant), knowledge base statistics, and a "Personalization Cycle" section (approvals, DPO, FT, evaluation score + a progress bar toward the next auto trigger).',
             icon: 'dashboard',
             badge: 'Auto metrics',
           },

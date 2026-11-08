@@ -21,6 +21,7 @@ spring:
       mode: always
 
 spectra:
+  vector-store: chroma
   # Tous les services externes pointent sur un port fermé de la boucle locale : la
   # connexion est refusée immédiatement (ECONNREFUSED), là où une adresse routable
   # ferait attendre le timeout. Les composants qui sondent au démarrage doivent

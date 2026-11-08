@@ -90,7 +90,7 @@
     "chatModelDesc": "Placez un fichier .gguf dans data/models/ ou téléchargez le modèle par défaut.",
     "embedTitle": "Serveur d'embeddings hors ligne",
     "embedDesc": "L'ingestion de documents et la recherche sémantique en dépendent.",
-    "chromaTitle": "ChromaDB hors ligne",
+    "chromaTitle": "Index vectoriel hors ligne",
     "chromaDesc": "Le stockage vectoriel est indisponible — l'ingestion et la recherche échoueront."
   },
   "dashboard": {

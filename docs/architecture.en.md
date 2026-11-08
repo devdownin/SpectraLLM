@@ -29,7 +29,7 @@ Deep dive into every container and service of the Spectra stack. For the big pic
 └─────────┼───────────────┼──────────────────┼─────────────┘
           │               │                  │
     ┌─────▼───────┐  ┌────▼──────┐  ┌────▼──────┐  ┌───────▼────────┐
-    │  ChromaDB   │  │ llm-chat  │  │ llm-embed │  │  train.sh      │
+    │  Qdrant   │  │ llm-chat  │  │ llm-embed │  │  train.sh      │
     │  :8000      │  │ :8081     │  │ :8082     │  │  (Unsloth)     │
     │  (vectors)  │  │ (chat)    │  │ (embed)   │  │  host, or the  │
     │             │  │           │  │           │  │  trainer image │
@@ -49,7 +49,7 @@ Deep dive into every container and service of the Spectra stack. For the big pic
 | `spectra-api` | Spring Boot backend, all business logic | ✅ |
 | `llm-chat` | llama.cpp — chat inference (port 8081) | ✅ |
 | `llm-embed` | llama.cpp — embedding only (port 8082) | ✅ |
-| `chromadb` | Vector database — API v2 | ✅ |
+| `qdrant` | Vector database — REST API | ✅ |
 | `docparser` | Layout-aware PDF → Markdown | optional |
 | `reranker` | Cross-Encoder re-ranking | optional |
 | `browserless` | Headless Chrome for JS-rendered pages | optional |
@@ -61,7 +61,7 @@ Deep dive into every container and service of the Spectra stack. For the big pic
 
 ### `spectra-api` — The Backend
 
-The core of Spectra. A Spring Boot 4.1 application running on Java 25 with **virtual threads** (Project Loom) enabled. Every blocking I/O operation (embedding calls, ChromaDB queries, LLM generation, file reads) runs on a virtual thread, giving you thousands of concurrent operations without the overhead of a traditional thread pool.
+The core of Spectra. A Spring Boot 4.1 application running on Java 25 with **virtual threads** (Project Loom) enabled. Every blocking I/O operation (embedding calls, Qdrant queries, LLM generation, file reads) runs on a virtual thread, giving you thousands of concurrent operations without the overhead of a traditional thread pool.
 
 **Key responsibilities:**
 - Document ingestion pipeline (extraction → cleaning → chunking → embedding → indexing)
@@ -147,27 +147,27 @@ In this mode, the `ResourceAdvisorService` detects your hardware and fills in op
 
 ---
 
-### `chromadb` — Vector Database
+### `qdrant` — Vector Database
 
-**ChromaDB** stores document embeddings (dense float vectors) and supports approximate nearest-neighbor search. Every chunk ingested into Spectra gets embedded and stored here.
+**Qdrant** stores document embeddings (dense float vectors) and supports approximate nearest-neighbor search. Every chunk ingested into Spectra gets embedded and stored here.
 
 When you ask a question, Spectra:
 1. Embeds your question using the same model used during ingestion
-2. Queries ChromaDB for the `top_k` most similar chunks
+2. Queries Qdrant for the `top_k` most similar chunks
 3. Passes those chunks as context to the LLM
 
 **Configuration:**
 ```bash
-CHROMADB_URL=http://chromadb:8000
+SPECTRA_QDRANT_BASE_URL=http://qdrant:6333
 ```
 
-Data is persisted under `./data/chroma`, the same bind-mounted directory that holds the H2 database, and survives container restarts. The two stores deliberately share one lifecycle: a vector index and a document catalogue that can be reset independently drift apart silently, which `ConsistencyReconciliationService` would then report at boot. Back up `./data` and you have both.
+Data is persisted under `./data/qdrant`, the same bind-mounted directory that holds the H2 database, and survives container restarts. The two stores deliberately share one lifecycle: a vector index and a document catalogue that can be reset independently drift apart silently, which `ConsistencyReconciliationService` would then report at boot. Back up `./data` and you have both.
 
 ---
 
 ### `FtsService` + `BM25Index` — Full-Text Search
 
-The in-memory BM25 (Okapi BM25) index runs inside the JVM alongside the API. It's populated during ingestion in parallel with the ChromaDB vector index.
+The in-memory BM25 (Okapi BM25) index runs inside the JVM alongside the API. It's populated during ingestion in parallel with the Qdrant vector index.
 
 **How BM25 differs from vector search:**
 - BM25 is term-frequency based: it scores documents by how often query terms appear relative to document length and corpus frequency
@@ -307,7 +307,7 @@ Documents enter Spectra through several channels:
 3. **Cleaning** — multi-pass normalization: Unicode NFC, OCR ligature replacement, page markers, headers/footers, table borders, bullet point normalization, whitespace compression
 4. **Chunking** — sliding window by token count (default: 512 tokens, 64-token overlap; sentence boundaries follow `SPECTRA_CHUNK_LOCALE`). The overlap ensures that sentences crossing chunk boundaries aren't split in half for the embedder
 5. **Embedding** — batched calls to the embedding model (default batch: 32 chunks). The batch size is bounded by the LLM clients' 16 MB response buffer (`AppConfig.LLM_MAX_IN_MEMORY_BYTES`): a batch large enough to exceed it fails as a whole, so raise `SPECTRA_EMBEDDING_BATCH_SIZE` and that ceiling together
-6. **Vector indexing** — chunks + embeddings stored in ChromaDB; each chunk carries its document's `sha256` as metadata, so deletion/replacement targets content identity (two same-named documents no longer share their fate)
+6. **Vector indexing** — chunks + embeddings stored in Qdrant; each chunk carries its document's `sha256` as metadata, so deletion/replacement targets content identity (two same-named documents no longer share their fate)
 7. **BM25 indexing** — chunks are **always** added to the in-memory BM25 index (hybrid search only decides whether it is *queried* at retrieval time)
 8. **GED record** — the document sheet is created (hash, quality score, lifecycle), with per-file errors surfaced in the task status (`fileErrors`; a task where every file failed ends `FAILED`)
 
@@ -371,7 +371,7 @@ SPECTRA_KAFKA_ENABLED=true SPECTRA_KAFKA_TOPICS=my-topic \
 | `SPECTRA_KAFKA_BOOTSTRAP_SERVERS` | `kafka:9092` | Broker list (host:port,…) |
 | `SPECTRA_KAFKA_TOPICS` | *(empty)* | Topics to consume (comma-separated) |
 | `SPECTRA_KAFKA_GROUP_ID` | `spectra-ingestion` | Consumer group id |
-| `SPECTRA_KAFKA_COLLECTION` | `spectra_stream` | Dedicated ChromaDB collection |
+| `SPECTRA_KAFKA_COLLECTION` | `spectra_stream` | Dedicated Qdrant collection |
 | `SPECTRA_KAFKA_FORMAT` | `json` | Extractor routing: `json`/`txt`/`xml`/`avro` |
 | `SPECTRA_KAFKA_CONTENT_FIELD` | *(empty)* | JSON field/pointer to index (empty = raw payload) |
 | `SPECTRA_KAFKA_METADATA_FIELDS` | *(empty)* | JSON fields copied into chunk metadata (comma-separated) |
@@ -445,7 +445,7 @@ Allowed transitions: `INGESTED → QUALIFIED | ARCHIVED` · `QUALIFIED → TRAIN
 | **Quality score** | 0–1 score assigned at ingestion (chunk count + format bonus, max 1.0); drives auto-qualification |
 | **Auto-qualification** | If `autoQualifyThreshold > 0`, documents scoring above it are auto-promoted to `QUALIFIED` at ingestion |
 | **Retention policies** | Nightly cron: auto-archive INGESTED after N days, auto-purge ARCHIVED M days after their **archival date** (`archivedAt`) — the purge removes the DB record *and* the indexed chunks |
-| **Synchronized deletion** | Deleting a document removes it from the GED (H2), ChromaDB and the BM25 index in one call, targeting the chunk `sha256` identity; `DELETE /api/documents/{sourceFile}` follows the same path |
+| **Synchronized deletion** | Deleting a document removes it from the GED (H2), Qdrant and the BM25 index in one call, targeting the chunk `sha256` identity; `DELETE /api/documents/{sourceFile}` follows the same path |
 | **Statistics** | Lifecycle distribution, quality histogram, top tags, classification coverage and top categories, total indexed chunks |
 | **Automatic classification** | The active LLM labels each document against a configurable taxonomy, from excerpts sampled across its whole length; categories drive thematic filtering and corpus balancing before dataset generation |
 | **Article commenting** | Human and AI-generated comments per document; rated comments export as DPO training pairs |
@@ -455,7 +455,7 @@ Allowed transitions: `INGESTED → QUALIFIED | ARCHIVED` · `QUALIFIED → TRAIN
 ```
 GET    /api/ged/documents                              # Paginated list with filters
 GET    /api/ged/documents/{sha256}                     # Full document sheet + model links + audit
-DELETE /api/ged/documents/{sha256}                     # Delete from GED + ChromaDB
+DELETE /api/ged/documents/{sha256}                     # Delete from GED + Qdrant
 PUT    /api/ged/documents/{sha256}/lifecycle           # Transition lifecycle
 POST   /api/ged/documents/{sha256}/tags                # Add tags
 DELETE /api/ged/documents/{sha256}/tags                # Remove tags
@@ -711,7 +711,7 @@ The registry is a JSON file at `data/models/registry.json`. It maps logical mode
 | **Backend** | Java 25 + Spring Boot 4.1 | Virtual threads, mature ecosystem, strong typing |
 | **Frontend** | React 19 + Vite + Tailwind CSS v4 + Recharts | Fast builds, component model, utility CSS, rich visualizations |
 | **Inference** | llama.cpp (GGUF) | CPU+GPU, quantization support, OpenAI-compatible |
-| **Vector DB** | ChromaDB | Embedded or standalone, simple HTTP API |
+| **Vector DB** | Qdrant | Standalone, HTTP API |
 | **Full-text** | BM25Okapi (custom Java) | No external dependency, same JVM, thread-safe |
 | **Reranker** | sentence-transformers (Python) | Best-in-class Cross-Encoders, multilingual |
 | **PDF parsing** | PyMuPDF4LLM / Docling | Layout-aware, Markdown output |
@@ -737,7 +737,7 @@ horizontal scaling:
 | SSE fan-out | per-instance `Flux`/broadcaster (`TrainingLogBroadcaster`, task activity) | live logs/progress only reach clients connected to the pod running the job |
 | In-flight dedup reservations, scheduled cleanups | in-memory + `@Scheduled` | each replica runs its own cron and holds its own reservations |
 
-ChromaDB and the llama.cpp inference servers **are** externalised and can be scaled/shared
+Qdrant and the llama.cpp inference servers **are** externalised and can be scaled/shared
 independently — the single-instance constraint is specific to `spectra-api`.
 
 **Scale vertically** (more CPU/RAM, `SPECTRA_CONCURRENT_INGESTIONS`, `LLM_PARALLEL`) rather than

@@ -1,5 +1,7 @@
 # Migration Ollama -> llama.cpp
 
+> Ce document retrace la mise en place initiale avec ChromaDB. Pour la configuration vectorielle actuelle, voir le [guide Qdrant](qdrant-pilot.fr.md).
+
 Document de suivi de la migration de Spectra depuis `Ollama` vers `llama.cpp`, en visant le fork `TheTom/llama-cpp-turboquant` pour l'inference locale.
 
 ## Objectif

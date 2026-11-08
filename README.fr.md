@@ -96,7 +96,9 @@ Tout est accessible depuis l'**[index de la documentation](docs/README.md)**, ou
 | **[Guide llama.cpp](docs/tech/llama-cpp.fr.md)** | Détails et réglages du moteur d'inférence |
 | **[Fiabilité](docs/process/reliability.fr.md)** · **[Sécurité](SECURITY.md)** | Garanties opérationnelles et politique de sécurité |
 
-**Stack :** Java 25 / Spring Boot 4 · React 19 · llama.cpp · ChromaDB · Python (fine-tuning, parsing, re-ranking) — détaillée dans [Architecture](docs/architecture.en.md#technology-stack).
+**Stack :** Java 25 / Spring Boot 4 · React 19 · llama.cpp · Qdrant · Python (fine-tuning, parsing, re-ranking) — détaillée dans [Architecture](docs/architecture.en.md#technology-stack).
+
+Qdrant conserve les vecteurs dans `data/qdrant`. Voir le [guide Qdrant](docs/tech/qdrant-pilot.fr.md) pour démarrer avec un index neuf et comparer les moteurs.
 
 ## Accès MCP pour les agents
 

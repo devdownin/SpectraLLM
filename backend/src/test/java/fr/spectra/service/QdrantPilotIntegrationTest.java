@@ -1,6 +1,7 @@
 package fr.spectra.service;
 
 import fr.spectra.config.SpectraProperties;
+import fr.spectra.model.TextChunk;
 import fr.spectra.persistence.StreamSourceEntity;
 import fr.spectra.persistence.StreamSourceRepository;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -97,6 +98,55 @@ class QdrantPilotIntegrationTest {
                 .counter().count()).isEqualTo(1);
         assertThat(meters.get("spectra.retrieval.bm25.only").tag("reason", "dense_error")
                 .counter().count()).isEqualTo(1);
+    }
+
+    @Test
+    void nativeQdrantStoresReadsDeletesAndRebuildsAcrossDimensions() {
+        String url = System.getenv("SPECTRA_TEST_QDRANT_URL");
+        String name = "native_" + UUID.randomUUID().toString().replace("-", "");
+        var props = mock(SpectraProperties.class);
+        var registry = mock(ModelRegistryService.class);
+        when(registry.getActiveEmbeddingModel()).thenReturn("nomic-embed-text");
+        var facade = new ChromaDbClient(WebClient.builder().build(), props, registry);
+        facade.setQdrantStore(new QdrantStore(WebClient.builder().baseUrl(url).build(), url));
+        assertThat(facade.checkHealth().name()).isEqualTo("qdrant");
+        String id = facade.getOrCreateCollection(name);
+        assertThat(ids(facade, id, RetrievalFilterResolver.ResolvedFilter.NONE)).isEmpty();
+
+        var chunks = List.of(
+                new TextChunk("doc:0", "unique ticket OPS-33", 0, "report.txt",
+                        Map.of("sha256", "doc", "sourceFile", "report.txt", "chunkIndex", "0")),
+                new TextChunk("doc:1", "next passage", 1, "report.txt",
+                        Map.of("sha256", "doc", "sourceFile", "report.txt", "chunkIndex", "1")),
+                new TextChunk("other:0", "a homonym", 0, "report.txt",
+                        Map.of("sha256", "other", "sourceFile", "report.txt", "chunkIndex", "0")));
+        facade.addDocuments(id, chunks, List.of(List.of(1f, 0f), List.of(0.7f, 0.7f), List.of(0f, 1f)));
+        facade.addDocuments(id, chunks.subList(0, 1), List.of(List.of(1f, 0f)));
+        assertThat(facade.count(id)).isEqualTo(3);
+        assertThat(facade.listCollections()).anyMatch(row -> name.equals(row.get("name")));
+        assertThat(ids(facade, id, new RetrievalFilterResolver.ResolvedFilter(Set.of("doc"), Set.of("report.txt"))))
+                .containsExactly("doc:0", "doc:1");
+        assertThat(facade.getChunksByIndex(id, "sha256", "doc", List.of(1))).containsEntry(1, "next passage");
+        assertThat(facade.findChunksContaining(id, "OPS-33", null, 2))
+                .extracting(ChromaDbClient.ChunkHit::text).containsExactly("unique ticket OPS-33");
+        assertThat(facade.getMetadatasByIds(id, List.of("doc:0"))).containsKey("doc:0");
+        var page1 = (List<?>) facade.getDocumentsPaged(id, 2, 0).get("ids");
+        var page2 = (List<?>) facade.getDocumentsPaged(id, 2, 2).get("ids");
+        assertThat(page1).hasSize(2);
+        assertThat(page2).hasSize(1);
+        assertThat(page1.stream().noneMatch(page2::contains)).isTrue();
+
+        assertThat(facade.deleteByMetadata(id, "sha256", "other")).isEqualTo(1);
+        when(registry.getActiveEmbeddingModel()).thenReturn("replacement");
+        facade.beginReindex(name);
+        facade.updateEmbeddings(id, List.of("doc:0", "doc:1"), List.of(List.of(1f, 0f, 0f), List.of(0f, 1f, 0f)));
+        assertThat(facade.count(id)).isEqualTo(2);
+        facade.updateEmbeddingStamp(name, id, "replacement");
+        facade.completeReindex(name);
+        assertThat(facade.getOrCreateCollection(name)).isEqualTo(id);
+        assertThat(ChromaQueryResult.from(facade.query(id, List.of(1f, 0f, 0f), 1)).ids()).containsExactly("doc:0");
+        facade.deleteChunksByIds(id, List.of("doc:0"));
+        assertThat(facade.count(id)).isEqualTo(1);
     }
 
     private static List<String> ids(ChromaDbClient client, String id, RetrievalFilterResolver.ResolvedFilter filter) {

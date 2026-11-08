@@ -1,5 +1,13 @@
 # Add to the local build stack only for a frozen, isolated retrieval comparison.
 services:
+  chromadb:
+    image: chromadb/chroma:1.5.9
+    environment:
+      ANONYMIZED_TELEMETRY: "false"
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - chroma-benchmark-data:/data
   qdrant-pilot:
     image: qdrant/qdrant:v1.16.3
     environment:
@@ -12,6 +20,9 @@ services:
 
   spectra-api:
     environment:
+      SPECTRA_VECTOR_STORE: chroma
+      SPECTRA_CHROMADB_BASE_URL: http://chromadb:8000
+      SPECTRA_QDRANT_BASE_URL: http://qdrant-pilot:6333
       SPECTRA_QDRANT_PILOT_ENABLED: ${SPECTRA_QDRANT_PILOT_ENABLED:-false}
       SPECTRA_QDRANT_SOURCE_ID: ${SPECTRA_QDRANT_SOURCE_ID:-}
       SPECTRA_QDRANT_TARGET: ${SPECTRA_QDRANT_TARGET:-}
@@ -19,3 +30,4 @@ services:
 
 volumes:
   qdrant-pilot-data:
+  chroma-benchmark-data:

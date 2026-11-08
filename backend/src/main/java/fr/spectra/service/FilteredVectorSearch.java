@@ -18,10 +18,10 @@ final class FilteredVectorSearch {
         if (pilotResult.isPresent()) return pilotResult.get();
         try {
             var result = queryChroma(client, collectionId, embedding, topN, filter);
-            client.recordDenseSearch("chroma", "success");
+            client.recordDenseSearch(client.vectorEngine(), "success");
             return result;
         } catch (RuntimeException e) {
-            client.recordDenseSearch("chroma", "error");
+            client.recordDenseSearch(client.vectorEngine(), "error");
             throw e;
         }
     }

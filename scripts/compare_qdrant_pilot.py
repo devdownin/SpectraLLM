@@ -11,10 +11,24 @@ import statistics
 import time
 from urllib.request import Request, urlopen
 
+from enterprise_rag_bench import NO_GOLD_TYPES, Question, extract_doc_ids, load_questions, retrieval_report, sample_per_type
+
 
 def capture(args):
     raw = args.questions.read_bytes()
-    cases = [json.loads(line) for line in raw.splitlines() if line.strip()]
+    onyx = args.suite_format == "onyx"
+    if args.per_type is not None and (not onyx or args.per_type < 1):
+        raise ValueError("--per-type requires the Onyx format and a positive count")
+    if onyx:
+        questions = load_questions(args.questions)
+        if args.per_type is not None:
+            questions = sample_per_type(questions, args.per_type)
+        if len({q.question_id for q in questions}) != len(questions):
+            raise ValueError("Duplicate Onyx question IDs")
+        cases = [{"question": q.question, "questionId": q.question_id, "questionType": q.question_type,
+                  "expectedDocIds": [doc.lower() for doc in q.expected_doc_ids]} for q in questions]
+    else:
+        cases = [json.loads(line) for line in raw.splitlines() if line.strip()]
     if (not cases or not 1 <= args.k <= 20 or args.warmup < 0
             or min(args.repeat, args.concurrency) < 1 or args.timeout <= 0):
         raise ValueError("Expected cases, 1 <= k <= 20, nonnegative warmup and positive repeat, concurrency and timeout")
@@ -25,7 +39,10 @@ def capture(args):
         headers["X-API-Key"] = key
 
     def query(case):
-        body = options | {"question": case["question"], "filter": case.get("filter") or {}}
+        question = case["question"]
+        if onyx and args.generate:
+            question += "\n\nAnswer in English."
+        body = options | {"question": question, "filter": case.get("filter") or {}}
         endpoint = "/api/query" if args.generate else "/api/query/retrieve"
         request = Request(args.api.rstrip("/") + endpoint, json.dumps(body).encode(), headers)
         start = time.perf_counter()
@@ -39,7 +56,7 @@ def capture(args):
         names = {name for source in ranked[:args.k] for name in (source, Path(source).stem)}
         allowed = body["filter"].get("sources") or []
         citations = result.get("citations")
-        return {
+        sample = {
             "clientMs": elapsed, "serverMs": result["durationMs"], "sources": ranked,
             "passages": [{
                 "source": source["sourceFile"],
@@ -54,6 +71,14 @@ def capture(args):
             "citations": ({key: citations[key] for key in (
                 "citedSentences", "supportedSentences", "invalidCitations")} if citations is not None else None),
         }
+        if onyx:
+            document_ids = extract_doc_ids(passages)
+            expected_ids = set(case["expectedDocIds"])
+            sample.update(questionId=case["questionId"], questionType=case["questionType"],
+                          expectedDocIds=case["expectedDocIds"], documentIds=document_ids)
+            if case["questionType"] not in NO_GOLD_TYPES and expected_ids:
+                sample["recall"] = len(expected_ids.intersection(document_ids[:args.k])) / len(expected_ids)
+        return sample
 
     if args.output.exists():
         raise ValueError(f"Capture already exists: {args.output}")
@@ -68,7 +93,8 @@ def capture(args):
             samples = list(pool.map(query, workload))
     elapsed = time.perf_counter() - started
     manifest = {"suite": hashlib.sha256(raw).hexdigest(), "options": options, "generate": args.generate,
-                "warmup": args.warmup, "repeat": args.repeat, "concurrency": args.concurrency}
+                "warmup": args.warmup, "repeat": args.repeat, "concurrency": args.concurrency,
+                "suiteFormat": args.suite_format, "perType": args.per_type}
     with args.output.open("x", encoding="utf-8") as output:
         json.dump({"engine": args.engine, "manifest": manifest, "elapsedSeconds": elapsed, "samples": samples}, output, indent=2)
 
@@ -98,6 +124,14 @@ def compare(args):
             or chroma["manifest"] != qdrant["manifest"] or not left or len(left) != len(right)):
         raise ValueError("Expected complete Chroma and Qdrant captures with the same suite and options")
     report = {"chroma": summarize(left), "qdrant": summarize(right)}
+    if chroma["manifest"].get("suiteFormat") == "onyx":
+        k = chroma["manifest"]["options"]["maxContextChunks"]
+        # A question may occur in multiple repetitions. Score each measured request independently.
+        for engine, rows in (("chroma", left), ("qdrant", right)):
+            questions = [Question(str(i), row["questionType"], "", tuple(row["expectedDocIds"]))
+                         for i, row in enumerate(rows)]
+            rankings = {str(i): row["documentIds"] for i, row in enumerate(rows)}
+            report[engine]["onyxRetrieval"] = retrieval_report(questions, rankings, (k,))
     for capture_data in (chroma, qdrant):
         if elapsed := capture_data.get("elapsedSeconds"):
             report[capture_data["engine"]]["requestsPerSecond"] = len(left) / elapsed
@@ -128,6 +162,8 @@ def main():
     run.add_argument("--api", default="http://127.0.0.1:8080")
     run.add_argument("--collection", required=True)
     run.add_argument("--questions", type=Path, required=True)
+    run.add_argument("--suite-format", choices=("spectra", "onyx"), default="spectra")
+    run.add_argument("--per-type", type=int, help="Onyx only: first N questions per question type")
     run.add_argument("--output", type=Path, required=True)
     run.add_argument("--k", type=int, default=10)
     run.add_argument("--warmup", type=int, default=3)

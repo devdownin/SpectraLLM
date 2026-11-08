@@ -154,7 +154,7 @@ const Dashboard: FC = () => {
 
   const chatSvc  = status?.services?.find((s: { name: string }) => s.name === 'llama-cpp');
   const embedSvc = status?.services?.find((s: { name: string }) => s.name === 'llama-cpp-embed');
-  const chromadb = status?.services?.find((s: { name: string }) => s.name === 'chromadb');
+  const vectorStore = status?.services?.find((s: { name: string }) => s.name === 'qdrant' || s.name === 'chromadb');
 
   const pipelineReady = (stats?.chunksInStore ?? 0) > 0 && (stats?.totalPairs ?? 0) > 0;
   const totalDocs = gedStats?.byLifecycle
@@ -175,7 +175,7 @@ const Dashboard: FC = () => {
         updatedAt={statsUpdatedAt}
         chat={chatSvc}
         embedding={embedSvc}
-        store={chromadb}
+        store={vectorStore}
         unqualifiedDocuments={gedStats?.byLifecycle ? (gedStats.byLifecycle.INGESTED ?? 0) : null}
       >
         <EmbeddingConsistencyCard />
@@ -196,7 +196,7 @@ const Dashboard: FC = () => {
               {[
                 { ok: chatSvc?.available ?? false, label: t('dashboard.chatModel'), hint: t('dashboard.chatModelHint'), icon: 'memory' },
                 { ok: embedSvc?.available ?? false, label: t('dashboard.embeddingModel'), hint: t('dashboard.embeddingModelHint'), icon: 'hub' },
-                { ok: chromadb?.available ?? false, label: 'ChromaDB', hint: t('dashboard.chromaHint'), icon: 'database' },
+                { ok: vectorStore?.available ?? false, label: vectorStore?.name === 'chromadb' ? 'ChromaDB' : 'Qdrant', hint: t('dashboard.chromaHint'), icon: 'database' },
               ].map(item => (
                 <div key={item.label} className={`flex items-start gap-3 p-3 border ${item.ok ? 'border-primary/20 bg-primary/5' : 'border-error/20 bg-error/5'}`}>
                   <span className={`material-symbols-outlined text-sm mt-0.5 ${item.ok ? 'text-primary' : 'text-error'}`}>
@@ -255,7 +255,7 @@ const Dashboard: FC = () => {
               </Tooltip>
             )}
           </div>
-          <Tooltip content="Data stored in ChromaDB and in API memory.">
+          <Tooltip content="Data stored in the vector database and in API memory.">
             <span className="material-symbols-outlined text-sm text-outline cursor-help">info</span>
           </Tooltip>
         </div>
@@ -891,21 +891,21 @@ const Dashboard: FC = () => {
             <div className="flex items-center gap-4">
               <div className={`w-10 h-10 flex items-center justify-center border ${
                 loading ? 'border-outline-variant/30 text-outline' :
-                chromadb?.available ? 'border-primary bg-primary/10 text-primary' :
+                vectorStore?.available ? 'border-primary bg-primary/10 text-primary' :
                 'border-error bg-error/10 text-error'
               }`}>
                 <span className="material-symbols-outlined text-base">database</span>
               </div>
               <div>
-                <p className="font-headline font-bold text-sm uppercase">{t('dashboard.chromadb')}</p>
+                <p className="font-headline font-bold text-sm uppercase">{vectorStore?.name === 'chromadb' ? 'ChromaDB' : 'Qdrant'}</p>
                 <p className="text-[11px] text-on-surface-variant uppercase tracking-widest">Vector Storage · API v2</p>
               </div>
             </div>
             <div className="text-right">
               {loading ? <Skeleton className="h-4 w-16" /> : (
                 <>
-                  <p className={`text-[11px] font-bold uppercase tracking-widest ${chromadb?.available ? 'text-primary' : 'text-error'}`}>
-                    {chromadb?.available ? t('dashboard.online') : t('dashboard.offline')}
+                  <p className={`text-[11px] font-bold uppercase tracking-widest ${vectorStore?.available ? 'text-primary' : 'text-error'}`}>
+                    {vectorStore?.available ? t('dashboard.online') : t('dashboard.offline')}
                   </p>
                   {!statsLoading && (stats?.chunksInStore ?? 0) > 0 && (
                     <p className="text-[10px] text-outline font-mono mt-0.5">{stats!.chunksInStore} chunks</p>

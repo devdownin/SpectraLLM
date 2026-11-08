@@ -51,6 +51,10 @@ server:
 
 # Services externes
 spectra:
+  vector-store: ${SPECTRA_VECTOR_STORE:qdrant}
+  qdrant:
+    base-url: ${SPECTRA_QDRANT_BASE_URL:http://qdrant:6333}
+    api-key: ${SPECTRA_QDRANT_API_KEY:}
   sources:
     local-roots: ${SPECTRA_SOURCES_LOCAL_ROOTS:/app/sources}
     allowed-hosts: ${SPECTRA_SOURCES_ALLOWED_HOSTS:}

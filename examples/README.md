@@ -31,7 +31,7 @@ Ces trois documents couvrent le vocabulaire, les procédures et les nomenclature
 ## Résultat attendu après ingestion
 
 Après `./scripts/adddoc.sh examples` + génération de dataset, vous devriez obtenir :
-- ~30 chunks vectorisés dans ChromaDB
+- ~30 chunks vectorisés dans Qdrant
 - ~25–40 paires d'entraînement (selon les paramètres)
 - Des questions du type : "Quelle est la fréquence recommandée pour la lubrification des roulements ?" ou "Quels EPI sont obligatoires lors d'une opération de soudage ?"
 

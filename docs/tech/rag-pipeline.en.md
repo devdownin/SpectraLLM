@@ -232,7 +232,7 @@ Inline in [`RagService.retrieveContext`](../../backend/src/main/java/fr/spectra/
 
 **The solution.** A *light entity graph*, no re-indexing: `EntityExtractor` spots these identifiers
 in the question (linear scan, input truncated to 4,000 characters, identifier capped at 100),
-`ExactMatchRetriever` finds the chunks containing them (exact substring in ChromaDB) and adds them
+`ExactMatchRetriever` finds the chunks containing them (exact substring in Qdrant) and adds them
 to the candidates **before** the reranker, which decides. `SPECTRA_RAG_ENTITY_EXPANSION` (default
 `false`). Measured on 16 affected questions: the retrieved documents did not change — do not enable
 it without measuring on your corpus.

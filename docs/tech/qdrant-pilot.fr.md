@@ -1,4 +1,10 @@
-# Pilote Qdrant pour SpectraLLM
+# Qdrant et comparaison des moteurs dans SpectraLLM
+
+Qdrant est le moteur vectoriel par défaut. La pile Compose standard écrit dans `data/qdrant` et accède à Qdrant via le réseau Compose. Pour démarrer avec un index neuf, utiliser un répertoire de données neuf pour l’index vectoriel, le catalogue SQL et BM25, puis ingérer les documents. Les collections sont exposées sous des alias stables. Une réindexation avec un nouveau modèle reconstruit les vecteurs dans une collection séparée avant de publier son alias.
+
+## Pile de comparaison
+
+L’overlay ci-dessous utilise ChromaDB comme référence et permet de rejouer l’ancien pilote de lecture Qdrant pour les mesures A/B.
 
 Le pilote remplace la recherche dense pour une seule collection Chroma identifiée par UUID. Le RAG standard, hybride et agentique utilisent ce chemin commun. BM25, le reranker, les écritures et les opérations de gestion gardent leur configuration habituelle. Le pilote est désactivé par défaut.
 
@@ -13,7 +19,7 @@ export SPECTRA_QDRANT_API_KEY="$(openssl rand -hex 32)"
 compose=(docker compose --project-directory . -f deploy/docker/docker-compose.yml \
   -f deploy/docker/docker-compose.qdrant-pilot.yml)
 
-"${compose[@]}" up -d qdrant-pilot
+"${compose[@]}" up -d chromadb qdrant-pilot
 
 python3 scripts/import_qdrant_pilot.py \
   --chroma http://127.0.0.1:8000 \
@@ -82,3 +88,28 @@ export SPECTRA_QDRANT_PILOT_ENABLED=false
 ```
 
 Réactiver les écritures après ce retour. Les opérations de production nécessiteront une stratégie de synchronisation et une validation de cohérence sur le corpus cible avant toute bascule.
+
+## Comparer sur EnterpriseRAG-Bench d’Onyx
+
+[EnterpriseRAG-Bench](https://onyx.app/enterpriserag-bench) fournit les questions et les documents de référence. Préparer puis ingérer le corpus avec [le lanceur EnterpriseRAG-Bench de SpectraLLM](enterprise-rag-bench.fr.md) sur une instance de test dédiée. Pour un premier essai, utiliser les documents de référence et 5 000 distracteurs, avec la graine par défaut. Utiliser un répertoire de travail neuf pour garantir le périmètre du sous-corpus.
+
+```bash
+work=data/onyx-qdrant-bench
+python3 scripts/enterprise_rag_bench.py --work-dir "$work" prepare --subset 5000
+python3 scripts/enterprise_rag_bench.py --work-dir "$work" ingest
+```
+
+Vérifier les erreurs d’ingestion, puis figer les écritures et importer la collection dans Qdrant selon la procédure ci-dessus. Les deux captures lisent directement le fichier Onyx, sans conversion.
+
+```bash
+# Désactiver le pilote pour la référence Chroma, puis l’activer pour Qdrant.
+# Exécuter la ligne suivante une fois par moteur avec engine=chroma ou engine=qdrant.
+python3 scripts/compare_qdrant_pilot.py capture --engine "$engine" \
+  --collection "$collection" --questions "$work/questions.jsonl" --suite-format onyx \
+  --per-type 5 --hybrid --concurrency 4 --output "$work/$engine-hybrid.json"
+python3 scripts/compare_qdrant_pilot.py compare "$work/chroma-hybrid.json" "$work/qdrant-hybrid.json"
+```
+
+Pour la passe dense, retirer `--hybrid`. Pour une passe à faible concurrence, utiliser `--concurrency 1`. Omettre `--per-type` pour rejouer toutes les questions. Utiliser des noms de capture distincts pour chaque paire.
+
+Le rapport Onyx s’appuie sur les identifiants `dsid_…` des documents et calcule le rappel, le taux de succès et le rang réciproque moyen, globalement et par catégorie. Les questions sans référence restent dans les mesures de latence. Le comptage des documents hors référence sert au diagnostic local. Le classement public repose sur le corpus complet et l’évaluateur officiel Onyx, décrit dans le guide dédié.

@@ -248,7 +248,7 @@ de « sens » : l'embedding les représente mal et la tokenisation BM25 les déc
 **La solution.** *Graphe d'entités léger*, sans réindexation : `EntityExtractor` repère ces
 identifiants dans la question (analyse linéaire, entrée tronquée à 4 000 caractères, identifiant
 limité à 100), `ExactMatchRetriever` cherche les chunks qui les contiennent (sous-chaîne exacte
-dans ChromaDB) et les ajoute aux candidats **avant** le reranker, qui tranche.
+dans Qdrant) et les ajoute aux candidats **avant** le reranker, qui tranche.
 `SPECTRA_RAG_ENTITY_EXPANSION` (défaut `false`). Mesuré sur 16 questions concernées : aucun
 changement des documents retrouvés — à ne pas activer sans mesure sur votre corpus.
 

@@ -47,7 +47,9 @@ Two consequences worth stating outright:
 | `SPECTRA_GENERATION_TIMEOUT` | `120` | Generation timeout (seconds) |
 | `SPECTRA_LLM_SWITCH_TIMEOUT` | `300` | Max wait (seconds) for the server to actually serve a newly activated model before an evaluation/benchmark starts measuring — must cover loading the heaviest GGUF |
 | `SPECTRA_LLM_SWITCH_POLL_MS` | `2000` | Poll interval (ms) while waiting for that model-switch convergence |
-| `CHROMADB_URL` | `http://chromadb:8000` | ChromaDB base URL |
+| `SPECTRA_QDRANT_BASE_URL` | `http://qdrant:6333` | Qdrant base URL |
+| `SPECTRA_QDRANT_API_KEY` | empty | Optional Qdrant API key for an authenticated server |
+| `SPECTRA_VECTOR_STORE` | `qdrant` | Selects the vector engine. The comparison overlay explicitly sets `chroma` for its baseline |
 
 **Container-level (docker-compose):**
 
@@ -57,7 +59,7 @@ Two consequences worth stating outright:
 | `LLM_EMBED_MODEL_FILE` | `embed.gguf` | Embedding GGUF filename in `data/models/` |
 | `LLM_PARALLEL` | `2` | Parallel inference slots per server |
 | `LLAMA_CPP_IMAGE_TAG` | `server-b9828` | Pinned `ghcr.io/ggml-org/llama.cpp` image tag for llm-chat/llm-embed (the floating `server` tag tracks llama.cpp master and can break without warning) |
-| `CHROMADB_IMAGE_TAG` | `1.5.9` | Pinned `chromadb/chroma` image tag. `latest` once moved its persistence path from `/chroma/chroma` to `/data`, leaving the mounted volume empty and silently discarding the vector index on every `down`. Check the persistence path and `/api/v2/heartbeat` before bumping |
+| `QDRANT_IMAGE_TAG` | `v1.16.3` | Pinned Qdrant image tag. Storage lives in `./data/qdrant`; Compose checks `/readyz` |
 | `SPECTRA_STARTUP_AUTO_INSTALL_MODELS` | `true` | On boot, download the default chat GGUF via the Model Hub when it is absent. Only the **default** model can be installed this way — the HuggingFace repo is hardcoded, and no repo can be derived from an arbitrary filename. If `LLM_CHAT_MODEL_FILE` names a different model and that file is missing, the API logs a warning and installs nothing rather than fetching several GB of something you did not ask for. Set to `false` in CI and on metered connections |
 
 ### Ingestion pipeline
@@ -86,7 +88,7 @@ Disabled by default — no Kafka bean is created unless `SPECTRA_KAFKA_ENABLED=t
 | `SPECTRA_KAFKA_BOOTSTRAP_SERVERS` | `localhost:9092` | Broker list |
 | `SPECTRA_KAFKA_TOPICS` | *(empty)* | Comma-separated topics to consume |
 | `SPECTRA_KAFKA_GROUP_ID` | `spectra-ingestion` | Consumer group id |
-| `SPECTRA_KAFKA_COLLECTION` | `spectra_stream` | Dedicated ChromaDB collection for streamed content |
+| `SPECTRA_KAFKA_COLLECTION` | `spectra_stream` | Dedicated Qdrant collection for streamed content |
 | `SPECTRA_KAFKA_FORMAT` | `json` | Routing extension for the raw payload: `json`, `txt`, `xml`, `avro` |
 | `SPECTRA_KAFKA_CONTENT_FIELD` | *(empty)* | (JSON) field to index instead of the raw payload |
 | `SPECTRA_KAFKA_METADATA_FIELDS` | *(empty)* | (JSON) comma-separated fields copied into chunk metadata |
@@ -249,11 +251,9 @@ Compose network using service names. Publishing exists only for host access: the
 port 80, scripts and Swagger on 8080, diagnostics for the rest. That is why loopback is the
 default.
 
-Opening the stack with `SPECTRA_BIND_ADDR=0.0.0.0` exposes more than the API. ChromaDB (8000)
-accepts reads **and writes** to the vector index — the ingested corpus — and llama-server
-(host ports 8091, 8092) has no authentication of its own. Neither has any notion of an API key: only
-`spectra-api` enforces `SPECTRA_API_KEY`. Treat `0.0.0.0` as a decision to put the whole stack
-behind a reverse proxy you control, not as a convenience toggle.
+Setting `SPECTRA_BIND_ADDR=0.0.0.0` exposes the published ports, including llama-server
+(8091 and 8092). Qdrant stays on the internal Compose network. For a separate Qdrant server, set
+`SPECTRA_QDRANT_BASE_URL` and configure `SPECTRA_QDRANT_API_KEY` in the backend environment if required.
 
 > Setting `SPECTRA_API_KEY` in `.env` is enough today. It was not always: `docker-compose.yml`
 > did not pass the variable into the container, and Compose does not inject `.env` into
@@ -265,7 +265,7 @@ behind a reverse proxy you control, not as a convenience toggle.
 ## Health & Observability
 
 ```bash
-# System status (LLM + ChromaDB + optional services)
+# System status (LLM + Qdrant + optional services)
 GET /api/status
 
 # BM25 index stats
@@ -290,11 +290,11 @@ GET /api-docs
 GET /swagger-ui.html
 ```
 
-**`llmChat` health component** — `/actuator/health` reports whether the chat server is actually serving, with a `state` of `ready`, `loading` (server up, model still loading) or `unreachable`. It exists because the stack can be healthy end to end while llama-server is still loading a multi-gigabyte GGUF: `spectra-api` only waits for ChromaDB, `frontend` only waits for `spectra-api`, and the LLM servers are deliberately independent. The UI already surfaced this through `ServiceHealthBanner`; this covers operators on the command line and monitoring.
+**`llmChat` health component** — `/actuator/health` reports whether the chat server is actually serving, with a `state` of `ready`, `loading` (server up, model still loading) or `unreachable`. It exists because the stack can be healthy end to end while llama-server is still loading a multi-gigabyte GGUF: `spectra-api` only waits for Qdrant, `frontend` only waits for `spectra-api`, and the LLM servers are deliberately independent. The UI already surfaced this through `ServiceHealthBanner`; this covers operators on the command line and monitoring.
 
 It **never reports DOWN** — a model still loading is a normal startup state, not an outage, and a DOWN would flip the aggregate status that monitoring alerts on. It is also **not part of the `readiness` group**, which the Compose healthcheck probes and `frontend` gates on: putting the LLM there would make frontend startup wait for the model to load, reinstating the blocking dependency that removing `model-init` got rid of.
 
-**Consistency metrics** — hourly reconciliation between H2, ChromaDB and the BM25 index. Covers the default collection, every collection referenced by the GED, and the Kafka stream collection when enabled:
+**Consistency metrics** — hourly reconciliation between H2, Qdrant and the BM25 index. Covers the default collection, every collection referenced by the GED, and the Kafka stream collection when enabled:
 
 - `spectra.consistency.chroma.chunks`, `spectra.consistency.fts.chunks`, `spectra.consistency.db.chunks`, `spectra.consistency.fts_chroma_divergence` — default collection (legacy dashboards);
 - `spectra.consistency.collection.chroma.chunks{collection=…}`, `spectra.consistency.collection.fts.chunks{collection=…}`, `spectra.consistency.collection.fts_chroma_divergence{collection=…}` — per collection.

@@ -36,7 +36,7 @@
 
 0. 🟢 [Preamble: why Spectra exists](#0)
 1. 🟢 [Representing meaning: embeddings](#1)
-2. 🟡 [Store and search fast: ChromaDB, HNSW, cosine](#2)
+2. 🟡 [Store and search fast: Qdrant, HNSW, cosine](#2)
 3. 🟢 [Ingestion: from raw file to indexed knowledge](#3)
 4. 🟡 [Hybrid search: vectors + keywords + fusion](#4)
 5. 🟡 [Re-ranking: the final quality control](#5)
@@ -142,12 +142,12 @@ normalization, the *length* of the vectors would pollute the similarity measure.
 ---
 
 <a name="2"></a>
-## 2. Store and search fast: ChromaDB, HNSW, cosine
+## 2. Store and search fast: Qdrant, HNSW, cosine
 
 💡 **Intuition.** If you have 1 million chunks, comparing the question to *each* one
 (exhaustive search) is too slow. You need an **index** that finds the "nearest
 neighbors" almost instantly, at the cost of a tiny imprecision. That's the role of
-**ChromaDB** (the vector database) and its **HNSW** index.
+**Qdrant** (the vector database) and its **HNSW** index.
 
 ⚙️ **Algorithm — HNSW (Hierarchical Navigable Small World).**
 HNSW builds a **multi-layer graph**. At the top, few nodes connected by long
@@ -210,7 +210,7 @@ flowchart LR
     E --> N["Cleaning<br/>(Unicode, OCR, headers)"]
     N --> C["Semantic chunking<br/>(~512 tokens)"]
     C --> V["Batched embeddings"]
-    V --> I["Indexing<br/>(ChromaDB + metadata)"]
+    V --> I["Indexing<br/>(Qdrant + metadata)"]
 ```
 
 ### A. Layout-aware extraction
@@ -267,7 +267,7 @@ parallel** (several "slots"). On a large document, this is what takes indexing f
 minutes to seconds.
 
 ### E. Indexing
-The tuples (text, vector, metadata: source file, page…) are stored in ChromaDB. The
+The tuples (text, vector, metadata: source file, page…) are stored in Qdrant. The
 metadata will enable **filtering** ("only the v3 manual") and **targeted deletion**
 ("remove this file").
 
@@ -1238,7 +1238,7 @@ confidential technical sheets, contracts or HR data, that's often a deal-breaker
 
 ⚙️ **What stays local in Spectra:**
 - **inference** (chat and embeddings) runs on **your** servers (llama.cpp);
-- the **vector database** (ChromaDB) and the **full-text index** are on your volumes;
+- the **vector database** (Qdrant) and the **full-text index** are on your volumes;
 - **fine-tuning** (QLoRA) runs on your hardware;
 - the fine-tuned **models** are never uploaded.
 

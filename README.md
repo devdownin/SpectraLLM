@@ -97,7 +97,9 @@ Browse everything from the **[documentation index](docs/README.md)**, or jump st
 | **[llama.cpp Guide](docs/tech/llama-cpp.fr.md)** | Inference engine details and tuning |
 | **[Reliability](docs/process/reliability.fr.md)** · **[Security](SECURITY.md)** | Operational guarantees and security policy |
 
-**Stack:** Java 25 / Spring Boot 4 · React 19 · llama.cpp · ChromaDB · Python (fine-tuning, parsing, reranking) — detailed in [Architecture](docs/architecture.en.md#technology-stack).
+**Stack:** Java 25 / Spring Boot 4 · React 19 · llama.cpp · Qdrant · Python (fine-tuning, parsing, reranking) — detailed in [Architecture](docs/architecture.en.md#technology-stack).
+
+Qdrant stores vectors in `data/qdrant`. For a fresh index and the benchmark procedure, see the [Qdrant guide](docs/tech/qdrant-pilot.fr.md).
 
 ## MCP access for agents
 
