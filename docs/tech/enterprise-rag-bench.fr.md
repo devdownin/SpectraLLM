@@ -185,6 +185,58 @@ Le Self-RAG actuel vérifie un extrait
 des trois premiers passages. `selfRagApplied` indique qu'un raffinement a eu lieu.
 Cet essai mesure la réflexion existante. Une vérification exhaustive des faits requiert sa propre variante.
 
+### Diagnostiquer la génération avec les documents de référence
+
+Sur `dev-120`, choisir une vingtaine de questions mal répondues ou incomplètes dans
+le résultat jugé de la référence. Retenir celles qui ont des documents annotés et
+garder le même lot pour tous les essais. Ce lot sert au diagnostic de développement.
+
+```bash
+jq -c --slurpfile judged "$WORK/answer-reference/results.json" '
+  ($judged[0].questions
+    | map(select(.answer_correct == false or .completeness_pct < 100) | .question_id)
+    | INDEX(.)) as $misses
+  | select(.question_type != "high_level" and .question_type != "info_not_found")
+  | select((.expected_doc_ids // [] | length) > 0 and $misses[.question_id])
+' "$WORK/split/dev-120.jsonl" | sed -n '1,20p' > "$WORK/oracle-dev.jsonl"
+```
+
+Le mode `oracle` envoie les documents annotés en entier au serveur llama.cpp,
+avec des références numérotées. La fenêtre par slot est lue dans `/props`. Le
+serveur applique son gabarit et compte les tokens avant de générer. Une question
+qui dépasse le budget prompt + sortie arrête le run avec son identifiant. Pour
+l’inclure, augmenter le contexte du serveur et du profil pour **toutes** les
+variantes, dans de nouveaux répertoires. Les réponses qui atteignent la limite de
+sortie restent repérables via `oracle.finishReason`.
+
+```bash
+CHAT_API=http://localhost:8091
+CHAT_MODEL=qwen2.5-7b-instruct
+
+(
+  for STYLE in concise detailed; do
+    python3 scripts/enterprise_rag_experiment.py oracle --api "$CHAT_API" \
+      --model "$CHAT_MODEL" --style "$STYLE" --max-tokens 512 \
+      --questions "$WORK/oracle-dev.jsonl" --corpus-dir "$WORK/documents" \
+      --profile "$WORK/profile-reference.json" --out "$WORK/oracle-$STYLE" || exit 1
+  done
+)
+```
+
+Si le serveur est protégé, fournir `LLAMA_CPP_API_KEY` dans l’environnement. Rejouer
+aussi la variante RAG de référence en mode `answer` sur `oracle-dev.jsonl`, avec
+`--parallelism 1` et un nouveau répertoire. Appliquer le même juge aux trois
+sorties, puis comparer RAG ↔ oracle et concis ↔ détaillé. Pour tester un autre
+GGUF, garder le style gagnant et le budget de sortie, consigner le modèle dans un
+nouveau profil et utiliser un nouveau répertoire.
+
+`compare` limite ces comparaisons au score, à l’exactitude et à la complétude.
+Les `document_ids` de l’oracle indiquent les preuves fournies au modèle. Une
+réponse oracle encore incomplète invite à examiner le modèle, les consignes ou
+le budget de sortie. Un gain oracle indique une marge côté preuves ou contexte.
+L’oracle utilise ses propres consignes de génération et ne produit pas un score
+de classement.
+
 ### Noter et comparer
 
 Installer les dépendances d'Onyx dans un environnement Python séparé. Configurer `LLM_API_KEY` pour le
