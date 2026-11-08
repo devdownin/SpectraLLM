@@ -112,7 +112,7 @@ SPECTRA_CONCURRENT_INGESTIONS=4
 
 ### `llm-chat` and `llm-embed` — Inference Engines
 
-Two separate **llama.cpp** containers (`ghcr.io/ggml-org/llama.cpp:server`), each dedicated to one task:
+Two separate **llama.cpp** containers (`ghcr.io/ggml-org/llama.cpp:server-b12110`), each dedicated to one task:
 
 | Service | Port | Model | Role |
 |---|---|---|---|

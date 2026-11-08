@@ -6,7 +6,7 @@ services:
   # llm-chat garde l'entrypoint superviseur du compose de base (modèle actif du
   # registre) : seuls l'image CUDA et l'offload GPU sont ajoutés ici.
   llm-chat:
-    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    image: ghcr.io/ggml-org/llama.cpp:${LLAMA_CPP_CUDA_IMAGE_TAG:-server-cuda-b12110}
     environment:
       - LLM_CHAT_EXTRA_ARGS=--n-gpu-layers 99
     deploy:
@@ -18,7 +18,7 @@ services:
               capabilities: [gpu]
 
   llm-embed:
-    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    image: ghcr.io/ggml-org/llama.cpp:${LLAMA_CPP_CUDA_IMAGE_TAG:-server-cuda-b12110}
     environment:
       - LLM_EMBED_EXTRA_ARGS=--n-gpu-layers 99
     deploy:

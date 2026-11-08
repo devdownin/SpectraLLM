@@ -6,7 +6,7 @@
 
 # ── Build stage ──
 # ── Images de base épinglées par empreinte ───────────────────────────────────
-# Les images TIERCES de la pile sont déjà épinglées (llama.cpp server-b9828, chromadb 1.5.9,
+# Les images TIERCES de la pile sont déjà épinglées (llama.cpp server-b12110, chromadb 1.5.9,
 # kafka 4.2.0) ; celles depuis lesquelles ce projet CONSTRUIT ne l'étaient pas. Or un tag
 # comme « python:3.11-slim » est réassigné toutes les semaines : deux images construites à
 # quinze jours d'écart ne sont pas la même image, et rien ne le signale — exactement le

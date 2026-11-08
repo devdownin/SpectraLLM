@@ -1240,7 +1240,7 @@ la fusion pour l'export reste sur CPU même avec cet override.
 
 La conversion GGUF utilise la toolchain complète embarquée dans le trainer, avec
 des dépendances isolées de celles de l'entraînement. `LLAMA_CPP_REVISION` accepte
-`b9828` ou un SHA Git complet immuable ; il doit correspondre au runtime llama.cpp.
+`b12110` (par défaut), `b9828` ou un SHA Git complet immuable ; il doit correspondre au runtime llama.cpp.
 Pour fournir une copie hors ligne, peupler `SPECTRA_LLAMA_CPP_DIR` via
 `python scripts/llama_cpp_convert.py <répertoire>` puis préparer les dépendances
 de conversion de cette révision. Les scripts isolés et caches incomplets ne sont
