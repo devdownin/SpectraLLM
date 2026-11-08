@@ -16,8 +16,11 @@ import tempfile
 import urllib.request
 
 # Keep aligned with the llama-server image in docker-compose.yml.
-DEFAULT_REVISION = "b9828"
-RELEASE_COMMITS = {"b9828": "ebd048fc5e4b43ec4e0b4abe0b9bf66e1724dad0"}
+DEFAULT_REVISION = "b12110"
+RELEASE_COMMITS = {
+    "b12110": "cd959bae99ff4bed22bef2604f45241c09bbb8c8",
+    "b9828": "ebd048fc5e4b43ec4e0b4abe0b9bf66e1724dad0",
+}
 RAW_BASE = "https://raw.githubusercontent.com/ggml-org/llama.cpp"
 ARCHIVE_BASE = "https://codeload.github.com/ggml-org/llama.cpp/tar.gz"
 VENDORED_DIR = "/opt/llama-cpp-converters"

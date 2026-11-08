@@ -37,9 +37,9 @@ services:
   # en continu depuis le master de llama.cpp (plusieurs fois par jour) — un build
   # cassé faisait mourir les conteneurs au démarrage (constaté en CI E2E) alors que
   # les machines locales tournaient sur un vieux pull en cache. Surcharge possible
-  # via LLAMA_CPP_IMAGE_TAG (ex. server-b9976, ou server pour suivre master).
+  # via LLAMA_CPP_IMAGE_TAG (ex. server-b12110, ou server pour suivre master).
   llm-chat:
-    image: ghcr.io/ggml-org/llama.cpp:${LLAMA_CPP_IMAGE_TAG:-server-b9828}
+    image: ghcr.io/ggml-org/llama.cpp:${LLAMA_CPP_IMAGE_TAG:-server-b12110}
     container_name: spectra-llm-chat
     deploy:
       resources:
@@ -98,7 +98,7 @@ services:
   # ── Serveur LLM — Embedding ───────────────────────────────────────────────
   llm-embed:
     # Même épinglage que llm-chat (tag mobile « server » = risque de casse silencieuse).
-    image: ghcr.io/ggml-org/llama.cpp:${LLAMA_CPP_IMAGE_TAG:-server-b9828}
+    image: ghcr.io/ggml-org/llama.cpp:${LLAMA_CPP_IMAGE_TAG:-server-b12110}
     container_name: spectra-llm-embed
     deploy:
       resources:

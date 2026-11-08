@@ -61,7 +61,8 @@ Two consequences worth stating outright:
 | `LLM_CHAT_MODEL_FILE` | `Qwen2.5-7B-Instruct-Q4_K_M.gguf` | Chat GGUF filename in `data/models/` |
 | `LLM_EMBED_MODEL_FILE` | `embed.gguf` | Embedding GGUF filename in `data/models/` |
 | `LLM_PARALLEL` | `2` | Parallel inference slots per server |
-| `LLAMA_CPP_IMAGE_TAG` | `server-b9828` | Pinned `ghcr.io/ggml-org/llama.cpp` image tag for llm-chat/llm-embed (the floating `server` tag tracks llama.cpp master and can break without warning) |
+| `LLAMA_CPP_IMAGE_TAG` | `server-b12110` | Pinned `ghcr.io/ggml-org/llama.cpp` image tag for llm-chat/llm-embed (the floating `server` tag tracks llama.cpp master and can break without warning) |
+| `LLAMA_CPP_CUDA_IMAGE_TAG` | `server-cuda-b12110` | Pinned NVIDIA CUDA image tag for llm-chat/llm-embed when using `docker-compose.gpu.yml` |
 | `QDRANT_IMAGE_TAG` | `v1.16.3` | Pinned Qdrant image tag. Storage lives in `./data/qdrant`; Compose checks `/readyz` |
 | `SPECTRA_STARTUP_AUTO_INSTALL_MODELS` | `true` | On boot, download the default chat GGUF via the Model Hub when it is absent. Only the **default** model can be installed this way — the HuggingFace repo is hardcoded, and no repo can be derived from an arbitrary filename. If `LLM_CHAT_MODEL_FILE` names a different model and that file is missing, the API logs a warning and installs nothing rather than fetching several GB of something you did not ask for. Set to `false` in CI and on metered connections |
 
