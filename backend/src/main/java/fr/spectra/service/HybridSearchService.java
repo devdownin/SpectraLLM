@@ -1,8 +1,10 @@
 package fr.spectra.service;
 
 import fr.spectra.config.SpectraProperties;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
@@ -11,7 +13,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 /**
- * Hybrid search: combines ChromaDB vector search with BM25 full-text search
+ * Hybrid search: combines dense vector search with BM25 full-text search
  * via Reciprocal Rank Fusion (RRF).
  *
  * <p>RRF formula (k=60): score(d) = w_v / (k + rank_v) + w_bm25 / (k + rank_bm25)
@@ -38,6 +40,13 @@ public class HybridSearchService {
                         t.setDaemon(true);
                         return t;
                     });
+
+    private MeterRegistry retrievalMeters;
+
+    @Autowired(required = false)
+    void setRetrievalMeters(MeterRegistry registry) {
+        this.retrievalMeters = registry;
+    }
 
     public HybridSearchService(ChromaDbClient chromaDbClient,
                                 FtsService ftsService,
@@ -141,12 +150,15 @@ public class HybridSearchService {
             vectorResult = null;
             bm25Results  = List.of();
         }
-        if (vectorResult == null) vectorResult = Map.of();
         if (bm25Results  == null) bm25Results  = List.of();
 
         // Normalize optional fields together before ranking, preserving document alignment.
         ChromaQueryResult vector = ChromaQueryResult.from(vectorResult);
         List<String> vecDocs = vector.documents();
+        if (retrievalMeters != null && vecDocs.isEmpty() && !bm25Results.isEmpty()) {
+            String reason = queryEmbedding == null ? "no_embedding" : vectorResult == null ? "dense_error" : "dense_empty";
+            retrievalMeters.counter("spectra.retrieval.bm25.only", "reason", reason).increment();
+        }
         List<Map<String, String>> vecMetas = vector.metadatas();
         List<Double> vecDists = vector.distances();
         List<String> vecIds = vector.ids();

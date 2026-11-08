@@ -5,6 +5,7 @@ import fr.spectra.dto.ServiceStatus;
 import fr.spectra.model.TextChunk;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -15,6 +16,7 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
@@ -115,6 +117,38 @@ public class ChromaDbClient {
 
     public void completeReindex(String name) {
         if (maintenance != null) maintenance.complete(name);
+    }
+
+    private QdrantRetrievalPilot qdrantPilot;
+    private MeterRegistry retrievalMeters;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setRetrievalMeters(MeterRegistry registry) {
+        this.retrievalMeters = registry;
+    }
+
+    void recordDenseSearch(String engine, String outcome) {
+        if (retrievalMeters != null) {
+            retrievalMeters.counter("spectra.retrieval.dense", "engine", engine, "outcome", outcome).increment();
+        }
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setQdrantRetrievalPilot(QdrantRetrievalPilot pilot) {
+        this.qdrantPilot = pilot;
+    }
+
+    Optional<Map<String, Object>> queryPilot(String collectionId, List<Float> embedding, int topN,
+                                             RetrievalFilterResolver.ResolvedFilter filter) {
+        if (qdrantPilot == null || !qdrantPilot.serves(collectionId)) return Optional.empty();
+        try (var collectionLease = leaseId(collectionId)) {
+            var result = qdrantPilot.query(embedding, topN, filter);
+            recordDenseSearch("qdrant", "success");
+            return Optional.of(result);
+        } catch (RuntimeException e) {
+            recordDenseSearch("qdrant", "error");
+            throw e;
+        }
     }
 
     private StreamVersionVisibility streamVersionVisibility;

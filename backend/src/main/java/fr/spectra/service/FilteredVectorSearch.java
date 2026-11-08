@@ -13,8 +13,22 @@ final class FilteredVectorSearch {
 
     static Map<String, Object> query(ChromaDbClient client, String collectionId, List<Float> embedding,
                                      int topN, RetrievalFilterResolver.ResolvedFilter filter) {
+        if (topN <= 0 || filter.matchesNothing()) return Map.of();
+        var pilotResult = client.queryPilot(collectionId, embedding, topN, filter);
+        if (pilotResult.isPresent()) return pilotResult.get();
+        try {
+            var result = queryChroma(client, collectionId, embedding, topN, filter);
+            client.recordDenseSearch("chroma", "success");
+            return result;
+        } catch (RuntimeException e) {
+            client.recordDenseSearch("chroma", "error");
+            throw e;
+        }
+    }
+
+    private static Map<String, Object> queryChroma(ChromaDbClient client, String collectionId, List<Float> embedding,
+                                                   int topN, RetrievalFilterResolver.ResolvedFilter filter) {
         if (!filter.active()) return client.query(collectionId, embedding, topN);
-        if (filter.matchesNothing()) return Map.of();
         int requested = Math.min(topN, MAX_CANDIDATES);
         while (true) {
             ChromaQueryResult raw = ChromaQueryResult.from(

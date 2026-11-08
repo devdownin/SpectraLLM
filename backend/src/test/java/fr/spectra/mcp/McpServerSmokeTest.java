@@ -103,6 +103,11 @@ class McpServerSmokeTest {
                   "name":"spectra_list_documents","arguments":{"collection":"private_bob"}}}""",
                 session, "alice-key");
         assertThat(denied.body()).contains("Collection is not accessible to this MCP caller");
+        var deniedSearch = post("""
+                {"jsonrpc":"2.0","id":4,"method":"tools/call","params":{
+                  "name":"spectra_search","arguments":{"question":"private report","collection":"private_bob"}}}""",
+                session, "alice-key");
+        assertThat(deniedSearch.body()).contains("Collection is not accessible to this MCP caller");
         assertThat(post("""
                 {"jsonrpc":"2.0","id":3,"method":"tools/list"}""", session, "bob-key").statusCode()).isEqualTo(403);
         var rest = http.send(HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/mcp/calls"))
