@@ -252,14 +252,26 @@ def compare(args: argparse.Namespace) -> None:
             raise ValueError(f"comparaison impossible : {field} différent")
     mode = baseline["mode"]
     if mode == "retrieve":
-        def recall(records):
-            rankings = {qid: row["document_ids"] for qid, row in records.items()}
-            return {q.question_id: value for q in load_questions(questions)
-                    if (value := retrieval_report([q], rankings, ks=(10,))["overall"].get("recall@10"))
-                    is not None}
+        labeled_questions = load_questions(questions)
+        types = {q.question_id: q.question_type for q in labeled_questions}
 
-        types = {q.question_id: q.question_type for q in load_questions(questions)}
-        reports = {"recall@10": paired_report(recall(first), recall(second), types)}
+        def retrieval_metrics(records):
+            rankings = {qid: row["document_ids"] for qid, row in records.items()}
+            metrics = {"recall@10": {}, "all-gold@10": {}, "extra@10": {}}
+            for question in labeled_questions:
+                row = retrieval_report([question], rankings, ks=(10,))["overall"]
+                if not row["n"]:
+                    continue
+                qid = question.question_id
+                metrics["recall@10"][qid] = row["recall@10"]
+                metrics["extra@10"][qid] = row["extra@10"]
+                if len({doc.lower() for doc in question.expected_doc_ids}) > 1:
+                    metrics["all-gold@10"][qid] = float(row["recall@10"] == 1.0)
+            return metrics
+
+        a, b = retrieval_metrics(first), retrieval_metrics(second)
+        reports = {metric: paired_report(values, b[metric], types)
+                   for metric, values in a.items() if values}
     else:
         judges = []
         for directory, records in ((args.baseline, first), (args.candidate, second)):

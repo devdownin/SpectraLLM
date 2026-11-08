@@ -62,6 +62,40 @@ et conserver les clés dans l'environnement.
 }
 ```
 
+### Comparer 20 et 50 candidats du reranker
+
+Garder dix passages de contexte et le même profil pour isoler le nombre de candidats.
+Lancer les deux variantes dans des répertoires distincts et conserver le rapport apparié.
+
+```bash
+API=http://localhost:8089
+COLLECTION=nom-de-la-collection-indexee
+
+(
+  for CANDIDATES in 20 50; do
+    python3 scripts/enterprise_rag_experiment.py run --api "$API" --mode retrieve \
+      --collection "$COLLECTION" --questions "$WORK/split/dev-120.jsonl" \
+      --corpus-dir "$WORK/documents" --profile "$WORK/profile-reference.json" \
+      --hybrid on --max-context-chunks 10 --top-candidates "$CANDIDATES" \
+      --out "$WORK/retrieve-top$CANDIDATES" || exit 1
+  done
+
+  python3 scripts/enterprise_rag_experiment.py compare \
+    "$WORK/retrieve-top20" "$WORK/retrieve-top50"
+)
+```
+
+Dans les deux fichiers `records.jsonl`, vérifier que `rerankApplied` et
+`hybridSearchApplied` sont vrais pour les questions comparées. Si le reranker est
+indisponible, Spectra réduit la recherche au nombre de passages demandé pour le
+contexte. Un essai de ce type ne mesure alors pas la différence entre 20 et 50 candidats.
+
+Le rapport `all-gold@10` mesure la proportion des questions annotées avec au moins deux
+documents de référence distincts pour lesquelles tous ces documents sont retrouvés.
+Le `recall@10` compte aussi les preuves partielles. Le `extra@10` donne le nombre moyen
+de documents hors référence parmi les dix premiers. Examiner ces trois métriques
+ensemble avant de passer les variantes retenues en mode `answer`.
+
 ### Exécuter les variantes
 
 Choisir `retrieve` pour le rappel documentaire sans génération ni juge. Choisir `answer`
@@ -126,7 +160,7 @@ python3 scripts/enterprise_rag_experiment.py compare "$WORK/answer-reference" "$
   interrompu est relancé intégralement.
 - `compare` refuse les paires incomplètes et les écarts de corpus, de questions, de mode ou de juge.
   Le JSON contient l'écart par question agrégé, l'IC95 %, les gains et pertes et le détail par catégorie.
-  En mode `retrieve`, il compare le rappel@10. En mode `answer`, le score principal correspond
+  En mode `retrieve`, il compare le rappel, la couverture complète des preuves et les documents hors référence à 10. En mode `answer`, le score principal correspond
   à la complétude pour une réponse correcte, zéro sinon. Le rappel et les sources hors référence
   servent au diagnostic.
 
