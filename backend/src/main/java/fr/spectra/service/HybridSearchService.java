@@ -114,6 +114,10 @@ public class HybridSearchService {
         if (queryEmbedding != null && chromaDbClient.nativeHybridEnabled()
                 && (props.hybridSearch() == null || props.hybridSearch().effectiveBm25Weight() == 1f)) {
             var nativeResult = chromaDbClient.queryNativeHybrid(collectionId, question, queryEmbedding, topCandidates, docs);
+            if (retrievalMeters != null) {
+                retrievalMeters.counter("spectra.retrieval.qdrant.hybrid", "outcome",
+                        nativeResult.isPresent() ? "used" : "fallback").increment();
+            }
             if (nativeResult.isPresent()) return nativeResult.get();
         }
         // --- Run both searches in parallel, chaque source dégradant indépendamment ---
