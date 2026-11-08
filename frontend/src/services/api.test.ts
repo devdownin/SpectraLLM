@@ -110,10 +110,10 @@ describe('intercepteur de réponse', () => {
     }
   });
 
-  it('rejette toujours, pour que l\'appelant garde la main', () => {
+  it('rejette toujours, pour que l\'appelant garde la main', async () => {
     // L'intercepteur informe ; il ne doit pas avaler l'erreur, sinon le `catch` de la page
     // ne s'exécute jamais et l'écran reste sur un état de chargement.
-    expect(rejectHandler?.({ response: { status: 500 } })).rejects.toBeDefined();
+    await expect(rejectHandler?.({ response: { status: 500 } })).rejects.toBeDefined();
   });
 });
 
