@@ -469,6 +469,7 @@ def answer_one(client: SpectraClient, q: Question, args: argparse.Namespace) -> 
                     "selfRagApplied": response.get("selfRagApplied"),
                     "rerankApplied": response.get("rerankApplied"),
                     "hybridSearchApplied": response.get("hybridSearchApplied"),
+                    "multiQueryApplied": response.get("multiQueryApplied"),
                     "sourceScores": [{"docIds": extract_doc_ids([s]), "rerankScore": s.get("rerankScore")}
                                      for s in sources],
                     "agenticIterations": response.get("agenticIterations"),
@@ -563,6 +564,7 @@ def retrieve_one(client: SpectraClient, q: Question, args: argparse.Namespace) -
         "sourceScores": [{"docIds": extract_doc_ids([s]), "rerankScore": s.get("rerankScore")} for s in sources],
         "rerankApplied": response.get("rerankApplied"),
         "hybridSearchApplied": response.get("hybridSearchApplied"),
+        "multiQueryApplied": response.get("multiQueryApplied"),
         "durationMs": response.get("durationMs"),
         "clientMs": round((time.time() - started) * 1000),
     }

@@ -62,6 +62,93 @@ et conserver les clés dans l'environnement.
 }
 ```
 
+### Comparer 20 et 50 candidats du reranker
+
+Garder dix passages de contexte et le même profil pour isoler le nombre de candidats.
+Lancer les deux variantes dans des répertoires distincts et conserver le rapport apparié.
+
+```bash
+API=http://localhost:8089
+COLLECTION=nom-de-la-collection-indexee
+
+(
+  for CANDIDATES in 20 50; do
+    python3 scripts/enterprise_rag_experiment.py run --api "$API" --mode retrieve \
+      --collection "$COLLECTION" --questions "$WORK/split/dev-120.jsonl" \
+      --corpus-dir "$WORK/documents" --profile "$WORK/profile-reference.json" \
+      --hybrid on --max-context-chunks 10 --top-candidates "$CANDIDATES" \
+      --out "$WORK/retrieve-top$CANDIDATES" || exit 1
+  done
+
+  python3 scripts/enterprise_rag_experiment.py compare \
+    "$WORK/retrieve-top20" "$WORK/retrieve-top50"
+)
+```
+
+Dans les deux fichiers `records.jsonl`, vérifier que `rerankApplied` et
+`hybridSearchApplied` sont vrais pour les questions comparées. Si le reranker est
+indisponible, Spectra réduit la recherche au nombre de passages demandé pour le
+contexte. Un essai de ce type ne mesure alors pas la différence entre 20 et 50 candidats.
+
+Le rapport `all-gold@10` mesure la proportion des questions annotées avec au moins deux
+documents de référence distincts pour lesquelles tous ces documents sont retrouvés.
+Le `recall@10` compte aussi les preuves partielles. Le `extra@10` donne le nombre moyen
+de documents hors référence parmi les dix premiers. Examiner ces trois métriques
+ensemble avant de passer les variantes retenues en mode `answer`.
+
+### Comparer les reformulations et le regroupement Qdrant
+
+Garder le nombre de candidats retenu à l'étape précédente dans `CANDIDATES`, ainsi que
+le même modèle, la même collection et les mêmes dix passages de contexte. Pour isoler
+les deux changements, comparer chacun à une référence sans reformulation ni regroupement.
+Laisser `SPECTRA_QDRANT_NATIVE_HYBRID=false` pour cette série. Le chemin hybride natif
+utilise un autre point d'entrée Qdrant.
+
+Pour la référence, configurer la pile avec `SPECTRA_MULTI_QUERY_ENABLED=true`,
+`SPECTRA_MULTI_QUERY_COUNT=2` et `SPECTRA_QDRANT_GROUP_SIZE=0`. Activer le module dès la
+référence permet de comparer `off` et `on` par requête sans redémarrage. Les deux
+reformulations s'ajoutent à la question originale.
+
+```bash
+retrieve_variant() {
+  python3 scripts/enterprise_rag_experiment.py run --api "$API" --mode retrieve \
+    --collection "$COLLECTION" --questions "$WORK/split/dev-120.jsonl" \
+    --corpus-dir "$WORK/documents" --hybrid on --max-context-chunks 10 \
+    --top-candidates "$CANDIDATES" "$@"
+}
+
+retrieve_variant --multi-query off --profile "$WORK/profile-group0.json" \
+  --out "$WORK/retrieve-reference" &&
+retrieve_variant --multi-query on --profile "$WORK/profile-group0.json" \
+  --out "$WORK/retrieve-reformulations" &&
+python3 scripts/enterprise_rag_experiment.py compare \
+  "$WORK/retrieve-reference" "$WORK/retrieve-reformulations"
+```
+
+Pour le regroupement, recréer uniquement le service API avec
+`SPECTRA_QDRANT_GROUP_SIZE=2` dans la configuration Compose et attendre que l'API
+soit prête. Garder l'index et ses volumes. Copier le profil de référence et y
+consigner le nouveau réglage dans `profile-group2.json`.
+
+```bash
+retrieve_variant --multi-query off --profile "$WORK/profile-group2.json" \
+  --out "$WORK/retrieve-group2" &&
+python3 scripts/enterprise_rag_experiment.py compare \
+  "$WORK/retrieve-reference" "$WORK/retrieve-group2"
+```
+
+Vérifier `multi-query-applied` pour savoir quelle part des requêtes a réellement
+utilisé les reformulations. En cas de repli, garder la requête dans le calcul du
+score pour mesurer le comportement réel de la variante. Pour Qdrant, vérifier
+que le compteur `spectra.qdrant.http` pour `operation=groups` augmente pendant
+l'essai. Le regroupement peut revenir à une recherche simple si les groupes
+fournissent trop peu de candidats.
+
+Comparer `all-gold@10`, `recall@10`, `extra@10` et les champs `p95_a` et `p95_b`
+de `client-ms`. Le p95 couvre le temps vu par le client, y compris la reformulation
+et les éventuelles relances HTTP. Pour une comparaison de latence, réchauffer
+les deux configurations de la même façon avant les captures.
+
 ### Exécuter les variantes
 
 Choisir `retrieve` pour le rappel documentaire sans génération ni juge. Choisir `answer`
@@ -126,7 +213,7 @@ python3 scripts/enterprise_rag_experiment.py compare "$WORK/answer-reference" "$
   interrompu est relancé intégralement.
 - `compare` refuse les paires incomplètes et les écarts de corpus, de questions, de mode ou de juge.
   Le JSON contient l'écart par question agrégé, l'IC95 %, les gains et pertes et le détail par catégorie.
-  En mode `retrieve`, il compare le rappel@10. En mode `answer`, le score principal correspond
+  En mode `retrieve`, il compare le rappel, la couverture complète des preuves et les documents hors référence à 10. En mode `answer`, le score principal correspond
   à la complétude pour une réponse correcte, zéro sinon. Le rappel et les sources hors référence
   servent au diagnostic.
 

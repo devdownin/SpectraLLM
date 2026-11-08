@@ -25,8 +25,12 @@ class FakeApi(BaseHTTPRequestHandler):
             data = {"choices": []}
         else:
             doc_id = GOLD if request["overrides"]["hybrid"] else "dsid_abcdef02"
-            data = {"sources": [{"sourceFile": doc_id + ".txt"}], "answer": "42",
-                    "durationMs": 2, "selfRagApplied": request["overrides"].get("selfRag")}
+            sources = [{"sourceFile": doc_id + ".txt"}]
+            if request["topCandidates"] == 50:
+                sources.append({"sourceFile": "dsid_abcdef03.txt"})
+            data = {"sources": sources, "answer": "42",
+                    "durationMs": 2, "multiQueryApplied": request["overrides"].get("multiQuery"),
+                    "selfRagApplied": request["overrides"].get("selfRag")}
         payload = json.dumps(data).encode()
         self.send_response(200)
         self.end_headers()
@@ -92,6 +96,32 @@ class EnterpriseRagExperimentTest(unittest.TestCase):
         records.write_text("")
         self.assertIn("1 questions manquantes",
                       self.cli("compare", self.root / "reference", self.root / "candidate", code=1).stderr)
+
+    def test_candidate_sweep_reports_complete_multidocument_recall(self):
+        (self.corpus / "dsid_abcdef03.txt").write_text("second piece of evidence")
+        rows = [json.loads(self.questions.read_text())]
+        rows.append({**rows[0], "question_id": "multi",
+                     "expected_doc_ids": [GOLD, "dsid_abcdef03"]})
+        self.questions.write_text("".join(json.dumps(row) + "\n" for row in rows))
+        self.variant("top20", "--top-candidates", 20)
+        self.variant("top50", "--top-candidates", 50)
+        report = json.loads(self.cli("compare", self.root / "top20", self.root / "top50").stdout)
+        self.assertEqual([request["topCandidates"] for _, request, _ in self.server.calls],
+                         [20, 20, 50, 50])
+        self.assertEqual(report["recall@10"]["mean_diff"], 0.25)
+        self.assertEqual(report["all-gold@10"]["n"], 1)
+        self.assertEqual(report["all-gold@10"]["mean_diff"], 1.0)
+        self.assertEqual(report["extra@10"]["mean_diff"], 0.5)
+
+    def test_multi_query_comparison_reports_activation_and_latency(self):
+        self.variant("single", "--multi-query", "off")
+        self.variant("multiple", "--multi-query", "on")
+        report = json.loads(self.cli("compare", self.root / "single", self.root / "multiple").stdout)
+        self.assertEqual(report["multi-query-applied"]["mean_a"], 0)
+        self.assertEqual(report["multi-query-applied"]["mean_b"], 1)
+        for variant, label in (("single", "a"), ("multiple", "b")):
+            row = json.loads((self.root / variant / "records.jsonl").read_text())
+            self.assertEqual(report["client-ms"][f"p95_{label}"], row["clientMs"])
 
     def test_judge_rejects_silent_failure_and_publishes_complete_results(self):
         self.variant("answer", "--self-rag", "on", mode="answer")
