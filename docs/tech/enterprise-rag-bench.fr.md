@@ -149,6 +149,82 @@ de `client-ms`. Le p95 couvre le temps vu par le client, y compris la reformulat
 et les éventuelles relances HTTP. Pour une comparaison de latence, réchauffer
 les deux configurations de la même façon avant les captures.
 
+### Comparer la fusion Java et l’hybride natif Qdrant
+
+Utiliser une instance de test dédiée avec ses propres répertoires de données et un
+`WORK` neuf. La stack Compose fixe les noms de conteneurs et monte des répertoires
+locaux. Pour l'isoler, utiliser un autre hôte Docker ou une instance locale de test
+démarrée seule depuis un checkout dédié.
+
+Préparer le palier de 5 000 distracteurs avec les révisions épinglées ci-dessus.
+Avant la première ingestion, démarrer l’instance de test avec
+`SPECTRA_QDRANT_NATIVE_HYBRID=true`. Elle construit une collection à vecteurs
+denses et clairsemés dès l’indexation. Utiliser `spectra_documents` comme collection
+pour une installation vierge. Relever la durée de l’ingestion et vérifier
+`ingest_errors.log` avant les captures.
+
+Comparer les moteurs sur **la même collection clairsemée**. Basculer le chemin de
+recherche en recréant l’API seule. Garder le poids BM25 à 1, le regroupement à 0,
+le multi-query désactivé et les autres réglages identiques. Cela isole la fusion
+et le classement lexical. Le choix du mode ne nécessite aucune réindexation entre
+les deux mesures.
+
+```bash
+# Depuis la racine du checkout de test.
+compose=(docker compose --project-directory . -f deploy/docker/docker-compose.yml)
+
+start_hybrid() {
+  SPECTRA_QDRANT_NATIVE_HYBRID="$1" SPECTRA_QDRANT_GROUP_SIZE=0 \
+    SPECTRA_HYBRID_BM25_WEIGHT=1 "${compose[@]}" up -d --no-deps --wait spectra-api
+}
+
+capture_hybrid() {
+  python3 scripts/enterprise_rag_experiment.py run --api "$API" --mode retrieve \
+    --collection "$COLLECTION" --questions "$WORK/split/dev-120.jsonl" \
+    --corpus-dir "$WORK/documents" --profile "$1" --out "$2" \
+    --hybrid on --multi-query off --top-candidates "$CANDIDATES" --max-context-chunks 10
+}
+```
+
+Créer `profile-java.json` et `profile-native.json` pour le même corpus et renseigner
+`qdrant_native_hybrid` à `false` et `true` respectivement. Pour chaque mode, démarrer
+l’API, réchauffer la pile de la même façon, relever les compteurs et lancer la
+capture dans un répertoire neuf. Relever à nouveau les compteurs à la fin. Pour la variante native,
+`spectra.retrieval.qdrant.hybrid` avec `outcome=used` compte les résultats Qdrant
+effectivement retenus. `outcome=fallback` compte les tentatives qui reviennent
+au chemin Java. Un compteur absent vaut zéro. Un taux d’activation faible
+doit être expliqué avant d’attribuer l’écart à Qdrant. Pour la référence, aucun
+de ces compteurs ne doit augmenter.
+
+```bash
+# Première capture.
+start_hybrid false
+# Réchauffement et relevé initial.
+capture_hybrid "$WORK/profile-java.json" "$WORK/retrieve-java"
+
+# Deuxième capture.
+start_hybrid true
+# Même réchauffement et relevé initial.
+capture_hybrid "$WORK/profile-native.json" "$WORK/retrieve-native"
+
+# Relevés avant et après chaque série.
+curl -fsS "$API/actuator/prometheus" | grep '^spectra_retrieval_qdrant_hybrid_total'
+"${compose[@]}" stats --no-stream spectra-api qdrant
+```
+
+Comparer les deux sorties avec `enterprise_rag_experiment.py compare`. Relever le
+rappel@10, la couverture complète des preuves, les sources hors référence et le p95.
+En mode `answer`, faire juger les citations par Onyx pour mesurer le bruit réel.
+Échantillonner la mémoire de l’API et de Qdrant pendant les mesures. L’index BM25 Java
+reste chargé pour le repli. Cette comparaison ne mesure donc pas le gain potentiel
+d’une architecture sans BM25 Java.
+
+Monter ensuite à **20 000**, puis **100 000 distracteurs** avec `prepare --extend`
+et `ingest` dans le même `WORK`. Réactiver l’hybride natif pour les nouvelles ingestions,
+garder le fichier d’état, utiliser deux nouveaux répertoires de résultats par palier
+et relancer la paire sur le même index figé. Consigner la durée d’ingestion
+incrémentale et la mémoire à chaque palier avant d’envisager le corpus complet.
+
 ### Exécuter les variantes
 
 Choisir `retrieve` pour le rappel documentaire sans génération ni juge. Choisir `answer`

@@ -1,11 +1,13 @@
 package fr.spectra.service;
 
 import fr.spectra.config.SpectraProperties;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -52,6 +54,29 @@ class HybridSearchServiceTest {
         assertThat(results.getFirst().sourceFile()).isEqualTo("source.txt");
         assertThat(results.getFirst().vectorDistance()).isEqualTo(1.0);
         org.mockito.Mockito.verifyNoInteractions(chromaDb);
+    }
+
+    @Test
+    void searchCountsNativeHybridResultsSeparatelyFromFallback() {
+        var meters = new SimpleMeterRegistry();
+        hybridSearch.setRetrievalMeters(meters);
+        var nativeHit = new HybridSearchService.HybridChunk(
+                "native", "preuve native", "native.txt", 1.0, 0f, 0.02, Map.of());
+        when(chromaDb.nativeHybridEnabled()).thenReturn(true);
+        when(chromaDb.queryNativeHybrid(eq(COLL_ID), anyString(), eq(QUERY_EMBEDDING), eq(5), any()))
+                .thenReturn(Optional.of(List.of(nativeHit)), Optional.empty());
+        stubVector(List.of(), List.of(), List.of(), List.of());
+        when(ftsService.search(anyString(), eq(COLL_NAME), anyInt())).thenReturn(List.of(
+                new BM25Index.ScoredDoc("java", "preuve lexicale", "java.txt", 3.5f)));
+
+        assertThat(hybridSearch.search("query", QUERY_EMBEDDING, COLL_ID, COLL_NAME, 5))
+                .extracting(HybridSearchService.HybridChunk::id).containsExactly("native");
+        assertThat(hybridSearch.search("query", QUERY_EMBEDDING, COLL_ID, COLL_NAME, 5))
+                .extracting(HybridSearchService.HybridChunk::id).containsExactly("java");
+        assertThat(meters.get("spectra.retrieval.qdrant.hybrid").tag("outcome", "used").counter().count())
+                .isEqualTo(1);
+        assertThat(meters.get("spectra.retrieval.qdrant.hybrid").tag("outcome", "fallback").counter().count())
+                .isEqualTo(1);
     }
 
     @Test
