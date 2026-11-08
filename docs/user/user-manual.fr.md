@@ -1416,7 +1416,7 @@ docker compose --project-directory . -f deploy/docker/docker-compose.yml up -d l
 | `LLM_CONTEXT` | Contexte **total** du serveur de chat, divisé par `LLM_PARALLEL` |
 | `LLM_PARALLEL` | Conversations simultanées (slots parallèles) — défaut `2` |
 | `LLM_THREADS` | Threads de calcul pour le chat |
-| `LLM_BATCH` | Taille de batch (`-b` / `-ub`) |
+| `LLM_BATCH` | Taille du lot logique de chat (`-b`). Le micro-lot physique reste au défaut de llama.cpp (512, plafonné par le lot logique). Pour le régler, ajoutez `--ubatch-size N` à `LLM_CHAT_EXTRA_ARGS`. |
 | `LLM_CHAT_EXTRA_ARGS` | Arguments bruts ajoutés à `llama-server` (ex. `--n-gpu-layers 99`) |
 | `LLM_CHAT_MODEL_FILE` | GGUF servi, si le pointeur du registre est absent |
 | `LLM_CHAT_WATCH_INTERVAL` | Période de surveillance du pointeur de modèle, en secondes |

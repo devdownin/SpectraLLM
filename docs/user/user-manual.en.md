@@ -1385,7 +1385,7 @@ docker compose --project-directory . -f deploy/docker/docker-compose.yml up -d l
 | `LLM_CONTEXT` | **Total** context of the chat server, divided by `LLM_PARALLEL` |
 | `LLM_PARALLEL` | Simultaneous conversations (parallel slots) — defaults to `2` |
 | `LLM_THREADS` | Compute threads for chat |
-| `LLM_BATCH` | Batch size (`-b` / `-ub`) |
+| `LLM_BATCH` | Logical chat batch size (`-b`). llama.cpp uses its physical microbatch default (512, capped by the logical batch size). Add `--ubatch-size N` to `LLM_CHAT_EXTRA_ARGS` to tune it. |
 | `LLM_CHAT_EXTRA_ARGS` | Raw arguments appended to `llama-server` (e.g. `--n-gpu-layers 99`) |
 | `LLM_CHAT_MODEL_FILE` | GGUF to serve when the registry pointer is missing |
 | `LLM_CHAT_WATCH_INTERVAL` | Model-pointer polling interval, in seconds |

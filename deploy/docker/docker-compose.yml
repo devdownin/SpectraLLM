@@ -64,9 +64,8 @@ services:
       - LLM_THREADS=${LLM_THREADS:-}
       - LLM_BATCH=${LLM_BATCH:-}
       - LLM_PARALLEL=${LLM_PARALLEL:-2}
-      # Arguments bruts pour llama-server (ex. --n-gpu-layers). L'overlay GPU les impose ;
-      # sans ce passe-plat, les renseigner dans .env restait sans effet sous Compose alors
-      # que la documentation les présentait comme le moyen de surcharger l'offload GPU.
+      # Arguments supplémentaires de llama-server. L'overlay CUDA ajoute l'offload GPU
+      # avant ces arguments pour conserver les réglages explicites de .env.
       - LLM_CHAT_EXTRA_ARGS=${LLM_CHAT_EXTRA_ARGS:-}
       - LLM_CHAT_WATCH_INTERVAL=${LLM_CHAT_WATCH_INTERVAL:-10}
     # `start_interval` (présent sur presque tous les services de ce fichier) est ce qui

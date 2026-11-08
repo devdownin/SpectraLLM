@@ -177,13 +177,13 @@ class ResourceAdvisorServiceTest {
     @Test
     void recommend_embedMode_cliContainsEmbeddingsFlag() {
         ResourceProfile.LlamaServerParams params = service.recommend(4, 16384, "none", 0, "embed");
-        assertThat(params.cliArgs()).contains("--embeddings");
+        assertThat(params.cliArgs()).contains("--embeddings").containsSubsequence("-ub", "2048");
     }
 
     @Test
     void recommend_chatMode_cliDoesNotContainEmbeddingsFlag() {
         ResourceProfile.LlamaServerParams params = service.recommend(4, 16384, "none", 0, "chat");
-        assertThat(params.cliArgs()).doesNotContain("--embeddings");
+        assertThat(params.cliArgs()).containsSubsequence("-b", "2048").doesNotContain("--embeddings", "-ub");
     }
 
     @Test

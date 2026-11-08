@@ -269,12 +269,14 @@ public class ResourceAdvisorService {
                 "-t", String.valueOf(threads),
                 "-c", String.valueOf(contextSize),
                 "-b", String.valueOf(batchSize),
-                "-ub", String.valueOf(batchSize),
                 "--cache-type-k", cacheTypeK,
                 "--cache-type-v", cacheTypeV
         ));
         if (flashAttn)   args.add("--flash-attn");
-        if (embedMode)   args.add("--embeddings");
+        if (embedMode) {
+            // Les encodeurs bidirectionnels doivent traiter une entrée entière en un micro-lot.
+            args.addAll(List.of("-ub", String.valueOf(batchSize), "--embeddings"));
+        }
         if (nGpuLayers != 0) {
             args.add("--n-gpu-layers");
             args.add(String.valueOf(nGpuLayers));
