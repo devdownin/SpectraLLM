@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -272,6 +273,16 @@ def compare(args: argparse.Namespace) -> None:
         a, b = retrieval_metrics(first), retrieval_metrics(second)
         reports = {metric: paired_report(values, b[metric], types)
                    for metric, values in a.items() if values}
+        for field, metric in (("multiQueryApplied", "multi-query-applied"), ("clientMs", "client-ms")):
+            a = {qid: row.get(field) for qid, row in first.items()}
+            b = {qid: row.get(field) for qid, row in second.items()}
+            if any(value is None for values in (a, b) for value in values.values()):
+                continue
+            reports[metric] = paired_report(a, b, types)
+            if field == "clientMs":
+                rank = math.ceil(0.95 * len(a)) - 1
+                reports[metric]["p95_a"] = sorted(a.values())[rank]
+                reports[metric]["p95_b"] = sorted(b.values())[rank]
     else:
         judges = []
         for directory, records in ((args.baseline, first), (args.candidate, second)):
