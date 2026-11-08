@@ -254,7 +254,8 @@ through native function calling (`search`, `lookup`, `open_document`, llama-serv
 **without generation** and returns the passages with `ragStrategy: "RETRIEVAL"` and an empty
 answer. A few seconds per question instead of minutes on CPU: the tool for comparing the reranker
 threshold, multi-query, MMR or the reranking model. See
-[EnterpriseRAG-Bench (FR)](enterprise-rag-bench.fr.md).
+[the reproducible EnterpriseRAG-Bench workflow (FR)](enterprise-rag-bench.fr.md#comparaison-reproductible-sur-120-questions)
+to pin the corpus, replay variants, and compare paired retrieval and answer results.
 
 ---
 

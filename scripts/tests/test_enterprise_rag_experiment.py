@@ -1,0 +1,125 @@
+"""Exerce le lanceur via sa CLI et les frontières HTTP de Spectra et du juge."""
+
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import threading
+import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+SCRIPT = Path(__file__).resolve().parents[1] / "enterprise_rag_experiment.py"
+GOLD = "dsid_abcdef01"
+
+
+class FakeApi(BaseHTTPRequestHandler):
+    def log_message(self, *_args):
+        pass
+
+    def do_POST(self):
+        request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        self.server.calls.append((self.path, request, self.headers.get("X-API-Key")))
+        if self.path == "/v1/chat/completions":
+            data = {"choices": []}
+        else:
+            doc_id = GOLD if request["overrides"]["hybrid"] else "dsid_abcdef02"
+            data = {"sources": [{"sourceFile": doc_id + ".txt"}], "answer": "42",
+                    "durationMs": 2, "selfRagApplied": request["overrides"].get("selfRag")}
+        payload = json.dumps(data).encode()
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(payload)
+
+
+class EnterpriseRagExperimentTest(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.questions = self.root / "questions.jsonl"
+        self.questions.write_text(json.dumps({"question_id": "one", "question_type": "basic",
+                                               "question": "How many?", "expected_doc_ids": [GOLD]}) + "\n")
+        self.corpus = self.root / "corpus"
+        self.corpus.mkdir()
+        self.document = self.corpus / (GOLD + ".txt")
+        self.document.write_text("42")
+        self.profile = self.root / "profile.json"
+        self.profile.write_text(json.dumps({"backend_revision": "fixture", "index": "fixture",
+                                            "chat": "fixture", "embedding": "fixture", "reranker": "fixture",
+                                            "context_tokens_per_request": 8192}))
+        server = ThreadingHTTPServer(("127.0.0.1", 0), FakeApi)
+        server.calls = []
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join)
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        self.server = server
+        self.api = f"http://127.0.0.1:{server.server_port}"
+        self.env = {**os.environ, "SPECTRA_API_KEY": "fixture-key", "LLM_API_KEY": "fixture-judge",
+                    "OPENAI_BASE_URL": self.api + "/v1", "LLM_PROVIDER": "openai"}
+
+    def cli(self, *args, code=0):
+        result = subprocess.run([sys.executable, str(SCRIPT), *map(str, args)],
+                                capture_output=True, text=True, env=self.env, timeout=20)
+        self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+        return result
+
+    def variant(self, name, *options, mode="retrieve", code=0):
+        return self.cli("run", "--out", self.root / name, "--questions", self.questions,
+                        "--corpus-dir", self.corpus, "--profile", self.profile, "--collection", "bench",
+                        "--api", self.api, "--wait-ready", "0", "--mode", mode, *options, code=code)
+
+    def test_resume_and_pairing_reject_changed_inputs(self):
+        self.variant("reference")
+        self.variant("reference")
+        self.assertEqual(len(self.server.calls), 1)
+        path, request, key = self.server.calls[0]
+        self.assertEqual((path, request["collection"], key), ("/api/query/retrieve", "bench", "fixture-key"))
+        self.variant("candidate", "--hybrid", "off")
+        result = self.cli("compare", self.root / "reference", self.root / "candidate")
+        self.assertEqual(json.loads(result.stdout)["recall@10"]["mean_diff"], -1.0)
+
+        self.document.write_text("43")
+        self.assertIn("configuration différente", self.variant("reference", code=1).stderr)
+        self.assertEqual(len(self.server.calls), 2)
+        self.variant("other-corpus")
+        self.assertIn("corpus différent",
+                      self.cli("compare", self.root / "reference", self.root / "other-corpus", code=1).stderr)
+        records = self.root / "candidate" / "records.jsonl"
+        records.write_text("")
+        self.assertIn("1 questions manquantes",
+                      self.cli("compare", self.root / "reference", self.root / "candidate", code=1).stderr)
+
+    def test_judge_rejects_silent_failure_and_publishes_complete_results(self):
+        self.variant("answer", "--self-rag", "on", mode="answer")
+        self.assertTrue(self.server.calls[0][1]["overrides"]["selfRag"])
+        evaluator = self.root / "evaluator"
+        module = evaluator / "src" / "scripts" / "answer_evaluation" / "metrics_based_eval.py"
+        module.parent.mkdir(parents=True)
+        module.write_text(
+            "import json, os, sys\n"
+            "from pathlib import Path\n"
+            "assert '--no-correction' in sys.argv\n"
+            "result = Path(sys.argv[sys.argv.index('--results-file') + 1])\n"
+            "result.write_text(json.dumps({'questions': [{'question_id': 'one', "
+            "'answer_correct': True, 'completeness_pct': 100}]}))\n"
+            "if os.environ.get('TEST_JUDGE_FAIL') == '1': print('[WARN] citation stripping failed')\n"
+        )
+        subprocess.run(["git", "init", "-q", str(evaluator)], check=True)
+        subprocess.run(["git", "-C", str(evaluator), "add", "."], check=True)
+        subprocess.run(["git", "-C", str(evaluator), "-c", "user.name=Test",
+                        "-c", "user.email=test@example.com", "commit", "-qm", "Fixture"], check=True)
+        self.env["TEST_JUDGE_FAIL"] = "1"
+        variant = self.root / "answer"
+        args = ("judge", "--out", variant, "--evaluator-dir", evaluator,
+                "--python", os.path.relpath(sys.executable))
+        self.cli(*args, code=4)
+        self.assertFalse((variant / "results.json").exists())
+        self.env["TEST_JUDGE_FAIL"] = "0"
+        self.cli(*args)
+        self.assertTrue((variant / "results.json").is_file())
+        comparison = self.cli("compare", variant, variant)
+        self.assertEqual(json.loads(comparison.stdout)["score"]["mean_a"], 100.0)

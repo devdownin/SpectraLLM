@@ -9,6 +9,127 @@ données d'entreprise synthétiques (≈ 500 000 documents Slack, Gmail, Linear,
 score (correctness, completeness, recall, invalid extra docs) est ensuite calculé par le script
 d'Onyx, avec un LLM juge.
 
+## Comparaison reproductible sur 120 questions
+
+`scripts/enterprise_rag_experiment.py` utilise Python 3.11 ou supérieur et le banc existant.
+Il sépare **120 questions de réglage** et **380 questions de validation**, avec les dix catégories
+dans chaque lot. Les mêmes questions, dans le même ordre, sont utilisées pour chaque variante.
+Figer le réglage gagnant avant de passer aux 380 questions. Pour le classement, utiliser les 500
+questions et le corpus complet.
+
+### Préparer la pile et les données
+
+Exécuter depuis la racine de SpectraLLM. Installer `pyarrow` dans l'environnement Python pour
+la préparation du corpus. Utiliser une pile de test dédiée avec un index vide au départ.
+Voici les révisions du premier lot de comparaison.
+
+```bash
+ONYX_COMMIT=d36685e273713975ee20299bbf1ab64165575b3c
+CORPUS_REV=69916e31c68aa5963c00248fd7f0bc12d04fd235
+WORK=data/onyx-quality-v1
+
+git clone https://github.com/onyx-dot-app/EnterpriseRAG-Bench ../EnterpriseRAG-Bench
+git -C ../EnterpriseRAG-Bench checkout --detach "$ONYX_COMMIT"
+python3 scripts/enterprise_rag_bench.py --work-dir "$WORK" prepare --subset 5000 --seed 42 \
+  --questions-url "https://raw.githubusercontent.com/onyx-dot-app/EnterpriseRAG-Bench/$ONYX_COMMIT/questions.jsonl" \
+  --documents-url "https://huggingface.co/datasets/onyx-dot-app/EnterpriseRAG-Bench/resolve/$CORPUS_REV/data/documents/test.parquet"
+python3 scripts/enterprise_rag_experiment.py split --questions "$WORK/questions.jsonl" --out "$WORK/split"
+python3 scripts/enterprise_rag_bench.py --work-dir "$WORK" ingest
+```
+
+La préparation télécharge environ 1,4 Go de Parquet, même avec `--subset`. Réserver un répertoire
+neuf pour chaque révision du corpus. L'ingestion utilise la collection par défaut de la pile.
+Vérifier l'absence d'erreurs dans `ingest_errors.log` et utiliser cette même collection dans
+`--collection`. Garder le corpus et l'index stables pendant les essais. Une autre pile ou un autre
+index doit recevoir exactement les mêmes fichiers. Le lanceur enregistre l'empreinte des fichiers
+locaux et s'appuie sur l'opérateur pour confirmer leur correspondance avec l'index distant.
+Si l'API exige une clé, fournir `SPECTRA_API_KEY` dans l'environnement.
+
+Pour la référence de génération avec llama.cpp, configurer **8 192 tokens par requête**
+(`LLM_CONTEXT=8192` et `LLM_PARALLEL=1`, ou 16 384 et 2). Cette fenêtre inclut le prompt et la
+sortie. Créer un profil JSON par configuration et remplacer les valeurs d'exemple par les
+identifiants ou empreintes réels. Inclure les autres paramètres serveur qui influencent le RAG
+et conserver les clés dans l'environnement.
+
+```json
+{
+  "backend_revision": "commit-ou-digest-image",
+  "index": "moteur, version, configuration lexicale/vectorielle et chunking",
+  "embedding": "modèle et révision",
+  "chat": "modèle et révision",
+  "reranker": "moteur, modèle et révision ou empreinte de l'artefact",
+  "context_tokens_per_request": 8192
+}
+```
+
+### Exécuter les variantes
+
+Choisir `retrieve` pour le rappel documentaire sans génération ni juge. Choisir `answer`
+pour le score de réponse. Enregistrer les profils et les deux modes dans des répertoires distincts.
+
+```bash
+COLLECTION=nom-de-la-collection-indexee
+QUESTIONS="$WORK/split/dev-120.jsonl"
+
+python3 scripts/enterprise_rag_experiment.py run --mode retrieve --collection "$COLLECTION" \
+  --questions "$QUESTIONS" --corpus-dir "$WORK/documents" \
+  --profile "$WORK/profile-reference.json" --out "$WORK/retrieve-reference"
+
+# Redémarrer SpectraLLM avec BGE v2-M3. Utiliser un artefact ONNX et un tokenizer compatibles.
+python3 scripts/enterprise_rag_experiment.py run --mode retrieve --collection "$COLLECTION" \
+  --questions "$QUESTIONS" --corpus-dir "$WORK/documents" \
+  --profile "$WORK/profile-bge.json" --out "$WORK/retrieve-bge"
+python3 scripts/enterprise_rag_experiment.py compare "$WORK/retrieve-reference" "$WORK/retrieve-bge"
+```
+
+Rejouer avec mMARCO et un profil distinct si la référence utilise un autre modèle.
+En mode ONNX, sélectionner le modèle via `SPECTRA_RERANKER_ONNX_PATH`. En mode HTTP, vérifier
+le modèle effectivement chargé dans le service de reranking. Après chaque redémarrage, vérifier
+`/api/status` et les indicateurs `rerankApplied` et `hybridSearchApplied` dans `records.jsonl`.
+Une variante sans reranking effectif doit être examinée avant d'interpréter le gain.
+Le profil hybride Qdrant natif, sur les versions qui le proposent, se compare de la même façon avec
+un index et un profil dédiés.
+
+Pour mesurer la génération, rejouer les variantes retenues avec `--mode answer`.
+Avec `SPECTRA_SELF_RAG_ENABLED=true` côté serveur, comparer `--self-rag off` à `--self-rag on`
+sur le même index, le même modèle et les mêmes réglages. Utiliser le pipeline RAG standard
+(`SPECTRA_AGENTIC_RAG_ENABLED=false` et `SPECTRA_ADAPTIVE_RAG_ENABLED=false`).
+Le Self-RAG actuel vérifie un extrait
+des trois premiers passages. `selfRagApplied` indique qu'un raffinement a eu lieu.
+Cet essai mesure la réflexion existante. Une vérification exhaustive des faits requiert sa propre variante.
+
+### Noter et comparer
+
+Installer les dépendances d'Onyx dans un environnement Python séparé. Configurer `LLM_API_KEY` pour le
+juge et utiliser le même `LLM_MODEL_NAME` dans toutes les variantes (`gpt-5.4` dans cet exemple).
+`OPENAI_BASE_URL` permet d'utiliser une API compatible OpenAI. L'évaluateur et le corpus de référence
+restent figés pour la comparaison.
+
+```bash
+python3 -m venv ../EnterpriseRAG-Bench/.venv
+../EnterpriseRAG-Bench/.venv/bin/python -m pip install -r ../EnterpriseRAG-Bench/requirements.txt
+export LLM_PROVIDER=openai LLM_MODEL_NAME=gpt-5.4
+
+python3 scripts/enterprise_rag_experiment.py judge --out "$WORK/answer-reference" \
+  --evaluator-dir ../EnterpriseRAG-Bench --python ../EnterpriseRAG-Bench/.venv/bin/python &&
+python3 scripts/enterprise_rag_experiment.py judge --out "$WORK/answer-bge" \
+  --evaluator-dir ../EnterpriseRAG-Bench --python ../EnterpriseRAG-Bench/.venv/bin/python &&
+python3 scripts/enterprise_rag_experiment.py compare "$WORK/answer-reference" "$WORK/answer-bge"
+```
+
+- `run.json` fixe le profil, les questions, le corpus local, les options et la version des scripts.
+  Relancer la même commande pour compléter `records.jsonl`. Un changement impose un nouveau
+  répertoire. Utiliser un seul processus par répertoire. Après un arrêt forcé, retirer le dossier vide
+  `.running` seulement après avoir vérifié que le processus est arrêté.
+- `judge.json` fixe la révision et la configuration du juge. `results.json` est publié seulement
+  si toutes les questions sont notées et que le contrôle des appels au juge passe. Un jugement
+  interrompu est relancé intégralement.
+- `compare` refuse les paires incomplètes et les écarts de corpus, de questions, de mode ou de juge.
+  Le JSON contient l'écart par question agrégé, l'IC95 %, les gains et pertes et le détail par catégorie.
+  En mode `retrieve`, il compare le rappel@10. En mode `answer`, le score principal correspond
+  à la complétude pour une réponse correcte, zéro sinon. Le rappel et les sources hors référence
+  servent au diagnostic.
+
 ## 1. Préparer le corpus
 
 ```bash
@@ -83,6 +204,7 @@ Plusieurs réglages se basculent **par requête** (surcharges `RagOverrides`), s
 |---|---|
 | `--hybrid on\|off` | recherche hybride BM25 + vecteurs |
 | `--neighbor-window N` | N chunks voisins (± N, 0-5) ajoutés à chaque passage |
+| `--self-rag on\|off` | réflexion et raffinement en mode `answer` (serveur : `SPECTRA_SELF_RAG_ENABLED=true`) |
 | `--multi-query on\|off` | reformulations de la question (serveur : `SPECTRA_MULTI_QUERY_ENABLED=true`) |
 | `--dedup none\|jaccard\|mmr` | déduplication des passages (serveur : `SPECTRA_SEMANTIC_DEDUP_ENABLED=true`) |
 | `--rerank-min-score S` | écarte les passages dont le score du reranker (0-1) est sous S |
