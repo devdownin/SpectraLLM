@@ -161,6 +161,9 @@ pour `ef=128` avec ACORN. Le p95 moteur correspondant était de 1,09, 1,39 et
 | `SPECTRA_QDRANT_INT8` | `false` | Vecteurs float32 sur disque et copie scalaire INT8 en RAM pour les collections créées ou réindexées avec cette option. |
 | `SPECTRA_QDRANT_OVERSAMPLING` | `2` | Nombre relatif de candidats quantifiés à reclasser sur les vecteurs originaux. Valeur comprise entre 1 et 10. |
 | `SPECTRA_QDRANT_NATIVE_HYBRID` | `false` | Index lexical clairsemé dans Qdrant et fusion RRF des candidats denses et lexicaux. |
+| `SPECTRA_QDRANT_HYBRID_STRATEGY` | `rrf` | Fusion `rrf` ou `dbsf`. Les contrôles `dense` et `sparse` interrogent une seule branche Qdrant. |
+| `SPECTRA_QDRANT_RRF_K` | `60` | Constante RRF du chemin natif. |
+| `SPECTRA_QDRANT_LEXICAL_CANDIDATES` | `0` | Profondeur du préchargement lexical dans une fusion native. Zéro reprend le nombre de candidats demandé. |
 
 Renseigner les options dans `.env`, puis recréer le service `spectra-api`.
 Pour une collection déjà remplie, lancer sa réindexation pour construire le nouveau
@@ -176,6 +179,36 @@ repli si la collection est encore dense seule, si Qdrant échoue ou si le contr�
 de visibilité écarte un résultat. Un poids BM25 personnalisé ou le regroupement
 par document utilise aussi la fusion Java. Les variantes multi-query hybrides
 natives sont exécutées séparément.
+
+### Comparer les stratégies sur dev-120
+
+Utiliser le même index clairsemé, sans regroupement ni reformulation. Fixer
+`SPECTRA_QDRANT_LEXICAL_CANDIDATES=20`, `SPECTRA_HYBRID_BM25_TOP=20` pour la
+référence Java et `--top-candidates 20` pour les captures. Comparer d'abord
+les deux contrôles `dense` et `sparse` à RRF `k=60`. Comparer ensuite
+RRF `k=2` et DBSF à cette référence. Conserver un profil et un répertoire de
+capture distincts pour chaque stratégie et recréer l’API après changement de
+configuration. La collection reste la même entre les variantes.
+
+```bash
+python3 scripts/enterprise_rag_experiment.py run --mode retrieve --api "$API" \
+  --collection "$COLLECTION" --questions "$WORK/split/dev-120.jsonl" \
+  --corpus-dir "$WORK/documents" --profile "$PROFILE" --out "$CAPTURE" \
+  --hybrid on --multi-query off --rerank off --max-context-chunks 20 --top-candidates 20
+```
+
+Comparer les captures avec `enterprise_rag_experiment.py compare`. Avec ce budget,
+`all-gold@20` mesure la couverture complète des preuves avant reranking. Pour la
+mesure finale, refaire la paire avec `--rerank on --max-context-chunks 10` et
+examiner le rappel@10, `all-gold@10` et la latence p95. Vérifier les compteurs
+`spectra.retrieval.qdrant.hybrid` pour s’assurer que les contrôles mono-branche
+et les fusions ont réellement été servis par Qdrant. L’indicateur d’hybride de
+l’API reste actif dans ces contrôles car ils passent par le même chemin natif.
+
+Figer le profil gagnant avant de le comparer à la référence sur
+`holdout-380.jsonl`. Si la recherche dense manque encore des documents,
+comparer d’abord la recherche approximative à `SPECTRA_QDRANT_EXACT=true`
+sur le même index avant d’ajuster `SPECTRA_QDRANT_HNSW_EF`.
 
 Sur 50 000 vecteurs synthétiques de dimension 64 indexés, à `ef=256`, le rappel@10
 par rapport au calcul exact est resté identique entre float32 et INT8 avec

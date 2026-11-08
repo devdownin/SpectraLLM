@@ -233,6 +233,22 @@ class QdrantPilotIntegrationTest {
         var hybrid = new HybridSearchService(facade, fts, props);
         assertThat(hybrid.search("tungsten", QUERY, name, name, 2, filter))
                 .extracting(HybridSearchService.HybridChunk::id).contains("lexical").doesNotContain("denied");
+        store.configureHybrid("rrf", 2, 2);
+        assertThat(hybrid.search("tungsten", QUERY, name, name, 2, filter))
+                .extracting(HybridSearchService.HybridChunk::id).contains("lexical").doesNotContain("denied");
+
+        store.configureHybrid("dbsf", 60, 2);
+        assertThat(hybrid.search("tungsten", QUERY, name, name, 2, filter))
+                .extracting(HybridSearchService.HybridChunk::id).contains("lexical").doesNotContain("denied");
+
+        store.configureHybrid("dense", 60, 0);
+        assertThat(hybrid.search("tungsten", QUERY, name, name, 2, filter))
+                .extracting(HybridSearchService.HybridChunk::id).containsExactly("dense", "second");
+
+        store.configureHybrid("sparse", 60, 0);
+        assertThat(hybrid.search("tungsten", QUERY, name, name, 2, filter))
+                .extracting(HybridSearchService.HybridChunk::id).containsExactly("lexical");
+        assertThat(hybrid.search("nonexistentterm", QUERY, name, name, 2, filter)).isEmpty();
         org.mockito.Mockito.verifyNoInteractions(fts);
     }
 
