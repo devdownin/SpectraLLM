@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 import re
 import sys
@@ -197,6 +198,8 @@ class SpectraClient:
         self.timeout = timeout
 
     def _send(self, request: urllib.request.Request) -> dict:
+        if api_key := os.environ.get("SPECTRA_API_KEY"):
+            request.add_unredirected_header("X-API-Key", api_key)
         with urllib.request.urlopen(request, timeout=self.timeout) as resp:
             return json.loads(resp.read().decode("utf-8"))
 
@@ -428,6 +431,8 @@ def build_query(question: str, args: argparse.Namespace) -> dict:
     overrides = {}
     if args.hybrid != "default":
         overrides["hybrid"] = args.hybrid == "on"
+    if getattr(args, "self_rag", "default") != "default":
+        overrides["selfRag"] = args.self_rag == "on"
     if args.neighbor_window is not None:
         overrides["neighborWindow"] = args.neighbor_window
     if args.multi_query != "default":
@@ -461,6 +466,9 @@ def answer_one(client: SpectraClient, q: Question, args: argparse.Namespace) -> 
         # Les deux listes sont conservées : le choix cited/all se rejoue hors-ligne.
         "spectra": {"ragStrategy": response.get("ragStrategy"), "durationMs": response.get("durationMs"),
                     "contextChars": response.get("contextChars"),
+                    "selfRagApplied": response.get("selfRagApplied"),
+                    "rerankApplied": response.get("rerankApplied"),
+                    "hybridSearchApplied": response.get("hybridSearchApplied"),
                     "sourceScores": [{"docIds": extract_doc_ids([s]), "rerankScore": s.get("rerankScore")}
                                      for s in sources],
                     "agenticIterations": response.get("agenticIterations"),
@@ -553,6 +561,8 @@ def retrieve_one(client: SpectraClient, q: Question, args: argparse.Namespace) -
         "question_id": q.question_id,
         "document_ids": extract_doc_ids(sources),
         "sourceScores": [{"docIds": extract_doc_ids([s]), "rerankScore": s.get("rerankScore")} for s in sources],
+        "rerankApplied": response.get("rerankApplied"),
+        "hybridSearchApplied": response.get("hybridSearchApplied"),
         "durationMs": response.get("durationMs"),
         "clientMs": round((time.time() - started) * 1000),
     }
@@ -629,6 +639,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--collection")
     p.add_argument("--max-context-chunks", type=int, default=10)
     p.add_argument("--top-candidates", type=int, default=50)
+    p.add_argument("--self-rag", choices=("default", "on", "off"), default="default",
+                   help="réflexion Self-RAG (exige SPECTRA_SELF_RAG_ENABLED côté serveur)")
     p.add_argument("--max-docs", type=int, default=10, help="document_ids gardés (les extras sont pénalisés)")
     p.add_argument("--sources", choices=("all", "cited"), default="all",
                    help="document_ids rendus : tous les documents récupérés, ou les seuls cités [n] dans la "

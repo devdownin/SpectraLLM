@@ -81,6 +81,8 @@ Quatre étapes, un flux continu — le tout piloté par une interface web guidé
 
 *Curieux du fonctionnement réel de la fusion hybride, du re-ranking et de la compression de contexte — et du **pourquoi** ? → **[Les internes du pipeline RAG](docs/tech/rag-pipeline.fr.md)** · **[Architecture](docs/architecture.en.md)***
 
+Comparez les réglages RAG sur [Onyx EnterpriseRAG-Bench](docs/tech/enterprise-rag-bench.fr.md#comparaison-reproductible-sur-120-questions) avec des lots de réglage et de validation fixes, des mesures appariées et le juge officiel.
+
 ## 📚 Documentation
 
 Tout est accessible depuis l'**[index de la documentation](docs/README.md)**, ou allez directement au but :

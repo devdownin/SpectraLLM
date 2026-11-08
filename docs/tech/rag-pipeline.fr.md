@@ -269,7 +269,8 @@ par question). Un modèle 7B n'a appelé aucun outil sur 12 questions : à valid
 **sans génération** et renvoie les passages avec `ragStrategy: "RETRIEVAL"` et une réponse vide.
 Quelques secondes par question au lieu de minutes sur CPU : c'est l'outil pour comparer seuil du
 reranker, multi-query, MMR ou modèle de reranking. Voir
-[EnterpriseRAG-Bench](enterprise-rag-bench.fr.md).
+[le protocole EnterpriseRAG-Bench reproductible](enterprise-rag-bench.fr.md#comparaison-reproductible-sur-120-questions)
+pour figer le corpus, rejouer les variantes et comparer les résultats par question.
 
 ---
 
