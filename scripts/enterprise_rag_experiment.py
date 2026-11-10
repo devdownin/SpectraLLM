@@ -20,7 +20,7 @@ from urllib.error import HTTPError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
 
-from enterprise_rag_bench import (DOC_ID_PATTERN, NO_GOLD_TYPES, cited_source_numbers, load_questions,
+from enterprise_rag_bench import (DOC_ID_PATTERN, NO_GOLD_TYPES, SpectraClient, cited_source_numbers, load_questions,
                                   retrieval_report)
 from enterprise_rag_eval import load_metric, paired_report
 
@@ -346,16 +346,19 @@ def compare_runs(baseline_dir: Path, candidate_dir: Path) -> dict:
 
         def retrieval_metrics(records):
             rankings = {qid: row["document_ids"] for qid, row in records.items()}
-            metrics = {"recall@10": {}, "all-gold@10": {}, "extra@10": {}, "mrr@10": {}, "ndcg@10": {}}
+            metrics = {f"{name}@{k}": {} for k in depths
+                       for name in ("recall", "all-gold", "extra", "mrr", "ndcg")}
             for question in labeled_questions:
                 row = retrieval_report([question], rankings, ks=depths)["overall"]
                 if not row["n"]:
                     continue
                 qid = question.question_id
-                for metric in ("recall@10", "extra@10", "mrr@10", "ndcg@10"):
-                    metrics[metric][qid] = row[metric]
-                if len({doc.lower() for doc in question.expected_doc_ids}) > 1:
-                    metrics["all-gold@10"][qid] = float(row["recall@10"] == 1.0)
+                has_multiple_gold = len({doc.lower() for doc in question.expected_doc_ids}) > 1
+                for k in depths:
+                    for name in ("recall", "extra", "mrr", "ndcg"):
+                        metrics[f"{name}@{k}"][qid] = row[f"{name}@{k}"]
+                    if has_multiple_gold:
+                        metrics[f"all-gold@{k}"][qid] = float(row[f"recall@{k}"] == 1.0)
             return metrics
 
         a, b = retrieval_metrics(first), retrieval_metrics(second)
