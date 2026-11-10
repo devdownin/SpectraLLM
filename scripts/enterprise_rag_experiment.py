@@ -221,8 +221,13 @@ def run(args: argparse.Namespace, *, log_to_stderr: bool = False) -> None:
             query["rerank-min-score"] = args.rerank_min_score
         if args.mode == "answer":
             query["self-rag"] = args.self_rag
-        elif getattr(args, "rerank", "default") != "default":
-            query["rerank"] = args.rerank
+            if getattr(args, "filter_ratio", 0) > 0:
+                raise ValueError("--filter-ratio exige le mode retrieve")
+        else:
+            if getattr(args, "rerank", "default") != "default":
+                query["rerank"] = args.rerank
+            if getattr(args, "filter_ratio", 0) > 0:
+                query["filter-ratio"] = args.filter_ratio
         # Même requête de recherche dans les deux modes, suffixe compris.
         query["question-suffix"] = "\n\nAnswer in English."
     with lock(args.out):
@@ -254,6 +259,8 @@ def run(args: argparse.Namespace, *, log_to_stderr: bool = False) -> None:
                        "--output", str(records), "--parallelism", str(args.parallelism)]
             for option, value in query.items():
                 command.extend((f"--{option}", str(value)))
+            if "filter-ratio" in query:
+                command.extend(("--filter-corpus-dir", str(args.corpus_dir)))
             subprocess.run(command, check=True, stdout=sys.stderr if log_to_stderr else None)
         require_ids(records, jsonl(records), set(rows))
 
@@ -655,6 +662,8 @@ def main() -> int:
     p.add_argument("--self-rag", choices=("on", "off"), default="off")
     p.add_argument("--rerank", choices=("default", "on", "off"), default="default",
                    help="contrôler le reranking en mode retrieve")
+    p.add_argument("--filter-ratio", type=float, default=0.0,
+                   help="mode retrieve : filtre de payload laissant cette part du corpus candidate")
     p.set_defaults(action=run)
 
     p = commands.add_parser("suite", help="comparer les variantes sur dev-120 et juger les deux meilleures")

@@ -151,6 +151,16 @@ class EnterpriseRagExperimentTest(unittest.TestCase):
         report = json.loads(self.cli("compare", directory, directory).stdout)
         self.assertIn("recall@20", report)
 
+    def test_payload_filter_is_frozen_in_the_run_and_sent_with_the_gold_files(self):
+        (self.corpus / "dsid_abcdef03.txt").write_text("other")
+        self.variant("filtered", "--filter-ratio", 0.5, "--rerank", "off")
+        _, request, _ = self.server.calls[0]
+        self.assertIn(GOLD + ".txt", request["filter"]["sources"])
+        manifest = json.loads((self.root / "filtered" / "run.json").read_text())
+        self.assertEqual(manifest["query"]["filter-ratio"], 0.5)
+        self.assertIn("filter-ratio", self.variant("filtered-answer", "--filter-ratio", 0.5,
+                                                   mode="answer", code=1).stderr)
+
     def test_multi_query_comparison_reports_activation_and_latency(self):
         self.variant("single", "--multi-query", "off")
         self.variant("multiple", "--multi-query", "on")

@@ -282,6 +282,29 @@ class EnterpriseRagBenchTest(unittest.TestCase):
         self.assertEqual(FakeSpectra.queries[0]["question"], "Q1?")
         self.assertEqual(FakeSpectra.queries[0]["overrides"], {"hybrid": False, "rerankMinScore": 0.2})
 
+    def test_payload_filter_keeps_gold_files_and_the_requested_selectivity(self):
+        files = [f"dsid_{i:032x}.txt" for i in range(100)] + [f"{GOLD_A}.txt", f"{GOLD_B}.txt"]
+        question = bench.load_questions(self.work / "questions.jsonl")[1]  # références A et B
+        first = bench.source_filter(question, files, 0.1)
+
+        self.assertEqual(first, bench.source_filter(question, files, 0.1))
+        self.assertEqual(len(first["sources"]), 10)
+        self.assertLessEqual({f"{GOLD_A}.txt", f"{GOLD_B}.txt"}, set(first["sources"]))
+        self.assertEqual(len(bench.source_filter(question, files, 0.0001)["sources"]), 2)
+
+    def test_retrieve_sends_the_payload_filter_only_when_asked(self):
+        documents = self.work / "documents"
+        documents.mkdir()
+        for name in (GOLD_A, GOLD_B, OTHER):
+            (documents / f"{name}.txt").write_text("x")
+        self.run_cli("retrieve", "--limit", "1")
+        self.run_cli("retrieve", "--limit", "1", "--output", str(self.work / "filtered.jsonl"),
+                     "--filter-ratio", "0.5")
+
+        self.assertNotIn("filter", FakeSpectra.queries[0])
+        self.assertIn(f"{GOLD_A}.txt", FakeSpectra.queries[1]["filter"]["sources"])
+        self.assertEqual(len(FakeSpectra.queries[1]["filter"]["sources"]), 2)
+
     def test_retrieve_resumes_without_asking_again(self):
         self.run_cli("retrieve", "--limit", "1")
         self.run_cli("retrieve")
