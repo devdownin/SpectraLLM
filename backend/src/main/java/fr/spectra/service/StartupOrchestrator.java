@@ -38,6 +38,10 @@ public class StartupOrchestrator {
     @Value("${spectra.startup.auto-install-models:true}")
     private boolean autoInstallModels;
 
+    /** Mode hors ligne : aucun téléchargement au démarrage, quel que soit l'interrupteur ci-dessus. */
+    @Value("${spectra.offline:false}")
+    private boolean offline;
+
     public StartupOrchestrator(SpectraProperties properties, LlmFitService llmFitService) {
         this.properties = properties;
         this.llmFitService = llmFitService;
@@ -45,6 +49,10 @@ public class StartupOrchestrator {
 
     @PostConstruct
     public void checkAndInstallMissingModels() {
+        if (offline) {
+            log.info("Mode hors ligne (SPECTRA_OFFLINE=true) : aucune installation automatique de modèle");
+            return;
+        }
         if (!autoInstallModels) {
             log.info("Installation automatique des modèles manquants désactivée "
                     + "(spectra.startup.auto-install-models=false)");

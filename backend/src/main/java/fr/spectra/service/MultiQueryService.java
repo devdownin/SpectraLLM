@@ -80,7 +80,7 @@ public class MultiQueryService {
         List<String> queries = new ArrayList<>(variants.size() + 1);
         queries.add(question);
         queries.addAll(variants);
-        log.info("Multi-query : {} requêtes générées pour «{}»", queries.size(), question);
+        log.info("Multi-query : {} requêtes générées pour {}", queries.size(), fr.spectra.util.LogSafe.text(question));
         return queries;
     }
 }

@@ -77,7 +77,8 @@ public class ConversationalRagService {
             return question;
         }
         if (!standalone.equals(question)) {
-            log.info("Conversational RAG : «{}» → «{}»", question, standalone);
+            log.info("Conversational RAG : {} → {}", fr.spectra.util.LogSafe.text(question),
+                    fr.spectra.util.LogSafe.text(standalone));
         }
         return standalone;
     }

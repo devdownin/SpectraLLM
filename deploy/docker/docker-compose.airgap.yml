@@ -1,0 +1,65 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# MODE AIR-GAPPED — aucune sortie réseau, appliquée par Docker et non par la bonne volonté du code.
+#
+# Usage :
+#   docker compose --project-directory . -f deploy/docker/docker-compose.yml \
+#     -f deploy/docker/docker-compose.airgap.yml up -d
+#   python3 scripts/privacy_audit.py airgap          # vérifie la configuration effective
+#
+# Principe : le réseau Compose par défaut devient `internal: true` (pas de passerelle, donc aucune
+# route vers l'extérieur pour aucun service). Docker ne publie pas de port d'un réseau interne : le
+# frontend, seul point d'entrée, est rattaché en plus à `edge`, uniquement pour publier le port 80 sur
+# la boucle locale. Il ne sert que des fichiers statiques et relaie /api vers spectra-api.
+#
+# Conséquences voulues, à connaître :
+#   — l'API (8080) et les services techniques ne sont plus publiés sur l'hôte : tout passe par
+#     http://localhost:${SPECTRA_UI_PORT:-80}/api (même origine que l'interface) ;
+#   — aucun téléchargement : modèles GGUF, modèle du reranker (volume reranker-model-cache) et poids du
+#     trainer doivent être présents avant le démarrage (voir docs/configuration.en.md, « Air-gapped ») ;
+#   — SPECTRA_OFFLINE=true refuse proprement l'installation de modèles au lieu d'attendre un délai réseau.
+#
+# Hors périmètre : les sources de synchronisation (web, S3) et Kafka visent des hôtes que VOUS
+# configurez. En air-gap, ne renseignez que des hôtes internes (SPECTRA_SOURCES_ALLOWED_HOSTS).
+# ═══════════════════════════════════════════════════════════════════════════════
+networks:
+  default:
+    internal: true
+  edge: {}
+
+x-offline-env: &offline-env
+  HF_HUB_OFFLINE: "1"
+  TRANSFORMERS_OFFLINE: "1"
+  HF_HUB_DISABLE_TELEMETRY: "1"
+  DO_NOT_TRACK: "1"
+
+services:
+  frontend:
+    networks:
+      default: {}
+      edge: {}
+
+  spectra-api:
+    ports: !reset []
+    environment:
+      SPECTRA_OFFLINE: "true"
+      SPECTRA_STARTUP_AUTO_INSTALL_MODELS: "false"
+
+  llm-chat:
+    ports: !reset []
+  llm-embed:
+    ports: !reset []
+
+  reranker:
+    ports: !reset []
+    environment:
+      <<: *offline-env
+  trainer:
+    ports: !reset []
+    environment:
+      <<: *offline-env
+  docparser:
+    ports: !reset []
+    environment:
+      <<: *offline-env
+  kafka:
+    ports: !reset []

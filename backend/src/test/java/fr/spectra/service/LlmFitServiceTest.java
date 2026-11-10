@@ -75,6 +75,17 @@ class LlmFitServiceTest {
     // ── Entrées légitimes acceptées (pas d'exception de validation) ─────────────
 
     @Test
+    void installModel_modeHorsLigne_refuseSansRienTelecharger() {
+        LlmFitService service = newService();
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "offline", true);
+
+        assertThatThrownBy(() -> service.installModel("TheBloke/Llama-2-7B-GGUF", "Q4_K_M", false))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("mode hors ligne")
+                .hasMessageContaining("SPECTRA_OFFLINE");
+    }
+
+    @Test
     void installModel_huggingFaceStyleName_isAccepted() {
         // Ne doit PAS lever d'IllegalArgumentException ; renvoie un futur (l'exécution
         // asynchrone de llmfit échouera hors CI mais n'affecte pas la validation synchrone).

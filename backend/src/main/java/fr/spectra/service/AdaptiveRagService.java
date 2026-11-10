@@ -70,7 +70,7 @@ public class AdaptiveRagService {
             case "AGENTIC"  -> RagStrategy.AGENTIC;
             default         -> RagStrategy.STANDARD;
         };
-        log.info("Adaptive RAG : «{}» → {}", question, strategy);
+        log.info("Adaptive RAG : {} → {}", fr.spectra.util.LogSafe.text(question), strategy);
         return strategy;
     }
 }

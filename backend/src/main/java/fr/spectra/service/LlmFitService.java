@@ -122,6 +122,21 @@ public class LlmFitService {
     private String llmfitPath;
 
     /**
+     * Mode hors ligne ({@code SPECTRA_OFFLINE=true}) : le téléchargement de modèles est le seul
+     * appel sortant codé en dur vers Internet (Hugging Face) ; il est refusé plutôt que tenté.
+     * Un modèle se dépose alors directement dans {@code data/models}.
+     */
+    @Value("${spectra.offline:false}")
+    private boolean offline;
+
+    /**
+     * Point d'accès du Hub pour la recherche de dépôts GGUF. {@code HF_ENDPOINT} désigne un miroir
+     * d'entreprise ; la valeur était auparavant codée en dur et contournait ce miroir.
+     */
+    @Value("${spectra.model-hub.endpoint:https://huggingface.co}")
+    private String hubEndpoint = "https://huggingface.co";
+
+    /**
      * Répertoire cible des modèles téléchargés.
      * Doit correspondre au volume monté par llm-chat (./data/models → /models).
      * Dans le conteneur spectra-api : ./data/models = /app/data/models (volume ./data:/app/data).
@@ -244,6 +259,11 @@ public class LlmFitService {
     }
 
     public CompletableFuture<Boolean> installModel(String modelName, String quant, boolean autoActivate) {
+        if (offline) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "Installation de modèles désactivée en mode hors ligne (SPECTRA_OFFLINE=true) : "
+                            + "déposez le fichier GGUF dans " + modelsDirPath + " puis enregistrez-le.");
+        }
         // Validation synchrone AVANT le sous-processus : rejette une entrée malveillante
         // (ex. modelName = « --output=/etc/… ») immédiatement, sans démarrer de tâche async.
         requireSafeArg(modelName, SAFE_MODEL_ID, "modelName");
@@ -296,7 +316,7 @@ public class LlmFitService {
                         String shortName = resolvedModelName.substring(resolvedModelName.indexOf('/') + 1);
                         java.net.http.HttpClient client = java.net.http.HttpClient.newHttpClient();
                         java.net.http.HttpRequest request = java.net.http.HttpRequest.newBuilder()
-                                .uri(java.net.URI.create("https://huggingface.co/api/models?search=" + java.net.URLEncoder.encode(shortName, java.nio.charset.StandardCharsets.UTF_8) + "&filter=gguf&sort=downloads&direction=-1&limit=1"))
+                                .uri(java.net.URI.create(hubEndpoint.replaceAll("/+$", "") + "/api/models?search=" + java.net.URLEncoder.encode(shortName, java.nio.charset.StandardCharsets.UTF_8) + "&filter=gguf&sort=downloads&direction=-1&limit=1"))
                                 .GET()
                                 .build();
                         java.net.http.HttpResponse<String> response = client.send(request, java.net.http.HttpResponse.BodyHandlers.ofString());

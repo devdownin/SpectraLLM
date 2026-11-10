@@ -342,6 +342,13 @@ services:
       - SPECTRA_MCP_RATE_LIMIT_PER_MINUTE=${SPECTRA_MCP_RATE_LIMIT_PER_MINUTE:-60}
       - SPECTRA_MCP_RATE_LIMIT_BURST=${SPECTRA_MCP_RATE_LIMIT_BURST:-10}
       - SPECTRA_QDRANT_BASE_URL=http://qdrant:6333
+      # Confidentialité et hors ligne (docs/process/checklist-confidentialite.fr.md). Ces variables
+      # n'atteignaient pas le conteneur : une valeur posée dans .env était sans effet, y compris
+      # SPECTRA_STARTUP_AUTO_INSTALL_MODELS, documenté comme interrupteur du téléchargement au démarrage.
+      - SPECTRA_OFFLINE=${SPECTRA_OFFLINE:-false}
+      - SPECTRA_STARTUP_AUTO_INSTALL_MODELS=${SPECTRA_STARTUP_AUTO_INSTALL_MODELS:-true}
+      - SPECTRA_LOG_CONTENT=${SPECTRA_LOG_CONTENT:-false}
+      - HF_ENDPOINT
       - SPECTRA_QDRANT_INT8=${SPECTRA_QDRANT_INT8:-false}
       - SPECTRA_QDRANT_OVERSAMPLING=${SPECTRA_QDRANT_OVERSAMPLING:-2}
       - SPECTRA_QDRANT_NATIVE_HYBRID=${SPECTRA_QDRANT_NATIVE_HYBRID:-false}

@@ -154,7 +154,8 @@ public class CorrectiveRagService {
         if (reformulated.isBlank() || reformulated.equals(question)) {
             return java.util.Optional.empty();
         }
-        log.info("Corrective RAG : reformulation «{}» → «{}»", question, reformulated);
+        log.info("Corrective RAG : reformulation {} → {}", fr.spectra.util.LogSafe.text(question),
+                fr.spectra.util.LogSafe.text(reformulated));
         return java.util.Optional.of(reformulated);
     }
 

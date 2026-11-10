@@ -108,6 +108,18 @@ class StartupOrchestratorTest {
     }
 
     @Test
+    @DisplayName("mode hors ligne : aucune installation, même avec le rattrapage activé")
+    void modeHorsLigneNInstalleRien() {
+        LlmFitService llmFit = mock(LlmFitService.class);
+        StartupOrchestrator orchestrator = orchestrator(propsWithChatFile(DEFAULT_CHAT_FILE), llmFit, true);
+        ReflectionTestUtils.setField(orchestrator, "offline", true);
+
+        orchestrator.checkAndInstallMissingModels();
+
+        verify(llmFit, never()).installModel(anyString(), anyString(), anyBoolean());
+    }
+
+    @Test
     @DisplayName("modèle par défaut absent : installation du dépôt par défaut, une seule fois")
     void modeleDefautAbsentDeclencheLInstallation() {
         LlmFitService llmFit = mock(LlmFitService.class);

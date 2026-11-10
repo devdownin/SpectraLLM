@@ -54,15 +54,15 @@ public class UrlIngestionService {
                 // Vérification fail-fast de la collection avant de télécharger quoi que ce soit.
                 chromaDbClient.getOrCreateCollection(defaultCollection);
                 for (String url : urls) {
-                    log.info("Ingestion URL: {}", url);
+                    log.info("Ingestion URL: {}", fr.spectra.util.LogSafe.url(url));
                     try {
                         UrlFetcherService.FetchedContent content = urlFetcher.fetch(url);
                         int chunks = ingestionService.ingest(content.filename(), content.inputStream(), defaultCollection);
                         totalChunks += chunks;
-                        log.info("URL '{}' ingérée → {} chunks", url, chunks);
+                        log.info("URL '{}' ingérée → {} chunks", fr.spectra.util.LogSafe.url(url), chunks);
                     } catch (Exception e) {
                         if (e instanceof PartialIngestionException partial) totalChunks += partial.chunks();
-                        log.error("Erreur ingestion URL '{}': {}", url, e.getMessage());
+                        log.error("Erreur ingestion URL '{}': {}", fr.spectra.util.LogSafe.url(url), e.getMessage());
                         urlErrors.add(url + ": " + e.getMessage());
                     }
                 }

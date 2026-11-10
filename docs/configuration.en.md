@@ -65,6 +65,9 @@ Two consequences worth stating outright:
 | `LLAMA_CPP_CUDA_IMAGE_TAG` | `server-cuda-b12110` | Pinned NVIDIA CUDA image tag for llm-chat/llm-embed when using `docker-compose.gpu.yml` |
 | `QDRANT_IMAGE_TAG` | `v1.16.3` | Pinned Qdrant image tag. Storage lives in `./data/qdrant`; Compose checks `/readyz` |
 | `SPECTRA_STARTUP_AUTO_INSTALL_MODELS` | `true` | On boot, download the default chat GGUF via the Model Hub when it is absent. Only the **default** model can be installed this way — the HuggingFace repo is hardcoded, and no repo can be derived from an arbitrary filename. If `LLM_CHAT_MODEL_FILE` names a different model and that file is missing, the API logs a warning and installs nothing rather than fetching several GB of something you did not ask for. Set to `false` in CI and on metered connections |
+| `SPECTRA_OFFLINE` | `false` | Offline / air-gapped switch. When `true`, model installation (Model Hub) is refused with a 403 and nothing is downloaded at boot, instead of attempting Hugging Face and waiting for a timeout. It does not isolate the network: use `docker-compose.airgap.yml` for that (see [the privacy checklist](process/checklist-confidentialite.fr.md)). Forwarded to `spectra-api` by Compose |
+| `HF_ENDPOINT` | *(unset)* | Hugging Face mirror used by the Model Hub repository lookup and `llmfit download`. Previously the lookup ignored it and always called `huggingface.co`. Forwarded to `spectra-api` by Compose |
+| `SPECTRA_LOG_CONTENT` | `false` | Debug only. By default logs carry questions, reformulations and URLs as length + keyed fingerprint (URLs without credentials, query string or fragment). `true` writes them in clear to `data/logs` and the container console |
 
 ### Ingestion pipeline
 
