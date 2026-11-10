@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import random
 import re
@@ -523,7 +524,7 @@ RETRIEVAL_KS = (1, 3, 5, 10)
 
 def retrieval_report(questions: list[Question], rankings: dict[str, list[str]],
                      ks: tuple[int, ...] = RETRIEVAL_KS) -> dict:
-    """Qualité du classement de documents (sans juge) : rappel@k, hit@k, MRR, documents hors référence.
+    """Qualité du classement de documents (sans juge) : rappel@k, hit@k, MRR, nDCG@k, hors référence.
 
     ``rankings`` : question_id → doc_ids distincts, dans l'ordre de classement. Seules les questions
     avec documents de référence et un classement présent comptent. « Hors référence » = documents
@@ -536,12 +537,18 @@ def retrieval_report(questions: list[Question], rankings: dict[str, list[str]],
             continue
         gold = {d.lower() for d in q.expected_doc_ids}
         ranking = [d.lower() for d in rankings[q.question_id]]
-        row = {"mrr": next((1.0 / (i + 1) for i, d in enumerate(ranking) if d in gold), 0.0)}
+        first = next((i + 1 for i, d in enumerate(ranking) if d in gold), None)
+        row = {"mrr": 1.0 / first if first else 0.0}
         for k in ks:
             top = set(ranking[:k])
             row[f"recall@{k}"] = len(gold & top) / len(gold)
             row[f"hit@{k}"] = 1.0 if gold & top else 0.0
             row[f"extra@{k}"] = float(len(top - gold))
+            row[f"mrr@{k}"] = 1.0 / first if first and first <= k else 0.0
+            # nDCG binaire : gain 1 par document de référence, idéal = références en tête.
+            dcg = sum(1.0 / math.log2(i + 2) for i, d in enumerate(ranking[:k]) if d in gold)
+            ideal = sum(1.0 / math.log2(i + 2) for i in range(min(len(gold), k)))
+            row[f"ndcg@{k}"] = dcg / ideal
         per_type[q.question_type].append(row)
 
     def mean(rows: list[dict]) -> dict:

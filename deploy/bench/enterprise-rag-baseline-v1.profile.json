@@ -1,0 +1,14 @@
+{
+  "name": "enterprise-rag-baseline-v1",
+  "backend_revision": "git b9c099a (remplacer par le digest de l'image spectra-api effectivement déployée)",
+  "index": "Qdrant v1.16.3, dense cosinus 768 dim. HNSW ef_construct=200, ef par défaut, sans int8 ; BM25 Java (top 20, poids 1) fusionné par RRF ; chunks 256 tokens, chevauchement 64, locale fr, en-têtes contextuels",
+  "embedding": "nomic-embed-text-v1.5 Q4_K_M GGUF (llama.cpp server-b12110), préfixes search_query/search_document",
+  "chat": "Qwen2.5-7B-Instruct Q4_K_M GGUF (llama.cpp server-b12110), température 0",
+  "reranker": "ONNX cross-encoder/mmarco-mMiniLMv2-L12-H384-v1, 20 candidats, max 512 tokens, sigmoïde",
+  "context_tokens_per_request": 8192,
+  "env_file": "deploy/bench/enterprise-rag-baseline-v1.env",
+  "corpus": "EnterpriseRAG-Bench corpus 69916e31c68aa5963c00248fd7f0bc12d04fd235, documents de référence + 5 000 distracteurs, seed 42",
+  "questions": "EnterpriseRAG-Bench d36685e273713975ee20299bbf1ab64165575b3c, split dev-120",
+  "query": {"max_context_chunks": 10, "top_candidates": 20, "hybrid": "on", "multi_query": "off",
+            "self_rag": "off", "neighbor_window": 0, "parallelism": 1}
+}

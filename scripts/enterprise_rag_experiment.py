@@ -8,6 +8,7 @@ import hashlib
 import json
 import math
 import os
+import random
 import shutil
 import subprocess
 import sys
@@ -18,7 +19,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
-from enterprise_rag_bench import DOC_ID_PATTERN, NO_GOLD_TYPES, load_questions, retrieval_report
+from enterprise_rag_bench import (DOC_ID_PATTERN, NO_GOLD_TYPES, cited_source_numbers, load_questions,
+                                  retrieval_report)
 from enterprise_rag_eval import load_metric, paired_report
 
 HERE = Path(__file__).resolve().parent
@@ -329,14 +331,14 @@ def compare(args: argparse.Namespace) -> None:
 
         def retrieval_metrics(records):
             rankings = {qid: row["document_ids"] for qid, row in records.items()}
-            metrics = {"recall@10": {}, "all-gold@10": {}, "extra@10": {}}
+            metrics = {"recall@10": {}, "all-gold@10": {}, "extra@10": {}, "mrr@10": {}, "ndcg@10": {}}
             for question in labeled_questions:
                 row = retrieval_report([question], rankings, ks=(10,))["overall"]
                 if not row["n"]:
                     continue
                 qid = question.question_id
-                metrics["recall@10"][qid] = row["recall@10"]
-                metrics["extra@10"][qid] = row["extra@10"]
+                for metric in ("recall@10", "extra@10", "mrr@10", "ndcg@10"):
+                    metrics[metric][qid] = row[metric]
                 if len({doc.lower() for doc in question.expected_doc_ids}) > 1:
                     metrics["all-gold@10"][qid] = float(row["recall@10"] == 1.0)
             return metrics
@@ -376,6 +378,102 @@ def compare(args: argparse.Namespace) -> None:
             if a:
                 reports[metric] = paired_report(a, b, types)
     print(json.dumps(reports, indent=2, ensure_ascii=False))
+
+
+def summary(values: list[float], resamples: int = 10_000, seed: int = 0) -> dict:
+    """Moyenne et IC95 % bootstrap d'une métrique par question (niveau absolu, non apparié)."""
+    n = len(values)
+    if not n:
+        return {"n": 0}
+    rng = random.Random(seed)
+    means = sorted(sum(rng.choices(values, k=n)) / n for _ in range(resamples))
+    return {"n": n, "mean": sum(values) / n,
+            "ci95": [means[int(0.025 * resamples)], means[int(0.975 * resamples) - 1]]}
+
+
+def latency(values: list[float]) -> dict:
+    if not values:
+        return {"n": 0}
+    ordered = sorted(values)
+
+    def rank(q):  # rang le plus proche, comme le p95 de ``compare``
+        return ordered[max(math.ceil(q * len(ordered)) - 1, 0)]
+
+    return {"n": len(ordered), "mean": sum(ordered) / len(ordered), "p50": rank(0.5), "p95": rank(0.95),
+            "max": ordered[-1]}
+
+
+def report(args: argparse.Namespace) -> None:
+    """Rapport absolu d'une variante : la baseline chiffrée que les essais suivants doivent battre."""
+    manifest, questions_path, records = run_data(args.out)
+    mode = manifest["mode"]
+    questions = load_questions(questions_path)
+    gold = {q.question_id: {d.lower() for d in q.expected_doc_ids} for q in questions
+            if q.question_type not in NO_GOLD_TYPES and q.expected_doc_ids}
+    details = {qid: row.get("spectra") or {} for qid, row in records.items()}
+    # Le classement complet : en mode answer, ``document_ids`` peut ne garder que les sources citées.
+    rankings = {qid: details[qid].get("retrievedDocumentIds", row["document_ids"])
+                for qid, row in records.items()}
+    result = {"mode": mode, "questions": len(records), "profile": manifest["profile"],
+              "query": manifest["query"], "corpus": manifest["corpus"]}
+
+    if mode != "oracle":
+        ranking = retrieval_report(questions, rankings)
+        per_question = {}
+        for q in questions:
+            if q.question_id in gold and q.question_id in rankings:
+                per_question[q.question_id] = retrieval_report([q], rankings)["overall"]
+        retrieval = {"overall": ranking["overall"], "by_type": ranking["by_type"]}
+        for metric in ("recall@10", "mrr@10", "ndcg@10", "extra@10"):
+            retrieval[metric] = summary([row[metric] for row in per_question.values()])
+        retrieval["all-gold@10"] = summary([float(row["recall@10"] == 1.0) for qid, row in per_question.items()
+                                            if len(gold[qid]) > 1])
+        result["retrieval"] = retrieval
+        flags = {}
+        for field in ("rerankApplied", "hybridSearchApplied", "multiQueryApplied", "selfRagApplied"):
+            seen = [row.get(field, details[qid].get(field)) for qid, row in records.items()]
+            seen = [value for value in seen if value is not None]
+            if seen:
+                flags[field] = sum(1 for value in seen if value) / len(seen)
+        result["applied"] = flags
+
+    result["latency_ms"] = {
+        "client": latency([row["clientMs"] for row in records.values() if row.get("clientMs") is not None]),
+        "server": latency([value for qid, row in records.items()
+                           if (value := row.get("durationMs", details[qid].get("durationMs"))) is not None]),
+    }
+
+    if mode != "retrieve":
+        # Fidélité déterministe, sans juge : la réponse cite-t-elle ses passages, et les bons ?
+        cited_any, precision = [], []
+        for qid, row in records.items():
+            sources = len(details[qid].get("sourceScores") or []) or len(row.get("document_ids") or [])
+            valid = [n for n in cited_source_numbers(row.get("answer", "")) if 1 <= n <= sources]
+            cited_any.append(float(bool(valid)))
+            cited = details[qid].get("citedDocumentIds", row["document_ids"])
+            if valid and qid in gold and cited:
+                precision.append(len(set(cited) & gold[qid]) / len(set(cited)))
+        result["faithfulness"] = {"citation_rate": summary(cited_any),
+                                  "cited_gold_precision": summary(precision)}
+        judged = args.out / "results.json"
+        if judged.exists():
+            judge_data(judged, set(records))
+            metadata = read_json(args.out / "judge.json")
+            if metadata["answers_sha256"] != sha256(args.out / "records.jsonl"):
+                raise ValueError(f"{args.out} : les réponses jugées ont changé")
+            generation = {"judge": metadata["configuration"]}
+            for metric in ("score", "correct", "completeness", "recall", "extra"):
+                values, types = load_metric(judged, metric)
+                generation[metric] = summary(list(values.values()))
+                by_type = defaultdict(list)
+                for qid, value in values.items():
+                    by_type[types[qid]].append(value)
+                generation[metric]["by_type"] = {t: sum(v) / len(v) for t, v in sorted(by_type.items())}
+            result["generation"] = generation
+        else:
+            result["generation"] = None
+    write_json(args.out / "report.json", result)
+    print(json.dumps(result, indent=2, ensure_ascii=False))
 
 
 def main() -> int:
@@ -425,6 +523,10 @@ def main() -> int:
     p.add_argument("baseline", type=Path)
     p.add_argument("candidate", type=Path)
     p.set_defaults(action=compare)
+
+    p = commands.add_parser("report", help="rapport absolu d'une variante (baseline), écrit dans report.json")
+    p.add_argument("--out", type=Path, required=True)
+    p.set_defaults(action=report)
 
     args = parser.parse_args()
     try:

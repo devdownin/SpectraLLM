@@ -11,6 +11,7 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 ### Ajouté — benchmark Onyx
 
 - Lanceur EnterpriseRAG-Bench avec lots de réglage (120) et de validation (380), manifestes de reprise, jugement officiel et comparaisons appariées.
+- Baseline EnterpriseRAG-Bench v1 : configuration figée (`deploy/bench/`), script de bout en bout, commande `report` (rappel@k, MRR@10, nDCG@10, fidélité des citations, latence p50/p95 avec IC95 %) et MRR/nDCG dans `compare`.
 
 ### Ajouté — sources de données synchronisées
 
