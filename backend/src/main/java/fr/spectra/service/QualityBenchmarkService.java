@@ -66,6 +66,9 @@ public class QualityBenchmarkService {
     private static final ObjectMapper mapper = new ObjectMapper();
 
     private static final String SYSTEM_PROMPT = fr.spectra.model.AssistantPersona.SYSTEM_PROMPT;
+    /** Génération évaluée déterministe (glouton) : mêmes réponses à chaque passage d'un même modèle. */
+    static final float GENERATION_TEMPERATURE = 0.0f;
+    static final float GENERATION_TOP_P = 1.0f;
 
     /** Mapper dédié à la (dé)sérialisation des jobs persistés (gère les {@link Instant}). */
     private static final ObjectMapper jobMapper = new ObjectMapper()
@@ -358,7 +361,11 @@ public class QualityBenchmarkService {
     private GeneratedEntry generateEntry(JsonNode entry) {
         String question = entry.path("question").asText("");
         try {
-            return new GeneratedEntry(entry, chatClient.chat(SYSTEM_PROMPT, question), null);
+            // Décodage glouton : une comparaison de modèles (base, fine-tuné, GGUF quantifié) ne doit
+            // pas dépendre d'un tirage. À 0,7 (défaut de chat), deux passages du même modèle
+            // divergeaient déjà, et l'écart entre versions se perdait dans ce bruit.
+            return new GeneratedEntry(entry,
+                    chatClient.chat(SYSTEM_PROMPT, question, GENERATION_TEMPERATURE, GENERATION_TOP_P), null);
         } catch (Exception e) {
             log.warn("Échec appel modèle évalué: {}", e.getMessage());
             return new GeneratedEntry(entry, null, "Échec appel modèle: " + e.getMessage());

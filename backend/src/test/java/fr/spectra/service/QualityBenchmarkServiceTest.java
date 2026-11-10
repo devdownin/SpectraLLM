@@ -9,6 +9,7 @@ import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyFloat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -54,7 +55,7 @@ class QualityBenchmarkServiceTest {
             }
             return "{\"score\": 8, \"justification\": \"ok\"}";
         });
-        when(chat.chat(anyString(), anyString())).thenReturn("Réponse du modèle évalué.");
+        when(chat.chat(anyString(), anyString(), anyFloat(), anyFloat())).thenReturn("Réponse du modèle évalué.");
         return chat;
     }
 
@@ -100,6 +101,18 @@ class QualityBenchmarkServiceTest {
         order.verify(chat).setActiveModel("judge-x");
         order.verify(chat).setActiveModel("modele-initial");
         assertThat(chat.getActiveModel()).isEqualTo("modele-initial");
+    }
+
+    @Test
+    void run_genereLesReponsesEvalueesEnDecodageGlouton() {
+        // Comparer base, fine-tuné et GGUF quantifié exige des réponses reproductibles.
+        LlmChatClient chat = deterministicChat("modele-initial");
+        newService(chat, "judge-x").run("modele-evalue");
+
+        org.mockito.Mockito.verify(chat, org.mockito.Mockito.atLeastOnce())
+                .chat(anyString(), anyString(), org.mockito.ArgumentMatchers.eq(0.0f),
+                        org.mockito.ArgumentMatchers.eq(1.0f));
+        org.mockito.Mockito.verify(chat, org.mockito.Mockito.never()).chat(anyString(), anyString());
     }
 
     @Test

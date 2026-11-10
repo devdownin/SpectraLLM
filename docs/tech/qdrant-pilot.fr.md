@@ -132,6 +132,8 @@ la version Qdrant épinglée. Conserver ce test lors des mises à niveau.
 | --- | --- | --- |
 | `SPECTRA_QDRANT_GROUP_SIZE` | `0` | Activer le regroupement des candidats denses par SHA documentaire, par exemple avec `2` ou `3`. Une recherche complémentaire conserve les passages historiques sans SHA. Si les groupes fournissent trop peu de candidats, la recherche standard complète le parcours. |
 | `SPECTRA_QDRANT_HNSW_EF` | `0` | Laisser Qdrant choisir, ou fixer la largeur de recherche HNSW pour un essai. |
+| `SPECTRA_QDRANT_HNSW_M` | `0` | Liens par nœud du graphe HNSW des collections créées ensuite ; `0` laisse la valeur de Qdrant (16). Exige une réindexation. |
+| `SPECTRA_QDRANT_HNSW_EF_CONSTRUCT` | `200` | Largeur de construction du graphe HNSW des collections créées ensuite. Exige une réindexation. |
 | `SPECTRA_QDRANT_EXACT` | `false` | Forcer la recherche exacte pour établir la référence du rappel ANN. |
 | `SPECTRA_QDRANT_ACORN` | `false` | Tester ACORN en recherche approchée avec des filtres sélectifs. |
 | `SPECTRA_QDRANT_ACORN_MAX_SELECTIVITY` | `0.4` | Seuil de sélectivité transmis à Qdrant quand ACORN est activé. |

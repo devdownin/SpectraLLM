@@ -419,7 +419,20 @@ def cmd_ingest(args: argparse.Namespace) -> None:
         print(f"[ingest] lot {index + 1}/{len(batches)} : {task.get('chunksCreated', 0)} chunks", file=sys.stderr)
 
 
-def build_query(question: str, args: argparse.Namespace) -> dict:
+def source_filter(q: Question, files: list[str], ratio: float) -> dict:
+    """Filtre de payload ``sources`` : références de la question + tirage reproductible de distracteurs.
+
+    La sélectivité vaut ``ratio`` (part du corpus laissée candidate). Le rappel ne doit pas baisser
+    sous filtre : seule la recherche approchée filtrée (HNSW, ACORN) est éprouvée.
+    """
+    size = max(len(q.expected_doc_ids), round(ratio * len(files)))
+    gold = [f"{doc}.txt" for doc in q.expected_doc_ids]
+    others = [name for name in files if name not in set(gold)]
+    picked = random.Random(f"filter:{q.question_id}").sample(others, min(size - len(gold), len(others)))
+    return {"sources": sorted(gold + picked)}
+
+
+def build_query(question: str, args: argparse.Namespace, q: Question | None = None) -> dict:
     payload = {
         "question": f"{question}{args.question_suffix}",
         "maxContextChunks": args.max_context_chunks,
@@ -446,6 +459,8 @@ def build_query(question: str, args: argparse.Namespace) -> dict:
         overrides["rerankMinScore"] = args.rerank_min_score
     if overrides:
         payload["overrides"] = overrides
+    if q is not None and getattr(args, "filter_ratio", 0) > 0:
+        payload["filter"] = source_filter(q, args.filter_files, args.filter_ratio)
     return payload
 
 
@@ -562,7 +577,7 @@ def retrieval_report(questions: list[Question], rankings: dict[str, list[str]],
 
 
 def retrieve_one(client: SpectraClient, q: Question, args: argparse.Namespace) -> dict:
-    payload = build_query(q.question, args)
+    payload = build_query(q.question, args, q)
     started = time.time()
     response = with_retry(lambda: client.post_json("/api/query/retrieve", payload), attempts=3,
                           before_retry=lambda: recover(client, args))
@@ -587,6 +602,11 @@ def cmd_retrieve(args: argparse.Namespace) -> None:
     if args.per_type:
         questions = sample_per_type(questions, args.per_type)
     out = Path(args.output) if args.output else work / "retrieval.jsonl"
+    if args.filter_ratio > 0:
+        corpus = Path(args.filter_corpus_dir or work / "documents")
+        args.filter_files = sorted(path.name for path in corpus.glob("dsid_*.txt"))
+        if not args.filter_files:
+            sys.exit(f"[retrieve] --filter-ratio : aucun dsid_*.txt dans {corpus}")
     done = load_answered(out)
     todo = [q for q in questions if q.question_id not in done][: args.limit]
     print(f"[retrieve] {len(todo)} questions à traiter ({len(done)} déjà dans {out})", file=sys.stderr)
@@ -696,6 +716,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--parallelism", type=int, default=1)
     p.add_argument("--rerank", choices=("default", "on", "off"), default="default",
                    help="désactiver le reranking pour mesurer les candidats avant reclassement")
+    p.add_argument("--filter-ratio", type=float, default=0.0, metavar="R",
+                   help="filtre de payload (sources) laissant R du corpus candidat, 0 = sans filtre")
+    p.add_argument("--filter-corpus-dir", help="dossier des dsid_*.txt (défaut : <work-dir>/documents)")
     p.set_defaults(func=cmd_retrieve)
 
     p = sub.add_parser("recall", help="rappel documentaire hors-ligne")

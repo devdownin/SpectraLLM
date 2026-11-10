@@ -155,6 +155,8 @@ final class QdrantStore {
     private boolean nativeHybrid;
     private boolean int8;
     private double oversampling = 2.0;
+    private int hnswM;
+    private int hnswEfConstruct = 200;
 
     @org.springframework.beans.factory.annotation.Autowired
     void configureStorage(@Value("${spectra.qdrant.native-hybrid:false}") boolean nativeHybrid,
@@ -166,6 +168,25 @@ final class QdrantStore {
         this.nativeHybrid = nativeHybrid;
         this.int8 = int8;
         this.oversampling = oversampling;
+    }
+
+    /** Graphe HNSW des nouvelles collections ; {@code m = 0} laisse la valeur par défaut de Qdrant (16). */
+    @org.springframework.beans.factory.annotation.Autowired
+    void configureIndex(@Value("${spectra.qdrant.hnsw-m:0}") int m,
+                        @Value("${spectra.qdrant.hnsw-ef-construct:200}") int efConstruct) {
+        if (m < 0 || m > 64 || efConstruct < 4 || efConstruct > 2000) {
+            throw new IllegalArgumentException("Invalid Qdrant HNSW graph settings");
+        }
+        this.hnswM = m;
+        this.hnswEfConstruct = efConstruct;
+    }
+
+    /** {@code hnsw_config} d'une nouvelle collection ; {@code m} omis laisse Qdrant choisir. */
+    Map<String, Object> hnswConfig() {
+        var hnsw = new LinkedHashMap<String, Object>();
+        hnsw.put("ef_construct", hnswEfConstruct);
+        if (hnswM > 0) hnsw.put("m", hnswM);
+        return hnsw;
     }
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -414,7 +435,7 @@ final class QdrantStore {
             if (int8) vectors.put("on_disk", true);
         }
         var body = new LinkedHashMap<String, Object>(
-                Map.of("vectors", vectors, "metadata", stamp, "hnsw_config", Map.of("ef_construct", 200)));
+                Map.of("vectors", vectors, "metadata", stamp, "hnsw_config", hnswConfig()));
         if (size > 0 && int8) {
             body.put("quantization_config", Map.of("scalar", Map.of("type", "int8", "always_ram", true)));
         }
