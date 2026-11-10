@@ -20,6 +20,10 @@ parser.add_argument("--output",     default="data/fine-tuning/merged")
 parser.add_argument("--base-model", default="phi3")
 parser.add_argument("--model-name", default="spectra-autoroute",
                     help="Nom du modèle à enregistrer dans Spectra")
+# q8_0 : format servi. f16 / bf16 : référence non quantifiée, pour vérifier que la quantification ne
+# change pas le comportement (scripts/finetune_audit.py, contrôle de parité GGUF).
+parser.add_argument("--outtype", choices=("q8_0", "f16", "bf16"), default="q8_0",
+                    help="type des poids GGUF (défaut q8_0, le format servi)")
 args = parser.parse_args()
 
 # Mapping alias → repo HF chargé depuis le manifeste UNIQUE base_models.json — la même
@@ -76,10 +80,11 @@ except Exception as e:
     print("\n  Conversion manuelle :")
     print(f"    1. Récupérez convert_hf_to_gguf.py depuis github.com/ggml-org/llama.cpp "
           f"à la révision {pinned_revision()}")
-    print(f"    2. Exécutez : python convert_hf_to_gguf.py {args.output} --outtype q8_0")
+    print(f"    2. Exécutez : python convert_hf_to_gguf.py {args.output} --outtype {args.outtype}")
     sys.exit(1)
 
-gguf_path = os.path.join(args.output, "model.gguf")
+# model.gguf reste le nom du format servi ; une référence f16/bf16 s'écrit à côté, sans l'écraser.
+gguf_path = os.path.join(args.output, "model.gguf" if args.outtype == "q8_0" else f"model-{args.outtype}.gguf")
 print(f"  Conversion vers : {gguf_path}")
 print("  (peut prendre 1-2 minutes...)")
 
@@ -88,7 +93,7 @@ print("  (peut prendre 1-2 minutes...)")
 # rien, alors que tout le mécanisme de diffusion existe des deux côtés et n'attendait que ça.
 result = subprocess.run(
     [sys.executable, convert_script, args.output,
-     "--outfile", gguf_path, "--outtype", "q8_0"],
+     "--outfile", gguf_path, "--outtype", args.outtype],
     text=True
 )
 if result.returncode != 0:

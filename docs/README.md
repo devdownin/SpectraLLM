@@ -24,6 +24,7 @@ New here? Start with **[Getting Started](getting-started.en.md)**.
 | **[EnterpriseRAG-Bench stage 2 (FR)](tech/enterprise-rag-stage2.fr.md)** | Retrieval track: reranker candidates, multi-query and Qdrant grouping series with an automatic adopt/reject rule. |
 | **[EnterpriseRAG-Bench stage 3 (FR)](tech/enterprise-rag-stage3.fr.md)** | Retrieval audit: embeddings (BGE-M3, Qwen3), dense vs hybrid vs reranker, HNSW/quantization/payload-filter settings, recall/latency comparison table. |
 | **[EnterpriseRAG-Bench stage 4 (FR)](tech/enterprise-rag-stage4.fr.md)** | Generation audit with Claude Opus 5.5 as judge: correctness, completeness, faithfulness, citation precision and refusals per question category. |
+| **[Fine-tuning audit (FR)](tech/finetune-audit.fr.md)** | Base vs QLoRA/DPO on the held-out quality benchmark, out-of-corpus hallucination regressions, GGUF q8_0 vs f16 parity and go/no-go per version. |
 | **[Technical Reference](tech/technical-doc.fr.md)** | Implementation-level detail across the platform. |
 | **[Diagrams](tech/)** | C4 container/component views ([level 2](tech/c4-level-2-containers.fr.md), [level 3](tech/c4-level-3-components.fr.md)) and the [technical-stack diagram](tech/technical-stack-architecture.en.md), all in Markdown/Mermaid. |
 

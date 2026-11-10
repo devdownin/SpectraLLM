@@ -122,3 +122,13 @@ def test_training_never_exports_gguf_implicitly():
     tree = ast.parse((SCRIPTS / "train_host.py").read_text())
     assert not any(isinstance(node, ast.Attribute) and node.attr == "save_pretrained_gguf"
                    for node in ast.walk(tree))
+
+
+def test_gguf_export_keeps_q8_0_as_served_default_and_offers_unquantized_reference():
+    tree = ast.parse((SCRIPTS / "export_gguf.py").read_text())
+    outtype = next(node for node in ast.walk(tree) if isinstance(node, ast.Call)
+                   and isinstance(node.func, ast.Attribute) and node.func.attr == "add_argument"
+                   and node.args and getattr(node.args[0], "value", None) == "--outtype")
+    keywords = {keyword.arg: ast.literal_eval(keyword.value) for keyword in outtype.keywords
+                if keyword.arg in {"default", "choices"}}
+    assert keywords == {"default": "q8_0", "choices": ("q8_0", "f16", "bf16")}
