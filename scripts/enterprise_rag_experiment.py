@@ -16,7 +16,8 @@ import tempfile
 from collections import defaultdict
 from contextlib import contextmanager
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.error import HTTPError
+from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
 
 from enterprise_rag_bench import (DOC_ID_PATTERN, NO_GOLD_TYPES, cited_source_numbers, load_questions,
@@ -193,8 +194,10 @@ def oracle_answers(args: argparse.Namespace, questions: Path, records: Path, con
             output.flush()
 
 
-def run(args: argparse.Namespace) -> None:
+def run(args: argparse.Namespace, *, log_to_stderr: bool = False) -> None:
     require_public_url(args.api)
+    if args.mode == "answer" and getattr(args, "rerank", "default") != "default":
+        raise ValueError("--rerank exige le mode retrieve")
     if args.mode == "retrieve" and args.self_rag == "on":
         raise ValueError("Self-RAG nécessite le mode answer")
     questions = args.questions.resolve()
@@ -218,6 +221,8 @@ def run(args: argparse.Namespace) -> None:
             query["rerank-min-score"] = args.rerank_min_score
         if args.mode == "answer":
             query["self-rag"] = args.self_rag
+        elif getattr(args, "rerank", "default") != "default":
+            query["rerank"] = args.rerank
         # Même requête de recherche dans les deux modes, suffixe compris.
         query["question-suffix"] = "\n\nAnswer in English."
     with lock(args.out):
@@ -249,7 +254,7 @@ def run(args: argparse.Namespace) -> None:
                        "--output", str(records), "--parallelism", str(args.parallelism)]
             for option, value in query.items():
                 command.extend((f"--{option}", str(value)))
-            subprocess.run(command, check=True)
+            subprocess.run(command, check=True, stdout=sys.stderr if log_to_stderr else None)
         require_ids(records, jsonl(records), set(rows))
 
 
@@ -273,7 +278,7 @@ def judge_data(path: Path, expected: set[str]) -> None:
             raise ValueError(f"{path} : note absente ou invalide pour {row['question_id']}")
 
 
-def judge(args: argparse.Namespace) -> None:
+def judge(args: argparse.Namespace, *, log_to_stderr: bool = False) -> None:
     with lock(args.out):
         manifest, questions, records = run_data(args.out)
         if manifest["mode"] not in {"answer", "oracle"}:
@@ -315,9 +320,14 @@ def judge(args: argparse.Namespace) -> None:
             pending.replace(result)
 
 
-def compare(args: argparse.Namespace) -> None:
-    baseline, questions, first = run_data(args.baseline)
-    candidate, _, second = run_data(args.candidate)
+def p95(values) -> float:
+    ordered = sorted(values)
+    return ordered[math.ceil(0.95 * len(ordered)) - 1]
+
+
+def compare_runs(baseline_dir: Path, candidate_dir: Path) -> dict:
+    baseline, questions, first = run_data(baseline_dir)
+    candidate, _, second = run_data(candidate_dir)
     modes = {baseline["mode"], candidate["mode"]}
     if "retrieve" in modes and len(modes) != 1:
         raise ValueError("comparaison impossible : mode différent")
@@ -329,11 +339,16 @@ def compare(args: argparse.Namespace) -> None:
         labeled_questions = load_questions(questions)
         types = {q.question_id: q.question_type for q in labeled_questions}
 
+        depths = (10, 20) if all(
+            manifest["query"].get("rerank") == "off" and manifest["query"]["max-context-chunks"] == 20
+            for manifest in (baseline, candidate)
+        ) else (10,)
+
         def retrieval_metrics(records):
             rankings = {qid: row["document_ids"] for qid, row in records.items()}
             metrics = {"recall@10": {}, "all-gold@10": {}, "extra@10": {}, "mrr@10": {}, "ndcg@10": {}}
             for question in labeled_questions:
-                row = retrieval_report([question], rankings, ks=(10,))["overall"]
+                row = retrieval_report([question], rankings, ks=depths)["overall"]
                 if not row["n"]:
                     continue
                 qid = question.question_id
@@ -353,12 +368,15 @@ def compare(args: argparse.Namespace) -> None:
                 continue
             reports[metric] = paired_report(a, b, types)
             if field == "clientMs":
-                rank = math.ceil(0.95 * len(a)) - 1
-                reports[metric]["p95_a"] = sorted(a.values())[rank]
-                reports[metric]["p95_b"] = sorted(b.values())[rank]
+                latency = reports[metric]
+                latency.update(p95_a=p95(a.values()), p95_b=p95(b.values()))
+                for category, category_report in latency["by_type"].items():
+                    ids = [qid for qid in a if types[qid] == category]
+                    category_report.update(p95_a=p95(a[qid] for qid in ids),
+                                           p95_b=p95(b[qid] for qid in ids))
     else:
         judges = []
-        for directory, records in ((args.baseline, first), (args.candidate, second)):
+        for directory, records in ((baseline_dir, first), (candidate_dir, second)):
             judge_data(directory / "results.json", set(records))
             judge_metadata = read_json(directory / "judge.json")
             if judge_metadata["answers_sha256"] != sha256(directory / "records.jsonl"):
@@ -371,13 +389,145 @@ def compare(args: argparse.Namespace) -> None:
         if "oracle" not in modes:
             metrics += ("recall", "extra")
         for metric in metrics:
-            a, types = load_metric(args.baseline / "results.json", metric)
-            b, _ = load_metric(args.candidate / "results.json", metric)
+            a, types = load_metric(baseline_dir / "results.json", metric)
+            b, _ = load_metric(candidate_dir / "results.json", metric)
             if a.keys() != b.keys():
                 raise ValueError(f"métrique {metric} absente pour une partie des paires")
             if a:
                 reports[metric] = paired_report(a, b, types)
-    print(json.dumps(reports, indent=2, ensure_ascii=False))
+    return reports
+
+
+def compare(args: argparse.Namespace) -> None:
+    print(json.dumps(compare_runs(args.baseline, args.candidate), indent=2, ensure_ascii=False))
+
+
+def groups_count(client: SpectraClient) -> float:
+    try:
+        metric = client.get("/actuator/metrics/spectra.qdrant.http?tag=operation%3Agroups")
+    except HTTPError as exc:
+        if exc.code == 404:
+            return 0
+        raise
+    for item in metric["measurements"]:
+        if item["statistic"] == "COUNT":
+            return item["value"]
+    raise ValueError("compteur COUNT absent des métriques Qdrant")
+
+
+def suite_preflight(args: argparse.Namespace, api: str, question: str, group_size: int) -> int:
+    require_public_url(api)
+    client = SpectraClient(api, min(args.timeout, 30))
+    if args.wait_ready:
+        client.wait_ready(args.wait_ready)
+    services = {item["name"]: item["available"] for item in client.get("/api/status")["services"]}
+    for service in ("qdrant", "reranker"):
+        if services.get(service) is not True:
+            raise ValueError(f"{api} : {service} indisponible")
+    fts = client.get("/api/status/fts?" + urlencode({"collection": args.collection}))
+    if fts.get("ready") is not True or fts["indexedChunks"] <= 0:
+        raise ValueError(f"{api} : index lexical de {args.collection} vide ou indisponible")
+    before = groups_count(client)
+    probe = client.post_json("/api/query/retrieve", {
+        "question": question + "\n\nAnswer in English.",
+        "collection": args.collection, "maxContextChunks": 10, "topCandidates": 20,
+        "overrides": {"hybrid": True, "multiQuery": False},
+    })
+    if not all(probe.get(flag) is True for flag in ("hybridSearchApplied", "rerankApplied")):
+        raise ValueError(f"{api} : la sonde n'a pas utilisé la recherche hybride et le reranker")
+    after = groups_count(client)
+    if after < before or (after > before) != (group_size == 2):
+        raise ValueError(f"{api} : activité Qdrant incohérente avec le regroupement attendu ({group_size})")
+    return fts["indexedChunks"]
+
+
+def retrieval_rank(metrics: dict, side: str) -> tuple:
+    return (metrics.get("all-gold@10", {}).get(f"mean_{side}", 0),
+            metrics["recall@10"][f"mean_{side}"],
+            -metrics["extra@10"][f"mean_{side}"],
+            -metrics["client-ms"][f"p95_{side}"])
+
+
+def suite(args: argparse.Namespace) -> None:
+    if args.api.rstrip("/") == args.grouped_api.rstrip("/"):
+        raise ValueError("les deux profils Qdrant doivent être accessibles sur des API distinctes")
+    if not args.retrieval_only and args.evaluator_dir is None:
+        raise ValueError("--evaluator-dir est requis pour juger les réponses")
+    questions = args.split_dir / "dev-120.jsonl"
+    rows = jsonl(questions)
+    split_metadata = read_json(args.split_dir / "split.json")
+    if len(rows) != 120 or list(rows) != split_metadata["dev_ids"]:
+        raise ValueError("dev-120.jsonl doit correspondre au découpage de développement")
+    labeled = [q for q in load_questions(questions) if q.expected_doc_ids and q.question_type not in NO_GOLD_TYPES]
+    if not labeled:
+        raise ValueError("dev-120 ne contient aucune question annotée")
+    for doc in {doc for q in labeled for doc in q.expected_doc_ids}:
+        if not DOC_ID_PATTERN.fullmatch(doc) or not (args.corpus_dir / f"{doc}.txt").is_file():
+            raise ValueError(f"document de référence absent ou invalide : {doc}")
+
+    with lock(args.out):
+        profile = read_json(args.profile)
+        indexed_chunks = suite_preflight(args, args.api, labeled[0].question, 0)
+        if indexed_chunks != suite_preflight(args, args.grouped_api, labeled[0].question, 2):
+            raise ValueError("les deux piles n'indexent pas le même nombre de passages")
+        for group in (0, 2):
+            freeze(args.out / f"profile-group{group}.json",
+                   {**profile, "qdrant_group_size": group, "multi_query_count": 2})
+
+        activation = {}
+
+        def capture(name, candidates, mode="retrieve", multi_query="off", group=0):
+            directory = args.out / f"{mode}-{name}"
+            run(argparse.Namespace(
+                mode=mode, out=directory, api=args.grouped_api if group else args.api,
+                questions=questions, profile=args.out / f"profile-group{group}.json",
+                corpus_dir=args.corpus_dir, collection=args.collection, timeout=args.timeout,
+                wait_ready=args.wait_ready, parallelism=args.parallelism, hybrid="on",
+                multi_query=multi_query, self_rag="off", max_context_chunks=10,
+                top_candidates=candidates, neighbor_window=0, rerank_min_score=None,
+            ), log_to_stderr=True)
+            _, _, records = run_data(directory)
+            signals = (row.get("spectra", {}) if mode == "answer" else row for row in records.values())
+            active = [row for row in signals if row.get("rerankApplied") and row.get("hybridSearchApplied")]
+            if not active:
+                raise ValueError(f"{directory} : aucun résultat hybride reranké")
+            rewritten = sum(row.get("multiQueryApplied") is True for row in active)
+            if multi_query == "on" and not rewritten:
+                raise ValueError(f"{directory} : aucune reformulation appliquée")
+            activation[directory.name] = {
+                "questions": len(records), "hybrid_reranked": len(active), "rewritten": rewritten,
+            }
+            return directory
+
+        variants = {"top20": (20, "off", 0), "top50": (50, "off", 0)}
+        captures = {name: capture(name, options[0]) for name, options in variants.items()}
+        top_comparison = compare_runs(captures["top20"], captures["top50"])
+        winner = "top50" if retrieval_rank(top_comparison, "b") > retrieval_rank(top_comparison, "a") else "top20"
+        best_candidates = variants[winner][0]
+        variants.update(multi_query=(best_candidates, "on", 0), group2=(best_candidates, "off", 2))
+        reports = {"top20_vs_top50": top_comparison}
+        ranks = {name: retrieval_rank(top_comparison, side) for name, side in (("top20", "a"), ("top50", "b"))}
+        for name in ("multi_query", "group2"):
+            candidates, multi_query, group = variants[name]
+            captures[name] = capture(name, candidates, multi_query=multi_query, group=group)
+            report = compare_runs(captures[winner], captures[name])
+            reports[f"{winner}_vs_{name}"] = report
+            ranks[name] = retrieval_rank(report, "b")
+        shortlist = sorted(variants, key=ranks.__getitem__, reverse=True)[:2]
+        report = {"indexed_chunks": indexed_chunks, "candidate_budget": best_candidates,
+                  "shortlist": shortlist, "variants": activation, "retrieval": reports}
+        write_json(args.out / "report.json", report)
+        if not args.retrieval_only:
+            answers = []
+            for name in shortlist:
+                candidates, multi_query, group = variants[name]
+                directory = capture(name, candidates, "answer", multi_query, group)
+                judge(argparse.Namespace(out=directory, evaluator_dir=args.evaluator_dir,
+                                         python=args.python, parallelism=args.judge_parallelism), log_to_stderr=True)
+                answers.append(directory)
+            report["answer"] = compare_runs(*answers)
+            write_json(args.out / "report.json", report)
+        print(json.dumps(report, indent=2, ensure_ascii=False))
 
 
 def summary(values: list[float], resamples: int = 10_000, seed: int = 0) -> dict:
@@ -500,7 +650,24 @@ def main() -> int:
     p.add_argument("--hybrid", choices=("on", "off"), default="on")
     p.add_argument("--multi-query", choices=("on", "off"), default="off")
     p.add_argument("--self-rag", choices=("on", "off"), default="off")
+    p.add_argument("--rerank", choices=("default", "on", "off"), default="default",
+                   help="contrôler le reranking en mode retrieve")
     p.set_defaults(action=run)
+
+    p = commands.add_parser("suite", help="comparer les variantes sur dev-120 et juger les deux meilleures")
+    for option in ("split-dir", "corpus-dir", "profile", "out"):
+        p.add_argument(f"--{option}", type=Path, required=True)
+    p.add_argument("--api", required=True, help="URL de la pile sans regroupement")
+    p.add_argument("--grouped-api", required=True, help="URL de la pile avec regroupement Qdrant à 2")
+    p.add_argument("--collection", required=True)
+    p.add_argument("--parallelism", type=int, default=1)
+    p.add_argument("--timeout", type=float, default=600)
+    p.add_argument("--wait-ready", type=float, default=600)
+    p.add_argument("--retrieval-only", action="store_true")
+    p.add_argument("--evaluator-dir", type=Path)
+    p.add_argument("--python", default=sys.executable)
+    p.add_argument("--judge-parallelism", type=int, default=4)
+    p.set_defaults(action=suite)
 
     p = commands.add_parser("oracle", help="générer avec les documents de référence Onyx")
     for option in ("questions", "corpus-dir", "profile", "out"):

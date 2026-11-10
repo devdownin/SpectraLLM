@@ -605,7 +605,8 @@ public class ChromaDbClient {
         try (var ignored = leaseId(collectionId)) {
             var raw = qdrant.queryHybrid(collectionId, question, embedding, limit, filter.qdrantWhere());
             var rows = ChromaQueryResult.from(visibleRows(raw, true));
-            if (rows.documents().isEmpty()
+            // A valid empty result is evidence for a single-branch control, not a reason to mix in Java.
+            if (raw.isEmpty() || (rows.documents().isEmpty() && !qdrant.nativeSingleBranch())
                     || rows.documents().size() != ChromaQueryResult.from(raw).documents().size()
                     || rows.metadatas().stream().anyMatch(meta ->
                             !filter.accepts(meta.get("sha256"), meta.get("sourceFile")))) {

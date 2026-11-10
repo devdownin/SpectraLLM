@@ -55,6 +55,9 @@ spectra:
   qdrant:
     base-url: ${SPECTRA_QDRANT_BASE_URL:http://qdrant:6333}
     api-key: ${SPECTRA_QDRANT_API_KEY:}
+    hybrid-strategy: ${SPECTRA_QDRANT_HYBRID_STRATEGY:rrf}
+    rrf-k: ${SPECTRA_QDRANT_RRF_K:60}
+    lexical-candidates: ${SPECTRA_QDRANT_LEXICAL_CANDIDATES:0}
   sources:
     local-roots: ${SPECTRA_SOURCES_LOCAL_ROOTS:/app/sources}
     allowed-hosts: ${SPECTRA_SOURCES_ALLOWED_HOSTS:}

@@ -65,6 +65,43 @@ et conserver les clés dans l'environnement.
 }
 ```
 
+### Lancer le comparatif automatisé sur dev-120
+
+Préparer deux instances de test avec la même révision SpectraLLM, le même modèle et
+la même collection indexée depuis le même corpus. L'instance de référence utilise
+`SPECTRA_QDRANT_GROUP_SIZE=0`, l'autre `SPECTRA_QDRANT_GROUP_SIZE=2`. Sur les deux,
+laisser `SPECTRA_QDRANT_NATIVE_HYBRID=false` pour isoler le regroupement. Sur la
+référence, définir `SPECTRA_MULTI_QUERY_ENABLED=true` et `SPECTRA_MULTI_QUERY_COUNT=2`.
+Utiliser deux hôtes Docker ou deux configurations isolées si les noms de conteneurs
+et les ports Compose entrent en conflit.
+
+```bash
+python3 scripts/enterprise_rag_experiment.py suite \
+  --api "$API" --grouped-api "$GROUPED_API" --collection "$COLLECTION" \
+  --split-dir "$WORK/split" --corpus-dir "$WORK/documents" \
+  --profile "$WORK/profile-reference.json" --out "$WORK/dev-suite" \
+  --evaluator-dir ../EnterpriseRAG-Bench --python ../EnterpriseRAG-Bench/.venv/bin/python
+```
+
+`suite` contrôle la disponibilité de Qdrant et du reranker, l'état de l'index BM25
+de la collection, l'égalité du nombre de passages et l'activité de l'endpoint
+de regroupement sur une requête de contrôle. Le nombre de passages ne prouve pas
+que les index contiennent les mêmes textes. Consigner la provenance des deux index
+dans le profil et les laisser stables pendant toute la campagne.
+
+Le lanceur compare 20 et 50 candidats avec un budget fixe de 10 passages. Il reprend
+le meilleur budget pour tester séparément les reformulations et le regroupement.
+Il choisit deux variantes par ordre décroissant de couverture complète des preuves,
+puis de rappel. En cas d'égalité, il privilégie moins de documents hors référence,
+puis une latence p95 plus basse. Il génère les réponses des deux variantes et les
+soumet au même juge. Le rapport apparié `report.json` contient les écarts par
+catégorie, le taux d'activation des chemins et la comparaison des scores jugés.
+
+Avec `--retrieval-only`, le lanceur s'arrête après le classement documentaire et
+publie le rapport sans appeler le juge. Relancer sans cette option dans le même
+répertoire pour réutiliser les captures, avec les mêmes paramètres et index.
+Ne pas utiliser les 380 questions de validation pour ce réglage.
+
 ### Comparer 20 et 50 candidats du reranker
 
 Garder dix passages de contexte et le même profil pour isoler le nombre de candidats.
