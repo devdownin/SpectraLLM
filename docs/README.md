@@ -26,6 +26,7 @@ New here? Start with **[Getting Started](getting-started.en.md)**.
 | **[EnterpriseRAG-Bench stage 4 (FR)](tech/enterprise-rag-stage4.fr.md)** | Generation audit with Claude Opus 5.5 as judge: correctness, completeness, faithfulness, citation precision and refusals per question category. |
 | **[Fine-tuning audit (FR)](tech/finetune-audit.fr.md)** | Base vs QLoRA/DPO on the held-out quality benchmark, out-of-corpus hallucination regressions, GGUF q8_0 vs f16 parity and go/no-go per version. |
 | **[Privacy & operations checklist (FR)](process/checklist-confidentialite.fr.md)** | Air-gapped/local egress, log hygiene, dependency advisories and Qdrant data persistence: automated checks, open findings and the host validation procedure. |
+| **[Optimisation: synthesis and decision (FR)](process/synthese-optimisation.fr.md)** | Verdict, decisions taken, open findings and the ordered plan to run the measurements; `scripts/optimization_summary.py` builds the figures report from the stage outputs. |
 | **[Technical Reference](tech/technical-doc.fr.md)** | Implementation-level detail across the platform. |
 | **[Diagrams](tech/)** | C4 container/component views ([level 2](tech/c4-level-2-containers.fr.md), [level 3](tech/c4-level-3-components.fr.md)) and the [technical-stack diagram](tech/technical-stack-architecture.en.md), all in Markdown/Mermaid. |
 

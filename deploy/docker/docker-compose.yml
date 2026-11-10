@@ -364,6 +364,9 @@ services:
       - SPECTRA_QDRANT_ACORN_MAX_SELECTIVITY=${SPECTRA_QDRANT_ACORN_MAX_SELECTIVITY:-0.4}
       - SPECTRA_PIPELINE_CHUNK_MAX_TOKENS=${SPECTRA_CHUNK_MAX_TOKENS:-256}
       - SPECTRA_PIPELINE_CHUNK_OVERLAP_TOKENS=${SPECTRA_CHUNK_OVERLAP_TOKENS:-64}
+      # Locale des frontières de phrases du découpage. Absente de cette liste, SPECTRA_CHUNK_LOCALE posée
+      # dans .env n'atteignait pas le conteneur : le découpage restait en « fr » quel que soit le corpus.
+      - SPECTRA_PIPELINE_CHUNK_LOCALE=${SPECTRA_CHUNK_LOCALE:-fr}
       # Aligné sur le défaut applicatif (application.yml) : trois valeurs différentes
       # cohabitaient (32 ici, 10 en Compose, 5 en .env), si bien que le comportement
       # dépendait du chemin de lancement — et que le défaut applicatif, seul à dépasser
