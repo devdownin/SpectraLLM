@@ -181,6 +181,14 @@ final class QdrantStore {
         this.hnswEfConstruct = efConstruct;
     }
 
+    /** {@code hnsw_config} d'une nouvelle collection ; {@code m} omis laisse Qdrant choisir. */
+    Map<String, Object> hnswConfig() {
+        var hnsw = new LinkedHashMap<String, Object>();
+        hnsw.put("ef_construct", hnswEfConstruct);
+        if (hnswM > 0) hnsw.put("m", hnswM);
+        return hnsw;
+    }
+
     @org.springframework.beans.factory.annotation.Autowired
     void configureHybrid(@Value("${spectra.qdrant.hybrid-strategy:rrf}") String strategy,
                          @Value("${spectra.qdrant.rrf-k:60}") int rrfK,
@@ -426,11 +434,8 @@ final class QdrantStore {
             vectors.put("distance", "Cosine");
             if (int8) vectors.put("on_disk", true);
         }
-        var hnsw = new LinkedHashMap<String, Object>();
-        hnsw.put("ef_construct", hnswEfConstruct);
-        if (hnswM > 0) hnsw.put("m", hnswM);
         var body = new LinkedHashMap<String, Object>(
-                Map.of("vectors", vectors, "metadata", stamp, "hnsw_config", hnsw));
+                Map.of("vectors", vectors, "metadata", stamp, "hnsw_config", hnswConfig()));
         if (size > 0 && int8) {
             body.put("quantization_config", Map.of("scalar", Map.of("type", "int8", "always_ram", true)));
         }
