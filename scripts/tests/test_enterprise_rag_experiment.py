@@ -1,6 +1,7 @@
 """Exerce le lanceur via sa CLI et les frontières HTTP de Spectra et du juge."""
 
 import json
+import math
 import os
 import subprocess
 import sys
@@ -161,6 +162,23 @@ class EnterpriseRagExperimentTest(unittest.TestCase):
             self.assertEqual(report["client-ms"][f"p95_{label}"], row["clientMs"])
             self.assertEqual(report["client-ms"]["by_type"]["basic"][f"p95_{label}"], row["clientMs"])
 
+    def test_report_freezes_absolute_retrieval_baseline(self):
+        (self.corpus / "dsid_abcdef03.txt").write_text("second piece of evidence")
+        rows = [json.loads(self.questions.read_text())]
+        rows.append({**rows[0], "question_id": "multi", "expected_doc_ids": [GOLD, "dsid_abcdef03"]})
+        self.questions.write_text("".join(json.dumps(row) + "\n" for row in rows))
+        self.variant("baseline", "--top-candidates", 20)
+        report = json.loads(self.cli("report", "--out", self.root / "baseline").stdout)
+        self.assertEqual(report, json.loads((self.root / "baseline" / "report.json").read_text()))
+        retrieval = report["retrieval"]
+        self.assertEqual(retrieval["recall@10"]["mean"], 0.75)
+        self.assertEqual(retrieval["mrr@10"]["mean"], 1.0)
+        self.assertAlmostEqual(retrieval["ndcg@10"]["mean"], (1.0 + 1 / (1 + 1 / math.log2(3))) / 2)
+        self.assertEqual(retrieval["all-gold@10"], {"n": 1, "mean": 0.0, "ci95": [0.0, 0.0]})
+        self.assertEqual(report["latency_ms"]["server"]["p95"], 2)
+        self.assertEqual(report["query"]["top-candidates"], 20)
+        self.assertNotIn("generation", report)
+
     def oracle(self, name, *options, code=0):
         return self.cli("oracle", "--out", self.root / name, "--questions", self.questions,
                         "--corpus-dir", self.corpus, "--profile", self.profile, "--api", self.api,
@@ -259,6 +277,13 @@ class EnterpriseRagExperimentTest(unittest.TestCase):
         self.assertTrue((variant / "results.json").is_file())
         comparison = self.cli("compare", variant, variant)
         self.assertEqual(json.loads(comparison.stdout)["score"]["mean_a"], 100.0)
+        baseline = json.loads(self.cli("report", "--out", variant).stdout)
+        self.assertEqual(baseline["generation"]["score"]["mean"], 100.0)
+        self.assertEqual(baseline["generation"]["judge"]["model"], "gpt-5.4")
+        # La réponse factice ne cite aucun passage : fidélité de citation nulle, sans juge.
+        self.assertEqual(baseline["faithfulness"]["citation_rate"]["mean"], 0.0)
+        self.assertEqual(baseline["faithfulness"]["cited_gold_precision"], {"n": 0})
+        self.assertEqual(baseline["applied"]["selfRagApplied"], 1.0)
         self.oracle("oracle")
         self.cli("judge", "--out", self.root / "oracle", "--evaluator-dir", evaluator,
                  "--python", os.path.relpath(sys.executable))

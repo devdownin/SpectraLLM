@@ -11,6 +11,9 @@ d'Onyx, avec un LLM juge.
 
 ## Comparaison reproductible sur 120 questions
 
+La configuration de référence figée, ses métriques (rappel@k, MRR, nDCG, fidélité, latence)
+et la commande `report` sont décrites dans [la baseline v1](enterprise-rag-baseline.fr.md).
+
 `scripts/enterprise_rag_experiment.py` utilise Python 3.11 ou supérieur et le banc existant.
 Il sépare **120 questions de réglage** et **380 questions de validation**, avec les dix catégories
 dans chaque lot. Les mêmes questions, dans le même ordre, sont utilisées pour chaque variante.

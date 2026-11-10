@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+import math
 import sys
 import tempfile
 import threading
@@ -257,6 +258,10 @@ class EnterpriseRagBenchTest(unittest.TestCase):
         self.assertAlmostEqual(report["overall"]["recall@3"], (1.0 + 0.5) / 2)
         self.assertAlmostEqual(report["overall"]["hit@1"], 0.5)
         self.assertAlmostEqual(report["overall"]["extra@3"], (1 + 2) / 2)
+        self.assertAlmostEqual(report["overall"]["mrr@1"], (0.0 + 1.0) / 2)
+        # nDCG@3 : A au rang 2 sur 1 référence ; A au rang 1 sur 2 références (idéal 1 + 1/log2 3).
+        self.assertAlmostEqual(report["overall"]["ndcg@3"],
+                               (1 / math.log2(3) + 1 / (1 + 1 / math.log2(3))) / 2)
         self.assertEqual(sorted(report["by_type"]), ["basic", "completeness"])
 
     def test_retrieval_report_ignores_questions_without_references_or_without_a_ranking(self):
