@@ -25,7 +25,14 @@ class FakeApi(BaseHTTPRequestHandler):
 
     def do_GET(self):
         self.server.calls.append((self.path, {}, self.headers.get("Authorization")))
-        self.respond({"default_generation_settings": {"n_ctx": 8192}})
+        if self.path == "/api/status":
+            self.respond({"services": [{"name": name, "available": True} for name in ("qdrant", "reranker")]})
+        elif self.path.startswith("/api/status/fts?"):
+            self.respond({"ready": True, "indexedChunks": 2})
+        elif self.path.startswith("/actuator/metrics/"):
+            self.respond({"measurements": [{"statistic": "COUNT", "value": self.server.groups}]})
+        else:
+            self.respond({"default_generation_settings": {"n_ctx": 8192}})
 
     def do_POST(self):
         request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
@@ -38,12 +45,15 @@ class FakeApi(BaseHTTPRequestHandler):
         elif self.path == "/tokenize":
             data = {"tokens": [0] * self.server.prompt_tokens}
         else:
+            if self.server.grouped and self.path == "/api/query/retrieve":
+                self.server.groups += 1
             doc_id = GOLD if request["overrides"]["hybrid"] else "dsid_abcdef02"
             sources = [{"sourceFile": doc_id + ".txt"}]
             if request["topCandidates"] == 50:
                 sources.append({"sourceFile": "dsid_abcdef03.txt"})
             data = {"sources": sources, "answer": "42",
-                    "durationMs": 2, "multiQueryApplied": request["overrides"].get("multiQuery"),
+                    "durationMs": 2, "rerankApplied": True, "hybridSearchApplied": request["overrides"]["hybrid"],
+                    "multiQueryApplied": request["overrides"].get("multiQuery"),
                     "selfRagApplied": request["overrides"].get("selfRag")}
         self.respond(data)
 
@@ -64,19 +74,24 @@ class EnterpriseRagExperimentTest(unittest.TestCase):
         self.profile.write_text(json.dumps({"backend_revision": "fixture", "index": "fixture",
                                             "chat": "fixture", "embedding": "fixture", "reranker": "fixture",
                                             "context_tokens_per_request": 8192}))
+        self.server = server = self.start_api()
+        self.api = f"http://127.0.0.1:{server.server_port}"
+        self.env = {**os.environ, "SPECTRA_API_KEY": "fixture-key", "LLM_API_KEY": "fixture-judge",
+                    "OPENAI_BASE_URL": self.api + "/v1", "LLM_PROVIDER": "openai",
+                    "LLM_MODEL_NAME": "gpt-5.4", "LLAMA_CPP_API_KEY": "fixture-llama"}
+
+    def start_api(self, grouped=False):
         server = ThreadingHTTPServer(("127.0.0.1", 0), FakeApi)
         server.calls = []
         server.prompt_tokens = 64
+        server.groups = 0
+        server.grouped = grouped
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         self.addCleanup(thread.join)
         self.addCleanup(server.server_close)
         self.addCleanup(server.shutdown)
-        self.server = server
-        self.api = f"http://127.0.0.1:{server.server_port}"
-        self.env = {**os.environ, "SPECTRA_API_KEY": "fixture-key", "LLM_API_KEY": "fixture-judge",
-                    "OPENAI_BASE_URL": self.api + "/v1", "LLM_PROVIDER": "openai",
-                    "LLM_MODEL_NAME": "gpt-5.4", "LLAMA_CPP_API_KEY": "fixture-llama"}
+        return server
 
     def cli(self, *args, code=0):
         result = subprocess.run([sys.executable, str(SCRIPT), *map(str, args)],
@@ -135,11 +150,53 @@ class EnterpriseRagExperimentTest(unittest.TestCase):
         for variant, label in (("single", "a"), ("multiple", "b")):
             row = json.loads((self.root / variant / "records.jsonl").read_text())
             self.assertEqual(report["client-ms"][f"p95_{label}"], row["clientMs"])
+            self.assertEqual(report["client-ms"]["by_type"]["basic"][f"p95_{label}"], row["clientMs"])
 
     def oracle(self, name, *options, code=0):
         return self.cli("oracle", "--out", self.root / name, "--questions", self.questions,
                         "--corpus-dir", self.corpus, "--profile", self.profile, "--api", self.api,
                         "--model", "local-chat", *options, code=code)
+
+    def test_suite_verifies_grouping_then_selects_and_judges_two_variants(self):
+        grouped = self.start_api()
+        questions = [{**json.loads(self.questions.read_text()), "question_id": str(i),
+                      "expected_doc_ids": [GOLD, "dsid_abcdef03"]} for i in range(120)]
+        (self.root / "dev-120.jsonl").write_text("".join(json.dumps(row) + "\n" for row in questions))
+        (self.root / "split.json").write_text(json.dumps({"dev_ids": [row["question_id"] for row in questions]}))
+        (self.corpus / "dsid_abcdef03.txt").write_text("second evidence")
+        evaluator = self.root / "evaluator"
+        module = evaluator / "src/scripts/answer_evaluation/metrics_based_eval.py"
+        module.parent.mkdir(parents=True)
+        module.write_text(
+            "import json, sys\n"
+            "from pathlib import Path\n"
+            "path = lambda opt: Path(sys.argv[sys.argv.index(opt) + 1])\n"
+            "rows = [json.loads(line) for line in path('--questions-file').read_text().splitlines()]\n"
+            "questions = [dict(question_id=r['question_id'], question_type=r['question_type'], "
+            "answer_correct=True, completeness_pct=100) for r in rows]\n"
+            "path('--results-file').write_text(json.dumps(dict(questions=questions)))\n"
+        )
+        subprocess.run(["git", "init", "-q", str(evaluator)], check=True)
+        subprocess.run(["git", "-C", str(evaluator), "add", "."], check=True)
+        subprocess.run(["git", "-C", str(evaluator), "-c", "user.name=Test",
+                        "-c", "user.email=test@example.com", "commit", "-qm", "Fixture"], check=True)
+        out = self.root / "suite"
+        args = ("suite", "--api", self.api, "--grouped-api", f"http://127.0.0.1:{grouped.server_port}",
+                "--split-dir", self.root, "--corpus-dir", self.corpus, "--profile", self.profile,
+                "--out", out, "--collection", "bench", "--wait-ready", 0,
+                "--evaluator-dir", evaluator)
+        self.assertIn("regroupement attendu", self.cli(*args, code=1).stderr)
+        self.assertFalse((out / "report.json").exists())
+        grouped.grouped = True
+        result = json.loads(self.cli(*args).stdout)
+        self.assertEqual(result, json.loads((out / "report.json").read_text()))
+        self.assertEqual(result["candidate_budget"], 50)
+        self.assertEqual(len(result["shortlist"]), 2)
+        self.assertNotIn("top20", result["shortlist"])
+        self.assertEqual(result["variants"]["retrieve-multi_query"]["rewritten"], 120)
+        self.assertEqual(result["retrieval"]["top20_vs_top50"]["all-gold@10"]["mean_diff"], 1)
+        self.assertEqual(result["answer"]["score"]["n"], 120)
+        self.assertEqual(len(list(out.glob("answer-*/results.json"))), 2)
 
     def test_oracle_sends_only_gold_and_resumes(self):
         (self.corpus / "dsid_abcdef02.txt").write_text("Unrelated document")
