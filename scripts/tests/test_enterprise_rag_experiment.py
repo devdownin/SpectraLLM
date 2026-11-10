@@ -161,6 +161,14 @@ class EnterpriseRagExperimentTest(unittest.TestCase):
         self.assertIn("filter-ratio", self.variant("filtered-answer", "--filter-ratio", 0.5,
                                                    mode="answer", code=1).stderr)
 
+    def test_question_suffix_can_be_removed_from_the_retrieval_query(self):
+        self.variant("with-suffix")
+        self.variant("bare", "--question-suffix", "")
+        questions = [request["question"] for _, request, _ in self.server.calls]
+        self.assertEqual(questions, ["How many?\n\nAnswer in English.", "How many?"])
+        manifest = json.loads((self.root / "bare" / "run.json").read_text())
+        self.assertEqual(manifest["query"]["question-suffix"], "")
+
     def test_multi_query_comparison_reports_activation_and_latency(self):
         self.variant("single", "--multi-query", "off")
         self.variant("multiple", "--multi-query", "on")

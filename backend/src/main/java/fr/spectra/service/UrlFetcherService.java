@@ -112,7 +112,7 @@ public class UrlFetcherService {
                 }
             }
         } catch (Exception e) {
-            log.debug("HEAD request failed for {}: {}", url, e.getMessage());
+            log.debug("HEAD request failed for {}: {}", fr.spectra.util.LogSafe.url(url), e.getMessage());
         }
         return "text/html";
     }
@@ -126,7 +126,7 @@ public class UrlFetcherService {
      * (le rebinding sur le fetch direct est, lui, bloqué par {@link #fetchWebClient}).</p>
      */
     private FetchedContent fetchHtmlViaBrowserless(String url) {
-        log.info("Fetching HTML via browserless: {}", url);
+        log.info("Fetching HTML via browserless: {}", fr.spectra.util.LogSafe.url(url));
         try {
             byte[] bytes = webClient.get()
                     .uri(UriComponentsBuilder.fromUriString(browserlessUrl + "/content")
@@ -147,7 +147,7 @@ public class UrlFetcherService {
      * Télécharge le contenu directement (PDF, TXT, etc.) ou HTML sans browserless.
      */
     private FetchedContent fetchDirectly(String url, String contentType) {
-        log.info("Fetching directly ({}): {}", contentType, url);
+        log.info("Fetching directly ({}): {}", contentType, fr.spectra.util.LogSafe.url(url));
         byte[] bytes = fetchWebClient.get()
                 .uri(URI.create(url))
                 .retrieve()

@@ -267,7 +267,7 @@ class RagServiceRetrievalTest {
                 .thenReturn(vectorResult("chunk hors-sujet"), vectorResult("chunk pertinent"));
         // Appels LLM 2-args, dans l'ordre : grading initial (tout IRRELEVANT) →
         // reformulation → grading des chunks complémentaires (RELEVANT).
-        when(llmChatClient.chat(anyString(), anyString()))
+        when(llmChatClient.decide(anyString(), anyString()))
                 .thenReturn("1: IRRELEVANT", "Question reformulée ?", "1: RELEVANT");
         // Génération finale (4-args, avec temperature/topP).
         when(llmChatClient.chat(anyString(), anyString(), anyFloat(), anyFloat()))
@@ -292,7 +292,7 @@ class RagServiceRetrievalTest {
 
         when(chromaDbClient.query(eq("col-1"), anyList(), anyInt()))
                 .thenReturn(vectorResult("chunk pertinent"));
-        when(llmChatClient.chat(anyString(), anyString())).thenReturn("1: RELEVANT");
+        when(llmChatClient.decide(anyString(), anyString())).thenReturn("1: RELEVANT");
         when(llmChatClient.chat(anyString(), anyString(), anyFloat(), anyFloat()))
                 .thenReturn("Réponse finale");
 

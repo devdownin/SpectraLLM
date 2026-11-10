@@ -45,7 +45,7 @@ class SelfRagServiceTest {
     @Test
     void reflect_generationUsesRequestTemperatureAndTopP() {
         when(llmClient.chat(anyString(), anyString(), anyFloat(), anyFloat())).thenReturn("Réponse");
-        when(llmClient.chat(anyString(), anyString())).thenReturn(GOOD_EVAL);
+        when(llmClient.decide(anyString(), anyString())).thenReturn(GOOD_EVAL);
 
         SelfRagService.SelfRagResult result =
                 service.reflect("Question ?", List.of("chunk"), "sys-prompt", "user-msg", 0.3f, 0.5f);
@@ -59,7 +59,7 @@ class SelfRagServiceTest {
     void reflect_refinementAlsoUsesRequestTemperatureAndTopP() {
         when(llmClient.chat(anyString(), anyString(), anyFloat(), anyFloat()))
                 .thenReturn("Réponse initiale", "Réponse raffinée");
-        when(llmClient.chat(anyString(), anyString())).thenReturn(BAD_EVAL, GOOD_EVAL);
+        when(llmClient.decide(anyString(), anyString())).thenReturn(BAD_EVAL, GOOD_EVAL);
 
         SelfRagService.SelfRagResult result =
                 service.reflect("Question ?", List.of("chunk"), "sys-prompt", "user-msg", 0.3f, 0.5f);

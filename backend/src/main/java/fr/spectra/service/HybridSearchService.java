@@ -149,7 +149,10 @@ public class HybridSearchService {
                 props.hybridSearch() != null ? props.hybridSearch()
                         : new SpectraProperties.HybridSearchProperties(true, 20, 1.0f);
 
-        int topBm25 = hybridProps.effectiveTopBm25();
+        // La profondeur lexicale suit le nombre de candidats demandés : avec top-bm25 fixe (20), une
+        // requête à 50 candidats n'élargissait que la branche vectorielle, et la fusion RRF comparait
+        // 50 rangs denses à 20 rangs lexicaux. Sans effet aux réglages par défaut (20 candidats).
+        int topBm25 = Math.max(hybridProps.effectiveTopBm25(), topCandidates);
         float bm25Weight = hybridProps.effectiveBm25Weight();
         float vecWeight = 1.0f;  // vector weight always 1
 

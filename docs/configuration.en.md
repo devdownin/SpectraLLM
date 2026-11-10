@@ -65,6 +65,9 @@ Two consequences worth stating outright:
 | `LLAMA_CPP_CUDA_IMAGE_TAG` | `server-cuda-b12110` | Pinned NVIDIA CUDA image tag for llm-chat/llm-embed when using `docker-compose.gpu.yml` |
 | `QDRANT_IMAGE_TAG` | `v1.16.3` | Pinned Qdrant image tag. Storage lives in `./data/qdrant`; Compose checks `/readyz` |
 | `SPECTRA_STARTUP_AUTO_INSTALL_MODELS` | `true` | On boot, download the default chat GGUF via the Model Hub when it is absent. Only the **default** model can be installed this way — the HuggingFace repo is hardcoded, and no repo can be derived from an arbitrary filename. If `LLM_CHAT_MODEL_FILE` names a different model and that file is missing, the API logs a warning and installs nothing rather than fetching several GB of something you did not ask for. Set to `false` in CI and on metered connections |
+| `SPECTRA_OFFLINE` | `false` | Offline / air-gapped switch. When `true`, model installation (Model Hub) is refused with a 403 and nothing is downloaded at boot, instead of attempting Hugging Face and waiting for a timeout. It does not isolate the network: use `docker-compose.airgap.yml` for that (see [the privacy checklist](process/checklist-confidentialite.fr.md)). Forwarded to `spectra-api` by Compose |
+| `HF_ENDPOINT` | *(unset)* | Hugging Face mirror used by the Model Hub repository lookup and `llmfit download`. Previously the lookup ignored it and always called `huggingface.co`. Forwarded to `spectra-api` by Compose |
+| `SPECTRA_LOG_CONTENT` | `false` | Debug only. By default logs carry questions, reformulations and URLs as length + keyed fingerprint (URLs without credentials, query string or fragment). `true` writes them in clear to `data/logs` and the container console |
 
 ### Ingestion pipeline
 
@@ -127,6 +130,7 @@ Disabled by default — no Kafka bean is created unless `SPECTRA_KAFKA_ENABLED=t
 | `SPECTRA_AGENTIC_ALWAYS` | `false` | Every query goes through the agentic loop, with no prior adaptive classification. Without it, the loop runs only when adaptive routing classifies the question as `AGENTIC`. Each query then costs several model calls. |
 | `SPECTRA_AGENTIC_NATIVE_TOOLS` | `false` | The agentic loop offers `search`, `lookup` and `open_document` through the server's native function calling instead of the text `ACTION:` format. Requires llama-server started with `--jinja` (`LLM_CHAT_EXTRA_ARGS=--jinja`). |
 | `SPECTRA_RAG_ANSWER_STYLE` | `concise` | `concise`, or `detailed`: direct answer first, then every relevant detail of the context (values, conditions, steps, exceptions). Ignored with `SPECTRA_RAG_CONTEXT_PLACEMENT=system`. |
+| `SPECTRA_RAG_RESPONSE_LANGUAGE` | *(empty)* | Answer language of the standard RAG pipeline: `auto` (language of the question), `fr`, `en`. Empty adds no instruction (historical prompt). Appended to the system prompt at serving time only, so the fine-tuning dataset format is unchanged. Avoids writing "Answer in English." in the question, which also went to the embedding, the BM25 query and the reranker |
 | `SPECTRA_RAG_CITATION_CHECK` | `true` | After generation, score each sentence against the passages it cites `[n]` with the cross-encoder; the report is returned in `citations`. Requires the reranker. Measures relevance, not entailment. |
 | `SPECTRA_RAG_CITATION_MIN_SCORE` | `0.2` | Minimum cross-encoder score (sigmoid) for a cited passage to support its sentence. |
 | `SPECTRA_RAG_CITATION_STRICT` | `false` | Drop unsupported sentences from the answer (not in streaming, where tokens are already sent). |

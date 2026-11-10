@@ -82,17 +82,17 @@ class RagResilienceRegressionTest {
     }
 
     @Test void unchangedRewriteRetainsHistoryInJsonAndSse() {
-        when(llm.chat(anyString(), anyString())).thenReturn("Quelle valeur ?");
+        when(llm.decide(anyString(), anyString())).thenReturn("Quelle valeur ?");
         assertHistorySurvives();
     }
 
     @Test void blankRewriteRetainsHistoryInJsonAndSse() {
-        when(llm.chat(anyString(), anyString())).thenReturn("  ");
+        when(llm.decide(anyString(), anyString())).thenReturn("  ");
         assertHistorySurvives();
     }
 
     @Test void failedRewriteRetainsHistoryInJsonAndSse() {
-        when(llm.chat(anyString(), anyString())).thenThrow(new IllegalStateException("LLM indisponible"));
+        when(llm.decide(anyString(), anyString())).thenThrow(new IllegalStateException("LLM indisponible"));
         assertHistorySurvives();
     }
 
@@ -105,7 +105,7 @@ class RagResilienceRegressionTest {
     }
 
     @Test void unchangedRewriteStillBudgetsTheHistoryBeforeGeneration() {
-        when(llm.chat(anyString(), anyString())).thenReturn("Quelle valeur ?");
+        when(llm.decide(anyString(), anyString())).thenReturn("Quelle valeur ?");
         var request = request(List.of(new ConversationMessage("user", "historique ".repeat(2000))));
         var service = service(true, false);
         assertThatThrownBy(() -> service.query(request)).isInstanceOf(IllegalArgumentException.class);
@@ -119,7 +119,7 @@ class RagResilienceRegressionTest {
         service.query(request, new RagOverrides(null, false, null, null, null, null, null, null));
         assertThat(users).singleElement().satisfies(user ->
                 assertThat(user).endsWith("=== FIN DU CONTEXTE ===\n\nQuelle valeur ?").doesNotContain("ALPHA"));
-        verify(llm, never()).chat(anyString(), anyString());
+        verify(llm, never()).decide(anyString(), anyString());
     }
 
     @Test void absentMetadataAndDistancesUseUnknownProvenanceInJsonAndSse() {
@@ -193,5 +193,26 @@ class RagResilienceRegressionTest {
                 .isInstanceOf(ChromaDbClient.EmbeddingModelMismatchException.class);
         verifyNoInteractions(fts);
         assertThat(metrics.find("spectra.rag.retrieval.degraded").counter()).isNull();
+    }
+
+    @Test void correctiveGradingJudgesAgainstTheStandaloneQuestionInJsonAndSse() {
+        // Suite de conversation : « Quelle valeur ? » ne dit rien sans l'historique. Le tri des
+        // passages doit recevoir la question autonome, celle qui a servi au retrieval.
+        when(llm.decide(anyString(), anyString())).thenReturn("Quelle valeur dans le projet ALPHA ?");
+        CorrectiveRagService corrective = org.mockito.Mockito.mock(CorrectiveRagService.class);
+        when(corrective.gradeChunks(anyString(), org.mockito.ArgumentMatchers.anyList())).thenReturn(List.of(0));
+        when(corrective.minRelevantChunks()).thenReturn(1);
+        var service = new RagService(chroma, embed, llm, Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.of(new ConversationalRagService(llm)), Optional.of(corrective),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+                profiles, props, mapper, metrics);
+        var request = request(List.of(new ConversationMessage("user", "Projet ALPHA")));
+
+        service.query(request);
+        sources(stream(service, request));
+
+        verify(corrective, org.mockito.Mockito.times(2)).gradeChunks(
+                org.mockito.ArgumentMatchers.eq("Quelle valeur dans le projet ALPHA ?"),
+                org.mockito.ArgumentMatchers.anyList());
     }
 }

@@ -1,0 +1,28 @@
+# Hôtes Internet cités dans le code, avec leur usage et ce qui les neutralise hors ligne.
+# Contrôlé par `python3 scripts/privacy_audit.py egress` : un hôte absent de cette liste fait échouer le
+# contrôle (et la CI). Format : portée | hôte | usage et parade.
+# Portées : runtime = code exécuté par la pile ; build = construction d'image et installation ;
+# bench = outils de mesure lancés à la main.
+#
+# Hors de ce contrôle (le code n'écrit pas ces hôtes) : téléchargements implicites des bibliothèques
+# Python (huggingface_hub dans reranker, trainer, docparser/docling) — coupés par HF_HUB_OFFLINE=1 dans
+# docker-compose.airgap.yml, et le repli publish.djl.ai de DJL, inutile car le jar embarque libtokenizers
+# pour linux x86_64 et aarch64.
+
+runtime | huggingface.co | Model Hub : recherche de dépôt GGUF (LlmFitService) ; `llmfit download` lit HF_ENDPOINT. SPECTRA_OFFLINE=true refuse l'installation ; HF_ENDPOINT désigne un miroir interne.
+
+build | adoptium.net | scripts/setup-java.sh : JDK de l'hôte, hors conteneur.
+build | sdkman.io | scripts/setup-java.sh : installation de SDKMAN, hors conteneur.
+build | codeload.github.com | scripts/llama_cpp_convert.py : convertisseur GGUF à révision épinglée, pour export_gguf.py uniquement.
+build | raw.githubusercontent.com | scripts/llama_cpp_convert.py : même usage ; le paquet llama_cpp installé évite le téléchargement.
+build | github.com | scripts/publish-images.sh : publication des images, jamais exécuté par la pile.
+build | huggingface.co | scripts/setup.bat : téléchargement des GGUF d'amorçage ; setup.sh lit HF_ENDPOINT. À remplacer par le dépôt manuel des fichiers dans data/models.
+build | llmfit.axjns.dev | deploy/docker/Dockerfile : installateur de llmfit, à la construction de l'image seulement (empreinte vérifiable via LLMFIT_SHA256).
+build | www.docker.com | Liens d'aide affichés par setup.sh et setup.bat, aucun appel.
+
+bench | api.openai.com | enterprise_rag_eval.py et enterprise_rag_experiment.py : juge par défaut du banc (OPENAI_BASE_URL le remplace).
+bench | en.wikipedia.org | frames_bench.py : corpus du banc FRAMES.
+bench | w.wiki | frames_bench.py : liens courts du jeu FRAMES.
+bench | github.com | Bancs EnterpriseRAG-Bench et FRAMES : dépôts clonés à une révision épinglée.
+bench | huggingface.co | Bancs : corpus et questions.
+bench | raw.githubusercontent.com | enterprise_rag_bench.py : fichier de questions à révision épinglée.

@@ -64,7 +64,7 @@ public class ConversationalRagService {
         String prompt = String.format(CONTEXTUALIZE_PROMPT, historyText, question);
         String standalone;
         try {
-            standalone = llmClient.chat(CONTEXTUALIZE_SYSTEM, prompt).trim();
+            standalone = llmClient.decide(CONTEXTUALIZE_SYSTEM, prompt).trim();
         } catch (Exception e) {
             log.warn("Conversational RAG : reformulation échouée, fallback sur la question originale — {}",
                     e.getMessage());
@@ -77,7 +77,8 @@ public class ConversationalRagService {
             return question;
         }
         if (!standalone.equals(question)) {
-            log.info("Conversational RAG : «{}» → «{}»", question, standalone);
+            log.info("Conversational RAG : {} → {}", fr.spectra.util.LogSafe.text(question),
+                    fr.spectra.util.LogSafe.text(standalone));
         }
         return standalone;
     }

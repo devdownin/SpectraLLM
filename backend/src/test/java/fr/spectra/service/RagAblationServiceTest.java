@@ -40,7 +40,7 @@ class RagAblationServiceTest {
         when(chat.checkHealth()).thenReturn(new fr.spectra.dto.ServiceStatus(
                 "llama-cpp", "http://test", true, "ok", 1, java.util.Map.of()));
         // Le juge passe par chatJson (décodage contraint), la génération évaluée par chat.
-        when(chat.chatJson(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString()))
+        when(chat.decideJson(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString()))
                 .thenAnswer(inv -> {
                     String system = inv.<String>getArgument(0);
                     if (system.contains("N'EST PAS disponible")) return "{\"refused\": true, \"justification\": \"ok\"}";

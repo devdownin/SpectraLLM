@@ -291,4 +291,16 @@ class HybridSearchServiceTest {
         org.mockito.Mockito.verify(chromaDb, org.mockito.Mockito.never()).query(anyString(), any(), anyInt());
         org.mockito.Mockito.verify(ftsService, org.mockito.Mockito.never()).search(anyString(), anyString(), anyInt());
     }
+
+    @Test
+    void lexicalDepthFollowsTheRequestedCandidates() {
+        // top-bm25 = 20 : à 50 candidats, la branche lexicale doit suivre ; à 5, garder 20.
+        when(ftsService.search(anyString(), eq(COLL_NAME), anyInt())).thenReturn(List.of());
+
+        hybridSearch.searchLexical("question", COLL_NAME, 50);
+        hybridSearch.searchLexical("question", COLL_NAME, 5);
+
+        org.mockito.Mockito.verify(ftsService).search(anyString(), eq(COLL_NAME), eq(50));
+        org.mockito.Mockito.verify(ftsService).search(anyString(), eq(COLL_NAME), eq(20));
+    }
 }

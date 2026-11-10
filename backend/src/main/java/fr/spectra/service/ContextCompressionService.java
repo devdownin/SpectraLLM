@@ -70,7 +70,7 @@ public class ContextCompressionService {
         for (int i = 0; i < chunks.size(); i++) {
             String prompt = String.format(COMPRESS_PROMPT, question, chunks.get(i));
             try {
-                String result = llmClient.chat(COMPRESS_SYSTEM, prompt).trim();
+                String result = llmClient.decide(COMPRESS_SYSTEM, prompt).trim();
                 if (!result.isBlank() && !result.equalsIgnoreCase("IRRELEVANT")) {
                     keptIndices.add(i);
                     if (isVerifiedExtraction(chunks.get(i), result)) {

@@ -109,7 +109,7 @@ class RagIntegrityRegressionTest {
 
     @Test void allIrrelevantRemainsEmptyInJsonAndSse() throws Exception {
         retrieval(List.of("La valeur attestée est 10."));
-        when(llm.chat(anyString(), anyString())).thenReturn("IRRELEVANT");
+        when(llm.decide(anyString(), anyString())).thenReturn("IRRELEVANT");
         var service = service(true, false);
         var response = service.query(request(1));
         var events = stream(service, request(1));
@@ -122,7 +122,7 @@ class RagIntegrityRegressionTest {
 
     @Test void fabricatedCompressionCannotEnterJsonOrSseGeneration() throws Exception {
         retrieval(List.of("La valeur attestée est 10."));
-        when(llm.chat(anyString(), anyString())).thenReturn("La valeur est 999.");
+        when(llm.decide(anyString(), anyString())).thenReturn("La valeur est 999.");
         var service = service(true, false);
         var response = service.query(request(1));
         var events = stream(service, request(1));
@@ -184,7 +184,7 @@ class RagIntegrityRegressionTest {
 
     @Test void conversationalHistoryIsCountedInTheJsonAndSseBudgets() throws Exception {
         retrieval(IntStream.range(0, 20).mapToObj(i -> "Passage " + i + ": " + "preuve attestée ".repeat(80)).toList());
-        when(llm.chat(anyString(), anyString())).thenReturn("Quelle valeur dans le projet ALPHA ?");
+        when(llm.decide(anyString(), anyString())).thenReturn("Quelle valeur dans le projet ALPHA ?");
         var request = new QueryRequest("Quelle valeur ?", 20, 20, "corpus", .7f, .9f,
                 List.of(new fr.spectra.dto.ConversationMessage("user", "Projet ALPHA : " + "historique ".repeat(100))), true);
         var service = service(false, false, true, false);
@@ -197,7 +197,7 @@ class RagIntegrityRegressionTest {
 
     @Test void selfRagRefinementAlsoFitsTheJsonAndSseBudgets() {
         retrieval(IntStream.range(0, 20).mapToObj(i -> "Passage " + i + ": " + "preuve attestée ".repeat(60)).toList());
-        when(llm.chat(anyString(), anyString())).thenReturn("ISREL: RELEVANT\nISSUP: NO_SUPPORT\nISUSE: NOT_USEFUL");
+        when(llm.decide(anyString(), anyString())).thenReturn("ISREL: RELEVANT\nISSUP: NO_SUPPORT\nISUSE: NOT_USEFUL");
         var service = service(false, false, false, true);
         var response = service.query(request(20));
         var events = stream(service, request(20));

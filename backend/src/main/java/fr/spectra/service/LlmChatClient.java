@@ -73,6 +73,29 @@ public interface LlmChatClient {
         return chatJson(systemPrompt, userMessage, 0.7f, 0.9f);
     }
 
+    /** Température des appels de DÉCISION : décodage glouton. */
+    float DECISION_TEMPERATURE = 0.0f;
+    float DECISION_TOP_P = 1.0f;
+
+    /**
+     * Appel de <b>décision</b> — routage, tri de passages, reformulation de requête, notation —
+     * par opposition à la génération d'une réponse. Décodage glouton : la même entrée donne la
+     * même décision.
+     *
+     * <p>Ces appels passaient par {@link #chat(String, String)}, donc à la température de
+     * conversation (0,7). Un même passage pouvait être jugé pertinent puis hors sujet d'une requête
+     * à l'autre, la même question partir vers deux pipelines différents, et deux mesures du même
+     * réglage diverger sans que rien n'ait changé.</p>
+     */
+    default String decide(String systemPrompt, String userMessage) {
+        return chat(systemPrompt, userMessage, DECISION_TEMPERATURE, DECISION_TOP_P);
+    }
+
+    /** Comme {@link #decide(String, String)}, avec sortie contrainte au JSON (juges). */
+    default String decideJson(String systemPrompt, String userMessage) {
+        return chatJson(systemPrompt, userMessage, DECISION_TEMPERATURE, DECISION_TOP_P);
+    }
+
     /**
      * Génère une réponse en streaming, token par token.
      * L'implémentation par défaut délègue à {@link #chat} et émet la réponse complète en un seul élément.

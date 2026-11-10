@@ -40,7 +40,7 @@ class ConversationalRagServiceTest {
 
     @Test
     void contextualize_nominal_returnsReformulatedQuestion() {
-        when(llmClient.chat(anyString(), anyString()))
+        when(llmClient.decide(anyString(), anyString()))
                 .thenReturn("Quelles sont les normes de sécurité pour les tunnels autoroutiers ?");
 
         String out = service.contextualizeQuestion(QUESTION, history());
@@ -50,7 +50,7 @@ class ConversationalRagServiceTest {
 
     @Test
     void contextualize_llmFailure_fallsBackToOriginalQuestion() {
-        when(llmClient.chat(anyString(), anyString()))
+        when(llmClient.decide(anyString(), anyString()))
                 .thenThrow(new RuntimeException("LLM indisponible"));
 
         String out = service.contextualizeQuestion(QUESTION, history());
@@ -60,7 +60,7 @@ class ConversationalRagServiceTest {
 
     @Test
     void contextualize_blankReformulation_fallsBackToOriginalQuestion() {
-        when(llmClient.chat(anyString(), anyString())).thenReturn("   ");
+        when(llmClient.decide(anyString(), anyString())).thenReturn("   ");
 
         String out = service.contextualizeQuestion(QUESTION, history());
 

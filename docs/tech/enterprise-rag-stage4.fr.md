@@ -70,7 +70,7 @@ mesures de fidélité se comparent catégorie par catégorie dans leurs rapports
 ## Coût
 
 Par réponse : 1 à 2 appels par affirmation (fidélité, et précision si elle cite) et 1 appel de refus, soit
-une vingtaine d'appels au plus, en plus des appels de l'évaluateur Onyx (un par fait de référence et un
+jusqu'à 25 appels (12 affirmations × 2, plus le refus), en plus des appels de l'évaluateur Onyx (un par fait de référence et un
 d'exactitude). La preuve, mise en cache, est relue au tarif réduit d'une affirmation à l'autre. Mesurer le coût
 réel sur une dizaine de questions (`--parallelism 1`, puis lire l'usage dans la console) avant de lancer les 120.
 

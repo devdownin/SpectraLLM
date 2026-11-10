@@ -38,11 +38,25 @@ public class MultiQueryService {
             Génère %d reformulations différentes de la question suivante pour améliorer la recherche documentaire.
             Chaque reformulation doit aborder la question sous un angle différent \
             (synonymes, niveau de généralité, aspect précis, terme technique alternatif).
+            Écris chaque reformulation DANS LA LANGUE DE LA QUESTION : les documents sont cherchés \
+            par mots-clés autant que par le sens, une reformulation traduite ne retrouve rien.
             Réponds avec UNE REFORMULATION PAR LIGNE, sans numérotation ni explication.
 
             Question originale : %s
 
             Reformulations :""";
+
+    /** Puce ou numéro en tête de ligne (« 1. », « 2) », « - », « * », « • ») malgré la consigne. */
+    private static final java.util.regex.Pattern LIST_MARKER =
+            java.util.regex.Pattern.compile("^\\s*(?:[-*•–]|\\d{1,2}[.):])\\s+");
+
+    /**
+     * Retire la numérotation qu'un petit modèle ajoute malgré la consigne. Laissée en place, elle
+     * partait dans l'embedding et dans la requête BM25 de chaque variante.
+     */
+    static String stripListMarker(String line) {
+        return LIST_MARKER.matcher(line).replaceFirst("").trim();
+    }
 
     private final LlmChatClient llmClient;
     private final SpectraProperties props;
@@ -66,10 +80,11 @@ public class MultiQueryService {
 
         List<String> variants;
         try {
-            String raw = llmClient.chat(MULTI_QUERY_SYSTEM, prompt).trim();
+            String raw = llmClient.decide(MULTI_QUERY_SYSTEM, prompt).trim();
             variants = Arrays.stream(raw.split("\n"))
-                    .map(String::trim)
+                    .map(MultiQueryService::stripListMarker)
                     .filter(s -> !s.isBlank() && !s.equals(question))
+                    .distinct()
                     .limit(n)
                     .collect(Collectors.toList());
         } catch (Exception e) {
@@ -80,7 +95,7 @@ public class MultiQueryService {
         List<String> queries = new ArrayList<>(variants.size() + 1);
         queries.add(question);
         queries.addAll(variants);
-        log.info("Multi-query : {} requêtes générées pour «{}»", queries.size(), question);
+        log.info("Multi-query : {} requêtes générées pour {}", queries.size(), fr.spectra.util.LogSafe.text(question));
         return queries;
     }
 }

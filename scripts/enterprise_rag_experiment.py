@@ -25,6 +25,7 @@ from enterprise_rag_bench import (DOC_ID_PATTERN, NO_GOLD_TYPES, SpectraClient, 
 from enterprise_rag_eval import judge_provider, load_metric, paired_report
 
 HERE = Path(__file__).resolve().parent
+DEFAULT_QUESTION_SUFFIX = "\n\nAnswer in English."
 SPLIT_SEED = "spectrallm-onyx-quality-v1"
 
 
@@ -228,8 +229,10 @@ def run(args: argparse.Namespace, *, log_to_stderr: bool = False) -> None:
                 query["rerank"] = args.rerank
             if getattr(args, "filter_ratio", 0) > 0:
                 query["filter-ratio"] = args.filter_ratio
-        # Même requête de recherche dans les deux modes, suffixe compris.
-        query["question-suffix"] = "\n\nAnswer in English."
+        # Même requête de recherche dans les deux modes, suffixe compris. Le suffixe part aussi dans
+        # l'embedding, la requête BM25 et le reranker : avec SPECTRA_RAG_RESPONSE_LANGUAGE=en côté
+        # serveur, passer --question-suffix "" pour mesurer le retrieval sur la question seule.
+        query["question-suffix"] = getattr(args, "question_suffix", DEFAULT_QUESTION_SUFFIX)
     with lock(args.out):
         manifest = {"mode": args.mode, "api": args.api, "collection": args.collection,
                     "questions_sha256": sha256(questions), "corpus": corpus_identity(args.corpus_dir),
@@ -672,6 +675,9 @@ def main() -> int:
     p.add_argument("--self-rag", choices=("on", "off"), default="off")
     p.add_argument("--rerank", choices=("default", "on", "off"), default="default",
                    help="contrôler le reranking en mode retrieve")
+    p.add_argument("--question-suffix", default=DEFAULT_QUESTION_SUFFIX,
+                   help='texte ajouté à chaque question (défaut : consigne de langue) ; "" avec '
+                        "SPECTRA_RAG_RESPONSE_LANGUAGE=en")
     p.add_argument("--filter-ratio", type=float, default=0.0,
                    help="mode retrieve : filtre de payload laissant cette part du corpus candidate")
     p.set_defaults(action=run)

@@ -238,6 +238,28 @@ public class LlamaCppChatClient implements LlmChatClient {
      *   {@code Map.of} n'accepte ni valeur nulle ni clé optionnelle.
      */
     @SuppressWarnings("unchecked")
+    /** Réponses coupées par la fenêtre de contexte ({@code finish_reason: length}), depuis le démarrage. */
+    private final java.util.concurrent.atomic.AtomicLong truncatedCompletions = new java.util.concurrent.atomic.AtomicLong();
+
+    /** Nombre de réponses rendues tronquées : exposé pour le diagnostic et les tests. */
+    public long truncatedCompletions() {
+        return truncatedCompletions.get();
+    }
+
+    /**
+     * Une génération arrêtée par la limite de tokens est rendue telle quelle : rien ne la distinguait
+     * d'une réponse complète. Le budget de prompt repose sur une ESTIMATION des tokens (caractères
+     * / 3,5) ; un texte dense (identifiants, tableaux, code) la dépasse et ne laisse plus la place
+     * de répondre. Le signal est au moins journalisé et compté.
+     */
+    private void warnIfTruncated(Object finishReason, int answerChars) {
+        if ("length".equals(finishReason)) {
+            long total = truncatedCompletions.incrementAndGet();
+            log.warn("Réponse tronquée par la limite de tokens (finish_reason=length, {} caractères rendus, "
+                    + "{} depuis le démarrage) : augmentez LLM_CONTEXT ou réduisez le contexte servi", answerChars, total);
+        }
+    }
+
     private String completion(String systemPrompt, String userMessage,
                               float temperature, float topP, boolean jsonOnly) {
         Map<String, Object> request = new java.util.LinkedHashMap<>();
@@ -280,6 +302,7 @@ public class LlamaCppChatClient implements LlmChatClient {
         if (content == null) {
             throw new IllegalStateException("Champ 'content' absent du message llama.cpp: " + message.keySet());
         }
+        warnIfTruncated(choice.get("finish_reason"), content.length());
         return content;
     }
 

@@ -103,8 +103,8 @@ public class SelfRagService {
         int maxIterations = maxReflectionIterations();
 
         // Les appels de GÉNÉRATION respectent les paramètres de la requête ; les appels
-        // d'ÉVALUATION (evaluateAnswer) restent aux défauts du provider, le grading
-        // devant être aussi déterministe que possible.
+        // d'ÉVALUATION (evaluateAnswer) sont des appels de décision, en décodage glouton
+        // (LlmChatClient#decide) : les « défauts du provider » valaient en réalité 0,7.
         String answer = llmClient.chat(systemPrompt, userMessage, temperature, topP);
         ReflectionScores scores = evaluateAnswer(question, chunks, answer);
         log.info("Self-RAG évaluation initiale — ISREL={}, ISSUP={}, ISUSE={}",
@@ -161,7 +161,7 @@ public class SelfRagService {
         String prompt = String.format(REFLECT_PROMPT, question, contextPreview, answer);
         String response;
         try {
-            response = llmClient.chat(REFLECT_SYSTEM, prompt);
+            response = llmClient.decide(REFLECT_SYSTEM, prompt);
         } catch (Exception e) {
             log.warn("Self-RAG : erreur d'évaluation, scores par défaut — {}", e.getMessage());
             return new ReflectionScores(IsRel.RELEVANT, IsSup.FULLY_SUPPORTED, IsUse.USEFUL);

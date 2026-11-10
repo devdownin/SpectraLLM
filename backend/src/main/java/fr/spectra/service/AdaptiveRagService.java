@@ -59,7 +59,7 @@ public class AdaptiveRagService {
         String prompt = String.format(CLASSIFY_PROMPT, question);
         String raw;
         try {
-            raw = llmClient.chat(CLASSIFY_SYSTEM, prompt).trim().toUpperCase();
+            raw = llmClient.decide(CLASSIFY_SYSTEM, prompt).trim().toUpperCase();
         } catch (Exception e) {
             log.warn("Adaptive RAG : erreur de classification, fallback STANDARD — {}", e.getMessage());
             return RagStrategy.STANDARD;
@@ -70,7 +70,7 @@ public class AdaptiveRagService {
             case "AGENTIC"  -> RagStrategy.AGENTIC;
             default         -> RagStrategy.STANDARD;
         };
-        log.info("Adaptive RAG : «{}» → {}", question, strategy);
+        log.info("Adaptive RAG : {} → {}", fr.spectra.util.LogSafe.text(question), strategy);
         return strategy;
     }
 }

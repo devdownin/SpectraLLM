@@ -25,6 +25,8 @@ New here? Start with **[Getting Started](getting-started.en.md)**.
 | **[EnterpriseRAG-Bench stage 3 (FR)](tech/enterprise-rag-stage3.fr.md)** | Retrieval audit: embeddings (BGE-M3, Qwen3), dense vs hybrid vs reranker, HNSW/quantization/payload-filter settings, recall/latency comparison table. |
 | **[EnterpriseRAG-Bench stage 4 (FR)](tech/enterprise-rag-stage4.fr.md)** | Generation audit with Claude Opus 5.5 as judge: correctness, completeness, faithfulness, citation precision and refusals per question category. |
 | **[Fine-tuning audit (FR)](tech/finetune-audit.fr.md)** | Base vs QLoRA/DPO on the held-out quality benchmark, out-of-corpus hallucination regressions, GGUF q8_0 vs f16 parity and go/no-go per version. |
+| **[Privacy & operations checklist (FR)](process/checklist-confidentialite.fr.md)** | Air-gapped/local egress, log hygiene, dependency advisories and Qdrant data persistence: automated checks, open findings and the host validation procedure. |
+| **[Optimisation: synthesis and decision (FR)](process/synthese-optimisation.fr.md)** | Verdict, decisions taken, open findings and the ordered plan to run the measurements; `scripts/optimization_summary.py` builds the figures report from the stage outputs. |
 | **[Technical Reference](tech/technical-doc.fr.md)** | Implementation-level detail across the platform. |
 | **[Diagrams](tech/)** | C4 container/component views ([level 2](tech/c4-level-2-containers.fr.md), [level 3](tech/c4-level-3-components.fr.md)) and the [technical-stack diagram](tech/technical-stack-architecture.en.md), all in Markdown/Mermaid. |
 
@@ -47,6 +49,7 @@ New here? Start with **[Getting Started](getting-started.en.md)**.
 | **[Documentation audit (FR)](process/audit-documentation.fr.md)** | Audit of this documentation set (conformity, completeness). |
 | **[Security audit (FR)](process/audit-securite.fr.md)** | Technical security findings (auth model, exposure, DoS) — companion to [SECURITY.md](../SECURITY.md). |
 | **[RAG audit (FR)](process/audit-rag.fr.md)** | The RAG pipeline against 2024-2026 practice: embedding instruction prefixes, RAG-Fusion, abstention threshold, indirect prompt injection — fixes and ranked recommendations. |
+| **[RAG audit, second pass (FR)](process/audit-rag-passe-2.fr.md)** | Query-path defects in the LLM-driven modules: sampled decisions, ungraded passages dropped, elliptical question in conversations, lexical depth, answer language — fixes and open findings. |
 | **[Fine-tuning audit (FR)](process/audit-finetuning.fr.md)** | Technical findings on the fine-tuning chain (deployment, training correctness, DPO wiring). |
 | **[Fine-tuning UI tracking audit (FR)](process/audit-suivi-finetuning-ui.fr.md)** | What a running training job actually shows the user: progress, loss curve, telemetry stream, failure reporting, controls. |
 | **[Python surface audit (FR)](process/audit-python-java.fr.md)** | Every Python dependency inventoried (docparser, reranker, training scripts, CI), with the findings and the options weighed for each. |

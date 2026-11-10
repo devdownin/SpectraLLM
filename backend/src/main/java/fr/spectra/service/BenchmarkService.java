@@ -77,8 +77,8 @@ public class BenchmarkService {
      * @param maxChunks    chunks de contexte injectés (1–3 recommandé)
      */
     public BenchmarkResult benchmarkRag(int iterations, String question, int maxChunks) {
-        log.info("[benchmark] RAG — {} itérations, maxChunks={}, question='{}'",
-                iterations, maxChunks, question);
+        log.info("[benchmark] RAG — {} itérations, maxChunks={}, question={}",
+                iterations, maxChunks, fr.spectra.util.LogSafe.text(question));
 
         List<Long> latenciesMs = new ArrayList<>();
         List<Long> answerLengths = new ArrayList<>();

@@ -451,7 +451,8 @@ public class RagAblationService {
                         question, maxChunks, null, null, 0.0f, 1.0f, null, arm.useRag()),
                         arm.overrides());
             } catch (Exception e) {
-                log.warn("Ablation '{}' : échec requête « {} » : {}", arm.label(), question, e.getMessage());
+                log.warn("Ablation '{}' : échec requête {} : {}", arm.label(), fr.spectra.util.LogSafe.text(question),
+                        e.getMessage());
                 items.add(new QualityBenchmarkItem(question, category, answerable, reference,
                         null, null, null, null, "Échec requête RAG: " + e.getMessage()));
                 continue;
