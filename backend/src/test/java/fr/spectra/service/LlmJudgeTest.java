@@ -31,12 +31,12 @@ class LlmJudgeTest {
     void scoreUsesConstrainedDecoding_notFreeGeneration() {
         // Le benchmark qualité notait en génération libre : son juge pouvait répondre en
         // prose. Le décodage contraint rend ce cas structurellement impossible.
-        when(chat.chatJson(anyString(), anyString()))
+        when(chat.decideJson(anyString(), anyString()))
                 .thenReturn("{\"score\": 8, \"justification\": \"correcte\"}");
 
         judge.score("q", "ref", "réponse");
 
-        verify(chat).chatJson(anyString(), anyString());
+        verify(chat).decideJson(anyString(), anyString());
         verify(chat, never()).chat(anyString(), anyString());
     }
 
@@ -54,14 +54,14 @@ class LlmJudgeTest {
     void noVerdict_yieldsEmpty_ratherThanANeutralScore() {
         // Le cœur du correctif : une note fabriquée entrait dans la moyenne et la tirait
         // vers le milieu à chaque juge instable. Un jugement absent doit rester absent.
-        when(chat.chatJson(anyString(), anyString())).thenReturn("je ne sais pas trancher");
+        when(chat.decideJson(anyString(), anyString())).thenReturn("je ne sais pas trancher");
 
         assertThat(judge.score("q", "ref", "réponse")).isEmpty();
     }
 
     @Test
     void clientFailure_yieldsEmpty_ratherThanPropagating() {
-        when(chat.chatJson(anyString(), anyString())).thenThrow(new RuntimeException("serveur HS"));
+        when(chat.decideJson(anyString(), anyString())).thenThrow(new RuntimeException("serveur HS"));
 
         assertThat(judge.score("q", "ref", "réponse")).isEmpty();
     }
@@ -69,7 +69,7 @@ class LlmJudgeTest {
     @Test
     void scoreOutOfRange_isClampedToTheScale() {
         // Le décodage contraint garantit un JSON valide, pas une valeur dans l'intervalle.
-        when(chat.chatJson(anyString(), anyString())).thenReturn("{\"score\": 42}");
+        when(chat.decideJson(anyString(), anyString())).thenReturn("{\"score\": 42}");
 
         assertThat(judge.score("q", "ref", "r")).get()
                 .extracting(LlmJudge.Verdict::score).isEqualTo(10.0);
@@ -79,7 +79,7 @@ class LlmJudgeTest {
     void refusalIsADistinctQuestion_notAScoreOfZero() {
         // Une question sans réponse dans le corpus ne se note pas en exactitude : on
         // constate une abstention. Prompt distinct parce que la question l'est.
-        when(chat.chatJson(anyString(), anyString()))
+        when(chat.decideJson(anyString(), anyString()))
                 .thenReturn("{\"refused\": true, \"justification\": \"s'abstient\"}");
 
         assertThat(judge.refusal("q", "je ne sais pas")).get()
@@ -90,7 +90,7 @@ class LlmJudgeTest {
     void verdictSurroundedByProse_isStillRead() {
         // Le décodage contraint supprime ce cas sur llama.cpp ; un provider sans cette
         // capacité reste fonctionnel, d'où le parsing défensif conservé.
-        when(chat.chatJson(anyString(), anyString()))
+        when(chat.decideJson(anyString(), anyString()))
                 .thenReturn("Voici mon verdict : {\"score\": 7} — j'espère que cela convient.");
 
         assertThat(judge.score("q", "ref", "r")).get()

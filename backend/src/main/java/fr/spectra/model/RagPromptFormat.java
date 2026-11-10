@@ -96,11 +96,38 @@ public final class RagPromptFormat {
         }
     }
 
+    /**
+     * Consigne de langue de réponse, ajoutée au prompt système <b>au service seulement</b>
+     * ({@code spectra.rag.response-language}) : {@code auto} = langue de la question, {@code fr},
+     * {@code en}. Vide ou inconnu = aucune consigne, forme historique.
+     *
+     * <p>Sans elle, les consignes étant en français, un modèle 7B répond volontiers en français à une
+     * question anglaise sur des documents anglais. Le contournement consistait à écrire « Answer in
+     * English. » dans la question — qui partait alors aussi dans l'embedding, la requête BM25 et le
+     * reranker. La consigne n'entre pas dans {@link #RULES} : ce texte est partagé avec le dataset de
+     * fine-tuning (F14), et un réglage de service ne doit pas changer la forme apprise.</p>
+     */
+    public static String languageRule(String responseLanguage) {
+        if (responseLanguage == null) return "";
+        return switch (responseLanguage.trim().toLowerCase(java.util.Locale.ROOT)) {
+            case "auto" -> "Réponds dans la langue de la question de l'utilisateur, quelle que soit la langue "
+                    + "de ces consignes et des documents.";
+            case "fr" -> "Réponds en français.";
+            case "en" -> "Réponds en anglais (answer in English), même si ces consignes sont en français.";
+            default -> "";
+        };
+    }
+
     /** Prompt RAG complet, prêt pour un appel chat : message système + message utilisateur. */
     public record RagPrompt(String system, String user) {
         /** Texte complet, pour l'estimation du budget de tokens. */
         public String full() {
             return system + "\n" + user;
+        }
+
+        /** Même prompt, consigne de langue ajoutée en fin de message système (sans effet si vide). */
+        public RagPrompt withLanguageRule(String rule) {
+            return rule == null || rule.isBlank() ? this : new RagPrompt(system + "\n" + rule, user);
         }
     }
 

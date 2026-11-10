@@ -58,7 +58,7 @@ class EvaluationServiceBatchTest {
         when(chatClient.chat(anyString(), anyString()))
                 .thenReturn("{\"score\": 8, \"justification\": \"ok\"}");
         // Le juge passe par chatJson (décodage contraint au JSON).
-        when(chatClient.chatJson(anyString(), anyString()))
+        when(chatClient.decideJson(anyString(), anyString()))
                 .thenReturn("{\"score\": 8, \"justification\": \"ok\"}");
         // chatWithStats est une méthode default : la déléguer à chat() sur le mock.
         when(chatClient.chatWithStats(anyString(), anyString()))

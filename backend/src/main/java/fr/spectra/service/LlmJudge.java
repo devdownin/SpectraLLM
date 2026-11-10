@@ -122,7 +122,7 @@ public class LlmJudge {
      */
     private JsonNode ask(String systemPrompt, String userPrompt) {
         try {
-            String response = chatClient.chatJson(systemPrompt, userPrompt);
+            String response = chatClient.decideJson(systemPrompt, userPrompt);
             String json = extractJsonObject(response);
             return json != null ? MAPPER.readTree(json) : null;
         } catch (Exception e) {

@@ -115,4 +115,31 @@ class LlamaCppChatClientJsonModeTest {
 
         assertThat(client.chatJson("s", "u", 0.1f, 0.9f)).isEqualTo("{\"summary\":\"ok\"}");
     }
+
+    @org.junit.jupiter.api.Test
+    void reponseTronqueeParLaFenetre_estComptee() throws Exception {
+        String truncated = MAPPER.writeValueAsString(java.util.Map.of(
+                "choices", java.util.List.of(java.util.Map.of("finish_reason", "length",
+                        "message", java.util.Map.of("role", "assistant", "content", "Réponse coupée en")))));
+        server.enqueue(new MockResponse().setHeader("Content-Type", "application/json").setBody(truncated));
+        String complete = MAPPER.writeValueAsString(java.util.Map.of(
+                "choices", java.util.List.of(java.util.Map.of("finish_reason", "stop",
+                        "message", java.util.Map.of("role", "assistant", "content", "Réponse entière.")))));
+        server.enqueue(new MockResponse().setHeader("Content-Type", "application/json").setBody(complete));
+
+        org.assertj.core.api.Assertions.assertThat(client.chat("s", "u", 0f, 1f)).isEqualTo("Réponse coupée en");
+        org.assertj.core.api.Assertions.assertThat(client.truncatedCompletions()).isEqualTo(1);
+        client.chat("s", "u", 0f, 1f);
+        org.assertj.core.api.Assertions.assertThat(client.truncatedCompletions()).isEqualTo(1);
+    }
+
+    @org.junit.jupiter.api.Test
+    void appelDeDecision_estEnvoyeEnDecodageGlouton() throws Exception {
+        enqueueContent("STANDARD");
+        client.decide("système", "question");
+
+        var sent = MAPPER.readTree(server.takeRequest().getBody().readUtf8());
+        org.assertj.core.api.Assertions.assertThat(sent.get("temperature").asDouble()).isEqualTo(0.0);
+        org.assertj.core.api.Assertions.assertThat(sent.get("top_p").asDouble()).isEqualTo(1.0);
+    }
 }

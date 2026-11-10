@@ -48,7 +48,7 @@ class QualityBenchmarkServiceTest {
         // Le juge passe par chatJson (décodage contraint) ; la génération évaluée par chat.
         // Distinguer les deux stubs documente ce contrat : un juge en génération libre
         // pouvait répondre en prose, et le benchmark qualité le faisait encore.
-        when(chat.chatJson(anyString(), anyString())).thenAnswer(inv -> {
+        when(chat.decideJson(anyString(), anyString())).thenAnswer(inv -> {
             String system = inv.getArgument(0);
             if (system.contains("N'EST PAS disponible")) {
                 return "{\"refused\": true, \"justification\": \"s'abstient\"}";

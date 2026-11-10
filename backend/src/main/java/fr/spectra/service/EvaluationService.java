@@ -659,7 +659,7 @@ public class EvaluationService {
                     + "\n\nRéponse 2 : " + second;
             String response;
             try {
-                response = chatClient.chatJson(AB_JUDGE_SYSTEM_PROMPT, prompt);
+                response = chatClient.decideJson(AB_JUDGE_SYSTEM_PROMPT, prompt);
             } catch (Exception e) {
                 log.warn("Échec appel juge A/B: {}", e.getMessage());
                 return null;

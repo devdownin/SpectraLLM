@@ -49,6 +49,7 @@ New here? Start with **[Getting Started](getting-started.en.md)**.
 | **[Documentation audit (FR)](process/audit-documentation.fr.md)** | Audit of this documentation set (conformity, completeness). |
 | **[Security audit (FR)](process/audit-securite.fr.md)** | Technical security findings (auth model, exposure, DoS) — companion to [SECURITY.md](../SECURITY.md). |
 | **[RAG audit (FR)](process/audit-rag.fr.md)** | The RAG pipeline against 2024-2026 practice: embedding instruction prefixes, RAG-Fusion, abstention threshold, indirect prompt injection — fixes and ranked recommendations. |
+| **[RAG audit, second pass (FR)](process/audit-rag-passe-2.fr.md)** | Query-path defects in the LLM-driven modules: sampled decisions, ungraded passages dropped, elliptical question in conversations, lexical depth, answer language — fixes and open findings. |
 | **[Fine-tuning audit (FR)](process/audit-finetuning.fr.md)** | Technical findings on the fine-tuning chain (deployment, training correctness, DPO wiring). |
 | **[Fine-tuning UI tracking audit (FR)](process/audit-suivi-finetuning-ui.fr.md)** | What a running training job actually shows the user: progress, loss curve, telemetry stream, failure reporting, controls. |
 | **[Python surface audit (FR)](process/audit-python-java.fr.md)** | Every Python dependency inventoried (docparser, reranker, training scripts, CI), with the findings and the options weighed for each. |

@@ -96,8 +96,27 @@ public class RagService {
      */
     private RagPromptFormat.RagPrompt ragPrompt(ModelProfile profile, String contextBlock, String userMessage) {
         return RagPromptFormat.prompt(contextPlacement(), profile.personaOr(props.rag() != null ? props.rag().persona() : null),
-                contextBlock, userMessage, answerStyle());
+                contextBlock, userMessage, answerStyle()).withLanguageRule(languageRule);
     }
+
+    /** Consigne de langue de réponse ({@code spectra.rag.response-language}) ; vide = aucune. */
+    private String languageRule = "";
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void configureResponseLanguage(
+            @org.springframework.beans.factory.annotation.Value("${spectra.rag.response-language:}") String language) {
+        this.languageRule = RagPromptFormat.languageRule(language);
+        if (language != null && !language.isBlank() && languageRule.isEmpty()) {
+            log.warn("spectra.rag.response-language='{}' inconnu (auto, fr, en) : aucune consigne de langue", language);
+        }
+    }
+
+    /**
+     * Réponse quand aucun passage n'est retenu : base vide, filtre sans résultat, ou tous les
+     * passages sous le seuil d'abstention. Le chemin JSON ajoutait « Veuillez d'abord ingérer des
+     * documents » : faux dès que la base contient des documents, et absent du streaming.
+     */
+    static final String NO_RELEVANT_CONTEXT = "Aucun document pertinent trouvé dans la base de connaissances.";
 
     /** {@code spectra.agentic-rag.always} : la boucle agentique traite toute requête (mesure, usage dédié). */
     private boolean agenticAlways() {
@@ -375,7 +394,7 @@ public class RagService {
 
         if (RagOverrides.resolve(ov.compression(), contextCompressionService.isPresent()) && !ctx.contextChunks().isEmpty()) {
             ContextCompressionService.CompressionResult cr =
-                    contextCompressionService.get().compress(request.question(), ctx.contextChunks());
+                    contextCompressionService.get().compress(retrievalQuestion, ctx.contextChunks());
             ctx = buildRagContext(
                     cr.compressedTexts(),
                     filterByIndices(ctx.chunkMetadatas(), cr.keptIndices()),
@@ -419,14 +438,13 @@ public class RagService {
         boolean selfRagApplied = false;
 
         if (ctx.contextChunks().isEmpty()) {
-            answer = "Aucun document pertinent trouvé dans la base de connaissances. "
-                    + "Veuillez d'abord ingérer des documents via POST /api/ingest.";
+            answer = NO_RELEVANT_CONTEXT;
         } else {
             RagPromptFormat.RagPrompt prompt = ragPrompt(profile, ctx.contextBlock(), userMessage);
 
             if (RagOverrides.resolve(ov.selfRag(), selfRagService.isPresent())) {
                 SelfRagService.SelfRagResult result = selfRagService.get()
-                        .reflect(request.question(), ctx.contextChunks(), prompt.system(), prompt.user(),
+                        .reflect(retrievalQuestion, ctx.contextChunks(), prompt.system(), prompt.user(),
                                 request.temperature(), request.topP());
                 answer = result.answer();
                 selfRagApplied = result.reflectionApplied();
@@ -615,7 +633,11 @@ public class RagService {
             }
             // Comme en non-streaming : AGENTIC sans service agentique → dégradation STANDARD
             // (la stratégie affichée reste AGENTIC, cf. query()).
-            forceAgentic = strategy == AdaptiveRagService.RagStrategy.AGENTIC && agenticRagService.isPresent();
+            // « || » : comme sur le chemin JSON, le routage peut AJOUTER le mode agentique, jamais
+            // retirer celui qu'impose spectra.agentic-rag.always. L'affectation simple faisait
+            // répondre le streaming par le pipeline standard là où le JSON passait en agentique.
+            forceAgentic = forceAgentic
+                    || (strategy == AdaptiveRagService.RagStrategy.AGENTIC && agenticRagService.isPresent());
         }
 
         // ── 2. Conversational RAG : contextualisation de la question ──────
@@ -665,7 +687,7 @@ public class RagService {
             int before = ctx.contextChunks().size();
             emitStage(sink, "compression", null, null);
             ContextCompressionService.CompressionResult cr =
-                    contextCompressionService.get().compress(request.question(), ctx.contextChunks());
+                    contextCompressionService.get().compress(retrievalQuestion, ctx.contextChunks());
             ctx = buildRagContext(
                     cr.compressedTexts(),
                     filterByIndices(ctx.chunkMetadatas(), cr.keptIndices()),
@@ -720,7 +742,7 @@ public class RagService {
 
         if (ctx.contextChunks().isEmpty()) {
             sink.next(ServerSentEvent.<String>builder().event("token")
-                    .data("Aucun document pertinent trouvé dans la base de connaissances.").build());
+                    .data(NO_RELEVANT_CONTEXT).build());
             sink.next(doneEvent(new PipelineMeta(
                     conversationalApplied, correctiveApplied, false, ragStrategy,
                     ctx.rerankApplied(), ctx.hybridApplied(), ctx.multiQueryApplied(),
@@ -748,7 +770,7 @@ public class RagService {
 
             long tReflect = System.currentTimeMillis();
             emitStage(sink, "reflection", null, null);
-            SelfRagService.ReflectionScores scores = selfRag.evaluate(request.question(), ctx.contextChunks(), draft);
+            SelfRagService.ReflectionScores scores = selfRag.evaluate(retrievalQuestion, ctx.contextChunks(), draft);
             selfRagScores = formatScores(scores);
 
             if (selfRag.requiresRefinement(scores) && selfRag.maxReflectionIterations() > 0) {
@@ -759,7 +781,7 @@ public class RagService {
                         request.temperature(), request.topP()));
                 finalAnswer = refined;
                 if (!sink.isCancelled()) {
-                    selfRagScores = formatScores(selfRag.evaluate(request.question(), ctx.contextChunks(), refined));
+                    selfRagScores = formatScores(selfRag.evaluate(retrievalQuestion, ctx.contextChunks(), refined));
                 }
                 selfRagApplied = true;
             }
@@ -1235,7 +1257,9 @@ public class RagService {
     private CorrectiveOutcome applyCorrectiveRag(QueryRequest request, String retrievalQuestion,
                                                  RagContext ctx, boolean useHybrid) {
         CorrectiveRagService corrective = correctiveRagService.get();
-        List<Integer> keptIndices = corrective.gradeChunks(request.question(), ctx.contextChunks());
+        // Question AUTONOME (reformulée par le Conversational RAG le cas échéant), celle du retrieval :
+        // juger des passages contre « et pour le second ? » les écartait presque tous.
+        List<Integer> keptIndices = corrective.gradeChunks(retrievalQuestion, ctx.contextChunks());
 
         boolean applied = false;
         RagContext result = ctx;
@@ -1295,7 +1319,7 @@ public class RagService {
             }
 
             List<String> newChunks = filterByIndices(extra.chunks(), newIdx);
-            List<Integer> gradedKept = corrective.gradeChunks(request.question(), newChunks);
+            List<Integer> gradedKept = corrective.gradeChunks(retrievalQuestion, newChunks);
             if (gradedKept.isEmpty()) {
                 log.info("Corrective RAG : aucun chunk complémentaire jugé pertinent");
                 return null;

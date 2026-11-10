@@ -296,6 +296,10 @@ spectra:
     # tous les détails du contexte (valeurs, conditions, étapes, exceptions). Sans effet avec
     # context-placement=system.
     answer-style: ${SPECTRA_RAG_ANSWER_STYLE:concise}
+    # Langue de réponse du RAG standard : auto (langue de la question), fr, en. Vide = aucune consigne
+    # (forme historique). Évite d'écrire « Answer in English. » dans la question, qui partait aussi
+    # dans l'embedding, la requête BM25 et le reranker.
+    response-language: ${SPECTRA_RAG_RESPONSE_LANGUAGE:}
     # Graphe d'entités léger : les identifiants de la question (clé de ticket, #PR, nom_de_variable,
     # NomDeProduit) servent de clés de recherche EXACTE ; les chunks qui les contiennent rejoignent
     # les candidats avant le reranking. Aucune réindexation. Désactivé par défaut : non mesuré.

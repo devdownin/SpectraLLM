@@ -19,6 +19,17 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 - Étape 6 (confidentialité et exploitation) : checklist `docs/process/checklist-confidentialite.fr.md`, contrôles rejouables `scripts/privacy_audit.py` (`logs`, `egress`, `airgap`) et `scripts/privacy_runtime_check.sh` (résidus dans les journaux et le stockage Qdrant), overlay `docker-compose.airgap.yml` (réseau interne, aucun port publié hors frontend), mode `SPECTRA_OFFLINE`, `LogSafe` (questions et URL masquées dans les journaux ; `SPECTRA_LOG_CONTENT=true` pour déboguer), `HF_ENDPOINT` respecté par le Model Hub. Corrige `SPECTRA_STARTUP_AUTO_INSTALL_MODELS`, qui n'atteignait pas le conteneur, et trois avis de dépendances (`zod`, `follow-redirects`, `python-multipart`).
 - Étape 7 (synthèse et décision) : `docs/process/synthese-optimisation.fr.md` (décisions, écarts ouverts, plan d'exécution des mesures) et `scripts/optimization_summary.py`, qui assemble les résultats des étapes 1 à 6 et refuse de conclure sans mesure. `SPECTRA_CHUNK_LOCALE` atteint désormais le conteneur `spectra-api` ; surcharges `index-chunk-512.env` et `index-locale-en.env` pour mesurer le découpage de la baseline.
 
+### Corrigé — pipeline RAG (audit, seconde passe)
+
+- Appels de décision (routage, tri des passages, reformulations, réflexion, compression, juges) en décodage glouton : ils tiraient à température 0,7.
+- Corrective RAG : un passage sans verdict n'est plus écarté ; l'ordre du classement est conservé.
+- En conversation, tri correctif, compression et Self-RAG jugent la question autonome, plus la question elliptique.
+- Recherche hybride : la profondeur BM25 suit le nombre de candidats demandés.
+- `SPECTRA_RAG_RESPONSE_LANGUAGE` (`auto`, `fr`, `en`, vide par défaut) ; `--question-suffix` dans le banc.
+- Multi-query : reformulations dans la langue de la question, sans numérotation ni doublon.
+- Streaming et JSON appliquent la même règle pour le mode agentique ; message d'abstention unifié ; réponses tronquées par la fenêtre journalisées et comptées.
+- Détail et constats ouverts : `docs/process/audit-rag-passe-2.fr.md`.
+
 ### Ajouté — sources de données synchronisées
 
 - Page Connecteurs FR/EN : catalogue dossier local, S3/MinIO et web/sitemap, assistant de configuration avec test, recherche, filtres, suivi des documents et historique.

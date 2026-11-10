@@ -40,7 +40,7 @@ class CorrectiveRagServiceTest {
 
     @Test
     void gradeChunks_keepsRelevantAndAmbiguous_dropsIrrelevant() {
-        when(llmClient.chat(anyString(), anyString()))
+        when(llmClient.decide(anyString(), anyString()))
                 .thenReturn("1: RELEVANT\n2: IRRELEVANT\n3: AMBIGUOUS");
 
         List<Integer> kept = service.gradeChunks("Question ?", List.of("a", "b", "c"));
@@ -50,7 +50,7 @@ class CorrectiveRagServiceTest {
 
     @Test
     void gradeChunks_llmFailure_keepsAllChunks() {
-        when(llmClient.chat(anyString(), anyString())).thenThrow(new RuntimeException("LLM down"));
+        when(llmClient.decide(anyString(), anyString())).thenThrow(new RuntimeException("LLM down"));
 
         List<Integer> kept = service.gradeChunks("Question ?", List.of("a", "b"));
 
@@ -61,7 +61,7 @@ class CorrectiveRagServiceTest {
 
     @Test
     void reformulateQuery_nominal_returnsReformulation() {
-        when(llmClient.chat(anyString(), anyString()))
+        when(llmClient.decide(anyString(), anyString()))
                 .thenReturn("Quelles règles de sécurité s'appliquent aux autoroutes ?");
 
         Optional<String> out = service.reformulateQuery("Normes autoroutes ?");
@@ -71,21 +71,21 @@ class CorrectiveRagServiceTest {
 
     @Test
     void reformulateQuery_llmFailure_returnsEmpty() {
-        when(llmClient.chat(anyString(), anyString())).thenThrow(new RuntimeException("LLM down"));
+        when(llmClient.decide(anyString(), anyString())).thenThrow(new RuntimeException("LLM down"));
 
         assertThat(service.reformulateQuery("Normes autoroutes ?")).isEmpty();
     }
 
     @Test
     void reformulateQuery_blankAnswer_returnsEmpty() {
-        when(llmClient.chat(anyString(), anyString())).thenReturn("   ");
+        when(llmClient.decide(anyString(), anyString())).thenReturn("   ");
 
         assertThat(service.reformulateQuery("Normes autoroutes ?")).isEmpty();
     }
 
     @Test
     void reformulateQuery_identicalAnswer_returnsEmpty() {
-        when(llmClient.chat(anyString(), anyString())).thenReturn("Normes autoroutes ?");
+        when(llmClient.decide(anyString(), anyString())).thenReturn("Normes autoroutes ?");
 
         assertThat(service.reformulateQuery("Normes autoroutes ?")).isEmpty();
     }
@@ -95,5 +95,23 @@ class CorrectiveRagServiceTest {
     @Test
     void minRelevantChunks_readFromProperties() {
         assertThat(service.minRelevantChunks()).isEqualTo(2);
+    }
+
+    @Test
+    void gradeChunks_partialVerdicts_keepUngradedChunks_inRankOrder() {
+        // Le modèle ne note que 2 passages sur 4, et dans le désordre : un passage sans verdict
+        // n'a pas été jugé hors sujet, et l'ordre du classement d'entrée doit être conservé.
+        when(llmClient.decide(anyString(), anyString())).thenReturn("3: RELEVANT\n1: IRRELEVANT");
+
+        List<Integer> kept = service.gradeChunks("Question ?", List.of("a", "b", "c", "d"));
+
+        assertThat(kept).containsExactly(1, 2, 3);
+    }
+
+    @Test
+    void gradeChunks_allIrrelevant_staysEmpty() {
+        when(llmClient.decide(anyString(), anyString())).thenReturn("1: IRRELEVANT\n2: IRRELEVANT");
+
+        assertThat(service.gradeChunks("Question ?", List.of("a", "b"))).isEmpty();
     }
 }

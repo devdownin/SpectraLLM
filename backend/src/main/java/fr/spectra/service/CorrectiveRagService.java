@@ -88,7 +88,7 @@ public class CorrectiveRagService {
 
         String response;
         try {
-            response = llmClient.chat(GRADE_SYSTEM, prompt);
+            response = llmClient.decide(GRADE_SYSTEM, prompt);
         } catch (Exception e) {
             log.warn("Corrective RAG : erreur de grading LLM, tous les chunks conservés — {}", e.getMessage());
             return allIndices(chunks.size());
@@ -145,7 +145,7 @@ public class CorrectiveRagService {
     public java.util.Optional<String> reformulateQuery(String question) {
         String reformulated;
         try {
-            reformulated = llmClient.chat(REFORMULATE_SYSTEM,
+            reformulated = llmClient.decide(REFORMULATE_SYSTEM,
                     String.format(REFORMULATE_PROMPT, question)).trim();
         } catch (Exception e) {
             log.warn("Corrective RAG : reformulation échouée — {}", e.getMessage());
@@ -171,10 +171,10 @@ public class CorrectiveRagService {
     }
 
     private List<Integer> parseGrades(String response, int total) {
-        List<Integer> kept = new ArrayList<>();
         Matcher m = GRADE_LINE.matcher(response);
         boolean[] seen = new boolean[total + 1];
-        boolean anyParsed = false;
+        boolean[] irrelevant = new boolean[total + 1];
+        int parsed = 0;
 
         while (m.find()) {
             long id;
@@ -183,21 +183,30 @@ public class CorrectiveRagService {
             } catch (NumberFormatException e) {
                 continue;
             }
-            String grade = m.group(2).toUpperCase();
             if (id >= 1 && id <= total && !seen[(int) id]) {
                 seen[(int) id] = true;
-                anyParsed = true;
-                if ("RELEVANT".equals(grade) || "AMBIGUOUS".equals(grade)) {
-                    kept.add((int) id - 1); // convert to 0-based
-                }
+                parsed++;
+                irrelevant[(int) id] = "IRRELEVANT".equalsIgnoreCase(m.group(2));
             }
         }
 
         // On ne conserve tout QUE si le grading est illisible (aucune ligne valide parsée).
         // Un grading valide qui note tous les chunks IRRELEVANT doit bien renvoyer une liste vide.
-        if (!anyParsed && total > 0) {
+        if (parsed == 0 && total > 0) {
             log.warn("Corrective RAG : grading illisible, tous les chunks conservés");
             return allIndices(total);
+        }
+        // Seul un verdict IRRELEVANT explicite écarte un chunk. Un chunk SANS verdict (sortie
+        // tronquée, ligne oubliée par le modèle) était écarté comme s'il avait été jugé hors sujet :
+        // une réponse partielle du grader supprimait des passages qu'il n'avait pas lus.
+        // L'ordre rendu est celui du classement d'entrée, pas celui des lignes du modèle : la
+        // numérotation [n] des passages et la priorité du budget de prompt en dépendent.
+        List<Integer> kept = new ArrayList<>();
+        for (int id = 1; id <= total; id++) {
+            if (!irrelevant[id]) kept.add(id - 1);
+        }
+        if (parsed < total) {
+            log.warn("Corrective RAG : {} chunk(s) sans verdict sur {}, conservés", total - parsed, total);
         }
         return kept;
     }

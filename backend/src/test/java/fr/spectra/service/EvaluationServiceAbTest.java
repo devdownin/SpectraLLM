@@ -49,7 +49,7 @@ class EvaluationServiceAbTest {
         // Génération : réponse quelconque. Jugement A/B (prompt contenant "Réponse 1") : gagnant 1.
         when(chatClient.chat(anyString(), anyString())).thenReturn("réponse du modèle");
         // Le juge passe par chatJson (décodage contraint au JSON), la génération par chat.
-        when(chatClient.chatJson(argThat(s -> s != null && s.contains("Réponse 1")), anyString()))
+        when(chatClient.decideJson(argThat(s -> s != null && s.contains("Réponse 1")), anyString()))
                 .thenReturn("{\"winner\": 1, \"justification\": \"meilleure\"}");
         // chatWithStats (méthode default) déléguée à chat() : la génération l'utilise.
         when(chatClient.chatWithStats(anyString(), anyString()))
