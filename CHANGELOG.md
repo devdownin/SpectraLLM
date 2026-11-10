@@ -19,6 +19,14 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 - Étape 6 (confidentialité et exploitation) : checklist `docs/process/checklist-confidentialite.fr.md`, contrôles rejouables `scripts/privacy_audit.py` (`logs`, `egress`, `airgap`) et `scripts/privacy_runtime_check.sh` (résidus dans les journaux et le stockage Qdrant), overlay `docker-compose.airgap.yml` (réseau interne, aucun port publié hors frontend), mode `SPECTRA_OFFLINE`, `LogSafe` (questions et URL masquées dans les journaux ; `SPECTRA_LOG_CONTENT=true` pour déboguer), `HF_ENDPOINT` respecté par le Model Hub. Corrige `SPECTRA_STARTUP_AUTO_INSTALL_MODELS`, qui n'atteignait pas le conteneur, et trois avis de dépendances (`zod`, `follow-redirects`, `python-multipart`).
 - Étape 7 (synthèse et décision) : `docs/process/synthese-optimisation.fr.md` (décisions, écarts ouverts, plan d'exécution des mesures) et `scripts/optimization_summary.py`, qui assemble les résultats des étapes 1 à 6 et refuse de conclure sans mesure. `SPECTRA_CHUNK_LOCALE` atteint désormais le conteneur `spectra-api` ; surcharges `index-chunk-512.env` et `index-locale-en.env` pour mesurer le découpage de la baseline.
 
+### Ajouté / corrigé — suite de l'audit (points 2 à 6)
+
+- `scripts/optimization_campaign.py` : campagne de mesures enchaînée sur un hôte (`plan`, `run`, reprenable ; les changements d'index et de serveur restent manuels et affichés).
+- Juge par défaut du script de baseline : Claude Opus 5.5 (`LLM_PROVIDER=openai` pour retrouver celui d'Onyx).
+- `depcheck` : si le cache NVD est évincé, la base est reconstruite dans le job depuis les flux publics (sans clé, non publiée) au lieu d'échouer ; `workflow_dispatch` accepte `rebuild_nvd` pour le vérifier.
+- Reranker (Python) : `sentence-transformers` 5.6.0, `torch` 2.13.0, `transformers` 5.10.0 (avis de sécurité).
+- Corrective RAG : extrait par passage configurable (`SPECTRA_CORRECTIVE_PREVIEW_CHARS`, 800 par défaut au lieu de 400). BM25 et Qdrant clairsemé : mots-outils de question retirés de la requête (index inchangé).
+
 ### Corrigé — pipeline RAG (audit, seconde passe)
 
 - Appels de décision (routage, tri des passages, reformulations, réflexion, compression, juges) en décodage glouton : ils tiraient à température 0,7.

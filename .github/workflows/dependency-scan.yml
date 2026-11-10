@@ -8,6 +8,11 @@ on:
   schedule:
     - cron: '0 3 * * *'
   workflow_dispatch:
+    inputs:
+      rebuild_nvd:
+        description: "depcheck : ignorer le cache publié et reconstruire la base NVD dans le job (vérifie le repli)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -65,7 +70,8 @@ jobs:
     # PRs scan the existing cache even though update-nvd is intentionally skipped.
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    # Marge pour le repli de reconstruction ci-dessous (cache évincé).
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
       - name: Set up Java and Maven
@@ -76,13 +82,32 @@ jobs:
           prefix=$(python3 scripts/nvd_cache.py prefix)
           echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
       - name: Restaurer la base publiée
+        if: ${{ inputs.rebuild_nvd != true }}
         uses: actions/cache/restore@v6
         with:
           path: ~/.dependency-check-data
           key: ${{ steps.cache-key.outputs.prefix }}scan-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: ${{ steps.cache-key.outputs.prefix }}
-      - name: Refuser une base absente, incomplète ou périmée
-        run: python3 scripts/nvd_cache.py validate
+      - name: Contrôler la base restaurée (absente, incomplète ou périmée)
+        id: validate
+        run: python3 scripts/nvd_cache.py validate --soft
+      # Le cache GitHub Actions est évincé quand le dépôt dépasse son quota : chaque `depcheck` de PR
+      # échouait alors sur « Base NVD absente ou vide » jusqu'à la prochaine exécution de la branche
+      # par défaut (planifiée une fois par jour), sans rapport avec le diff. Repli : reconstruire la
+      # base DANS CE JOB, depuis les flux annuels du NVD (sans clé d'API, donc sans secret exposé
+      # à une PR), comme le fait `update-nvd`. Cette base n'est PAS publiée : seule la branche par
+      # défaut alimente le cache de confiance. Un contrôle qui ne peut pas s'exécuter reste un échec.
+      - name: Reconstruire la base NVD (repli, non publiée)
+        if: ${{ steps.validate.outputs.valid == 'false' }}
+        timeout-minutes: 60
+        run: |
+          echo "::warning::Cache NVD absent ou périmé : reconstruction dans le job (non publiée)."
+          mvn -B -Pdep-check org.owasp:dependency-check-maven:update-only \
+            -DskipTests -DfailOnError=true -DnvdValidForHours=0 \
+            '-DnvdDatafeedUrl=https://nvd.nist.gov/feeds/json/cve/2.0/nvdcve-2.0-{0}.json.gz' \
+            -f backend/pom.xml
+          python3 scripts/nvd_cache.py stamp
+          python3 scripts/nvd_cache.py validate
       - name: OWASP Dependency Check sans mise à jour NVD
         timeout-minutes: 30
         run: |

@@ -254,6 +254,9 @@ spectra:
   corrective-rag:
     enabled: ${SPECTRA_CORRECTIVE_RAG_ENABLED:false}
     min-relevant-chunks: ${SPECTRA_CORRECTIVE_MIN_RELEVANT_CHUNKS:1}
+    # Extrait de chaque passage montré au grader (caractères, 200 à 4000). Réduit automatiquement quand
+    # il y a beaucoup de passages, pour que le bloc reste sous ~8000 caractères.
+    preview-chars: ${SPECTRA_CORRECTIVE_PREVIEW_CHARS:800}
   adaptive-rag:
     enabled: ${SPECTRA_ADAPTIVE_RAG_ENABLED:false}
   self-rag:

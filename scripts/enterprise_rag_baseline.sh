@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Baseline EnterpriseRAG-Bench v1 : corpus, lots, ingestion, retrieve, answer, juge et rapports.
 # Prérequis : pile démarrée avec deploy/bench/enterprise-rag-baseline-v1.env et un index vide,
-# évaluateur Onyx cloné dans $EVALUATOR à la révision ci-dessous, LLM_API_KEY pour le juge.
+# évaluateur Onyx cloné dans $EVALUATOR à la révision ci-dessous, LLM_API_KEY (clé Anthropic) pour le juge.
 # Reprise : relancer le script ; chaque étape reprend là où elle s'est arrêtée.
 set -euo pipefail
 
@@ -13,7 +13,11 @@ COLLECTION=${COLLECTION:-spectra_documents}
 EVALUATOR=${EVALUATOR:-../EnterpriseRAG-Bench}
 JUDGE_PYTHON=${JUDGE_PYTHON:-$EVALUATOR/.venv/bin/python}
 PROFILE=deploy/bench/enterprise-rag-baseline-v1.profile.json
-export LLM_PROVIDER=${LLM_PROVIDER:-openai} LLM_MODEL_NAME=${LLM_MODEL_NAME:-gpt-5.4}
+# Juge unique pour toutes les variantes comparées : Claude Opus 5.5, distinct du modèle évalué (décision D4 de
+# docs/process/synthese-optimisation.fr.md). Pour se comparer au classement public d'Onyx, repasser sur son juge :
+#   LLM_PROVIDER=openai LLM_MODEL_NAME=gpt-5.4 scripts/enterprise_rag_baseline.sh
+# (LLM_API_KEY est alors la clé OpenAI). Ne jamais mélanger deux juges dans une comparaison : `compare` les refuse.
+export LLM_PROVIDER=${LLM_PROVIDER:-anthropic} LLM_MODEL_NAME=${LLM_MODEL_NAME:-claude-opus-5-5}
 
 bench() { python3 scripts/enterprise_rag_bench.py --api "$API" --work-dir "$WORK" "$@"; }
 experiment() { python3 scripts/enterprise_rag_experiment.py "$@"; }

@@ -161,10 +161,40 @@ public class CorrectiveRagService {
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
-    private String buildDocumentsBlock(List<String> chunks) {
+    /** Extrait de chaque passage soumis au grader ({@code spectra.corrective-rag.preview-chars}). */
+    private int previewChars = DEFAULT_PREVIEW_CHARS;
+
+    static final int DEFAULT_PREVIEW_CHARS = 800;
+    /** Plancher par passage : en dessous, le grader ne voit plus de quoi juger. */
+    static final int MIN_PREVIEW_CHARS = 200;
+    /**
+     * Taille maximale du bloc de passages du prompt de grading (≈ 2 300 tokens). Ce prompt n'est pas
+     * soumis au budget de contexte du RAG : sans borne, relever l'extrait par passage ferait déborder
+     * la fenêtre du modèle quand le nombre de passages grimpe (jusqu'à 20).
+     */
+    static final int MAX_BLOCK_CHARS = 8000;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void configurePreview(
+            @org.springframework.beans.factory.annotation.Value("${spectra.corrective-rag.preview-chars:800}") int chars) {
+        if (chars < MIN_PREVIEW_CHARS || chars > 4000) {
+            throw new IllegalArgumentException("spectra.corrective-rag.preview-chars doit être entre "
+                    + MIN_PREVIEW_CHARS + " et 4000");
+        }
+        this.previewChars = chars;
+    }
+
+    /**
+     * Les passages, tronqués. Les 400 premiers caractères seulement étaient montrés : un passage dont
+     * la partie utile suit un long préambule (en-tête, sommaire, définitions) était jugé sur son début
+     * et écarté. L'extrait s'adapte au nombre de passages pour tenir dans {@link #MAX_BLOCK_CHARS}.
+     */
+    String buildDocumentsBlock(List<String> chunks) {
+        int perChunk = chunks.isEmpty() ? previewChars
+                : Math.max(MIN_PREVIEW_CHARS, Math.min(previewChars, MAX_BLOCK_CHARS / chunks.size()));
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < chunks.size(); i++) {
-            String preview = chunks.get(i).length() > 400 ? chunks.get(i).substring(0, 400) + "..." : chunks.get(i);
+            String preview = chunks.get(i).length() > perChunk ? chunks.get(i).substring(0, perChunk) + "..." : chunks.get(i);
             sb.append("Document ").append(i + 1).append(" : ").append(preview).append("\n\n");
         }
         return sb.toString();

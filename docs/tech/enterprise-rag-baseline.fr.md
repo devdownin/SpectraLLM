@@ -71,7 +71,7 @@ git clone https://github.com/onyx-dot-app/EnterpriseRAG-Bench ../EnterpriseRAG-B
 git -C ../EnterpriseRAG-Bench checkout --detach d36685e273713975ee20299bbf1ab64165575b3c
 python3 -m venv ../EnterpriseRAG-Bench/.venv
 ../EnterpriseRAG-Bench/.venv/bin/python -m pip install -r ../EnterpriseRAG-Bench/requirements.txt
-export LLM_API_KEY=…   # juge
+export LLM_API_KEY=…   # clé Anthropic : le juge par défaut est Claude Opus 5.5 (LLM_PROVIDER, LLM_MODEL_NAME pour en changer)
 scripts/enterprise_rag_baseline.sh
 ```
 

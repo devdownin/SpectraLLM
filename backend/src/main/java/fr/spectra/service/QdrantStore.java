@@ -561,7 +561,9 @@ final class QdrantStore {
 
     /** Fixed-reference BM25 term weights; Qdrant supplies the collection IDF at query time. */
     private static Map<String, Object> sparseVector(String text, boolean document) {
-        var frequencies = BM25Index.buildTermFreq(text);
+        // Requête : mêmes termes que le BM25 Java (sans mots-outils de question), pour que la comparaison
+        // des deux fusions ne porte pas sur le prétraitement.
+        var frequencies = document ? BM25Index.buildTermFreq(text) : BM25Index.buildQueryTerms(text);
         int length = frequencies.values().stream().mapToInt(Integer::intValue).sum();
         var weighted = new java.util.TreeMap<Integer, Double>();
         frequencies.forEach((term, frequency) -> {

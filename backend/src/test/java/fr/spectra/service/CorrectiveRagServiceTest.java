@@ -114,4 +114,30 @@ class CorrectiveRagServiceTest {
 
         assertThat(service.gradeChunks("Question ?", List.of("a", "b"))).isEmpty();
     }
+
+    @Test
+    void documentsBlock_showsMoreOfEachPassage_butStaysUnderTheBudget() {
+        String chunk = "x".repeat(3000);
+
+        String few = service.buildDocumentsBlock(List.of(chunk, chunk, chunk));
+        String many = service.buildDocumentsBlock(java.util.Collections.nCopies(20, chunk));
+
+        // 3 passages : l'extrait par défaut (800) ; 20 passages : 8000 / 20 = 400, comme avant ce réglage.
+        assertThat(few).contains("x".repeat(800) + "...").doesNotContain("x".repeat(801));
+        assertThat(many.length()).isLessThan(CorrectiveRagService.MAX_BLOCK_CHARS + 20 * 40);
+        assertThat(many).contains("x".repeat(400) + "...").doesNotContain("x".repeat(401));
+        // Au-delà de 40 passages, le plancher s'applique.
+        assertThat(service.buildDocumentsBlock(java.util.Collections.nCopies(60, chunk)))
+                .contains("x".repeat(CorrectiveRagService.MIN_PREVIEW_CHARS) + "...")
+                .doesNotContain("x".repeat(CorrectiveRagService.MIN_PREVIEW_CHARS + 1));
+    }
+
+    @Test
+    void previewChars_isConfigurable_andBounded() {
+        service.configurePreview(300);
+        assertThat(service.buildDocumentsBlock(List.of("y".repeat(1000)))).contains("y".repeat(300) + "...")
+                .doesNotContain("y".repeat(301));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.configurePreview(50))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
 }

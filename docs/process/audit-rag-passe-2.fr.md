@@ -115,8 +115,8 @@ côtés.
 
 | # | Constat | Pourquoi ce n'est pas corrigé ici |
 |---|---|---|
-| O1 | Le tri correctif ne lit que les **400 premiers caractères** de chaque passage, la réflexion Self-RAG les 300 premiers des **3 premiers** passages. Un passage pertinent après le caractère 400 est jugé sur son début | Élargir coûte des tokens sur chaque requête : arbitrage à mesurer (ablation) |
-| O2 | Mots vides anglais minimaux en BM25 (`what`, `which`, `how`, `does`, `on`, `was`… absents) : les mots de question pèsent dans le score lexical d'un corpus anglais | Change l'analyse : `ANALYZER_VERSION` à incrémenter, index reconstruit, baseline modifiée. À mesurer comme levier |
+| O1 | ~~Le tri correctif ne lit que 400 caractères par passage~~ | **Corrigé** : `SPECTRA_CORRECTIVE_PREVIEW_CHARS` (800 par défaut, 200 à 4000), réduit automatiquement au-delà de 10 passages pour que le bloc reste sous 8 000 caractères. La réflexion Self-RAG (300 caractères des 3 premiers passages) reste ouverte |
+| O2 | ~~Mots vides anglais minimaux en BM25~~ | **Corrigé côté requête** : les mots-outils de question (`what`, `does`, `how`…) sont retirés de la requête BM25 et du vecteur clairsemé Qdrant, sans changer l'index ni `ANALYZER_VERSION` (pas de ré-indexation). `not`, `no`, `must`, `may`, `shall` restent. Les mots vides à l'indexation restent minimaux |
 | O3 | La fusion multi-query, le retrieval correctif et l'expansion par entités dédoublonnent par **texte** : deux documents au passage identique fusionnent, la source du second disparaît | Demande d'identifier les passages par identifiant dans `SingleQueryResult` (refonte locale) |
 | O4 | La déduplication s'applique après la coupe à `maxContextChunks`, sans complément : le contexte rétrécit | Choix de conception à mesurer ; le reranker ne rend que `maxContextChunks` résultats |
 | O5 | Troncature (Q8) non détectée en streaming et non exposée au client ; estimation de tokens par caractères | Le tokenizer du serveur (`/tokenize`) donnerait un compte exact, au prix d'un appel par requête |
