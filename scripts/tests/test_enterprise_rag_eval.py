@@ -7,6 +7,7 @@ import tempfile
 import textwrap
 import threading
 import unittest
+import unittest.mock
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -94,6 +95,40 @@ class JudgePreflightTest(unittest.TestCase):
     def test_an_unreachable_api_is_reported(self):
         with self.assertRaisesRegex(ev.JudgeUnavailable, "injoignable"):
             ev.preflight_judge("http://127.0.0.1:1/v1", "k", "gpt-5.4", timeout=2)
+
+
+class AnthropicJudgeTest(unittest.TestCase):
+    """Juge Claude : sonde via le SDK de l'évaluateur (simulé ici par un interpréteur factice)."""
+
+    def fake_python(self, body: str) -> str:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        script = Path(directory.name) / "python"
+        script.write_text("#!/bin/sh\n" + body + "\n")
+        script.chmod(0o755)
+        return str(script)
+
+    def test_the_sdk_probe_receives_the_model_and_passes(self):
+        python = self.fake_python('[ "$1" = "-c" ] && [ "$3" = "claude-opus-5-5" ] || exit 9')
+        ev.preflight_anthropic_judge(python, "claude-opus-5-5")
+
+    def test_the_probe_reports_the_last_line_of_the_sdk_error(self):
+        python = self.fake_python('echo "Traceback" >&2; echo "clé refusée (HTTP 401)" >&2; exit 1')
+        with self.assertRaisesRegex(ev.JudgeUnavailable, r"clé refusée \(HTTP 401\) — Anthropic"):
+            ev.preflight_anthropic_judge(python, "claude-opus-5-5")
+
+    def test_the_probe_source_uses_the_official_sdk_and_handles_refusals(self):
+        compile(ev.ANTHROPIC_PREFLIGHT, "preflight", "exec")
+        self.assertIn("anthropic.Anthropic(", ev.ANTHROPIC_PREFLIGHT)
+        self.assertIn('stop_reason == "refusal"', ev.ANTHROPIC_PREFLIGHT)
+
+    def test_provider_defaults_follow_the_onyx_factory(self):
+        environment = {key: value for key, value in __import__("os").environ.items() if key != "LLM_MODEL_NAME"}
+        with unittest.mock.patch.dict("os.environ", {**environment, "LLM_PROVIDER": "anthropic"}, clear=True):
+            self.assertEqual(ev.judge_provider(), ("anthropic", "claude-opus-5-5"))
+        with unittest.mock.patch.dict("os.environ", {"LLM_PROVIDER": "vertex"}):
+            with self.assertRaisesRegex(ValueError, "LLM_PROVIDER inconnu"):
+                ev.judge_provider()
 
 
 class JudgeCommandTest(unittest.TestCase):

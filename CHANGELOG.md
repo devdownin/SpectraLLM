@@ -14,6 +14,7 @@ Versionnage : [Semantic Versioning](https://semver.org/lang/fr/)
 - Baseline EnterpriseRAG-Bench v1 : configuration figée (`deploy/bench/`), script de bout en bout, commande `report` (rappel@k, MRR@10, nDCG@10, fidélité des citations, latence p50/p95 avec IC95 %) et MRR/nDCG dans `compare`.
 - Étape 2 (recherche) : surcharges Compose `deploy/bench/stage2/`, verdict d'adoption par comparaison (`enterprise_rag_stage2_summary.py`) et guide d'exécution via `suite`. Corrige l'import de `SpectraClient` et rétablit le rappel@20 de `compare` perdus à la fusion.
 - Étape 3 (audit du retrieval) : tableau comparatif rappel/latence (`enterprise_rag_matrix.py`), audit par index (`enterprise_rag_audit.sh` : dense, hybride, reranker, `hnsw_ef`, exact, ACORN, hybride natif), filtre de payload à sélectivité donnée (`--filter-ratio`), surcharges Compose `deploy/bench/stage3/` (BGE-M3, Qwen3-Embedding, int8, graphe HNSW) et réglages `SPECTRA_QDRANT_HNSW_M` / `SPECTRA_QDRANT_HNSW_EF_CONSTRUCT`.
+- Étape 4 (audit de la génération) : juge Claude Opus 5.5 pour l'évaluateur Onyx (`LLM_PROVIDER=anthropic`, sonde via le SDK officiel, refus d'un juge identique au modèle évalué) et `enterprise_rag_generation_audit.py` : fidélité aux sources, précision des citations et refus (correct ou abusif) par catégorie de question, avec le prompt de validation de faits publié par Onyx.
 
 ### Ajouté — sources de données synchronisées
 

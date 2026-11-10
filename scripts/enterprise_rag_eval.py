@@ -43,6 +43,9 @@ JUDGE_FAILURE_PATTERN = re.compile(r"\[WARN\].*(?:failed|error)", re.IGNORECASE)
 
 METRICS = ("score", "correct", "completeness", "recall", "extra")
 
+# Juge par défaut de chaque fournisseur pris en charge par l'évaluateur d'Onyx (src/llm/factory.py).
+DEFAULT_JUDGE_MODELS = {"openai": "gpt-5.4", "anthropic": "claude-opus-5-5"}
+
 
 class JudgeUnavailable(RuntimeError):
     """L'API du juge refuse les appels (clé, crédit ou quota) : inutile de lancer l'évaluateur."""
@@ -79,21 +82,76 @@ def preflight_judge(base_url: str, api_key: str, model: str, timeout: float = 60
         raise JudgeUnavailable(f"API du juge injoignable : {exc}") from exc
 
 
+# Sonde Anthropic exécutée par l'interpréteur de l'évaluateur, qui installe le SDK officiel (requirements
+# d'Onyx) : ce script reste en bibliothèque standard. Code de sortie 3 et cause lisible sur stderr.
+ANTHROPIC_PREFLIGHT = """
+import os, sys
+import anthropic
+
+client = anthropic.Anthropic(api_key=os.environ["LLM_API_KEY"], max_retries=2)
+try:
+    response = client.messages.create(
+        model=sys.argv[1], max_tokens=1024, output_config={"effort": "low"},
+        messages=[{"role": "user", "content": "Reply with the single word: ok"}])
+except anthropic.AuthenticationError:
+    sys.exit("clé refusée (HTTP 401)")
+except anthropic.PermissionDeniedError:
+    sys.exit("accès refusé (HTTP 403)")
+except anthropic.NotFoundError:
+    sys.exit("modèle inconnu (HTTP 404)")
+except anthropic.RateLimitError:
+    sys.exit("quota ou débit atteint (HTTP 429) : attendez ou changez de modèle")
+except anthropic.APIStatusError as exc:
+    sys.exit(f"HTTP {exc.status_code} : {exc.message}")
+except anthropic.APIConnectionError as exc:
+    sys.exit(f"API du juge injoignable : {exc}")
+if response.stop_reason == "refusal":
+    sys.exit("le juge refuse la requête de contrôle (stop_reason refusal)")
+"""
+
+
+def preflight_anthropic_judge(python: str, model: str, timeout: float = 120.0) -> None:
+    """Un appel minimal au juge Anthropic via le SDK de l'évaluateur. Lève :class:`JudgeUnavailable`."""
+    try:
+        done = subprocess.run([python, "-c", ANTHROPIC_PREFLIGHT, model], capture_output=True, text=True,
+                              timeout=timeout, check=False)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise JudgeUnavailable(f"sonde du juge impossible : {exc}") from exc
+    if done.returncode:
+        cause = done.stderr.strip().splitlines()[-1] if done.stderr.strip() else f"code {done.returncode}"
+        raise JudgeUnavailable(f"{cause} — Anthropic ({model})")
+
+
 def count_judge_failures(log_text: str) -> int:
     return sum(1 for line in log_text.splitlines() if JUDGE_FAILURE_PATTERN.search(line))
+
+
+def judge_provider() -> tuple[str, str]:
+    """Fournisseur et modèle du juge, tels que l'évaluateur d'Onyx les lit (``LLM_PROVIDER``, ``LLM_MODEL_NAME``)."""
+    provider = os.environ.get("LLM_PROVIDER", "openai").lower()
+    if provider not in DEFAULT_JUDGE_MODELS:
+        raise ValueError(f"LLM_PROVIDER inconnu de l'évaluateur : {provider} (openai ou anthropic)")
+    return provider, os.environ.get("LLM_MODEL_NAME") or DEFAULT_JUDGE_MODELS[provider]
 
 
 def cmd_judge(args: argparse.Namespace) -> int:
     base_url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
     api_key = os.environ.get("LLM_API_KEY", "")
-    model = os.environ.get("LLM_MODEL_NAME", "gpt-5.4")
+    try:
+        provider, model = judge_provider()
+    except ValueError as exc:
+        print(f"[judge] {exc}", file=sys.stderr)
+        return EXIT_JUDGE_UNAVAILABLE
     if not api_key:
         print("LLM_API_KEY est vide : exportez la clé du juge (ou une valeur factice si un proxy l'injecte).",
               file=sys.stderr)
         return EXIT_JUDGE_UNAVAILABLE
     if not args.skip_preflight:
         try:
-            preflight_judge(base_url, api_key, model)
+            if provider == "anthropic":
+                preflight_anthropic_judge(args.python, model)
+            else:
+                preflight_judge(base_url, api_key, model)
         except JudgeUnavailable as exc:
             print(f"[judge] juge indisponible : {exc}", file=sys.stderr)
             return EXIT_JUDGE_UNAVAILABLE
@@ -104,7 +162,7 @@ def cmd_judge(args: argparse.Namespace) -> int:
                "--results-file", args.results_file, "--parallelism", str(args.parallelism), "--resume"]
     if not args.with_correction:
         command.append("--no-correction")
-    env = {**os.environ, "LLM_PROVIDER": os.environ.get("LLM_PROVIDER", "openai")}
+    env = {**os.environ, "LLM_PROVIDER": provider, "LLM_MODEL_NAME": model}
     done = subprocess.run(command, cwd=evaluator, env=env, capture_output=True, text=True, check=False)
     sys.stdout.write(done.stdout)
     sys.stderr.write(done.stderr)

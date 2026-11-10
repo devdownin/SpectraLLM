@@ -22,7 +22,7 @@ from urllib.request import Request, urlopen
 
 from enterprise_rag_bench import (DOC_ID_PATTERN, NO_GOLD_TYPES, SpectraClient, cited_source_numbers, load_questions,
                                   retrieval_report)
-from enterprise_rag_eval import load_metric, paired_report
+from enterprise_rag_eval import judge_provider, load_metric, paired_report
 
 HERE = Path(__file__).resolve().parent
 SPLIT_SEED = "spectrallm-onyx-quality-v1"
@@ -285,6 +285,14 @@ def judge_data(path: Path, expected: set[str]) -> None:
             raise ValueError(f"{path} : note absente ou invalide pour {row['question_id']}")
 
 
+def require_distinct_judge(manifest: dict, judge_model: str) -> None:
+    """Le juge ne doit pas noter ses propres réponses : refuser s'il est le modèle évalué."""
+    evaluated = " ".join(str(value) for value in (manifest["profile"].get("chat", ""),
+                                                  manifest["query"].get("model", ""))).lower()
+    if judge_model.lower() in evaluated:
+        raise ValueError(f"le juge {judge_model} est aussi le modèle évalué : choisissez un juge distinct")
+
+
 def judge(args: argparse.Namespace, *, log_to_stderr: bool = False) -> None:
     with lock(args.out):
         manifest, questions, records = run_data(args.out)
@@ -294,14 +302,16 @@ def judge(args: argparse.Namespace, *, log_to_stderr: bool = False) -> None:
         revision = subprocess.check_output(["git", "-C", evaluator, "rev-parse", "HEAD"], text=True).strip()
         if subprocess.check_output(["git", "-C", evaluator, "status", "--porcelain", "-uno"], text=True):
             raise ValueError("l'évaluateur Onyx contient des modifications locales")
-        base_url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
-        require_public_url(base_url)
-        if os.environ.get("LLM_PROVIDER", "openai") != "openai":
-            raise ValueError("le précontrôle du juge requiert une API compatible OpenAI")
-        config = {"revision": revision, "base_url": base_url,
-                  "model": os.environ.get("LLM_MODEL_NAME", "gpt-5.4"),
+        provider, model = judge_provider()
+        require_distinct_judge(manifest, model)
+        config = {"revision": revision, "model": model,
                   "parallelism": args.parallelism, "correction": False,
                   "wrapper_sha256": sha256(HERE / "enterprise_rag_eval.py")}
+        if provider == "openai":
+            config["base_url"] = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
+            require_public_url(config["base_url"])
+        else:  # clé absente des manifestes antérieurs : leur configuration figée reste identique
+            config["provider"] = provider
         answers = args.out.resolve() / "records.jsonl"
         result = args.out.resolve() / "results.json"
         metadata = args.out / "judge.json"
