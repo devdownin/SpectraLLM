@@ -147,6 +147,11 @@ final class QdrantStore {
     private int groupSize;
     private Map<String, Object> searchParams = Map.of();
 
+    private enum HybridStrategy { RRF, DBSF, DENSE, SPARSE }
+
+    private HybridStrategy hybridStrategy = HybridStrategy.RRF;
+    private int rrfK = 60;
+    private int lexicalCandidates;
     private boolean nativeHybrid;
     private boolean int8;
     private double oversampling = 2.0;
@@ -161,6 +166,22 @@ final class QdrantStore {
         this.nativeHybrid = nativeHybrid;
         this.int8 = int8;
         this.oversampling = oversampling;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void configureHybrid(@Value("${spectra.qdrant.hybrid-strategy:rrf}") String strategy,
+                         @Value("${spectra.qdrant.rrf-k:60}") int rrfK,
+                         @Value("${spectra.qdrant.lexical-candidates:0}") int lexicalCandidates) {
+        if (rrfK <= 0 || lexicalCandidates < 0 || lexicalCandidates > 100) {
+            throw new IllegalArgumentException("Invalid Qdrant RRF k or lexical candidate count");
+        }
+        this.hybridStrategy = HybridStrategy.valueOf(strategy.strip().toUpperCase(java.util.Locale.ROOT));
+        this.rrfK = rrfK;
+        this.lexicalCandidates = lexicalCandidates;
+    }
+
+    boolean nativeSingleBranch() {
+        return hybridStrategy == HybridStrategy.DENSE || hybridStrategy == HybridStrategy.SPARSE;
     }
 
     boolean nativeHybridEnabled() {
@@ -242,26 +263,35 @@ final class QdrantStore {
     Map<String, Object> queryHybrid(String name, String question, List<Float> embedding,
                                     int limit, Map<String, Object> where) {
         if (!sparseCollections.computeIfAbsent(name, key -> hasSparse(collectionParams(key)))) return Map.of();
-        var sparse = sparseVector(question, false);
-        if (((List<?>) sparse.get("indices")).isEmpty()) return Map.of();
+        var sparse = hybridStrategy == HybridStrategy.DENSE ? null : sparseVector(question, false);
+        if (sparse != null && ((List<?>) sparse.get("indices")).isEmpty()) {
+            return hybridStrategy == HybridStrategy.SPARSE ? Map.of("documents", List.of(List.of())) : Map.of();
+        }
 
         var dense = queryRequest(embedding, limit, where);
         dense.remove("with_payload");
         var lexical = new LinkedHashMap<String, Object>();
         lexical.put("using", LEXICAL);
         lexical.put("query", sparse);
-        lexical.put("limit", limit);
+        lexical.put("limit", lexicalCandidates > 0 ? lexicalCandidates : limit);
         if (where != null) lexical.put("filter", filter(where));
 
         var body = new LinkedHashMap<String, Object>();
-        body.put("prefetch", List.of(dense, lexical));
-        body.put("query", Map.of("rrf", Map.of("k", 60)));
+        switch (hybridStrategy) {
+            case DENSE -> body.putAll(dense);
+            case SPARSE -> body.putAll(lexical);
+            case RRF, DBSF -> {
+                body.put("prefetch", List.of(dense, lexical));
+                body.put("query", hybridStrategy == HybridStrategy.RRF
+                        ? Map.of("rrf", Map.of("k", rrfK)) : Map.of("fusion", "dbsf"));
+            }
+        }
         body.put("limit", limit);
         body.put("with_payload", true);
         if (where != null) body.put("filter", filter(where));
         var points = rows(object(call("POST", path(name) + "/points/query", body)).get("points"));
         var result = columns(points, List.of("documents", "metadatas"));
-        // The fused RRF score has no cosine-distance interpretation.
+        // Preserve one score contract for all native benchmark strategies.
         result.put("distances", java.util.Collections.nCopies(points.size(), 1.0));
         result.replaceAll((key, value) -> List.of(value));
         return result;

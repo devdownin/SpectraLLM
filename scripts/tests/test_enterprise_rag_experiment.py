@@ -141,6 +141,15 @@ class EnterpriseRagExperimentTest(unittest.TestCase):
         self.assertEqual(report["all-gold@10"]["mean_diff"], 1.0)
         self.assertEqual(report["extra@10"]["mean_diff"], 0.5)
 
+    def test_retrieval_can_measure_candidates_before_reranking(self):
+        self.variant("pre-rerank", "--rerank", "off", "--max-context-chunks", 20)
+        _, request, _ = self.server.calls[0]
+        self.assertFalse(request["overrides"]["rerank"])
+        self.assertEqual(request["maxContextChunks"], 20)
+        directory = self.root / "pre-rerank"
+        report = json.loads(self.cli("compare", directory, directory).stdout)
+        self.assertIn("recall@20", report)
+
     def test_multi_query_comparison_reports_activation_and_latency(self):
         self.variant("single", "--multi-query", "off")
         self.variant("multiple", "--multi-query", "on")

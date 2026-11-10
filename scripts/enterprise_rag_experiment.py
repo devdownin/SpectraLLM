@@ -196,6 +196,8 @@ def oracle_answers(args: argparse.Namespace, questions: Path, records: Path, con
 
 def run(args: argparse.Namespace, *, log_to_stderr: bool = False) -> None:
     require_public_url(args.api)
+    if args.mode == "answer" and getattr(args, "rerank", "default") != "default":
+        raise ValueError("--rerank exige le mode retrieve")
     if args.mode == "retrieve" and args.self_rag == "on":
         raise ValueError("Self-RAG nécessite le mode answer")
     questions = args.questions.resolve()
@@ -219,6 +221,8 @@ def run(args: argparse.Namespace, *, log_to_stderr: bool = False) -> None:
             query["rerank-min-score"] = args.rerank_min_score
         if args.mode == "answer":
             query["self-rag"] = args.self_rag
+        elif getattr(args, "rerank", "default") != "default":
+            query["rerank"] = args.rerank
         # Même requête de recherche dans les deux modes, suffixe compris.
         query["question-suffix"] = "\n\nAnswer in English."
     with lock(args.out):
@@ -335,18 +339,25 @@ def compare_runs(baseline_dir: Path, candidate_dir: Path) -> dict:
         labeled_questions = load_questions(questions)
         types = {q.question_id: q.question_type for q in labeled_questions}
 
+        depths = (10, 20) if all(
+            manifest["query"].get("rerank") == "off" and manifest["query"]["max-context-chunks"] == 20
+            for manifest in (baseline, candidate)
+        ) else (10,)
+
         def retrieval_metrics(records):
             rankings = {qid: row["document_ids"] for qid, row in records.items()}
-            metrics = {"recall@10": {}, "all-gold@10": {}, "extra@10": {}}
+            metrics = {f"{name}@{k}": {} for k in depths for name in ("recall", "all-gold", "extra")}
             for question in labeled_questions:
-                row = retrieval_report([question], rankings, ks=(10,))["overall"]
+                row = retrieval_report([question], rankings, ks=depths)["overall"]
                 if not row["n"]:
                     continue
                 qid = question.question_id
-                metrics["recall@10"][qid] = row["recall@10"]
-                metrics["extra@10"][qid] = row["extra@10"]
-                if len({doc.lower() for doc in question.expected_doc_ids}) > 1:
-                    metrics["all-gold@10"][qid] = float(row["recall@10"] == 1.0)
+                has_multiple_gold = len({doc.lower() for doc in question.expected_doc_ids}) > 1
+                for k in depths:
+                    metrics[f"recall@{k}"][qid] = row[f"recall@{k}"]
+                    metrics[f"extra@{k}"][qid] = row[f"extra@{k}"]
+                    if has_multiple_gold:
+                        metrics[f"all-gold@{k}"][qid] = float(row[f"recall@{k}"] == 1.0)
             return metrics
 
         a, b = retrieval_metrics(first), retrieval_metrics(second)
@@ -545,6 +556,8 @@ def main() -> int:
     p.add_argument("--hybrid", choices=("on", "off"), default="on")
     p.add_argument("--multi-query", choices=("on", "off"), default="off")
     p.add_argument("--self-rag", choices=("on", "off"), default="off")
+    p.add_argument("--rerank", choices=("default", "on", "off"), default="default",
+                   help="contrôler le reranking en mode retrieve")
     p.set_defaults(action=run)
 
     p = commands.add_parser("suite", help="comparer les variantes sur dev-120 et juger les deux meilleures")

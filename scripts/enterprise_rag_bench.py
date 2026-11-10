@@ -431,6 +431,8 @@ def build_query(question: str, args: argparse.Namespace) -> dict:
     overrides = {}
     if args.hybrid != "default":
         overrides["hybrid"] = args.hybrid == "on"
+    if getattr(args, "rerank", "default") != "default":
+        overrides["rerank"] = args.rerank == "on"
     if getattr(args, "self_rag", "default") != "default":
         overrides["selfRag"] = args.self_rag == "on"
     if args.neighbor_window is not None:
@@ -685,6 +687,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--per-type", type=int, metavar="N")
     p.add_argument("--limit", type=int)
     p.add_argument("--parallelism", type=int, default=1)
+    p.add_argument("--rerank", choices=("default", "on", "off"), default="default",
+                   help="désactiver le reranking pour mesurer les candidats avant reclassement")
     p.set_defaults(func=cmd_retrieve)
 
     p = sub.add_parser("recall", help="rappel documentaire hors-ligne")
