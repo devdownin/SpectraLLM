@@ -10,7 +10,7 @@ Entrées (toutes facultatives, chemins par défaut sous ``--work``) :
     étape 1  <work>/baseline-retrieve/report.json, <work>/baseline-answer/report.json
     étape 2  <work>/stage2/report.json                 (commande ``suite``)
     étape 3  <work>/audit/matrix.json                  (``enterprise_rag_matrix.py``)
-    étape 4  <work>/baseline-answer-opus/generation-audit.json
+    étape 4  <work>/baseline-answer/generation-audit.json (ou baseline-answer-opus/, copie jugée à part)
     étape 5  --finetune <répertoire>/decision.json     (``finetune_audit.py decide``)
     étape 6  contrôles statiques exécutés ici (``privacy_audit.py logs`` et ``egress``) ;
              les contrôles d'exécution (§ 5 de la checklist) ne laissent pas de fichier : à déclarer
@@ -145,7 +145,10 @@ def stage3(work: Path) -> Stage:
 
 def stage4(work: Path) -> Stage:
     stage = Stage(4)
-    audit = read(work / "baseline-answer-opus" / "generation-audit.json")
+    # Le juge par défaut de la baseline est Opus : l'audit se fait sur le run lui-même ; une copie
+    # jugée à part (`baseline-answer-opus`) reste lue si elle existe.
+    audit = read(work / "baseline-answer" / "generation-audit.json") or read(
+        work / "baseline-answer-opus" / "generation-audit.json")
     if not audit:
         return stage
     stage.measured = True

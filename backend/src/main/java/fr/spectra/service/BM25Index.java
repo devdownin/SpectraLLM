@@ -260,7 +260,7 @@ public class BM25Index implements Serializable {
      */
     public List<ScoredDoc> search(String queryText, int topN,
                                   java.util.function.BiPredicate<String, String> accept) {
-        Map<String, Integer> queryTermFreq = buildTermFreq(queryText);
+        Map<String, Integer> queryTermFreq = buildQueryTerms(queryText);
         if (queryTermFreq.isEmpty()) return List.of();
 
         lock.readLock().lock();
@@ -408,6 +408,35 @@ public class BM25Index implements Serializable {
     }
 
     private static final java.util.regex.Pattern DIACRITICS = java.util.regex.Pattern.compile("\\p{M}+");
+
+    /**
+     * Mots-outils de QUESTION anglais (« what », « does », « how »…) absents de {@link #STOP_WORDS}.
+     * Sur un corpus anglais, ils pèsent dans le score lexical d'une question sans désigner aucun
+     * passage. Retirés à la REQUÊTE seulement : l'index reste identique (pas de ré-indexation, pas
+     * de changement d'{@link #ANALYZER_VERSION}) et un mot de ce type présent dans un passage reste
+     * indexé. Volontairement restreinte : « not », « no », « must », « may », « shall » portent un
+     * sens (négation, exigence) et restent des termes de recherche.
+     */
+    private static final Set<String> QUESTION_WORDS = Set.of(
+            "what", "which", "who", "whom", "whose", "when", "where", "why", "how", "does", "did", "was",
+            "were", "been", "being", "has", "have", "had", "can", "could", "should", "would", "will",
+            "about", "there", "their", "they", "them", "any", "into", "than", "then", "its");
+
+    /** Les termes ci-dessus, tels que {@link #normalize(String)} les rend (« does » → « doe »). */
+    private static final Set<String> QUESTION_TERMS = QUESTION_WORDS.stream()
+            .map(BM25Index::normalize).collect(Collectors.toUnmodifiableSet());
+
+    /**
+     * Termes d'une requête : ceux de {@link #buildTermFreq(String)}, moins les mots-outils de
+     * question. Une requête uniquement faite de tels mots les garde (rien d'autre à chercher).
+     */
+    static Map<String, Integer> buildQueryTerms(String queryText) {
+        Map<String, Integer> terms = buildTermFreq(queryText);
+        if (terms.isEmpty()) return terms;
+        Map<String, Integer> kept = new HashMap<>(terms);
+        kept.keySet().removeAll(QUESTION_TERMS);
+        return kept.isEmpty() ? terms : kept;
+    }
 
     /**
      * Retire les tirets en début et fin de token. Balayage linéaire plutôt qu'une regex

@@ -307,4 +307,32 @@ class BM25IndexTest {
         copy.add("d1", "texte neutre", "a.pdf", "s1");
         assertThat(copy.search("garantie", 5)).isEmpty();
     }
+
+    // ── mots-outils de question (requête seulement) ───────────────────────────
+
+    @Test
+    void query_questionWordsDoNotOutweighTheSubject() {
+        // « what », « does », « how » sont dans le premier passage, pas le sujet : sans retrait, la
+        // question retrouve d'abord le passage bavard.
+        index.add("chatty", "what does how what does the system do when what happens", "a.txt");
+        index.add("answer", "The upload limit is 10 MiB per request", "b.txt");
+        index.add("other1", "Rollbacks need two approvals", "c.txt");
+        index.add("other2", "Backups run nightly at 03:00", "d.txt");
+
+        var results = index.search("What does the upload limit do?", 2);
+
+        assertThat(results.getFirst().id()).isEqualTo("answer");
+    }
+
+    @Test
+    void queryTerms_dropQuestionWords_keepNegationAndRequirements_andAreNeverEmpty() {
+        assertThat(BM25Index.buildQueryTerms("What does the upload limit do?").keySet())
+                .contains("upload", "limit").doesNotContain("what", "doe");
+        assertThat(BM25Index.buildQueryTerms("is it not supported, must be set").keySet())
+                .contains("not", "must");
+        // Rien d'autre à chercher : la requête reste telle quelle.
+        assertThat(BM25Index.buildQueryTerms("what how why")).isNotEmpty();
+        // L'indexation n'est pas touchée : un passage garde ces mots.
+        assertThat(BM25Index.buildTermFreq("what happens")).containsKey("what");
+    }
 }

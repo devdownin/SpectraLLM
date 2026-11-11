@@ -59,8 +59,8 @@ d'expérience (couvert par la série `candidates`).
 | Gravité | Écart | Action |
 |---|---|---|
 | Élevée | Aucune mesure n'a tourné : rien de ce qui précède n'est quantifié | Exécuter le plan du § 6 |
-| Moyenne | Avis sur `torch`, `transformers`, `sentence-transformers` (reranker) | Lire les avis ; montée coordonnée puis rejeu de la parité du reranker |
-| Moyenne | Pas de scan Python, npm ni images en CI ; images frontend à étiquette flottante | Ajouter `pip-audit`, `npm audit --omit=dev`, scan d'images (après le point précédent) ; épingler par condensat |
+| Moyenne | Avis sur `torch`, `transformers`, `sentence-transformers` (reranker) | Montée faite ; scores et parité non vérifiés (service optionnel, `engine=http` seulement) |
+| Moyenne | Pas de scan Python, npm ni images en CI ; images frontend à étiquette flottante | Ajouter `pip-audit`, `npm audit --omit=dev`, scan d'images (l'avis du reranker est traité) ; épingler par condensat |
 | Moyenne | Données en clair sous `data/`, pas de chiffrement au repos ; Qdrant sans clé d'API par défaut | Chiffrer le volume ; clé d'API sur hôte partagé |
 | Moyenne | Un document supprimé peut subsister dans les segments Qdrant ; jeux d'entraînement et poids dérivés non liés à la suppression | Mesurer (`privacy_runtime_check.sh`) ; effacement garanti = supprimer `data/qdrant` |
 | Basse | Rétention des journaux codée en dur (30 jours, 3 Go) ; noms de fichiers non masqués | Décision de politique |
@@ -91,9 +91,9 @@ appels par réponse (12 affirmations notées au plus, deux appels chacune, plus 
 
 ## 7. Décisions qui vous reviennent
 
-1. **Juge unique.** Le script de baseline appelle par défaut le juge OpenAI d'Onyx (`gpt-5.4`), l'étape 4 utilise
-   Opus 5.5. Recommandé : un seul juge pour tous les runs comparés (Opus 5.5). Garder le juge d'Onyx
-   uniquement si la comparaison au classement public est un objectif.
+1. ~~**Juge unique.**~~ **Tranché : Claude Opus 5.5 pour tous les runs comparés.** `enterprise_rag_baseline.sh`
+   l'utilise par défaut ; le juge d'Onyx (`gpt-5.4`) reste disponible par `LLM_PROVIDER=openai` pour se comparer au
+   classement public, mais ne se mélange jamais avec le premier dans une comparaison (`compare` les refuse).
 2. **Hôte de mesure.** Qui lance le plan du § 6, et sur quelle machine ? Je peux aussi préparer un script qui
    enchaîne les étapes 1 à 5 sur un seul hôte.
 3. **Avis du reranker.** Corriger d'abord (rejeu de parité requis) ou accepter le risque, le service étant
